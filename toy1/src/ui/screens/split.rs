@@ -1,13 +1,26 @@
 //! Split mode screen - one row per running agent.
+//!
+//! Visual states per agent row:
+//! - Normal:   round border, theme fg
+//! - Selected: double border, theme fg (cursor highlight)
+//! - Grabbed:  double border, inverse colors (being reordered)
 
 use iocraft::prelude::*;
 
-use crate::app::AppState;
+use crate::app::{AppState, SplitFocus};
 use crate::presenter::format::{format_elapsed, status_icon, truncate};
 use crate::theme::{ResolvedColors, ThemeColors};
 use crate::ui::components::keybind_bar::KeybindBar;
 use crate::ui::components::sidebar::Sidebar;
 use crate::ui::components::status_bar::StatusBar;
+
+/// Visual state for a single agent row in split mode.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RowStyle {
+    Normal,
+    Selected,
+    Grabbed,
+}
 
 #[derive(Default, Props)]
 pub struct SplitScreenProps {
@@ -26,31 +39,48 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
     let agent_count = state.map_or(0, AppState::agent_count);
 
     let repos = state.map_or_else(Vec::new, |s| s.repositories.clone());
-    let selected_repo = state.map_or(0, |s| s.selected_repo);
+    let repo_cursor = state.map_or(0, |s| s.split.repo_cursor);
+    let split_focus = state.map_or(SplitFocus::Repos, |s| s.split.focus);
+    let grabbed = state.is_some_and(|s| s.split.grabbed);
 
-    let running_positions = state.map_or_else(Vec::new, AppState::running_agent_positions);
+    let filtered_positions = state.map_or_else(Vec::new, AppState::filtered_running_positions);
     let selected_row = state.map_or(0, |s| s.split.selected_row);
-    let reorder_armed = state.is_some_and(|s| s.split.reorder_armed);
+    let agents_focused = split_focus == SplitFocus::Agents;
 
-    let rows: Vec<(String, String, String, bool)> = if let Some(s) = state {
-        if running_positions.is_empty() {
+    let status_suffix = if grabbed {
+        "[GRABBED - ↑↓ reorder, enter release]"
+    } else if agents_focused {
+        "[↑↓ select, enter grab, esc back]"
+    } else {
+        "[r repos, a agents]"
+    };
+
+    let rows: Vec<(String, String, String, RowStyle)> = if let Some(s) = state {
+        if filtered_positions.is_empty() {
             vec![(
                 "No running agents".to_owned(),
                 "Press m or esc to return".to_owned(),
                 String::new(),
-                false,
+                RowStyle::Normal,
             )]
         } else {
-            running_positions
+            filtered_positions
                 .iter()
                 .enumerate()
                 .filter_map(|(idx, (repo_idx, agent_idx))| {
                     let repo = s.repositories.get(*repo_idx)?;
                     let agent = repo.agents.get(*agent_idx)?;
-                    let marker = if reorder_armed && idx == selected_row {
-                        "▸"
+
+                    let row_style = if agents_focused && idx == selected_row {
+                        if grabbed { RowStyle::Grabbed } else { RowStyle::Selected }
                     } else {
-                        " "
+                        RowStyle::Normal
+                    };
+
+                    let marker = match row_style {
+                        RowStyle::Grabbed => "≡",
+                        RowStyle::Selected => "▸",
+                        RowStyle::Normal => " ",
                     };
 
                     let title = format!(
@@ -77,7 +107,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                         |line| format!("Last: {}", truncate(&line.content, 72)),
                     );
 
-                    Some((title, todo, last, reorder_armed && idx == selected_row))
+                    Some((title, todo, last, row_style))
                 })
                 .collect()
         }
@@ -109,14 +139,15 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                 Box(width: 22u32, height: 100pct) {
                     Sidebar(
                         repositories: repos,
-                        selected: selected_repo,
-                        focused: !reorder_armed,
+                        selected: repo_cursor,
+                        focused: split_focus == SplitFocus::Repos,
                         colors: props.colors.clone(),
+                        show_all: true,
                     )
                 }
 
                 Box(
-                    border_style: if reorder_armed { BorderStyle::Double } else { BorderStyle::Round },
+                    border_style: if agents_focused { BorderStyle::Double } else { BorderStyle::Round },
                     border_color: rc.border,
                     background_color: rc.bg,
                     flex_direction: FlexDirection::Column,
@@ -128,23 +159,36 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                     Box(height: 1u32) {
                         Text(
                             content: format!(
-                                " SPLIT MODE - Active Agents ({}) {}",
-                                running_positions.len(),
-                                if reorder_armed { "[reorder armed]" } else { "" }
+                                " SPLIT - Agents ({}) {}",
+                                filtered_positions.len(),
+                                status_suffix,
                             ),
                             color: rc.fg,
                             weight: Weight::Bold,
                         )
                     }
 
-                    #(rows.into_iter().map(|(title, todo, last, selected): (String, String, String, bool)| {
-                        let border = if selected { BorderStyle::Double } else { BorderStyle::Round };
-                        let fg = if selected { rc.sel_fg } else { rc.fg };
-                        let bg = if selected { rc.sel_bg } else { rc.bg };
+                    #(rows.into_iter().map(|(title, todo, last, style): (String, String, String, RowStyle)| {
+                        let border = match style {
+                            RowStyle::Grabbed | RowStyle::Selected => BorderStyle::Double,
+                            RowStyle::Normal => BorderStyle::Round,
+                        };
+                        let fg = match style {
+                            RowStyle::Grabbed => rc.sel_fg,
+                            _ => rc.fg,
+                        };
+                        let bg = match style {
+                            RowStyle::Grabbed => rc.sel_bg,
+                            _ => rc.bg,
+                        };
+                        let dim = match style {
+                            RowStyle::Grabbed => rc.sel_fg,
+                            _ => rc.dim,
+                        };
                         element! {
                             Box(
                                 border_style: border,
-                                border_color: rc.border,
+                                border_color: if style == RowStyle::Selected { rc.sel_bg } else { rc.border },
                                 background_color: bg,
                                 flex_grow: 1.0,
                                 width: 100pct,
@@ -156,10 +200,10 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                                     Text(content: title, color: fg, weight: Weight::Bold)
                                 }
                                 Box(height: 1u32) {
-                                    Text(content: todo, color: if selected { rc.sel_fg } else { rc.dim })
+                                    Text(content: todo, color: dim)
                                 }
                                 Box(height: 1u32) {
-                                    Text(content: last, color: if selected { rc.sel_fg } else { rc.dim })
+                                    Text(content: last, color: dim)
                                 }
                             }
                         }

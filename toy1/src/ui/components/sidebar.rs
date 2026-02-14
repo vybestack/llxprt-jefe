@@ -16,6 +16,8 @@ pub struct SidebarProps {
     pub focused: bool,
     /// Theme colors.
     pub colors: Option<ThemeColors>,
+    /// Show an "All" entry at position 0 (for split mode filtering).
+    pub show_all: bool,
 }
 
 /// Left-side repository list sidebar.
@@ -25,17 +27,22 @@ pub fn Sidebar(props: &SidebarProps) -> impl Into<AnyElement<'static>> {
     let border_style = if props.focused { BorderStyle::Double } else { BorderStyle::Round };
 
     let selected = props.selected;
-    let repositories: Vec<(String, bool)> = props
-        .repositories
-        .iter()
-        .enumerate()
-        .map(|(i, repo)| {
-            let is_selected = i == selected;
-            let indicator = if is_selected { " \u{25b8} " } else { "   " };
-            let line = format!("{}{} ({})", indicator, repo.name, repo.agents.len());
-            (line, is_selected)
-        })
-        .collect();
+    let show_all = props.show_all;
+
+    // Build row list: optionally "All" at index 0, then repos.
+    let mut rows: Vec<(String, bool)> = Vec::new();
+    if show_all {
+        let is_sel = selected == 0;
+        let indicator = if is_sel { " \u{25b8} " } else { "   " };
+        let total: usize = props.repositories.iter().map(|r| r.agents.len()).sum();
+        rows.push((format!("{}All ({})", indicator, total), is_sel));
+    }
+    for (i, repo) in props.repositories.iter().enumerate() {
+        let cursor_idx = if show_all { i + 1 } else { i };
+        let is_sel = cursor_idx == selected;
+        let indicator = if is_sel { " \u{25b8} " } else { "   " };
+        rows.push((format!("{}{} ({})", indicator, repo.name, repo.agents.len()), is_sel));
+    }
 
     element! {
         Box(
@@ -51,7 +58,7 @@ pub fn Sidebar(props: &SidebarProps) -> impl Into<AnyElement<'static>> {
             Box(height: 1u32) {
                 Text(content: " Repositories".to_owned(), color: rc.fg, weight: Weight::Bold)
             }
-            #(repositories.into_iter().map(|(line, is_sel): (String, bool)| {
+            #(rows.into_iter().map(|(line, is_sel): (String, bool)| {
                 if is_sel {
                     element! {
                         Box(height: 1u32, background_color: rc.sel_bg) {

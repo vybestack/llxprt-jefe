@@ -54,13 +54,29 @@ pub enum ModalState {
     Help,
 }
 
+/// Which pane is focused inside split mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SplitFocus {
+    /// Repository sidebar (filter selector).
+    #[default]
+    Repos,
+    /// Agent list.
+    Agents,
+}
+
 /// State for split-mode reordering workflow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct SplitState {
-    /// Whether split-mode reorder is armed.
-    pub reorder_armed: bool,
-    /// Selected row in split mode (global running index order).
+    /// Which pane is focused in split mode.
+    pub focus: SplitFocus,
+    /// Whether the highlighted agent is "grabbed" for reordering.
+    pub grabbed: bool,
+    /// Cursor position in the (filtered) running-agent list.
     pub selected_row: usize,
+    /// Repository filter: `None` = show all, `Some(idx)` = filter to that repo.
+    pub repo_filter: Option<usize>,
+    /// Cursor position in the repo filter sidebar (0 = "All").
+    pub repo_cursor: usize,
 }
 
 /// Central application state.
@@ -103,8 +119,11 @@ impl AppState {
             is_searching: false,
             terminal_focused: false,
             split: SplitState {
-                reorder_armed: false,
+                focus: SplitFocus::Repos,
+                grabbed: false,
                 selected_row: 0,
+                repo_filter: None,
+                repo_cursor: 0,
             },
         }
     }
@@ -184,6 +203,16 @@ impl AppState {
         idx
     }
 
+    /// Returns running agent positions filtered by the split-mode repo filter.
+    #[must_use]
+    pub fn filtered_running_positions(&self) -> Vec<(usize, usize)> {
+        let all = self.running_agent_positions();
+        match self.split.repo_filter {
+            None => all,
+            Some(ri) => all.into_iter().filter(|(r, _)| *r == ri).collect(),
+        }
+    }
+
     /// Returns the number of currently running agents.
     #[must_use]
     pub fn running_count(&self) -> usize {
@@ -222,14 +251,28 @@ impl AppState {
     }
 
     fn navigate_up(&mut self) {
-        if self.screen == Screen::Split && self.split.reorder_armed {
-            let running = self.running_agent_positions();
-            if running.is_empty() || self.split.selected_row >= running.len() {
-                return;
-            }
-            if self.split.selected_row > 0 {
-                self.swap_running_agents(self.split.selected_row, self.split.selected_row - 1);
-                self.split.selected_row -= 1;
+        if self.screen == Screen::Split {
+            match self.split.focus {
+                SplitFocus::Repos => {
+                    if self.split.repo_cursor > 0 {
+                        self.split.repo_cursor -= 1;
+                    }
+                }
+                SplitFocus::Agents => {
+                    let filtered = self.filtered_running_positions();
+                    if filtered.is_empty() {
+                        return;
+                    }
+                    if self.split.selected_row > 0 {
+                        if self.split.grabbed {
+                            self.swap_filtered_agents(
+                                self.split.selected_row,
+                                self.split.selected_row - 1,
+                            );
+                        }
+                        self.split.selected_row -= 1;
+                    }
+                }
             }
             return;
         }
@@ -251,14 +294,30 @@ impl AppState {
     }
 
     fn navigate_down(&mut self) {
-        if self.screen == Screen::Split && self.split.reorder_armed {
-            let running = self.running_agent_positions();
-            if running.is_empty() || self.split.selected_row >= running.len() {
-                return;
-            }
-            if self.split.selected_row + 1 < running.len() {
-                self.swap_running_agents(self.split.selected_row, self.split.selected_row + 1);
-                self.split.selected_row += 1;
+        if self.screen == Screen::Split {
+            match self.split.focus {
+                SplitFocus::Repos => {
+                    // 0 = All, 1..=len = individual repos.
+                    let max = self.repositories.len(); // max cursor == len (0-based "All" + repos)
+                    if self.split.repo_cursor < max {
+                        self.split.repo_cursor += 1;
+                    }
+                }
+                SplitFocus::Agents => {
+                    let filtered = self.filtered_running_positions();
+                    if filtered.is_empty() {
+                        return;
+                    }
+                    if self.split.selected_row + 1 < filtered.len() {
+                        if self.split.grabbed {
+                            self.swap_filtered_agents(
+                                self.split.selected_row,
+                                self.split.selected_row + 1,
+                            );
+                        }
+                        self.split.selected_row += 1;
+                    }
+                }
             }
             return;
         }
@@ -299,7 +358,23 @@ impl AppState {
 
     fn handle_select(&mut self) {
         if self.screen == Screen::Split {
-            self.split.reorder_armed = !self.split.reorder_armed;
+            match self.split.focus {
+                SplitFocus::Repos => {
+                    // Apply repo filter from cursor position.
+                    if self.split.repo_cursor == 0 {
+                        self.split.repo_filter = None; // "All"
+                    } else {
+                        self.split.repo_filter = Some(self.split.repo_cursor - 1);
+                    }
+                    // Reset agent cursor and ungrab when filter changes.
+                    self.split.selected_row = 0;
+                    self.split.grabbed = false;
+                }
+                SplitFocus::Agents => {
+                    // Toggle grab on the highlighted agent.
+                    self.split.grabbed = !self.split.grabbed;
+                }
+            }
             return;
         }
 
@@ -342,13 +417,19 @@ impl AppState {
                 self.screen = Screen::Dashboard;
             }
             Screen::Split => {
-                if self.split.reorder_armed {
-                    // Esc with one selected in split mode: go main with selected agent, no terminal focus.
+                if self.split.grabbed {
+                    // Esc while grabbed: ungrab but stay in split.
+                    self.split.grabbed = false;
+                } else if self.split.focus == SplitFocus::Agents {
+                    // Esc while in agent pane: go back to repo pane.
+                    self.split.focus = SplitFocus::Repos;
+                } else {
+                    // Esc from repo pane: exit split, sync selection, no terminal focus.
                     self.sync_selection_from_split();
+                    self.screen = Screen::Dashboard;
+                    self.terminal_focused = false;
+                    self.split.grabbed = false;
                 }
-                self.screen = Screen::Dashboard;
-                self.terminal_focused = false;
-                self.split.reorder_armed = false;
             }
             Screen::Dashboard => {
                 if self.modal != ModalState::None {
@@ -395,18 +476,23 @@ impl AppState {
     }
 
     fn focus_repository(&mut self) {
-        self.active_pane = ActivePane::Sidebar;
-        self.terminal_focused = false;
+        if self.screen == Screen::Split {
+            self.split.focus = SplitFocus::Repos;
+            self.split.grabbed = false;
+        } else {
+            self.active_pane = ActivePane::Sidebar;
+            self.terminal_focused = false;
+        }
     }
 
     fn focus_agent_list(&mut self) {
         if self.screen == Screen::Split {
-            self.split.reorder_armed = true;
-            let running_len = self.running_agent_positions().len();
-            if running_len == 0 {
+            self.split.focus = SplitFocus::Agents;
+            let filtered_len = self.filtered_running_positions().len();
+            if filtered_len == 0 {
                 self.split.selected_row = 0;
-            } else if self.split.selected_row >= running_len {
-                self.split.selected_row = running_len - 1;
+            } else if self.split.selected_row >= filtered_len {
+                self.split.selected_row = filtered_len - 1;
             }
         } else {
             self.active_pane = ActivePane::AgentList;
@@ -422,14 +508,17 @@ impl AppState {
     fn toggle_split_mode(&mut self) {
         if self.screen == Screen::Split {
             self.screen = Screen::Dashboard;
-            self.split.reorder_armed = false;
+            self.split.grabbed = false;
             return;
         }
 
         self.screen = Screen::Split;
         self.terminal_focused = false;
-        self.split.reorder_armed = false;
-        let running = self.running_agent_positions();
+        self.split.focus = SplitFocus::Repos;
+        self.split.grabbed = false;
+        self.split.repo_filter = None;
+        self.split.repo_cursor = 0;
+        let running = self.filtered_running_positions();
         if running.is_empty() {
             self.split.selected_row = 0;
         } else {
@@ -475,7 +564,7 @@ impl AppState {
             self.sync_selection_from_split();
             self.screen = Screen::Dashboard;
             self.terminal_focused = true;
-            self.split.reorder_armed = false;
+            self.split.grabbed = false;
         }
     }
 
@@ -492,14 +581,15 @@ impl AppState {
         }
     }
 
-    fn swap_running_agents(&mut self, row_a: usize, row_b: usize) {
-        let running = self.running_agent_positions();
-        if row_a >= running.len() || row_b >= running.len() {
+
+    /// Swap two rows in the filtered running agent list.
+    fn swap_filtered_agents(&mut self, row_a: usize, row_b: usize) {
+        let filtered = self.filtered_running_positions();
+        if row_a >= filtered.len() || row_b >= filtered.len() {
             return;
         }
-
-        let (repo_a, agent_a) = running[row_a];
-        let (repo_b, agent_b) = running[row_b];
+        let (repo_a, agent_a) = filtered[row_a];
+        let (repo_b, agent_b) = filtered[row_b];
 
         if repo_a == repo_b {
             if let Some(repo) = self.repositories.get_mut(repo_a) {
@@ -510,24 +600,26 @@ impl AppState {
 
         if repo_a < repo_b {
             let (left, right) = self.repositories.split_at_mut(repo_b);
-            let repo_left = &mut left[repo_a];
-            let repo_right = &mut right[0];
-            std::mem::swap(&mut repo_left.agents[agent_a], &mut repo_right.agents[agent_b]);
+            std::mem::swap(
+                &mut left[repo_a].agents[agent_a],
+                &mut right[0].agents[agent_b],
+            );
         } else {
             let (left, right) = self.repositories.split_at_mut(repo_a);
-            let repo_left = &mut left[repo_b];
-            let repo_right = &mut right[0];
-            std::mem::swap(&mut repo_left.agents[agent_b], &mut repo_right.agents[agent_a]);
+            std::mem::swap(
+                &mut left[repo_b].agents[agent_b],
+                &mut right[0].agents[agent_a],
+            );
         }
     }
 
     fn sync_selection_from_split(&mut self) {
-        let running = self.running_agent_positions();
-        if running.is_empty() {
+        let filtered = self.filtered_running_positions();
+        if filtered.is_empty() {
             return;
         }
-        let idx = self.split.selected_row.min(running.len() - 1);
-        let (repo_idx, agent_idx) = running[idx];
+        let idx = self.split.selected_row.min(filtered.len() - 1);
+        let (repo_idx, agent_idx) = filtered[idx];
         self.selected_repo = repo_idx;
         self.selected_agent = agent_idx;
         self.active_pane = ActivePane::AgentList;
@@ -572,6 +664,7 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::SplitFocus;
     use crate::data::mock::generate_mock_data;
 
     #[test]
@@ -601,23 +694,64 @@ mod tests {
     }
 
     #[test]
-    fn test_split_mode_enter_escape_flow() {
+    fn test_split_mode_navigate_and_grab_flow() {
         let repositories = generate_mock_data();
         let mut state = AppState::new(repositories);
 
         state.handle_event(AppEvent::ToggleSplitMode);
         assert_eq!(state.screen, Screen::Split);
+        assert_eq!(state.split.focus, SplitFocus::Repos);
 
+        // Focus agent list.
         state.handle_event(AppEvent::FocusAgentList);
-        assert!(state.split.reorder_armed);
+        assert_eq!(state.split.focus, SplitFocus::Agents);
+        assert!(!state.split.grabbed);
 
+        // Navigate down (cursor moves, no grab).
+        let row_before = state.split.selected_row;
+        state.handle_event(AppEvent::NavigateDown);
+        // Should move if there are multiple filtered running agents.
+        let filtered = state.filtered_running_positions();
+        if filtered.len() > 1 {
+            assert_eq!(state.split.selected_row, row_before + 1);
+        }
+
+        // Enter grabs.
         state.handle_event(AppEvent::Select);
-        assert!(!state.split.reorder_armed);
+        assert!(state.split.grabbed);
 
-        state.handle_event(AppEvent::FocusAgentList);
+        // Enter again ungrabs.
+        state.handle_event(AppEvent::Select);
+        assert!(!state.split.grabbed);
+
+        // Esc from agents goes to repos.
+        state.handle_event(AppEvent::Back);
+        assert_eq!(state.split.focus, SplitFocus::Repos);
+
+        // Esc from repos exits split.
         state.handle_event(AppEvent::Back);
         assert_eq!(state.screen, Screen::Dashboard);
         assert!(!state.terminal_focused);
+    }
+
+    #[test]
+    fn test_split_mode_repo_filter() {
+        let repositories = generate_mock_data();
+        let mut state = AppState::new(repositories);
+
+        state.handle_event(AppEvent::ToggleSplitMode);
+        assert!(state.split.repo_filter.is_none()); // "All" by default
+
+        // Move cursor to first real repo (index 1) and select.
+        state.handle_event(AppEvent::NavigateDown);
+        assert_eq!(state.split.repo_cursor, 1);
+        state.handle_event(AppEvent::Select);
+        assert_eq!(state.split.repo_filter, Some(0));
+
+        // Move back to "All" and select.
+        state.handle_event(AppEvent::NavigateUp);
+        state.handle_event(AppEvent::Select);
+        assert!(state.split.repo_filter.is_none());
     }
 
     #[test]
@@ -631,6 +765,7 @@ mod tests {
 
         assert_eq!(state.screen, Screen::Dashboard);
         assert!(state.terminal_focused);
+        assert!(!state.split.grabbed);
     }
 
     #[test]
