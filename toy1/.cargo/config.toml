@@ -1,0 +1,4 @@
+# Warnings are configured via [lints] in Cargo.toml.
+# To promote to hard errors for CI, uncomment:
+# [build]
+# rustflags = ["-D", "warnings"]

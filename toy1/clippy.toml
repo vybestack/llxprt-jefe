@@ -1,0 +1,20 @@
+# Clippy configuration for Jefe TUI
+# Enforces code quality and complexity limits
+
+# Maximum cognitive complexity per function
+cognitive-complexity-threshold = 15
+
+# Maximum lines per function (excluding comments/blanks)
+too-many-lines-threshold = 60
+
+# Maximum number of function arguments
+too-many-arguments-threshold = 6
+
+# Maximum number of struct fields
+max-struct-bools = 3
+
+# Type complexity threshold
+type-complexity-threshold = 250
+
+# Disallowed methods (e.g., avoid footguns)
+# disallowed-methods = []

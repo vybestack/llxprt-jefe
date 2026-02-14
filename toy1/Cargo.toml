@@ -1,0 +1,75 @@
+[package]
+name = "jefe-toy1"
+version = "0.1.0"
+edition = "2021"
+description = "Jefe TUI prototype — project/task/agent orchestrator"
+license = "Apache-2.0"
+rust-version = "1.75"
+
+[dependencies]
+iocraft = "0.5"
+crossterm = "0.28"
+smol = "2"
+smol-macros = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+portable-pty = "0.8"
+vt100 = "0.15"
+alacritty_terminal = "0.25"
+arboard = "3"
+
+[dev-dependencies]
+pretty_assertions = "1"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+# Correctness
+correctness = { level = "deny", priority = -1 }
+
+# Suspicious / likely bugs
+suspicious = { level = "warn", priority = -1 }
+
+# Style
+style = { level = "warn", priority = -1 }
+
+# Complexity — keep things simple
+complexity = { level = "warn", priority = -1 }
+cognitive_complexity = "warn"
+too_many_lines = "warn"
+
+# Pedantic — stricter lints
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+
+# Nursery — experimental but useful
+nursery = { level = "warn", priority = -1 }
+
+# Restriction — opt-in strict rules
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+todo = "warn"
+dbg_macro = "warn"
+unimplemented = "warn"
+wildcard_enum_match_arm = "warn"
+string_to_string = "warn"
+str_to_string = "warn"
+clone_on_ref_ptr = "warn"
+large_include_file = "warn"
+
+[profile.dev]
+debug = true
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
