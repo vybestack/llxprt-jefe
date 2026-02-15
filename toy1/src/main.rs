@@ -20,7 +20,6 @@ use pty::{PtyManager, TerminalColorDefaults};
 use theme::ThemeManager;
 use ui::modals::confirm::ConfirmModal;
 use ui::modals::help::HelpModal;
-use ui::screens::agent_detail::AgentDetail;
 use ui::screens::dashboard::Dashboard;
 use ui::screens::new_agent::NewAgentForm;
 use ui::screens::new_repository::NewRepositoryForm;
@@ -291,7 +290,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 let term_focused = app_state.read().terminal_focused;
                 let in_input_screen = {
                     let s = app_state.read();
-                    s.screen == Screen::NewAgent || s.screen == Screen::NewRepository
+                    matches!(s.screen, Screen::NewAgent | Screen::NewRepository | Screen::EditAgent | Screen::EditRepository)
                 };
 
                 if key_event.kind != KeyEventKind::Release {
@@ -645,14 +644,6 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
             )
         }
         .into(),
-        Screen::AgentDetail => element! {
-            AgentDetail(
-                state: snapshot.clone(),
-                colors: colors.clone(),
-                theme_name: theme_name.clone(),
-            )
-        }
-        .into(),
         Screen::NewAgent => element! {
             NewAgentForm(
                 state: snapshot.clone(),
@@ -660,7 +651,21 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
             )
         }
         .into(),
+        Screen::EditAgent => element! {
+            NewAgentForm(
+                state: snapshot.clone(),
+                colors: colors.clone(),
+            )
+        }
+        .into(),
         Screen::NewRepository => element! {
+            NewRepositoryForm(
+                state: snapshot.clone(),
+                colors: colors.clone(),
+            )
+        }
+        .into(),
+        Screen::EditRepository => element! {
             NewRepositoryForm(
                 state: snapshot.clone(),
                 colors: colors.clone(),

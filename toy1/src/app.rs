@@ -27,8 +27,6 @@ pub enum Screen {
     /// Main dashboard view.
     #[default]
     Dashboard,
-    /// Detailed agent view.
-    AgentDetail,
     /// Command palette/search.
     CommandPalette,
     /// Terminal view for a running agent.
@@ -39,6 +37,10 @@ pub enum Screen {
     NewRepository,
     /// Split mode view for all running agents.
     Split,
+    /// Edit agent config form.
+    EditAgent,
+    /// Edit repository config form.
+    EditRepository,
 }
 
 /// Modal dialog state.
@@ -415,11 +417,19 @@ impl AppState {
 
         match self.screen {
             Screen::Dashboard => {
-                if self.current_agent().is_some() {
-                    self.screen = Screen::AgentDetail;
+                match self.active_pane {
+                    ActivePane::Sidebar => {
+                        if self.current_repo().is_some() {
+                            self.open_edit_repository();
+                        }
+                    }
+                    ActivePane::AgentList | ActivePane::Preview => {
+                        if self.current_agent().is_some() {
+                            self.open_edit_agent();
+                        }
+                    }
                 }
             }
-            Screen::AgentDetail => {}
             Screen::CommandPalette => {}
             Screen::Terminal => {}
             Screen::NewAgent => {
@@ -428,15 +438,18 @@ impl AppState {
             Screen::NewRepository => {
                 self.screen = Screen::Dashboard;
             }
+            Screen::EditAgent => {
+                self.submit_form();
+            }
+            Screen::EditRepository => {
+                self.submit_form();
+            }
             Screen::Split => {}
         }
     }
 
     fn handle_back(&mut self) {
         match self.screen {
-            Screen::AgentDetail => {
-                self.screen = Screen::Dashboard;
-            }
             Screen::CommandPalette => {
                 self.screen = Screen::Dashboard;
                 self.is_searching = false;
@@ -449,6 +462,12 @@ impl AppState {
                 self.screen = Screen::Dashboard;
             }
             Screen::NewRepository => {
+                self.screen = Screen::Dashboard;
+            }
+            Screen::EditAgent => {
+                self.screen = Screen::Dashboard;
+            }
+            Screen::EditRepository => {
                 self.screen = Screen::Dashboard;
             }
             Screen::Split => {
@@ -496,6 +515,31 @@ impl AppState {
         ];
         self.new_repository_focus = 0;
         self.screen = Screen::NewRepository;
+    }
+
+    fn open_edit_agent(&mut self) {
+        let Some(agent) = self.current_agent() else { return };
+        self.new_agent_fields = vec![
+            agent.purpose.clone(),
+            agent.work_dir.clone(),
+            agent.model.clone(),
+            agent.profile.clone(),
+            agent.mode.clone(),
+        ];
+        self.new_agent_focus = 0;
+        self.screen = Screen::EditAgent;
+    }
+
+    fn open_edit_repository(&mut self) {
+        let Some(repo) = self.current_repo() else { return };
+        self.new_repository_fields = vec![
+            repo.name.clone(),
+            repo.base_dir.clone(),
+            "default".into(),  // profile (repos don't store this yet, use default)
+            "claude-opus-4-6".into(),  // model (repos don't store this yet, use default)
+        ];
+        self.new_repository_focus = 0;
+        self.screen = Screen::EditRepository;
     }
 
     fn delete_current_agent(&mut self) {
@@ -631,11 +675,11 @@ impl AppState {
     fn handle_char(&mut self, c: char) {
         if self.is_searching {
             self.search_query.push(c);
-        } else if self.screen == Screen::NewAgent {
+        } else if self.screen == Screen::NewAgent || self.screen == Screen::EditAgent {
             if let Some(field) = self.new_agent_fields.get_mut(self.new_agent_focus) {
                 field.push(c);
             }
-        } else if self.screen == Screen::NewRepository {
+        } else if self.screen == Screen::NewRepository || self.screen == Screen::EditRepository {
             if let Some(field) = self.new_repository_fields.get_mut(self.new_repository_focus) {
                 field.push(c);
             }
@@ -688,10 +732,10 @@ impl AppState {
 
     fn next_field(&mut self) {
         match self.screen {
-            Screen::NewAgent => {
+            Screen::NewAgent | Screen::EditAgent => {
                 self.new_agent_focus = (self.new_agent_focus + 1) % self.new_agent_fields.len();
             }
-            Screen::NewRepository => {
+            Screen::NewRepository | Screen::EditRepository => {
                 self.new_repository_focus = (self.new_repository_focus + 1) % self.new_repository_fields.len();
             }
             _ => {}
@@ -700,14 +744,14 @@ impl AppState {
 
     fn prev_field(&mut self) {
         match self.screen {
-            Screen::NewAgent => {
+            Screen::NewAgent | Screen::EditAgent => {
                 if self.new_agent_focus == 0 {
                     self.new_agent_focus = self.new_agent_fields.len() - 1;
                 } else {
                     self.new_agent_focus -= 1;
                 }
             }
-            Screen::NewRepository => {
+            Screen::NewRepository | Screen::EditRepository => {
                 if self.new_repository_focus == 0 {
                     self.new_repository_focus = self.new_repository_fields.len() - 1;
                 } else {
@@ -720,12 +764,12 @@ impl AppState {
 
     fn handle_backspace(&mut self) {
         match self.screen {
-            Screen::NewAgent => {
+            Screen::NewAgent | Screen::EditAgent => {
                 if let Some(field) = self.new_agent_fields.get_mut(self.new_agent_focus) {
                     field.pop();
                 }
             }
-            Screen::NewRepository => {
+            Screen::NewRepository | Screen::EditRepository => {
                 if let Some(field) = self.new_repository_fields.get_mut(self.new_repository_focus) {
                     field.pop();
                 }
@@ -777,6 +821,28 @@ impl AppState {
                 }
                 self.screen = Screen::Dashboard;
             }
+            Screen::EditAgent => {
+                let purpose = self.new_agent_fields.get(0).cloned().unwrap_or_default();
+                let work_dir = self.new_agent_fields.get(1).cloned().unwrap_or_default();
+                let model = self.new_agent_fields.get(2).cloned().unwrap_or_else(|| "claude-opus-4-6".into());
+                let profile = self.new_agent_fields.get(3).cloned().unwrap_or_else(|| "default".into());
+                let mode = self.new_agent_fields.get(4).cloned().unwrap_or_else(|| "--yolo".into());
+
+                if purpose.is_empty() {
+                    return;
+                }
+
+                if let Some(repo) = self.repositories.get_mut(self.selected_repo) {
+                    if let Some(agent) = repo.agents.get_mut(self.selected_agent) {
+                        agent.purpose = purpose;
+                        agent.work_dir = if work_dir.is_empty() { agent.work_dir.clone() } else { work_dir };
+                        agent.model = model;
+                        agent.profile = profile;
+                        agent.mode = mode;
+                    }
+                }
+                self.screen = Screen::Dashboard;
+            }
             Screen::NewRepository => {
                 let name = self.new_repository_fields.get(0).cloned().unwrap_or_default();
                 let base_dir = self.new_repository_fields.get(1).cloned().unwrap_or_default();
@@ -796,6 +862,23 @@ impl AppState {
                 self.repositories.push(repo);
                 self.selected_repo = self.repositories.len() - 1;
                 self.selected_agent = 0;
+                self.screen = Screen::Dashboard;
+            }
+            Screen::EditRepository => {
+                let name = self.new_repository_fields.get(0).cloned().unwrap_or_default();
+                let base_dir = self.new_repository_fields.get(1).cloned().unwrap_or_default();
+
+                if name.is_empty() {
+                    return;
+                }
+
+                if let Some(repo) = self.repositories.get_mut(self.selected_repo) {
+                    repo.name = name.clone();
+                    repo.slug = name.to_lowercase().replace(' ', "-");
+                    if !base_dir.is_empty() {
+                        repo.base_dir = base_dir;
+                    }
+                }
                 self.screen = Screen::Dashboard;
             }
             _ => {}

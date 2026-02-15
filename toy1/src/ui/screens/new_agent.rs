@@ -2,7 +2,7 @@
 
 use iocraft::prelude::*;
 
-use crate::app::AppState;
+use crate::app::{AppState, Screen};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the new agent form screen.
@@ -23,6 +23,12 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     let repo_name = state
         .and_then(AppState::current_repo)
         .map_or("(none)".to_owned(), |r| r.name.clone());
+
+    let title = if state.map_or(false, |s| s.screen == Screen::EditAgent) {
+        format!(" Edit Agent  (repo: {})", repo_name)
+    } else {
+        format!(" New Agent  (repo: {})", repo_name)
+    };
 
     let fields = state.map(|s| &s.new_agent_fields);
     let focus = state.map_or(0, |s| s.new_agent_focus);
@@ -63,7 +69,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
                 padding: 1i32,
             ) {
                 Box(height: 1u32) {
-                    Text(content: format!(" New Agent  (repo: {})", repo_name), color: rc.fg, weight: Weight::Bold)
+                    Text(content: title, color: rc.fg, weight: Weight::Bold)
                 }
                 Box(height: 1u32) {
                     Text(content: "".to_owned(), color: rc.fg)

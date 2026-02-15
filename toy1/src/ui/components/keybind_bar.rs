@@ -23,13 +23,12 @@ pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
         Screen::Dashboard => {
             " ^/v navigate  </> pane  r repo  a list  t terminal  s split  F12 detach  k kill  d delete  l relaunch(dead)  q quit"
         }
-        Screen::AgentDetail => {
-            " ^/v navigate  esc back  r repo  a list  t terminal  s split  k kill  d delete  l relaunch(dead)  ? help"
-        }
         Screen::CommandPalette => " type to filter  ^/v navigate  enter select  esc close",
         Screen::Terminal => " F12 detach (only)  q quit",
         Screen::NewAgent => " esc cancel  enter launch (toy)  q quit",
         Screen::NewRepository => " esc cancel  enter create (toy)  q quit",
+        Screen::EditAgent => " tab/shift-tab fields  esc cancel  enter save  q quit",
+        Screen::EditRepository => " tab/shift-tab fields  esc cancel  enter save  q quit",
         Screen::Split => " a arm reorder  ↑/↓ move selected  enter unselect  m main+pty focus  esc main no pty focus",
     };
 

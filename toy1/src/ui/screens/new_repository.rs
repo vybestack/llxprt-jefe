@@ -2,7 +2,7 @@
 
 use iocraft::prelude::*;
 
-use crate::app::AppState;
+use crate::app::{AppState, Screen};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the new repository form screen.
@@ -19,6 +19,12 @@ pub struct NewRepositoryFormProps {
 pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(props.colors.as_ref());
     let state = props.state.as_ref();
+
+    let title = if state.map_or(false, |s| s.screen == Screen::EditRepository) {
+        " Edit Repository".to_owned()
+    } else {
+        " New Repository".to_owned()
+    };
 
     let fields = state.map(|s| &s.new_repository_fields);
     let focus = state.map_or(0, |s| s.new_repository_focus);
@@ -59,7 +65,7 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
                 padding: 1i32,
             ) {
                 Box(height: 1u32) {
-                    Text(content: " New Repository".to_owned(), color: rc.fg, weight: Weight::Bold)
+                    Text(content: title, color: rc.fg, weight: Weight::Bold)
                 }
                 Box(height: 1u32) {
                     Text(content: "".to_owned(), color: rc.fg)
