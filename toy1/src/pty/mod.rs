@@ -720,17 +720,28 @@ impl PtyManager {
         self.resize(0, rows, cols);
     }
 
-    /// Returns whether the currently attached viewer appears alive for this index.
+    /// Returns whether the viewer/session appears alive for this PTY slot.
     pub fn is_alive(&self, idx: usize) -> bool {
-        let Ok(current_guard) = self.attached_idx.lock() else {
+        // Unknown slot is definitely not alive.
+        let sessions_len = self.sessions.lock().map_or(0, |s| s.len());
+        if idx >= sessions_len {
             return false;
+        }
+
+        let Ok(current_guard) = self.attached_idx.lock() else {
+            // Be optimistic on lock failure so we don't spuriously mark agents dead.
+            return true;
         };
         let Some(current_idx) = *current_guard else {
-            return false;
+            // No viewer attached right now (for example right after startup with
+            // dynamic sessions). The tmux session may still be alive.
+            return true;
         };
+
         if current_idx != idx {
-            // Agent tmux session may still be alive; assume true for non-attached slots.
-            return idx < self.sessions.lock().unwrap().len();
+            // Non-attached slots are assumed alive; explicit kill/relaunch paths
+            // manage status transitions.
+            return true;
         }
 
         let Ok(guard) = self.attached.lock() else {
