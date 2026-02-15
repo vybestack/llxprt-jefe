@@ -89,7 +89,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                         status_icon(&agent.status),
                         repo.name,
                         agent.display_id,
-                        truncate(&agent.purpose, 40),
+                        truncate(&agent.name, 40),
                         format_elapsed(agent.elapsed_secs),
                     );
 

@@ -41,7 +41,7 @@ pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
                 let is_selected = i == selected;
                 let icon = status_icon(&agent.status);
                 let elapsed = format_elapsed(agent.elapsed_secs);
-                let purpose = truncate(&format!("{} {}", agent.display_id, agent.purpose), 36);
+                let purpose = truncate(&format!("{} {}", agent.display_id, agent.name), 36);
                 let sel = if is_selected { "\u{25b8}" } else { " " };
                 let line = format!(" {} {} {}  {}", sel, icon, purpose, elapsed);
                 (line, is_selected)

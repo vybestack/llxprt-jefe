@@ -33,7 +33,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     let fields = state.map(|s| &s.new_agent_fields);
     let focus = state.map_or(0, |s| s.new_agent_focus);
 
-    let labels = ["Purpose", "Work dir", "Profile", "Mode"];
+    let labels = ["Name", "Description", "Work dir", "Profile", "Mode"];
 
     let field_lines: Vec<AnyElement<'static>> = labels.iter().enumerate().map(|(i, label)| {
         let value = fields

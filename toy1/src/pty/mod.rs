@@ -831,6 +831,34 @@ impl PtyManager {
     }
 }
 
+impl Drop for PtyManager {
+    fn drop(&mut self) {
+        // Kill the attached viewer.
+        if let Ok(mut guard) = self.attached.lock() {
+            if let Some(mut viewer) = guard.take() {
+                if let Ok(mut killer) = viewer.killer.lock() {
+                    let _ = killer.kill();
+                }
+                viewer.alive.store(false, std::sync::atomic::Ordering::Relaxed);
+                if let Some(handle) = viewer.reader.take() {
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(200);
+                    loop {
+                        if handle.is_finished() { let _ = handle.join(); break; }
+                        if std::time::Instant::now() >= deadline { break; }
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                }
+            }
+        }
+        // Kill all tmux sessions.
+        if let Ok(sessions) = self.sessions.lock() {
+            for session in sessions.iter() {
+                kill_tmux_session(&session.tmux_session);
+            }
+        }
+    }
+}
+
 fn rgb_to_iocraft(rgb: ansi::Rgb) -> iocraft::Color {
     iocraft::Color::Rgb {
         r: rgb.r,

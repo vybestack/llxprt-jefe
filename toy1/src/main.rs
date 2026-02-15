@@ -196,10 +196,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
                 if term_focused {
                     if let Some(ref mgr) = pty_mgr_for_events {
-                        let idx_opt = app_state.read().current_global_agent_index();
+                        let idx_opt = app_state.read().current_agent().and_then(|a| a.pty_slot);
                         let Some(idx) = idx_opt else {
                             if mouse_debug {
-                                eprintln!("[mouse] focused=true no-active-agent");
+                                eprintln!("[mouse] focused=true no-active-agent-slot");
                             }
                             return;
                         };
@@ -328,8 +328,8 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 // Handle form input screens before other keybindings.
                 if in_input_screen {
                     let app_event = match key_event.code {
-                        KeyCode::Tab => Some(AppEvent::NextField),
-                        KeyCode::BackTab => Some(AppEvent::PrevField),
+                        KeyCode::Tab | KeyCode::Down => Some(AppEvent::NextField),
+                        KeyCode::BackTab | KeyCode::Up => Some(AppEvent::PrevField),
                         KeyCode::Enter => Some(AppEvent::SubmitForm),
                         KeyCode::Esc => Some(AppEvent::Back),
                         KeyCode::Backspace => Some(AppEvent::Backspace),
@@ -344,10 +344,19 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         // When a new agent form submits, create its PTY session.
                         if is_submit && screen_before == Screen::NewAgent && state.screen == Screen::Dashboard {
                             if let Some(ref mgr) = pty_mgr_for_events {
-                                if let Some(agent) = state.current_agent() {
-                                    let work_dir = agent.work_dir.clone();
+                                // Capture selected indices first to avoid borrowing issues.
+                                let repo_idx = state.selected_repo;
+                                let agent_idx = state.selected_agent;
+                                let work_dir_opt = state.current_agent().map(|a| a.work_dir.clone());
+
+                                if let Some(work_dir) = work_dir_opt {
                                     match mgr.add_session(&work_dir) {
                                         Ok(idx) => {
+                                            if let Some(repo) = state.repositories.get_mut(repo_idx) {
+                                                if let Some(agent) = repo.agents.get_mut(agent_idx) {
+                                                    agent.pty_slot = Some(idx);
+                                                }
+                                            }
                                             eprintln!("[form] new agent: pty session jefe-{idx} at {work_dir}");
                                         }
                                         Err(e) => {
@@ -365,10 +374,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 // (F12 above is the only escape hatch.)
                 if term_focused {
                     if let Some(ref mgr) = pty_mgr_for_events {
-                        let idx_opt = app_state.read().current_global_agent_index();
+                        let idx_opt = app_state.read().current_agent().and_then(|a| a.pty_slot);
                         let Some(idx) = idx_opt else {
                             if key_debug {
-                                eprintln!("[key] drop-in-terminal (no-active-agent) code={:?}", key_event.code);
+                                eprintln!("[key] drop-in-terminal (no-active-agent-slot) code={:?}", key_event.code);
                             }
                             return;
                         };
@@ -392,15 +401,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     KeyCode::Char('Q') if !is_searching => Some(AppEvent::Quit),
                     KeyCode::Char('n') if !is_searching => Some(AppEvent::NewAgent),
                     KeyCode::Char('N') if !is_searching => Some(AppEvent::NewRepository),
-                    KeyCode::Char('d')
+                    KeyCode::Char('d') | KeyCode::Char('D')
                         if !is_searching && !in_input_screen && screen_now != Screen::Split =>
                     {
                         Some(AppEvent::DeleteAgent)
-                    }
-                    KeyCode::Char('D')
-                        if !is_searching && !in_input_screen && screen_now != Screen::Split =>
-                    {
-                        Some(AppEvent::DeleteRepository)
                     }
                     KeyCode::Char('/') => Some(AppEvent::OpenSearch),
                     KeyCode::Char('?') if !is_searching => Some(AppEvent::OpenHelp),
@@ -477,7 +481,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         let mut state = app_state.write();
                         match evt {
                             AppEvent::KillAgent => {
-                                let idx_opt = state.current_global_agent_index();
+                                let idx_opt = state.current_agent().and_then(|a| a.pty_slot);
                                 if let Some(ref mgr) = pty_mgr_for_events {
                                     if let Some(idx) = idx_opt {
                                         mgr.kill_session(idx);
@@ -491,7 +495,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                     .current_agent()
                                     .is_some_and(|a| a.status == AgentStatus::Dead);
                                 if should_relaunch {
-                                    let idx_opt = state.current_global_agent_index();
+                                    let idx_opt = state.current_agent().and_then(|a| a.pty_slot);
                                     if let Some(ref mgr) = pty_mgr_for_events {
                                         if let Some(idx) = idx_opt {
                                             let _ = mgr.relaunch_session(idx);
@@ -507,10 +511,18 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                 // If we went from NewAgent->Dashboard, a new agent was added
                                 if screen_before == Screen::NewAgent && state.screen == Screen::Dashboard {
                                     if let Some(ref mgr) = pty_mgr_for_events {
-                                        if let Some(agent) = state.current_agent() {
-                                            let work_dir = agent.work_dir.clone();
+                                        let repo_idx = state.selected_repo;
+                                        let agent_idx = state.selected_agent;
+                                        let work_dir_opt = state.current_agent().map(|a| a.work_dir.clone());
+
+                                        if let Some(work_dir) = work_dir_opt {
                                             match mgr.add_session(&work_dir) {
                                                 Ok(idx) => {
+                                                    if let Some(repo) = state.repositories.get_mut(repo_idx) {
+                                                        if let Some(agent) = repo.agents.get_mut(agent_idx) {
+                                                            agent.pty_slot = Some(idx);
+                                                        }
+                                                    }
                                                     eprintln!("[form] new agent: pty session jefe-{idx} at {work_dir}");
                                                 }
                                                 Err(e) => {
@@ -523,10 +535,6 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                 if screen_before == Screen::NewRepository && state.screen == Screen::Dashboard {
                                     eprintln!("[form] new repository submitted");
                                 }
-                            }
-                            AppEvent::DeleteRepository => {
-                                state.handle_event(evt);
-                                // Modal is now shown, actual delete happens on confirm (Select)
                             }
                             _ => state.handle_event(evt),
                         }
@@ -555,11 +563,14 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
         };
     }
 
-    // Keep app model status in sync with PTY liveness.
+                // Keep app model status in sync with PTY liveness.
     // IMPORTANT: only call app_state.write() when something actually changed,
     // because write() marks state dirty and triggers a re-render.  Calling it
     // unconditionally creates an infinite render loop that starves the event
     // stream — which is why keys stopped working.
+    //
+    // Only running agents are liveness-tracked. Dead agents are intentionally
+    // excluded so they are not auto-relaunched by a missing tmux session.
     if let Some(ref mgr) = pty_mgr {
         let mut need_update = Vec::new();
         {
@@ -567,7 +578,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
             let mut global_idx = 0usize;
             for (ri, repo) in state_ro.repositories.iter().enumerate() {
                 for (ai, agent) in repo.agents.iter().enumerate() {
-                    if agent.status != AgentStatus::Dead && !mgr.is_alive(global_idx) {
+                    if agent.status == AgentStatus::Running && !mgr.is_alive(global_idx) {
                         need_update.push((ri, ai));
                     }
                     global_idx = global_idx.saturating_add(1);
@@ -603,7 +614,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 .current_repo()
                 .and_then(|p| p.agents.get(*idx))
                 .map_or("Kill agent?".to_owned(), |a| {
-                    format!("Kill agent for {} {}?", a.display_id, a.purpose)
+                    format!("Kill agent for {} {}?", a.display_id, a.name)
                 });
             (msg, "Kill Agent".to_owned())
         }
@@ -615,20 +626,21 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
         }
         ModalState::ConfirmDeleteAgent { repo_idx, agent_idx, delete_work_dir } => {
             let msg = state_ref.repositories.get(*repo_idx)
-                .and_then(|r| r.agents.get(*agent_idx))
-                .map_or("Delete agent?".to_owned(), |a| {
-                    let work_dir_msg = if *delete_work_dir {
+                .map_or("Delete agent?".to_owned(), |r| {
+                    let repo_name = &r.name;
+                    let agent_info = r.agents.get(*agent_idx)
+                        .map_or("(unknown agent)".to_owned(), |a| format!("{} {}", a.display_id, a.name));
+                    let work_dir_msg = if let Some(a) = r.agents.get(*agent_idx) {
+                        let check = if *delete_work_dir { "x" } else { " " };
                         format!("
 
-  [x] Also delete working directory:
-      {}", a.work_dir)
+  [{check}] Also delete working directory:
+      {}
+  (Space / d / ↑ / ↓ to toggle)", a.work_dir)
                     } else {
-                        format!("
-
-  [ ] Also delete working directory:
-      {}", a.work_dir)
+                        String::new()
                     };
-                    format!("Delete agent {} {}?{}", a.display_id, a.purpose, work_dir_msg)
+                    format!("Delete agent {} from repo '{}'?{}", agent_info, repo_name, work_dir_msg)
                 });
             (msg, "Delete Agent".to_owned())
         }
@@ -652,20 +664,27 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     }
 
     // Read PTY terminal content for the active agent.
-    let (terminal_lines, terminal_snapshot) = if let Some(ref mgr) = pty_mgr {
-        if let Some(idx) = snapshot.current_global_agent_index() {
-            let styled = mgr.terminal_snapshot(idx);
-            let lines = styled
-                .cells
-                .iter()
-                .map(|row| row.iter().map(|cell| cell.ch).collect())
-                .collect();
-            (lines, Some(styled))
+    // Don't call terminal_snapshot for dead agents to avoid re-creating killed sessions.
+    let agent_alive = snapshot.current_agent()
+        .is_some_and(|a| a.status != AgentStatus::Dead);
+    let (terminal_lines, terminal_snapshot) = if agent_alive {
+        if let Some(ref mgr) = pty_mgr {
+            if let Some(idx) = snapshot.current_agent().and_then(|a| a.pty_slot) {
+                let styled = mgr.terminal_snapshot(idx);
+                let lines = styled
+                    .cells
+                    .iter()
+                    .map(|row| row.iter().map(|cell| cell.ch).collect())
+                    .collect();
+                (lines, Some(styled))
+            } else {
+                (vec!["(no PTY session for selected agent)".to_owned()], None)
+            }
         } else {
-            (vec!["(no active agent selected)".to_owned()], None)
+            (vec!["(no PTY manager)".to_owned()], None)
         }
     } else {
-        (vec!["(no PTY manager)".to_owned()], None)
+        (vec![], None)
     };
 
     drop(state_ref);

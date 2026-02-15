@@ -24,6 +24,19 @@ fn expand_tilde(path: &str) -> String {
     path.to_owned()
 }
 
+/// Normalize profile input from forms.
+///
+/// `[]` and empty values both mean "use llxprt defaults" and are persisted as
+/// an empty string.
+fn normalize_profile_input(value: String) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed == "[]" {
+        String::new()
+    } else {
+        value
+    }
+}
+
 /// The currently active pane in the UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ActivePane {
@@ -129,7 +142,7 @@ pub struct AppState {
     pub terminal_focused: bool,
     /// Split mode state.
     pub split: SplitState,
-    /// Form fields for new agent dialog (purpose, work_dir, model, profile, mode).
+    /// Form fields for new agent dialog (name, description, work_dir, profile, mode).
     pub new_agent_fields: Vec<String>,
     /// Which field is focused in the new agent form (0-based).
     pub new_agent_focus: usize,
@@ -162,7 +175,7 @@ impl AppState {
                 repo_filter: None,
                 repo_cursor: 0,
             },
-            new_agent_fields: vec![String::new(); 4],
+            new_agent_fields: vec![String::new(); 5],
             new_agent_focus: 0,
             new_agent_workdir_manual: false,
             new_repository_fields: vec![String::new(); 3],
@@ -300,7 +313,6 @@ impl AppState {
             AppEvent::ReturnToMainFocused => self.return_to_main_focused(),
             AppEvent::ToggleTerminalFocus => self.toggle_terminal_focus(),
             AppEvent::Char(c) => self.handle_char(c),
-            AppEvent::DeleteRepository => self.delete_current_repository(),
             AppEvent::SubmitForm => self.submit_form(),
             AppEvent::NextField => self.next_field(),
             AppEvent::PrevField => self.prev_field(),
@@ -545,13 +557,16 @@ impl AppState {
 
     fn open_new_agent(&mut self) {
         let repo = self.current_repo();
-        let default_profile = repo.map_or_else(|| "default".to_owned(), |r| r.default_profile.clone());
+        // Repositories are allowed to keep an empty default profile (meaning
+        // "use llxprt defaults"). Agents inherit that value as-is.
+        let default_profile = repo.map_or_else(String::new, |r| r.default_profile.clone());
         let repo_base = repo.map_or_else(|| "/tmp".to_owned(), |r| r.base_dir.clone());
         self.new_agent_fields = vec![
-            String::new(),           // 0: purpose
-            repo_base,               // 1: work_dir (starts as repo base, updates as you type purpose)
-            default_profile,         // 2: profile (from repo)
-            "--yolo".into(),         // 3: mode
+            String::new(),           // 0: name
+            String::new(),           // 1: description
+            repo_base,               // 2: work_dir (starts as repo base, updates as you type name)
+            default_profile,         // 3: profile (inherited from repo, may be empty)
+            "--yolo".into(),         // 4: mode
         ];
         self.new_agent_focus = 0;
         self.new_agent_workdir_manual = false;
@@ -562,7 +577,7 @@ impl AppState {
         self.new_repository_fields = vec![
             String::new(),           // 0: name
             String::new(),           // 1: base_dir
-            "default".into(),        // 2: default_profile
+            String::new(),           // 2: default_profile (empty means use llxprt defaults)
         ];
         self.new_repository_focus = 0;
         self.screen = Screen::NewRepository;
@@ -571,7 +586,8 @@ impl AppState {
     fn open_edit_agent(&mut self) {
         let Some(agent) = self.current_agent() else { return };
         self.new_agent_fields = vec![
-            agent.purpose.clone(),
+            agent.name.clone(),
+            agent.description.clone(),
             agent.work_dir.clone(),
             agent.profile.clone(),
             agent.mode.clone(),
@@ -593,13 +609,22 @@ impl AppState {
     }
 
     fn delete_current_agent(&mut self) {
-        if let Some(repo) = self.repositories.get(self.selected_repo) {
-            if self.selected_agent < repo.agents.len() {
-                self.modal = ModalState::ConfirmDeleteAgent {
-                    repo_idx: self.selected_repo,
-                    agent_idx: self.selected_agent,
-                    delete_work_dir: true,
-                };
+        match self.active_pane {
+            ActivePane::Sidebar => {
+                if !self.repositories.is_empty() {
+                    self.modal = ModalState::ConfirmDeleteRepo(self.selected_repo);
+                }
+            }
+            ActivePane::AgentList | ActivePane::Preview => {
+                if let Some(repo) = self.repositories.get(self.selected_repo) {
+                    if self.selected_agent < repo.agents.len() {
+                        self.modal = ModalState::ConfirmDeleteAgent {
+                            repo_idx: self.selected_repo,
+                            agent_idx: self.selected_agent,
+                            delete_work_dir: true,
+                        };
+                    }
+                }
             }
         }
     }
@@ -737,12 +762,12 @@ impl AppState {
         }
     }
 
-    fn update_agent_workdir_from_purpose(&mut self) {
+    fn update_agent_workdir_from_name(&mut self) {
         let repo_base = self.current_repo()
             .map_or_else(|| "/tmp".to_owned(), |r| r.base_dir.clone());
         let repo_base = expand_tilde(&repo_base);
-        let purpose = self.new_agent_fields.get(0).map_or("", String::as_str);
-        let slug = purpose
+        let name = self.new_agent_fields.get(0).map_or("", String::as_str);
+        let slug = name
             .to_lowercase()
             .replace(' ', "-")
             .chars()
@@ -753,7 +778,7 @@ impl AppState {
         } else {
             format!("{}/{}", repo_base.trim_end_matches('/'), slug)
         };
-        if let Some(field) = self.new_agent_fields.get_mut(1) {
+        if let Some(field) = self.new_agent_fields.get_mut(2) {
             *field = work_dir;
         }
     }
@@ -772,10 +797,10 @@ impl AppState {
             if let Some(field) = self.new_agent_fields.get_mut(self.new_agent_focus) {
                 field.push(c);
             }
-            // Auto-update work_dir from purpose if not manually edited
+            // Auto-update work_dir from name if not manually edited
             if self.new_agent_focus == 0 && !self.new_agent_workdir_manual {
-                self.update_agent_workdir_from_purpose();
-            } else if self.new_agent_focus == 1 {
+                self.update_agent_workdir_from_name();
+            } else if self.new_agent_focus == 2 {
                 self.new_agent_workdir_manual = true;
             }
         } else if self.screen == Screen::NewRepository || self.screen == Screen::EditRepository {
@@ -867,10 +892,10 @@ impl AppState {
                 if let Some(field) = self.new_agent_fields.get_mut(self.new_agent_focus) {
                     field.pop();
                 }
-                // Auto-update work_dir from purpose if not manually edited
+                // Auto-update work_dir from name if not manually edited
                 if self.new_agent_focus == 0 && !self.new_agent_workdir_manual {
-                    self.update_agent_workdir_from_purpose();
-                } else if self.new_agent_focus == 1 {
+                    self.update_agent_workdir_from_name();
+                } else if self.new_agent_focus == 2 {
                     self.new_agent_workdir_manual = true;
                 }
             }
@@ -892,12 +917,15 @@ impl AppState {
         
         match self.screen {
             Screen::NewAgent => {
-                let purpose = self.new_agent_fields.get(0).cloned().unwrap_or_default();
-                let work_dir_input = self.new_agent_fields.get(1).cloned().unwrap_or_default();
-                let profile = self.new_agent_fields.get(2).cloned().unwrap_or_else(|| "default".into());
-                let mode = self.new_agent_fields.get(3).cloned().unwrap_or_else(|| "--yolo".into());
+                let name = self.new_agent_fields.get(0).cloned().unwrap_or_default();
+                let description = self.new_agent_fields.get(1).cloned().unwrap_or_default();
+                let work_dir_input = self.new_agent_fields.get(2).cloned().unwrap_or_default();
+                let profile = normalize_profile_input(
+                    self.new_agent_fields.get(3).cloned().unwrap_or_default(),
+                );
+                let mode = self.new_agent_fields.get(4).cloned().unwrap_or_else(|| "--yolo".into());
 
-                if purpose.is_empty() {
+                if name.is_empty() {
                     return; // Don't submit empty
                 }
 
@@ -907,7 +935,7 @@ impl AppState {
                 );
 
                 let work_dir = expand_tilde(&if work_dir_input.is_empty() {
-                    crate::data::models::agent_work_dir(&repo_base, &purpose)
+                    crate::data::models::agent_work_dir(&repo_base, &name)
                 } else {
                     work_dir_input
                 });
@@ -920,10 +948,12 @@ impl AppState {
                 let agent = Agent {
                     id: uuid::Uuid::new_v4(),
                     display_id: format!("#{}", self.agent_count() + 1),
-                    purpose,
+                    name,
+                    description,
                     work_dir,
                     profile,
                     mode,
+                    pty_slot: None,
                     status: AgentStatus::Running,
                     started_at: Utc::now(),
                     token_in: 0,
@@ -941,18 +971,22 @@ impl AppState {
                 self.screen = Screen::Dashboard;
             }
             Screen::EditAgent => {
-                let purpose = self.new_agent_fields.get(0).cloned().unwrap_or_default();
-                let work_dir = expand_tilde(&self.new_agent_fields.get(1).cloned().unwrap_or_default());
-                let profile = self.new_agent_fields.get(2).cloned().unwrap_or_else(|| "default".into());
-                let mode = self.new_agent_fields.get(3).cloned().unwrap_or_else(|| "--yolo".into());
+                let name = self.new_agent_fields.get(0).cloned().unwrap_or_default();
+                let description = self.new_agent_fields.get(1).cloned().unwrap_or_default();
+                let work_dir = expand_tilde(&self.new_agent_fields.get(2).cloned().unwrap_or_default());
+                let profile = normalize_profile_input(
+                    self.new_agent_fields.get(3).cloned().unwrap_or_default(),
+                );
+                let mode = self.new_agent_fields.get(4).cloned().unwrap_or_else(|| "--yolo".into());
 
-                if purpose.is_empty() {
+                if name.is_empty() {
                     return;
                 }
 
                 if let Some(repo) = self.repositories.get_mut(self.selected_repo) {
                     if let Some(agent) = repo.agents.get_mut(self.selected_agent) {
-                        agent.purpose = purpose;
+                        agent.name = name;
+                        agent.description = description;
                         if !work_dir.is_empty() {
                             // Create new dir if it changed
                             if work_dir != agent.work_dir {
@@ -971,7 +1005,9 @@ impl AppState {
             Screen::NewRepository => {
                 let name = self.new_repository_fields.get(0).cloned().unwrap_or_default();
                 let base_dir = self.new_repository_fields.get(1).cloned().unwrap_or_default();
-                let default_profile = self.new_repository_fields.get(2).cloned().unwrap_or_else(|| "default".into());
+                let default_profile = normalize_profile_input(
+                    self.new_repository_fields.get(2).cloned().unwrap_or_default(),
+                );
 
                 if name.is_empty() {
                     return; // Don't submit empty
@@ -1005,7 +1041,9 @@ impl AppState {
             Screen::EditRepository => {
                 let name = self.new_repository_fields.get(0).cloned().unwrap_or_default();
                 let base_dir = self.new_repository_fields.get(1).cloned().unwrap_or_default();
-                let default_profile = self.new_repository_fields.get(2).cloned().unwrap_or_else(|| "default".into());
+                let default_profile = normalize_profile_input(
+                    self.new_repository_fields.get(2).cloned().unwrap_or_default(),
+                );
 
                 if name.is_empty() {
                     return;
@@ -1025,13 +1063,6 @@ impl AppState {
         }
     }
 
-    fn delete_current_repository(&mut self) {
-        if self.repositories.is_empty() {
-            return;
-        }
-        // Show confirmation modal
-        self.modal = ModalState::ConfirmDeleteRepo(self.selected_repo);
-    }
 
     fn confirm_delete_repository(&mut self, idx: usize) {
         if idx < self.repositories.len() {
@@ -1173,6 +1204,9 @@ mod tests {
         let repositories = generate_mock_data();
         let mut state = AppState::new(repositories);
 
+        // Deleting from sidebar deletes repository; to delete agent, focus agent list.
+        state.active_pane = ActivePane::AgentList;
+
         let initial_count = state.current_repo().map(|r| r.agents.len()).unwrap_or(0);
         state.handle_event(AppEvent::DeleteAgent);
         // Now the modal is shown, need to confirm
@@ -1181,6 +1215,21 @@ mod tests {
         let final_count = state.current_repo().map(|r| r.agents.len()).unwrap_or(0);
 
         assert_eq!(final_count, initial_count - 1);
+    }
+
+    #[test]
+    fn test_delete_repo_from_sidebar() {
+        let repositories = generate_mock_data();
+        let mut state = AppState::new(repositories);
+
+        state.active_pane = ActivePane::Sidebar;
+        let initial_repo_count = state.repositories.len();
+
+        state.handle_event(AppEvent::DeleteAgent);
+        assert!(matches!(state.modal, ModalState::ConfirmDeleteRepo(_)));
+        state.handle_event(AppEvent::Select);
+
+        assert_eq!(state.repositories.len(), initial_repo_count - 1);
     }
 
     #[test]

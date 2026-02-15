@@ -72,9 +72,6 @@ pub enum AppEvent {
     /// Character input for text entry modes.
     Char(char),
 
-    /// Delete the selected repository ('D' key).
-    DeleteRepository,
-
     /// Submit the current form (Enter on forms).
     SubmitForm,
 

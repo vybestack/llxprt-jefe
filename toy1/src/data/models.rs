@@ -53,14 +53,20 @@ pub struct Agent {
     pub id: Uuid,
     /// Human-readable display ID (e.g., "#1872").
     pub display_id: String,
-    /// Short description of what this agent is doing (the "purpose").
-    pub purpose: String,
+    /// Short name for this agent (used for dir slug and display).
+    pub name: String,
+    /// Longer description of what this agent is doing.
+    pub description: String,
     /// Working directory for this agent.
     pub work_dir: String,
     /// The profile configuration (e.g., "default").
     pub profile: String,
     /// The execution mode (e.g., "--yolo").
     pub mode: String,
+    /// Stable PTY session slot in `PtyManager`.
+    ///
+    /// `None` means no PTY session is currently allocated.
+    pub pty_slot: Option<usize>,
     /// Current execution status.
     pub status: AgentStatus,
     /// When this agent started running.
@@ -125,10 +131,10 @@ pub struct Repository {
     pub agents: Vec<Agent>,
 }
 
-/// Derive a working directory from a repo base dir and agent purpose.
+/// Derive a working directory from a repo base dir and agent name.
 /// Lowercases, replaces spaces with dashes, strips non-alphanumeric chars except dash.
-pub fn agent_work_dir(repo_base_dir: &str, purpose: &str) -> String {
-    let slug = purpose
+pub fn agent_work_dir(repo_base_dir: &str, name: &str) -> String {
+    let slug = name
         .to_lowercase()
         .replace(' ', "-")
         .chars()

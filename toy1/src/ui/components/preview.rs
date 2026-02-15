@@ -22,7 +22,7 @@ fn build_preview_lines(agent: &Agent, rc: &ResolvedColors) -> Vec<(String, Color
     let mut lines: Vec<(String, Color)> = Vec::new();
 
     lines.push((
-        format!(" {} {}", agent.display_id, agent.purpose),
+        format!(" {} {}", agent.display_id, agent.name),
         rc.fg,
     ));
     lines.push((

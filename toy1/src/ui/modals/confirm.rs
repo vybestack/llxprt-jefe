@@ -26,6 +26,15 @@ pub fn ConfirmModal(props: &ConfirmModalProps) -> impl Into<AnyElement<'static>>
         return element! { Box() };
     }
 
+    let lines: Vec<String> = props.message.split('\n').map(|s| s.to_owned()).collect();
+    let msg_elements: Vec<AnyElement<'static>> = lines.iter().map(|line| {
+        element! {
+            Box(height: 1u32) {
+                Text(content: format!("  {line}"), color: rc.fg)
+            }
+        }.into()
+    }).collect();
+
     element! {
         Box(
             border_style: BorderStyle::Round,
@@ -33,7 +42,7 @@ pub fn ConfirmModal(props: &ConfirmModalProps) -> impl Into<AnyElement<'static>>
             background_color: rc.bg,
             flex_direction: FlexDirection::Column,
             padding: 1i32,
-            width: 50u32,
+            width: 70u32,
         ) {
             Box(height: 1u32) {
                 Text(content: format!(" {}", props.title), color: rc.fg, weight: Weight::Bold)
@@ -41,9 +50,7 @@ pub fn ConfirmModal(props: &ConfirmModalProps) -> impl Into<AnyElement<'static>>
             Box(height: 1u32) {
                 Text(content: "".to_owned(), color: rc.dim)
             }
-            Box(height: 1u32) {
-                Text(content: format!("  {}", props.message), color: rc.fg)
-            }
+            #(msg_elements)
             Box(height: 1u32, padding_top: 1i32) {
                 Text(content: "  [Enter] Confirm   [Esc] Cancel".to_owned(), color: rc.dim)
             }
