@@ -18,22 +18,30 @@ pub struct NewRepositoryFormProps {
 #[component]
 pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(props.colors.as_ref());
+    let state = props.state.as_ref();
 
-    let form_lines: Vec<(String, Color)> = vec![
-        ("".to_owned(), rc.fg),
-        ("  Repository name:  [my-new-repository]".to_owned(), rc.fg),
-        ("".to_owned(), rc.fg),
-        ("  Base directory:  [~/projects/my-new-repository]".to_owned(), rc.fg),
-        ("".to_owned(), rc.fg),
-        ("  Git repo URL:  [git@github.com:user/my-new-repository.git]".to_owned(), rc.fg),
-        ("".to_owned(), rc.fg),
-        ("  Default profile:  [default]".to_owned(), rc.fg),
-        ("".to_owned(), rc.fg),
-        ("  Default model:  [claude-opus-4-6]".to_owned(), rc.fg),
-        ("".to_owned(), rc.fg),
-        ("  Worktree strategy:  (o) git worktree  ( ) clone  ( ) manual".to_owned(), rc.fg),
-        ("".to_owned(), rc.fg),
-    ];
+    let fields = state.map(|s| &s.new_repository_fields);
+    let focus = state.map_or(0, |s| s.new_repository_focus);
+
+    let labels = ["Name", "Base dir", "Profile", "Model"];
+
+    let field_lines: Vec<AnyElement<'static>> = labels.iter().enumerate().map(|(i, label)| {
+        let value = fields
+            .and_then(|f| f.get(i))
+            .map_or(String::new(), |v| v.clone());
+        let is_focused = i == focus;
+        let display = if is_focused {
+            format!("  {:<12} [{}_]", label, value)
+        } else {
+            format!("  {:<12} [{}]", label, value)
+        };
+        let color = if is_focused { rc.bright } else { rc.fg };
+        element! {
+            Box(height: 1u32) {
+                Text(content: display, color: color)
+            }
+        }.into()
+    }).collect();
 
     element! {
         Box(
@@ -53,17 +61,17 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
                 Box(height: 1u32) {
                     Text(content: " New Repository".to_owned(), color: rc.fg, weight: Weight::Bold)
                 }
+                Box(height: 1u32) {
+                    Text(content: "".to_owned(), color: rc.fg)
+                }
 
-                #(form_lines.into_iter().map(|(line, color): (String, Color)| {
-                    element! {
-                        Box(height: 1u32) {
-                            Text(content: line, color: color)
-                        }
-                    }
-                }))
+                #(field_lines)
 
                 Box(height: 1u32) {
-                    Text(content: "  [Esc] Cancel   [Enter] Create (toy - not functional)".to_owned(), color: rc.dim)
+                    Text(content: "".to_owned(), color: rc.fg)
+                }
+                Box(height: 1u32) {
+                    Text(content: "  Tab next field  Shift+Tab prev  Enter submit  Esc cancel".to_owned(), color: rc.dim)
                 }
             }
         }

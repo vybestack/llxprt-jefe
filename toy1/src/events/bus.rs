@@ -71,6 +71,21 @@ pub enum AppEvent {
 
     /// Character input for text entry modes.
     Char(char),
+
+    /// Delete the selected repository ('D' key).
+    DeleteRepository,
+
+    /// Submit the current form (Enter on forms).
+    SubmitForm,
+
+    /// Move to the next form field (Tab).
+    NextField,
+
+    /// Move to the previous form field (Shift+Tab).
+    PrevField,
+
+    /// Backspace in form text input.
+    Backspace,
 }
 
 impl AppEvent {

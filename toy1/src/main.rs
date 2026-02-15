@@ -151,6 +151,8 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     // Some terminals may only emit release events; track if we've seen
     // press/repeat so we can avoid duplicate handling where possible.
     let mut saw_non_release_key = hooks.use_state(|| false);
+    // Scroll offset for help modal
+    let mut help_scroll = hooks.use_state(|| 0u32);
 
     // Mouse coordinates from crossterm/iocraft are 1-based screen positions.
     // We normalize to 0-based before mapping into pane-local coordinates.
@@ -287,7 +289,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
             TerminalEvent::Key(key_event) => {
                 let is_searching = app_state.read().is_searching;
                 let term_focused = app_state.read().terminal_focused;
-                let in_input_screen = false;
+                let in_input_screen = {
+                    let s = app_state.read();
+                    s.screen == Screen::NewAgent || s.screen == Screen::NewRepository
+                };
 
                 if key_event.kind != KeyEventKind::Release {
                     saw_non_release_key.set(true);
@@ -322,6 +327,24 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     return;
                 }
 
+                // Handle form input screens before other keybindings.
+                if in_input_screen {
+                    let app_event = match key_event.code {
+                        KeyCode::Tab => Some(AppEvent::NextField),
+                        KeyCode::BackTab => Some(AppEvent::PrevField),
+                        KeyCode::Enter => Some(AppEvent::SubmitForm),
+                        KeyCode::Esc => Some(AppEvent::Back),
+                        KeyCode::Backspace => Some(AppEvent::Backspace),
+                        KeyCode::Char(c) => Some(AppEvent::Char(c)),
+                        _ => None,
+                    };
+                    if let Some(evt) = app_event {
+                        let mut state = app_state.write();
+                        state.handle_event(evt);
+                    }
+                    return;  // Don't fall through to normal keybindings
+                }
+
                 // When terminal is focused, forward everything to the PTY.
                 // (F12 above is the only escape hatch.)
                 if term_focused {
@@ -347,18 +370,26 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
                 // Normal Jefe keybindings (press/repeat).
                 let screen_now = app_state.read().screen;
+                let show_help_modal = app_state.read().modal == crate::app::ModalState::Help;
                 let app_event = match key_event.code {
                     KeyCode::Char('q') if !is_searching => Some(AppEvent::Quit),
                     KeyCode::Char('Q') if !is_searching => Some(AppEvent::Quit),
                     KeyCode::Char('n') if !is_searching => Some(AppEvent::NewAgent),
                     KeyCode::Char('N') if !is_searching => Some(AppEvent::NewRepository),
-                    KeyCode::Char('d') | KeyCode::Char('D')
+                    KeyCode::Char('d')
                         if !is_searching && !in_input_screen && screen_now != Screen::Split =>
                     {
                         Some(AppEvent::DeleteAgent)
                     }
+                    KeyCode::Char('D')
+                        if !is_searching && !in_input_screen && screen_now != Screen::Split =>
+                    {
+                        Some(AppEvent::DeleteRepository)
+                    }
                     KeyCode::Char('/') => Some(AppEvent::OpenSearch),
                     KeyCode::Char('?') if !is_searching => Some(AppEvent::OpenHelp),
+                    KeyCode::Char('h') | KeyCode::Char('H') if !is_searching && !in_input_screen => Some(AppEvent::OpenHelp),
+                    KeyCode::F(1) if !is_searching => Some(AppEvent::OpenHelp),
                     KeyCode::Char('r') | KeyCode::Char('R') if !is_searching && !in_input_screen => {
                         Some(AppEvent::FocusRepository)
                     }
@@ -384,8 +415,26 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     KeyCode::Char('m') | KeyCode::Char('M') if !is_searching && !in_input_screen => {
                         Some(AppEvent::ReturnToMainFocused)
                     }
-                    KeyCode::Up => Some(AppEvent::NavigateUp),
-                    KeyCode::Down => Some(AppEvent::NavigateDown),
+                    KeyCode::Up => {
+                        if show_help_modal {
+                            let offset = help_scroll.get();
+                            if offset > 0 {
+                                help_scroll.set(offset - 1);
+                            }
+                            None
+                        } else {
+                            Some(AppEvent::NavigateUp)
+                        }
+                    }
+                    KeyCode::Down => {
+                        if show_help_modal {
+                            let offset = help_scroll.get();
+                            help_scroll.set(offset + 1);
+                            None
+                        } else {
+                            Some(AppEvent::NavigateDown)
+                        }
+                    }
                     KeyCode::Left => Some(AppEvent::NavigateLeft),
                     KeyCode::Right => Some(AppEvent::NavigateRight),
                     KeyCode::Enter => Some(AppEvent::Select),
@@ -402,6 +451,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     if evt == AppEvent::Quit {
                         should_quit.set(true);
                     } else if evt == AppEvent::OpenSearch {
+                        let mut state = app_state.write();
+                        state.handle_event(evt);
+                    } else if evt == AppEvent::OpenHelp {
+                        help_scroll.set(0);
                         let mut state = app_state.write();
                         state.handle_event(evt);
                     } else {
@@ -430,6 +483,31 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                     }
                                 }
                                 state.handle_event(evt);
+                            }
+                            AppEvent::SubmitForm => {
+                                // Peek at state to see if this is a new agent or new repo
+                                let screen_before = state.screen;
+                                state.handle_event(evt);
+                                // If we went from NewAgent->Dashboard, a new agent was added
+                                if screen_before == Screen::NewAgent && state.screen == Screen::Dashboard {
+                                    if let Some(ref mgr) = pty_mgr_for_events {
+                                        if let Some(agent) = state.current_agent() {
+                                            let work_dir = agent.work_dir.clone();
+                                            let idx = state.global_agent_index();
+                                            // Note: PtyManager doesn't have a dynamic add_session yet,
+                                            // so we just log it. The PTY for new agents would be added
+                                            // in a real implementation.
+                                            eprintln!("[form] new agent submitted: idx={} work_dir={}", idx, work_dir);
+                                        }
+                                    }
+                                }
+                                if screen_before == Screen::NewRepository && state.screen == Screen::Dashboard {
+                                    eprintln!("[form] new repository submitted");
+                                }
+                            }
+                            AppEvent::DeleteRepository => {
+                                state.handle_event(evt);
+                                // Modal is now shown, actual delete happens on confirm (Select)
                             }
                             _ => state.handle_event(evt),
                         }
@@ -495,16 +573,27 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
     let current_screen = state_ref.screen;
     let show_help = state_ref.modal == ModalState::Help;
-    let show_confirm = matches!(state_ref.modal, ModalState::ConfirmKill(_));
-    let confirm_msg = if let ModalState::ConfirmKill(idx) = &state_ref.modal {
-        state_ref
-            .current_repo()
-            .and_then(|p| p.agents.get(*idx))
-            .map_or("Kill agent?".to_owned(), |a| {
-                format!("Kill agent for {} {}?", a.display_id, a.purpose)
-            })
-    } else {
-        String::new()
+    let show_confirm_kill = matches!(state_ref.modal, ModalState::ConfirmKill(_));
+    let show_confirm_delete_repo = matches!(state_ref.modal, ModalState::ConfirmDeleteRepo(_));
+    let show_confirm = show_confirm_kill || show_confirm_delete_repo;
+    
+    let (confirm_msg, confirm_title) = match &state_ref.modal {
+        ModalState::ConfirmKill(idx) => {
+            let msg = state_ref
+                .current_repo()
+                .and_then(|p| p.agents.get(*idx))
+                .map_or("Kill agent?".to_owned(), |a| {
+                    format!("Kill agent for {} {}?", a.display_id, a.purpose)
+                });
+            (msg, "Kill Agent".to_owned())
+        }
+        ModalState::ConfirmDeleteRepo(idx) => {
+            let msg = state_ref.repositories.get(*idx)
+                .map_or("Delete this repository?".to_owned(), |r| 
+                    format!("Delete repository '{}' and all its agents?", r.name));
+            (msg, "Delete Repository".to_owned())
+        }
+        _ => (String::new(), String::new()),
     };
 
     let snapshot = state_ref.clone();
@@ -588,34 +677,48 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
         .into(),
     };
 
-    let modal_els: Vec<AnyElement<'static>> = if show_help {
-        vec![element!(HelpModal(visible: true, colors: colors.clone())).into()]
-    } else if show_confirm {
-        vec![element!(ConfirmModal(
-            visible: true,
-            title: "Kill Agent".to_owned(),
-            message: confirm_msg.clone(),
-            colors: colors.clone(),
-        ))
-        .into()]
-    } else {
-        vec![]
-    };
-
     let root_rc = crate::theme::ResolvedColors::from_theme(Some(&colors));
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let render_rows = effective_render_rows(term_rows);
     let render_cols = effective_render_cols(term_cols);
 
-    element! {
-        Box(
-            flex_direction: FlexDirection::Column,
-            background_color: root_rc.bg,
-            width: u32::from(render_cols),
-            height: u32::from(render_rows),
-        ) {
-            #(vec![screen_el])
-            #(modal_els)
+    if show_help || show_confirm {
+        let modal_el: AnyElement<'static> = if show_help {
+            element!(HelpModal(
+                visible: true,
+                scroll_offset: help_scroll.get(),
+                colors: colors.clone(),
+                height: u32::from(render_rows),
+            )).into()
+        } else {
+            element!(ConfirmModal(
+                visible: true,
+                title: confirm_title.clone(),
+                message: confirm_msg.clone(),
+                colors: colors.clone(),
+            )).into()
+        };
+
+        element! {
+            Box(
+                flex_direction: FlexDirection::Column,
+                background_color: root_rc.bg,
+                width: u32::from(render_cols),
+                height: u32::from(render_rows),
+            ) {
+                #(vec![modal_el])
+            }
+        }
+    } else {
+        element! {
+            Box(
+                flex_direction: FlexDirection::Column,
+                background_color: root_rc.bg,
+                width: u32::from(render_cols),
+                height: u32::from(render_rows),
+            ) {
+                #(vec![screen_el])
+            }
         }
     }
 }

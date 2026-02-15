@@ -18,30 +18,34 @@ pub struct NewAgentFormProps {
 #[component]
 pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(props.colors.as_ref());
-
     let state = props.state.as_ref();
+
     let repo_name = state
         .and_then(AppState::current_repo)
-        .map_or("unknown".to_owned(), |r| r.name.clone());
+        .map_or("(none)".to_owned(), |r| r.name.clone());
 
-    let form_lines: Vec<(String, Color)> = vec![
-        ("".to_owned(), rc.fg),
-        (format!("  Repository:  [{}]", repo_name), rc.fg),
-        ("".to_owned(), rc.fg),
-        ("  Agent purpose:  [Fix issue #2010]".to_owned(), rc.fg),
-        ("".to_owned(), rc.fg),
-        ("  Prompt:".to_owned(), rc.fg),
-        ("    Fix issue #2010. The TLS certificate renewal handler".to_owned(), rc.dim),
-        ("    fails to properly restart the service after renewal.".to_owned(), rc.dim),
-        ("    Update the handler to gracefully restart nginx.".to_owned(), rc.dim),
-        ("".to_owned(), rc.fg),
-        ("  Work dir:  [~/worktrees/llxprt-code-2010]".to_owned(), rc.fg),
-        ("".to_owned(), rc.fg),
-        ("  Profile:  [default]      Model:  [claude-opus-4-6]".to_owned(), rc.fg),
-        ("".to_owned(), rc.fg),
-        ("  Mode:  (●) --yolo  ( ) interactive".to_owned(), rc.fg),
-        ("".to_owned(), rc.fg),
-    ];
+    let fields = state.map(|s| &s.new_agent_fields);
+    let focus = state.map_or(0, |s| s.new_agent_focus);
+
+    let labels = ["Purpose", "Work dir", "Model", "Profile", "Mode"];
+
+    let field_lines: Vec<AnyElement<'static>> = labels.iter().enumerate().map(|(i, label)| {
+        let value = fields
+            .and_then(|f| f.get(i))
+            .map_or(String::new(), |v| v.clone());
+        let is_focused = i == focus;
+        let display = if is_focused {
+            format!("  {:<12} [{}_]", label, value)
+        } else {
+            format!("  {:<12} [{}]", label, value)
+        };
+        let color = if is_focused { rc.bright } else { rc.fg };
+        element! {
+            Box(height: 1u32) {
+                Text(content: display, color: color)
+            }
+        }.into()
+    }).collect();
 
     element! {
         Box(
@@ -59,19 +63,19 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
                 padding: 1i32,
             ) {
                 Box(height: 1u32) {
-                    Text(content: " New Agent".to_owned(), color: rc.fg, weight: Weight::Bold)
+                    Text(content: format!(" New Agent  (repo: {})", repo_name), color: rc.fg, weight: Weight::Bold)
+                }
+                Box(height: 1u32) {
+                    Text(content: "".to_owned(), color: rc.fg)
                 }
 
-                #(form_lines.into_iter().map(|(line, color): (String, Color)| {
-                    element! {
-                        Box(height: 1u32) {
-                            Text(content: line, color: color)
-                        }
-                    }
-                }))
+                #(field_lines)
 
                 Box(height: 1u32) {
-                    Text(content: "  [Esc] Cancel   [Enter] Launch (toy - not functional)".to_owned(), color: rc.dim)
+                    Text(content: "".to_owned(), color: rc.fg)
+                }
+                Box(height: 1u32) {
+                    Text(content: "  Tab next field  Shift+Tab prev  Enter submit  Esc cancel".to_owned(), color: rc.dim)
                 }
             }
         }

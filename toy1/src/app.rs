@@ -49,6 +49,8 @@ pub enum ModalState {
     None,
     /// Confirmation dialog for killing an agent.
     ConfirmKill(usize),
+    /// Confirmation dialog for deleting a repository.
+    ConfirmDeleteRepo(usize),
     /// Help/keyboard shortcuts dialog.
     Help,
 }
@@ -101,12 +103,20 @@ pub struct AppState {
     pub terminal_focused: bool,
     /// Split mode state.
     pub split: SplitState,
+    /// Form fields for new agent dialog (purpose, work_dir, model, profile, mode).
+    pub new_agent_fields: Vec<String>,
+    /// Which field is focused in the new agent form (0-based).
+    pub new_agent_focus: usize,
+    /// Form fields for new repository dialog (name, base_dir, default_profile, default_model).
+    pub new_repository_fields: Vec<String>,
+    /// Which field is focused in the new repository form (0-based).
+    pub new_repository_focus: usize,
 }
 
 impl AppState {
     /// Creates a new `AppState` with the given repositories.
     #[must_use]
-    pub const fn new(repositories: Vec<Repository>) -> Self {
+    pub fn new(repositories: Vec<Repository>) -> Self {
         Self {
             repositories,
             selected_repo: 0,
@@ -124,6 +134,10 @@ impl AppState {
                 repo_filter: None,
                 repo_cursor: 0,
             },
+            new_agent_fields: vec![String::new(); 5],
+            new_agent_focus: 0,
+            new_repository_fields: vec![String::new(); 4],
+            new_repository_focus: 0,
         }
     }
 
@@ -257,6 +271,11 @@ impl AppState {
             AppEvent::ReturnToMainFocused => self.return_to_main_focused(),
             AppEvent::ToggleTerminalFocus => self.toggle_terminal_focus(),
             AppEvent::Char(c) => self.handle_char(c),
+            AppEvent::DeleteRepository => self.delete_current_repository(),
+            AppEvent::SubmitForm => self.submit_form(),
+            AppEvent::NextField => self.next_field(),
+            AppEvent::PrevField => self.prev_field(),
+            AppEvent::Backspace => self.handle_backspace(),
         }
     }
 
@@ -367,6 +386,12 @@ impl AppState {
     }
 
     fn handle_select(&mut self) {
+        // Handle modal confirmations first
+        if let ModalState::ConfirmDeleteRepo(idx) = self.modal {
+            self.confirm_delete_repository(idx);
+            return;
+        }
+        
         if self.screen == Screen::Split {
             match self.split.focus {
                 SplitFocus::Repos => {
@@ -442,7 +467,7 @@ impl AppState {
                 }
             }
             Screen::Dashboard => {
-                if self.modal != ModalState::None {
+                if matches!(self.modal, ModalState::ConfirmKill(_) | ModalState::ConfirmDeleteRepo(_) | ModalState::Help) {
                     self.modal = ModalState::None;
                 }
             }
@@ -450,10 +475,26 @@ impl AppState {
     }
 
     fn open_new_agent(&mut self) {
+        let repo_name = self.current_repo().map(|r| r.base_dir.clone()).unwrap_or_default();
+        self.new_agent_fields = vec![
+            String::new(),           // 0: purpose
+            repo_name,               // 1: work_dir (default to repo base_dir)
+            "claude-opus-4-6".into(),  // 2: model
+            "default".into(),        // 3: profile
+            "--yolo".into(),         // 4: mode
+        ];
+        self.new_agent_focus = 0;
         self.screen = Screen::NewAgent;
     }
 
     fn open_new_repository(&mut self) {
+        self.new_repository_fields = vec![
+            String::new(),           // 0: name
+            String::new(),           // 1: base_dir
+            "default".into(),        // 2: default_profile
+            "claude-opus-4-6".into(),  // 3: default_model
+        ];
+        self.new_repository_focus = 0;
         self.screen = Screen::NewRepository;
     }
 
@@ -482,7 +523,11 @@ impl AppState {
     }
 
     fn show_help(&mut self) {
-        self.modal = ModalState::Help;
+        if self.modal == ModalState::Help {
+            self.modal = ModalState::None;
+        } else {
+            self.modal = ModalState::Help;
+        }
     }
 
     fn focus_repository(&mut self) {
@@ -586,6 +631,14 @@ impl AppState {
     fn handle_char(&mut self, c: char) {
         if self.is_searching {
             self.search_query.push(c);
+        } else if self.screen == Screen::NewAgent {
+            if let Some(field) = self.new_agent_fields.get_mut(self.new_agent_focus) {
+                field.push(c);
+            }
+        } else if self.screen == Screen::NewRepository {
+            if let Some(field) = self.new_repository_fields.get_mut(self.new_repository_focus) {
+                field.push(c);
+            }
         }
     }
 
@@ -631,6 +684,144 @@ impl AppState {
         self.selected_repo = repo_idx;
         self.selected_agent = agent_idx;
         self.active_pane = ActivePane::AgentList;
+    }
+
+    fn next_field(&mut self) {
+        match self.screen {
+            Screen::NewAgent => {
+                self.new_agent_focus = (self.new_agent_focus + 1) % self.new_agent_fields.len();
+            }
+            Screen::NewRepository => {
+                self.new_repository_focus = (self.new_repository_focus + 1) % self.new_repository_fields.len();
+            }
+            _ => {}
+        }
+    }
+
+    fn prev_field(&mut self) {
+        match self.screen {
+            Screen::NewAgent => {
+                if self.new_agent_focus == 0 {
+                    self.new_agent_focus = self.new_agent_fields.len() - 1;
+                } else {
+                    self.new_agent_focus -= 1;
+                }
+            }
+            Screen::NewRepository => {
+                if self.new_repository_focus == 0 {
+                    self.new_repository_focus = self.new_repository_fields.len() - 1;
+                } else {
+                    self.new_repository_focus -= 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_backspace(&mut self) {
+        match self.screen {
+            Screen::NewAgent => {
+                if let Some(field) = self.new_agent_fields.get_mut(self.new_agent_focus) {
+                    field.pop();
+                }
+            }
+            Screen::NewRepository => {
+                if let Some(field) = self.new_repository_fields.get_mut(self.new_repository_focus) {
+                    field.pop();
+                }
+            }
+            _ => {
+                if self.is_searching {
+                    self.search_query.pop();
+                }
+            }
+        }
+    }
+
+    fn submit_form(&mut self) {
+        use crate::data::{Agent, AgentStatus};
+        
+        match self.screen {
+            Screen::NewAgent => {
+                let purpose = self.new_agent_fields.get(0).cloned().unwrap_or_default();
+                let work_dir = self.new_agent_fields.get(1).cloned().unwrap_or_default();
+                let model = self.new_agent_fields.get(2).cloned().unwrap_or_else(|| "claude-opus-4-6".into());
+                let profile = self.new_agent_fields.get(3).cloned().unwrap_or_else(|| "default".into());
+                let mode = self.new_agent_fields.get(4).cloned().unwrap_or_else(|| "--yolo".into());
+
+                if purpose.is_empty() {
+                    return; // Don't submit empty
+                }
+
+                let agent = Agent {
+                    id: uuid::Uuid::new_v4(),
+                    display_id: format!("#{}", self.agent_count() + 1),
+                    purpose,
+                    work_dir: if work_dir.is_empty() { "/tmp".into() } else { work_dir },
+                    model,
+                    profile,
+                    mode,
+                    status: AgentStatus::Running,
+                    started_at: Utc::now(),
+                    token_in: 0,
+                    token_out: 0,
+                    cost_usd: 0.0,
+                    todos: vec![],
+                    recent_output: vec![],
+                    elapsed_secs: 0,
+                };
+
+                if let Some(repo) = self.repositories.get_mut(self.selected_repo) {
+                    repo.agents.push(agent);
+                    self.selected_agent = repo.agents.len() - 1;
+                }
+                self.screen = Screen::Dashboard;
+            }
+            Screen::NewRepository => {
+                let name = self.new_repository_fields.get(0).cloned().unwrap_or_default();
+                let base_dir = self.new_repository_fields.get(1).cloned().unwrap_or_default();
+
+                if name.is_empty() {
+                    return; // Don't submit empty
+                }
+
+                let slug = name.to_lowercase().replace(' ', "-");
+                let repo = Repository {
+                    name: name.clone(),
+                    slug,
+                    base_dir: if base_dir.is_empty() { format!("/tmp/{}", name.to_lowercase().replace(' ', "-")) } else { base_dir },
+                    agents: vec![],
+                };
+
+                self.repositories.push(repo);
+                self.selected_repo = self.repositories.len() - 1;
+                self.selected_agent = 0;
+                self.screen = Screen::Dashboard;
+            }
+            _ => {}
+        }
+    }
+
+    fn delete_current_repository(&mut self) {
+        if self.repositories.is_empty() {
+            return;
+        }
+        // Show confirmation modal
+        self.modal = ModalState::ConfirmDeleteRepo(self.selected_repo);
+    }
+
+    fn confirm_delete_repository(&mut self, idx: usize) {
+        if idx < self.repositories.len() {
+            self.repositories.remove(idx);
+            if self.selected_repo >= self.repositories.len() && !self.repositories.is_empty() {
+                self.selected_repo = self.repositories.len() - 1;
+            }
+            if self.repositories.is_empty() {
+                self.selected_repo = 0;
+            }
+            self.selected_agent = 0;
+        }
+        self.modal = ModalState::None;
     }
 
 }
