@@ -5,9 +5,8 @@
 //! and event handling.
 
 use chrono::Utc;
-use uuid::Uuid;
 
-use crate::data::{Agent, AgentStatus, OutputKind, OutputLine, Repository, TodoItem, TodoStatus, ToolStatus};
+use crate::data::{Agent, AgentStatus, OutputKind, OutputLine, Repository};
 use crate::events::AppEvent;
 
 /// The currently active pane in the UI.
@@ -189,18 +188,29 @@ impl AppState {
         out
     }
 
-    /// Returns the flat (global) index of the currently selected agent
-    /// across all repositories. Used to index into the PTY session list.
+    /// Returns the flat (global) index of the currently selected agent,
+    /// or `None` if the selected repository has no selectable agent.
     #[must_use]
-    pub fn global_agent_index(&self) -> usize {
+    pub fn current_global_agent_index(&self) -> Option<usize> {
         let mut idx = 0;
         for (i, repo) in self.repositories.iter().enumerate() {
             if i == self.selected_repo {
-                return idx + self.selected_agent;
+                if self.selected_agent < repo.agents.len() {
+                    return Some(idx + self.selected_agent);
+                }
+                return None;
             }
             idx += repo.agents.len();
         }
-        idx
+        None
+    }
+
+    /// Returns the flat (global) index of the currently selected agent.
+    ///
+    /// Falls back to `0` when no agent is selectable.
+    #[must_use]
+    pub fn global_agent_index(&self) -> usize {
+        self.current_global_agent_index().unwrap_or(0)
     }
 
     /// Returns running agent positions filtered by the split-mode repo filter.
@@ -555,8 +565,6 @@ impl AppState {
                 tool_status: None,
             });
         }
-
-        self.add_mock_repository_on_relaunch();
     }
 
     fn return_to_main_focused(&mut self) {
@@ -625,40 +633,6 @@ impl AppState {
         self.active_pane = ActivePane::AgentList;
     }
 
-    fn add_mock_repository_on_relaunch(&mut self) {
-        let idx = self.repositories.len() + 1;
-        let name = format!("relaunched-repo-{idx}");
-        let slug = format!("relaunched-repo-{idx}");
-        self.repositories.push(Repository {
-            name,
-            slug,
-            base_dir: format!("/tmp/relaunched-repo-{idx}"),
-            agents: vec![Agent {
-                id: Uuid::new_v4(),
-                display_id: format!("#R{idx}"),
-                purpose: "Relaunch smoke task".to_owned(),
-                work_dir: format!("/tmp/relaunched-repo-{idx}/work"),
-                model: "claude-opus-4-6".to_owned(),
-                profile: "default".to_owned(),
-                mode: "--yolo".to_owned(),
-                status: AgentStatus::Queued,
-                started_at: Utc::now(),
-                token_in: 0,
-                token_out: 0,
-                cost_usd: 0.0,
-                todos: vec![TodoItem {
-                    content: "Warm boot relaunch task".to_owned(),
-                    status: TodoStatus::Pending,
-                }],
-                recent_output: vec![OutputLine {
-                    kind: OutputKind::Text,
-                    content: "Created by relaunch action".to_owned(),
-                    tool_status: Some(ToolStatus::Completed),
-                }],
-                elapsed_secs: 0,
-            }],
-        });
-    }
 }
 
 #[cfg(test)]
@@ -773,14 +747,11 @@ mod tests {
         let repositories = generate_mock_data();
         let mut state = AppState::new(repositories);
 
-        let initial_repo_count = state.repositories.len();
-
         state.handle_event(AppEvent::KillAgent);
         assert_eq!(state.current_agent().map(|a| a.status), Some(AgentStatus::Dead));
 
         state.handle_event(AppEvent::RelaunchAgent);
         assert_eq!(state.current_agent().map(|a| a.status), Some(AgentStatus::Running));
-        assert!(state.repositories.len() > initial_repo_count);
     }
 
     #[test]

@@ -196,7 +196,13 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
                 if term_focused {
                     if let Some(ref mgr) = pty_mgr_for_events {
-                        let idx = app_state.read().global_agent_index();
+                        let idx_opt = app_state.read().current_global_agent_index();
+                        let Some(idx) = idx_opt else {
+                            if mouse_debug {
+                                eprintln!("[mouse] focused=true no-active-agent");
+                            }
+                            return;
+                        };
 
                         let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
                         let (pty_rows, pty_cols, pane_col0, pane_row0) = compute_layout(cols, rows);
@@ -320,7 +326,13 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 // (F12 above is the only escape hatch.)
                 if term_focused {
                     if let Some(ref mgr) = pty_mgr_for_events {
-                        let idx = app_state.read().global_agent_index();
+                        let idx_opt = app_state.read().current_global_agent_index();
+                        let Some(idx) = idx_opt else {
+                            if key_debug {
+                                eprintln!("[key] drop-in-terminal (no-active-agent) code={:?}", key_event.code);
+                            }
+                            return;
+                        };
                         if let Some(bytes) = pty::key_event_to_bytes(&key_event) {
                             if key_debug {
                                 eprintln!("[key] forwarded-to-pty bytes={} code={:?}", bytes.len(), key_event.code);
@@ -396,9 +408,11 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         let mut state = app_state.write();
                         match evt {
                             AppEvent::KillAgent => {
-                                let idx = state.global_agent_index();
+                                let idx_opt = state.current_global_agent_index();
                                 if let Some(ref mgr) = pty_mgr_for_events {
-                                    mgr.kill_session(idx);
+                                    if let Some(idx) = idx_opt {
+                                        mgr.kill_session(idx);
+                                    }
                                 }
                                 state.handle_event(evt);
                                 state.terminal_focused = false;
@@ -408,9 +422,11 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                     .current_agent()
                                     .is_some_and(|a| a.status == AgentStatus::Dead);
                                 if should_relaunch {
-                                    let idx = state.global_agent_index();
+                                    let idx_opt = state.current_global_agent_index();
                                     if let Some(ref mgr) = pty_mgr_for_events {
-                                        let _ = mgr.relaunch_session(idx);
+                                        if let Some(idx) = idx_opt {
+                                            let _ = mgr.relaunch_session(idx);
+                                        }
                                     }
                                 }
                                 state.handle_event(evt);
@@ -509,14 +525,17 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
     // Read PTY terminal content for the active agent.
     let (terminal_lines, terminal_snapshot) = if let Some(ref mgr) = pty_mgr {
-        let idx = snapshot.global_agent_index();
-        let styled = mgr.terminal_snapshot(idx);
-        let lines = styled
-            .cells
-            .iter()
-            .map(|row| row.iter().map(|cell| cell.ch).collect())
-            .collect();
-        (lines, Some(styled))
+        if let Some(idx) = snapshot.current_global_agent_index() {
+            let styled = mgr.terminal_snapshot(idx);
+            let lines = styled
+                .cells
+                .iter()
+                .map(|row| row.iter().map(|cell| cell.ch).collect())
+                .collect();
+            (lines, Some(styled))
+        } else {
+            (vec!["(no active agent selected)".to_owned()], None)
+        }
     } else {
         (vec!["(no PTY manager)".to_owned()], None)
     };

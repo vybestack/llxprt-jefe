@@ -1,8 +1,11 @@
 //! PTY session management for embedded terminal views.
 //!
-//! Each agent gets a real PTY running a shell. The `PtyManager` spawns
-//! and owns all sessions; UI code reads screen content via `screen_lines()`
-//! and writes input via `write_input()`.
+//! Each agent gets its own **tmux session** (persistent backend terminal).
+//! The UI maintains a single attached PTY viewer and re-attaches it to the
+//! currently active agent's tmux session as selection changes.
+//!
+//! Rendering still uses `alacritty_terminal` for cell-accurate colors,
+//! selection, cursor, and mouse-mode detection.
 
 use alacritty_terminal::event::{Event as AlacrittyEvent, EventListener};
 use alacritty_terminal::grid::Dimensions;
@@ -11,7 +14,7 @@ use alacritty_terminal::term::{Config as AlacrittyConfig, Term, TermMode};
 use alacritty_terminal::vte::ansi;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
-use std::path::Path;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -140,8 +143,17 @@ impl TerminalSnapshot {
     }
 }
 
-/// One PTY session: a shell process with an Alacritty terminal model.
-struct PtySession {
+/// Stable identity for one agent-backed tmux session.
+#[derive(Clone, Debug)]
+struct AgentSession {
+    /// Original working directory for this agent.
+    work_dir: String,
+    /// tmux session name (`jefe-{idx}`).
+    tmux_session: String,
+}
+
+/// One attached PTY viewer running `tmux attach-session -t <session>`.
+struct AttachedViewer {
     /// PTY master handle, used for kernel-side resize.
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     /// Write end — send keystrokes here.
@@ -150,36 +162,88 @@ struct PtySession {
     killer: Arc<Mutex<Box<dyn portable_pty::ChildKiller + Send + Sync>>>,
     /// Alacritty terminal model.
     term: Arc<Mutex<Term<NullListener>>>,
-    /// Whether the child process/reader loop appears alive.
+    /// Whether the attached client/reader loop appears alive.
     alive: Arc<AtomicBool>,
-    /// Reader thread handle (kept alive so the thread isn't detached and lost).
-    _reader: thread::JoinHandle<()>,
+    /// Reader thread handle — joined on teardown so the old PTY is fully
+    /// closed before we spawn a replacement.
+    reader: Option<thread::JoinHandle<()>>,
 }
 
-/// Manages multiple PTY sessions, one per agent.
-/// Sessions that failed to spawn are stored as `None`.
+fn pty_debug() -> bool {
+    matches!(
+        std::env::var("JEFE_PTY_DEBUG").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE")
+    )
+}
+
+/// Manages one tmux session per agent plus one attached PTY viewer.
 pub struct PtyManager {
-    sessions: Vec<Mutex<Option<PtySession>>>,
-    /// Error messages for sessions that failed to start.
+    /// Per-agent tmux metadata.
+    sessions: Vec<AgentSession>,
+    /// Errors while creating tmux sessions (per agent slot).
     errors: Vec<Mutex<Option<String>>>,
-    /// Original working directory for each slot (used for relaunch).
-    work_dirs: Vec<String>,
     /// Last requested PTY rows.
     rows: Arc<Mutex<u16>>,
     /// Last requested PTY columns.
     cols: Arc<Mutex<u16>>,
     /// Default colors used when a PTY cell references logical palette values.
     color_defaults: Arc<Mutex<TerminalColorDefaults>>,
+    /// Currently attached viewer PTY.
+    attached: Mutex<Option<AttachedViewer>>,
+    /// Index of currently attached agent session.
+    attached_idx: Mutex<Option<usize>>,
 }
 
-/// Attempt to spawn a single shell PTY in the given working directory.
-fn try_spawn_session(
-    dir: &str,
+fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
+    let mut cmd = Command::new("tmux");
+    cmd.args(args);
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    let output = cmd
+        .output()
+        .map_err(|e| format!("failed to run tmux {:?}: {e}", args))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "tmux {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
+fn ensure_tmux_session(name: &str, dir: &str) -> Result<(), String> {
+    // Check if session exists.
+    let has_session = Command::new("tmux")
+        .args(["has-session", "-t", name])
+        .output()
+        .map_err(|e| format!("failed to run tmux has-session: {e}"))?;
+    if has_session.status.success() {
+        return Ok(());
+    }
+
+    // Create detached session in the target directory.
+    // Use user's shell as command so each agent has an immediately interactive terminal.
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
+    tmux_cmd_status(
+        ["new-session", "-d", "-s", name, "-c", dir, &shell].as_ref(),
+        None,
+    )
+}
+
+fn kill_tmux_session(name: &str) {
+    let _ = tmux_cmd_status(["kill-session", "-t", name].as_ref(), None);
+}
+
+/// Spawn a viewer PTY attached to a specific tmux session.
+fn spawn_attached_viewer(
+    tmux_session: &str,
     rows: u16,
     cols: u16,
-) -> Result<PtySession, String> {
+) -> Result<AttachedViewer, String> {
     let pty_system = native_pty_system();
-
     let size = PtySize {
         rows,
         cols,
@@ -191,18 +255,17 @@ fn try_spawn_session(
         .openpty(size)
         .map_err(|e| format!("openpty: {e}"))?;
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
-    let mut cmd = CommandBuilder::new(&shell);
-
-    let dir_path = Path::new(dir);
-    if dir_path.is_dir() {
-        cmd.cwd(dir_path);
-    }
+    let mut cmd = CommandBuilder::new("tmux");
+    cmd.arg("attach-session");
+    cmd.arg("-t");
+    cmd.arg(tmux_session);
+    // Force 256-color term to keep color behavior stable.
+    cmd.env("TERM", "xterm-256color");
 
     let child = pair
         .slave
         .spawn_command(cmd)
-        .map_err(|e| format!("spawn: {e}"))?;
+        .map_err(|e| format!("spawn tmux attach: {e}"))?;
     let killer: Box<dyn portable_pty::ChildKiller + Send + Sync> = child.clone_killer();
     drop(pair.slave);
 
@@ -235,12 +298,37 @@ fn try_spawn_session(
     let alive = Arc::new(AtomicBool::new(true));
     let alive_clone = Arc::clone(&alive);
 
+    let reader_debug = pty_debug();
+    let reader_session = tmux_session.to_string();
     let reader_handle = thread::spawn(move || {
         let mut buf = [0u8; 4096];
+        let mut total_bytes: u64 = 0;
+        let mut read_count: u64 = 0;
+        if reader_debug {
+            eprintln!("[pty] reader({reader_session}): started");
+        }
         loop {
             match reader.read(&mut buf) {
-                Ok(0) | Err(_) => break,
+                Ok(0) => {
+                    if reader_debug {
+                        eprintln!(
+                            "[pty] reader({reader_session}): EOF after {read_count} reads, \
+                             {total_bytes} bytes total"
+                        );
+                    }
+                    break;
+                }
+                Err(e) => {
+                    if reader_debug {
+                        eprintln!(
+                            "[pty] reader({reader_session}): error after {read_count} reads: {e}"
+                        );
+                    }
+                    break;
+                }
                 Ok(n) => {
+                    total_bytes += n as u64;
+                    read_count += 1;
                     if let (Ok(mut t), Ok(mut p)) = (term_clone.lock(), parser_clone.lock()) {
                         p.advance(&mut *t, &buf[..n]);
                     }
@@ -248,53 +336,199 @@ fn try_spawn_session(
             }
         }
         alive_clone.store(false, Ordering::Relaxed);
+        if reader_debug {
+            eprintln!("[pty] reader({reader_session}): exiting");
+        }
     });
 
-    Ok(PtySession {
+    Ok(AttachedViewer {
         master: Arc::new(Mutex::new(master)),
         writer: Arc::new(Mutex::new(writer)),
         killer: Arc::new(Mutex::new(killer)),
         term,
         alive,
-        _reader: reader_handle,
+        reader: Some(reader_handle),
     })
 }
 
 impl PtyManager {
-    /// Spawn shell sessions, one per working directory.
+    /// Spawn one tmux session per working directory, and attach viewer to slot 0.
     ///
-    /// Individual failures are captured — the app still starts even if
-    /// every PTY fails. Failed sessions show their error in the terminal pane.
+    /// Individual failures are captured — the app still starts even if some
+    /// tmux sessions fail to create.
     pub fn spawn(work_dirs: &[&str], rows: u16, cols: u16) -> Self {
+        let safe_rows = rows.max(2);
+        let safe_cols = cols.max(2);
+
         let mut sessions = Vec::with_capacity(work_dirs.len());
         let mut errors = Vec::with_capacity(work_dirs.len());
 
-        for dir in work_dirs {
-            match try_spawn_session(dir, rows, cols) {
-                Ok(session) => {
-                    sessions.push(Mutex::new(Some(session)));
+        for (idx, dir) in work_dirs.iter().enumerate() {
+            let name = format!("jefe-{idx}");
+            match ensure_tmux_session(&name, dir) {
+                Ok(()) => {
+                    sessions.push(AgentSession {
+                        work_dir: (*dir).to_owned(),
+                        tmux_session: name,
+                    });
                     errors.push(Mutex::new(None));
                 }
                 Err(e) => {
-                    sessions.push(Mutex::new(None));
-                    errors.push(Mutex::new(Some(format!("PTY failed for {dir}: {e}"))));
+                    sessions.push(AgentSession {
+                        work_dir: (*dir).to_owned(),
+                        tmux_session: name,
+                    });
+                    errors.push(Mutex::new(Some(format!("tmux failed for {dir}: {e}"))));
                 }
             }
         }
 
-        Self {
+        let manager = Self {
             sessions,
             errors,
-            work_dirs: work_dirs.iter().map(|s| (*s).to_owned()).collect(),
-            rows: Arc::new(Mutex::new(rows.max(2))),
-            cols: Arc::new(Mutex::new(cols.max(2))),
+            rows: Arc::new(Mutex::new(safe_rows)),
+            cols: Arc::new(Mutex::new(safe_cols)),
             color_defaults: Arc::new(Mutex::new(TerminalColorDefaults::GREEN_SCREEN)),
-        }
+            attached: Mutex::new(None),
+            attached_idx: Mutex::new(None),
+        };
+
+        // Attach to first slot so dashboard has immediate terminal output.
+        let _ = manager.ensure_attached(0);
+        manager
     }
 
-    /// Number of session slots (includes failed ones).
+    /// Number of agent slots.
     pub fn count(&self) -> usize {
         self.sessions.len()
+    }
+
+    /// Ensure the viewer PTY is attached to the given agent index.
+    ///
+    /// When switching sessions the old viewer is fully torn down — the child
+    /// process is killed **and** the reader thread is joined with a timeout —
+    /// before spawning the replacement.  This prevents the race where the tmux
+    /// server hasn't finished cleaning up the old client when the new
+    /// `attach-session` arrives, which caused blank/dead viewers on re-attach.
+    fn ensure_attached(&self, idx: usize) -> Result<(), String> {
+        let debug = pty_debug();
+
+        if idx >= self.sessions.len() {
+            return Err(format!("invalid PTY index: {idx}"));
+        }
+
+        // Fast path: already attached to requested slot and still alive.
+        let already_current = self
+            .attached_idx
+            .lock()
+            .ok()
+            .and_then(|g| *g)
+            .is_some_and(|current| current == idx);
+        if already_current {
+            let viewer_alive = self
+                .attached
+                .lock()
+                .ok()
+                .and_then(|g| g.as_ref().map(|viewer| viewer.alive.load(Ordering::Relaxed)))
+                .unwrap_or(false);
+            if viewer_alive {
+                return Ok(());
+            }
+            if debug {
+                eprintln!("[pty] ensure_attached({idx}): already current but dead, respawning");
+            }
+        }
+
+        // Tear down existing attached viewer.
+        //
+        // We extract the old viewer outside the lock, then:
+        //  1. Kill the child process (SIGKILL to `tmux attach-session`).
+        //  2. Join the reader thread (with timeout) so the old PTY fd is fully
+        //     closed and the tmux server has processed the client disconnect.
+        //  3. Only then clear `attached_idx`.
+        let old_viewer = self
+            .attached
+            .lock()
+            .ok()
+            .and_then(|mut g| g.take());
+
+        let prev_idx = self
+            .attached_idx
+            .lock()
+            .ok()
+            .and_then(|g| *g);
+
+        if let Some(mut existing) = old_viewer {
+            if debug {
+                eprintln!(
+                    "[pty] ensure_attached({idx}): tearing down viewer for prev={:?}",
+                    prev_idx,
+                );
+            }
+
+            // 1. Kill the child.
+            if let Ok(mut killer) = existing.killer.lock() {
+                let _ = killer.kill();
+            }
+            existing.alive.store(false, Ordering::Relaxed);
+
+            // 2. Join reader thread so the PTY master fd is closed and tmux
+            //    finishes its cleanup before we re-attach.
+            if let Some(handle) = existing.reader.take() {
+                // Use a bounded wait — if the reader hangs, don't block forever.
+                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+                loop {
+                    if handle.is_finished() {
+                        let _ = handle.join();
+                        break;
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        if debug {
+                            eprintln!("[pty] ensure_attached({idx}): reader join timed out");
+                        }
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+
+            // 3. Clear the index.
+            if let Ok(mut current_guard) = self.attached_idx.lock() {
+                *current_guard = None;
+            }
+        }
+
+        // Verify the target tmux session still exists before attaching.
+        let target = &self.sessions[idx].tmux_session;
+        let target_dir = &self.sessions[idx].work_dir;
+
+        if let Err(e) = ensure_tmux_session(target, target_dir) {
+            return Err(format!("session {target} gone and re-create failed: {e}"));
+        }
+
+        let rows = self.rows.lock().map_or(24, |r| *r).max(2);
+        let cols = self.cols.lock().map_or(80, |c| *c).max(2);
+
+        if debug {
+            eprintln!(
+                "[pty] ensure_attached({idx}): spawning viewer for {target} ({rows}x{cols})"
+            );
+        }
+
+        let viewer = spawn_attached_viewer(target, rows, cols)?;
+
+        if let Ok(mut attached_guard) = self.attached.lock() {
+            *attached_guard = Some(viewer);
+        }
+        if let Ok(mut current_guard) = self.attached_idx.lock() {
+            *current_guard = Some(idx);
+        }
+
+        if debug {
+            eprintln!("[pty] ensure_attached({idx}): attached OK");
+        }
+
+        Ok(())
     }
 
     /// Update fallback/default terminal colors for new render snapshots.
@@ -311,8 +545,11 @@ impl PtyManager {
             .map_or(TerminalColorDefaults::GREEN_SCREEN, |guard| *guard)
     }
 
-    /// Get a styled viewport snapshot for a session.
+    /// Get a styled viewport snapshot for the currently attached viewer.
+    ///
+    /// Passing `idx` may trigger an attach switch to that agent's tmux session.
     pub fn terminal_snapshot(&self, idx: usize) -> TerminalSnapshot {
+        let debug = pty_debug();
         let defaults = self.color_defaults();
         let base_style = TerminalCellStyle {
             fg: rgb_to_iocraft(defaults.fg),
@@ -324,25 +561,36 @@ impl PtyManager {
         if let Some(err_slot) = self.errors.get(idx) {
             if let Ok(err_guard) = err_slot.lock() {
                 if let Some(err) = err_guard.as_ref() {
+                    if debug {
+                        eprintln!("[pty] snapshot({idx}): stored error: {err}");
+                    }
                     return TerminalSnapshot::from_message(err, base_style);
                 }
             }
         }
 
-        let Some(slot) = self.sessions.get(idx) else {
-            return TerminalSnapshot::from_message("(no session)", base_style);
+        if let Err(e) = self.ensure_attached(idx) {
+            if debug {
+                eprintln!("[pty] snapshot({idx}): ensure_attached failed: {e}");
+            }
+            return TerminalSnapshot::from_message(&format!("(attach error) {e}"), base_style);
+        }
+
+        let Ok(guard) = self.attached.lock() else {
+            return TerminalSnapshot::from_message("(attach lock error)", base_style);
         };
 
-        let Ok(guard) = slot.lock() else {
-            return TerminalSnapshot::from_message("(session lock error)", base_style);
+        let Some(viewer) = guard.as_ref() else {
+            return TerminalSnapshot::from_message("(no attached viewer)", base_style);
         };
 
-        let Some(session) = guard.as_ref() else {
-            return TerminalSnapshot::from_message("(no session)", base_style);
-        };
+        let alive = viewer.alive.load(Ordering::Relaxed);
+        if debug && !alive {
+            eprintln!("[pty] snapshot({idx}): viewer alive=false after ensure_attached");
+        }
 
-        let Ok(term) = session.term.lock() else {
-            return TerminalSnapshot::from_message("(lock error)", base_style);
+        let Ok(term) = viewer.term.lock() else {
+            return TerminalSnapshot::from_message("(term lock error)", base_style);
         };
 
         snapshot_from_term(&term, defaults)
@@ -361,22 +609,26 @@ impl PtyManager {
             .collect()
     }
 
-    /// Write raw bytes to a session's PTY (input forwarding).
+    /// Write raw bytes to the currently attached viewer PTY.
+    ///
+    /// Passing `idx` may trigger an attach switch first.
     pub fn write_input(&self, idx: usize, data: &[u8]) {
-        if let Some(slot) = self.sessions.get(idx) {
-            if let Ok(guard) = slot.lock() {
-                if let Some(session) = guard.as_ref() {
-                    if let Ok(mut w) = session.writer.lock() {
-                        let _ = w.write_all(data);
-                        let _ = w.flush();
-                    }
+        if self.ensure_attached(idx).is_err() {
+            return;
+        }
+
+        if let Ok(guard) = self.attached.lock() {
+            if let Some(viewer) = guard.as_ref() {
+                if let Ok(mut w) = viewer.writer.lock() {
+                    let _ = w.write_all(data);
+                    let _ = w.flush();
                 }
             }
         }
     }
 
-    /// Resize a specific PTY session.
-    pub fn resize(&self, idx: usize, rows: u16, cols: u16) {
+    /// Resize the attached viewer PTY.
+    pub fn resize(&self, _idx: usize, rows: u16, cols: u16) {
         let safe_rows = rows.max(2);
         let safe_cols = cols.max(2);
 
@@ -387,46 +639,41 @@ impl PtyManager {
             *c = safe_cols;
         }
 
-        if let Some(slot) = self.sessions.get(idx) {
-            if let Ok(guard) = slot.lock() {
-                if let Some(session) = guard.as_ref() {
-                    if let Ok(master) = session.master.lock() {
-                        let _ = master.resize(PtySize {
-                            rows: safe_rows,
-                            cols: safe_cols,
-                            pixel_width: 0,
-                            pixel_height: 0,
-                        });
-                    }
+        if let Ok(guard) = self.attached.lock() {
+            if let Some(viewer) = guard.as_ref() {
+                if let Ok(master) = viewer.master.lock() {
+                    let _ = master.resize(PtySize {
+                        rows: safe_rows,
+                        cols: safe_cols,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    });
+                }
 
-                    if let Ok(mut term) = session.term.lock() {
-                        let dims = TermDimensions {
-                            cols: usize::from(safe_cols),
-                            rows: usize::from(safe_rows),
-                        };
-                        term.resize(dims);
-                    }
+                if let Ok(mut term) = viewer.term.lock() {
+                    let dims = TermDimensions {
+                        cols: usize::from(safe_cols),
+                        rows: usize::from(safe_rows),
+                    };
+                    term.resize(dims);
                 }
             }
         }
     }
 
-
-    /// Whether the child app has enabled terminal mouse reporting for this session.
+    /// Whether the attached child app has terminal mouse reporting enabled.
     pub fn mouse_reporting_active(&self, idx: usize) -> bool {
-        let Some(slot) = self.sessions.get(idx) else {
+        if self.ensure_attached(idx).is_err() {
+            return false;
+        }
+
+        let Ok(guard) = self.attached.lock() else {
             return false;
         };
-
-        let Ok(guard) = slot.lock() else {
+        let Some(viewer) = guard.as_ref() else {
             return false;
         };
-
-        let Some(session) = guard.as_ref() else {
-            return false;
-        };
-
-        let Ok(term) = session.term.lock() else {
+        let Ok(term) = viewer.term.lock() else {
             return false;
         };
 
@@ -436,63 +683,105 @@ impl PtyManager {
             || mode.contains(TermMode::UTF8_MOUSE)
     }
 
-    /// Resize all sessions to the same dimensions.
+    /// Resize viewer sessions to the same dimensions.
     pub fn resize_all(&self, rows: u16, cols: u16) {
-        for idx in 0..self.sessions.len() {
-            self.resize(idx, rows, cols);
-        }
+        self.resize(0, rows, cols);
     }
 
-    /// Returns whether the PTY session appears alive.
+    /// Returns whether the currently attached viewer appears alive for this index.
     pub fn is_alive(&self, idx: usize) -> bool {
-        self.sessions
-            .get(idx)
-            .and_then(|slot| slot.lock().ok())
-            .and_then(|guard| guard.as_ref().map(|session| session.alive.load(Ordering::Relaxed)))
+        let Ok(current_guard) = self.attached_idx.lock() else {
+            return false;
+        };
+        let Some(current_idx) = *current_guard else {
+            return false;
+        };
+        if current_idx != idx {
+            // Agent tmux session may still be alive; assume true for non-attached slots.
+            return idx < self.sessions.len();
+        }
+
+        let Ok(guard) = self.attached.lock() else {
+            return false;
+        };
+        guard
+            .as_ref()
+            .map(|viewer| viewer.alive.load(Ordering::Relaxed))
             .unwrap_or(false)
     }
 
-    /// Best-effort kill/close for a PTY session.
+    /// Kill the agent tmux session and attached viewer if targeting this slot.
     pub fn kill_session(&self, idx: usize) {
-        if let Some(slot) = self.sessions.get(idx) {
-            if let Ok(guard) = slot.lock() {
-                if let Some(session) = guard.as_ref() {
-                    if let Ok(mut killer) = session.killer.lock() {
-                        let _ = killer.kill();
-                    } else if let Ok(mut writer) = session.writer.lock() {
-                        let _ = writer.write_all(&[0x03]);
-                        let _ = writer.flush();
-                    }
-                    session.alive.store(false, Ordering::Relaxed);
+        let Some(agent) = self.sessions.get(idx) else {
+            return;
+        };
+
+        kill_tmux_session(&agent.tmux_session);
+
+        let is_current = self
+            .attached_idx
+            .lock()
+            .ok()
+            .and_then(|g| *g)
+            .is_some_and(|current| current == idx);
+
+        if is_current {
+            let old_viewer = self
+                .attached
+                .lock()
+                .ok()
+                .and_then(|mut g| g.take());
+
+            if let Some(mut viewer) = old_viewer {
+                if let Ok(mut killer) = viewer.killer.lock() {
+                    let _ = killer.kill();
                 }
+                viewer.alive.store(false, Ordering::Relaxed);
+                if let Some(handle) = viewer.reader.take() {
+                    let deadline = std::time::Instant::now()
+                        + std::time::Duration::from_millis(500);
+                    loop {
+                        if handle.is_finished() {
+                            let _ = handle.join();
+                            break;
+                        }
+                        if std::time::Instant::now() >= deadline {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                }
+            }
+            if let Ok(mut current_guard) = self.attached_idx.lock() {
+                *current_guard = None;
             }
         }
     }
 
-    /// Relaunch a PTY slot from its original working directory.
+    /// Relaunch a slot's tmux session from its original working directory.
     pub fn relaunch_session(&self, idx: usize) -> Result<(), String> {
-        let dir = self
-            .work_dirs
-            .get(idx)
-            .cloned()
-            .ok_or_else(|| format!("invalid PTY index: {idx}"))?;
-
-        let rows = self.rows.lock().map_or(24, |r| *r).max(2);
-        let cols = self.cols.lock().map_or(80, |c| *c).max(2);
-
-        let session = try_spawn_session(&dir, rows, cols)?;
-
-        let Some(slot) = self.sessions.get(idx) else {
-            return Err(format!("invalid PTY slot: {idx}"));
+        let Some(agent) = self.sessions.get(idx) else {
+            return Err(format!("invalid PTY index: {idx}"));
         };
-        if let Ok(mut guard) = slot.lock() {
-            *guard = Some(session);
-        }
+
+        kill_tmux_session(&agent.tmux_session);
+        ensure_tmux_session(&agent.tmux_session, &agent.work_dir)?;
 
         if let Some(err_slot) = self.errors.get(idx) {
             if let Ok(mut err_guard) = err_slot.lock() {
                 *err_guard = None;
             }
+        }
+
+        // If this session is currently attached, re-attach to pick up fresh tmux process.
+        let is_current = self
+            .attached_idx
+            .lock()
+            .ok()
+            .and_then(|g| *g)
+            .is_some_and(|current| current == idx);
+        if is_current {
+            self.ensure_attached(idx)?;
         }
 
         Ok(())
