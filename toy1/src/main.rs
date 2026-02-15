@@ -491,11 +491,14 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                     if let Some(ref mgr) = pty_mgr_for_events {
                                         if let Some(agent) = state.current_agent() {
                                             let work_dir = agent.work_dir.clone();
-                                            let idx = state.global_agent_index();
-                                            // Note: PtyManager doesn't have a dynamic add_session yet,
-                                            // so we just log it. The PTY for new agents would be added
-                                            // in a real implementation.
-                                            eprintln!("[form] new agent submitted: idx={} work_dir={}", idx, work_dir);
+                                            match mgr.add_session(&work_dir) {
+                                                Ok(idx) => {
+                                                    eprintln!("[form] new agent: pty session jefe-{idx} at {work_dir}");
+                                                }
+                                                Err(e) => {
+                                                    eprintln!("[form] failed to create pty session: {e}");
+                                                }
+                                            }
                                         }
                                     }
                                 }

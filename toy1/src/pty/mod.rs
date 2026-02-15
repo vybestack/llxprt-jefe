@@ -178,10 +178,10 @@ fn pty_debug() -> bool {
 
 /// Manages one tmux session per agent plus one attached PTY viewer.
 pub struct PtyManager {
-    /// Per-agent tmux metadata.
-    sessions: Vec<AgentSession>,
+    /// Per-agent tmux metadata (interior-mutable for dynamic add_session).
+    sessions: Mutex<Vec<AgentSession>>,
     /// Errors while creating tmux sessions (per agent slot).
-    errors: Vec<Mutex<Option<String>>>,
+    errors: Mutex<Vec<Mutex<Option<String>>>>,
     /// Last requested PTY rows.
     rows: Arc<Mutex<u16>>,
     /// Last requested PTY columns.
@@ -384,8 +384,8 @@ impl PtyManager {
         }
 
         let manager = Self {
-            sessions,
-            errors,
+            sessions: Mutex::new(sessions),
+            errors: Mutex::new(errors),
             rows: Arc::new(Mutex::new(safe_rows)),
             cols: Arc::new(Mutex::new(safe_cols)),
             color_defaults: Arc::new(Mutex::new(TerminalColorDefaults::GREEN_SCREEN)),
@@ -400,8 +400,33 @@ impl PtyManager {
 
     /// Number of agent slots.
     pub fn count(&self) -> usize {
-        self.sessions.len()
+        self.sessions.lock().unwrap().len()
     }
+
+    /// Dynamically add a new agent session at runtime.
+    /// Creates the tmux session and returns the new slot index.
+    pub fn add_session(&self, work_dir: &str) -> Result<usize, String> {
+        let mut sessions = self.sessions.lock().map_err(|_| "session lock poisoned".to_string())?;
+        let idx = sessions.len();
+        let name = format!("jefe-{idx}");
+        
+        ensure_tmux_session(&name, work_dir)?;
+        
+        sessions.push(AgentSession {
+            work_dir: work_dir.to_owned(),
+            tmux_session: name,
+        });
+        
+        let mut errors = self.errors.lock().map_err(|_| "errors lock poisoned".to_string())?;
+        errors.push(Mutex::new(None));
+        
+        if pty_debug() {
+            eprintln!("[pty] add_session({idx}): {work_dir}");
+        }
+        
+        Ok(idx)
+    }
+
 
     /// Ensure the viewer PTY is attached to the given agent index.
     ///
@@ -413,9 +438,11 @@ impl PtyManager {
     fn ensure_attached(&self, idx: usize) -> Result<(), String> {
         let debug = pty_debug();
 
-        if idx >= self.sessions.len() {
+        let sessions = self.sessions.lock().map_err(|_| "session lock poisoned".to_string())?;
+        if idx >= sessions.len() {
             return Err(format!("invalid PTY index: {idx}"));
         }
+        drop(sessions);
 
         // Fast path: already attached to requested slot and still alive.
         let already_current = self
@@ -499,10 +526,12 @@ impl PtyManager {
         }
 
         // Verify the target tmux session still exists before attaching.
-        let target = &self.sessions[idx].tmux_session;
-        let target_dir = &self.sessions[idx].work_dir;
+        let sessions = self.sessions.lock().map_err(|_| "session lock poisoned".to_string())?;
+        let target = sessions[idx].tmux_session.clone();
+        let target_dir = sessions[idx].work_dir.clone();
+        drop(sessions);
 
-        if let Err(e) = ensure_tmux_session(target, target_dir) {
+        if let Err(e) = ensure_tmux_session(&target, &target_dir) {
             return Err(format!("session {target} gone and re-create failed: {e}"));
         }
 
@@ -515,7 +544,7 @@ impl PtyManager {
             );
         }
 
-        let viewer = spawn_attached_viewer(target, rows, cols)?;
+        let viewer = spawn_attached_viewer(&target, rows, cols)?;
 
         if let Ok(mut attached_guard) = self.attached.lock() {
             *attached_guard = Some(viewer);
@@ -558,13 +587,16 @@ impl PtyManager {
             underline: false,
         };
 
-        if let Some(err_slot) = self.errors.get(idx) {
-            if let Ok(err_guard) = err_slot.lock() {
-                if let Some(err) = err_guard.as_ref() {
-                    if debug {
-                        eprintln!("[pty] snapshot({idx}): stored error: {err}");
+        let errors = self.errors.lock().ok();
+        if let Some(errors_guard) = errors {
+            if let Some(err_slot) = errors_guard.get(idx) {
+                if let Ok(err_guard) = err_slot.lock() {
+                    if let Some(err) = err_guard.as_ref() {
+                        if debug {
+                            eprintln!("[pty] snapshot({idx}): stored error: {err}");
+                        }
+                        return TerminalSnapshot::from_message(err, base_style);
                     }
-                    return TerminalSnapshot::from_message(err, base_style);
                 }
             }
         }
@@ -698,7 +730,7 @@ impl PtyManager {
         };
         if current_idx != idx {
             // Agent tmux session may still be alive; assume true for non-attached slots.
-            return idx < self.sessions.len();
+            return idx < self.sessions.lock().unwrap().len();
         }
 
         let Ok(guard) = self.attached.lock() else {
@@ -712,11 +744,15 @@ impl PtyManager {
 
     /// Kill the agent tmux session and attached viewer if targeting this slot.
     pub fn kill_session(&self, idx: usize) {
-        let Some(agent) = self.sessions.get(idx) else {
+        let sessions = self.sessions.lock().ok();
+        let agent = sessions.as_ref().and_then(|s| s.get(idx));
+        let Some(agent) = agent else {
             return;
         };
+        let tmux_session = agent.tmux_session.clone();
+        drop(sessions);
 
-        kill_tmux_session(&agent.tmux_session);
+        kill_tmux_session(&tmux_session);
 
         let is_current = self
             .attached_idx
@@ -760,16 +796,23 @@ impl PtyManager {
 
     /// Relaunch a slot's tmux session from its original working directory.
     pub fn relaunch_session(&self, idx: usize) -> Result<(), String> {
-        let Some(agent) = self.sessions.get(idx) else {
+        let sessions = self.sessions.lock().map_err(|_| "session lock poisoned".to_string())?;
+        let Some(agent) = sessions.get(idx) else {
             return Err(format!("invalid PTY index: {idx}"));
         };
+        let tmux_session = agent.tmux_session.clone();
+        let work_dir = agent.work_dir.clone();
+        drop(sessions);
 
-        kill_tmux_session(&agent.tmux_session);
-        ensure_tmux_session(&agent.tmux_session, &agent.work_dir)?;
+        kill_tmux_session(&tmux_session);
+        ensure_tmux_session(&tmux_session, &work_dir)?;
 
-        if let Some(err_slot) = self.errors.get(idx) {
-            if let Ok(mut err_guard) = err_slot.lock() {
-                *err_guard = None;
+        let errors = self.errors.lock().ok();
+        if let Some(errors_guard) = errors {
+            if let Some(err_slot) = errors_guard.get(idx) {
+                if let Ok(mut err_guard) = err_slot.lock() {
+                    *err_guard = None;
+                }
             }
         }
 

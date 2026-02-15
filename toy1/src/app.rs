@@ -118,6 +118,8 @@ pub struct AppState {
     pub new_agent_fields: Vec<String>,
     /// Which field is focused in the new agent form (0-based).
     pub new_agent_focus: usize,
+    /// Whether the work_dir field has been manually edited by the user.
+    pub new_agent_workdir_manual: bool,
     /// Form fields for new repository dialog (name, base_dir, default_profile, default_model).
     pub new_repository_fields: Vec<String>,
     /// Which field is focused in the new repository form (0-based).
@@ -147,6 +149,7 @@ impl AppState {
             },
             new_agent_fields: vec![String::new(); 4],
             new_agent_focus: 0,
+            new_agent_workdir_manual: false,
             new_repository_fields: vec![String::new(); 3],
             new_repository_focus: 0,
         }
@@ -526,15 +529,17 @@ impl AppState {
     }
 
     fn open_new_agent(&mut self) {
-        let default_profile = self.current_repo()
-            .map_or_else(|| "default".to_owned(), |r| r.default_profile.clone());
+        let repo = self.current_repo();
+        let default_profile = repo.map_or_else(|| "default".to_owned(), |r| r.default_profile.clone());
+        let repo_base = repo.map_or_else(|| "/tmp".to_owned(), |r| r.base_dir.clone());
         self.new_agent_fields = vec![
             String::new(),           // 0: purpose
-            String::new(),           // 1: work_dir (will be auto-populated on submit from purpose)
+            repo_base,               // 1: work_dir (starts as repo base, updates as you type purpose)
             default_profile,         // 2: profile (from repo)
             "--yolo".into(),         // 3: mode
         ];
         self.new_agent_focus = 0;
+        self.new_agent_workdir_manual = false;
         self.screen = Screen::NewAgent;
     }
 
@@ -557,6 +562,7 @@ impl AppState {
             agent.mode.clone(),
         ];
         self.new_agent_focus = 0;
+        self.new_agent_workdir_manual = true;
         self.screen = Screen::EditAgent;
     }
 
@@ -716,6 +722,27 @@ impl AppState {
         }
     }
 
+    fn update_agent_workdir_from_purpose(&mut self) {
+        let repo_base = self.current_repo()
+            .map_or_else(|| "/tmp".to_owned(), |r| r.base_dir.clone());
+        let purpose = self.new_agent_fields.get(0).map_or("", String::as_str);
+        let slug = purpose
+            .to_lowercase()
+            .replace(' ', "-")
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '/')
+            .collect::<String>();
+        let work_dir = if slug.is_empty() {
+            repo_base
+        } else {
+            format!("{}/{}", repo_base.trim_end_matches('/'), slug)
+        };
+        if let Some(field) = self.new_agent_fields.get_mut(1) {
+            *field = work_dir;
+        }
+    }
+
+
     fn handle_char(&mut self, c: char) {
         // Toggle delete_work_dir in ConfirmDeleteAgent modal with space or 'd'
         if matches!(self.modal, ModalState::ConfirmDeleteAgent { .. }) && (c == ' ' || c == 'd') {
@@ -728,6 +755,12 @@ impl AppState {
         } else if self.screen == Screen::NewAgent || self.screen == Screen::EditAgent {
             if let Some(field) = self.new_agent_fields.get_mut(self.new_agent_focus) {
                 field.push(c);
+            }
+            // Auto-update work_dir from purpose if not manually edited
+            if self.new_agent_focus == 0 && !self.new_agent_workdir_manual {
+                self.update_agent_workdir_from_purpose();
+            } else if self.new_agent_focus == 1 {
+                self.new_agent_workdir_manual = true;
             }
         } else if self.screen == Screen::NewRepository || self.screen == Screen::EditRepository {
             if let Some(field) = self.new_repository_fields.get_mut(self.new_repository_focus) {
@@ -817,6 +850,12 @@ impl AppState {
             Screen::NewAgent | Screen::EditAgent => {
                 if let Some(field) = self.new_agent_fields.get_mut(self.new_agent_focus) {
                     field.pop();
+                }
+                // Auto-update work_dir from purpose if not manually edited
+                if self.new_agent_focus == 0 && !self.new_agent_workdir_manual {
+                    self.update_agent_workdir_from_purpose();
+                } else if self.new_agent_focus == 1 {
+                    self.new_agent_workdir_manual = true;
                 }
             }
             Screen::NewRepository | Screen::EditRepository => {
