@@ -9,6 +9,21 @@ use chrono::Utc;
 use crate::data::{Agent, AgentStatus, OutputKind, OutputLine, Repository};
 use crate::events::AppEvent;
 
+/// Expand a leading `~` or `~/` to the user's home directory.
+fn expand_tilde(path: &str) -> String {
+    if path == "~" || path.starts_with("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            let home = home.to_string_lossy();
+            return if path == "~" {
+                home.into_owned()
+            } else {
+                format!("{}{}", home, &path[1..])
+            };
+        }
+    }
+    path.to_owned()
+}
+
 /// The currently active pane in the UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ActivePane {
@@ -725,6 +740,7 @@ impl AppState {
     fn update_agent_workdir_from_purpose(&mut self) {
         let repo_base = self.current_repo()
             .map_or_else(|| "/tmp".to_owned(), |r| r.base_dir.clone());
+        let repo_base = expand_tilde(&repo_base);
         let purpose = self.new_agent_fields.get(0).map_or("", String::as_str);
         let slug = purpose
             .to_lowercase()
@@ -890,11 +906,11 @@ impl AppState {
                     |r| r.base_dir.clone(),
                 );
 
-                let work_dir = if work_dir_input.is_empty() {
+                let work_dir = expand_tilde(&if work_dir_input.is_empty() {
                     crate::data::models::agent_work_dir(&repo_base, &purpose)
                 } else {
                     work_dir_input
-                };
+                });
 
                 // Create directory on disk
                 if let Err(e) = std::fs::create_dir_all(&work_dir) {
@@ -926,7 +942,7 @@ impl AppState {
             }
             Screen::EditAgent => {
                 let purpose = self.new_agent_fields.get(0).cloned().unwrap_or_default();
-                let work_dir = self.new_agent_fields.get(1).cloned().unwrap_or_default();
+                let work_dir = expand_tilde(&self.new_agent_fields.get(1).cloned().unwrap_or_default());
                 let profile = self.new_agent_fields.get(2).cloned().unwrap_or_else(|| "default".into());
                 let mode = self.new_agent_fields.get(3).cloned().unwrap_or_else(|| "--yolo".into());
 
@@ -962,11 +978,11 @@ impl AppState {
                 }
 
                 let slug = name.to_lowercase().replace(' ', "-");
-                let actual_base = if base_dir.is_empty() {
+                let actual_base = expand_tilde(&if base_dir.is_empty() {
                     format!("/tmp/{}", slug)
                 } else {
                     base_dir
-                };
+                });
 
                 // Create base dir on disk
                 if let Err(e) = std::fs::create_dir_all(&actual_base) {
