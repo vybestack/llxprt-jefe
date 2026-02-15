@@ -12,7 +12,6 @@ mod theme;
 mod ui;
 
 use app::{AppState, ModalState, Screen};
-use data::mock::generate_mock_data;
 use data::models::AgentStatus;
 use events::AppEvent;
 use iocraft::prelude::*;
@@ -143,7 +142,7 @@ fn to_rgb(hex: &str, fallback_r: u8, fallback_g: u8, fallback_b: u8) -> alacritt
 #[component]
 fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     let mut should_quit = hooks.use_state(|| false);
-    let mut app_state = hooks.use_state(|| AppState::new(generate_mock_data()));
+    let mut app_state = hooks.use_state(|| AppState::new(vec![]));
     let mut theme_mgr = hooks.use_state(ThemeManager::new);
     // Counter bumped to force re-render when PTY output arrives.
     let mut render_tick = hooks.use_state(|| 0u64);
@@ -753,20 +752,8 @@ fn main() {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let (pty_rows, pty_cols, _, _) = compute_layout(term_cols, term_rows);
 
-    // Build working dirs for each agent in mock data.
-    let seed_state = AppState::new(generate_mock_data());
-
-    // Collect actual agent work_dirs and ensure they exist on disk.
-    let work_dirs: Vec<String> = seed_state.repositories.iter()
-        .flat_map(|r| r.agents.iter())
-        .map(|a| {
-            let _ = std::fs::create_dir_all(&a.work_dir);
-            a.work_dir.clone()
-        })
-        .collect();
-    let work_dir_refs: Vec<&str> = work_dirs.iter().map(String::as_str).collect();
-
-    let pty_mgr = Arc::new(PtyManager::spawn(&work_dir_refs, pty_rows, pty_cols));
+    // Start with no agents — PtyManager gets an empty set.
+    let pty_mgr = Arc::new(PtyManager::spawn(&[], pty_rows, pty_cols));
 
     smol::block_on(async {
         let mut app = element!(App(

@@ -58,6 +58,32 @@ fn build_preview_lines(agent: &Agent, rc: &ResolvedColors) -> Vec<(String, Color
     lines
 }
 
+/// Static placeholder content for the preview pane when no agent is selected.
+/// Keeps the visual layout populated so the three-column look is preserved.
+fn build_placeholder_lines(rc: &ResolvedColors) -> Vec<(String, Color)> {
+    vec![
+        (" #1872 Fix ACP socket timeout".to_owned(), rc.dim),
+        ("  Status:  ● Running  00:42:17".to_owned(), rc.dim),
+        ("  Profile: default".to_owned(), rc.dim),
+        ("  Mode:    --yolo".to_owned(), rc.dim),
+        (String::new(), rc.dim),
+        ("  -- Todo --".to_owned(), rc.dim),
+        ("  [OK] Read issue description".to_owned(), rc.dim),
+        ("  [OK] Find relevant source files".to_owned(), rc.dim),
+        ("  ▸ Implement socket timeout".to_owned(), rc.dim),
+        ("  ○ Write tests".to_owned(), rc.dim),
+        ("  ○ Run CI checks".to_owned(), rc.dim),
+        (String::new(), rc.dim),
+        ("  -- Output --".to_owned(), rc.dim),
+        ("  Editing src/acp/socket.rs".to_owned(), rc.dim),
+        ("  Added timeout parameter to".to_owned(), rc.dim),
+        ("  connect() with default of".to_owned(), rc.dim),
+        ("  30 seconds...".to_owned(), rc.dim),
+        (String::new(), rc.dim),
+        ("  N new repo  n new agent".to_owned(), rc.dim),
+    ]
+}
+
 /// Right-side agent preview/detail pane.
 #[component]
 pub fn Preview(props: &PreviewProps) -> impl Into<AnyElement<'static>> {
@@ -67,7 +93,7 @@ pub fn Preview(props: &PreviewProps) -> impl Into<AnyElement<'static>> {
     let lines: Vec<(String, Color)> = if let Some(agent) = &props.agent {
         build_preview_lines(agent, &rc)
     } else {
-        vec![("  No agent selected".to_owned(), rc.dim)]
+        build_placeholder_lines(&rc)
     };
 
     element! {
