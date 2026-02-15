@@ -29,7 +29,7 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
     let fields = state.map(|s| &s.new_repository_fields);
     let focus = state.map_or(0, |s| s.new_repository_focus);
 
-    let labels = ["Name", "Base dir", "Profile", "Model"];
+    let labels = ["Name", "Base dir", "Profile"];
 
     let field_lines: Vec<AnyElement<'static>> = labels.iter().enumerate().map(|(i, label)| {
         let value = fields

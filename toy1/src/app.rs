@@ -53,6 +53,15 @@ pub enum ModalState {
     ConfirmKill(usize),
     /// Confirmation dialog for deleting a repository.
     ConfirmDeleteRepo(usize),
+    /// Confirmation dialog for deleting an agent.
+    ConfirmDeleteAgent {
+        /// Repository index.
+        repo_idx: usize,
+        /// Agent index within the repo.
+        agent_idx: usize,
+        /// Whether to also delete the working directory.
+        delete_work_dir: bool,
+    },
     /// Help/keyboard shortcuts dialog.
     Help,
 }
@@ -136,9 +145,9 @@ impl AppState {
                 repo_filter: None,
                 repo_cursor: 0,
             },
-            new_agent_fields: vec![String::new(); 5],
+            new_agent_fields: vec![String::new(); 4],
             new_agent_focus: 0,
-            new_repository_fields: vec![String::new(); 4],
+            new_repository_fields: vec![String::new(); 3],
             new_repository_focus: 0,
         }
     }
@@ -281,7 +290,19 @@ impl AppState {
         }
     }
 
+    fn toggle_delete_work_dir(&mut self) {
+        if let ModalState::ConfirmDeleteAgent { delete_work_dir, .. } = &mut self.modal {
+            *delete_work_dir = !*delete_work_dir;
+        }
+    }
+
     fn navigate_up(&mut self) {
+        // Toggle delete_work_dir in ConfirmDeleteAgent modal
+        if matches!(self.modal, ModalState::ConfirmDeleteAgent { .. }) {
+            self.toggle_delete_work_dir();
+            return;
+        }
+
         if self.screen == Screen::Split {
             match self.split.focus {
                 SplitFocus::Repos => {
@@ -325,6 +346,12 @@ impl AppState {
     }
 
     fn navigate_down(&mut self) {
+        // Toggle delete_work_dir in ConfirmDeleteAgent modal
+        if matches!(self.modal, ModalState::ConfirmDeleteAgent { .. }) {
+            self.toggle_delete_work_dir();
+            return;
+        }
+
         if self.screen == Screen::Split {
             match self.split.focus {
                 SplitFocus::Repos => {
@@ -391,6 +418,11 @@ impl AppState {
         // Handle modal confirmations first
         if let ModalState::ConfirmDeleteRepo(idx) = self.modal {
             self.confirm_delete_repository(idx);
+            return;
+        }
+
+        if let ModalState::ConfirmDeleteAgent { repo_idx, agent_idx, delete_work_dir } = self.modal {
+            self.confirm_delete_agent(repo_idx, agent_idx, delete_work_dir);
             return;
         }
         
@@ -486,7 +518,7 @@ impl AppState {
                 }
             }
             Screen::Dashboard => {
-                if matches!(self.modal, ModalState::ConfirmKill(_) | ModalState::ConfirmDeleteRepo(_) | ModalState::Help) {
+                if matches!(self.modal, ModalState::ConfirmKill(_) | ModalState::ConfirmDeleteRepo(_) | ModalState::ConfirmDeleteAgent { .. } | ModalState::Help) {
                     self.modal = ModalState::None;
                 }
             }
@@ -494,13 +526,13 @@ impl AppState {
     }
 
     fn open_new_agent(&mut self) {
-        let repo_name = self.current_repo().map(|r| r.base_dir.clone()).unwrap_or_default();
+        let default_profile = self.current_repo()
+            .map_or_else(|| "default".to_owned(), |r| r.default_profile.clone());
         self.new_agent_fields = vec![
             String::new(),           // 0: purpose
-            repo_name,               // 1: work_dir (default to repo base_dir)
-            "claude-opus-4-6".into(),  // 2: model
-            "default".into(),        // 3: profile
-            "--yolo".into(),         // 4: mode
+            String::new(),           // 1: work_dir (will be auto-populated on submit from purpose)
+            default_profile,         // 2: profile (from repo)
+            "--yolo".into(),         // 3: mode
         ];
         self.new_agent_focus = 0;
         self.screen = Screen::NewAgent;
@@ -511,7 +543,6 @@ impl AppState {
             String::new(),           // 0: name
             String::new(),           // 1: base_dir
             "default".into(),        // 2: default_profile
-            "claude-opus-4-6".into(),  // 3: default_model
         ];
         self.new_repository_focus = 0;
         self.screen = Screen::NewRepository;
@@ -522,7 +553,6 @@ impl AppState {
         self.new_agent_fields = vec![
             agent.purpose.clone(),
             agent.work_dir.clone(),
-            agent.model.clone(),
             agent.profile.clone(),
             agent.mode.clone(),
         ];
@@ -535,25 +565,39 @@ impl AppState {
         self.new_repository_fields = vec![
             repo.name.clone(),
             repo.base_dir.clone(),
-            "default".into(),  // profile (repos don't store this yet, use default)
-            "claude-opus-4-6".into(),  // model (repos don't store this yet, use default)
+            repo.default_profile.clone(),
         ];
         self.new_repository_focus = 0;
         self.screen = Screen::EditRepository;
     }
 
     fn delete_current_agent(&mut self) {
-        if let Some(repo) = self.repositories.get_mut(self.selected_repo) {
+        if let Some(repo) = self.repositories.get(self.selected_repo) {
             if self.selected_agent < repo.agents.len() {
-                repo.agents.remove(self.selected_agent);
-                if self.selected_agent > 0 {
-                    self.selected_agent -= 1;
+                self.modal = ModalState::ConfirmDeleteAgent {
+                    repo_idx: self.selected_repo,
+                    agent_idx: self.selected_agent,
+                    delete_work_dir: true,
+                };
+            }
+        }
+    }
+
+    fn confirm_delete_agent(&mut self, repo_idx: usize, agent_idx: usize, delete_work_dir: bool) {
+        if let Some(repo) = self.repositories.get_mut(repo_idx) {
+            if agent_idx < repo.agents.len() {
+                let agent = repo.agents.remove(agent_idx);
+                if delete_work_dir {
+                    if let Err(e) = std::fs::remove_dir_all(&agent.work_dir) {
+                        eprintln!("Warning: failed to remove work dir {}: {}", agent.work_dir, e);
+                    }
                 }
-                if self.selected_agent >= repo.agents.len() && !repo.agents.is_empty() {
-                    self.selected_agent = repo.agents.len() - 1;
+                if self.selected_agent > 0 && self.selected_agent >= repo.agents.len() {
+                    self.selected_agent = repo.agents.len().saturating_sub(1);
                 }
             }
         }
+        self.modal = ModalState::None;
     }
 
     fn toggle_search(&mut self) {
@@ -673,6 +717,12 @@ impl AppState {
     }
 
     fn handle_char(&mut self, c: char) {
+        // Toggle delete_work_dir in ConfirmDeleteAgent modal with space or 'd'
+        if matches!(self.modal, ModalState::ConfirmDeleteAgent { .. }) && (c == ' ' || c == 'd') {
+            self.toggle_delete_work_dir();
+            return;
+        }
+
         if self.is_searching {
             self.search_query.push(c);
         } else if self.screen == Screen::NewAgent || self.screen == Screen::EditAgent {
@@ -788,21 +838,35 @@ impl AppState {
         match self.screen {
             Screen::NewAgent => {
                 let purpose = self.new_agent_fields.get(0).cloned().unwrap_or_default();
-                let work_dir = self.new_agent_fields.get(1).cloned().unwrap_or_default();
-                let model = self.new_agent_fields.get(2).cloned().unwrap_or_else(|| "claude-opus-4-6".into());
-                let profile = self.new_agent_fields.get(3).cloned().unwrap_or_else(|| "default".into());
-                let mode = self.new_agent_fields.get(4).cloned().unwrap_or_else(|| "--yolo".into());
+                let work_dir_input = self.new_agent_fields.get(1).cloned().unwrap_or_default();
+                let profile = self.new_agent_fields.get(2).cloned().unwrap_or_else(|| "default".into());
+                let mode = self.new_agent_fields.get(3).cloned().unwrap_or_else(|| "--yolo".into());
 
                 if purpose.is_empty() {
                     return; // Don't submit empty
+                }
+
+                let repo_base = self.current_repo().map_or_else(
+                    || "/tmp".to_owned(),
+                    |r| r.base_dir.clone(),
+                );
+
+                let work_dir = if work_dir_input.is_empty() {
+                    crate::data::models::agent_work_dir(&repo_base, &purpose)
+                } else {
+                    work_dir_input
+                };
+
+                // Create directory on disk
+                if let Err(e) = std::fs::create_dir_all(&work_dir) {
+                    eprintln!("Warning: failed to create work dir {}: {}", work_dir, e);
                 }
 
                 let agent = Agent {
                     id: uuid::Uuid::new_v4(),
                     display_id: format!("#{}", self.agent_count() + 1),
                     purpose,
-                    work_dir: if work_dir.is_empty() { "/tmp".into() } else { work_dir },
-                    model,
+                    work_dir,
                     profile,
                     mode,
                     status: AgentStatus::Running,
@@ -824,9 +888,8 @@ impl AppState {
             Screen::EditAgent => {
                 let purpose = self.new_agent_fields.get(0).cloned().unwrap_or_default();
                 let work_dir = self.new_agent_fields.get(1).cloned().unwrap_or_default();
-                let model = self.new_agent_fields.get(2).cloned().unwrap_or_else(|| "claude-opus-4-6".into());
-                let profile = self.new_agent_fields.get(3).cloned().unwrap_or_else(|| "default".into());
-                let mode = self.new_agent_fields.get(4).cloned().unwrap_or_else(|| "--yolo".into());
+                let profile = self.new_agent_fields.get(2).cloned().unwrap_or_else(|| "default".into());
+                let mode = self.new_agent_fields.get(3).cloned().unwrap_or_else(|| "--yolo".into());
 
                 if purpose.is_empty() {
                     return;
@@ -835,8 +898,15 @@ impl AppState {
                 if let Some(repo) = self.repositories.get_mut(self.selected_repo) {
                     if let Some(agent) = repo.agents.get_mut(self.selected_agent) {
                         agent.purpose = purpose;
-                        agent.work_dir = if work_dir.is_empty() { agent.work_dir.clone() } else { work_dir };
-                        agent.model = model;
+                        if !work_dir.is_empty() {
+                            // Create new dir if it changed
+                            if work_dir != agent.work_dir {
+                                if let Err(e) = std::fs::create_dir_all(&work_dir) {
+                                    eprintln!("Warning: failed to create work dir {}: {}", work_dir, e);
+                                }
+                            }
+                            agent.work_dir = work_dir;
+                        }
                         agent.profile = profile;
                         agent.mode = mode;
                     }
@@ -846,16 +916,29 @@ impl AppState {
             Screen::NewRepository => {
                 let name = self.new_repository_fields.get(0).cloned().unwrap_or_default();
                 let base_dir = self.new_repository_fields.get(1).cloned().unwrap_or_default();
+                let default_profile = self.new_repository_fields.get(2).cloned().unwrap_or_else(|| "default".into());
 
                 if name.is_empty() {
                     return; // Don't submit empty
                 }
 
                 let slug = name.to_lowercase().replace(' ', "-");
+                let actual_base = if base_dir.is_empty() {
+                    format!("/tmp/{}", slug)
+                } else {
+                    base_dir
+                };
+
+                // Create base dir on disk
+                if let Err(e) = std::fs::create_dir_all(&actual_base) {
+                    eprintln!("Warning: failed to create base dir {}: {}", actual_base, e);
+                }
+
                 let repo = Repository {
                     name: name.clone(),
                     slug,
-                    base_dir: if base_dir.is_empty() { format!("/tmp/{}", name.to_lowercase().replace(' ', "-")) } else { base_dir },
+                    base_dir: actual_base,
+                    default_profile,
                     agents: vec![],
                 };
 
@@ -867,6 +950,7 @@ impl AppState {
             Screen::EditRepository => {
                 let name = self.new_repository_fields.get(0).cloned().unwrap_or_default();
                 let base_dir = self.new_repository_fields.get(1).cloned().unwrap_or_default();
+                let default_profile = self.new_repository_fields.get(2).cloned().unwrap_or_else(|| "default".into());
 
                 if name.is_empty() {
                     return;
@@ -875,6 +959,7 @@ impl AppState {
                 if let Some(repo) = self.repositories.get_mut(self.selected_repo) {
                     repo.name = name.clone();
                     repo.slug = name.to_lowercase().replace(' ', "-");
+                    repo.default_profile = default_profile;
                     if !base_dir.is_empty() {
                         repo.base_dir = base_dir;
                     }
@@ -1035,6 +1120,9 @@ mod tests {
 
         let initial_count = state.current_repo().map(|r| r.agents.len()).unwrap_or(0);
         state.handle_event(AppEvent::DeleteAgent);
+        // Now the modal is shown, need to confirm
+        assert!(matches!(state.modal, ModalState::ConfirmDeleteAgent { .. }));
+        state.handle_event(AppEvent::Select);
         let final_count = state.current_repo().map(|r| r.agents.len()).unwrap_or(0);
 
         assert_eq!(final_count, initial_count - 1);

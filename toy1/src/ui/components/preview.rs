@@ -35,8 +35,8 @@ fn build_preview_lines(agent: &Agent, rc: &ResolvedColors) -> Vec<(String, Color
         rc.fg,
     ));
 
-    lines.push((format!("  Model:   {}", agent.model), rc.fg));
-    lines.push((format!("  Profile: {}", agent.profile), rc.dim));
+    lines.push((format!("  Profile: {}", agent.profile), rc.fg));
+    lines.push((format!("  Mode:    {}", agent.mode), rc.dim));
 
     lines.push(("  -- Todo --".to_owned(), rc.fg));
     for todo in &agent.todos {

@@ -574,7 +574,8 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     let show_help = state_ref.modal == ModalState::Help;
     let show_confirm_kill = matches!(state_ref.modal, ModalState::ConfirmKill(_));
     let show_confirm_delete_repo = matches!(state_ref.modal, ModalState::ConfirmDeleteRepo(_));
-    let show_confirm = show_confirm_kill || show_confirm_delete_repo;
+    let show_confirm_delete_agent = matches!(state_ref.modal, ModalState::ConfirmDeleteAgent { .. });
+    let show_confirm = show_confirm_kill || show_confirm_delete_repo || show_confirm_delete_agent;
     
     let (confirm_msg, confirm_title) = match &state_ref.modal {
         ModalState::ConfirmKill(idx) => {
@@ -591,6 +592,25 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 .map_or("Delete this repository?".to_owned(), |r| 
                     format!("Delete repository '{}' and all its agents?", r.name));
             (msg, "Delete Repository".to_owned())
+        }
+        ModalState::ConfirmDeleteAgent { repo_idx, agent_idx, delete_work_dir } => {
+            let msg = state_ref.repositories.get(*repo_idx)
+                .and_then(|r| r.agents.get(*agent_idx))
+                .map_or("Delete agent?".to_owned(), |a| {
+                    let work_dir_msg = if *delete_work_dir {
+                        format!("
+
+  [x] Also delete working directory:
+      {}", a.work_dir)
+                    } else {
+                        format!("
+
+  [ ] Also delete working directory:
+      {}", a.work_dir)
+                    };
+                    format!("Delete agent {} {}?{}", a.display_id, a.purpose, work_dir_msg)
+                });
+            (msg, "Delete Agent".to_owned())
         }
         _ => (String::new(), String::new()),
     };
@@ -735,15 +755,13 @@ fn main() {
 
     // Build working dirs for each agent in mock data.
     let seed_state = AppState::new(generate_mock_data());
-    let total_agents = seed_state.agent_count();
 
-    let exe_dir = std::env::current_dir().unwrap_or_default();
-    let work_dirs: Vec<String> = (1..=total_agents)
-        .map(|i| {
-            let dir = exe_dir.join(format!("tmp/working-{i}"));
-            // Ensure dir exists.
-            let _ = std::fs::create_dir_all(&dir);
-            dir.to_string_lossy().to_string()
+    // Collect actual agent work_dirs and ensure they exist on disk.
+    let work_dirs: Vec<String> = seed_state.repositories.iter()
+        .flat_map(|r| r.agents.iter())
+        .map(|a| {
+            let _ = std::fs::create_dir_all(&a.work_dir);
+            a.work_dir.clone()
         })
         .collect();
     let work_dir_refs: Vec<&str> = work_dirs.iter().map(String::as_str).collect();

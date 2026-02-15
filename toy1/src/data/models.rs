@@ -57,8 +57,6 @@ pub struct Agent {
     pub purpose: String,
     /// Working directory for this agent.
     pub work_dir: String,
-    /// The AI model being used (e.g., "claude-opus-4-6").
-    pub model: String,
     /// The profile configuration (e.g., "default").
     pub profile: String,
     /// The execution mode (e.g., "--yolo").
@@ -121,8 +119,22 @@ pub struct Repository {
     pub slug: String,
     /// Base directory path for this repository.
     pub base_dir: String,
+    /// Default llxprt-code profile for new agents in this repo.
+    pub default_profile: String,
     /// All agents working on this repository.
     pub agents: Vec<Agent>,
+}
+
+/// Derive a working directory from a repo base dir and agent purpose.
+/// Lowercases, replaces spaces with dashes, strips non-alphanumeric chars except dash.
+pub fn agent_work_dir(repo_base_dir: &str, purpose: &str) -> String {
+    let slug = purpose
+        .to_lowercase()
+        .replace(' ', "-")
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '/')
+        .collect::<String>();
+    format!("{}/{}", repo_base_dir.trim_end_matches('/'), slug)
 }
 
 #[cfg(test)]
@@ -191,9 +203,26 @@ mod tests {
             name: "test-repository".to_string(),
             slug: "test-repository".to_string(),
             base_dir: "/home/user/test-repository".to_string(),
+            default_profile: "default".to_string(),
             agents: vec![],
         };
         assert_eq!(repository.name, "test-repository");
         assert_eq!(repository.agents.len(), 0);
+    }
+
+    #[test]
+    fn test_agent_work_dir() {
+        assert_eq!(
+            agent_work_dir("/Users/acoliver/projects/llxprt-code", "Fix ACP socket timeout"),
+            "/Users/acoliver/projects/llxprt-code/fix-acp-socket-timeout"
+        );
+        assert_eq!(
+            agent_work_dir("/tmp/repo/", "Add retry on 429"),
+            "/tmp/repo/add-retry-on-429"
+        );
+        assert_eq!(
+            agent_work_dir("/base", "Test@#$%Special!!Chars"),
+            "/base/testspecialchars"
+        );
     }
 }
