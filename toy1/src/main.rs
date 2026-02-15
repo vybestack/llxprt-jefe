@@ -337,8 +337,26 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         _ => None,
                     };
                     if let Some(evt) = app_event {
+                        let is_submit = evt == AppEvent::SubmitForm;
                         let mut state = app_state.write();
+                        let screen_before = state.screen;
                         state.handle_event(evt);
+                        // When a new agent form submits, create its PTY session.
+                        if is_submit && screen_before == Screen::NewAgent && state.screen == Screen::Dashboard {
+                            if let Some(ref mgr) = pty_mgr_for_events {
+                                if let Some(agent) = state.current_agent() {
+                                    let work_dir = agent.work_dir.clone();
+                                    match mgr.add_session(&work_dir) {
+                                        Ok(idx) => {
+                                            eprintln!("[form] new agent: pty session jefe-{idx} at {work_dir}");
+                                        }
+                                        Err(e) => {
+                                            eprintln!("[form] failed to create pty session: {e}");
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     return;  // Don't fall through to normal keybindings
                 }
