@@ -29,9 +29,9 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
     };
 
     let header = if props.focused {
-        " Terminal (F12 to detach) ".to_owned()
+        " Terminal (F12 to unfocus) ".to_owned()
     } else {
-        " Terminal (F12 to attach) ".to_owned()
+        " Terminal (F12 to focus) ".to_owned()
     };
 
     let fallback_snapshot = {

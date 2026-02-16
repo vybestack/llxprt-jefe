@@ -34,24 +34,47 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     let focus = state.map_or(0, |s| s.new_agent_focus);
 
     let labels = ["Name", "Description", "Work dir", "Profile", "Mode"];
+    let pass_continue = state.map_or(true, |s| s.new_agent_pass_continue);
 
-    let field_lines: Vec<AnyElement<'static>> = labels.iter().enumerate().map(|(i, label)| {
-        let value = fields
-            .and_then(|f| f.get(i))
-            .map_or(String::new(), |v| v.clone());
-        let is_focused = i == focus;
-        let display = if is_focused {
-            format!("  {:<12} [{}_]", label, value)
-        } else {
-            format!("  {:<12} [{}]", label, value)
-        };
-        let color = if is_focused { rc.bright } else { rc.fg };
+    let mut field_lines: Vec<AnyElement<'static>> = labels
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            let value = fields
+                .and_then(|f| f.get(i))
+                .map_or(String::new(), |v| v.clone());
+            let is_focused = i == focus;
+            let display = if is_focused {
+                format!("  {:<16} [{}_]", label, value)
+            } else {
+                format!("  {:<16} [{}]", label, value)
+            };
+            let color = if is_focused { rc.bright } else { rc.fg };
+            element! {
+                Box(height: 1u32) {
+                    Text(content: display, color: color)
+                }
+            }
+            .into()
+        })
+        .collect();
+
+    let continue_focused = focus == 5;
+    let continue_mark = if pass_continue { "x" } else { " " };
+    let continue_color = if continue_focused { rc.bright } else { rc.fg };
+    let continue_line = format!(
+        "  {:<16} [{}]  (space toggles)",
+        "Pass --continue",
+        continue_mark,
+    );
+    field_lines.push(
         element! {
             Box(height: 1u32) {
-                Text(content: display, color: color)
+                Text(content: continue_line, color: continue_color)
             }
-        }.into()
-    }).collect();
+        }
+        .into(),
+    );
 
     element! {
         Box(
@@ -81,7 +104,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
                     Text(content: "".to_owned(), color: rc.fg)
                 }
                 Box(height: 1u32) {
-                    Text(content: "  Tab next field  Shift+Tab prev  Enter submit  Esc cancel".to_owned(), color: rc.dim)
+                    Text(content: "  Tab/Down next  Shift+Tab/Up prev  Space toggle checkbox  Enter submit  Esc cancel".to_owned(), color: rc.dim)
                 }
             }
         }

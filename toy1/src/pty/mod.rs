@@ -148,6 +148,10 @@ impl TerminalSnapshot {
 struct AgentSession {
     /// Original working directory for this agent.
     work_dir: String,
+    /// Profile passed to `llxprt --profile-load` (empty means llxprt default profile resolution).
+    profile: String,
+    /// Optional mode flag (for example `--yolo`).
+    mode: String,
     /// tmux session name (`jefe-{idx}`).
     tmux_session: String,
 }
@@ -214,7 +218,7 @@ fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
     }
 }
 
-fn ensure_tmux_session(name: &str, dir: &str) -> Result<(), String> {
+fn ensure_tmux_session(name: &str, dir: &str, profile: &str, mode: &str) -> Result<(), String> {
     // Check if session exists.
     let has_session = Command::new("tmux")
         .args(["has-session", "-t", name])
@@ -224,17 +228,63 @@ fn ensure_tmux_session(name: &str, dir: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    // Create detached session in the target directory.
-    // Use user's shell as command so each agent has an immediately interactive terminal.
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
-    tmux_cmd_status(
-        ["new-session", "-d", "-s", name, "-c", dir, &shell].as_ref(),
-        None,
-    )
+    // Create detached session running llxprt directly.
+    //
+    // Critical behavior: when llxprt exits, the process exits (no fallback shell),
+    // so this tmux session naturally becomes "dead" until explicit relaunch.
+    //
+    // If tmux server gets into a fork-broken state (seen as:
+    //   "create window failed: fork failed: Device not configured"
+    //), reset the server once and retry exactly once.
+    for attempt in 0..=1 {
+        let mut cmd = Command::new("tmux");
+        cmd.arg("new-session")
+            .arg("-d")
+            .arg("-s")
+            .arg(name)
+            .arg("-c")
+            .arg(dir)
+            .arg("llxprt");
+
+        if !profile.trim().is_empty() {
+            cmd.arg("--profile-load").arg(profile.trim());
+        }
+
+        for flag in mode.split_whitespace() {
+            cmd.arg(flag);
+        }
+
+        let output = cmd
+            .output()
+            .map_err(|e| format!("failed to run tmux new-session: {e}"))?;
+
+        if output.status.success() {
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let fork_broken = stderr.contains("fork failed") || stderr.contains("Device not configured");
+
+        if attempt == 0 && fork_broken {
+            if pty_debug() {
+                eprintln!("[pty] tmux new-session fork failure; resetting tmux server and retrying once");
+            }
+            reset_tmux_server();
+            continue;
+        }
+
+        return Err(format!("tmux new-session failed: {stderr}"));
+    }
+
+    Err("tmux new-session failed after retry".to_string())
 }
 
 fn kill_tmux_session(name: &str) {
     let _ = tmux_cmd_status(["kill-session", "-t", name].as_ref(), None);
+}
+
+fn reset_tmux_server() {
+    let _ = tmux_cmd_status(["kill-server"].as_ref(), None);
 }
 
 /// Spawn a viewer PTY attached to a specific tmux session.
@@ -365,10 +415,14 @@ impl PtyManager {
 
         for (idx, dir) in work_dirs.iter().enumerate() {
             let name = format!("jefe-{idx}");
-            match ensure_tmux_session(&name, dir) {
+            let profile = String::new();
+            let mode = "--yolo".to_owned();
+            match ensure_tmux_session(&name, dir, &profile, &mode) {
                 Ok(()) => {
                     sessions.push(AgentSession {
                         work_dir: (*dir).to_owned(),
+                        profile,
+                        mode,
                         tmux_session: name,
                     });
                     errors.push(Mutex::new(None));
@@ -376,6 +430,8 @@ impl PtyManager {
                 Err(e) => {
                     sessions.push(AgentSession {
                         work_dir: (*dir).to_owned(),
+                        profile,
+                        mode,
                         tmux_session: name,
                     });
                     errors.push(Mutex::new(Some(format!("tmux failed for {dir}: {e}"))));
@@ -405,25 +461,34 @@ impl PtyManager {
 
     /// Dynamically add a new agent session at runtime.
     /// Creates the tmux session and returns the new slot index.
-    pub fn add_session(&self, work_dir: &str) -> Result<usize, String> {
+    pub fn add_session(&self, work_dir: &str, profile: &str, mode: &str) -> Result<usize, String> {
         let mut sessions = self.sessions.lock().map_err(|_| "session lock poisoned".to_string())?;
         let idx = sessions.len();
         let name = format!("jefe-{idx}");
-        
-        ensure_tmux_session(&name, work_dir)?;
-        
+
+        let normalized_profile = profile.trim().to_owned();
+        let normalized_mode = mode.trim().to_owned();
+
+        // Guard against stale sessions from prior runs/configs (for example old
+        // shell-backed sessions). A freshly added agent must always start with
+        // the current llxprt launch command.
+        kill_tmux_session(&name);
+        ensure_tmux_session(&name, work_dir, &normalized_profile, &normalized_mode)?;
+
         sessions.push(AgentSession {
             work_dir: work_dir.to_owned(),
+            profile: normalized_profile,
+            mode: normalized_mode,
             tmux_session: name,
         });
-        
+
         let mut errors = self.errors.lock().map_err(|_| "errors lock poisoned".to_string())?;
         errors.push(Mutex::new(None));
-        
+
         if pty_debug() {
             eprintln!("[pty] add_session({idx}): {work_dir}");
         }
-        
+
         Ok(idx)
     }
 
@@ -529,9 +594,11 @@ impl PtyManager {
         let sessions = self.sessions.lock().map_err(|_| "session lock poisoned".to_string())?;
         let target = sessions[idx].tmux_session.clone();
         let target_dir = sessions[idx].work_dir.clone();
+        let target_profile = sessions[idx].profile.clone();
+        let target_mode = sessions[idx].mode.clone();
         drop(sessions);
 
-        if let Err(e) = ensure_tmux_session(&target, &target_dir) {
+        if let Err(e) = ensure_tmux_session(&target, &target_dir, &target_profile, &target_mode) {
             return Err(format!("session {target} gone and re-create failed: {e}"));
         }
 
@@ -722,34 +789,33 @@ impl PtyManager {
 
     /// Returns whether the viewer/session appears alive for this PTY slot.
     pub fn is_alive(&self, idx: usize) -> bool {
-        // Unknown slot is definitely not alive.
-        let sessions_len = self.sessions.lock().map_or(0, |s| s.len());
-        if idx >= sessions_len {
-            return false;
+        // Resolve session identity first.
+        let session_name = {
+            let Ok(sessions) = self.sessions.lock() else {
+                return false;
+            };
+            let Some(session) = sessions.get(idx) else {
+                return false;
+            };
+            session.tmux_session.clone()
+        };
+
+        let current_idx = self.attached_idx.lock().ok().and_then(|g| *g);
+        if current_idx.is_some_and(|cur| cur == idx) {
+            let Ok(guard) = self.attached.lock() else {
+                return false;
+            };
+            return guard
+                .as_ref()
+                .map(|viewer| viewer.alive.load(Ordering::Relaxed))
+                .unwrap_or(false);
         }
 
-        let Ok(current_guard) = self.attached_idx.lock() else {
-            // Be optimistic on lock failure so we don't spuriously mark agents dead.
-            return true;
-        };
-        let Some(current_idx) = *current_guard else {
-            // No viewer attached right now (for example right after startup with
-            // dynamic sessions). The tmux session may still be alive.
-            return true;
-        };
-
-        if current_idx != idx {
-            // Non-attached slots are assumed alive; explicit kill/relaunch paths
-            // manage status transitions.
-            return true;
-        }
-
-        let Ok(guard) = self.attached.lock() else {
-            return false;
-        };
-        guard
-            .as_ref()
-            .map(|viewer| viewer.alive.load(Ordering::Relaxed))
+        // Non-attached slots: ask tmux directly.
+        Command::new("tmux")
+            .args(["has-session", "-t", &session_name])
+            .output()
+            .map(|out| out.status.success())
             .unwrap_or(false)
     }
 
@@ -813,10 +879,12 @@ impl PtyManager {
         };
         let tmux_session = agent.tmux_session.clone();
         let work_dir = agent.work_dir.clone();
+        let profile = agent.profile.clone();
+        let mode = agent.mode.clone();
         drop(sessions);
 
         kill_tmux_session(&tmux_session);
-        ensure_tmux_session(&tmux_session, &work_dir)?;
+        ensure_tmux_session(&tmux_session, &work_dir, &profile, &mode)?;
 
         let errors = self.errors.lock().ok();
         if let Some(errors_guard) = errors {

@@ -37,6 +37,44 @@ fn normalize_profile_input(value: String) -> String {
     }
 }
 
+/// Extract mode flags as whitespace-separated tokens.
+fn mode_tokens(value: &str) -> Vec<String> {
+    value
+        .split_whitespace()
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+/// Returns true if mode contains `--continue`.
+fn mode_has_continue(value: &str) -> bool {
+    value.split_whitespace().any(|flag| flag == "--continue")
+}
+
+/// Remove all `--continue` flags from mode string.
+fn mode_without_continue(value: &str) -> String {
+    mode_tokens(value)
+        .into_iter()
+        .filter(|flag| flag != "--continue")
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Compose persisted mode string from mode text input + continue checkbox.
+fn compose_mode(mode_input: String, pass_continue: bool) -> String {
+    let base = mode_without_continue(&mode_input);
+    let mut flags = if base.trim().is_empty() {
+        vec!["--yolo".to_owned()]
+    } else {
+        mode_tokens(&base)
+    };
+
+    if pass_continue && !flags.iter().any(|flag| flag == "--continue") {
+        flags.push("--continue".to_owned());
+    }
+
+    flags.join(" ")
+}
+
 /// The currently active pane in the UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ActivePane {
@@ -144,7 +182,11 @@ pub struct AppState {
     pub split: SplitState,
     /// Form fields for new agent dialog (name, description, work_dir, profile, mode).
     pub new_agent_fields: Vec<String>,
+    /// Whether new-agent launch includes `--continue`.
+    pub new_agent_pass_continue: bool,
     /// Which field is focused in the new agent form (0-based).
+    ///
+    /// `0..=4` are text fields, `5` is the "pass --continue" checkbox.
     pub new_agent_focus: usize,
     /// Whether the work_dir field has been manually edited by the user.
     pub new_agent_workdir_manual: bool,
@@ -176,6 +218,7 @@ impl AppState {
                 repo_cursor: 0,
             },
             new_agent_fields: vec![String::new(); 5],
+            new_agent_pass_continue: true,
             new_agent_focus: 0,
             new_agent_workdir_manual: false,
             new_repository_fields: vec![String::new(); 3],
@@ -562,12 +605,13 @@ impl AppState {
         let default_profile = repo.map_or_else(String::new, |r| r.default_profile.clone());
         let repo_base = repo.map_or_else(|| "/tmp".to_owned(), |r| r.base_dir.clone());
         self.new_agent_fields = vec![
-            String::new(),           // 0: name
-            String::new(),           // 1: description
-            repo_base,               // 2: work_dir (starts as repo base, updates as you type name)
-            default_profile,         // 3: profile (inherited from repo, may be empty)
-            "--yolo".into(),         // 4: mode
+            String::new(),   // 0: name
+            String::new(),   // 1: description
+            repo_base,       // 2: work_dir (starts as repo base, updates as you type name)
+            default_profile, // 3: profile (inherited from repo, may be empty)
+            "--yolo".into(), // 4: mode
         ];
+        self.new_agent_pass_continue = true;
         self.new_agent_focus = 0;
         self.new_agent_workdir_manual = false;
         self.screen = Screen::NewAgent;
@@ -585,13 +629,21 @@ impl AppState {
 
     fn open_edit_agent(&mut self) {
         let Some(agent) = self.current_agent() else { return };
+        let name = agent.name.clone();
+        let description = agent.description.clone();
+        let work_dir = agent.work_dir.clone();
+        let profile = agent.profile.clone();
+        let mode_no_continue = mode_without_continue(&agent.mode);
+        let pass_continue = mode_has_continue(&agent.mode);
+
         self.new_agent_fields = vec![
-            agent.name.clone(),
-            agent.description.clone(),
-            agent.work_dir.clone(),
-            agent.profile.clone(),
-            agent.mode.clone(),
+            name,
+            description,
+            work_dir,
+            profile,
+            mode_no_continue,
         ];
+        self.new_agent_pass_continue = pass_continue;
         self.new_agent_focus = 0;
         self.new_agent_workdir_manual = true;
         self.screen = Screen::EditAgent;
@@ -644,6 +696,14 @@ impl AppState {
             }
         }
         self.modal = ModalState::None;
+    }
+
+    /// Return PTY slot for an agent at explicit repo/agent indices.
+    pub fn agent_pty_slot(&self, repo_idx: usize, agent_idx: usize) -> Option<usize> {
+        self.repositories
+            .get(repo_idx)
+            .and_then(|repo| repo.agents.get(agent_idx))
+            .and_then(|agent| agent.pty_slot)
     }
 
     fn toggle_search(&mut self) {
@@ -794,6 +854,13 @@ impl AppState {
         if self.is_searching {
             self.search_query.push(c);
         } else if self.screen == Screen::NewAgent || self.screen == Screen::EditAgent {
+            if self.new_agent_focus == 5 {
+                if c == ' ' {
+                    self.new_agent_pass_continue = !self.new_agent_pass_continue;
+                }
+                return;
+            }
+
             if let Some(field) = self.new_agent_fields.get_mut(self.new_agent_focus) {
                 field.push(c);
             }
@@ -857,7 +924,9 @@ impl AppState {
     fn next_field(&mut self) {
         match self.screen {
             Screen::NewAgent | Screen::EditAgent => {
-                self.new_agent_focus = (self.new_agent_focus + 1) % self.new_agent_fields.len();
+                // 5 text fields + 1 checkbox at index 5.
+                const NEW_AGENT_FIELD_COUNT: usize = 6;
+                self.new_agent_focus = (self.new_agent_focus + 1) % NEW_AGENT_FIELD_COUNT;
             }
             Screen::NewRepository | Screen::EditRepository => {
                 self.new_repository_focus = (self.new_repository_focus + 1) % self.new_repository_fields.len();
@@ -869,8 +938,10 @@ impl AppState {
     fn prev_field(&mut self) {
         match self.screen {
             Screen::NewAgent | Screen::EditAgent => {
+                // 5 text fields + 1 checkbox at index 5.
+                const NEW_AGENT_FIELD_COUNT: usize = 6;
                 if self.new_agent_focus == 0 {
-                    self.new_agent_focus = self.new_agent_fields.len() - 1;
+                    self.new_agent_focus = NEW_AGENT_FIELD_COUNT - 1;
                 } else {
                     self.new_agent_focus -= 1;
                 }
@@ -889,6 +960,10 @@ impl AppState {
     fn handle_backspace(&mut self) {
         match self.screen {
             Screen::NewAgent | Screen::EditAgent => {
+                if self.new_agent_focus == 5 {
+                    return;
+                }
+
                 if let Some(field) = self.new_agent_fields.get_mut(self.new_agent_focus) {
                     field.pop();
                 }
@@ -923,7 +998,13 @@ impl AppState {
                 let profile = normalize_profile_input(
                     self.new_agent_fields.get(3).cloned().unwrap_or_default(),
                 );
-                let mode = self.new_agent_fields.get(4).cloned().unwrap_or_else(|| "--yolo".into());
+                let mode = compose_mode(
+                    self.new_agent_fields
+                        .get(4)
+                        .cloned()
+                        .unwrap_or_else(|| "--yolo".into()),
+                    self.new_agent_pass_continue,
+                );
 
                 if name.is_empty() {
                     return; // Don't submit empty
@@ -977,7 +1058,13 @@ impl AppState {
                 let profile = normalize_profile_input(
                     self.new_agent_fields.get(3).cloned().unwrap_or_default(),
                 );
-                let mode = self.new_agent_fields.get(4).cloned().unwrap_or_else(|| "--yolo".into());
+                let mode = compose_mode(
+                    self.new_agent_fields
+                        .get(4)
+                        .cloned()
+                        .unwrap_or_else(|| "--yolo".into()),
+                    self.new_agent_pass_continue,
+                );
 
                 if name.is_empty() {
                     return;
@@ -1079,6 +1166,44 @@ impl AppState {
     }
 
 }
+
+#[cfg(test)]
+mod mode_tests {
+    use super::{compose_mode, mode_has_continue, mode_without_continue};
+
+    #[test]
+    fn compose_mode_defaults_to_yolo_and_continue_for_empty_input() {
+        assert_eq!(compose_mode(String::new(), true), "--yolo --continue");
+    }
+
+    #[test]
+    fn compose_mode_preserves_mode_and_adds_continue_when_enabled() {
+        assert_eq!(
+            compose_mode("--yolo".to_owned(), true),
+            "--yolo --continue",
+        );
+        assert_eq!(
+            compose_mode("--auto-approve".to_owned(), true),
+            "--auto-approve --continue",
+        );
+    }
+
+    #[test]
+    fn compose_mode_removes_continue_when_disabled() {
+        assert_eq!(
+            compose_mode("--yolo --continue".to_owned(), false),
+            "--yolo",
+        );
+    }
+
+    #[test]
+    fn continue_helpers_detect_and_strip() {
+        assert!(mode_has_continue("--yolo --continue"));
+        assert!(!mode_has_continue("--yolo"));
+        assert_eq!(mode_without_continue("--yolo --continue"), "--yolo");
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

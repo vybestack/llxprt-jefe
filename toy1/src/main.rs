@@ -292,6 +292,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     matches!(s.screen, Screen::NewAgent | Screen::NewRepository | Screen::EditAgent | Screen::EditRepository)
                 };
 
+
                 if key_event.kind != KeyEventKind::Release {
                     saw_non_release_key.set(true);
                 } else if saw_non_release_key.get() {
@@ -349,21 +350,25 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                 let agent_idx = state.selected_agent;
                                 let work_dir_opt = state.current_agent().map(|a| a.work_dir.clone());
 
-                                if let Some(work_dir) = work_dir_opt {
-                                    match mgr.add_session(&work_dir) {
-                                        Ok(idx) => {
-                                            if let Some(repo) = state.repositories.get_mut(repo_idx) {
-                                                if let Some(agent) = repo.agents.get_mut(agent_idx) {
-                                                    agent.pty_slot = Some(idx);
+                                        if let Some(work_dir) = work_dir_opt {
+                                            let (profile, mode) = state.current_agent()
+                                                .map(|a| (a.profile.clone(), a.mode.clone()))
+                                                .unwrap_or_else(|| (String::new(), "--yolo".to_owned()));
+
+                                            match mgr.add_session(&work_dir, &profile, &mode) {
+                                                Ok(idx) => {
+                                                    if let Some(repo) = state.repositories.get_mut(repo_idx) {
+                                                        if let Some(agent) = repo.agents.get_mut(agent_idx) {
+                                                            agent.pty_slot = Some(idx);
+                                                        }
+                                                    }
+                                                    eprintln!("[form] new agent: pty session jefe-{idx} at {work_dir}");
+                                                }
+                                                Err(e) => {
+                                                    eprintln!("[form] failed to create pty session: {e}");
                                                 }
                                             }
-                                            eprintln!("[form] new agent: pty session jefe-{idx} at {work_dir}");
                                         }
-                                        Err(e) => {
-                                            eprintln!("[form] failed to create pty session: {e}");
-                                        }
-                                    }
-                                }
                             }
                         }
                     }
@@ -495,11 +500,70 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                     .current_agent()
                                     .is_some_and(|a| a.status == AgentStatus::Dead);
                                 if should_relaunch {
-                                    let idx_opt = state.current_agent().and_then(|a| a.pty_slot);
                                     if let Some(ref mgr) = pty_mgr_for_events {
-                                        if let Some(idx) = idx_opt {
-                                            let _ = mgr.relaunch_session(idx);
+                                        let idx_opt = state.current_agent().and_then(|a| a.pty_slot);
+                                        match idx_opt {
+                                            Some(idx) => {
+                                                match mgr.relaunch_session(idx) {
+                                                    Ok(()) => {
+                                                        state.handle_event(evt);
+                                                    }
+                                                    Err(e) => {
+                                                        eprintln!("[relaunch] failed: {e}");
+                                                    }
+                                                }
+                                            }
+                                            None => {
+                                                let repo_idx = state.selected_repo;
+                                                let agent_idx = state.selected_agent;
+                                                let launch_cfg = state.current_agent().map(|a| {
+                                                    (a.work_dir.clone(), a.profile.clone(), a.mode.clone())
+                                                });
+
+                                                if let Some((work_dir, profile, mode)) = launch_cfg {
+                                                    match mgr.add_session(&work_dir, &profile, &mode) {
+                                                        Ok(new_slot) => {
+                                                            if let Some(repo) = state.repositories.get_mut(repo_idx) {
+                                                                if let Some(agent) = repo.agents.get_mut(agent_idx) {
+                                                                    agent.pty_slot = Some(new_slot);
+                                                                }
+                                                            }
+                                                            state.handle_event(evt);
+                                                        }
+                                                        Err(e) => {
+                                                            eprintln!("[relaunch] failed to create session: {e}");
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
+                                    }
+                                }
+                            }
+                            AppEvent::Select => {
+                                if let Some(ref mgr) = pty_mgr_for_events {
+                                    match state.modal.clone() {
+                                        ModalState::ConfirmDeleteAgent { repo_idx, agent_idx, .. } => {
+                                            if let Some(slot) = state.agent_pty_slot(repo_idx, agent_idx) {
+                                                mgr.kill_session(slot);
+                                            }
+                                        }
+                                        ModalState::ConfirmDeleteRepo(repo_idx) => {
+                                            let slots: Vec<usize> = state
+                                                .repositories
+                                                .get(repo_idx)
+                                                .map(|repo| {
+                                                    repo.agents
+                                                        .iter()
+                                                        .filter_map(|agent| agent.pty_slot)
+                                                        .collect()
+                                                })
+                                                .unwrap_or_default();
+                                            for slot in slots {
+                                                mgr.kill_session(slot);
+                                            }
+                                        }
+                                        _ => {}
                                     }
                                 }
                                 state.handle_event(evt);
@@ -516,7 +580,11 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                         let work_dir_opt = state.current_agent().map(|a| a.work_dir.clone());
 
                                         if let Some(work_dir) = work_dir_opt {
-                                            match mgr.add_session(&work_dir) {
+                                            let (profile, mode) = state.current_agent()
+                                                .map(|a| (a.profile.clone(), a.mode.clone()))
+                                                .unwrap_or_else(|| (String::new(), "--yolo".to_owned()));
+
+                                            match mgr.add_session(&work_dir, &profile, &mode) {
                                                 Ok(idx) => {
                                                     if let Some(repo) = state.repositories.get_mut(repo_idx) {
                                                         if let Some(agent) = repo.agents.get_mut(agent_idx) {
@@ -575,13 +643,17 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
         let mut need_update = Vec::new();
         {
             let state_ro = app_state.read();
-            let mut global_idx = 0usize;
             for (ri, repo) in state_ro.repositories.iter().enumerate() {
                 for (ai, agent) in repo.agents.iter().enumerate() {
-                    if agent.status == AgentStatus::Running && !mgr.is_alive(global_idx) {
-                        need_update.push((ri, ai));
+                    if agent.status != AgentStatus::Running {
+                        continue;
                     }
-                    global_idx = global_idx.saturating_add(1);
+
+                    if let Some(slot) = agent.pty_slot {
+                        if !mgr.is_alive(slot) {
+                            need_update.push((ri, ai));
+                        }
+                    }
                 }
             }
         }

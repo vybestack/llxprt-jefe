@@ -21,10 +21,10 @@ pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
 
     let bindings = match props.screen.unwrap_or(Screen::Dashboard) {
         Screen::Dashboard => {
-            " ^/v navigate  </> pane  r repo  a list  t terminal  s split  F12 detach  k kill  d delete  l relaunch(dead)  q quit"
+            " ^/v navigate  </> pane  r repo  a list  t terminal  s split  F12 focus/unfocus  k kill  d delete  l relaunch(dead)  q quit"
         }
         Screen::CommandPalette => " type to filter  ^/v navigate  enter select  esc close",
-        Screen::Terminal => " F12 detach (only)  q quit",
+        Screen::Terminal => " F12 unfocus (only)  q quit",
         Screen::NewAgent => " esc cancel  enter launch (toy)  q quit",
         Screen::NewRepository => " esc cancel  enter create (toy)  q quit",
         Screen::EditAgent => " tab/shift-tab fields  esc cancel  enter save  q quit",
