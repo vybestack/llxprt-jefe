@@ -454,11 +454,6 @@ impl PtyManager {
         manager
     }
 
-    /// Number of agent slots.
-    pub fn count(&self) -> usize {
-        self.sessions.lock().unwrap().len()
-    }
-
     /// Dynamically add a new agent session at runtime.
     /// Creates the tmux session and returns the new slot index.
     pub fn add_session(&self, work_dir: &str, profile: &str, mode: &str) -> Result<usize, String> {
@@ -693,19 +688,6 @@ impl PtyManager {
         };
 
         snapshot_from_term(&term, defaults)
-    }
-
-    /// Get plain-text viewport lines for a session.
-    ///
-    /// This is now derived from `terminal_snapshot` so style and text extraction
-    /// stay consistent.
-    pub fn screen_lines(&self, idx: usize) -> Vec<String> {
-        let snapshot = self.terminal_snapshot(idx);
-        snapshot
-            .cells
-            .into_iter()
-            .map(|row| row.into_iter().map(|c| c.ch).collect())
-            .collect()
     }
 
     /// Write raw bytes to the currently attached viewer PTY.

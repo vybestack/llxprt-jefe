@@ -95,8 +95,6 @@ pub enum Screen {
     Dashboard,
     /// Command palette/search.
     CommandPalette,
-    /// Terminal view for a running agent.
-    Terminal,
     /// New agent form.
     NewAgent,
     /// New repository form.
@@ -115,8 +113,6 @@ pub enum ModalState {
     /// No modal is shown.
     #[default]
     None,
-    /// Confirmation dialog for killing an agent.
-    ConfirmKill(usize),
     /// Confirmation dialog for deleting a repository.
     ConfirmDeleteRepo(usize),
     /// Confirmation dialog for deleting an agent.
@@ -271,45 +267,6 @@ impl AppState {
             }
         }
         out
-    }
-
-    /// Returns the flat (repo_idx, agent_idx) tuples for all non-dead agents.
-    #[must_use]
-    pub fn active_agent_positions(&self) -> Vec<(usize, usize)> {
-        let mut out = Vec::new();
-        for (ri, repo) in self.repositories.iter().enumerate() {
-            for (ai, agent) in repo.agents.iter().enumerate() {
-                if agent.status != AgentStatus::Dead {
-                    out.push((ri, ai));
-                }
-            }
-        }
-        out
-    }
-
-    /// Returns the flat (global) index of the currently selected agent,
-    /// or `None` if the selected repository has no selectable agent.
-    #[must_use]
-    pub fn current_global_agent_index(&self) -> Option<usize> {
-        let mut idx = 0;
-        for (i, repo) in self.repositories.iter().enumerate() {
-            if i == self.selected_repo {
-                if self.selected_agent < repo.agents.len() {
-                    return Some(idx + self.selected_agent);
-                }
-                return None;
-            }
-            idx += repo.agents.len();
-        }
-        None
-    }
-
-    /// Returns the flat (global) index of the currently selected agent.
-    ///
-    /// Falls back to `0` when no agent is selectable.
-    #[must_use]
-    pub fn global_agent_index(&self) -> usize {
-        self.current_global_agent_index().unwrap_or(0)
     }
 
     /// Returns running agent positions filtered by the split-mode repo filter.
@@ -536,7 +493,6 @@ impl AppState {
                 }
             }
             Screen::CommandPalette => {}
-            Screen::Terminal => {}
             Screen::NewAgent => {
                 self.screen = Screen::Dashboard;
             }
@@ -558,10 +514,6 @@ impl AppState {
             Screen::CommandPalette => {
                 self.screen = Screen::Dashboard;
                 self.is_searching = false;
-            }
-            Screen::Terminal => {
-                self.screen = Screen::Dashboard;
-                self.terminal_focused = false;
             }
             Screen::NewAgent => {
                 self.screen = Screen::Dashboard;
@@ -591,7 +543,7 @@ impl AppState {
                 }
             }
             Screen::Dashboard => {
-                if matches!(self.modal, ModalState::ConfirmKill(_) | ModalState::ConfirmDeleteRepo(_) | ModalState::ConfirmDeleteAgent { .. } | ModalState::Help) {
+                if matches!(self.modal, ModalState::ConfirmDeleteRepo(_) | ModalState::ConfirmDeleteAgent { .. } | ModalState::Help) {
                     self.modal = ModalState::None;
                 }
             }

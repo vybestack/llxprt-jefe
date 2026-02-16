@@ -4,5 +4,3 @@
 //! formatting data for display (e.g., elapsed time, status icons).
 
 pub mod format;
-
-pub use format::{format_elapsed, status_icon};

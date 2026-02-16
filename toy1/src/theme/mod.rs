@@ -7,5 +7,5 @@ pub mod definition;
 pub mod loader;
 pub mod manager;
 
-pub use definition::{ResolvedColors, ThemeColors, ThemeDefinition, ThemeKind};
+pub use definition::{ResolvedColors, ThemeColors};
 pub use manager::ThemeManager;

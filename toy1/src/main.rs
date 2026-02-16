@@ -24,6 +24,7 @@ use ui::screens::new_agent::NewAgentForm;
 use ui::screens::new_repository::NewRepositoryForm;
 use ui::screens::split::SplitScreen;
 
+use std::path::Path;
 use std::sync::Arc;
 
 const JEFE_MOUSE_DEBUG_ENV: &str = "JEFE_MOUSE_DEBUG";
@@ -139,6 +140,23 @@ fn to_rgb(hex: &str, fallback_r: u8, fallback_g: u8, fallback_b: u8) -> alacritt
     })
 }
 
+fn key_event_to_theme_slug(
+    key_event: &KeyEvent,
+    is_searching: bool,
+    in_input_screen: bool,
+) -> Option<&'static str> {
+    if is_searching || in_input_screen {
+        return None;
+    }
+
+    match key_event.code {
+        KeyCode::Char('1') => Some("green-screen"),
+        KeyCode::Char('2') => Some("dracula"),
+        KeyCode::Char('3') => Some("default-dark"),
+        _ => None,
+    }
+}
+
 #[component]
 fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     let mut should_quit = hooks.use_state(|| false);
@@ -159,6 +177,16 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     let key_debug = true;
 
     let pty_mgr = props.pty_manager.clone();
+
+    // Optional external themes directory for experimentation:
+    // JEFE_THEME_DIR=/path/to/themes
+    if let Ok(dir) = std::env::var("JEFE_THEME_DIR") {
+        let dir = dir.trim();
+        if !dir.is_empty() {
+            theme_mgr.write().load_external(Path::new(dir));
+        }
+    }
+
 
     // Poll for PTY output updates (~30fps).
     hooks.use_future(async move {
@@ -401,6 +429,15 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 // Normal Jefe keybindings (press/repeat).
                 let screen_now = app_state.read().screen;
                 let show_help_modal = app_state.read().modal == crate::app::ModalState::Help;
+                if let Some(next_theme) = key_event_to_theme_slug(&key_event, is_searching, in_input_screen) {
+                    if theme_mgr.write().set_active(next_theme) {
+                        if key_debug {
+                            eprintln!("[theme] set-active slug={next_theme}");
+                        }
+                    }
+                    return;
+                }
+
                 let app_event = match key_event.code {
                     KeyCode::Char('q') if !is_searching => Some(AppEvent::Quit),
                     KeyCode::Char('Q') if !is_searching => Some(AppEvent::Quit),
@@ -413,7 +450,9 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     }
                     KeyCode::Char('/') => Some(AppEvent::OpenSearch),
                     KeyCode::Char('?') if !is_searching => Some(AppEvent::OpenHelp),
-                    KeyCode::Char('h') | KeyCode::Char('H') if !is_searching && !in_input_screen => Some(AppEvent::OpenHelp),
+                    KeyCode::Char('h') | KeyCode::Char('H') if !is_searching && !in_input_screen => {
+                        Some(AppEvent::OpenHelp)
+                    }
                     KeyCode::F(1) if !is_searching => Some(AppEvent::OpenHelp),
                     KeyCode::Char('r') | KeyCode::Char('R') if !is_searching && !in_input_screen => {
                         Some(AppEvent::FocusRepository)
@@ -675,24 +714,14 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
     let current_screen = state_ref.screen;
     let show_help = state_ref.modal == ModalState::Help;
-    let show_confirm_kill = matches!(state_ref.modal, ModalState::ConfirmKill(_));
     let show_confirm_delete_repo = matches!(state_ref.modal, ModalState::ConfirmDeleteRepo(_));
     let show_confirm_delete_agent = matches!(state_ref.modal, ModalState::ConfirmDeleteAgent { .. });
-    let show_confirm = show_confirm_kill || show_confirm_delete_repo || show_confirm_delete_agent;
-    
+    let show_confirm = show_confirm_delete_repo || show_confirm_delete_agent;
+
     let (confirm_msg, confirm_title) = match &state_ref.modal {
-        ModalState::ConfirmKill(idx) => {
-            let msg = state_ref
-                .current_repo()
-                .and_then(|p| p.agents.get(*idx))
-                .map_or("Kill agent?".to_owned(), |a| {
-                    format!("Kill agent for {} {}?", a.display_id, a.name)
-                });
-            (msg, "Kill Agent".to_owned())
-        }
         ModalState::ConfirmDeleteRepo(idx) => {
             let msg = state_ref.repositories.get(*idx)
-                .map_or("Delete this repository?".to_owned(), |r| 
+                .map_or("Delete this repository?".to_owned(), |r|
                     format!("Delete repository '{}' and all its agents?", r.name));
             (msg, "Delete Repository".to_owned())
         }
@@ -765,7 +794,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     let _ = render_tick.get();
 
     let screen_el: AnyElement<'static> = match current_screen {
-        Screen::Dashboard | Screen::CommandPalette | Screen::Terminal => element! {
+        Screen::Dashboard | Screen::CommandPalette => element! {
             Dashboard(
                 state: snapshot.clone(),
                 colors: colors.clone(),

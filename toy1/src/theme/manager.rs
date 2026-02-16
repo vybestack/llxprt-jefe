@@ -47,30 +47,6 @@ impl ThemeManager {
         }
     }
 
-    /// Cycle to the next theme.
-    pub fn cycle_next(&mut self) {
-        if self.themes.is_empty() {
-            return;
-        }
-        let idx = self
-            .themes
-            .iter()
-            .position(|t| t.slug == self.active_slug)
-            .unwrap_or(0);
-        let next = (idx + 1) % self.themes.len();
-        self.active_slug = self.themes[next].slug.clone();
-    }
-
-    /// All available themes.
-    pub fn available(&self) -> &[ThemeDefinition] {
-        &self.themes
-    }
-
-    /// (slug, name) pairs.
-    pub fn names(&self) -> Vec<(&str, &str)> {
-        self.themes.iter().map(|t| (t.slug.as_str(), t.name.as_str())).collect()
-    }
-
     /// Load additional themes from a directory.
     pub fn load_external(&mut self, dir: &Path) {
         for theme in load_themes_from_dir(dir) {
@@ -78,11 +54,6 @@ impl ThemeManager {
                 self.themes.push(theme);
             }
         }
-    }
-
-    /// Active theme slug.
-    pub fn active_slug(&self) -> &str {
-        &self.active_slug
     }
 }
 
@@ -99,7 +70,7 @@ mod tests {
     #[test]
     fn default_is_green_screen() {
         let mgr = ThemeManager::new();
-        assert_eq!(mgr.active_slug(), "green-screen");
+        assert_eq!(mgr.active().slug, DEFAULT_THEME_SLUG);
     }
 
     #[test]
@@ -110,21 +81,19 @@ mod tests {
     }
 
     #[test]
-    fn set_active_invalid() {
+    fn set_active_invalid_keeps_current() {
         let mut mgr = ThemeManager::new();
+        let before = mgr.active().slug.clone();
         assert!(!mgr.set_active("nope"));
-        assert_eq!(mgr.active_slug(), "green-screen");
+        assert_eq!(mgr.active().slug, before);
     }
 
     #[test]
-    fn cycle_wraps() {
+    fn load_external_nonexistent_dir_is_noop() {
         let mut mgr = ThemeManager::new();
-        let n = mgr.available().len();
-        let start = mgr.active_slug().to_owned();
-        for _ in 0..n {
-            mgr.cycle_next();
-        }
-        assert_eq!(mgr.active_slug(), start);
+        let before = mgr.active().slug.clone();
+        mgr.load_external(Path::new("/nonexistent"));
+        assert_eq!(mgr.active().slug, before);
     }
 
     #[test]
