@@ -754,7 +754,23 @@ fn key_to_bytes(key: &KeyEvent) -> Option<Vec<u8>> {
     }
 }
 
+fn handle_cli_version_flag() -> bool {
+    let mut args = std::env::args().skip(1);
+    match (args.next().as_deref(), args.next()) {
+        (Some("--version" | "-V"), None) => {
+            let version = jefe::VERSION;
+            println!("jefe {version}");
+            true
+        }
+        _ => false,
+    }
+}
+
 fn main() {
+    if handle_cli_version_flag() {
+        return;
+    }
+
     // Get terminal size and derive PTY viewport size from dashboard geometry.
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let (pty_rows, pty_cols) = compute_pty_size(cols, rows);

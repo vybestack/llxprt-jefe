@@ -18,6 +18,8 @@ pub struct StatusBarProps {
     pub agent_count: usize,
     /// Active theme name.
     pub theme_name: String,
+    /// App version string.
+    pub version: String,
     /// Theme colors.
     pub colors: ThemeColors,
 }
@@ -44,7 +46,7 @@ pub fn StatusBar(props: &StatusBarProps) -> impl Into<AnyElement<'static>> {
         ) {
             // Left: app title
             Text(
-                content: "Jefe",
+                content: format!("LLxprt Jefe - {}", props.version),
                 weight: Weight::Bold,
                 color: rc.bg,
             )

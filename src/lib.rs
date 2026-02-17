@@ -10,3 +10,6 @@ pub mod runtime;
 pub mod state;
 pub mod theme;
 pub mod ui;
+
+/// Current application version.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
