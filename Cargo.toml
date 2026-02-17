@@ -1,0 +1,59 @@
+[package]
+name = "jefe"
+version = "1.0.0-dev"
+edition = "2024"
+authors = ["Vybestack LLC"]
+description = "Terminal application for managing multiple llxprt coding agents"
+license = "Apache-2.0"
+repository = "https://github.com/vybestack/jefe"
+
+[dependencies]
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Terminal UI
+iocraft = "0.5"
+crossterm = "0.28"
+
+# Terminal/PTY
+portable-pty = "0.8"
+alacritty_terminal = "0.24"
+
+# Async
+smol = "2.0"
+
+# Error handling
+thiserror = "2.0"
+
+# Directories (for platform-specific paths)
+dirs = "6.0"
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+todo = "deny"
+unimplemented = "deny"
+# Relaxed for stub phase - will tighten in impl phases
+needless_pass_by_value = "allow"
+redundant_clone = "allow"
+doc_markdown = "allow"
+missing_const_for_fn = "allow"
+missing_errors_doc = "allow"
+option_if_let_else = "allow"
+
+[profile.release]
+lto = true
+strip = true

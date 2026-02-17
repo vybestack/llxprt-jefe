@@ -1,3 +1,11 @@
 research/
 *.png
 *.PNG
+
+# Build artifacts and local runtime scratch
+/target/
+/tmp/
+/.llxprt/
+
+# macOS
+.DS_Store
