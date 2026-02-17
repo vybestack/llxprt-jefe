@@ -142,8 +142,18 @@ jobs:
     name: Update Homebrew tap formula
     needs: build-release-binaries
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.HOMEBREW_TAP_TOKEN != '' }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
+      - name: Validate tap token secret
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOMEBREW_TAP_TOKEN}" ]; then
+            echo "HOMEBREW_TAP_TOKEN is not configured; cannot update vybestack/homebrew-tap"
+            exit 1
+          fi
+
       - name: Fetch release metadata
         env:
           GH_API_TOKEN: ${{ github.token }}
