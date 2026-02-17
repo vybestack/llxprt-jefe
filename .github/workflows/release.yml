@@ -23,19 +23,27 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             binary_name: jefe
-            asset_name: jefe-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+            asset_basename: jefe-${{ github.ref_name }}-x86_64-unknown-linux-gnu
+            linux_deb_arch: amd64
+            linux_rpm_arch: x86_64
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             binary_name: jefe
-            asset_name: jefe-${{ github.ref_name }}-aarch64-unknown-linux-gnu.tar.gz
+            asset_basename: jefe-${{ github.ref_name }}-aarch64-unknown-linux-gnu
+            linux_deb_arch: arm64
+            linux_rpm_arch: aarch64
           - os: macos-latest
             target: x86_64-apple-darwin
             binary_name: jefe
-            asset_name: jefe-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz
+            asset_basename: jefe-${{ github.ref_name }}-x86_64-apple-darwin
+            linux_deb_arch: ""
+            linux_rpm_arch: ""
           - os: macos-latest
             target: aarch64-apple-darwin
             binary_name: jefe
-            asset_name: jefe-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz
+            asset_basename: jefe-${{ github.ref_name }}-aarch64-apple-darwin
+            linux_deb_arch: ""
+            linux_rpm_arch: ""
 
     steps:
       - uses: actions/checkout@v4
@@ -60,22 +68,173 @@ jobs:
       - name: Build binary
         run: cargo build --release --locked --target ${{ matrix.target }}
 
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev build-essential rpm
+          sudo gem install --no-document fpm
+
       - name: Package tar.gz
         shell: bash
         run: |
-          mkdir -p dist
-          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} dist/
-          tar -C dist -czf ${{ matrix.asset_name }} ${{ matrix.binary_name }}
+          set -euo pipefail
+          mkdir -p dist/assets
+          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} dist/jefe
+          tar -C dist -czf dist/assets/${{ matrix.asset_basename }}.tar.gz jefe
 
-      - name: Generate checksum
+      - name: Package Linux deb/rpm
+        if: runner.os == 'Linux'
         shell: bash
-        run: shasum -a 256 ${{ matrix.asset_name }} > ${{ matrix.asset_name }}.sha256
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/pkg/usr/local/bin
+          cp dist/jefe dist/pkg/usr/local/bin/jefe
+
+          fpm \
+            -s dir \
+            -t deb \
+            -n jefe \
+            -v "$VERSION" \
+            --iteration 1 \
+            --architecture "${{ matrix.linux_deb_arch }}" \
+            --license "Apache-2.0" \
+            --maintainer "Vybestack LLC" \
+            --url "https://github.com/vybestack/llxprt-jefe" \
+            --description "Terminal application for managing multiple llxprt coding agents" \
+            --package "dist/assets/${{ matrix.asset_basename }}.deb" \
+            -C dist/pkg \
+            usr/local/bin/jefe
+
+          fpm \
+            -s dir \
+            -t rpm \
+            -n jefe \
+            -v "$VERSION" \
+            --iteration 1 \
+            --architecture "${{ matrix.linux_rpm_arch }}" \
+            --license "Apache-2.0" \
+            --maintainer "Vybestack LLC" \
+            --url "https://github.com/vybestack/llxprt-jefe" \
+            --description "Terminal application for managing multiple llxprt coding agents" \
+            --package "dist/assets/${{ matrix.asset_basename }}.rpm" \
+            -C dist/pkg \
+            usr/local/bin/jefe
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist/assets
+          for asset in *; do
+            shasum -a 256 "$asset" > "$asset.sha256"
+          done
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            ${{ matrix.asset_name }}
-            ${{ matrix.asset_name }}.sha256
+          files: dist/assets/*
           draft: false
           prerelease: false
+
+  update-homebrew-tap:
+    name: Update Homebrew tap formula
+    needs: build-release-binaries
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && secrets.HOMEBREW_TAP_TOKEN != '' }}
+    steps:
+      - name: Fetch release metadata
+        env:
+          GH_API_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            -H "Authorization: Bearer ${GH_API_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" \
+            > release.json
+
+      - name: Clone homebrew-tap repository
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/vybestack/homebrew-tap.git" tap
+
+      - name: Generate formula content
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          macos_arm_sha="$(jq -r --arg tag "${GITHUB_REF_NAME}" '.assets[] | select(.name == ("jefe-" + $tag + "-aarch64-apple-darwin.tar.gz")) | .digest' release.json | sed 's/^sha256://')"
+          macos_x64_sha="$(jq -r --arg tag "${GITHUB_REF_NAME}" '.assets[] | select(.name == ("jefe-" + $tag + "-x86_64-apple-darwin.tar.gz")) | .digest' release.json | sed 's/^sha256://')"
+          linux_arm_sha="$(jq -r --arg tag "${GITHUB_REF_NAME}" '.assets[] | select(.name == ("jefe-" + $tag + "-aarch64-unknown-linux-gnu.tar.gz")) | .digest' release.json | sed 's/^sha256://')"
+          linux_x64_sha="$(jq -r --arg tag "${GITHUB_REF_NAME}" '.assets[] | select(.name == ("jefe-" + $tag + "-x86_64-unknown-linux-gnu.tar.gz")) | .digest' release.json | sed 's/^sha256://')"
+
+          for value in "$macos_arm_sha" "$macos_x64_sha" "$linux_arm_sha" "$linux_x64_sha"; do
+            if [ -z "$value" ] || [ "$value" = "null" ]; then
+              echo "Missing release asset digest; refusing to update tap"
+              exit 1
+            fi
+          done
+
+          cat > tap/Formula/jefe.rb <<EOF
+          class Jefe < Formula
+            desc "Terminal application for managing multiple llxprt coding agents"
+            homepage "https://github.com/vybestack/llxprt-jefe"
+            version "${VERSION}"
+            license "Apache-2.0"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/vybestack/llxprt-jefe/releases/download/${GITHUB_REF_NAME}/jefe-${GITHUB_REF_NAME}-aarch64-apple-darwin.tar.gz"
+                sha256 "${macos_arm_sha}"
+              else
+                url "https://github.com/vybestack/llxprt-jefe/releases/download/${GITHUB_REF_NAME}/jefe-${GITHUB_REF_NAME}-x86_64-apple-darwin.tar.gz"
+                sha256 "${macos_x64_sha}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "https://github.com/vybestack/llxprt-jefe/releases/download/${GITHUB_REF_NAME}/jefe-${GITHUB_REF_NAME}-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${linux_arm_sha}"
+              else
+                url "https://github.com/vybestack/llxprt-jefe/releases/download/${GITHUB_REF_NAME}/jefe-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${linux_x64_sha}"
+              end
+            end
+
+            depends_on "tmux"
+
+            def install
+              bin.install "jefe"
+            end
+
+            def caveats
+              <<~EOS
+                jefe requires the llxprt CLI in PATH to launch agent sessions.
+              EOS
+            end
+
+            test do
+              assert_predicate bin/"jefe", :exist?
+              assert_predicate bin/"jefe", :executable?
+            end
+          end
+          EOF
+
+      - name: Commit and push formula update
+        run: |
+          set -euo pipefail
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/jefe.rb
+          if git diff --cached --quiet; then
+            echo "No Homebrew formula changes detected"
+            exit 0
+          fi
+          git commit -m "Update jefe formula for ${GITHUB_REF_NAME}"
+          git push origin main

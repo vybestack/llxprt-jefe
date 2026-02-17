@@ -1,6 +1,6 @@
 [package]
 name = "jefe"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2024"
 authors = ["Vybestack LLC"]
 description = "Terminal application for managing multiple llxprt coding agents"
