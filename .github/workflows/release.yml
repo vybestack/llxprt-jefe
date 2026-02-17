@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-release-binaries:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary_name: jefe
+            asset_name: jefe-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            binary_name: jefe
+            asset_name: jefe-${{ github.ref_name }}-aarch64-unknown-linux-gnu.tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            binary_name: jefe
+            asset_name: jefe-${{ github.ref_name }}-x86_64-apple-darwin.tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            binary_name: jefe
+            asset_name: jefe-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary_name: jefe.exe
+            asset_name: jefe-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux cross linker for aarch64
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          mkdir -p .cargo
+          cat << 'EOF' >> .cargo/config.toml
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+
+      - name: Build binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package tar.gz (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} dist/
+          tar -C dist -czf ${{ matrix.asset_name }} ${{ matrix.binary_name }}
+
+      - name: Package zip (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "dist/${{ matrix.binary_name }}"
+          Compress-Archive -Path "dist/${{ matrix.binary_name }}" -DestinationPath "${{ matrix.asset_name }}" -Force
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset_name }}
+          draft: false
+          prerelease: false
