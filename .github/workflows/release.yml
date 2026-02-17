@@ -131,16 +131,37 @@ jobs:
             shasum -a 256 "$asset" > "$asset.sha256"
           done
 
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ matrix.target }}
+          path: dist/assets/*
+          if-no-files-found: error
+
+  publish-release-assets:
+    name: Publish release assets
+    needs: build-release-binaries
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-assets-*
+          merge-multiple: true
+          path: dist/release-assets
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/assets/*
+          files: dist/release-assets/*
           draft: false
           prerelease: false
+          overwrite_files: true
 
   update-homebrew-tap:
     name: Update Homebrew tap formula
-    needs: build-release-binaries
+    needs: publish-release-assets
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
