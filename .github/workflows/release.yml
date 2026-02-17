@@ -36,10 +36,6 @@ jobs:
             target: aarch64-apple-darwin
             binary_name: jefe
             asset_name: jefe-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            binary_name: jefe.exe
-            asset_name: jefe-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip
 
     steps:
       - uses: actions/checkout@v4
@@ -64,25 +60,22 @@ jobs:
       - name: Build binary
         run: cargo build --release --locked --target ${{ matrix.target }}
 
-      - name: Package tar.gz (unix)
-        if: runner.os != 'Windows'
+      - name: Package tar.gz
         shell: bash
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} dist/
           tar -C dist -czf ${{ matrix.asset_name }} ${{ matrix.binary_name }}
 
-      - name: Package zip (windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "dist/${{ matrix.binary_name }}"
-          Compress-Archive -Path "dist/${{ matrix.binary_name }}" -DestinationPath "${{ matrix.asset_name }}" -Force
+      - name: Generate checksum
+        shell: bash
+        run: shasum -a 256 ${{ matrix.asset_name }} > ${{ matrix.asset_name }}.sha256
 
-      - name: Upload release asset
+      - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.asset_name }}
+          files: |
+            ${{ matrix.asset_name }}
+            ${{ matrix.asset_name }}.sha256
           draft: false
           prerelease: false
