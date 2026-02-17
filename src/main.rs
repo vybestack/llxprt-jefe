@@ -96,22 +96,16 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
         if let Some(ref ctx_arc) = ctx {
             if let Ok(ctx_guard) = ctx_arc.lock() {
                 // Load settings
-                let settings = ctx_guard
-                    .persistence
-                    .load_settings()
-                    .unwrap_or_else(|e| {
-                        eprintln!("Warning: Could not load settings: {e}");
-                        Settings::default_with_version()
-                    });
+                let settings = ctx_guard.persistence.load_settings().unwrap_or_else(|e| {
+                    eprintln!("Warning: Could not load settings: {e}");
+                    Settings::default_with_version()
+                });
 
                 // Load state
-                let persisted = ctx_guard
-                    .persistence
-                    .load_state()
-                    .unwrap_or_else(|e| {
-                        eprintln!("Warning: Could not load state: {e}");
-                        State::default_with_version()
-                    });
+                let persisted = ctx_guard.persistence.load_state().unwrap_or_else(|e| {
+                    eprintln!("Warning: Could not load state: {e}");
+                    State::default_with_version()
+                });
 
                 // Apply to app state
                 let mut state = app_state.write();
@@ -148,12 +142,19 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         pass_continue: agent.pass_continue,
                     };
                     if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                        match ctx_guard.runtime.spawn_session(&agent.id, &agent.work_dir, &signature) {
+                        match ctx_guard.runtime.spawn_session(
+                            &agent.id,
+                            &agent.work_dir,
+                            &signature,
+                        ) {
                             Ok(()) | Err(RuntimeError::AlreadyRunning(_)) => {
                                 // Existing sessions from a previous run are fine.
                             }
                             Err(e) => {
-                                eprintln!("Warning: Could not spawn session for {}: {e}", agent.id.0);
+                                eprintln!(
+                                    "Warning: Could not spawn session for {}: {e}",
+                                    agent.id.0
+                                );
                             }
                         }
                     }

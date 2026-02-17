@@ -422,7 +422,12 @@ impl AppState {
                     .repositories
                     .iter()
                     .find(|r| r.id == repository_id)
-                    .map(|r| (r.base_dir.to_string_lossy().into_owned(), r.default_profile.clone()))
+                    .map(|r| {
+                        (
+                            r.base_dir.to_string_lossy().into_owned(),
+                            r.default_profile.clone(),
+                        )
+                    })
                     .unwrap_or_default();
 
                 self.modal = ModalState::NewAgent {
@@ -739,12 +744,15 @@ impl AppState {
 
     fn handle_form_toggle_checkbox(&mut self) {
         match &mut self.modal {
-            ModalState::NewAgent { fields, focus, .. } | ModalState::EditAgent { fields, focus, .. } => {
+            ModalState::NewAgent { fields, focus, .. }
+            | ModalState::EditAgent { fields, focus, .. } => {
                 if *focus == AgentFormFocus::PassContinue {
                     fields.pass_continue = !fields.pass_continue;
                 }
             }
-            ModalState::ConfirmDeleteAgent { delete_work_dir, .. } => {
+            ModalState::ConfirmDeleteAgent {
+                delete_work_dir, ..
+            } => {
                 *delete_work_dir = !*delete_work_dir;
             }
             _ => {}
@@ -915,7 +923,8 @@ impl AppState {
                 ..
             } => {
                 let next_display_index = self.agents.len() + 1;
-                if let Some(agent) = Self::create_agent_from_fields(repository_id, fields, next_display_index)
+                if let Some(agent) =
+                    Self::create_agent_from_fields(repository_id, fields, next_display_index)
                 {
                     self.agents.push(agent);
                     self.selected_agent_index = Some(self.agents.len() - 1);
@@ -951,7 +960,9 @@ fn generate_id(prefix: &str) -> String {
 
 /// Expand `~` to home directory.
 fn expand_tilde(path: &str) -> String {
-    if (path == "~" || path.starts_with("~/")) && let Some(home) = std::env::var_os("HOME") {
+    if (path == "~" || path.starts_with("~/"))
+        && let Some(home) = std::env::var_os("HOME")
+    {
         let home = home.to_string_lossy();
         return if path == "~" {
             home.into_owned()

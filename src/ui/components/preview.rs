@@ -23,7 +23,11 @@ pub struct PreviewProps {
 #[component]
 pub fn Preview(props: &PreviewProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
-    let border_color = if props.focused { rc.border_focused } else { rc.border };
+    let border_color = if props.focused {
+        rc.border_focused
+    } else {
+        rc.border
+    };
 
     element! {
         Box(

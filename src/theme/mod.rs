@@ -129,7 +129,8 @@ impl ResolvedColors {
         match colors {
             Some(c) => Self {
                 fg: ThemeColors::parse_hex(&c.foreground).unwrap_or(Self::GREEN_SCREEN_FG),
-                bright: ThemeColors::parse_hex(&c.accent_success).unwrap_or(Self::GREEN_SCREEN_BRIGHT),
+                bright: ThemeColors::parse_hex(&c.accent_success)
+                    .unwrap_or(Self::GREEN_SCREEN_BRIGHT),
                 dim: ThemeColors::parse_hex(&c.accent_secondary).unwrap_or(Self::GREEN_SCREEN_DIM),
                 border: ThemeColors::parse_hex(&c.border_default).unwrap_or(Self::GREEN_SCREEN_FG),
                 border_focused: ThemeColors::parse_hex(&c.border_focused)

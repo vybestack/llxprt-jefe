@@ -87,8 +87,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     let continue_color = if continue_focused { rc.bright } else { rc.fg };
     let continue_line = format!(
         "  {:<16} [{}]  (space toggles)",
-        "Pass --continue",
-        continue_mark,
+        "Pass --continue", continue_mark,
     );
     field_lines.push(
         element! {

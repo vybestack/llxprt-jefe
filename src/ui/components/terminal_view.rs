@@ -24,7 +24,11 @@ pub struct TerminalViewProps {
 #[component]
 pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
-    let border_color = if props.focused { rc.border_focused } else { rc.border };
+    let border_color = if props.focused {
+        rc.border_focused
+    } else {
+        rc.border
+    };
 
     let focus_hint = if props.focused {
         "F12/t to unfocus"
