@@ -149,8 +149,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     };
                     if let Ok(mut ctx_guard) = ctx_arc.lock() {
                         match ctx_guard.runtime.spawn_session(&agent.id, &agent.work_dir, &signature) {
-                            Ok(()) => {}
-                            Err(RuntimeError::AlreadyRunning(_)) => {
+                            Ok(()) | Err(RuntimeError::AlreadyRunning(_)) => {
                                 // Existing sessions from a previous run are fine.
                             }
                             Err(e) => {
@@ -309,10 +308,8 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                 }
                                 return;
                             }
-                            KeyCode::Tab => Some(AppEvent::FormNextField),
-                            KeyCode::BackTab => Some(AppEvent::FormPrevField),
-                            KeyCode::Down => Some(AppEvent::FormNextField),
-                            KeyCode::Up => Some(AppEvent::FormPrevField),
+                            KeyCode::Tab | KeyCode::Down => Some(AppEvent::FormNextField),
+                            KeyCode::BackTab | KeyCode::Up => Some(AppEvent::FormPrevField),
                             KeyCode::Backspace => Some(AppEvent::FormBackspace),
                             // Space: toggle checkbox only on checkbox fields, otherwise type space
                             KeyCode::Char(' ') => Some(AppEvent::FormChar(' ')),
@@ -359,14 +356,14 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         // If no repo is selected but repos exist, auto-select the first one
                         let repo_id = selected_repo_id.clone().or_else(|| {
                             let state = app_state.read();
-                            if !state.repositories.is_empty() {
+                            if state.repositories.is_empty() {
+                                None
+                            } else {
                                 let first_id = state.repositories[0].id.clone();
                                 drop(state);
                                 let mut state_mut = app_state.write();
                                 state_mut.selected_repository_index = Some(0);
                                 Some(first_id)
-                            } else {
-                                None
                             }
                         });
                         if repo_id.is_none() {
@@ -412,9 +409,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     }
 
                     // Help and search
-                    KeyCode::Char('?') => Some(AppEvent::OpenHelp),
-                    KeyCode::Char('h' | 'H') => Some(AppEvent::OpenHelp),
-                    KeyCode::F(1) => Some(AppEvent::OpenHelp),
+                    KeyCode::Char('?' | 'h' | 'H') | KeyCode::F(1) => Some(AppEvent::OpenHelp),
                     KeyCode::Char('/') => Some(AppEvent::OpenSearch),
 
                     // Direct pane focus

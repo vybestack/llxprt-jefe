@@ -63,9 +63,9 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         .map(|((label, value), field_focus)| {
             let is_focused = focus == *field_focus;
             let display = if is_focused {
-                format!("  {:<16} [{}_]", label, value)
+                format!("  {label:<16} [{value}_]")
             } else {
-                format!("  {:<16} [{}]", label, value)
+                format!("  {label:<16} [{value}]")
             };
             let color = if is_focused { rc.bright } else { rc.fg };
             element! {

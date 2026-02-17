@@ -302,7 +302,7 @@ impl AppState {
             }
 
             // Focus
-            AppEvent::CyclePaneFocus => {
+            AppEvent::CyclePaneFocus | AppEvent::NavigateRight => {
                 self.pane_focus = match self.pane_focus {
                     PaneFocus::Repositories => PaneFocus::Agents,
                     PaneFocus::Agents => PaneFocus::Terminal,
@@ -509,19 +509,12 @@ impl AppState {
                 self.warning_message = None;
             }
 
-            // Pane focus navigation (Left/Right cycle panes)
+            // Pane focus navigation (Left cycles backward; Right handled with CyclePaneFocus)
             AppEvent::NavigateLeft => {
                 self.pane_focus = match self.pane_focus {
                     PaneFocus::Repositories => PaneFocus::Terminal,
                     PaneFocus::Agents => PaneFocus::Repositories,
                     PaneFocus::Terminal => PaneFocus::Agents,
-                };
-            }
-            AppEvent::NavigateRight => {
-                self.pane_focus = match self.pane_focus {
-                    PaneFocus::Repositories => PaneFocus::Agents,
-                    PaneFocus::Agents => PaneFocus::Terminal,
-                    PaneFocus::Terminal => PaneFocus::Repositories,
                 };
             }
 
@@ -649,19 +642,51 @@ impl AppState {
         }
     }
 
+    fn pop_repository_field(fields: &mut RepositoryFormFields, focus: RepositoryFormFocus) {
+        match focus {
+            RepositoryFormFocus::Name => {
+                fields.name.pop();
+            }
+            RepositoryFormFocus::BaseDir => {
+                fields.base_dir.pop();
+            }
+            RepositoryFormFocus::DefaultProfile => {
+                fields.default_profile.pop();
+            }
+        }
+    }
+
+    fn pop_agent_field(fields: &mut AgentFormFields, focus: AgentFormFocus) {
+        match focus {
+            AgentFormFocus::Name => {
+                fields.name.pop();
+            }
+            AgentFormFocus::Description => {
+                fields.description.pop();
+            }
+            AgentFormFocus::WorkDir => {
+                fields.work_dir.pop();
+            }
+            AgentFormFocus::Profile => {
+                fields.profile.pop();
+            }
+            AgentFormFocus::Mode => {
+                fields.mode.pop();
+            }
+            AgentFormFocus::PassContinue => {}
+        }
+    }
+
     fn handle_form_backspace(&mut self) {
+        let mut refresh_work_dir = false;
+
         match &mut self.modal {
             ModalState::Search { query } => {
                 query.pop();
             }
             ModalState::NewRepository { fields, focus, .. }
             | ModalState::EditRepository { fields, focus, .. } => {
-                let field = match focus {
-                    RepositoryFormFocus::Name => &mut fields.name,
-                    RepositoryFormFocus::BaseDir => &mut fields.base_dir,
-                    RepositoryFormFocus::DefaultProfile => &mut fields.default_profile,
-                };
-                field.pop();
+                Self::pop_repository_field(fields, *focus);
             }
             ModalState::NewAgent {
                 fields,
@@ -669,48 +694,22 @@ impl AppState {
                 work_dir_manual,
                 ..
             } => {
-                match focus {
-                    AgentFormFocus::Name => {
-                        fields.name.pop();
-                        if !*work_dir_manual {
-                            self.update_agent_work_dir_from_name();
-                        }
-                    }
-                    AgentFormFocus::Description => {
-                        fields.description.pop();
-                    }
-                    AgentFormFocus::WorkDir => {
-                        fields.work_dir.pop();
-                        *work_dir_manual = true;
-                    }
-                    AgentFormFocus::Profile => {
-                        fields.profile.pop();
-                    }
-                    AgentFormFocus::Mode => {
-                        fields.mode.pop();
-                    }
-                    AgentFormFocus::PassContinue => {}
+                let focused = *focus;
+                Self::pop_agent_field(fields, focused);
+                if focused == AgentFormFocus::WorkDir {
+                    *work_dir_manual = true;
+                } else if focused == AgentFormFocus::Name && !*work_dir_manual {
+                    refresh_work_dir = true;
                 }
             }
-            ModalState::EditAgent { fields, focus, .. } => match focus {
-                AgentFormFocus::Name => {
-                    fields.name.pop();
-                }
-                AgentFormFocus::Description => {
-                    fields.description.pop();
-                }
-                AgentFormFocus::WorkDir => {
-                    fields.work_dir.pop();
-                }
-                AgentFormFocus::Profile => {
-                    fields.profile.pop();
-                }
-                AgentFormFocus::Mode => {
-                    fields.mode.pop();
-                }
-                AgentFormFocus::PassContinue => {}
-            },
+            ModalState::EditAgent { fields, focus, .. } => {
+                Self::pop_agent_field(fields, *focus);
+            }
             _ => {}
+        }
+
+        if refresh_work_dir {
+            self.update_agent_work_dir_from_name();
         }
     }
 
@@ -767,8 +766,10 @@ impl AppState {
                 .repositories
                 .iter()
                 .find(|r| r.id == *repository_id)
-                .map(|r| r.base_dir.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "/tmp".to_owned());
+                .map_or_else(
+                    || "/tmp".to_owned(),
+                    |r| r.base_dir.to_string_lossy().into_owned(),
+                );
 
             let slug = fields
                 .name
@@ -781,64 +782,130 @@ impl AppState {
             fields.work_dir = if slug.is_empty() {
                 base_dir
             } else {
-                format!("{}/{}", base_dir.trim_end_matches('/'), slug)
+                let base_dir = base_dir.trim_end_matches('/');
+                format!("{base_dir}/{slug}")
             };
         }
+    }
+
+    fn create_repository_from_fields(fields: &RepositoryFormFields) -> Option<Repository> {
+        if fields.name.is_empty() {
+            return None;
+        }
+
+        let slug = fields
+            .name
+            .to_lowercase()
+            .replace(' ', "-")
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-')
+            .collect::<String>();
+
+        let base_dir = if fields.base_dir.is_empty() {
+            format!("/tmp/{slug}")
+        } else {
+            expand_tilde(&fields.base_dir)
+        };
+
+        let _ = std::fs::create_dir_all(&base_dir);
+
+        Some(Repository {
+            id: RepositoryId(generate_id("repo")),
+            name: fields.name.clone(),
+            slug,
+            base_dir: std::path::PathBuf::from(&base_dir),
+            default_profile: normalize_profile(&fields.default_profile),
+            agent_ids: Vec::new(),
+        })
+    }
+
+    fn update_repository_from_fields(repo: &mut Repository, fields: &RepositoryFormFields) {
+        repo.name.clone_from(&fields.name);
+        repo.slug = fields
+            .name
+            .to_lowercase()
+            .replace(' ', "-")
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-')
+            .collect();
+
+        if !fields.base_dir.is_empty() {
+            repo.base_dir = std::path::PathBuf::from(expand_tilde(&fields.base_dir));
+        }
+
+        repo.default_profile = normalize_profile(&fields.default_profile);
+    }
+
+    fn create_agent_from_fields(
+        repository_id: &RepositoryId,
+        fields: &AgentFormFields,
+        next_display_index: usize,
+    ) -> Option<Agent> {
+        if fields.name.is_empty() {
+            return None;
+        }
+
+        let work_dir = expand_tilde(&fields.work_dir);
+        let _ = std::fs::create_dir_all(&work_dir);
+
+        let mode_flags: Vec<String> = if fields.mode.trim().is_empty() {
+            vec!["--yolo".to_owned()]
+        } else {
+            fields.mode.split_whitespace().map(String::from).collect()
+        };
+
+        Some(Agent {
+            id: AgentId(generate_id("agent")),
+            display_id: format!("#{next_display_index}"),
+            repository_id: repository_id.clone(),
+            name: fields.name.clone(),
+            description: fields.description.clone(),
+            work_dir: std::path::PathBuf::from(&work_dir),
+            profile: normalize_profile(&fields.profile),
+            mode_flags,
+            pass_continue: fields.pass_continue,
+            status: AgentStatus::Running,
+            runtime_binding: None,
+        })
+    }
+
+    fn update_agent_from_fields(agent: &mut Agent, fields: &AgentFormFields) {
+        agent.name.clone_from(&fields.name);
+        agent.description.clone_from(&fields.description);
+
+        if !fields.work_dir.is_empty() {
+            let new_dir = expand_tilde(&fields.work_dir);
+            if new_dir != agent.work_dir.to_string_lossy() {
+                let _ = std::fs::create_dir_all(&new_dir);
+            }
+            agent.work_dir = std::path::PathBuf::from(&new_dir);
+        }
+
+        agent.profile = normalize_profile(&fields.profile);
+        agent.mode_flags = if fields.mode.trim().is_empty() {
+            vec!["--yolo".to_owned()]
+        } else {
+            fields.mode.split_whitespace().map(String::from).collect()
+        };
+        agent.pass_continue = fields.pass_continue;
     }
 
     fn handle_submit_form(&mut self) {
         match &self.modal {
             ModalState::NewRepository { fields, .. } => {
-                if fields.name.is_empty() {
-                    return; // Don't submit empty
+                if let Some(repo) = Self::create_repository_from_fields(fields) {
+                    self.repositories.push(repo);
+                    self.selected_repository_index = Some(self.repositories.len() - 1);
+                    self.modal = ModalState::None;
                 }
-                let slug = fields
-                    .name
-                    .to_lowercase()
-                    .replace(' ', "-")
-                    .chars()
-                    .filter(|c| c.is_alphanumeric() || *c == '-')
-                    .collect::<String>();
-
-                let base_dir = if fields.base_dir.is_empty() {
-                    format!("/tmp/{}", slug)
-                } else {
-                    expand_tilde(&fields.base_dir)
-                };
-
-                // Create directory
-                let _ = std::fs::create_dir_all(&base_dir);
-
-                let repo = Repository {
-                    id: RepositoryId(generate_id("repo")),
-                    name: fields.name.clone(),
-                    slug,
-                    base_dir: std::path::PathBuf::from(&base_dir),
-                    default_profile: normalize_profile(&fields.default_profile),
-                    agent_ids: Vec::new(),
-                };
-
-                self.repositories.push(repo);
-                self.selected_repository_index = Some(self.repositories.len() - 1);
-                self.modal = ModalState::None;
             }
             ModalState::EditRepository { id, fields, .. } => {
                 if fields.name.is_empty() {
                     return;
                 }
+
                 if let Some(repo) = self.repositories.iter_mut().find(|r| r.id == *id) {
-                    repo.name = fields.name.clone();
-                    repo.slug = fields
-                        .name
-                        .to_lowercase()
-                        .replace(' ', "-")
-                        .chars()
-                        .filter(|c| c.is_alphanumeric() || *c == '-')
-                        .collect();
-                    if !fields.base_dir.is_empty() {
-                        repo.base_dir = std::path::PathBuf::from(expand_tilde(&fields.base_dir));
-                    }
-                    repo.default_profile = normalize_profile(&fields.default_profile);
+                    Self::update_repository_from_fields(repo, fields);
                 }
                 self.modal = ModalState::None;
             }
@@ -847,60 +914,21 @@ impl AppState {
                 fields,
                 ..
             } => {
-                if fields.name.is_empty() {
-                    return;
+                let next_display_index = self.agents.len() + 1;
+                if let Some(agent) = Self::create_agent_from_fields(repository_id, fields, next_display_index)
+                {
+                    self.agents.push(agent);
+                    self.selected_agent_index = Some(self.agents.len() - 1);
+                    self.modal = ModalState::None;
                 }
-                let work_dir = expand_tilde(&fields.work_dir);
-                let _ = std::fs::create_dir_all(&work_dir);
-
-                let mode_flags: Vec<String> = if fields.mode.trim().is_empty() {
-                    vec!["--yolo".to_owned()]
-                } else {
-                    fields.mode.split_whitespace().map(String::from).collect()
-                };
-
-                let agent_id = AgentId(generate_id("agent"));
-                let display_id = format!("#{}", self.agents.len() + 1);
-
-                let agent = Agent {
-                    id: agent_id,
-                    display_id,
-                    repository_id: repository_id.clone(),
-                    name: fields.name.clone(),
-                    description: fields.description.clone(),
-                    work_dir: std::path::PathBuf::from(&work_dir),
-                    profile: normalize_profile(&fields.profile),
-                    mode_flags,
-                    pass_continue: fields.pass_continue,
-                    status: AgentStatus::Running,
-                    runtime_binding: None,
-                };
-
-                self.agents.push(agent);
-                self.selected_agent_index = Some(self.agents.len() - 1);
-                self.modal = ModalState::None;
             }
             ModalState::EditAgent { id, fields, .. } => {
                 if fields.name.is_empty() {
                     return;
                 }
+
                 if let Some(agent) = self.agents.iter_mut().find(|a| a.id == *id) {
-                    agent.name = fields.name.clone();
-                    agent.description = fields.description.clone();
-                    if !fields.work_dir.is_empty() {
-                        let new_dir = expand_tilde(&fields.work_dir);
-                        if new_dir != agent.work_dir.to_string_lossy() {
-                            let _ = std::fs::create_dir_all(&new_dir);
-                        }
-                        agent.work_dir = std::path::PathBuf::from(&new_dir);
-                    }
-                    agent.profile = normalize_profile(&fields.profile);
-                    agent.mode_flags = if fields.mode.trim().is_empty() {
-                        vec!["--yolo".to_owned()]
-                    } else {
-                        fields.mode.split_whitespace().map(String::from).collect()
-                    };
-                    agent.pass_continue = fields.pass_continue;
+                    Self::update_agent_from_fields(agent, fields);
                 }
                 self.modal = ModalState::None;
             }
@@ -923,15 +951,13 @@ fn generate_id(prefix: &str) -> String {
 
 /// Expand `~` to home directory.
 fn expand_tilde(path: &str) -> String {
-    if path == "~" || path.starts_with("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            let home = home.to_string_lossy();
-            return if path == "~" {
-                home.into_owned()
-            } else {
-                format!("{}{}", home, &path[1..])
-            };
-        }
+    if (path == "~" || path.starts_with("~/")) && let Some(home) = std::env::var_os("HOME") {
+        let home = home.to_string_lossy();
+        return if path == "~" {
+            home.into_owned()
+        } else {
+            format!("{home}{}", &path[1..])
+        };
     }
     path.to_owned()
 }
