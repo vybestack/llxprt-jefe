@@ -41,27 +41,56 @@ impl RuntimeSession {
     }
 }
 
+/// Style information for one terminal cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalCellStyle {
+    /// Foreground color.
+    pub fg: iocraft::Color,
+    /// Background color.
+    pub bg: iocraft::Color,
+    /// Bold weight.
+    pub bold: bool,
+    /// Underline decoration.
+    pub underline: bool,
+}
+
+/// One renderable terminal cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalCell {
+    /// Display character.
+    pub ch: char,
+    /// Cell style.
+    pub style: TerminalCellStyle,
+}
+
 /// Terminal snapshot data for rendering.
 ///
-/// Represents a frozen view of the terminal state at a point in time.
+/// Represents a frozen, styled view of terminal state at a point in time.
 #[derive(Debug, Clone, Default)]
 pub struct TerminalSnapshot {
-    /// Lines of text, each as a vector of characters.
-    pub lines: Vec<Vec<char>>,
-    /// Cursor row position (0-indexed).
-    pub cursor_row: usize,
-    /// Cursor column position (0-indexed).
-    pub cursor_col: usize,
-    /// Terminal height in rows.
-    pub rows: u16,
-    /// Terminal width in columns.
-    pub cols: u16,
+    /// Number of visible rows.
+    pub rows: usize,
+    /// Number of visible columns.
+    pub cols: usize,
+    /// Row-major terminal cells.
+    pub cells: Vec<Vec<TerminalCell>>,
 }
 
 impl TerminalSnapshot {
+    /// Build an empty snapshot pre-filled with a base style.
+    #[must_use]
+    pub fn blank(rows: usize, cols: usize, style: TerminalCellStyle) -> Self {
+        let cell = TerminalCell { ch: ' ', style };
+        Self {
+            rows,
+            cols,
+            cells: vec![vec![cell; cols]; rows],
+        }
+    }
+
     /// Check if the snapshot is empty (no content).
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.lines.is_empty() || self.lines.iter().all(Vec::is_empty)
+        self.cells.is_empty() || self.cells.iter().all(Vec::is_empty)
     }
 }

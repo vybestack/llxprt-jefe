@@ -50,16 +50,23 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
     let running_count = state.map_or(0, |s| s.agents.iter().filter(|a| a.is_running()).count());
     let agent_count = state.map_or(0, |s| s.agents.len());
     let selected_repo_idx = state.and_then(|s| s.selected_repository_index).unwrap_or(0);
-    let selected_agent_idx = state.and_then(|s| s.selected_agent_index).unwrap_or(0);
+    let selected_agent_idx = state
+        .and_then(|s| s.selected_agent_local_index())
+        .unwrap_or(0);
     let pane_focus = state.map_or(PaneFocus::Repositories, |s| s.pane_focus);
     let terminal_focused = state.is_some_and(|s| s.terminal_focused);
 
     let repositories = state.map_or_else(Vec::new, |s| s.repositories.clone());
-    let agents = state.map_or_else(Vec::new, |s| s.agents.clone());
-    let selected_agent_data = state.and_then(|s| {
-        s.selected_agent_index
-            .and_then(|i| s.agents.get(i).cloned())
+    let agents = state.map_or_else(Vec::new, |s| {
+        s.selected_repository().map_or_else(Vec::new, |repo| {
+            s.agents
+                .iter()
+                .filter(|agent| agent.repository_id == repo.id)
+                .cloned()
+                .collect()
+        })
     });
+    let selected_agent_data = state.and_then(|s| s.selected_agent().cloned());
 
     // Resolve colors with green screen fallback
     let colors = props.colors.clone().unwrap_or_default();

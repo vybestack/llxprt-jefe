@@ -255,6 +255,78 @@ pub enum AppEvent {
 }
 
 impl AppState {
+    fn selected_repository_id(&self) -> Option<&RepositoryId> {
+        self.selected_repository_index
+            .and_then(|idx| self.repositories.get(idx).map(|repo| &repo.id))
+    }
+
+    fn agent_indices_for_repository(&self, repository_id: &RepositoryId) -> Vec<usize> {
+        self.agents
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, agent)| (&agent.repository_id == repository_id).then_some(idx))
+            .collect()
+    }
+
+    pub fn rebuild_repository_agent_ids(&mut self) {
+        for repository in &mut self.repositories {
+            repository.agent_ids.clear();
+        }
+
+        for agent in &self.agents {
+            if let Some(repository) = self
+                .repositories
+                .iter_mut()
+                .find(|repository| repository.id == agent.repository_id)
+            {
+                repository.agent_ids.push(agent.id.clone());
+            }
+        }
+    }
+
+    pub fn normalize_selection_indices(&mut self) {
+        if self.repositories.is_empty() {
+            self.selected_repository_index = None;
+            self.selected_agent_index = None;
+            return;
+        }
+
+        if self
+            .selected_repository_index
+            .is_some_and(|idx| idx >= self.repositories.len())
+        {
+            self.selected_repository_index = Some(self.repositories.len().saturating_sub(1));
+        }
+
+        let Some(repository_id) = self.selected_repository_id().cloned() else {
+            self.selected_agent_index = None;
+            return;
+        };
+
+        let visible_indices = self.agent_indices_for_repository(&repository_id);
+        if visible_indices.is_empty() {
+            self.selected_agent_index = None;
+            return;
+        }
+
+        if let Some(selected_idx) = self.selected_agent_index
+            && visible_indices.contains(&selected_idx)
+        {
+            return;
+        }
+
+        self.selected_agent_index = visible_indices.first().copied();
+    }
+
+    pub fn selected_agent_local_index(&self) -> Option<usize> {
+        let repository_id = self.selected_repository_id()?;
+        let selected_global = self.selected_agent_index?;
+
+        self.agent_indices_for_repository(repository_id)
+            .iter()
+            .position(|global_idx| *global_idx == selected_global)
+    }
+
     /// Apply an event to produce the next state.
     ///
     /// State transitions are deterministic per REQ-TECH-003.
@@ -296,8 +368,11 @@ impl AppState {
                 }
             }
             AppEvent::SelectAgent(idx) => {
-                if idx < self.agents.len() {
-                    self.selected_agent_index = Some(idx);
+                if let Some(repository_id) = self.selected_repository_id().cloned() {
+                    let visible_indices = self.agent_indices_for_repository(&repository_id);
+                    if idx < visible_indices.len() {
+                        self.selected_agent_index = Some(visible_indices[idx]);
+                    }
                 }
             }
 
@@ -529,6 +604,9 @@ impl AppState {
             | AppEvent::SetTheme(_)
             | AppEvent::Quit => {}
         }
+
+        self.rebuild_repository_agent_ids();
+        self.normalize_selection_indices();
         self
     }
 
@@ -540,8 +618,31 @@ impl AppState {
                 }
             }
             PaneFocus::Agents => {
-                if let Some(idx) = self.selected_agent_index.filter(|&i| i > 0) {
-                    self.selected_agent_index = Some(idx - 1);
+                let Some(repository_id) = self.selected_repository_id().cloned() else {
+                    self.selected_agent_index = None;
+                    return;
+                };
+
+                let visible_indices = self.agent_indices_for_repository(&repository_id);
+                if visible_indices.is_empty() {
+                    self.selected_agent_index = None;
+                    return;
+                }
+
+                let selected_local = self.selected_agent_index.and_then(|selected_idx| {
+                    visible_indices
+                        .iter()
+                        .position(|global_idx| *global_idx == selected_idx)
+                });
+
+                match selected_local {
+                    Some(local_idx) if local_idx > 0 => {
+                        self.selected_agent_index = Some(visible_indices[local_idx - 1]);
+                    }
+                    Some(_) => {}
+                    None => {
+                        self.selected_agent_index = visible_indices.first().copied();
+                    }
                 }
             }
             PaneFocus::Terminal => {}
@@ -559,10 +660,30 @@ impl AppState {
                 }
             }
             PaneFocus::Agents => {
-                if let Some(idx) = self.selected_agent_index {
-                    let max = self.agents.len().saturating_sub(1);
-                    if idx < max {
-                        self.selected_agent_index = Some(idx + 1);
+                let Some(repository_id) = self.selected_repository_id().cloned() else {
+                    self.selected_agent_index = None;
+                    return;
+                };
+
+                let visible_indices = self.agent_indices_for_repository(&repository_id);
+                if visible_indices.is_empty() {
+                    self.selected_agent_index = None;
+                    return;
+                }
+
+                let selected_local = self.selected_agent_index.and_then(|selected_idx| {
+                    visible_indices
+                        .iter()
+                        .position(|global_idx| *global_idx == selected_idx)
+                });
+
+                match selected_local {
+                    Some(local_idx) if local_idx + 1 < visible_indices.len() => {
+                        self.selected_agent_index = Some(visible_indices[local_idx + 1]);
+                    }
+                    Some(_) => {}
+                    None => {
+                        self.selected_agent_index = visible_indices.first().copied();
                     }
                 }
             }
@@ -580,7 +701,10 @@ impl AppState {
     /// Get the currently selected agent, if any.
     #[must_use]
     pub fn selected_agent(&self) -> Option<&Agent> {
-        self.selected_agent_index.and_then(|i| self.agents.get(i))
+        let repository_id = self.selected_repository_id()?;
+        let selected_idx = self.selected_agent_index?;
+        let agent = self.agents.get(selected_idx)?;
+        (&agent.repository_id == repository_id).then_some(agent)
     }
 
     // Form handling methods

@@ -16,7 +16,7 @@ mod session;
 
 pub use errors::RuntimeError;
 pub use manager::{RuntimeManager, StubRuntimeManager, TmuxRuntimeManager};
-pub use session::{RuntimeSession, TerminalSnapshot};
+pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 
 #[cfg(test)]
 mod tests {

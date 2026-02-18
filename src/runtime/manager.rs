@@ -13,7 +13,7 @@ use super::attach::AttachedViewer;
 use super::commands;
 use super::errors::RuntimeError;
 use super::liveness;
-use super::session::{RuntimeSession, TerminalSnapshot};
+use super::session::{RuntimeSession, TerminalCellStyle, TerminalSnapshot};
 use crate::domain::{AgentId, LaunchSignature};
 
 /// Runtime manager trait - owns attach/reattach, input forwarding, kill/relaunch.
@@ -68,6 +68,9 @@ pub trait RuntimeManager: Send {
 
     /// Get the currently attached agent ID.
     fn attached_agent(&self) -> Option<&AgentId>;
+
+    /// Whether the attached application currently has terminal mouse reporting enabled.
+    fn mouse_reporting_active(&self) -> bool;
 
     /// Get a reference to a session by agent ID.
     fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession>;
@@ -154,7 +157,19 @@ impl RuntimeManager for StubRuntimeManager {
     }
 
     fn snapshot(&self) -> Option<TerminalSnapshot> {
-        self.attached_index.map(|_| TerminalSnapshot::default())
+        self.attached_index.map(|_| {
+            let style = TerminalCellStyle {
+                fg: iocraft::Color::Rgb {
+                    r: 0x6a,
+                    g: 0x99,
+                    b: 0x55,
+                },
+                bg: iocraft::Color::Rgb { r: 0, g: 0, b: 0 },
+                bold: false,
+                underline: false,
+            };
+            TerminalSnapshot::blank(1, 1, style)
+        })
     }
 
     fn write_input(&mut self, _bytes: &[u8]) -> Result<(), RuntimeError> {
@@ -176,6 +191,10 @@ impl RuntimeManager for StubRuntimeManager {
     fn attached_agent(&self) -> Option<&AgentId> {
         self.attached_index
             .and_then(|idx| self.sessions.get(idx).map(|s| &s.agent_id))
+    }
+
+    fn mouse_reporting_active(&self) -> bool {
+        false
     }
 
     fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession> {
@@ -372,6 +391,12 @@ impl RuntimeManager for TmuxRuntimeManager {
 
     fn attached_agent(&self) -> Option<&AgentId> {
         self.attached_agent_id.as_ref()
+    }
+
+    fn mouse_reporting_active(&self) -> bool {
+        self.viewer
+            .as_ref()
+            .is_some_and(AttachedViewer::mouse_reporting_active)
     }
 
     fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession> {

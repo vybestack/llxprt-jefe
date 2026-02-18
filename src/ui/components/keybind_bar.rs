@@ -29,7 +29,7 @@ pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
     } else {
         match props.screen_mode {
             ScreenMode::Dashboard => {
-                "^/v navigate | </> pane | t/f12 terminal focus | n new-agent | N new-repo | d delete | k kill | l relaunch | s split | ? help | q quit"
+                "^/v navigate | </> pane | t/f12 terminal focus | n new-agent | N new-repo | ctrl-d delete | ctrl-k kill | l relaunch | s split | ? help | q quit"
             }
             ScreenMode::Split => "^/v select | g grab | m move | Esc back | ? help",
         }

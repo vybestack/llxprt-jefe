@@ -12,12 +12,12 @@ use std::sync::Arc;
 
 use iocraft::prelude::*;
 
-use jefe::domain::{AgentId, AgentStatus, LaunchSignature};
+use jefe::domain::{AgentId, AgentStatus, LaunchSignature, RepositoryId};
 use jefe::persistence::{FilePersistenceManager, PersistenceManager, Settings, State};
 use jefe::runtime::{RuntimeError, RuntimeManager, TerminalSnapshot, TmuxRuntimeManager};
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
 use jefe::theme::{FileThemeManager, ThemeColors, ThemeManager};
-use jefe::ui::{Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen};
+use jefe::ui::{ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen};
 
 /// Check if fullscreen mode is enabled.
 fn is_fullscreen_enabled() -> bool {
@@ -40,14 +40,14 @@ fn effective_render_size(cols: u16, rows: u16) -> (u16, u16) {
     }
 }
 
-/// Compute the PTY viewport size so llxprt fits the visible terminal pane.
+/// Compute PTY viewport size and its origin within the fullscreen render grid.
 ///
-/// This follows the same geometry used by the dashboard screen:
+/// Layout mirrors dashboard proportions:
 /// - top status bar (1 row)
 /// - bottom keybind bar (1 row)
 /// - middle column split: agent list 25%, terminal 75%
-/// - terminal widget chrome: border + header
-fn compute_pty_size(term_cols: u16, term_rows: u16) -> (u16, u16) {
+/// - terminal widget chrome: border + header + border
+fn compute_pty_layout(term_cols: u16, term_rows: u16) -> (u16, u16, u16, u16) {
     let (render_cols, render_rows) = effective_render_size(term_cols, term_rows);
 
     let content_rows = render_rows.saturating_sub(OUTER_BARS_HEIGHT);
@@ -63,7 +63,10 @@ fn compute_pty_size(term_cols: u16, term_rows: u16) -> (u16, u16) {
         .saturating_sub(TERMINAL_WIDGET_CHROME_COLS)
         .max(2);
 
-    (pty_rows, pty_cols)
+    let pane_col0 = LEFT_COL_WIDTH.saturating_add(1);
+    let pane_row0 = 1u16.saturating_add(agent_rows).saturating_add(2);
+
+    (pty_rows, pty_cols, pane_col0, pane_row0)
 }
 
 /// Shared application context passed to the root component.
@@ -71,6 +74,111 @@ struct AppContext {
     persistence: FilePersistenceManager,
     theme_manager: FileThemeManager,
     runtime: TmuxRuntimeManager,
+}
+
+fn to_persisted_state(state: &AppState) -> State {
+    State {
+        schema_version: jefe::persistence::STATE_SCHEMA_VERSION,
+        repositories: state.repositories.clone(),
+        agents: state.agents.clone(),
+        selected_repository_index: state.selected_repository_index,
+        selected_agent_index: state.selected_agent_index,
+    }
+}
+
+fn persist_state_snapshot(ctx: &Option<Arc<std::sync::Mutex<AppContext>>>, state: &AppState) {
+    if let Some(ctx_arc) = ctx
+        && let Ok(ctx_guard) = ctx_arc.lock()
+        && let Err(e) = ctx_guard.persistence.save_state(&to_persisted_state(state))
+    {
+        eprintln!("Warning: Could not save state: {e}");
+    }
+}
+
+/// Delete the currently selected repository from state.
+fn delete_selected_repository(state: &mut AppState, repository_id: &RepositoryId) {
+    if let Some(repo_idx) = state
+        .repositories
+        .iter()
+        .position(|r| &r.id == repository_id)
+    {
+        state.repositories.remove(repo_idx);
+
+        // Remove all agents belonging to the deleted repository.
+        state
+            .agents
+            .retain(|agent| &agent.repository_id != repository_id);
+
+        if state.repositories.is_empty() {
+            state.selected_repository_index = None;
+            state.selected_agent_index = None;
+            state.pane_focus = PaneFocus::Repositories;
+            state.rebuild_repository_agent_ids();
+            state.normalize_selection_indices();
+            return;
+        }
+
+        let next_repo_idx = repo_idx.min(state.repositories.len().saturating_sub(1));
+        state.selected_repository_index = Some(next_repo_idx);
+
+        let selected_repo_id = state.repositories[next_repo_idx].id.clone();
+        state.selected_agent_index = state
+            .agents
+            .iter()
+            .enumerate()
+            .find_map(|(idx, agent)| (agent.repository_id == selected_repo_id).then_some(idx));
+
+        if state.selected_agent_index.is_none() {
+            state.pane_focus = PaneFocus::Repositories;
+            state.terminal_focused = false;
+        }
+
+        state.rebuild_repository_agent_ids();
+        state.normalize_selection_indices();
+    }
+}
+
+/// Delete a selected agent from state and optionally remove its working directory.
+fn delete_selected_agent(
+    state: &mut AppState,
+    agent_id: &AgentId,
+    delete_work_dir: bool,
+) -> Option<AgentId> {
+    let agent_idx = state.agents.iter().position(|a| &a.id == agent_id)?;
+
+    let removed_agent = state.agents.remove(agent_idx);
+    if delete_work_dir {
+        if removed_agent.work_dir.exists()
+            && let Err(e) = std::fs::remove_dir_all(&removed_agent.work_dir)
+        {
+            eprintln!(
+                "Warning: Could not remove work directory {}: {e}",
+                removed_agent.work_dir.display()
+            );
+        }
+    }
+
+    let selected_repo_id = state
+        .selected_repository_index
+        .and_then(|idx| state.repositories.get(idx).map(|r| r.id.clone()));
+
+    state.selected_agent_index = selected_repo_id.as_ref().and_then(|repo_id| {
+        state
+            .agents
+            .iter()
+            .enumerate()
+            .find_map(|(idx, agent)| (&agent.repository_id == repo_id).then_some(idx))
+    });
+
+    if state.selected_agent_index.is_none() {
+        state.pane_focus = PaneFocus::Repositories;
+        state.terminal_focused = false;
+    }
+
+    state.rebuild_repository_agent_ids();
+    state.normalize_selection_indices();
+
+    Some(removed_agent.id)
 }
 
 /// Props for the root app component.
@@ -113,6 +221,9 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 state.agents = persisted.agents;
                 state.selected_repository_index = persisted.selected_repository_index;
                 state.selected_agent_index = persisted.selected_agent_index;
+                state.terminal_focused = false;
+                state.rebuild_repository_agent_ids();
+                state.normalize_selection_indices();
 
                 // Set theme
                 drop(ctx_guard);
@@ -187,9 +298,59 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
             TerminalEvent::Resize(cols, rows) => {
                 if let Some(ref ctx_arc) = ctx {
                     if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                        let (pty_rows, pty_cols) = compute_pty_size(cols, rows);
+                        let (pty_rows, pty_cols, _, _) = compute_pty_layout(cols, rows);
                         let _ = ctx_guard.runtime.resize(pty_rows, pty_cols);
                     }
+                }
+            }
+            TerminalEvent::FullscreenMouse(mouse_event) => {
+                let state = app_state.read();
+                let terminal_input_enabled =
+                    state.terminal_focused && state.pane_focus == PaneFocus::Terminal;
+                drop(state);
+
+                if !terminal_input_enabled {
+                    return;
+                }
+
+                let Some(ref ctx_arc) = ctx else {
+                    return;
+                };
+                let Ok(mut ctx_guard) = ctx_arc.lock() else {
+                    return;
+                };
+
+                if !ctx_guard.runtime.mouse_reporting_active() {
+                    return;
+                }
+
+                let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
+                let (pty_rows, pty_cols, pane_col0, pane_row0) = compute_pty_layout(cols, rows);
+
+                let row_end = pane_row0.saturating_add(pty_rows.saturating_sub(1));
+                let col_end = pane_col0.saturating_add(pty_cols.saturating_sub(1));
+
+                let screen_row0 = mouse_event.row;
+                let screen_col0 = mouse_event.column;
+
+                let in_terminal_bounds = screen_col0 >= pane_col0
+                    && screen_col0 <= col_end
+                    && screen_row0 >= pane_row0
+                    && screen_row0 <= row_end;
+
+                if !in_terminal_bounds {
+                    return;
+                }
+
+                let local_row = screen_row0.saturating_sub(pane_row0);
+                let local_col = screen_col0.saturating_sub(pane_col0);
+
+                let mut local_event =
+                    iocraft::FullscreenMouseEvent::new(mouse_event.kind, local_col, local_row);
+                local_event.modifiers = mouse_event.modifiers;
+
+                if let Some(bytes) = mouse_event_to_bytes(&local_event) {
+                    let _ = ctx_guard.runtime.write_input(&bytes);
                 }
             }
             TerminalEvent::Key(key_event) => {
@@ -206,10 +367,51 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 drop(state_ro);
 
                 // F12 toggles terminal input focus.
-                // Session attach/detach is independent and handled by runtime/view logic.
+                // When enabling, force pane focus to terminal and require attach success.
                 if key_event.code == KeyCode::F(12) {
-                    let mut state = app_state.write();
-                    *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+                    let (enabling_focus, selected_agent_id) = {
+                        let mut state = app_state.write();
+
+                        if state.terminal_focused {
+                            *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+                            (false, None)
+                        } else {
+                            state.pane_focus = PaneFocus::Terminal;
+                            *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+                            (true, state.selected_agent().map(|agent| agent.id.clone()))
+                        }
+                    };
+
+                    if enabling_focus {
+                        let attached = selected_agent_id.as_ref().is_some_and(|agent_id| {
+                            if let Some(ref ctx_arc) = ctx {
+                                if let Ok(mut ctx_guard) = ctx_arc.lock() {
+                                    match ctx_guard.runtime.attach(agent_id) {
+                                        Ok(()) => true,
+                                        Err(e) => {
+                                            eprintln!(
+                                                "Warning: Could not attach session for {} on F12 focus: {e}",
+                                                agent_id.0
+                                            );
+                                            false
+                                        }
+                                    }
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        });
+
+                        if !attached {
+                            let mut state = app_state.write();
+                            state.terminal_focused = false;
+                        }
+                    }
+
+                    let state = app_state.read();
+                    persist_state_snapshot(&ctx, &state);
                     return;
                 }
 
@@ -219,7 +421,9 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 if term_focused && pane_focus != PaneFocus::Terminal {
                     let mut state = app_state.write();
                     state.terminal_focused = false;
+                    persist_state_snapshot(&ctx, &state);
                 }
+
 
                 // When terminal input is focused, forward keys to PTY.
                 if terminal_input_enabled {
@@ -240,6 +444,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                             KeyCode::Esc | KeyCode::Char('?') => {
                                 let mut state = app_state.write();
                                 *state = std::mem::take(&mut *state).apply(AppEvent::CloseModal);
+                                persist_state_snapshot(&ctx, &state);
                             }
                             KeyCode::Up => {
                                 let offset = help_scroll.get();
@@ -254,10 +459,101 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         }
                         return;
                     }
+                    ModalState::ConfirmDeleteRepository { .. }
+                    | ModalState::ConfirmDeleteAgent { .. } => {
+                        match key_event.code {
+                            KeyCode::Esc => {
+                                let mut state = app_state.write();
+                                *state = std::mem::take(&mut *state).apply(AppEvent::CloseModal);
+                                persist_state_snapshot(&ctx, &state);
+                            }
+                            KeyCode::Enter => {
+                                let modal_snapshot = {
+                                    let state = app_state.read();
+                                    state.modal.clone()
+                                };
+
+                                match modal_snapshot {
+                                    ModalState::ConfirmDeleteAgent {
+                                        id,
+                                        delete_work_dir,
+                                    } => {
+                                        if let Some(ref ctx_arc) = ctx {
+                                            if let Ok(mut ctx_guard) = ctx_arc.lock() {
+                                                if let Err(e) = ctx_guard.runtime.kill(&id) {
+                                                    match e {
+                                                        RuntimeError::SessionNotFound(_) => {}
+                                                        _ => {
+                                                            eprintln!(
+                                                                "Warning: Could not kill runtime session for {} before delete: {e}",
+                                                                id.0
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        let mut state = app_state.write();
+                                        let _ = delete_selected_agent(&mut state, &id, delete_work_dir);
+                                        state.modal = ModalState::None;
+                                        persist_state_snapshot(&ctx, &state);
+                                    }
+                                    ModalState::ConfirmDeleteRepository { id } => {
+                                        if let Some(ref ctx_arc) = ctx {
+                                            if let Ok(mut ctx_guard) = ctx_arc.lock() {
+                                                let agent_ids: Vec<AgentId> = {
+                                                    let state = app_state.read();
+                                                    state
+                                                        .agents
+                                                        .iter()
+                                                        .filter(|agent| agent.repository_id == id)
+                                                        .map(|agent| agent.id.clone())
+                                                        .collect()
+                                                };
+
+                                                for agent_id in &agent_ids {
+                                                    if let Err(e) = ctx_guard.runtime.kill(agent_id) {
+                                                        match e {
+                                                            RuntimeError::SessionNotFound(_) => {}
+                                                            _ => {
+                                                                eprintln!(
+                                                                    "Warning: Could not kill runtime session for {} before repository delete: {e}",
+                                                                    agent_id.0
+                                                                );
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        let mut state = app_state.write();
+                                        delete_selected_repository(&mut state, &id);
+                                        state.modal = ModalState::None;
+                                        persist_state_snapshot(&ctx, &state);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            KeyCode::Char(' ') | KeyCode::Char('d') | KeyCode::Char('D')
+                            | KeyCode::Up
+                            | KeyCode::Down => {
+                                let mut state = app_state.write();
+                                *state = std::mem::take(&mut *state)
+                                    .apply(AppEvent::ToggleDeleteWorkDir);
+                                persist_state_snapshot(&ctx, &state);
+                            }
+                            _ => {}
+                        }
+                        return;
+                    }
+
                     ModalState::Search { .. } => {
                         if key_event.code == KeyCode::Esc {
                             let mut state = app_state.write();
                             *state = std::mem::take(&mut *state).apply(AppEvent::CloseModal);
+                            persist_state_snapshot(&ctx, &state);
                         }
                         return;
                     }
@@ -276,10 +572,11 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
                                 let mut state = app_state.write();
                                 *state = std::mem::take(&mut *state).apply(AppEvent::SubmitForm);
+                                persist_state_snapshot(&ctx, &state);
 
                                 // If new agent was created, spawn session and attach viewer.
                                 if is_new_agent && state.modal == ModalState::None {
-                                    if let Some(agent) = state.selected_agent_index.and_then(|i| state.agents.get(i)) {
+                                    if let Some(agent) = state.selected_agent().cloned() {
                                         let agent_id = agent.id.clone();
                                         let work_dir = agent.work_dir.clone();
                                         let signature = LaunchSignature {
@@ -290,6 +587,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                         };
                                         // Match toy1 behavior: new agent opens attached and focused.
                                         state.terminal_focused = true;
+                                        persist_state_snapshot(&ctx, &state);
                                         drop(state);
 
                                         if let Some(ref ctx_arc) = ctx {
@@ -320,6 +618,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         if let Some(evt) = app_event {
                             let mut state = app_state.write();
                             *state = std::mem::take(&mut *state).apply(evt);
+                            persist_state_snapshot(&ctx, &state);
                         }
                         return;
                     }
@@ -332,9 +631,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 let selected_repo_id = state_ro
                     .selected_repository_index
                     .and_then(|i| state_ro.repositories.get(i).map(|r| r.id.clone()));
-                let selected_agent_id = state_ro
-                    .selected_agent_index
-                    .and_then(|i| state_ro.agents.get(i).map(|a| a.id.clone()));
+                let selected_agent_id = state_ro.selected_agent().map(|agent| agent.id.clone());
                 drop(state_ro);
 
                 // Normal keybindings.
@@ -364,6 +661,8 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                 drop(state);
                                 let mut state_mut = app_state.write();
                                 state_mut.selected_repository_index = Some(0);
+                                state_mut.normalize_selection_indices();
+                                persist_state_snapshot(&ctx, &state_mut);
                                 Some(first_id)
                             }
                         });
@@ -376,8 +675,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     KeyCode::Char('N') => Some(AppEvent::OpenNewRepository),
 
                     // Delete
-                    KeyCode::Char('d') => {
-                        if pane_focus == PaneFocus::Agents {
+                    KeyCode::Char('d' | 'D')
+                        if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+                    {
+                        if pane_focus == PaneFocus::Agents || pane_focus == PaneFocus::Terminal {
                             selected_agent_id.clone().map(AppEvent::OpenDeleteAgent)
                         } else if pane_focus == PaneFocus::Repositories {
                             selected_repo_id.clone().map(AppEvent::OpenDeleteRepository)
@@ -387,7 +688,9 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     }
 
                     // Kill agent
-                    KeyCode::Char('k' | 'K') => {
+                    KeyCode::Char('k' | 'K')
+                        if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+                    {
                         selected_agent_id.clone().map(AppEvent::KillAgent)
                     }
 
@@ -417,19 +720,46 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     KeyCode::Char('r' | 'R') => {
                         let mut state = app_state.write();
                         state.pane_focus = PaneFocus::Repositories;
+                        persist_state_snapshot(&ctx, &state);
                         None
                     }
                     KeyCode::Char('a' | 'A') => {
                         let mut state = app_state.write();
                         state.pane_focus = PaneFocus::Agents;
+                        persist_state_snapshot(&ctx, &state);
                         None
                     }
                     KeyCode::Char('t' | 'T') => {
-                        let mut state = app_state.write();
-                        state.pane_focus = PaneFocus::Terminal;
-                        if !state.terminal_focused {
-                            *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+                        let selected_agent_id = {
+                            let mut state = app_state.write();
+                            state.pane_focus = PaneFocus::Terminal;
+                            if !state.terminal_focused {
+                                *state =
+                                    std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+                            }
+                            state.selected_agent().map(|agent| agent.id.clone())
+                        };
+
+                        if let Some(agent_id) = selected_agent_id {
+                            if let Some(ref ctx_arc) = ctx {
+                                if let Ok(mut ctx_guard) = ctx_arc.lock() {
+                                    if let Err(e) = ctx_guard.runtime.attach(&agent_id) {
+                                        eprintln!(
+                                            "Warning: Could not attach session for {}: {e}",
+                                            agent_id.0
+                                        );
+                                        let mut state = app_state.write();
+                                        state.terminal_focused = false;
+                                        persist_state_snapshot(&ctx, &state);
+                                    }
+                                }
+                            }
+                        } else {
+                            let mut state = app_state.write();
+                            state.terminal_focused = false;
+                            persist_state_snapshot(&ctx, &state);
                         }
+
                         None
                     }
 
@@ -481,6 +811,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                             // Runtime attach/detach remains bound to F12.
                             let mut state = app_state.write();
                             *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+                            persist_state_snapshot(&ctx, &state);
                         }
                         AppEvent::KillAgent(ref agent_id) => {
                             if let Some(ref ctx_arc) = ctx {
@@ -493,6 +824,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                             let mut state = app_state.write();
                             *state = std::mem::take(&mut *state).apply(evt);
                             state.terminal_focused = false;
+                            persist_state_snapshot(&ctx, &state);
                         }
                         AppEvent::RelaunchAgent(ref agent_id) => {
                             let mut relaunched = false;
@@ -538,10 +870,15 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
                             let mut state = app_state.write();
                             *state = std::mem::take(&mut *state).apply(evt);
+                            if relaunched {
+                                state.terminal_focused = false;
+                            }
+                            persist_state_snapshot(&ctx, &state);
                         }
                         _ => {
                             let mut state = app_state.write();
                             *state = std::mem::take(&mut *state).apply(evt);
+                            persist_state_snapshot(&ctx, &state);
                         }
                     }
                 }
@@ -553,21 +890,8 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     // Handle quit.
     if should_quit.get() {
         // Save state before exiting.
-        if let Some(ref ctx_arc) = ctx {
-            if let Ok(ctx_guard) = ctx_arc.lock() {
-                let state = app_state.read();
-                let final_state = State {
-                    schema_version: jefe::persistence::STATE_SCHEMA_VERSION,
-                    repositories: state.repositories.clone(),
-                    agents: state.agents.clone(),
-                    selected_repository_index: state.selected_repository_index,
-                    selected_agent_index: state.selected_agent_index,
-                };
-                if let Err(e) = ctx_guard.persistence.save_state(&final_state) {
-                    eprintln!("Warning: Could not save state: {e}");
-                }
-            }
-        }
+        let state = app_state.read();
+        persist_state_snapshot(&ctx, &state);
 
         hooks.use_context_mut::<SystemContext>().exit();
 
@@ -597,6 +921,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     *state = std::mem::take(&mut *state)
                         .apply(AppEvent::AgentStatusChanged(agent_id, AgentStatus::Dead));
                 }
+                persist_state_snapshot(&ctx, &state);
             }
         }
     }
@@ -623,9 +948,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     };
 
     // Ensure selected agent is attached for rendering (separate from input focus).
-    if let Some(selected_agent_id) = snapshot
-        .selected_agent_index
-        .and_then(|i| snapshot.agents.get(i).map(|a| a.id.clone()))
+    if let Some(selected_agent_id) = snapshot.selected_agent().map(|agent| agent.id.clone())
         && let Some(ref ctx_arc) = ctx
         && let Ok(mut ctx_guard) = ctx_arc.lock()
     {
@@ -677,6 +1000,41 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
         .into_any(),
     };
 
+    let confirm_modal_data = match &modal {
+        ModalState::ConfirmDeleteAgent {
+            id,
+            delete_work_dir,
+        } => {
+            let agent_name = snapshot
+                .agents
+                .iter()
+                .find(|agent| &agent.id == id)
+                .map(|agent| agent.name.clone())
+                .unwrap_or_else(|| String::from("selected agent"));
+            Some((
+                String::from("Delete Agent"),
+                format!("Delete {agent_name}?"),
+                true,
+                *delete_work_dir,
+            ))
+        }
+        ModalState::ConfirmDeleteRepository { id } => {
+            let repo_name = snapshot
+                .repositories
+                .iter()
+                .find(|repo| &repo.id == id)
+                .map(|repo| repo.name.clone())
+                .unwrap_or_else(|| String::from("selected repository"));
+            Some((
+                String::from("Delete Repository"),
+                format!("Delete {repo_name} and all its agents?"),
+                false,
+                false,
+            ))
+        }
+        _ => None,
+    };
+
     // Build modal element if needed.
     let modal_el: Option<AnyElement<'static>> = match &modal {
         ModalState::Help => Some(
@@ -703,6 +1061,20 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
             }
             .into_any(),
         ),
+        ModalState::ConfirmDeleteRepository { .. } | ModalState::ConfirmDeleteAgent { .. } => {
+            confirm_modal_data.map(|(title, message, show_delete_work_dir, delete_work_dir)| {
+                element! {
+                    ConfirmModal(
+                        title: title,
+                        message: message,
+                        show_delete_work_dir: show_delete_work_dir,
+                        delete_work_dir: delete_work_dir,
+                        colors: colors.clone(),
+                    )
+                }
+                .into_any()
+            })
+        }
         _ => None,
     };
 
@@ -754,6 +1126,57 @@ fn key_to_bytes(key: &KeyEvent) -> Option<Vec<u8>> {
     }
 }
 
+/// Convert a fullscreen mouse event into xterm SGR mouse reporting bytes.
+fn mouse_event_to_bytes(event: &iocraft::FullscreenMouseEvent) -> Option<Vec<u8>> {
+    use iocraft::MouseEventKind;
+
+    let (cb, release) = match event.kind {
+        MouseEventKind::Down(button) => {
+            let code = match button {
+                crossterm::event::MouseButton::Left => 0,
+                _ => return None,
+            };
+            (code, false)
+        }
+        MouseEventKind::Up(button) => {
+            let code = match button {
+                crossterm::event::MouseButton::Left => 0,
+                _ => return None,
+            };
+            (code, true)
+        }
+        MouseEventKind::Drag(button) => {
+            let base = match button {
+                crossterm::event::MouseButton::Left => 0,
+                _ => return None,
+            };
+            (base + 32, false)
+        }
+        MouseEventKind::Moved => return None,
+        MouseEventKind::ScrollDown => (65, false),
+        MouseEventKind::ScrollUp => (64, false),
+        MouseEventKind::ScrollLeft => (66, false),
+        MouseEventKind::ScrollRight => (67, false),
+    };
+
+    let mut cb_with_mods = cb;
+    if event.modifiers.contains(iocraft::KeyModifiers::SHIFT) {
+        cb_with_mods += 4;
+    }
+    if event.modifiers.contains(iocraft::KeyModifiers::ALT) {
+        cb_with_mods += 8;
+    }
+    if event.modifiers.contains(iocraft::KeyModifiers::CONTROL) {
+        cb_with_mods += 16;
+    }
+
+    let cx = event.column.saturating_add(1);
+    let cy = event.row.saturating_add(1);
+    let suffix = if release { 'm' } else { 'M' };
+    let seq = format!("\x1b[<{};{};{}{}", cb_with_mods, cx, cy, suffix);
+    Some(seq.into_bytes())
+}
+
 fn handle_cli_version_flag() -> bool {
     let mut args = std::env::args().skip(1);
     match (args.next().as_deref(), args.next()) {
@@ -773,7 +1196,7 @@ fn main() {
 
     // Get terminal size and derive PTY viewport size from dashboard geometry.
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let (pty_rows, pty_cols) = compute_pty_size(cols, rows);
+    let (pty_rows, pty_cols, _, _) = compute_pty_layout(cols, rows);
 
     // Initialize managers.
     let persistence = FilePersistenceManager::new();

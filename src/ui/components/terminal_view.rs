@@ -6,17 +6,17 @@
 
 use iocraft::prelude::*;
 
-use crate::runtime::TerminalSnapshot;
+use crate::runtime::{TerminalCell, TerminalCellStyle, TerminalSnapshot};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the terminal view component.
 #[derive(Default, Props)]
 pub struct TerminalViewProps {
-    /// Terminal snapshot (grid of characters).
+    /// Terminal snapshot (styled grid from runtime/alacritty model).
     pub snapshot: Option<TerminalSnapshot>,
     /// Whether the terminal is focused (receives input).
     pub focused: bool,
-    /// Theme colors.
+    /// Theme colors for chrome around the terminal content.
     pub colors: ThemeColors,
 }
 
@@ -63,15 +63,44 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
                 background_color: rc.bg,
             ) {
                 #(if let Some(snapshot) = &props.snapshot {
-                    // Render terminal lines from snapshot
                     element! {
                         Box(flex_direction: FlexDirection::Column) {
-                            #(snapshot.lines.iter().take(snapshot.rows as usize).map(|line| {
-                                let text: String = line.iter().collect();
-                                element! {
-                                    Text(content: text, color: rc.fg)
-                                }
-                            }))
+                            #(snapshot
+                                .cells
+                                .iter()
+                                .take(snapshot.rows)
+                                .map(|row| {
+                                    element! {
+                                        Box(height: 1u32, width: 100pct, background_color: rc.bg) {
+                                            #(row_to_runs(row)
+                                                .into_iter()
+                                                .map(|run| {
+                                                    let weight = if run.style.bold {
+                                                        Weight::Bold
+                                                    } else {
+                                                        Weight::Normal
+                                                    };
+                                                    let decoration = if run.style.underline {
+                                                        TextDecoration::Underline
+                                                    } else {
+                                                        TextDecoration::None
+                                                    };
+
+                                                    element! {
+                                                        Box(background_color: run.style.bg) {
+                                                            Text(
+                                                                content: run.text,
+                                                                color: run.style.fg,
+                                                                weight: weight,
+                                                                decoration: decoration,
+                                                                wrap: TextWrap::NoWrap,
+                                                            )
+                                                        }
+                                                    }
+                                                }))
+                                        }
+                                    }
+                                }))
                         }
                     }
                 } else {
@@ -84,4 +113,50 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
             }
         }
     }
+}
+
+#[derive(Clone)]
+struct TextRun {
+    text: String,
+    style: TerminalCellStyle,
+}
+
+fn row_to_runs(row: &[TerminalCell]) -> Vec<TextRun> {
+    if row.is_empty() {
+        return vec![];
+    }
+
+    let mut runs: Vec<TextRun> = Vec::new();
+    let mut current_style = row[0].style;
+    let mut current_text = String::new();
+
+    for cell in row {
+        if cell.style != current_style {
+            if !current_text.is_empty() {
+                runs.push(TextRun {
+                    text: std::mem::take(&mut current_text),
+                    style: current_style,
+                });
+            }
+            current_style = cell.style;
+        }
+        current_text.push(cell.ch);
+    }
+
+    if !current_text.is_empty() {
+        runs.push(TextRun {
+            text: current_text,
+            style: current_style,
+        });
+    }
+
+    while runs
+        .last()
+        .map(|run| run.text.chars().all(|ch| ch == ' '))
+        .unwrap_or(false)
+    {
+        let _ = runs.pop();
+    }
+
+    runs
 }
