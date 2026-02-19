@@ -308,6 +308,8 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     }
                 }
 
+                drop(ctx_guard);
+
                 if !revived_running.is_empty() || !newly_dead.is_empty() {
                     let mut state = app_state.write();
                     for agent_id in revived_running {
