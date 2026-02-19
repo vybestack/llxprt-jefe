@@ -26,10 +26,10 @@ pub struct AgentListProps {
 #[component]
 pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
-    let border_color = if props.focused {
-        rc.border_focused
+    let border_style = if props.focused {
+        BorderStyle::Double
     } else {
-        rc.border
+        BorderStyle::Round
     };
 
     element! {
@@ -37,8 +37,8 @@ pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
             flex_direction: FlexDirection::Column,
             width: 100pct,
             height: 100pct,
-            border_style: BorderStyle::Round,
-            border_color: border_color,
+            border_style: border_style,
+            border_color: rc.border,
             background_color: rc.bg,
         ) {
             // Title
@@ -56,13 +56,13 @@ pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
                 #(props.agents.iter().enumerate().map(|(i, agent)| {
                     let selected = i == props.selected;
                     let status_icon = match agent.status {
-                        AgentStatus::Running => "*",
+                        AgentStatus::Running => "o",
                         AgentStatus::Completed => "+",
-                        AgentStatus::Dead => "x",
-                        AgentStatus::Errored => "!",
-                        AgentStatus::Waiting => "?",
-                        AgentStatus::Paused => "-",
-                        AgentStatus::Queued => "o",
+                        AgentStatus::Dead => "!",
+                        AgentStatus::Errored => "x",
+                        AgentStatus::Waiting => "*",
+                        AgentStatus::Paused => "#",
+                        AgentStatus::Queued => "-",
                     };
                     let status_color = match agent.status {
                         AgentStatus::Running | AgentStatus::Completed => rc.bright,
@@ -72,12 +72,20 @@ pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
                         AgentStatus::Queued => rc.dim,
                     };
                     let prefix = if selected { "> " } else { "  " };
-                    let name_color = if selected { rc.bright } else { rc.fg };
-                    element! {
-                        Box(flex_direction: FlexDirection::Row) {
-                            Text(content: prefix, color: name_color)
-                            Text(content: status_icon, color: status_color)
-                            Text(content: format!(" {}", agent.name), color: name_color)
+                    let label = format!("{}{} {}", prefix, status_icon, agent.name);
+                    if selected {
+                        element! {
+                            Box(height: 1u32, background_color: rc.sel_bg) {
+                                Text(content: label, color: rc.sel_fg, weight: Weight::Bold)
+                            }
+                        }
+                    } else {
+                        element! {
+                            Box(flex_direction: FlexDirection::Row, height: 1u32) {
+                                Text(content: prefix, color: rc.fg)
+                                Text(content: status_icon, color: status_color)
+                                Text(content: format!(" {}", agent.name), color: rc.fg)
+                            }
                         }
                     }
                 }))

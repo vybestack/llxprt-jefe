@@ -11,6 +11,46 @@ use crate::domain::LaunchSignature;
 
 use super::errors::RuntimeError;
 
+fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
+    let mut cmd = Command::new("tmux");
+    cmd.args(args);
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+
+    let output = cmd
+        .output()
+        .map_err(|e| format!("failed to run tmux {args:?}: {e}"))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "tmux {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
+fn reset_tmux_server() {
+    let _ = tmux_cmd_status(["kill-server"].as_ref(), None);
+}
+
+fn apply_session_style(session_name: &str) {
+    // Match app reverse-style bars: green-ish status background with black text.
+    let _ = tmux_cmd_status(
+        [
+            "set-option",
+            "-t",
+            session_name,
+            "status-style",
+            "fg=colour0,bg=#6a9955",
+        ]
+        .as_ref(),
+        None,
+    );
+}
+
 /// Create a new detached tmux session running llxprt.
 ///
 /// The session runs `llxprt` directly (not a shell), so when llxprt exits,
@@ -25,44 +65,60 @@ pub fn create_session(
     // Kill any stale session with the same name first
     let _ = kill_session(session_name);
 
-    let mut cmd = Command::new("tmux");
-    cmd.arg("new-session")
-        .arg("-d")
-        .arg("-s")
-        .arg(session_name)
-        .arg("-c")
-        .arg(work_dir.to_str().unwrap_or("."))
-        .arg("llxprt"); // Run llxprt directly
+    // Retry once if tmux server is in a fork-broken state.
+    for attempt in 0..=1 {
+        let mut cmd = Command::new("tmux");
+        cmd.arg("new-session")
+            .arg("-d")
+            .arg("-s")
+            .arg(session_name)
+            .arg("-c")
+            .arg(work_dir.to_str().unwrap_or("."))
+            .arg("llxprt"); // Run llxprt directly
 
-    // Add profile if specified
-    if !signature.profile.is_empty() {
-        cmd.arg("--profile-load").arg(&signature.profile);
-    }
-
-    // Add mode flags (e.g., --yolo)
-    for flag in &signature.mode_flags {
-        if !flag.is_empty() {
-            cmd.arg(flag);
+        // Add profile if specified
+        if !signature.profile.is_empty() {
+            cmd.arg("--profile-load").arg(&signature.profile);
         }
-    }
 
-    // Add --continue if pass_continue is true
-    if signature.pass_continue {
-        cmd.arg("--continue");
-    }
+        // Add mode flags (e.g., --yolo)
+        for flag in &signature.mode_flags {
+            if !flag.is_empty() {
+                cmd.arg(flag);
+            }
+        }
 
-    let output = cmd
-        .output()
-        .map_err(|e| RuntimeError::SpawnFailed(format!("tmux new-session: {e}")))?;
+        // Add --continue if pass_continue is true
+        if signature.pass_continue {
+            cmd.arg("--continue");
+        }
 
-    if output.status.success() {
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(RuntimeError::SpawnFailed(format!(
+        let output = cmd
+            .output()
+            .map_err(|e| RuntimeError::SpawnFailed(format!("tmux new-session: {e}")))?;
+
+        if output.status.success() {
+            apply_session_style(session_name);
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let fork_broken =
+            stderr.contains("fork failed") || stderr.contains("Device not configured");
+
+        if attempt == 0 && fork_broken {
+            reset_tmux_server();
+            continue;
+        }
+
+        return Err(RuntimeError::SpawnFailed(format!(
             "tmux new-session failed: {stderr}"
-        )))
+        )));
     }
+
+    Err(RuntimeError::SpawnFailed(
+        "tmux new-session failed after retry".to_owned(),
+    ))
 }
 
 /// Check if a tmux session exists.

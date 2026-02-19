@@ -195,6 +195,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     let render_tick = hooks.use_state(|| 0u64);
     let help_scroll = hooks.use_state(|| 0u32);
     let mut initialized = hooks.use_state(|| false);
+    let mut startup_sessions_restored = hooks.use_state(|| false);
 
     let ctx = props.context.clone();
 
@@ -225,54 +226,103 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 state.rebuild_repository_agent_ids();
                 state.normalize_selection_indices();
 
-                // Set theme
+                // Reconcile persisted Running statuses against actual tmux sessions.
+                let running_agent_ids: Vec<AgentId> = state
+                    .agents
+                    .iter()
+                    .filter(|agent| agent.status == AgentStatus::Running)
+                    .map(|agent| agent.id.clone())
+                    .collect();
+
+                let mut dead_ids = Vec::new();
+                for agent_id in running_agent_ids {
+                    if !ctx_guard.runtime.session_exists(&agent_id) {
+                        dead_ids.push(agent_id);
+                    }
+                }
+
+                let mut state_to_persist: Option<State> = None;
+                if !dead_ids.is_empty() {
+                    for agent_id in dead_ids {
+                        *state = std::mem::take(&mut *state)
+                            .apply(AppEvent::AgentStatusChanged(agent_id, AgentStatus::Dead));
+                    }
+                    state_to_persist = Some(to_persisted_state(&state));
+                }
+
+                // Set theme and persist any startup status reconciliation after releasing lock.
+                drop(state);
                 drop(ctx_guard);
                 if let Ok(mut ctx_mut) = ctx_arc.lock() {
+                    if let Some(persisted_state) = state_to_persist.as_ref()
+                        && let Err(e) = ctx_mut.persistence.save_state(persisted_state)
+                    {
+                        eprintln!("Warning: Could not save reconciled startup state: {e}");
+                    }
                     let _ = ctx_mut.theme_manager.set_active(&settings.theme);
                 }
             }
         }
     }
 
-    // Spawn tmux sessions for agents on first render.
-    hooks.use_future({
-        let ctx = ctx.clone();
-        let app_state = app_state.clone();
-        async move {
-            if let Some(ref ctx_arc) = ctx {
-                let agents: Vec<_> = {
-                    let state = app_state.read();
-                    state.agents.clone()
-                };
+    // Restore runtime session map from persisted agent statuses exactly once.
+    // Running agents are reattached to existing tmux sessions (or spawned if missing).
+    // Dead/non-running agents are intentionally NOT spawned.
+    if !startup_sessions_restored.get() {
+        startup_sessions_restored.set(true);
+
+        if let Some(ref ctx_arc) = ctx {
+            let agents = {
+                let state = app_state.read();
+                state.agents.clone()
+            };
+
+            if let Ok(mut ctx_guard) = ctx_arc.lock() {
+                let mut revived_running = Vec::new();
+                let mut newly_dead = Vec::new();
 
                 for agent in agents {
+                    if agent.status != AgentStatus::Running {
+                        continue;
+                    }
+
                     let signature = LaunchSignature {
                         work_dir: agent.work_dir.clone(),
                         profile: agent.profile.clone(),
                         mode_flags: agent.mode_flags.clone(),
                         pass_continue: agent.pass_continue,
                     };
-                    if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                        match ctx_guard.runtime.spawn_session(
-                            &agent.id,
-                            &agent.work_dir,
-                            &signature,
-                        ) {
-                            Ok(()) | Err(RuntimeError::AlreadyRunning(_)) => {
-                                // Existing sessions from a previous run are fine.
-                            }
-                            Err(e) => {
-                                eprintln!(
-                                    "Warning: Could not spawn session for {}: {e}",
-                                    agent.id.0
-                                );
-                            }
+
+                    match ctx_guard
+                        .runtime
+                        .spawn_session(&agent.id, &agent.work_dir, &signature)
+                    {
+                        Ok(()) | Err(RuntimeError::AlreadyRunning(_)) => {
+                            // Runtime map now contains this running session.
+                            revived_running.push(agent.id.clone());
+                        }
+                        Err(e) => {
+                            eprintln!("Warning: Could not restore session for {}: {e}", agent.id.0);
+                            newly_dead.push(agent.id.clone());
                         }
                     }
                 }
+
+                if !revived_running.is_empty() || !newly_dead.is_empty() {
+                    let mut state = app_state.write();
+                    for agent_id in revived_running {
+                        *state = std::mem::take(&mut *state)
+                            .apply(AppEvent::AgentStatusChanged(agent_id, AgentStatus::Running));
+                    }
+                    for agent_id in newly_dead {
+                        *state = std::mem::take(&mut *state)
+                            .apply(AppEvent::AgentStatusChanged(agent_id, AgentStatus::Dead));
+                    }
+                    persist_state_snapshot(&ctx, &state);
+                }
             }
         }
-    });
+    }
 
     // Poll for PTY output updates (~30fps).
     hooks.use_future({
@@ -352,6 +402,35 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 if let Some(bytes) = mouse_event_to_bytes(&local_event) {
                     let _ = ctx_guard.runtime.write_input(&bytes);
                 }
+            }
+            TerminalEvent::Paste(pasted_text) => {
+                let state = app_state.read();
+                let terminal_input_enabled =
+                    state.terminal_focused && state.pane_focus == PaneFocus::Terminal;
+                drop(state);
+
+                if !terminal_input_enabled {
+                    return;
+                }
+
+                let Some(ref ctx_arc) = ctx else {
+                    return;
+                };
+                let Ok(mut ctx_guard) = ctx_arc.lock() else {
+                    return;
+                };
+
+                let bytes = if ctx_guard.runtime.bracketed_paste_active() {
+                    let mut payload = Vec::with_capacity(pasted_text.len() + 12);
+                    payload.extend_from_slice(b"\x1b[200~");
+                    payload.extend_from_slice(pasted_text.as_bytes());
+                    payload.extend_from_slice(b"\x1b[201~");
+                    payload
+                } else {
+                    pasted_text.into_bytes()
+                };
+
+                let _ = ctx_guard.runtime.write_input(&bytes);
             }
             TerminalEvent::Key(key_event) => {
                 // Ignore release events if we've seen press/repeat.
@@ -947,24 +1026,42 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
         ("green-screen".to_owned(), ThemeColors::default())
     };
 
-    // Ensure selected agent is attached for rendering (separate from input focus).
-    if let Some(selected_agent_id) = snapshot.selected_agent().map(|agent| agent.id.clone())
-        && let Some(ref ctx_arc) = ctx
+    // Ensure selected RUNNING agent is attached for rendering (separate from input focus).
+    // Dead/non-running selections must not keep showing another agent's terminal snapshot.
+    let selected_running_agent_id = snapshot
+        .selected_agent()
+        .filter(|agent| agent.status == AgentStatus::Running)
+        .map(|agent| agent.id.clone());
+
+    if let Some(ref ctx_arc) = ctx
         && let Ok(mut ctx_guard) = ctx_arc.lock()
     {
-        let need_attach = ctx_guard
-            .runtime
-            .attached_agent()
-            .is_none_or(|attached| attached != &selected_agent_id);
-        if need_attach {
-            let _ = ctx_guard.runtime.attach(&selected_agent_id);
+        match selected_running_agent_id {
+            Some(ref selected_agent_id) => {
+                let need_attach = ctx_guard
+                    .runtime
+                    .attached_agent()
+                    .is_none_or(|attached| attached != selected_agent_id);
+                if need_attach {
+                    let _ = ctx_guard.runtime.attach(selected_agent_id);
+                }
+            }
+            None => {
+                if ctx_guard.runtime.attached_agent().is_some() {
+                    let _ = ctx_guard.runtime.detach();
+                }
+            }
         }
     }
 
     // Get terminal snapshot from currently attached viewer.
     let terminal_snapshot: Option<TerminalSnapshot> = if let Some(ref ctx_arc) = ctx {
         if let Ok(ctx_guard) = ctx_arc.lock() {
-            ctx_guard.runtime.snapshot()
+            if selected_running_agent_id.is_some() {
+                ctx_guard.runtime.snapshot()
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -1096,34 +1193,48 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
 /// Convert a key event to raw bytes for PTY input.
 fn key_to_bytes(key: &KeyEvent) -> Option<Vec<u8>> {
-    match key.code {
-        KeyCode::Char(c) => {
-            if key.modifiers.contains(KeyModifiers::CONTROL) {
-                let ctrl_char = (c as u8) & 0x1f;
-                Some(vec![ctrl_char])
-            } else {
-                let mut buf = [0u8; 4];
-                let s = c.encode_utf8(&mut buf);
-                Some(s.as_bytes().to_vec())
-            }
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+
+    let mut out = match key.code {
+        KeyCode::Char(c) if ctrl && c.is_ascii_alphabetic() => {
+            let byte = (c.to_ascii_lowercase() as u8)
+                .wrapping_sub(b'a')
+                .wrapping_add(1);
+            vec![byte]
         }
-        KeyCode::Enter => Some(vec![b'\r']),
-        KeyCode::Backspace => Some(vec![0x7f]),
-        KeyCode::Tab => Some(vec![b'\t']),
-        KeyCode::Esc => Some(vec![0x1b]),
-        KeyCode::Up => Some(b"\x1b[A".to_vec()),
-        KeyCode::Down => Some(b"\x1b[B".to_vec()),
-        KeyCode::Right => Some(b"\x1b[C".to_vec()),
-        KeyCode::Left => Some(b"\x1b[D".to_vec()),
-        KeyCode::Home => Some(b"\x1b[H".to_vec()),
-        KeyCode::End => Some(b"\x1b[F".to_vec()),
-        KeyCode::PageUp => Some(b"\x1b[5~".to_vec()),
-        KeyCode::PageDown => Some(b"\x1b[6~".to_vec()),
-        KeyCode::Delete => Some(b"\x1b[3~".to_vec()),
-        KeyCode::Insert => Some(b"\x1b[2~".to_vec()),
-        KeyCode::F(n) => Some(format!("\x1b[{n}~").into_bytes()),
-        _ => None,
+        KeyCode::Char(c) if ctrl => vec![(c as u8) & 0x1f],
+        KeyCode::Char(c) => {
+            let mut buf = [0u8; 4];
+            let s = c.encode_utf8(&mut buf);
+            s.as_bytes().to_vec()
+        }
+        KeyCode::Enter => vec![b'\r'],
+        KeyCode::Backspace => vec![0x7f],
+        KeyCode::Tab => vec![b'\t'],
+        KeyCode::Esc => vec![0x1b],
+        KeyCode::Up => b"\x1b[A".to_vec(),
+        KeyCode::Down => b"\x1b[B".to_vec(),
+        KeyCode::Right => b"\x1b[C".to_vec(),
+        KeyCode::Left => b"\x1b[D".to_vec(),
+        KeyCode::Home => b"\x1b[H".to_vec(),
+        KeyCode::End => b"\x1b[F".to_vec(),
+        KeyCode::PageUp => b"\x1b[5~".to_vec(),
+        KeyCode::PageDown => b"\x1b[6~".to_vec(),
+        KeyCode::Delete => b"\x1b[3~".to_vec(),
+        KeyCode::Insert => b"\x1b[2~".to_vec(),
+        KeyCode::F(n) => format!("\x1b[{n}~").into_bytes(),
+        _ => return None,
+    };
+
+    if alt {
+        let mut prefixed = Vec::with_capacity(out.len() + 1);
+        prefixed.push(0x1b);
+        prefixed.extend_from_slice(&out);
+        out = prefixed;
     }
+
+    Some(out)
 }
 
 /// Convert a fullscreen mouse event into xterm SGR mouse reporting bytes.

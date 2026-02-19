@@ -55,6 +55,9 @@ pub trait RuntimeManager: Send {
     /// @pseudocode component-002 lines 33-35
     fn is_alive(&self, agent_id: &AgentId) -> bool;
 
+    /// Check whether a tmux session exists for the given agent.
+    fn session_exists(&self, agent_id: &AgentId) -> bool;
+
     /// Get terminal snapshot for the currently attached session.
     fn snapshot(&self) -> Option<TerminalSnapshot>;
 
@@ -71,6 +74,9 @@ pub trait RuntimeManager: Send {
 
     /// Whether the attached application currently has terminal mouse reporting enabled.
     fn mouse_reporting_active(&self) -> bool;
+
+    /// Whether the attached application currently has bracketed paste enabled.
+    fn bracketed_paste_active(&self) -> bool;
 
     /// Get a reference to a session by agent ID.
     fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession>;
@@ -156,6 +162,10 @@ impl RuntimeManager for StubRuntimeManager {
         self.sessions.iter().any(|s| &s.agent_id == agent_id)
     }
 
+    fn session_exists(&self, agent_id: &AgentId) -> bool {
+        self.sessions.iter().any(|s| &s.agent_id == agent_id)
+    }
+
     fn snapshot(&self) -> Option<TerminalSnapshot> {
         self.attached_index.map(|_| {
             let style = TerminalCellStyle {
@@ -194,6 +204,10 @@ impl RuntimeManager for StubRuntimeManager {
     }
 
     fn mouse_reporting_active(&self) -> bool {
+        false
+    }
+
+    fn bracketed_paste_active(&self) -> bool {
         false
     }
 
@@ -369,6 +383,11 @@ impl RuntimeManager for TmuxRuntimeManager {
         }
     }
 
+    fn session_exists(&self, agent_id: &AgentId) -> bool {
+        let session_name = RuntimeSession::session_name_for(agent_id);
+        liveness::check_session_alive(&session_name)
+    }
+
     fn snapshot(&self) -> Option<TerminalSnapshot> {
         self.viewer.as_ref().and_then(AttachedViewer::snapshot)
     }
@@ -397,6 +416,12 @@ impl RuntimeManager for TmuxRuntimeManager {
         self.viewer
             .as_ref()
             .is_some_and(AttachedViewer::mouse_reporting_active)
+    }
+
+    fn bracketed_paste_active(&self) -> bool {
+        self.viewer
+            .as_ref()
+            .is_some_and(AttachedViewer::bracketed_paste_active)
     }
 
     fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession> {

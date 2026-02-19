@@ -39,10 +39,10 @@ pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
         Box(
             width: 100pct,
             height: 1u32,
-            background_color: rc.bg,
+            background_color: rc.fg,
             padding_left: 1u32,
         ) {
-            Text(content: hints, color: rc.dim)
+            Text(content: hints, color: rc.bg)
         }
     }
 }

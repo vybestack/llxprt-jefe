@@ -102,12 +102,19 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                     #(repositories.iter().enumerate().map(|(i, repo)| {
                         let selected = i == selected_repo_idx;
                         let prefix = if selected { "> " } else { "  " };
-                        let color = if selected { rc.bright } else { rc.dim };
-                        element! {
-                            Text(
-                                content: format!("{}{} ({} agents)", prefix, repo.name, repo.agent_ids.len()),
-                                color: color,
-                            )
+                        let line = format!("{}{} ({} agents)", prefix, repo.name, repo.agent_ids.len());
+                        if selected {
+                            element! {
+                                Box(height: 1u32, background_color: rc.sel_bg) {
+                                    Text(content: line, color: rc.sel_fg, weight: Weight::Bold)
+                                }
+                            }
+                        } else {
+                            element! {
+                                Box(height: 1u32) {
+                                    Text(content: line, color: rc.fg)
+                                }
+                            }
                         }
                     }))
                 }

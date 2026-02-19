@@ -1,6 +1,6 @@
 [package]
 name = "jefe"
-version = "0.0.6"
+version = "0.0.7"
 edition = "2024"
 authors = ["Vybestack LLC"]
 description = "Terminal application for managing multiple llxprt coding agents"
@@ -29,6 +29,9 @@ thiserror = "2.0"
 
 # Directories (for platform-specific paths)
 dirs = "6.0"
+
+[patch.crates-io]
+iocraft = { path = "vendor/iocraft" }
 
 [dev-dependencies]
 tempfile = "3.0"

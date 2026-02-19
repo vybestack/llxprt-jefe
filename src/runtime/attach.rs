@@ -464,6 +464,15 @@ impl AttachedViewer {
             || mode.contains(TermMode::UTF8_MOUSE)
     }
 
+    /// Whether the attached application has bracketed paste enabled.
+    pub fn bracketed_paste_active(&self) -> bool {
+        let Ok(term) = self.term.lock() else {
+            return false;
+        };
+
+        term.mode().contains(TermMode::BRACKETED_PASTE)
+    }
+
     /// Mark the viewer as dead.
     pub fn mark_dead(&self) {
         self.alive.store(false, Ordering::Relaxed);

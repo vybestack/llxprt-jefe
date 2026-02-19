@@ -260,7 +260,7 @@ impl AppState {
             .and_then(|idx| self.repositories.get(idx).map(|repo| &repo.id))
     }
 
-    fn agent_indices_for_repository(&self, repository_id: &RepositoryId) -> Vec<usize> {
+    pub fn agent_indices_for_repository(&self, repository_id: &RepositoryId) -> Vec<usize> {
         self.agents
             .iter()
             .enumerate()
@@ -570,6 +570,11 @@ impl AppState {
                     agent.status = status;
                 }
             }
+            AppEvent::RelaunchAgent(ref agent_id) => {
+                if let Some(agent) = self.agents.iter_mut().find(|a| &a.id == agent_id) {
+                    agent.status = AgentStatus::Running;
+                }
+            }
 
             // Persistence results - clear or set error
             AppEvent::PersistenceLoadSuccess | AppEvent::ClearError => {
@@ -599,10 +604,7 @@ impl AppState {
             }
 
             // No-op events (handled elsewhere or reserved)
-            AppEvent::RelaunchAgent(_)
-            | AppEvent::PersistenceSaveSuccess
-            | AppEvent::SetTheme(_)
-            | AppEvent::Quit => {}
+            AppEvent::PersistenceSaveSuccess | AppEvent::SetTheme(_) | AppEvent::Quit => {}
         }
 
         self.rebuild_repository_agent_ids();

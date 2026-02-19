@@ -574,8 +574,6 @@ dependencies = [
 [[package]]
 name = "iocraft"
 version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb123fec8a58f6b1781bb5d0ee38dac04fac2bbfcf446130295f86831295ffa8"
 dependencies = [
  "any_key",
  "bitflags 2.11.0",
@@ -617,7 +615,7 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jefe"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "alacritty_terminal",
  "crossterm",

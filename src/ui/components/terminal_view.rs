@@ -24,10 +24,10 @@ pub struct TerminalViewProps {
 #[component]
 pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
-    let border_color = if props.focused {
-        rc.border_focused
+    let border_style = if props.focused {
+        BorderStyle::Double
     } else {
-        rc.border
+        BorderStyle::Round
     };
 
     let focus_hint = if props.focused {
@@ -41,8 +41,8 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
             flex_direction: FlexDirection::Column,
             width: 100pct,
             height: 100pct,
-            border_style: BorderStyle::Round,
-            border_color: border_color,
+            border_style: border_style,
+            border_color: rc.border,
             background_color: rc.bg,
         ) {
             // Title with focus hint

@@ -25,10 +25,10 @@ pub struct SidebarProps {
 #[component]
 pub fn Sidebar(props: &SidebarProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
-    let border_color = if props.focused {
-        rc.border_focused
+    let border_style = if props.focused {
+        BorderStyle::Double
     } else {
-        rc.border
+        BorderStyle::Round
     };
 
     element! {
@@ -36,8 +36,8 @@ pub fn Sidebar(props: &SidebarProps) -> impl Into<AnyElement<'static>> {
             flex_direction: FlexDirection::Column,
             width: 100pct,
             height: 100pct,
-            border_style: BorderStyle::Round,
-            border_color: border_color,
+            border_style: border_style,
+            border_color: rc.border,
             background_color: rc.bg,
         ) {
             // Title
@@ -56,11 +56,19 @@ pub fn Sidebar(props: &SidebarProps) -> impl Into<AnyElement<'static>> {
                     let selected = i == props.selected;
                     let prefix = if selected { "> " } else { "  " };
                     let agent_count = repo.agent_ids.len();
-                    element! {
-                        Text(
-                            content: format!("{}{} ({})", prefix, repo.name, agent_count),
-                            color: if selected { rc.bright } else { rc.dim },
-                        )
+                    let label = format!("{}{} ({})", prefix, repo.name, agent_count);
+                    if selected {
+                        element! {
+                            Box(height: 1u32, background_color: rc.sel_bg) {
+                                Text(content: label, color: rc.sel_fg, weight: Weight::Bold)
+                            }
+                        }
+                    } else {
+                        element! {
+                            Box(height: 1u32) {
+                                Text(content: label, color: rc.fg)
+                            }
+                        }
                     }
                 }))
             }
