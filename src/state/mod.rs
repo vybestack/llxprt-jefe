@@ -6,6 +6,8 @@
 //!
 //! Pseudocode reference: component-001 lines 01-12
 
+use tracing::{debug, trace};
+
 use crate::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 
 /// Form fields for creating/editing an agent.
@@ -336,11 +338,17 @@ impl AppState {
     #[must_use]
     #[allow(clippy::too_many_lines)]
     pub fn apply(mut self, event: AppEvent) -> Self {
+        trace!(
+            event = ?event,
+            terminal_focused = self.terminal_focused,
+            pane_focus = ?self.pane_focus,
+            modal = ?std::mem::discriminant(&self.modal),
+            "state.apply"
+        );
+
         // When terminal is focused, navigation events are forwarded to PTY
         // and should NOT change UI selection state.
         // However, CyclePaneFocus is allowed (user can switch panes even while F12 active).
-        // @plan PLAN-20260216-FIRSTVERSION-V1.P11
-        // @requirement REQ-FUNC-003 (F12 focus consistency)
         if self.terminal_focused {
             match &event {
                 AppEvent::NavigateUp
@@ -349,11 +357,9 @@ impl AppState {
                 | AppEvent::NavigateRight
                 | AppEvent::SelectRepository(_)
                 | AppEvent::SelectAgent(_) => {
-                    // Navigation keys go to PTY, not UI. No state change.
+                    debug!(event = ?event, "blocked navigation event (terminal_focused=true)");
                     return self;
                 }
-                // CyclePaneFocus is NOT blocked - user can switch panes
-                // Other events (ToggleTerminalFocus, Quit, etc.) are also processed
                 _ => {}
             }
         }
@@ -376,16 +382,31 @@ impl AppState {
                 }
             }
 
-            // Focus
-            AppEvent::CyclePaneFocus | AppEvent::NavigateRight => {
+            // Focus — Tab wraps around, Right arrow clamps at Terminal.
+            AppEvent::CyclePaneFocus => {
+                let old = self.pane_focus;
                 self.pane_focus = match self.pane_focus {
                     PaneFocus::Repositories => PaneFocus::Agents,
                     PaneFocus::Agents => PaneFocus::Terminal,
                     PaneFocus::Terminal => PaneFocus::Repositories,
                 };
+                debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (tab)");
+            }
+            AppEvent::NavigateRight => {
+                let old = self.pane_focus;
+                self.pane_focus = match self.pane_focus {
+                    PaneFocus::Repositories => PaneFocus::Agents,
+                    PaneFocus::Agents => PaneFocus::Terminal,
+                    PaneFocus::Terminal => PaneFocus::Terminal,
+                };
+                debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (right)");
             }
             AppEvent::ToggleTerminalFocus => {
                 self.terminal_focused = !self.terminal_focused;
+                debug!(
+                    terminal_focused = self.terminal_focused,
+                    "toggled terminal focus"
+                );
             }
 
             // Screen mode
@@ -594,13 +615,15 @@ impl AppState {
                 self.warning_message = None;
             }
 
-            // Pane focus navigation (Left cycles backward; Right handled with CyclePaneFocus)
+            // Pane focus navigation — Left/Right clamp at boundaries (no wrapping).
             AppEvent::NavigateLeft => {
+                let old = self.pane_focus;
                 self.pane_focus = match self.pane_focus {
-                    PaneFocus::Repositories => PaneFocus::Terminal,
+                    PaneFocus::Repositories => PaneFocus::Repositories,
                     PaneFocus::Agents => PaneFocus::Repositories,
                     PaneFocus::Terminal => PaneFocus::Agents,
                 };
+                debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (left)");
             }
 
             // No-op events (handled elsewhere or reserved)

@@ -11,6 +11,7 @@
 use std::sync::Arc;
 
 use iocraft::prelude::*;
+use tracing::{debug, error, trace, warn};
 
 use jefe::domain::{AgentId, AgentStatus, LaunchSignature, RepositoryId};
 use jefe::persistence::{FilePersistenceManager, PersistenceManager, Settings, State};
@@ -91,7 +92,7 @@ fn persist_state_snapshot(ctx: &Option<Arc<std::sync::Mutex<AppContext>>>, state
         && let Ok(ctx_guard) = ctx_arc.lock()
         && let Err(e) = ctx_guard.persistence.save_state(&to_persisted_state(state))
     {
-        eprintln!("Warning: Could not save state: {e}");
+        warn!(error = %e, "could not save state");
     }
 }
 
@@ -151,9 +152,10 @@ fn delete_selected_agent(
         if removed_agent.work_dir.exists()
             && let Err(e) = std::fs::remove_dir_all(&removed_agent.work_dir)
         {
-            eprintln!(
-                "Warning: Could not remove work directory {}: {e}",
-                removed_agent.work_dir.display()
+            warn!(
+                error = %e,
+                work_dir = %removed_agent.work_dir.display(),
+                "could not remove work directory"
             );
         }
     }
@@ -196,6 +198,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     let help_scroll = hooks.use_state(|| 0u32);
     let mut initialized = hooks.use_state(|| false);
     let mut startup_sessions_restored = hooks.use_state(|| false);
+    // Track which agent the render loop last attached to, so we only call
+    // runtime.attach() when the selection actually changes — not every frame.
+    // We store just the u64 hash of the key since iocraft State::get() requires Copy.
+    let mut last_attached_key = hooks.use_state(|| 0u64);
 
     let ctx = props.context.clone();
 
@@ -206,13 +212,13 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
             if let Ok(ctx_guard) = ctx_arc.lock() {
                 // Load settings
                 let settings = ctx_guard.persistence.load_settings().unwrap_or_else(|e| {
-                    eprintln!("Warning: Could not load settings: {e}");
+                    warn!(error = %e, "could not load settings, using defaults");
                     Settings::default_with_version()
                 });
 
                 // Load state
                 let persisted = ctx_guard.persistence.load_state().unwrap_or_else(|e| {
-                    eprintln!("Warning: Could not load state: {e}");
+                    warn!(error = %e, "could not load state, using defaults");
                     State::default_with_version()
                 });
 
@@ -257,7 +263,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     if let Some(persisted_state) = state_to_persist.as_ref()
                         && let Err(e) = ctx_mut.persistence.save_state(persisted_state)
                     {
-                        eprintln!("Warning: Could not save reconciled startup state: {e}");
+                        warn!(error = %e, "could not save reconciled startup state");
                     }
                     let _ = ctx_mut.theme_manager.set_active(&settings.theme);
                 }
@@ -266,7 +272,8 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     }
 
     // Restore runtime session map from persisted agent statuses exactly once.
-    // Running agents are reattached to existing tmux sessions (or spawned if missing).
+    // Running agents prefer reattach to existing live tmux sessions by stable ID;
+    // if missing, a new session is spawned.
     // Dead/non-running agents are intentionally NOT spawned.
     if !startup_sessions_restored.get() {
         startup_sessions_restored.set(true);
@@ -302,7 +309,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                             revived_running.push(agent.id.clone());
                         }
                         Err(e) => {
-                            eprintln!("Warning: Could not restore session for {}: {e}", agent.id.0);
+                            warn!(agent_id = %agent.id.0, error = %e, "could not restore session");
                             newly_dead.push(agent.id.clone());
                         }
                     }
@@ -334,6 +341,58 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 smol::Timer::after(std::time::Duration::from_millis(33)).await;
                 let tick = render_tick.get();
                 render_tick.set(tick.wrapping_add(1));
+            }
+        }
+    });
+
+    // Slow-poll agent liveness via tmux subprocess (~every 2s).
+    // This keeps the expensive `tmux has-session` calls off the render hot path.
+    hooks.use_future({
+        let ctx = ctx.clone();
+        let mut app_state = app_state.clone();
+        async move {
+            loop {
+                smol::Timer::after(std::time::Duration::from_secs(2)).await;
+
+                let Some(ref ctx_arc) = ctx else {
+                    continue;
+                };
+
+                let dead_agents: Vec<AgentId> = {
+                    let Ok(ctx_guard) = ctx_arc.lock() else {
+                        continue;
+                    };
+                    let state = app_state.read();
+                    let dead: Vec<AgentId> = state
+                        .agents
+                        .iter()
+                        .filter(|a| a.is_running() && !ctx_guard.runtime.is_alive(&a.id))
+                        .map(|a| a.id.clone())
+                        .collect();
+                    drop(state);
+                    drop(ctx_guard);
+                    dead
+                };
+
+                if !dead_agents.is_empty() {
+                    debug!(count = dead_agents.len(), "liveness poll found dead agents");
+                    let mut state = app_state.write();
+                    for agent_id in &dead_agents {
+                        *state = std::mem::take(&mut *state).apply(AppEvent::AgentStatusChanged(
+                            agent_id.clone(),
+                            AgentStatus::Dead,
+                        ));
+                    }
+                    // Persist after liveness updates.
+                    if let Ok(ctx_guard) = ctx_arc.lock() {
+                        if let Err(e) = ctx_guard
+                            .persistence
+                            .save_state(&to_persisted_state(&state))
+                        {
+                            warn!(error = %e, "could not save state after liveness update");
+                        }
+                    }
+                }
             }
         }
     });
@@ -447,6 +506,16 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 let modal = state_ro.modal.clone();
                 drop(state_ro);
 
+                trace!(
+                    code = ?key_event.code,
+                    modifiers = ?key_event.modifiers,
+                    term_focused,
+                    pane_focus = ?pane_focus,
+                    screen_mode = ?screen_mode,
+                    modal = ?std::mem::discriminant(&modal),
+                    "key event received"
+                );
+
                 // F12 toggles terminal input focus.
                 // When enabling, force pane focus to terminal and require attach success.
                 if key_event.code == KeyCode::F(12) {
@@ -470,9 +539,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                     match ctx_guard.runtime.attach(agent_id) {
                                         Ok(()) => true,
                                         Err(e) => {
-                                            eprintln!(
-                                                "Warning: Could not attach session for {} on F12 focus: {e}",
-                                                agent_id.0
+                                            warn!(
+                                                agent_id = %agent_id.0,
+                                                error = %e,
+                                                "could not attach session on F12 focus"
                                             );
                                             false
                                         }
@@ -500,6 +570,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 // If focus state is stale, clear it so navigation keys never leak into llxprt.
                 let terminal_input_enabled = term_focused && pane_focus == PaneFocus::Terminal;
                 if term_focused && pane_focus != PaneFocus::Terminal {
+                    debug!(
+                        pane_focus = ?pane_focus,
+                        "clearing stale terminal_focused (pane not Terminal)"
+                    );
                     let mut state = app_state.write();
                     state.terminal_focused = false;
                     persist_state_snapshot(&ctx, &state);
@@ -508,10 +582,21 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
                 // When terminal input is focused, forward keys to PTY.
                 if terminal_input_enabled {
-                    if let Some(bytes) = key_to_bytes(&key_event) {
+                    let encoded = key_to_bytes(&key_event);
+
+                    trace!(
+                        code = ?key_event.code,
+                        modifiers = ?key_event.modifiers,
+                        encoded_len = encoded.as_ref().map_or(0, |b| b.len()),
+                        "forwarding key to PTY"
+                    );
+
+                    if let Some(bytes) = encoded {
                         if let Some(ref ctx_arc) = ctx {
                             if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                                let _ = ctx_guard.runtime.write_input(&bytes);
+                                if let Err(e) = ctx_guard.runtime.write_input(&bytes) {
+                                    warn!(error = %e, "runtime.write_input failed");
+                                }
                             }
                         }
                     }
@@ -565,10 +650,11 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                                     match e {
                                                         RuntimeError::SessionNotFound(_) => {}
                                                         _ => {
-                                                            eprintln!(
-                                                                "Warning: Could not kill runtime session for {} before delete: {e}",
-                                                                id.0
-                                                            );
+                                            warn!(
+                                                                                                agent_id = %id.0,
+                                                                                                error = %e,
+                                                                                                "could not kill runtime session before delete"
+                                                                                            );
                                                         }
                                                     }
                                                 }
@@ -598,10 +684,11 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                                         match e {
                                                             RuntimeError::SessionNotFound(_) => {}
                                                             _ => {
-                                                                eprintln!(
-                                                                    "Warning: Could not kill runtime session for {} before repository delete: {e}",
-                                                                    agent_id.0
-                                                                );
+                                                                warn!(
+                                                                                                    agent_id = %agent_id.0,
+                                                                                                    error = %e,
+                                                                                                    "could not kill runtime session before repository delete"
+                                                                                                );
                                                             }
                                                         }
                                                     }
@@ -678,9 +765,9 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                                     &work_dir,
                                                     &signature,
                                                 ) {
-                                                    eprintln!("Warning: Could not spawn session: {e}");
+                                                    warn!(error = %e, "could not spawn session for new agent");
                                                 } else if let Err(e) = ctx_guard.runtime.attach(&agent_id) {
-                                                    eprintln!("Warning: Could not attach session for {}: {e}", agent_id.0);
+                                                    warn!(agent_id = %agent_id.0, error = %e, "could not attach session for new agent");
                                                 }
                                             }
                                         }
@@ -732,6 +819,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
                     // New (n = new agent, N = new repository)
                     KeyCode::Char('n') => {
+                        debug!(
+                            selected_repo_id = ?selected_repo_id,
+                            "n pressed: deriving new agent/repo action"
+                        );
                         // If no repo is selected but repos exist, auto-select the first one
                         let repo_id = selected_repo_id.clone().or_else(|| {
                             let state = app_state.read();
@@ -748,12 +839,17 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                             }
                         });
                         if repo_id.is_none() {
+                            debug!("n: no repos → OpenNewRepository");
                             Some(AppEvent::OpenNewRepository)
                         } else {
+                            debug!(repo_id = ?repo_id, "n: repo exists → OpenNewAgent");
                             repo_id.map(AppEvent::OpenNewAgent)
                         }
                     }
-                    KeyCode::Char('N') => Some(AppEvent::OpenNewRepository),
+                    KeyCode::Char('N') => {
+                        debug!("N pressed: OpenNewRepository");
+                        Some(AppEvent::OpenNewRepository)
+                    }
 
                     // Delete
                     KeyCode::Char('d' | 'D')
@@ -825,9 +921,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                             if let Some(ref ctx_arc) = ctx {
                                 if let Ok(mut ctx_guard) = ctx_arc.lock() {
                                     if let Err(e) = ctx_guard.runtime.attach(&agent_id) {
-                                        eprintln!(
-                                            "Warning: Could not attach session for {}: {e}",
-                                            agent_id.0
+                                        warn!(
+                                            agent_id = %agent_id.0,
+                                            error = %e,
+                                            "could not attach session on 't' focus"
                                         );
                                         let mut state = app_state.write();
                                         state.terminal_focused = false;
@@ -886,6 +983,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 };
 
                 if let Some(evt) = app_event {
+                    debug!(event = ?evt, "dispatching app event");
                     match evt {
                         AppEvent::ToggleTerminalFocus => {
                             // Keep Enter-in-terminal-pane as a UI focus toggle only.
@@ -898,7 +996,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                             if let Some(ref ctx_arc) = ctx {
                                 if let Ok(mut ctx_guard) = ctx_arc.lock() {
                                     if let Err(e) = ctx_guard.runtime.kill(agent_id) {
-                                        eprintln!("Warning: Could not kill runtime session for {}: {e}", agent_id.0);
+                                            warn!(agent_id = %agent_id.0, error = %e, "could not kill runtime session");
                                     }
                                 }
                             }
@@ -930,20 +1028,20 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                                         relaunched = true;
                                                     }
                                                     Err(e2) => {
-                                                        eprintln!("Warning: Could not relaunch runtime session for {}: {e2}", agent_id.0);
+                                                        warn!(agent_id = %agent_id.0, error = %e2, "could not relaunch via spawn_session");
                                                     }
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            eprintln!("Warning: Could not relaunch runtime session for {}: {e}", agent_id.0);
+                                            warn!(agent_id = %agent_id.0, error = %e, "could not relaunch runtime session");
                                         }
                                     }
 
                                     if relaunched {
                                         // Relaunch should make output visible immediately; focus remains separate.
                                         if let Err(e) = ctx_guard.runtime.attach(agent_id) {
-                                            eprintln!("Warning: Could not attach relaunched session for {}: {e}", agent_id.0);
+                                            warn!(agent_id = %agent_id.0, error = %e, "could not attach relaunched session");
                                         }
                                     }
                                 }
@@ -982,30 +1080,8 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
         };
     }
 
-    // Update agent liveness from runtime.
-    if let Some(ref ctx_arc) = ctx {
-        if let Ok(ctx_guard) = ctx_arc.lock() {
-            let dead_agents: Vec<AgentId> = {
-                let state = app_state.read();
-                state
-                    .agents
-                    .iter()
-                    .filter(|a| a.is_running() && !ctx_guard.runtime.is_alive(&a.id))
-                    .map(|a| a.id.clone())
-                    .collect()
-            };
-            drop(ctx_guard);
-
-            if !dead_agents.is_empty() {
-                let mut state = app_state.write();
-                for agent_id in dead_agents {
-                    *state = std::mem::take(&mut *state)
-                        .apply(AppEvent::AgentStatusChanged(agent_id, AgentStatus::Dead));
-                }
-                persist_state_snapshot(&ctx, &state);
-            }
-        }
-    }
+    // Agent liveness is checked by the slow-poll future (every ~2s), not here.
+    // This keeps expensive tmux subprocess calls off the render hot path.
 
     // Read state for rendering.
     let state = app_state.read();
@@ -1013,6 +1089,16 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     let modal = state.modal.clone();
     let snapshot: AppState = (*state).clone();
     drop(state);
+
+    trace!(
+        modal = ?std::mem::discriminant(&modal),
+        screen_mode = ?screen_mode,
+        pane_focus = ?snapshot.pane_focus,
+        terminal_focused = snapshot.terminal_focused,
+        repos = snapshot.repositories.len(),
+        agents = snapshot.agents.len(),
+        "render cycle"
+    );
 
     // Get theme colors.
     let (theme_name, colors) = if let Some(ref ctx_arc) = ctx {
@@ -1028,32 +1114,36 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
         ("green-screen".to_owned(), ThemeColors::default())
     };
 
-    // Ensure selected RUNNING agent is attached for rendering (separate from input focus).
-    // Dead/non-running selections must not keep showing another agent's terminal snapshot.
+    // Attach the viewer only when the selected running agent changes — not every frame.
     let selected_running_agent_id = snapshot
         .selected_agent()
         .filter(|agent| agent.status == AgentStatus::Running)
         .map(|agent| agent.id.clone());
 
-    if let Some(ref ctx_arc) = ctx
-        && let Ok(mut ctx_guard) = ctx_arc.lock()
-    {
-        match selected_running_agent_id {
-            Some(ref selected_agent_id) => {
-                let need_attach = ctx_guard
-                    .runtime
-                    .attached_agent()
-                    .is_none_or(|attached| attached != selected_agent_id);
-                if need_attach {
+    // Hash the selected agent key so we can compare cheaply (u64 is Copy).
+    let selected_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        selected_running_agent_id.hash(&mut hasher);
+        hasher.finish()
+    };
+    let prev_hash = last_attached_key.get();
+    if prev_hash != selected_hash {
+        if let Some(ref ctx_arc) = ctx
+            && let Ok(mut ctx_guard) = ctx_arc.lock()
+        {
+            match selected_running_agent_id {
+                Some(ref selected_agent_id) => {
+                    debug!(agent_id = %selected_agent_id.0, "render-path: attaching to new selection");
                     let _ = ctx_guard.runtime.attach(selected_agent_id);
                 }
-            }
-            None => {
-                if ctx_guard.runtime.attached_agent().is_some() {
+                None => {
+                    debug!("render-path: detaching (no running agent selected)");
                     let _ = ctx_guard.runtime.detach();
                 }
             }
         }
+        last_attached_key.set(selected_hash);
     }
 
     // Get terminal snapshot from currently attached viewer.
@@ -1197,6 +1287,9 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 fn key_to_bytes(key: &KeyEvent) -> Option<Vec<u8>> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
+    let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+
+    let mut alt_encoded = false;
 
     let mut out = match key.code {
         KeyCode::Char(c) if ctrl && c.is_ascii_alphabetic() => {
@@ -1211,7 +1304,24 @@ fn key_to_bytes(key: &KeyEvent) -> Option<Vec<u8>> {
             let s = c.encode_utf8(&mut buf);
             s.as_bytes().to_vec()
         }
-        KeyCode::Enter => vec![b'\r'],
+        KeyCode::Enter => {
+            if shift {
+                // llxprt handles multiline Enter via Shift+Return key state and
+                // also via VSCode fallback sequence backslash+carriage-return.
+                // The fallback survives tmux attach paths more reliably.
+                alt_encoded = alt;
+                if alt {
+                    b"\\\x1b\r".to_vec()
+                } else {
+                    b"\\\r".to_vec()
+                }
+            } else if ctrl {
+                // llxprt accepts Ctrl+J as newline.
+                vec![b'\n']
+            } else {
+                vec![b'\r']
+            }
+        }
         KeyCode::Backspace => vec![0x7f],
         KeyCode::Tab => vec![b'\t'],
         KeyCode::Esc => vec![0x1b],
@@ -1229,7 +1339,7 @@ fn key_to_bytes(key: &KeyEvent) -> Option<Vec<u8>> {
         _ => return None,
     };
 
-    if alt {
+    if alt && !alt_encoded {
         let mut prefixed = Vec::with_capacity(out.len() + 1);
         prefixed.push(0x1b);
         prefixed.extend_from_slice(&out);
@@ -1307,6 +1417,14 @@ fn main() {
         return;
     }
 
+    // Initialize structured logging (no-op if JEFE_LOG_FILE is unset).
+    jefe::logging::init();
+    tracing::info!(version = jefe::VERSION, "jefe starting");
+    tracing::debug!(
+        log_file = ?jefe::logging::log_file_path(),
+        "logging initialized"
+    );
+
     // Get terminal size and derive PTY viewport size from dashboard geometry.
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let (pty_rows, pty_cols, _, _) = compute_pty_layout(cols, rows);
@@ -1327,10 +1445,46 @@ fn main() {
 
         if is_fullscreen_enabled() {
             if let Err(e) = app.fullscreen().await {
-                eprintln!("Error: {e}");
+                error!(error = %e, "fullscreen mode failed");
             }
         } else if let Err(e) = app.render_loop().await {
-            eprintln!("Error: {e}");
+            error!(error = %e, "render loop failed");
         }
     });
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::key_to_bytes;
+    use iocraft::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+
+    fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        let mut event = KeyEvent::new(KeyEventKind::Press, code);
+        event.modifiers = modifiers;
+        event
+    }
+
+    #[test]
+    fn plain_enter_maps_to_cr() {
+        let key = key_event(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(key_to_bytes(&key), Some(vec![b'\r']));
+    }
+
+    #[test]
+    fn shift_enter_maps_to_backslash_cr() {
+        let key = key_event(KeyCode::Enter, KeyModifiers::SHIFT);
+        assert_eq!(key_to_bytes(&key), Some(b"\\\r".to_vec()));
+    }
+
+    #[test]
+    fn shift_alt_enter_maps_to_backslash_esc_cr() {
+        let key = key_event(KeyCode::Enter, KeyModifiers::SHIFT | KeyModifiers::ALT);
+        assert_eq!(key_to_bytes(&key), Some(b"\\\x1b\r".to_vec()));
+    }
+
+    #[test]
+    fn ctrl_enter_maps_to_lf() {
+        let key = key_event(KeyCode::Enter, KeyModifiers::CONTROL);
+        assert_eq!(key_to_bytes(&key), Some(vec![b'\n']));
+    }
 }

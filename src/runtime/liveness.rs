@@ -6,18 +6,46 @@
 
 use std::process::Command;
 
-/// Check if a tmux session exists and is alive.
+/// Check if a tmux session exists and has at least one non-dead pane.
 ///
 /// @pseudocode component-002 lines 33-35
 pub fn check_session_alive(session_name: &str) -> bool {
-    let output = Command::new("tmux")
+    let has_session = Command::new("tmux")
         .args(["has-session", "-t", session_name])
         .output();
 
-    match output {
-        Ok(out) => out.status.success(),
-        Err(_) => false,
+    let Ok(out) = has_session else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
     }
+
+    let panes = Command::new("tmux")
+        .args(["list-panes", "-t", session_name, "-F", "#{pane_dead}"])
+        .output();
+
+    let Ok(out) = panes else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
+    }
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    for line in stdout.lines() {
+        let dead_flag = line.trim();
+        if dead_flag.is_empty() {
+            continue;
+        }
+
+        if dead_flag == "0" || dead_flag.eq_ignore_ascii_case("false") {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// List all jefe-managed tmux sessions.

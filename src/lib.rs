@@ -5,6 +5,7 @@
 //! @requirement REQ-TECH-001
 
 pub mod domain;
+pub mod logging;
 pub mod persistence;
 pub mod runtime;
 pub mod state;

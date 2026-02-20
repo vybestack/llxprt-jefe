@@ -9,6 +9,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use tracing::{debug, info};
+
 use super::attach::AttachedViewer;
 use super::commands;
 use super::errors::RuntimeError;
@@ -263,27 +265,41 @@ impl RuntimeManager for TmuxRuntimeManager {
         work_dir: &Path,
         signature: &LaunchSignature,
     ) -> Result<(), RuntimeError> {
-        // Check for duplicate
+        info!(agent_id = %agent_id.0, work_dir = %work_dir.display(), "spawning runtime session");
+
+        // Check for duplicate runtime mapping in this process.
         if self.sessions.contains_key(agent_id) {
             return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
         }
 
         let session_name = RuntimeSession::session_name_for(agent_id);
 
-        // Create tmux session running llxprt
-        commands::create_session(&session_name, work_dir, signature)?;
+        // Reattach-first behavior: if a live tmux session already exists for this
+        // agent ID, bind to it instead of recreating a new session.
+        if !liveness::check_session_alive(&session_name) {
+            debug!(session_name = %session_name, "creating new tmux session");
+            commands::create_session(&session_name, work_dir, signature)?;
+        } else {
+            debug!(session_name = %session_name, "reattaching to existing tmux session");
+        }
 
-        // Store session
+        // Store/refresh session binding.
         let session = RuntimeSession::new(agent_id.clone(), session_name, signature.clone());
         self.sessions.insert(agent_id.clone(), session);
 
-        // Remove from dead signatures if present
+        // Remove from dead signatures if present.
         self.dead_signatures.remove(agent_id);
 
         Ok(())
     }
 
     fn attach(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+        debug!(
+            agent_id = %agent_id.0,
+            current_attached = ?self.attached_agent_id.as_ref().map(|id| &id.0),
+            "attaching viewer"
+        );
+
         // Check session exists
         if !self.sessions.contains_key(agent_id) {
             return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
@@ -295,6 +311,7 @@ impl RuntimeManager for TmuxRuntimeManager {
             if let Some(old_id) = self.attached_agent_id.take()
                 && let Some(old_session) = self.sessions.get_mut(&old_id)
             {
+                debug!(old_agent_id = %old_id.0, "detaching previous viewer");
                 old_session.attached = false;
             }
 
@@ -320,6 +337,7 @@ impl RuntimeManager for TmuxRuntimeManager {
     }
 
     fn detach(&mut self) -> Result<(), RuntimeError> {
+        debug!("detaching current viewer");
         if let Some(agent_id) = self.attached_agent_id.take()
             && let Some(session) = self.sessions.get_mut(&agent_id)
         {
@@ -334,6 +352,7 @@ impl RuntimeManager for TmuxRuntimeManager {
     }
 
     fn kill(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+        info!(agent_id = %agent_id.0, "killing runtime session");
         let session = self
             .sessions
             .remove(agent_id)
@@ -358,6 +377,7 @@ impl RuntimeManager for TmuxRuntimeManager {
     }
 
     fn relaunch(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
+        info!(agent_id = %agent_id.0, "relaunching runtime session");
         // Check not already running
         if self.sessions.contains_key(agent_id) {
             return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
