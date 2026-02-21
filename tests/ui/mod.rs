@@ -6,4 +6,5 @@
 pub mod dashboard_navigation;
 pub mod forms_and_modals;
 pub mod help_search_behavior;
+pub mod input_mode_behavior;
 pub mod split_mode_behavior;

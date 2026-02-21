@@ -8,13 +8,23 @@
 #![allow(clippy::clone_on_copy)]
 #![allow(clippy::significant_drop_tightening)]
 
+mod app_input;
+
 use std::sync::Arc;
 
 use iocraft::prelude::*;
 use tracing::{debug, error, trace, warn};
 
+use app_input::{
+    dispatch_app_event, handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key,
+    handle_mode_help_key, handle_mode_search_key, handle_normal_key_event, persist_state_snapshot,
+    to_persisted_state,
+};
 use jefe::domain::{AgentId, AgentStatus, LaunchSignature, RepositoryId};
-use jefe::persistence::{FilePersistenceManager, PersistenceManager, Settings, State};
+use jefe::input::{InputMode, input_mode_for_state};
+use jefe::persistence::{
+    FilePersistenceManager, PersistenceManager, Settings, State as PersistedState,
+};
 use jefe::runtime::{RuntimeError, RuntimeManager, TerminalSnapshot, TmuxRuntimeManager};
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
 use jefe::theme::{FileThemeManager, ThemeColors, ThemeManager};
@@ -75,25 +85,6 @@ struct AppContext {
     persistence: FilePersistenceManager,
     theme_manager: FileThemeManager,
     runtime: TmuxRuntimeManager,
-}
-
-fn to_persisted_state(state: &AppState) -> State {
-    State {
-        schema_version: jefe::persistence::STATE_SCHEMA_VERSION,
-        repositories: state.repositories.clone(),
-        agents: state.agents.clone(),
-        selected_repository_index: state.selected_repository_index,
-        selected_agent_index: state.selected_agent_index,
-    }
-}
-
-fn persist_state_snapshot(ctx: &Option<Arc<std::sync::Mutex<AppContext>>>, state: &AppState) {
-    if let Some(ctx_arc) = ctx
-        && let Ok(ctx_guard) = ctx_arc.lock()
-        && let Err(e) = ctx_guard.persistence.save_state(&to_persisted_state(state))
-    {
-        warn!(error = %e, "could not save state");
-    }
 }
 
 /// Delete the currently selected repository from state.
@@ -200,15 +191,14 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     let mut startup_sessions_restored = hooks.use_state(|| false);
     // Track which agent the render loop last attached to, so we only call
     // runtime.attach() when the selection actually changes — not every frame.
-    // We store just the u64 hash of the key since iocraft State::get() requires Copy.
-    let mut last_attached_key = hooks.use_state(|| 0u64);
+    let mut last_attached_key = hooks.use_state(|| Option::<String>::None);
 
     let ctx = props.context.clone();
 
     // One-time initialization: load persisted state.
     if !initialized.get() {
         initialized.set(true);
-        if let Some(ref ctx_arc) = ctx {
+        if let Some(ctx_arc) = &ctx {
             if let Ok(ctx_guard) = ctx_arc.lock() {
                 // Load settings
                 let settings = ctx_guard.persistence.load_settings().unwrap_or_else(|e| {
@@ -219,7 +209,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 // Load state
                 let persisted = ctx_guard.persistence.load_state().unwrap_or_else(|e| {
                     warn!(error = %e, "could not load state, using defaults");
-                    State::default_with_version()
+                    PersistedState::default_with_version()
                 });
 
                 // Apply to app state
@@ -247,14 +237,15 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     }
                 }
 
-                let mut state_to_persist: Option<State> = None;
-                if !dead_ids.is_empty() {
+                let state_to_persist: Option<PersistedState> = if dead_ids.is_empty() {
+                    None
+                } else {
                     for agent_id in dead_ids {
                         *state = std::mem::take(&mut *state)
                             .apply(AppEvent::AgentStatusChanged(agent_id, AgentStatus::Dead));
                     }
-                    state_to_persist = Some(to_persisted_state(&state));
-                }
+                    Some(to_persisted_state(&state))
+                };
 
                 // Set theme and persist any startup status reconciliation after releasing lock.
                 drop(state);
@@ -278,7 +269,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     if !startup_sessions_restored.get() {
         startup_sessions_restored.set(true);
 
-        if let Some(ref ctx_arc) = ctx {
+        if let Some(ctx_arc) = &ctx {
             let agents = {
                 let state = app_state.read();
                 state.agents.clone()
@@ -354,7 +345,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
             loop {
                 smol::Timer::after(std::time::Duration::from_secs(2)).await;
 
-                let Some(ref ctx_arc) = ctx else {
+                let Some(ctx_arc) = &ctx else {
                     continue;
                 };
 
@@ -406,664 +397,202 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
         move |event| {
             match event {
-            TerminalEvent::Resize(cols, rows) => {
-                if let Some(ref ctx_arc) = ctx {
-                    if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                        let (pty_rows, pty_cols, _, _) = compute_pty_layout(cols, rows);
-                        let _ = ctx_guard.runtime.resize(pty_rows, pty_cols);
+                TerminalEvent::Resize(cols, rows) => {
+                    if let Some(ctx_arc) = &ctx {
+                        if let Ok(mut ctx_guard) = ctx_arc.lock() {
+                            let (pty_rows, pty_cols, _, _) = compute_pty_layout(cols, rows);
+                            let _ = ctx_guard.runtime.resize(pty_rows, pty_cols);
+                        }
                     }
                 }
-            }
-            TerminalEvent::FullscreenMouse(mouse_event) => {
-                let state = app_state.read();
-                let terminal_input_enabled =
-                    state.terminal_focused && state.pane_focus == PaneFocus::Terminal;
-                drop(state);
+                TerminalEvent::FullscreenMouse(mouse_event) => {
+                    let state = app_state.read();
+                    let terminal_input_enabled =
+                        state.terminal_focused && state.pane_focus == PaneFocus::Terminal;
+                    drop(state);
 
-                if !terminal_input_enabled {
-                    return;
-                }
+                    if !terminal_input_enabled {
+                        return;
+                    }
 
-                let Some(ref ctx_arc) = ctx else {
-                    return;
-                };
-                let Ok(mut ctx_guard) = ctx_arc.lock() else {
-                    return;
-                };
-
-                if !ctx_guard.runtime.mouse_reporting_active() {
-                    return;
-                }
-
-                let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
-                let (pty_rows, pty_cols, pane_col0, pane_row0) = compute_pty_layout(cols, rows);
-
-                let row_end = pane_row0.saturating_add(pty_rows.saturating_sub(1));
-                let col_end = pane_col0.saturating_add(pty_cols.saturating_sub(1));
-
-                let screen_row0 = mouse_event.row;
-                let screen_col0 = mouse_event.column;
-
-                let in_terminal_bounds = screen_col0 >= pane_col0
-                    && screen_col0 <= col_end
-                    && screen_row0 >= pane_row0
-                    && screen_row0 <= row_end;
-
-                if !in_terminal_bounds {
-                    return;
-                }
-
-                let local_row = screen_row0.saturating_sub(pane_row0);
-                let local_col = screen_col0.saturating_sub(pane_col0);
-
-                let mut local_event =
-                    iocraft::FullscreenMouseEvent::new(mouse_event.kind, local_col, local_row);
-                local_event.modifiers = mouse_event.modifiers;
-
-                if let Some(bytes) = mouse_event_to_bytes(&local_event) {
-                    let _ = ctx_guard.runtime.write_input(&bytes);
-                }
-            }
-            TerminalEvent::Paste(pasted_text) => {
-                let state = app_state.read();
-                let terminal_input_enabled =
-                    state.terminal_focused && state.pane_focus == PaneFocus::Terminal;
-                drop(state);
-
-                if !terminal_input_enabled {
-                    return;
-                }
-
-                let Some(ref ctx_arc) = ctx else {
-                    return;
-                };
-                let Ok(mut ctx_guard) = ctx_arc.lock() else {
-                    return;
-                };
-
-                let bytes = if ctx_guard.runtime.bracketed_paste_active() {
-                    let mut payload = Vec::with_capacity(pasted_text.len() + 12);
-                    payload.extend_from_slice(b"\x1b[200~");
-                    payload.extend_from_slice(pasted_text.as_bytes());
-                    payload.extend_from_slice(b"\x1b[201~");
-                    payload
-                } else {
-                    pasted_text.into_bytes()
-                };
-
-                let _ = ctx_guard.runtime.write_input(&bytes);
-            }
-            TerminalEvent::Key(key_event) => {
-                // Ignore release events if we've seen press/repeat.
-                if key_event.kind == KeyEventKind::Release {
-                    return;
-                }
-
-                let state_ro = app_state.read();
-                let term_focused = state_ro.terminal_focused;
-                let pane_focus = state_ro.pane_focus;
-                let screen_mode = state_ro.screen_mode;
-                let modal = state_ro.modal.clone();
-                drop(state_ro);
-
-                trace!(
-                    code = ?key_event.code,
-                    modifiers = ?key_event.modifiers,
-                    term_focused,
-                    pane_focus = ?pane_focus,
-                    screen_mode = ?screen_mode,
-                    modal = ?std::mem::discriminant(&modal),
-                    "key event received"
-                );
-
-                // F12 toggles terminal input focus.
-                // When enabling, force pane focus to terminal and require attach success.
-                if key_event.code == KeyCode::F(12) {
-                    let (enabling_focus, selected_agent_id) = {
-                        let mut state = app_state.write();
-
-                        if state.terminal_focused {
-                            *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
-                            (false, None)
-                        } else {
-                            state.pane_focus = PaneFocus::Terminal;
-                            *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
-                            (true, state.selected_agent().map(|agent| agent.id.clone()))
-                        }
+                    let Some(ctx_arc) = &ctx else {
+                        return;
+                    };
+                    let Ok(mut ctx_guard) = ctx_arc.lock() else {
+                        return;
                     };
 
-                    if enabling_focus {
-                        let attached = selected_agent_id.as_ref().is_some_and(|agent_id| {
-                            if let Some(ref ctx_arc) = ctx {
-                                if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                                    match ctx_guard.runtime.attach(agent_id) {
-                                        Ok(()) => true,
-                                        Err(e) => {
-                                            warn!(
-                                                agent_id = %agent_id.0,
-                                                error = %e,
-                                                "could not attach session on F12 focus"
-                                            );
-                                            false
-                                        }
-                                    }
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            }
-                        });
-
-                        if !attached {
-                            let mut state = app_state.write();
-                            state.terminal_focused = false;
-                        }
+                    if !ctx_guard.runtime.mouse_reporting_active() {
+                        return;
                     }
 
+                    let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
+                    let (pty_rows, pty_cols, pane_col0, pane_row0) = compute_pty_layout(cols, rows);
+
+                    let row_end = pane_row0.saturating_add(pty_rows.saturating_sub(1));
+                    let col_end = pane_col0.saturating_add(pty_cols.saturating_sub(1));
+
+                    let screen_row0 = mouse_event.row;
+                    let screen_col0 = mouse_event.column;
+
+                    let in_terminal_bounds = screen_col0 >= pane_col0
+                        && screen_col0 <= col_end
+                        && screen_row0 >= pane_row0
+                        && screen_row0 <= row_end;
+
+                    if !in_terminal_bounds {
+                        return;
+                    }
+
+                    let local_row = screen_row0.saturating_sub(pane_row0);
+                    let local_col = screen_col0.saturating_sub(pane_col0);
+
+                    let mut local_event =
+                        iocraft::FullscreenMouseEvent::new(mouse_event.kind, local_col, local_row);
+                    local_event.modifiers = mouse_event.modifiers;
+
+                    if let Some(bytes) = mouse_event_to_bytes(&local_event) {
+                        let _ = ctx_guard.runtime.write_input(&bytes);
+                    }
+                }
+                TerminalEvent::Paste(pasted_text) => {
                     let state = app_state.read();
-                    persist_state_snapshot(&ctx, &state);
-                    return;
+                    let terminal_input_enabled =
+                        state.terminal_focused && state.pane_focus == PaneFocus::Terminal;
+                    drop(state);
+
+                    if !terminal_input_enabled {
+                        return;
+                    }
+
+                    let Some(ctx_arc) = &ctx else {
+                        return;
+                    };
+                    let Ok(mut ctx_guard) = ctx_arc.lock() else {
+                        return;
+                    };
+
+                    let bytes = if ctx_guard.runtime.bracketed_paste_active() {
+                        let mut payload = Vec::with_capacity(pasted_text.len() + 12);
+                        payload.extend_from_slice(b"\x1b[200~");
+                        payload.extend_from_slice(pasted_text.as_bytes());
+                        payload.extend_from_slice(b"\x1b[201~");
+                        payload
+                    } else {
+                        pasted_text.into_bytes()
+                    };
+
+                    let _ = ctx_guard.runtime.write_input(&bytes);
                 }
+                TerminalEvent::Key(key_event) => {
+                    // Ignore release events if we've seen press/repeat.
+                    if key_event.kind == KeyEventKind::Release {
+                        return;
+                    }
 
-                // Defensive guard: terminal input is only valid when the terminal pane is active.
-                // If focus state is stale, clear it so navigation keys never leak into llxprt.
-                let terminal_input_enabled = term_focused && pane_focus == PaneFocus::Terminal;
-                if term_focused && pane_focus != PaneFocus::Terminal {
-                    debug!(
-                        pane_focus = ?pane_focus,
-                        "clearing stale terminal_focused (pane not Terminal)"
-                    );
-                    let mut state = app_state.write();
-                    state.terminal_focused = false;
-                    persist_state_snapshot(&ctx, &state);
-                }
-
-
-                // When terminal input is focused, forward keys to PTY.
-                if terminal_input_enabled {
-                    let encoded = key_to_bytes(&key_event);
+                    let state_ro = app_state.read();
+                    let term_focused = state_ro.terminal_focused;
+                    let pane_focus = state_ro.pane_focus;
+                    let screen_mode = state_ro.screen_mode;
+                    let modal = state_ro.modal.clone();
+                    drop(state_ro);
 
                     trace!(
                         code = ?key_event.code,
                         modifiers = ?key_event.modifiers,
-                        encoded_len = encoded.as_ref().map_or(0, |b| b.len()),
-                        "forwarding key to PTY"
+                        term_focused,
+                        pane_focus = ?pane_focus,
+                        screen_mode = ?screen_mode,
+                        modal = ?std::mem::discriminant(&modal),
+                        "key event received"
                     );
 
-                    if let Some(bytes) = encoded {
-                        if let Some(ref ctx_arc) = ctx {
-                            if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                                if let Err(e) = ctx_guard.runtime.write_input(&bytes) {
-                                    warn!(error = %e, "runtime.write_input failed");
-                                }
-                            }
-                        }
-                    }
-                    return;
-                }
-
-                // Handle modal keys.
-                match &modal {
-                    ModalState::Help => {
-                        match key_event.code {
-                            KeyCode::Esc | KeyCode::Char('?') => {
-                                let mut state = app_state.write();
-                                *state = std::mem::take(&mut *state).apply(AppEvent::CloseModal);
-                                persist_state_snapshot(&ctx, &state);
-                            }
-                            KeyCode::Up => {
-                                let offset = help_scroll.get();
-                                if offset > 0 {
-                                    help_scroll.set(offset - 1);
-                                }
-                            }
-                            KeyCode::Down => {
-                                help_scroll.set(help_scroll.get() + 1);
-                            }
-                            _ => {}
-                        }
+                    if key_event.code == KeyCode::F(12) {
+                        handle_f12_toggle(&mut app_state, &ctx);
                         return;
                     }
-                    ModalState::ConfirmDeleteRepository { .. }
-                    | ModalState::ConfirmDeleteAgent { .. } => {
-                        match key_event.code {
-                            KeyCode::Esc => {
-                                let mut state = app_state.write();
-                                *state = std::mem::take(&mut *state).apply(AppEvent::CloseModal);
-                                persist_state_snapshot(&ctx, &state);
-                            }
-                            KeyCode::Enter => {
-                                let modal_snapshot = {
-                                    let state = app_state.read();
-                                    state.modal.clone()
-                                };
 
-                                match modal_snapshot {
-                                    ModalState::ConfirmDeleteAgent {
-                                        id,
-                                        delete_work_dir,
-                                    } => {
-                                        if let Some(ref ctx_arc) = ctx {
-                                            if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                                                if let Err(e) = ctx_guard.runtime.kill(&id) {
-                                                    match e {
-                                                        RuntimeError::SessionNotFound(_) => {}
-                                                        _ => {
-                                            warn!(
-                                                                                                agent_id = %id.0,
-                                                                                                error = %e,
-                                                                                                "could not kill runtime session before delete"
-                                                                                            );
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
+                    // Determine active input mode from current state.
+                    let input_mode = if term_focused && pane_focus != PaneFocus::Terminal {
+                        // Defensive guard: terminal input is only valid when terminal pane is active.
+                        // If focus state is stale, clear it so navigation keys never leak into llxprt.
+                        debug!(
+                            pane_focus = ?pane_focus,
+                            "clearing stale terminal_focused (pane not Terminal)"
+                        );
+                        let mut state = app_state.write();
+                        state.terminal_focused = false;
+                        persist_state_snapshot(&ctx, &state);
+                        InputMode::Normal
+                    } else {
+                        let state = app_state.read();
+                        input_mode_for_state(&state)
+                    };
 
-                                        let mut state = app_state.write();
-                                        let _ = delete_selected_agent(&mut state, &id, delete_work_dir);
-                                        state.modal = ModalState::None;
-                                        persist_state_snapshot(&ctx, &state);
+                    // When terminal input is focused, forward keys to PTY.
+                    if input_mode == InputMode::TerminalCapture {
+                        let encoded = key_to_bytes(&key_event);
+
+                        trace!(
+                            code = ?key_event.code,
+                            modifiers = ?key_event.modifiers,
+                            encoded_len = encoded.as_ref().map_or(0, std::vec::Vec::len),
+                            "forwarding key to PTY"
+                        );
+
+                        if let Some(bytes) = encoded {
+                            if let Some(ctx_arc) = &ctx {
+                                if let Ok(mut ctx_guard) = ctx_arc.lock() {
+                                    if let Err(e) = ctx_guard.runtime.write_input(&bytes) {
+                                        warn!(error = %e, "runtime.write_input failed");
                                     }
-                                    ModalState::ConfirmDeleteRepository { id } => {
-                                        if let Some(ref ctx_arc) = ctx {
-                                            if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                                                let agent_ids: Vec<AgentId> = {
-                                                    let state = app_state.read();
-                                                    state
-                                                        .agents
-                                                        .iter()
-                                                        .filter(|agent| agent.repository_id == id)
-                                                        .map(|agent| agent.id.clone())
-                                                        .collect()
-                                                };
-
-                                                for agent_id in &agent_ids {
-                                                    if let Err(e) = ctx_guard.runtime.kill(agent_id) {
-                                                        match e {
-                                                            RuntimeError::SessionNotFound(_) => {}
-                                                            _ => {
-                                                                warn!(
-                                                                                                    agent_id = %agent_id.0,
-                                                                                                    error = %e,
-                                                                                                    "could not kill runtime session before repository delete"
-                                                                                                );
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        let mut state = app_state.write();
-                                        delete_selected_repository(&mut state, &id);
-                                        state.modal = ModalState::None;
-                                        persist_state_snapshot(&ctx, &state);
-                                    }
-                                    _ => {}
                                 }
                             }
-                            KeyCode::Char(' ') | KeyCode::Char('d') | KeyCode::Char('D')
-                            | KeyCode::Up
-                            | KeyCode::Down => {
-                                let mut state = app_state.write();
-                                *state = std::mem::take(&mut *state)
-                                    .apply(AppEvent::ToggleDeleteWorkDir);
-                                persist_state_snapshot(&ctx, &state);
-                            }
-                            _ => {}
                         }
                         return;
                     }
 
-                    ModalState::Search { .. } => {
-                        if key_event.code == KeyCode::Esc {
-                            let mut state = app_state.write();
-                            *state = std::mem::take(&mut *state).apply(AppEvent::CloseModal);
-                            persist_state_snapshot(&ctx, &state);
+                    // Handle mode-specific keys first.
+                    match input_mode {
+                        InputMode::Help => {
+                            handle_mode_help_key(
+                                &mut app_state,
+                                &ctx,
+                                &mut help_scroll,
+                                &key_event,
+                            );
+                            return;
                         }
-                        return;
-                    }
-                    ModalState::NewRepository { .. }
-                    | ModalState::EditRepository { .. }
-                    | ModalState::NewAgent { .. }
-                    | ModalState::EditAgent { .. } => {
-                        // Form field navigation and input
-                        let app_event = match key_event.code {
-                            KeyCode::Esc => Some(AppEvent::CloseModal),
-                            KeyCode::Enter => {
-                                // Submit form and spawn PTY if new agent
-                                let state_ro = app_state.read();
-                                let is_new_agent = matches!(state_ro.modal, ModalState::NewAgent { .. });
-                                drop(state_ro);
-
-                                let mut state = app_state.write();
-                                *state = std::mem::take(&mut *state).apply(AppEvent::SubmitForm);
-                                persist_state_snapshot(&ctx, &state);
-
-                                // If new agent was created, spawn session and attach viewer.
-                                if is_new_agent && state.modal == ModalState::None {
-                                    if let Some(agent) = state.selected_agent().cloned() {
-                                        let agent_id = agent.id.clone();
-                                        let work_dir = agent.work_dir.clone();
-                                        let signature = LaunchSignature {
-                                            work_dir: agent.work_dir.clone(),
-                                            profile: agent.profile.clone(),
-                                            mode_flags: agent.mode_flags.clone(),
-                                            pass_continue: agent.pass_continue,
-                                        };
-                                        // Match toy1 behavior: new agent opens attached and focused.
-                                        state.terminal_focused = true;
-                                        persist_state_snapshot(&ctx, &state);
-                                        drop(state);
-
-                                        if let Some(ref ctx_arc) = ctx {
-                                            if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                                                if let Err(e) = ctx_guard.runtime.spawn_session(
-                                                    &agent_id,
-                                                    &work_dir,
-                                                    &signature,
-                                                ) {
-                                                    warn!(error = %e, "could not spawn session for new agent");
-                                                } else if let Err(e) = ctx_guard.runtime.attach(&agent_id) {
-                                                    warn!(agent_id = %agent_id.0, error = %e, "could not attach session for new agent");
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                        InputMode::Confirm => {
+                            handle_mode_confirm_key(&mut app_state, &ctx, &key_event);
+                            return;
+                        }
+                        InputMode::Search => {
+                            if handle_mode_search_key(&mut app_state, &ctx, &key_event) {
                                 return;
                             }
-                            KeyCode::Tab | KeyCode::Down => Some(AppEvent::FormNextField),
-                            KeyCode::BackTab | KeyCode::Up => Some(AppEvent::FormPrevField),
-                            KeyCode::Backspace => Some(AppEvent::FormBackspace),
-                            // Space: toggle checkbox only on checkbox fields, otherwise type space
-                            KeyCode::Char(' ') => Some(AppEvent::FormChar(' ')),
-                            KeyCode::Char(c) => Some(AppEvent::FormChar(c)),
-                            _ => None,
-                        };
-                        if let Some(evt) = app_event {
-                            let mut state = app_state.write();
-                            *state = std::mem::take(&mut *state).apply(evt);
-                            persist_state_snapshot(&ctx, &state);
                         }
-                        return;
-                    }
-                    _ => {}
-                }
-
-                // Get additional state for keybinding decisions.
-                let state_ro = app_state.read();
-                let pane_focus = state_ro.pane_focus;
-                let selected_repo_id = state_ro
-                    .selected_repository_index
-                    .and_then(|i| state_ro.repositories.get(i).map(|r| r.id.clone()));
-                let selected_agent_id = state_ro.selected_agent().map(|agent| agent.id.clone());
-                drop(state_ro);
-
-                // Normal keybindings.
-                let app_event = match key_event.code {
-                    // Quit
-                    KeyCode::Char('q' | 'Q') => {
-                        should_quit.set(true);
-                        return;
-                    }
-
-                    // Navigation
-                    KeyCode::Up => Some(AppEvent::NavigateUp),
-                    KeyCode::Down => Some(AppEvent::NavigateDown),
-                    KeyCode::Left => Some(AppEvent::NavigateLeft),
-                    KeyCode::Right => Some(AppEvent::NavigateRight),
-                    KeyCode::Tab => Some(AppEvent::CyclePaneFocus),
-
-                    // New (n = new agent, N = new repository)
-                    KeyCode::Char('n') => {
-                        debug!(
-                            selected_repo_id = ?selected_repo_id,
-                            "n pressed: deriving new agent/repo action"
-                        );
-                        // If no repo is selected but repos exist, auto-select the first one
-                        let repo_id = selected_repo_id.clone().or_else(|| {
-                            let state = app_state.read();
-                            if state.repositories.is_empty() {
-                                None
-                            } else {
-                                let first_id = state.repositories[0].id.clone();
-                                drop(state);
-                                let mut state_mut = app_state.write();
-                                state_mut.selected_repository_index = Some(0);
-                                state_mut.normalize_selection_indices();
-                                persist_state_snapshot(&ctx, &state_mut);
-                                Some(first_id)
-                            }
-                        });
-                        if repo_id.is_none() {
-                            debug!("n: no repos → OpenNewRepository");
-                            Some(AppEvent::OpenNewRepository)
-                        } else {
-                            debug!(repo_id = ?repo_id, "n: repo exists → OpenNewAgent");
-                            repo_id.map(AppEvent::OpenNewAgent)
-                        }
-                    }
-                    KeyCode::Char('N') => {
-                        debug!("N pressed: OpenNewRepository");
-                        Some(AppEvent::OpenNewRepository)
-                    }
-
-                    // Delete
-                    KeyCode::Char('d' | 'D')
-                        if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
-                    {
-                        if pane_focus == PaneFocus::Agents || pane_focus == PaneFocus::Terminal {
-                            selected_agent_id.clone().map(AppEvent::OpenDeleteAgent)
-                        } else if pane_focus == PaneFocus::Repositories {
-                            selected_repo_id.clone().map(AppEvent::OpenDeleteRepository)
-                        } else {
-                            None
-                        }
-                    }
-
-                    // Kill agent
-                    KeyCode::Char('k' | 'K')
-                        if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
-                    {
-                        selected_agent_id.clone().map(AppEvent::KillAgent)
-                    }
-
-                    // Relaunch agent
-                    KeyCode::Char('l' | 'L') => {
-                        selected_agent_id.clone().map(AppEvent::RelaunchAgent)
-                    }
-
-                    // Split mode
-                    KeyCode::Char('s' | 'S') if screen_mode == ScreenMode::Dashboard => {
-                        Some(AppEvent::EnterSplitMode)
-                    }
-                    KeyCode::Esc if screen_mode == ScreenMode::Split => {
-                        Some(AppEvent::ExitSplitMode)
-                    }
-
-                    // Grab mode (in split screen)
-                    KeyCode::Char('g' | 'G') if screen_mode == ScreenMode::Split => {
-                        Some(AppEvent::EnterGrabMode)
-                    }
-
-                    // Help and search
-                    KeyCode::Char('?' | 'h' | 'H') | KeyCode::F(1) => Some(AppEvent::OpenHelp),
-                    KeyCode::Char('/') => Some(AppEvent::OpenSearch),
-
-                    // Direct pane focus
-                    KeyCode::Char('r' | 'R') => {
-                        let mut state = app_state.write();
-                        state.pane_focus = PaneFocus::Repositories;
-                        persist_state_snapshot(&ctx, &state);
-                        None
-                    }
-                    KeyCode::Char('a' | 'A') => {
-                        let mut state = app_state.write();
-                        state.pane_focus = PaneFocus::Agents;
-                        persist_state_snapshot(&ctx, &state);
-                        None
-                    }
-                    KeyCode::Char('t' | 'T') => {
-                        let selected_agent_id = {
-                            let mut state = app_state.write();
-                            state.pane_focus = PaneFocus::Terminal;
-                            if !state.terminal_focused {
-                                *state =
-                                    std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
-                            }
-                            state.selected_agent().map(|agent| agent.id.clone())
-                        };
-
-                        if let Some(agent_id) = selected_agent_id {
-                            if let Some(ref ctx_arc) = ctx {
-                                if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                                    if let Err(e) = ctx_guard.runtime.attach(&agent_id) {
-                                        warn!(
-                                            agent_id = %agent_id.0,
-                                            error = %e,
-                                            "could not attach session on 't' focus"
-                                        );
-                                        let mut state = app_state.write();
-                                        state.terminal_focused = false;
-                                        persist_state_snapshot(&ctx, &state);
-                                    }
-                                }
-                            }
-                        } else {
-                            let mut state = app_state.write();
-                            state.terminal_focused = false;
-                            persist_state_snapshot(&ctx, &state);
-                        }
-
-                        None
-                    }
-
-                    // Enter selects current item (edit agent/repo)
-                    KeyCode::Enter => {
-                        match pane_focus {
-                            PaneFocus::Agents => selected_agent_id.clone().map(AppEvent::OpenEditAgent),
-                            PaneFocus::Repositories => selected_repo_id.clone().map(AppEvent::OpenEditRepository),
-                            PaneFocus::Terminal => {
-                                // Toggle terminal focus on Enter when in terminal pane
-                                Some(AppEvent::ToggleTerminalFocus)
+                        InputMode::Form => {
+                            if handle_mode_form_key(&mut app_state, &ctx, &key_event) {
+                                return;
                             }
                         }
+                        InputMode::TerminalCapture | InputMode::Normal => {}
                     }
 
-                    // Theme switching (1/2/3)
-                    KeyCode::Char('1') => {
-                        if let Some(ref ctx_arc) = ctx {
-                            if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                                let _ = ctx_guard.theme_manager.set_active("green-screen");
-                            }
-                        }
-                        None
-                    }
-                    KeyCode::Char('2') => {
-                        if let Some(ref ctx_arc) = ctx {
-                            if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                                let _ = ctx_guard.theme_manager.set_active("dracula");
-                            }
-                        }
-                        None
-                    }
-                    KeyCode::Char('3') => {
-                        if let Some(ref ctx_arc) = ctx {
-                            if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                                let _ = ctx_guard.theme_manager.set_active("default-dark");
-                            }
-                        }
-                        None
-                    }
-
-                    _ => None,
-                };
-
-                if let Some(evt) = app_event {
-                    debug!(event = ?evt, "dispatching app event");
-                    match evt {
-                        AppEvent::ToggleTerminalFocus => {
-                            // Keep Enter-in-terminal-pane as a UI focus toggle only.
-                            // Runtime attach/detach remains bound to F12.
-                            let mut state = app_state.write();
-                            *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
-                            persist_state_snapshot(&ctx, &state);
-                        }
-                        AppEvent::KillAgent(ref agent_id) => {
-                            if let Some(ref ctx_arc) = ctx {
-                                if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                                    if let Err(e) = ctx_guard.runtime.kill(agent_id) {
-                                            warn!(agent_id = %agent_id.0, error = %e, "could not kill runtime session");
-                                    }
-                                }
-                            }
-                            let mut state = app_state.write();
-                            *state = std::mem::take(&mut *state).apply(evt);
-                            state.terminal_focused = false;
-                            persist_state_snapshot(&ctx, &state);
-                        }
-                        AppEvent::RelaunchAgent(ref agent_id) => {
-                            let mut relaunched = false;
-                            if let Some(ref ctx_arc) = ctx {
-                                if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                                    match ctx_guard.runtime.relaunch(agent_id) {
-                                        Ok(()) => {
-                                            relaunched = true;
-                                        }
-                                        Err(RuntimeError::NotRunning(_)) => {
-                                            // If not in dead-signatures map (e.g. app restart), fallback to spawn.
-                                            let state_ro = app_state.read();
-                                            if let Some(agent) = state_ro.agents.iter().find(|a| a.id == *agent_id) {
-                                                let signature = LaunchSignature {
-                                                    work_dir: agent.work_dir.clone(),
-                                                    profile: agent.profile.clone(),
-                                                    mode_flags: agent.mode_flags.clone(),
-                                                    pass_continue: agent.pass_continue,
-                                                };
-                                                match ctx_guard.runtime.spawn_session(agent_id, &agent.work_dir, &signature) {
-                                                    Ok(()) => {
-                                                        relaunched = true;
-                                                    }
-                                                    Err(e2) => {
-                                                        warn!(agent_id = %agent_id.0, error = %e2, "could not relaunch via spawn_session");
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            warn!(agent_id = %agent_id.0, error = %e, "could not relaunch runtime session");
-                                        }
-                                    }
-
-                                    if relaunched {
-                                        // Relaunch should make output visible immediately; focus remains separate.
-                                        if let Err(e) = ctx_guard.runtime.attach(agent_id) {
-                                            warn!(agent_id = %agent_id.0, error = %e, "could not attach relaunched session");
-                                        }
-                                    }
-                                }
-                            }
-
-                            let mut state = app_state.write();
-                            *state = std::mem::take(&mut *state).apply(evt);
-                            if relaunched {
-                                state.terminal_focused = false;
-                            }
-                            persist_state_snapshot(&ctx, &state);
-                        }
-                        _ => {
-                            let mut state = app_state.write();
-                            *state = std::mem::take(&mut *state).apply(evt);
-                            persist_state_snapshot(&ctx, &state);
-                        }
+                    if let Some(evt) = handle_normal_key_event(
+                        &mut app_state,
+                        &mut should_quit,
+                        &ctx,
+                        &key_event,
+                        screen_mode,
+                    ) {
+                        dispatch_app_event(&mut app_state, &ctx, evt);
                     }
                 }
+                _ => {}
             }
-            _ => {}
-        }}
+        }
     });
 
     // Handle quit.
@@ -1101,7 +630,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     );
 
     // Get theme colors.
-    let (theme_name, colors) = if let Some(ref ctx_arc) = ctx {
+    let (theme_name, colors) = if let Some(ctx_arc) = &ctx {
         if let Ok(ctx_guard) = ctx_arc.lock() {
             (
                 ctx_guard.theme_manager.active_theme().name.clone(),
@@ -1120,34 +649,25 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
         .filter(|agent| agent.status == AgentStatus::Running)
         .map(|agent| agent.id.clone());
 
-    // Hash the selected agent key so we can compare cheaply (u64 is Copy).
-    let selected_hash = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        selected_running_agent_id.hash(&mut hasher);
-        hasher.finish()
-    };
-    let prev_hash = last_attached_key.get();
-    if prev_hash != selected_hash {
-        if let Some(ref ctx_arc) = ctx
+    let selected_key = selected_running_agent_id.as_ref().map(|id| id.0.clone());
+    let prev_key = last_attached_key.read().clone();
+    if prev_key != selected_key {
+        if let Some(ctx_arc) = &ctx
             && let Ok(mut ctx_guard) = ctx_arc.lock()
         {
-            match selected_running_agent_id {
-                Some(ref selected_agent_id) => {
-                    debug!(agent_id = %selected_agent_id.0, "render-path: attaching to new selection");
-                    let _ = ctx_guard.runtime.attach(selected_agent_id);
-                }
-                None => {
-                    debug!("render-path: detaching (no running agent selected)");
-                    let _ = ctx_guard.runtime.detach();
-                }
+            if let Some(ref selected_agent_id) = selected_running_agent_id {
+                debug!(agent_id = %selected_agent_id.0, "render-path: attaching to new selection");
+                let _ = ctx_guard.runtime.attach(selected_agent_id);
+            } else {
+                debug!("render-path: detaching (no running agent selected)");
+                let _ = ctx_guard.runtime.detach();
             }
         }
-        last_attached_key.set(selected_hash);
+        last_attached_key.set(selected_key);
     }
 
     // Get terminal snapshot from currently attached viewer.
-    let terminal_snapshot: Option<TerminalSnapshot> = if let Some(ref ctx_arc) = ctx {
+    let terminal_snapshot: Option<TerminalSnapshot> = if let Some(ctx_arc) = &ctx {
         if let Ok(ctx_guard) = ctx_arc.lock() {
             if selected_running_agent_id.is_some() {
                 ctx_guard.runtime.snapshot()
@@ -1198,8 +718,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 .agents
                 .iter()
                 .find(|agent| &agent.id == id)
-                .map(|agent| agent.name.clone())
-                .unwrap_or_else(|| String::from("selected agent"));
+                .map_or_else(
+                    || String::from("selected agent"),
+                    |agent| agent.name.clone(),
+                );
             Some((
                 String::from("Delete Agent"),
                 format!("Delete {agent_name}?"),
@@ -1212,8 +734,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 .repositories
                 .iter()
                 .find(|repo| &repo.id == id)
-                .map(|repo| repo.name.clone())
-                .unwrap_or_else(|| String::from("selected repository"));
+                .map_or_else(
+                    || String::from("selected repository"),
+                    |repo| repo.name.clone(),
+                );
             Some((
                 String::from("Delete Repository"),
                 format!("Delete {repo_name} and all its agents?"),
@@ -1268,8 +792,13 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     };
 
     // Root element with proper dimensions.
-    // When a modal is active, show only the modal; otherwise show the screen.
-    let content_el: AnyElement<'static> = modal_el.unwrap_or(screen_el);
+    // Search is an in-band mode used by SplitScreen's filter bar, not a blocking
+    // overlay modal. Keep rendering the underlying screen in search mode.
+    let content_el: AnyElement<'static> = if matches!(modal, ModalState::Search { .. }) {
+        screen_el
+    } else {
+        modal_el.unwrap_or(screen_el)
+    };
 
     element! {
         Box(
@@ -1396,7 +925,7 @@ fn mouse_event_to_bytes(event: &iocraft::FullscreenMouseEvent) -> Option<Vec<u8>
     let cx = event.column.saturating_add(1);
     let cy = event.row.saturating_add(1);
     let suffix = if release { 'm' } else { 'M' };
-    let seq = format!("\x1b[<{};{};{}{}", cb_with_mods, cx, cy, suffix);
+    let seq = format!("\x1b[<{cb_with_mods};{cx};{cy}{suffix}");
     Some(seq.into_bytes())
 }
 
