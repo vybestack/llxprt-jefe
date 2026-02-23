@@ -192,6 +192,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     // Track which agent the render loop last attached to, so we only call
     // runtime.attach() when the selection actually changes — not every frame.
     let mut last_attached_key = hooks.use_state(|| Option::<String>::None);
+    // During Cmd/Ctrl+V paste, some terminals emit a synthetic Enter key event
+    // just before the bracketed paste event. Suppress that one key to avoid
+    // accidental submits while still allowing normal Enter behavior.
+    let mut suppress_next_enter = hooks.use_state(|| false);
 
     let ctx = props.context.clone();
 
@@ -289,6 +293,9 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         profile: agent.profile.clone(),
                         mode_flags: agent.mode_flags.clone(),
                         pass_continue: agent.pass_continue,
+                        sandbox_enabled: agent.sandbox_enabled,
+                        sandbox_engine: agent.sandbox_engine,
+                        sandbox_flags: agent.sandbox_flags.clone(),
                     };
 
                     match ctx_guard
@@ -482,12 +489,33 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         pasted_text.into_bytes()
                     };
 
-                    let _ = ctx_guard.runtime.write_input(&bytes);
+                    if let Err(e) = ctx_guard.runtime.write_input(&bytes) {
+                        warn!(error = %e, "runtime.write_input failed for paste");
+                    }
+                    suppress_next_enter.set(false);
                 }
                 TerminalEvent::Key(key_event) => {
                     // Ignore release events if we've seen press/repeat.
                     if key_event.kind == KeyEventKind::Release {
                         return;
+                    }
+
+                    // On some terminals, Cmd/Ctrl+V emits an Enter key event first,
+                    // then emits a Paste event. Drop that synthetic Enter.
+                    if suppress_next_enter.get() && key_event.code == KeyCode::Enter {
+                        debug!("suppressing synthetic Enter preceding paste");
+                        suppress_next_enter.set(false);
+                        return;
+                    }
+
+                    if key_event.modifiers.intersects(
+                        KeyModifiers::CONTROL
+                            | KeyModifiers::SUPER
+                            | KeyModifiers::META
+                            | KeyModifiers::ALT,
+                    ) && matches!(key_event.code, KeyCode::Char('v' | 'V'))
+                    {
+                        suppress_next_enter.set(true);
                     }
 
                     let state_ro = app_state.read();

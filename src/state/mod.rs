@@ -8,7 +8,9 @@
 
 use tracing::{debug, trace};
 
-use crate::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
+use crate::domain::{
+    Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, Repository, RepositoryId, SandboxEngine,
+};
 
 /// Form fields for creating/editing an agent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -19,6 +21,9 @@ pub struct AgentFormFields {
     pub profile: String,
     pub mode: String,
     pub pass_continue: bool,
+    pub sandbox_enabled: bool,
+    pub sandbox_engine: String,
+    pub sandbox_flags: String,
 }
 
 /// Which field is focused in the agent form.
@@ -31,6 +36,9 @@ pub enum AgentFormFocus {
     Profile,
     Mode,
     PassContinue,
+    Sandbox,
+    SandboxEngine,
+    SandboxFlags,
 }
 
 impl AgentFormFocus {
@@ -43,7 +51,10 @@ impl AgentFormFocus {
             Self::WorkDir => Self::Profile,
             Self::Profile => Self::Mode,
             Self::Mode => Self::PassContinue,
-            Self::PassContinue => Self::Name,
+            Self::PassContinue => Self::Sandbox,
+            Self::Sandbox => Self::SandboxEngine,
+            Self::SandboxEngine => Self::SandboxFlags,
+            Self::SandboxFlags => Self::Name,
         }
     }
 
@@ -51,12 +62,15 @@ impl AgentFormFocus {
     #[must_use]
     pub fn prev(self) -> Self {
         match self {
-            Self::Name => Self::PassContinue,
+            Self::Name => Self::SandboxFlags,
             Self::Description => Self::Name,
             Self::WorkDir => Self::Description,
             Self::Profile => Self::WorkDir,
             Self::Mode => Self::Profile,
             Self::PassContinue => Self::Mode,
+            Self::Sandbox => Self::PassContinue,
+            Self::SandboxEngine => Self::Sandbox,
+            Self::SandboxFlags => Self::SandboxEngine,
         }
     }
 }
@@ -535,6 +549,9 @@ impl AppState {
                         profile: default_profile,
                         mode: "--yolo".to_owned(),
                         pass_continue: true,
+                        sandbox_enabled: false,
+                        sandbox_engine: SandboxEngine::Podman.label().to_owned(),
+                        sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
                     },
                     focus: AgentFormFocus::default(),
                     work_dir_manual: false,
@@ -553,6 +570,9 @@ impl AppState {
                         profile: a.profile.clone(),
                         mode: a.mode_flags.join(" "),
                         pass_continue: a.pass_continue,
+                        sandbox_enabled: a.sandbox_enabled,
+                        sandbox_engine: a.sandbox_engine.label().to_owned(),
+                        sandbox_flags: a.sandbox_flags.clone(),
                     })
                     .unwrap_or_default();
                 self.modal = ModalState::EditAgent {
@@ -775,6 +795,19 @@ impl AppState {
                             fields.pass_continue = !fields.pass_continue;
                         }
                     }
+                    AgentFormFocus::Sandbox => {
+                        if c == ' ' || c == 'x' || c == 'X' {
+                            fields.sandbox_enabled = !fields.sandbox_enabled;
+                        }
+                    }
+                    AgentFormFocus::SandboxEngine => {
+                        if c == ' ' || c == 'x' || c == 'X' {
+                            let current = SandboxEngine::from_form_value(&fields.sandbox_engine)
+                                .unwrap_or_default();
+                            fields.sandbox_engine = current.next().label().to_owned();
+                        }
+                    }
+                    AgentFormFocus::SandboxFlags => fields.sandbox_flags.push(c),
                 }
             }
             ModalState::EditAgent { fields, focus, .. } => {
@@ -790,6 +823,19 @@ impl AppState {
                             fields.pass_continue = !fields.pass_continue;
                         }
                     }
+                    AgentFormFocus::Sandbox => {
+                        if c == ' ' || c == 'x' || c == 'X' {
+                            fields.sandbox_enabled = !fields.sandbox_enabled;
+                        }
+                    }
+                    AgentFormFocus::SandboxEngine => {
+                        if c == ' ' || c == 'x' || c == 'X' {
+                            let current = SandboxEngine::from_form_value(&fields.sandbox_engine)
+                                .unwrap_or_default();
+                            fields.sandbox_engine = current.next().label().to_owned();
+                        }
+                    }
+                    AgentFormFocus::SandboxFlags => fields.sandbox_flags.push(c),
                 }
             }
             _ => {}
@@ -828,6 +874,10 @@ impl AppState {
                 fields.mode.pop();
             }
             AgentFormFocus::PassContinue => {}
+            AgentFormFocus::SandboxFlags => {
+                fields.sandbox_flags.pop();
+            }
+            AgentFormFocus::Sandbox | AgentFormFocus::SandboxEngine => {}
         }
     }
 
@@ -894,11 +944,25 @@ impl AppState {
     fn handle_form_toggle_checkbox(&mut self) {
         match &mut self.modal {
             ModalState::NewAgent { fields, focus, .. }
-            | ModalState::EditAgent { fields, focus, .. } => {
-                if *focus == AgentFormFocus::PassContinue {
+            | ModalState::EditAgent { fields, focus, .. } => match focus {
+                AgentFormFocus::PassContinue => {
                     fields.pass_continue = !fields.pass_continue;
                 }
-            }
+                AgentFormFocus::Sandbox => {
+                    fields.sandbox_enabled = !fields.sandbox_enabled;
+                }
+                AgentFormFocus::SandboxEngine => {
+                    let current =
+                        SandboxEngine::from_form_value(&fields.sandbox_engine).unwrap_or_default();
+                    fields.sandbox_engine = current.next().label().to_owned();
+                }
+                AgentFormFocus::Name
+                | AgentFormFocus::Description
+                | AgentFormFocus::WorkDir
+                | AgentFormFocus::Profile
+                | AgentFormFocus::Mode
+                | AgentFormFocus::SandboxFlags => {}
+            },
             ModalState::ConfirmDeleteAgent {
                 delete_work_dir, ..
             } => {
@@ -1011,6 +1075,9 @@ impl AppState {
             fields.mode.split_whitespace().map(String::from).collect()
         };
 
+        let sandbox_engine =
+            SandboxEngine::from_form_value(&fields.sandbox_engine).unwrap_or_default();
+
         Some(Agent {
             id: AgentId(generate_id("agent")),
             display_id: format!("#{next_display_index}"),
@@ -1021,6 +1088,9 @@ impl AppState {
             profile: normalize_profile(&fields.profile),
             mode_flags,
             pass_continue: fields.pass_continue,
+            sandbox_enabled: fields.sandbox_enabled,
+            sandbox_engine,
+            sandbox_flags: normalize_sandbox_flags(&fields.sandbox_flags),
             status: AgentStatus::Running,
             runtime_binding: None,
         })
@@ -1045,6 +1115,10 @@ impl AppState {
             fields.mode.split_whitespace().map(String::from).collect()
         };
         agent.pass_continue = fields.pass_continue;
+        agent.sandbox_enabled = fields.sandbox_enabled;
+        agent.sandbox_engine =
+            SandboxEngine::from_form_value(&fields.sandbox_engine).unwrap_or_default();
+        agent.sandbox_flags = normalize_sandbox_flags(&fields.sandbox_flags);
     }
 
     fn handle_submit_form(&mut self) {
@@ -1129,6 +1203,15 @@ fn normalize_profile(value: &str) -> String {
         String::new()
     } else {
         value.to_owned()
+    }
+}
+
+fn normalize_sandbox_flags(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        DEFAULT_SANDBOX_FLAGS.to_owned()
+    } else {
+        trimmed.to_owned()
     }
 }
 

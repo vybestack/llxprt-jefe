@@ -67,30 +67,54 @@ pub fn create_session(
 
     // Retry once if tmux server is in a fork-broken state.
     for attempt in 0..=1 {
+        let mut llxprt_args: Vec<String> = Vec::new();
+
+        // Add profile if specified.
+        if !signature.profile.is_empty() {
+            llxprt_args.push("--profile-load".to_owned());
+            llxprt_args.push(signature.profile.clone());
+        }
+
+        // Add mode flags (e.g., --yolo).
+        for flag in &signature.mode_flags {
+            if !flag.is_empty() {
+                llxprt_args.push(flag.clone());
+            }
+        }
+
+        // Add --continue if pass_continue is true.
+        if signature.pass_continue {
+            llxprt_args.push("--continue".to_owned());
+        }
+
+        // Sandbox launch parity with llxprt-code: explicit --sandbox and engine,
+        // plus SANDBOX_FLAGS environment support.
+        let mut sandbox_env: Vec<(String, String)> = Vec::new();
+        if signature.sandbox_enabled {
+            llxprt_args.push("--sandbox".to_owned());
+            llxprt_args.push("--sandbox-engine".to_owned());
+            llxprt_args.push(signature.sandbox_engine.as_llxprt_arg().to_owned());
+            sandbox_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
+        }
+
         let mut cmd = Command::new("tmux");
         cmd.arg("new-session")
             .arg("-d")
             .arg("-s")
             .arg(session_name)
             .arg("-c")
-            .arg(work_dir.to_str().unwrap_or("."))
-            .arg("llxprt"); // Run llxprt directly
+            .arg(work_dir.to_str().unwrap_or("."));
 
-        // Add profile if specified
-        if !signature.profile.is_empty() {
-            cmd.arg("--profile-load").arg(&signature.profile);
-        }
-
-        // Add mode flags (e.g., --yolo)
-        for flag in &signature.mode_flags {
-            if !flag.is_empty() {
-                cmd.arg(flag);
+        if !sandbox_env.is_empty() {
+            cmd.arg("env");
+            for (key, value) in &sandbox_env {
+                cmd.arg(format!("{key}={value}"));
             }
         }
 
-        // Add --continue if pass_continue is true
-        if signature.pass_continue {
-            cmd.arg("--continue");
+        cmd.arg("llxprt");
+        for arg in &llxprt_args {
+            cmd.arg(arg);
         }
 
         let output = cmd

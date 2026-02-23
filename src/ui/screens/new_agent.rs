@@ -43,7 +43,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         },
     );
 
-    // Build field lines with cursor indicator for focused field
+    // Build field lines with cursor indicator for focused field.
     let labels = ["Name", "Description", "Work Dir", "Profile", "Mode Flags"];
     let values = [
         &fields.name,
@@ -81,7 +81,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         })
         .collect();
 
-    // Pass/continue checkbox
+    // Pass/continue checkbox.
     let continue_focused = focus == AgentFormFocus::PassContinue;
     let continue_mark = if fields.pass_continue { "x" } else { " " };
     let continue_color = if continue_focused { rc.bright } else { rc.fg };
@@ -93,6 +93,59 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         element! {
             Box(height: 1u32) {
                 Text(content: continue_line, color: continue_color)
+            }
+        }
+        .into(),
+    );
+
+    // Sandbox checkbox.
+    let sandbox_focused = focus == AgentFormFocus::Sandbox;
+    let sandbox_mark = if fields.sandbox_enabled { "x" } else { " " };
+    let sandbox_color = if sandbox_focused { rc.bright } else { rc.fg };
+    field_lines.push(
+        element! {
+            Box(height: 1u32) {
+                Text(
+                    content: format!("  {:<16} [{}]  (space toggles)", "Sandbox", sandbox_mark),
+                    color: sandbox_color
+                )
+            }
+        }
+        .into(),
+    );
+
+    // Sandbox engine pseudo-dropdown.
+    let engine_focused = focus == AgentFormFocus::SandboxEngine;
+    let engine_color = if engine_focused { rc.bright } else { rc.fg };
+    let engine_hint = if fields.sandbox_enabled {
+        "space cycles"
+    } else {
+        "disabled"
+    };
+    field_lines.push(
+        element! {
+            Box(height: 1u32) {
+                Text(
+                    content: format!("  {:<16} [{}]  ({engine_hint})", "Sandbox Engine", fields.sandbox_engine),
+                    color: engine_color
+                )
+            }
+        }
+        .into(),
+    );
+
+    // Sandbox flags field.
+    let flags_focused = focus == AgentFormFocus::SandboxFlags;
+    let flags_color = if flags_focused { rc.bright } else { rc.fg };
+    let flags_display = if flags_focused {
+        format!("  {:<16} [{}_]", "Sandbox Flags", fields.sandbox_flags)
+    } else {
+        format!("  {:<16} [{}]", "Sandbox Flags", fields.sandbox_flags)
+    };
+    field_lines.push(
+        element! {
+            Box(height: 1u32) {
+                Text(content: flags_display, color: flags_color)
             }
         }
         .into(),
@@ -126,7 +179,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
                     Text(content: "".to_owned(), color: rc.fg)
                 }
                 Box(height: 1u32) {
-                    Text(content: "  Tab/Down next  Shift+Tab/Up prev  Space toggle checkbox  Enter submit  Esc cancel".to_owned(), color: rc.dim)
+                    Text(content: "  Tab/Down next  Shift+Tab/Up prev  Space toggles/cycles checkboxes  Enter submit  Esc cancel".to_owned(), color: rc.dim)
                 }
             }
         }

@@ -4,11 +4,11 @@ use iocraft::hooks::State as HookState;
 use iocraft::prelude::*;
 use tracing::{debug, warn};
 
-use jefe::domain::{AgentId, LaunchSignature};
+use jefe::domain::{AgentId, LaunchSignature, SandboxEngine};
 use jefe::input::{SearchKeyRoute, route_search_key};
 use jefe::persistence::{PersistenceManager, State as PersistedState};
 use jefe::runtime::{RuntimeError, RuntimeManager};
-use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
+use jefe::state::{AgentFormFocus, AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
 use jefe::theme::ThemeManager;
 
 pub type SharedContext = Option<Arc<std::sync::Mutex<super::AppContext>>>;
@@ -139,6 +139,9 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
                                 profile: agent.profile.clone(),
                                 mode_flags: agent.mode_flags.clone(),
                                 pass_continue: agent.pass_continue,
+                                sandbox_enabled: agent.sandbox_enabled,
+                                sandbox_engine: agent.sandbox_engine,
+                                sandbox_flags: agent.sandbox_flags.clone(),
                             };
                             match ctx_guard.runtime.spawn_session(
                                 agent_id,
@@ -352,6 +355,9 @@ pub fn handle_mode_form_key(
                         profile: agent.profile.clone(),
                         mode_flags: agent.mode_flags.clone(),
                         pass_continue: agent.pass_continue,
+                        sandbox_enabled: agent.sandbox_enabled,
+                        sandbox_engine: agent.sandbox_engine,
+                        sandbox_flags: agent.sandbox_flags.clone(),
                     };
                     // Match toy1 behavior: new agent opens attached and focused.
                     state.terminal_focused = true;
@@ -382,8 +388,37 @@ pub fn handle_mode_form_key(
         KeyCode::Tab | KeyCode::Down => Some(AppEvent::FormNextField),
         KeyCode::BackTab | KeyCode::Up => Some(AppEvent::FormPrevField),
         KeyCode::Backspace => Some(AppEvent::FormBackspace),
-        // Space: toggle checkbox only on checkbox fields, otherwise type space.
-        KeyCode::Char(' ') => Some(AppEvent::FormChar(' ')),
+        // Space toggles checkbox or cycles sandbox engine on the dedicated controls.
+        KeyCode::Char(' ') => {
+            let focused = {
+                let state = app_state.read();
+                match &state.modal {
+                    ModalState::NewAgent { focus, .. } | ModalState::EditAgent { focus, .. } => {
+                        *focus
+                    }
+                    _ => AgentFormFocus::Name,
+                }
+            };
+
+            match focused {
+                AgentFormFocus::PassContinue | AgentFormFocus::Sandbox => {
+                    Some(AppEvent::FormToggleCheckbox)
+                }
+                AgentFormFocus::SandboxEngine => {
+                    let mut state = app_state.write();
+                    if let ModalState::NewAgent { fields, .. }
+                    | ModalState::EditAgent { fields, .. } = &mut state.modal
+                    {
+                        let current = SandboxEngine::from_form_value(&fields.sandbox_engine)
+                            .unwrap_or_default();
+                        fields.sandbox_engine = current.next().label().to_owned();
+                    }
+                    persist_state_snapshot(ctx, &state);
+                    return true;
+                }
+                _ => Some(AppEvent::FormChar(' ')),
+            }
+        }
         KeyCode::Char(c) => Some(AppEvent::FormChar(c)),
         _ => None,
     };

@@ -30,6 +30,9 @@ fn make_signature(agent: &Agent) -> LaunchSignature {
         profile: agent.profile.clone(),
         mode_flags: agent.mode_flags.clone(),
         pass_continue: agent.pass_continue,
+        sandbox_enabled: agent.sandbox_enabled,
+        sandbox_engine: agent.sandbox_engine,
+        sandbox_flags: agent.sandbox_flags.clone(),
     }
 }
 

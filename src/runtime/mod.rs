@@ -36,6 +36,9 @@ mod tests {
             profile: "default".into(),
             mode_flags: vec![],
             pass_continue: true,
+            sandbox_enabled: false,
+            sandbox_engine: crate::domain::SandboxEngine::Podman,
+            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
         };
 
         mgr.spawn_session(&agent_id, &work_dir, &signature)
@@ -56,6 +59,9 @@ mod tests {
             profile: "default".into(),
             mode_flags: vec![],
             pass_continue: true,
+            sandbox_enabled: false,
+            sandbox_engine: crate::domain::SandboxEngine::Podman,
+            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
         };
 
         mgr.spawn_session(&agent_id, &work_dir, &signature)
@@ -81,6 +87,9 @@ mod tests {
             profile: "default".into(),
             mode_flags: vec![],
             pass_continue: true,
+            sandbox_enabled: false,
+            sandbox_engine: crate::domain::SandboxEngine::Podman,
+            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
         };
 
         mgr.spawn_session(&agent_id, &work_dir, &signature)

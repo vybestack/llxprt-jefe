@@ -16,6 +16,71 @@ pub struct RepositoryId(pub String);
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AgentId(pub String);
 
+/// Default sandbox resource flags passed to llxprt via SANDBOX_FLAGS.
+pub const DEFAULT_SANDBOX_FLAGS: &str = "--cpus=2 --memory=12g --pids-limit=256";
+
+/// Sandbox engine to use when launching llxprt sessions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum SandboxEngine {
+    #[default]
+    Podman,
+    Docker,
+    #[serde(alias = "sandbox-exec")]
+    Seatbelt,
+}
+
+impl SandboxEngine {
+    /// Convert to llxprt CLI `--sandbox-engine` argument.
+    #[must_use]
+    pub const fn as_llxprt_arg(self) -> &'static str {
+        match self {
+            Self::Podman => "podman",
+            Self::Docker => "docker",
+            Self::Seatbelt => "sandbox-exec",
+        }
+    }
+
+    /// Parse from user-facing form value.
+    #[must_use]
+    pub fn from_form_value(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "podman" => Some(Self::Podman),
+            "docker" => Some(Self::Docker),
+            "seatbelt" | "sandbox-exec" => Some(Self::Seatbelt),
+            _ => None,
+        }
+    }
+
+    /// User-facing display label.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Podman => "podman",
+            Self::Docker => "docker",
+            Self::Seatbelt => "seatbelt",
+        }
+    }
+
+    /// Cycle to the next engine for form UX.
+    #[must_use]
+    pub const fn next(self) -> Self {
+        match self {
+            Self::Podman => Self::Docker,
+            Self::Docker => Self::Seatbelt,
+            Self::Seatbelt => Self::Podman,
+        }
+    }
+}
+
+fn default_sandbox_engine() -> SandboxEngine {
+    SandboxEngine::default()
+}
+
+fn default_sandbox_flags() -> String {
+    DEFAULT_SANDBOX_FLAGS.to_owned()
+}
+
 /// A repository is a named codebase container.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Repository {
@@ -52,6 +117,12 @@ pub struct Agent {
     pub profile: String,
     pub mode_flags: Vec<String>,
     pub pass_continue: bool,
+    #[serde(default)]
+    pub sandbox_enabled: bool,
+    #[serde(default = "default_sandbox_engine")]
+    pub sandbox_engine: SandboxEngine,
+    #[serde(default = "default_sandbox_flags")]
+    pub sandbox_flags: String,
     pub status: AgentStatus,
     pub runtime_binding: Option<RuntimeBinding>,
 }
@@ -72,6 +143,9 @@ pub struct LaunchSignature {
     pub profile: String,
     pub mode_flags: Vec<String>,
     pub pass_continue: bool,
+    pub sandbox_enabled: bool,
+    pub sandbox_engine: SandboxEngine,
+    pub sandbox_flags: String,
 }
 
 impl Agent {
@@ -90,6 +164,9 @@ impl Agent {
             profile: String::new(),
             mode_flags: Vec::new(),
             pass_continue: true, // Default per REQ-FUNC-004
+            sandbox_enabled: false,
+            sandbox_engine: SandboxEngine::Podman,
+            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
             status: AgentStatus::default(),
             runtime_binding: None,
         }
@@ -141,5 +218,18 @@ mod tests {
             PathBuf::from("/tmp/test"),
         );
         assert_eq!(agent.status, AgentStatus::Queued);
+    }
+
+    #[test]
+    fn agent_sandbox_defaults_match_requirement() {
+        let agent = Agent::new(
+            AgentId("test-1".into()),
+            RepositoryId("repo-1".into()),
+            "Test Agent".into(),
+            PathBuf::from("/tmp/test"),
+        );
+        assert!(!agent.sandbox_enabled);
+        assert_eq!(agent.sandbox_engine, SandboxEngine::Podman);
+        assert_eq!(agent.sandbox_flags, DEFAULT_SANDBOX_FLAGS);
     }
 }
