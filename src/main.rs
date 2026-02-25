@@ -518,26 +518,18 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
                     // On some terminals, Cmd/Ctrl+V emits an Enter key event first,
                     // then emits a Paste event. Drop that synthetic Enter.
-                    if suppress_next_enter.get() && key_event.code == KeyCode::Enter {
+                    if should_suppress_synthetic_enter(suppress_next_enter.get(), &key_event) {
                         debug!("suppressing synthetic Enter preceding paste");
                         suppress_next_enter.set(false);
                         return;
                     }
 
-                    if key_event.modifiers.intersects(
-                        KeyModifiers::CONTROL
-                            | KeyModifiers::SUPER
-                            | KeyModifiers::META
-                            | KeyModifiers::ALT,
-                    ) && matches!(key_event.code, KeyCode::Char('v' | 'V'))
-                    {
-                        let input_mode = {
-                            let state = app_state.read();
-                            input_mode_for_state(&state)
-                        };
-                        if input_mode == InputMode::TerminalCapture {
-                            suppress_next_enter.set(true);
-                        }
+                    let current_input_mode = {
+                        let state = app_state.read();
+                        input_mode_for_state(&state)
+                    };
+                    if should_arm_paste_enter_suppression(&key_event, current_input_mode) {
+                        suppress_next_enter.set(true);
                     }
 
                     if key_event.code == KeyCode::F(12) {
@@ -916,6 +908,18 @@ fn key_to_bytes(key: &KeyEvent, passthrough_enter: bool) -> Option<Vec<u8>> {
     Some(out)
 }
 
+fn should_suppress_synthetic_enter(armed: bool, key_event: &KeyEvent) -> bool {
+    armed && key_event.code == KeyCode::Enter
+}
+
+fn should_arm_paste_enter_suppression(key_event: &KeyEvent, input_mode: InputMode) -> bool {
+    input_mode == InputMode::TerminalCapture
+        && key_event.modifiers.intersects(
+            KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META | KeyModifiers::ALT,
+        )
+        && matches!(key_event.code, KeyCode::Char('v' | 'V'))
+}
+
 /// Convert a fullscreen mouse event into xterm SGR mouse reporting bytes.
 fn mouse_event_to_bytes(event: &iocraft::FullscreenMouseEvent) -> Option<Vec<u8>> {
     use iocraft::MouseEventKind;
@@ -1022,8 +1026,11 @@ fn main() {
 
 #[cfg(test)]
 mod key_tests {
-    use super::key_to_bytes;
+    use super::{
+        key_to_bytes, should_arm_paste_enter_suppression, should_suppress_synthetic_enter,
+    };
     use iocraft::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+    use jefe::input::InputMode;
 
     fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
         let mut event = KeyEvent::new(KeyEventKind::Press, code);
@@ -1041,6 +1048,33 @@ mod key_tests {
     fn shift_enter_maps_to_backslash_cr() {
         let key = key_event(KeyCode::Enter, KeyModifiers::SHIFT);
         assert_eq!(key_to_bytes(&key, false), Some(b"\\\r".to_vec()));
+    }
+
+    #[test]
+    fn synthetic_enter_is_only_suppressed_when_armed() {
+        let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
+        assert!(should_suppress_synthetic_enter(true, &enter));
+        assert!(!should_suppress_synthetic_enter(false, &enter));
+    }
+
+    #[test]
+    fn paste_shortcut_arming_only_applies_in_terminal_capture() {
+        let mut ctrl_v = key_event(KeyCode::Char('v'), KeyModifiers::CONTROL);
+        ctrl_v.modifiers = KeyModifiers::CONTROL;
+        assert!(should_arm_paste_enter_suppression(
+            &ctrl_v,
+            InputMode::TerminalCapture
+        ));
+        assert!(!should_arm_paste_enter_suppression(
+            &ctrl_v,
+            InputMode::Normal
+        ));
+
+        let plain_v = key_event(KeyCode::Char('v'), KeyModifiers::NONE);
+        assert!(!should_arm_paste_enter_suppression(
+            &plain_v,
+            InputMode::TerminalCapture
+        ));
     }
 
     #[test]

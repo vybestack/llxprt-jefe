@@ -146,6 +146,39 @@ fn attach_switches_from_previous_session() {
 }
 
 #[test]
+fn repeated_attach_switching_ends_on_last_selected_agent() {
+    let mut mgr = StubRuntimeManager::default();
+    let agent1 = make_agent("agent-a", "repo-1");
+    let agent2 = make_agent("agent-b", "repo-1");
+    let sig1 = make_signature(&agent1);
+    let sig2 = make_signature(&agent2);
+
+    mgr.spawn_session(&agent1.id, &agent1.work_dir, &sig1)
+        .expect("spawn a");
+    mgr.spawn_session(&agent2.id, &agent2.work_dir, &sig2)
+        .expect("spawn b");
+
+    for i in 0..50 {
+        let target = if i % 2 == 0 { &agent1.id } else { &agent2.id };
+        mgr.attach(target)
+            .expect("attach during repeated switching");
+    }
+
+    assert_eq!(
+        mgr.attached_agent(),
+        Some(&agent2.id),
+        "last switch should determine final attachment"
+    );
+
+    let session1 = mgr.get_session(&agent1.id).expect("session a exists");
+    let session2 = mgr.get_session(&agent2.id).expect("session b exists");
+    assert!(!session1.attached, "agent a should be detached at the end");
+    assert!(session2.attached, "agent b should be attached at the end");
+    assert!(mgr.is_alive(&agent1.id), "agent a should remain alive");
+    assert!(mgr.is_alive(&agent2.id), "agent b should remain alive");
+}
+
+#[test]
 fn detach_clears_attached_agent() {
     let mut mgr = StubRuntimeManager::default();
     let agent = make_agent("agent-1", "repo-1");
