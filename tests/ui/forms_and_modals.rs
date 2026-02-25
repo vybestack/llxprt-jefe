@@ -105,6 +105,25 @@ fn open_new_repository_form() {
     assert!(matches!(state.modal, ModalState::NewRepository { .. }));
 }
 
+#[test]
+fn submit_new_repository_form_creates_repository() {
+    let mut state = create_form_test_state();
+    let initial_count = state.repositories.len();
+
+    state = state.apply(AppEvent::OpenNewRepository);
+    for c in "NewRepo".chars() {
+        state = state.apply(AppEvent::FormChar(c));
+    }
+    state = state.apply(AppEvent::SubmitForm);
+
+    assert_eq!(state.repositories.len(), initial_count + 1);
+    assert_eq!(
+        state.repositories.last().map(|r| r.name.as_str()),
+        Some("NewRepo")
+    );
+    assert_eq!(state.modal, ModalState::None);
+}
+
 // ============================================================================
 // Confirm Delete Behavior (REQ-FUNC-004)
 // ============================================================================
