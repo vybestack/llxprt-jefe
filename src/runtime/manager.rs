@@ -315,10 +315,9 @@ impl RuntimeManager for TmuxRuntimeManager {
                 old_session.attached = false;
             }
 
-            // Kill old viewer
-            if let Some(old_viewer) = self.viewer.take() {
-                old_viewer.mark_dead();
-            }
+            // Drop old viewer immediately before creating a new one.
+            // Dropping closes PTY handles and tears down the reader thread.
+            let _ = self.viewer.take();
 
             // Get session name for spawning
             let session_name = self.sessions[agent_id].session_name.clone();
@@ -344,9 +343,9 @@ impl RuntimeManager for TmuxRuntimeManager {
             session.attached = false;
         }
 
-        if let Some(viewer) = self.viewer.take() {
-            viewer.mark_dead();
-        }
+        // Drop the attached viewer. AttachedViewer::drop performs deterministic
+        // child teardown (bounded kill/wait), so no extra mark_dead call needed.
+        let _ = self.viewer.take();
 
         Ok(())
     }
@@ -362,12 +361,13 @@ impl RuntimeManager for TmuxRuntimeManager {
         self.dead_signatures
             .insert(agent_id.clone(), session.launch_signature.clone());
 
-        // If attached, clear attachment
+        // If attached, clear attachment and drop viewer.
         if self.attached_agent_id.as_ref() == Some(agent_id) {
             self.attached_agent_id = None;
-            if let Some(viewer) = self.viewer.take() {
-                viewer.mark_dead();
-            }
+
+            // Drop the attached viewer. AttachedViewer::drop performs deterministic
+            // child teardown (bounded kill/wait), so no extra mark_dead call needed.
+            let _ = self.viewer.take();
         }
 
         // Kill tmux session

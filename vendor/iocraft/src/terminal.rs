@@ -232,9 +232,11 @@ impl StdTerminal {
                 if self.fullscreen {
                     execute!(self.dest, event::EnableMouseCapture)?;
                 }
+                execute!(self.dest, event::EnableBracketedPaste)?;
                 terminal::enable_raw_mode()?;
             } else {
                 terminal::disable_raw_mode()?;
+                execute!(self.dest, event::DisableBracketedPaste)?;
                 if self.fullscreen {
                     execute!(self.dest, event::DisableMouseCapture)?;
                 }

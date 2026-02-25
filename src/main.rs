@@ -192,9 +192,8 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     // Track which agent the render loop last attached to, so we only call
     // runtime.attach() when the selection actually changes — not every frame.
     let mut last_attached_key = hooks.use_state(|| Option::<String>::None);
-    // During Cmd/Ctrl+V paste, some terminals emit a synthetic Enter key event
-    // just before the bracketed paste event. Suppress that one key to avoid
-    // accidental submits while still allowing normal Enter behavior.
+    // Some terminals emit a synthetic Enter key before a Paste event for Cmd/Ctrl+V.
+    // Suppress just that one Enter to avoid accidental submits while pasting.
     let mut suppress_next_enter = hooks.use_state(|| false);
 
     let ctx = props.context.clone();
@@ -500,24 +499,6 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         return;
                     }
 
-                    // On some terminals, Cmd/Ctrl+V emits an Enter key event first,
-                    // then emits a Paste event. Drop that synthetic Enter.
-                    if suppress_next_enter.get() && key_event.code == KeyCode::Enter {
-                        debug!("suppressing synthetic Enter preceding paste");
-                        suppress_next_enter.set(false);
-                        return;
-                    }
-
-                    if key_event.modifiers.intersects(
-                        KeyModifiers::CONTROL
-                            | KeyModifiers::SUPER
-                            | KeyModifiers::META
-                            | KeyModifiers::ALT,
-                    ) && matches!(key_event.code, KeyCode::Char('v' | 'V'))
-                    {
-                        suppress_next_enter.set(true);
-                    }
-
                     let state_ro = app_state.read();
                     let term_focused = state_ro.terminal_focused;
                     let pane_focus = state_ro.pane_focus;
@@ -534,6 +515,30 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         modal = ?std::mem::discriminant(&modal),
                         "key event received"
                     );
+
+                    // On some terminals, Cmd/Ctrl+V emits an Enter key event first,
+                    // then emits a Paste event. Drop that synthetic Enter.
+                    if suppress_next_enter.get() && key_event.code == KeyCode::Enter {
+                        debug!("suppressing synthetic Enter preceding paste");
+                        suppress_next_enter.set(false);
+                        return;
+                    }
+
+                    if key_event.modifiers.intersects(
+                        KeyModifiers::CONTROL
+                            | KeyModifiers::SUPER
+                            | KeyModifiers::META
+                            | KeyModifiers::ALT,
+                    ) && matches!(key_event.code, KeyCode::Char('v' | 'V'))
+                    {
+                        let input_mode = {
+                            let state = app_state.read();
+                            input_mode_for_state(&state)
+                        };
+                        if input_mode == InputMode::TerminalCapture {
+                            suppress_next_enter.set(true);
+                        }
+                    }
 
                     if key_event.code == KeyCode::F(12) {
                         handle_f12_toggle(&mut app_state, &ctx);
@@ -559,7 +564,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
                     // When terminal input is focused, forward keys to PTY.
                     if input_mode == InputMode::TerminalCapture {
-                        let encoded = key_to_bytes(&key_event);
+                        let encoded = key_to_bytes(&key_event, false);
 
                         trace!(
                             code = ?key_event.code,
@@ -841,7 +846,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 }
 
 /// Convert a key event to raw bytes for PTY input.
-fn key_to_bytes(key: &KeyEvent) -> Option<Vec<u8>> {
+///
+/// When `passthrough_enter` is true, Enter maps directly to CR regardless of
+/// modifiers, so terminal-focus mode stays close to raw passthrough.
+fn key_to_bytes(key: &KeyEvent, passthrough_enter: bool) -> Option<Vec<u8>> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
@@ -862,7 +870,9 @@ fn key_to_bytes(key: &KeyEvent) -> Option<Vec<u8>> {
             s.as_bytes().to_vec()
         }
         KeyCode::Enter => {
-            if shift {
+            if passthrough_enter {
+                vec![b'\r']
+            } else if shift {
                 // llxprt handles multiline Enter via Shift+Return key state and
                 // also via VSCode fallback sequence backslash+carriage-return.
                 // The fallback survives tmux attach paths more reliably.
@@ -1024,24 +1034,24 @@ mod key_tests {
     #[test]
     fn plain_enter_maps_to_cr() {
         let key = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(key_to_bytes(&key), Some(vec![b'\r']));
+        assert_eq!(key_to_bytes(&key, false), Some(vec![b'\r']));
     }
 
     #[test]
     fn shift_enter_maps_to_backslash_cr() {
         let key = key_event(KeyCode::Enter, KeyModifiers::SHIFT);
-        assert_eq!(key_to_bytes(&key), Some(b"\\\r".to_vec()));
+        assert_eq!(key_to_bytes(&key, false), Some(b"\\\r".to_vec()));
     }
 
     #[test]
     fn shift_alt_enter_maps_to_backslash_esc_cr() {
         let key = key_event(KeyCode::Enter, KeyModifiers::SHIFT | KeyModifiers::ALT);
-        assert_eq!(key_to_bytes(&key), Some(b"\\\x1b\r".to_vec()));
+        assert_eq!(key_to_bytes(&key, false), Some(b"\\\x1b\r".to_vec()));
     }
 
     #[test]
     fn ctrl_enter_maps_to_lf() {
         let key = key_event(KeyCode::Enter, KeyModifiers::CONTROL);
-        assert_eq!(key_to_bytes(&key), Some(vec![b'\n']));
+        assert_eq!(key_to_bytes(&key, false), Some(vec![b'\n']));
     }
 }

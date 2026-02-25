@@ -8,6 +8,7 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::Dimensions;
@@ -15,7 +16,8 @@ use alacritty_terminal::term::Config as TermConfig;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::{Term, TermMode};
 use alacritty_terminal::vte::ansi::{self, Processor, StdSyncHandler};
-use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{Child as PtyChild, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use tracing::{debug, warn};
 
 use super::errors::RuntimeError;
 use super::session::{TerminalCell, TerminalCellStyle, TerminalSnapshot};
@@ -58,6 +60,8 @@ pub struct AttachedViewer {
     term: Arc<Mutex<Term<NullListener>>>,
     /// Liveness flag.
     alive: Arc<AtomicBool>,
+    /// Child process handle for deterministic teardown.
+    child: Arc<Mutex<Box<dyn PtyChild + Send + Sync>>>,
     /// Reader thread handle.
     _reader_thread: JoinHandle<()>,
 }
@@ -340,9 +344,7 @@ impl AttachedViewer {
             .slave
             .spawn_command(cmd)
             .map_err(|e| RuntimeError::SpawnFailed(format!("spawn tmux attach: {e}")))?;
-
-        // We don't need to keep the child handle for kill - tmux session manages that
-        drop(child);
+        let child = Arc::new(Mutex::new(child));
 
         let reader = pty_pair
             .master
@@ -380,6 +382,7 @@ impl AttachedViewer {
             writer,
             term,
             alive,
+            child,
             _reader_thread: reader_thread,
         })
     }
@@ -472,10 +475,50 @@ impl AttachedViewer {
 
         term.mode().contains(TermMode::BRACKETED_PASTE)
     }
+}
 
-    /// Mark the viewer as dead.
-    pub fn mark_dead(&self) {
+fn terminate_child_with_timeout(child: &mut dyn PtyChild, timeout: Duration) {
+    match child.try_wait() {
+        Ok(Some(_)) => return,
+        Ok(None) => {}
+        Err(error) => {
+            debug!(%error, "could not poll tmux child status before teardown");
+        }
+    }
+
+    if let Err(error) = child.kill() {
+        debug!(%error, "failed to signal tmux child during viewer teardown");
+    }
+
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    warn!("timed out waiting for tmux child to exit during viewer teardown");
+                    break;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => {
+                warn!(%error, "could not poll tmux child status during viewer teardown");
+                break;
+            }
+        }
+    }
+}
+
+impl Drop for AttachedViewer {
+    fn drop(&mut self) {
         self.alive.store(false, Ordering::Relaxed);
+
+        let Ok(mut child) = self.child.lock() else {
+            warn!("child lock poisoned during viewer teardown");
+            return;
+        };
+
+        terminate_child_with_timeout(&mut **child, Duration::from_millis(300));
     }
 }
 
