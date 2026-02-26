@@ -291,6 +291,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         work_dir: agent.work_dir.clone(),
                         profile: agent.profile.clone(),
                         mode_flags: agent.mode_flags.clone(),
+                        llxprt_debug: agent.llxprt_debug.clone(),
                         pass_continue: agent.pass_continue,
                         sandbox_enabled: agent.sandbox_enabled,
                         sandbox_engine: agent.sandbox_engine,
@@ -971,6 +972,7 @@ fn mouse_event_to_bytes(event: &iocraft::FullscreenMouseEvent) -> Option<Vec<u8>
     Some(seq.into_bytes())
 }
 
+#[allow(clippy::print_stdout)]
 fn handle_cli_version_flag() -> bool {
     let mut args = std::env::args().skip(1);
     match (args.next().as_deref(), args.next()) {

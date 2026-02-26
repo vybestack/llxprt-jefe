@@ -99,6 +99,7 @@ pub fn handle_mode_search_key(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
     debug!(event = ?evt, "dispatching app event");
 
@@ -126,47 +127,56 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
             if let Some(ctx_arc) = &ctx
                 && let Ok(mut ctx_guard) = ctx_arc.lock()
             {
-                match ctx_guard.runtime.relaunch(agent_id) {
-                    Ok(()) => {
-                        relaunched = true;
-                    }
-                    Err(RuntimeError::NotRunning(_)) => {
-                        // If not in dead-signatures map (e.g. app restart), fallback to spawn.
-                        let state_ro = app_state.read();
-                        if let Some(agent) = state_ro.agents.iter().find(|a| a.id == *agent_id) {
-                            let signature = LaunchSignature {
-                                work_dir: agent.work_dir.clone(),
-                                profile: agent.profile.clone(),
-                                mode_flags: agent.mode_flags.clone(),
-                                pass_continue: agent.pass_continue,
-                                sandbox_enabled: agent.sandbox_enabled,
-                                sandbox_engine: agent.sandbox_engine,
-                                sandbox_flags: agent.sandbox_flags.clone(),
-                            };
-                            match ctx_guard.runtime.spawn_session(
-                                agent_id,
-                                &agent.work_dir,
-                                &signature,
-                            ) {
-                                Ok(()) => {
-                                    relaunched = true;
+                // Always relaunch from current in-memory agent config so edits made
+                // before relaunch (e.g. LLXPRT_DEBUG changes) are applied.
+                let state_ro = app_state.read();
+                if let Some(agent) = state_ro.agents.iter().find(|a| a.id == *agent_id) {
+                    let signature = LaunchSignature {
+                        work_dir: agent.work_dir.clone(),
+                        profile: agent.profile.clone(),
+                        mode_flags: agent.mode_flags.clone(),
+                        llxprt_debug: agent.llxprt_debug.clone(),
+                        pass_continue: agent.pass_continue,
+                        sandbox_enabled: agent.sandbox_enabled,
+                        sandbox_engine: agent.sandbox_engine,
+                        sandbox_flags: agent.sandbox_flags.clone(),
+                    };
+
+                    match ctx_guard.runtime.spawn_session_fresh(
+                        agent_id,
+                        &agent.work_dir,
+                        &signature,
+                    ) {
+                        Ok(()) => {
+                            relaunched = true;
+                        }
+                        Err(e) => {
+                            // If the process-local mapping still exists, fall back to runtime relaunch.
+                            // This keeps behavior stable for edge cases while still preferring fresh config.
+                            match e {
+                                RuntimeError::AlreadyRunning(_) => {
+                                    match ctx_guard.runtime.relaunch(agent_id) {
+                                        Ok(()) => {
+                                            relaunched = true;
+                                        }
+                                        Err(e2) => {
+                                            warn!(
+                                                agent_id = %agent_id.0,
+                                                error = %e2,
+                                                "could not relaunch runtime session"
+                                            );
+                                        }
+                                    }
                                 }
-                                Err(e2) => {
+                                _ => {
                                     warn!(
                                         agent_id = %agent_id.0,
-                                        error = %e2,
-                                        "could not relaunch via spawn_session"
+                                        error = %e,
+                                        "could not spawn fresh runtime session for relaunch"
                                     );
                                 }
                             }
                         }
-                    }
-                    Err(e) => {
-                        warn!(
-                            agent_id = %agent_id.0,
-                            error = %e,
-                            "could not relaunch runtime session"
-                        );
                     }
                 }
 
@@ -242,6 +252,7 @@ pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     persist_state_snapshot(ctx, &state);
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn handle_mode_confirm_key(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -328,6 +339,7 @@ pub fn handle_mode_confirm_key(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn handle_mode_form_key(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -354,6 +366,7 @@ pub fn handle_mode_form_key(
                         work_dir: agent.work_dir.clone(),
                         profile: agent.profile.clone(),
                         mode_flags: agent.mode_flags.clone(),
+                        llxprt_debug: agent.llxprt_debug.clone(),
                         pass_continue: agent.pass_continue,
                         sandbox_enabled: agent.sandbox_enabled,
                         sandbox_engine: agent.sandbox_engine,
@@ -411,7 +424,10 @@ pub fn handle_mode_form_key(
                     {
                         let current = SandboxEngine::from_form_value(&fields.sandbox_engine)
                             .unwrap_or_default();
-                        fields.sandbox_engine = current.next().label().to_owned();
+                        current
+                            .next()
+                            .label()
+                            .clone_into(&mut fields.sandbox_engine);
                     }
                     persist_state_snapshot(ctx, &state);
                     return true;
@@ -430,6 +446,7 @@ pub fn handle_mode_form_key(
     true
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn handle_normal_key_event(
     app_state: &mut AppStateHandle,
     should_quit: &mut QuitHandle,

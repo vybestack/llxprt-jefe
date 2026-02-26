@@ -29,6 +29,7 @@ fn make_signature(agent: &Agent) -> LaunchSignature {
         work_dir: agent.work_dir.clone(),
         profile: agent.profile.clone(),
         mode_flags: agent.mode_flags.clone(),
+        llxprt_debug: agent.llxprt_debug.clone(),
         pass_continue: agent.pass_continue,
         sandbox_enabled: agent.sandbox_enabled,
         sandbox_engine: agent.sandbox_engine,

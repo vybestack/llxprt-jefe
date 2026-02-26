@@ -74,6 +74,9 @@ fn rgb_to_iocraft(rgb: ansi::Rgb) -> iocraft::Color {
     }
 }
 
+const ANSI_COLOR_CUBE_STEPS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+
+#[allow(clippy::too_many_lines)]
 fn fallback_ansi_color(index: u8) -> ansi::Rgb {
     match index {
         0 => ansi::Rgb { r: 0, g: 0, b: 0 },
@@ -157,11 +160,10 @@ fn fallback_ansi_color(index: u8) -> ansi::Rgb {
             let r = idx / 36;
             let g = (idx % 36) / 6;
             let b = idx % 6;
-            const STEPS: [u8; 6] = [0, 95, 135, 175, 215, 255];
             ansi::Rgb {
-                r: STEPS[usize::from(r)],
-                g: STEPS[usize::from(g)],
-                b: STEPS[usize::from(b)],
+                r: ANSI_COLOR_CUBE_STEPS[usize::from(r)],
+                g: ANSI_COLOR_CUBE_STEPS[usize::from(g)],
+                b: ANSI_COLOR_CUBE_STEPS[usize::from(b)],
             }
         }
         n @ 232..=255 => {
@@ -176,35 +178,35 @@ fn resolve_named_color(
     term_colors: &alacritty_terminal::term::color::Colors,
 ) -> ansi::Rgb {
     term_colors[named].unwrap_or_else(|| match named {
-        ansi::NamedColor::Black => fallback_ansi_color(0),
+        ansi::NamedColor::Black | ansi::NamedColor::Background => fallback_ansi_color(0),
         ansi::NamedColor::Red => fallback_ansi_color(1),
         ansi::NamedColor::Green => fallback_ansi_color(2),
         ansi::NamedColor::Yellow => fallback_ansi_color(3),
         ansi::NamedColor::Blue => fallback_ansi_color(4),
         ansi::NamedColor::Magenta => fallback_ansi_color(5),
         ansi::NamedColor::Cyan => fallback_ansi_color(6),
-        ansi::NamedColor::White => fallback_ansi_color(7),
-        ansi::NamedColor::BrightBlack => fallback_ansi_color(8),
+        ansi::NamedColor::White | ansi::NamedColor::Foreground | ansi::NamedColor::Cursor => {
+            fallback_ansi_color(7)
+        }
+        ansi::NamedColor::BrightBlack
+        | ansi::NamedColor::DimBlack
+        | ansi::NamedColor::DimRed
+        | ansi::NamedColor::DimGreen
+        | ansi::NamedColor::DimYellow
+        | ansi::NamedColor::DimBlue
+        | ansi::NamedColor::DimMagenta
+        | ansi::NamedColor::DimCyan
+        | ansi::NamedColor::DimWhite
+        | ansi::NamedColor::DimForeground => fallback_ansi_color(8),
         ansi::NamedColor::BrightRed => fallback_ansi_color(9),
         ansi::NamedColor::BrightGreen => fallback_ansi_color(10),
         ansi::NamedColor::BrightYellow => fallback_ansi_color(11),
         ansi::NamedColor::BrightBlue => fallback_ansi_color(12),
         ansi::NamedColor::BrightMagenta => fallback_ansi_color(13),
         ansi::NamedColor::BrightCyan => fallback_ansi_color(14),
-        ansi::NamedColor::BrightWhite => fallback_ansi_color(15),
-        ansi::NamedColor::Foreground => fallback_ansi_color(7),
-        ansi::NamedColor::Background => fallback_ansi_color(0),
-        ansi::NamedColor::Cursor => fallback_ansi_color(7),
-        ansi::NamedColor::DimBlack => fallback_ansi_color(8),
-        ansi::NamedColor::DimRed => fallback_ansi_color(8),
-        ansi::NamedColor::DimGreen => fallback_ansi_color(8),
-        ansi::NamedColor::DimYellow => fallback_ansi_color(8),
-        ansi::NamedColor::DimBlue => fallback_ansi_color(8),
-        ansi::NamedColor::DimMagenta => fallback_ansi_color(8),
-        ansi::NamedColor::DimCyan => fallback_ansi_color(8),
-        ansi::NamedColor::DimWhite => fallback_ansi_color(8),
-        ansi::NamedColor::BrightForeground => fallback_ansi_color(15),
-        ansi::NamedColor::DimForeground => fallback_ansi_color(8),
+        ansi::NamedColor::BrightWhite | ansi::NamedColor::BrightForeground => {
+            fallback_ansi_color(15)
+        }
     })
 }
 
@@ -224,7 +226,8 @@ fn resolve_color(
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
-    clippy::cast_sign_loss
+    clippy::cast_sign_loss,
+    clippy::too_many_lines
 )]
 fn snapshot_from_term(term: &Term<NullListener>) -> TerminalSnapshot {
     let rows = term.screen_lines();
@@ -284,8 +287,7 @@ fn snapshot_from_term(term: &Term<NullListener>) -> TerminalSnapshot {
         }
 
         let in_selection = selection
-            .map(|range| range.contains_cell(&indexed, cursor.point, cursor.shape))
-            .unwrap_or(false);
+            .is_some_and(|range| range.contains_cell(&indexed, cursor.point, cursor.shape));
         if in_selection {
             fg = fallback_ansi_color(0);
             bg = fallback_ansi_color(7);

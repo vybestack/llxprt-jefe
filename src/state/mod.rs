@@ -20,6 +20,7 @@ pub struct AgentFormFields {
     pub work_dir: String,
     pub profile: String,
     pub mode: String,
+    pub llxprt_debug: String,
     pub pass_continue: bool,
     pub sandbox_enabled: bool,
     pub sandbox_engine: String,
@@ -35,6 +36,7 @@ pub enum AgentFormFocus {
     WorkDir,
     Profile,
     Mode,
+    LlxprtDebug,
     PassContinue,
     Sandbox,
     SandboxEngine,
@@ -50,7 +52,8 @@ impl AgentFormFocus {
             Self::Description => Self::WorkDir,
             Self::WorkDir => Self::Profile,
             Self::Profile => Self::Mode,
-            Self::Mode => Self::PassContinue,
+            Self::Mode => Self::LlxprtDebug,
+            Self::LlxprtDebug => Self::PassContinue,
             Self::PassContinue => Self::Sandbox,
             Self::Sandbox => Self::SandboxEngine,
             Self::SandboxEngine => Self::SandboxFlags,
@@ -67,7 +70,8 @@ impl AgentFormFocus {
             Self::WorkDir => Self::Description,
             Self::Profile => Self::WorkDir,
             Self::Mode => Self::Profile,
-            Self::PassContinue => Self::Mode,
+            Self::LlxprtDebug => Self::Mode,
+            Self::PassContinue => Self::LlxprtDebug,
             Self::Sandbox => Self::PassContinue,
             Self::SandboxEngine => Self::Sandbox,
             Self::SandboxFlags => Self::SandboxEngine,
@@ -276,6 +280,7 @@ impl AppState {
             .and_then(|idx| self.repositories.get(idx).map(|repo| &repo.id))
     }
 
+    #[must_use]
     pub fn agent_indices_for_repository(&self, repository_id: &RepositoryId) -> Vec<usize> {
         self.agents
             .iter()
@@ -334,6 +339,7 @@ impl AppState {
         self.selected_agent_index = visible_indices.first().copied();
     }
 
+    #[must_use]
     pub fn selected_agent_local_index(&self) -> Option<usize> {
         let repository_id = self.selected_repository_id()?;
         let selected_global = self.selected_agent_index?;
@@ -410,8 +416,7 @@ impl AppState {
                 let old = self.pane_focus;
                 self.pane_focus = match self.pane_focus {
                     PaneFocus::Repositories => PaneFocus::Agents,
-                    PaneFocus::Agents => PaneFocus::Terminal,
-                    PaneFocus::Terminal => PaneFocus::Terminal,
+                    PaneFocus::Agents | PaneFocus::Terminal => PaneFocus::Terminal,
                 };
                 debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (right)");
             }
@@ -548,6 +553,7 @@ impl AppState {
                         work_dir: base_dir,
                         profile: default_profile,
                         mode: "--yolo".to_owned(),
+                        llxprt_debug: String::new(),
                         pass_continue: true,
                         sandbox_enabled: false,
                         sandbox_engine: SandboxEngine::Podman.label().to_owned(),
@@ -569,6 +575,7 @@ impl AppState {
                         work_dir: a.work_dir.to_string_lossy().into_owned(),
                         profile: a.profile.clone(),
                         mode: a.mode_flags.join(" "),
+                        llxprt_debug: a.llxprt_debug.clone(),
                         pass_continue: a.pass_continue,
                         sandbox_enabled: a.sandbox_enabled,
                         sandbox_engine: a.sandbox_engine.label().to_owned(),
@@ -639,8 +646,7 @@ impl AppState {
             AppEvent::NavigateLeft => {
                 let old = self.pane_focus;
                 self.pane_focus = match self.pane_focus {
-                    PaneFocus::Repositories => PaneFocus::Repositories,
-                    PaneFocus::Agents => PaneFocus::Repositories,
+                    PaneFocus::Repositories | PaneFocus::Agents => PaneFocus::Repositories,
                     PaneFocus::Terminal => PaneFocus::Agents,
                 };
                 debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (left)");
@@ -754,6 +760,7 @@ impl AppState {
 
     // Form handling methods
 
+    #[allow(clippy::too_many_lines)]
     fn handle_form_char(&mut self, c: char) {
         match &mut self.modal {
             ModalState::Search { query } => {
@@ -789,6 +796,7 @@ impl AppState {
                     }
                     AgentFormFocus::Profile => fields.profile.push(c),
                     AgentFormFocus::Mode => fields.mode.push(c),
+                    AgentFormFocus::LlxprtDebug => fields.llxprt_debug.push(c),
                     AgentFormFocus::PassContinue => {
                         // Space or 'x' toggles checkbox, ignore other chars
                         if c == ' ' || c == 'x' || c == 'X' {
@@ -804,7 +812,10 @@ impl AppState {
                         if c == ' ' || c == 'x' || c == 'X' {
                             let current = SandboxEngine::from_form_value(&fields.sandbox_engine)
                                 .unwrap_or_default();
-                            fields.sandbox_engine = current.next().label().to_owned();
+                            current
+                                .next()
+                                .label()
+                                .clone_into(&mut fields.sandbox_engine);
                         }
                     }
                     AgentFormFocus::SandboxFlags => fields.sandbox_flags.push(c),
@@ -817,6 +828,7 @@ impl AppState {
                     AgentFormFocus::WorkDir => fields.work_dir.push(c),
                     AgentFormFocus::Profile => fields.profile.push(c),
                     AgentFormFocus::Mode => fields.mode.push(c),
+                    AgentFormFocus::LlxprtDebug => fields.llxprt_debug.push(c),
                     AgentFormFocus::PassContinue => {
                         // Space or 'x' toggles checkbox, ignore other chars
                         if c == ' ' || c == 'x' || c == 'X' {
@@ -832,7 +844,10 @@ impl AppState {
                         if c == ' ' || c == 'x' || c == 'X' {
                             let current = SandboxEngine::from_form_value(&fields.sandbox_engine)
                                 .unwrap_or_default();
-                            fields.sandbox_engine = current.next().label().to_owned();
+                            current
+                                .next()
+                                .label()
+                                .clone_into(&mut fields.sandbox_engine);
                         }
                     }
                     AgentFormFocus::SandboxFlags => fields.sandbox_flags.push(c),
@@ -873,11 +888,15 @@ impl AppState {
             AgentFormFocus::Mode => {
                 fields.mode.pop();
             }
-            AgentFormFocus::PassContinue => {}
+            AgentFormFocus::LlxprtDebug => {
+                fields.llxprt_debug.pop();
+            }
+            AgentFormFocus::PassContinue
+            | AgentFormFocus::Sandbox
+            | AgentFormFocus::SandboxEngine => {}
             AgentFormFocus::SandboxFlags => {
                 fields.sandbox_flags.pop();
             }
-            AgentFormFocus::Sandbox | AgentFormFocus::SandboxEngine => {}
         }
     }
 
@@ -954,13 +973,17 @@ impl AppState {
                 AgentFormFocus::SandboxEngine => {
                     let current =
                         SandboxEngine::from_form_value(&fields.sandbox_engine).unwrap_or_default();
-                    fields.sandbox_engine = current.next().label().to_owned();
+                    current
+                        .next()
+                        .label()
+                        .clone_into(&mut fields.sandbox_engine);
                 }
                 AgentFormFocus::Name
                 | AgentFormFocus::Description
                 | AgentFormFocus::WorkDir
                 | AgentFormFocus::Profile
                 | AgentFormFocus::Mode
+                | AgentFormFocus::LlxprtDebug
                 | AgentFormFocus::SandboxFlags => {}
             },
             ModalState::ConfirmDeleteAgent {
@@ -1087,6 +1110,7 @@ impl AppState {
             work_dir: std::path::PathBuf::from(&work_dir),
             profile: normalize_profile(&fields.profile),
             mode_flags,
+            llxprt_debug: normalize_llxprt_debug(&fields.llxprt_debug),
             pass_continue: fields.pass_continue,
             sandbox_enabled: fields.sandbox_enabled,
             sandbox_engine,
@@ -1114,6 +1138,7 @@ impl AppState {
         } else {
             fields.mode.split_whitespace().map(String::from).collect()
         };
+        agent.llxprt_debug = normalize_llxprt_debug(&fields.llxprt_debug);
         agent.pass_continue = fields.pass_continue;
         agent.sandbox_enabled = fields.sandbox_enabled;
         agent.sandbox_engine =
@@ -1215,6 +1240,10 @@ fn normalize_sandbox_flags(value: &str) -> String {
     }
 }
 
+fn normalize_llxprt_debug(value: &str) -> String {
+    value.trim().to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1236,5 +1265,79 @@ mod tests {
     fn default_state_terminal_unfocused() {
         let state = AppState::default();
         assert!(!state.terminal_focused);
+    }
+
+    fn seed_repository() -> Repository {
+        Repository {
+            id: RepositoryId("repo-1".to_owned()),
+            name: "Repo 1".to_owned(),
+            slug: "repo-1".to_owned(),
+            base_dir: std::path::PathBuf::from("/tmp/repo-1"),
+            default_profile: String::new(),
+            agent_ids: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn open_new_agent_initializes_llxprt_debug_blank() {
+        let mut state = AppState {
+            repositories: vec![seed_repository()],
+            ..AppState::default()
+        };
+
+        state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+
+        match state.modal {
+            ModalState::NewAgent { fields, .. } => {
+                assert!(fields.llxprt_debug.is_empty());
+            }
+            _ => panic!("expected new-agent modal"),
+        }
+    }
+
+    #[test]
+    fn llxprt_debug_is_trimmed_when_creating_agent() {
+        let mut state = AppState {
+            repositories: vec![seed_repository()],
+            ..AppState::default()
+        };
+
+        state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+        if let ModalState::NewAgent { fields, .. } = &mut state.modal {
+            fields.name = "Agent One".to_owned();
+            fields.work_dir = "/tmp/agent-one".to_owned();
+            fields.llxprt_debug = "   trace=1   ".to_owned();
+        } else {
+            panic!("expected new-agent modal");
+        }
+
+        state = state.apply(AppEvent::SubmitForm);
+        let Some(created) = state.agents.last() else {
+            panic!("agent should be created");
+        };
+        assert_eq!(created.llxprt_debug, "trace=1");
+    }
+
+    #[test]
+    fn llxprt_debug_is_trimmed_to_empty_when_blank() {
+        let mut state = AppState {
+            repositories: vec![seed_repository()],
+            ..AppState::default()
+        };
+
+        state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+        if let ModalState::NewAgent { fields, .. } = &mut state.modal {
+            fields.name = "Agent Two".to_owned();
+            fields.work_dir = "/tmp/agent-two".to_owned();
+            fields.llxprt_debug = "   ".to_owned();
+        } else {
+            panic!("expected new-agent modal");
+        }
+
+        state = state.apply(AppEvent::SubmitForm);
+        let Some(created) = state.agents.last() else {
+            panic!("agent should be created");
+        };
+        assert!(created.llxprt_debug.is_empty());
     }
 }

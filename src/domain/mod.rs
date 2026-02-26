@@ -116,6 +116,8 @@ pub struct Agent {
     pub work_dir: PathBuf,
     pub profile: String,
     pub mode_flags: Vec<String>,
+    #[serde(default)]
+    pub llxprt_debug: String,
     pub pass_continue: bool,
     #[serde(default)]
     pub sandbox_enabled: bool,
@@ -142,6 +144,8 @@ pub struct LaunchSignature {
     pub work_dir: PathBuf,
     pub profile: String,
     pub mode_flags: Vec<String>,
+    #[serde(default)]
+    pub llxprt_debug: String,
     pub pass_continue: bool,
     pub sandbox_enabled: bool,
     pub sandbox_engine: SandboxEngine,
@@ -163,6 +167,7 @@ impl Agent {
             work_dir,
             profile: String::new(),
             mode_flags: Vec::new(),
+            llxprt_debug: String::new(),
             pass_continue: true, // Default per REQ-FUNC-004
             sandbox_enabled: false,
             sandbox_engine: SandboxEngine::Podman,
@@ -197,6 +202,7 @@ impl Repository {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn agent_pass_continue_defaults_true() {
@@ -228,8 +234,52 @@ mod tests {
             "Test Agent".into(),
             PathBuf::from("/tmp/test"),
         );
+        assert!(agent.llxprt_debug.is_empty());
         assert!(!agent.sandbox_enabled);
         assert_eq!(agent.sandbox_engine, SandboxEngine::Podman);
         assert_eq!(agent.sandbox_flags, DEFAULT_SANDBOX_FLAGS);
+    }
+
+    #[test]
+    fn agent_deserializes_missing_llxprt_debug_as_empty() {
+        let value = json!({
+            "id": "agent-1",
+            "display_id": "#1",
+            "repository_id": "repo-1",
+            "name": "Agent One",
+            "description": "",
+            "work_dir": "/tmp/agent-1",
+            "profile": "",
+            "mode_flags": ["--yolo"],
+            "pass_continue": true,
+            "sandbox_enabled": false,
+            "sandbox_engine": "podman",
+            "sandbox_flags": DEFAULT_SANDBOX_FLAGS,
+            "status": "Queued",
+            "runtime_binding": null
+        });
+
+        let Ok(agent) = serde_json::from_value::<Agent>(value) else {
+            panic!("agent should deserialize");
+        };
+        assert!(agent.llxprt_debug.is_empty());
+    }
+
+    #[test]
+    fn launch_signature_deserializes_missing_llxprt_debug_as_empty() {
+        let value = json!({
+            "work_dir": "/tmp/agent-1",
+            "profile": "",
+            "mode_flags": ["--yolo"],
+            "pass_continue": true,
+            "sandbox_enabled": true,
+            "sandbox_engine": "podman",
+            "sandbox_flags": DEFAULT_SANDBOX_FLAGS
+        });
+
+        let Ok(signature) = serde_json::from_value::<LaunchSignature>(value) else {
+            panic!("launch signature should deserialize");
+        };
+        assert!(signature.llxprt_debug.is_empty());
     }
 }

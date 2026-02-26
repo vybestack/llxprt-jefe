@@ -35,6 +35,7 @@ mod tests {
             work_dir: work_dir.clone(),
             profile: "default".into(),
             mode_flags: vec![],
+            llxprt_debug: String::new(),
             pass_continue: true,
             sandbox_enabled: false,
             sandbox_engine: crate::domain::SandboxEngine::Podman,
@@ -58,6 +59,7 @@ mod tests {
             work_dir: work_dir.clone(),
             profile: "default".into(),
             mode_flags: vec![],
+            llxprt_debug: String::new(),
             pass_continue: true,
             sandbox_enabled: false,
             sandbox_engine: crate::domain::SandboxEngine::Podman,
@@ -86,6 +88,7 @@ mod tests {
             work_dir: work_dir.clone(),
             profile: "default".into(),
             mode_flags: vec![],
+            llxprt_debug: String::new(),
             pass_continue: true,
             sandbox_enabled: false,
             sandbox_engine: crate::domain::SandboxEngine::Podman,
@@ -96,6 +99,30 @@ mod tests {
             .expect("first spawn should succeed");
         let result = mgr.spawn_session(&agent_id, &work_dir, &signature);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn stub_spawn_session_fresh_matches_spawn_semantics() {
+        let mut mgr = StubRuntimeManager::default();
+        let agent_id = AgentId("fresh-test".into());
+        let work_dir = PathBuf::from("/tmp");
+        let signature = LaunchSignature {
+            work_dir: work_dir.clone(),
+            profile: "default".into(),
+            mode_flags: vec![],
+            llxprt_debug: String::new(),
+            pass_continue: true,
+            sandbox_enabled: false,
+            sandbox_engine: crate::domain::SandboxEngine::Podman,
+            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
+        };
+
+        mgr.spawn_session_fresh(&agent_id, &work_dir, &signature)
+            .expect("fresh spawn should succeed");
+        assert!(mgr.is_alive(&agent_id));
+
+        let duplicate = mgr.spawn_session_fresh(&agent_id, &work_dir, &signature);
+        assert!(duplicate.is_err());
     }
 
     #[test]

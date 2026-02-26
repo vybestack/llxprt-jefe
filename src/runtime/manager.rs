@@ -34,6 +34,19 @@ pub trait RuntimeManager: Send {
         signature: &LaunchSignature,
     ) -> Result<(), RuntimeError>;
 
+    /// Spawn a new runtime session and force a fresh tmux process.
+    ///
+    /// This bypasses reattach behavior and is used for explicit user relaunch
+    /// after kill, so latest config/env values are guaranteed to apply.
+    fn spawn_session_fresh(
+        &mut self,
+        agent_id: &AgentId,
+        work_dir: &Path,
+        signature: &LaunchSignature,
+    ) -> Result<(), RuntimeError> {
+        self.spawn_session(agent_id, work_dir, signature)
+    }
+
     /// Attach to an existing session.
     ///
     /// @pseudocode component-002 lines 07-14
@@ -256,17 +269,14 @@ impl TmuxRuntimeManager {
         self.rows = rows;
         self.cols = cols;
     }
-}
 
-impl RuntimeManager for TmuxRuntimeManager {
-    fn spawn_session(
+    fn spawn_session_internal(
         &mut self,
         agent_id: &AgentId,
         work_dir: &Path,
         signature: &LaunchSignature,
+        allow_reattach: bool,
     ) -> Result<(), RuntimeError> {
-        info!(agent_id = %agent_id.0, work_dir = %work_dir.display(), "spawning runtime session");
-
         // Check for duplicate runtime mapping in this process.
         if self.sessions.contains_key(agent_id) {
             return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
@@ -274,13 +284,25 @@ impl RuntimeManager for TmuxRuntimeManager {
 
         let session_name = RuntimeSession::session_name_for(agent_id);
 
-        // Reattach-first behavior: if a live tmux session already exists for this
-        // agent ID, bind to it instead of recreating a new session.
-        if !liveness::check_session_alive(&session_name) {
+        // Reattach-first behavior is only allowed for restore/startup paths.
+        let can_reattach = allow_reattach && liveness::check_session_alive(&session_name);
+        if can_reattach {
+            debug!(session_name = %session_name, "reattaching to existing tmux session");
+        } else {
+            if !allow_reattach {
+                // Explicit relaunch-after-kill path: best-effort kill by name so a
+                // stale session cannot be reused with old environment values.
+                if let Err(error) = commands::kill_session(&session_name) {
+                    debug!(
+                        session_name = %session_name,
+                        error = %error,
+                        "force-fresh spawn pre-kill was not clean"
+                    );
+                }
+            }
+
             debug!(session_name = %session_name, "creating new tmux session");
             commands::create_session(&session_name, work_dir, signature)?;
-        } else {
-            debug!(session_name = %session_name, "reattaching to existing tmux session");
         }
 
         // Store/refresh session binding.
@@ -291,6 +313,32 @@ impl RuntimeManager for TmuxRuntimeManager {
         self.dead_signatures.remove(agent_id);
 
         Ok(())
+    }
+}
+
+impl RuntimeManager for TmuxRuntimeManager {
+    fn spawn_session(
+        &mut self,
+        agent_id: &AgentId,
+        work_dir: &Path,
+        signature: &LaunchSignature,
+    ) -> Result<(), RuntimeError> {
+        info!(agent_id = %agent_id.0, work_dir = %work_dir.display(), "spawning runtime session");
+        self.spawn_session_internal(agent_id, work_dir, signature, true)
+    }
+
+    fn spawn_session_fresh(
+        &mut self,
+        agent_id: &AgentId,
+        work_dir: &Path,
+        signature: &LaunchSignature,
+    ) -> Result<(), RuntimeError> {
+        info!(
+            agent_id = %agent_id.0,
+            work_dir = %work_dir.display(),
+            "spawning fresh runtime session"
+        );
+        self.spawn_session_internal(agent_id, work_dir, signature, false)
     }
 
     fn attach(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {

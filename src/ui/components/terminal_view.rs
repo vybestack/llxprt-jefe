@@ -152,8 +152,7 @@ fn row_to_runs(row: &[TerminalCell]) -> Vec<TextRun> {
 
     while runs
         .last()
-        .map(|run| run.text.chars().all(|ch| ch == ' '))
-        .unwrap_or(false)
+        .is_some_and(|run| run.text.chars().all(|ch| ch == ' '))
     {
         let _ = runs.pop();
     }

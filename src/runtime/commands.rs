@@ -57,6 +57,7 @@ fn apply_session_style(session_name: &str) {
 /// the tmux session becomes "dead" until explicit relaunch.
 ///
 /// @pseudocode component-002 lines 01-06
+#[allow(clippy::too_many_lines)]
 pub fn create_session(
     session_name: &str,
     work_dir: &Path,
@@ -89,12 +90,16 @@ pub fn create_session(
 
         // Sandbox launch parity with llxprt-code: explicit --sandbox and engine,
         // plus SANDBOX_FLAGS environment support.
-        let mut sandbox_env: Vec<(String, String)> = Vec::new();
+        let mut launch_env: Vec<(String, String)> = Vec::new();
         if signature.sandbox_enabled {
             llxprt_args.push("--sandbox".to_owned());
             llxprt_args.push("--sandbox-engine".to_owned());
             llxprt_args.push(signature.sandbox_engine.as_llxprt_arg().to_owned());
-            sandbox_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
+            launch_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
+        }
+
+        if !signature.llxprt_debug.is_empty() {
+            launch_env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
         }
 
         let mut cmd = Command::new("tmux");
@@ -105,9 +110,9 @@ pub fn create_session(
             .arg("-c")
             .arg(work_dir.to_str().unwrap_or("."));
 
-        if !sandbox_env.is_empty() {
+        if !launch_env.is_empty() {
             cmd.arg("env");
-            for (key, value) in &sandbox_env {
+            for (key, value) in &launch_env {
                 cmd.arg(format!("{key}={value}"));
             }
         }
@@ -192,5 +197,61 @@ pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
         Err(RuntimeError::WriteFailed(format!(
             "tmux send-keys failed: {stderr}"
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::SandboxEngine;
+
+    fn base_signature() -> LaunchSignature {
+        LaunchSignature {
+            work_dir: std::path::PathBuf::from("/tmp"),
+            profile: String::new(),
+            mode_flags: Vec::new(),
+            llxprt_debug: String::new(),
+            pass_continue: true,
+            sandbox_enabled: false,
+            sandbox_engine: SandboxEngine::Podman,
+            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
+        }
+    }
+
+    #[test]
+    fn llxprt_debug_env_is_omitted_when_empty() {
+        let signature = base_signature();
+        let mut launch_env: Vec<(String, String)> = Vec::new();
+
+        if signature.sandbox_enabled {
+            launch_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
+        }
+        if !signature.llxprt_debug.is_empty() {
+            launch_env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
+        }
+
+        assert!(!launch_env.iter().any(|(key, _)| key == "LLXPRT_DEBUG"));
+    }
+
+    #[test]
+    fn llxprt_debug_env_is_included_when_non_empty() {
+        let mut signature = base_signature();
+        signature.llxprt_debug = "trace=1".to_owned();
+
+        let mut launch_env: Vec<(String, String)> = Vec::new();
+        if signature.sandbox_enabled {
+            launch_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
+        }
+        if !signature.llxprt_debug.is_empty() {
+            launch_env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
+        }
+
+        assert_eq!(
+            launch_env
+                .into_iter()
+                .find(|(key, _)| key == "LLXPRT_DEBUG")
+                .map(|(_, value)| value),
+            Some("trace=1".to_owned())
+        );
     }
 }

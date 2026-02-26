@@ -220,3 +220,64 @@ fn open_edit_agent_modal() {
         ModalState::EditAgent { id, .. } if id == agent_id
     ));
 }
+
+#[test]
+fn open_new_agent_form_initializes_llxprt_debug_blank() {
+    let mut state = create_form_test_state();
+    state.modal = ModalState::None;
+    let repo_id = RepositoryId("repo-1".into());
+
+    state = state.apply(AppEvent::OpenNewAgent(repo_id));
+
+    match state.modal {
+        ModalState::NewAgent { fields, .. } => {
+            assert!(fields.llxprt_debug.is_empty());
+        }
+        _ => panic!("expected new-agent modal"),
+    }
+}
+
+#[test]
+fn open_edit_agent_form_copies_llxprt_debug_value() {
+    let mut state = create_form_test_state();
+    state.agents[0].llxprt_debug = "trace=agent".into();
+    state.modal = ModalState::None;
+    let agent_id = AgentId("agent-1".into());
+
+    state = state.apply(AppEvent::OpenEditAgent(agent_id));
+
+    match state.modal {
+        ModalState::EditAgent { fields, .. } => {
+            assert_eq!(fields.llxprt_debug, "trace=agent");
+        }
+        _ => panic!("expected edit-agent modal"),
+    }
+}
+
+#[test]
+fn submit_new_agent_form_trims_llxprt_debug() {
+    let mut state = create_form_test_state();
+    state.modal = ModalState::None;
+    let repo_id = RepositoryId("repo-1".into());
+
+    state = state.apply(AppEvent::OpenNewAgent(repo_id));
+
+    if let ModalState::NewAgent { fields, .. } = &mut state.modal {
+        fields.name = "Agent With Debug".into();
+        fields.work_dir = "/tmp/agent-with-debug".into();
+        fields.llxprt_debug = "   io=trace   ".into();
+    } else {
+        panic!("expected new-agent modal");
+    }
+
+    state = state.apply(AppEvent::SubmitForm);
+    let Some(created) = state
+        .agents
+        .iter()
+        .find(|agent| agent.name == "Agent With Debug")
+    else {
+        panic!("new agent should be created");
+    };
+
+    assert_eq!(created.llxprt_debug, "io=trace");
+}

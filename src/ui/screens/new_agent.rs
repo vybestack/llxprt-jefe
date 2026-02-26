@@ -44,13 +44,21 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     );
 
     // Build field lines with cursor indicator for focused field.
-    let labels = ["Name", "Description", "Work Dir", "Profile", "Mode Flags"];
+    let labels = [
+        "Name",
+        "Description",
+        "Work Dir",
+        "Profile",
+        "Mode Flags",
+        "LLXPRT_DEBUG",
+    ];
     let values = [
         &fields.name,
         &fields.description,
         &fields.work_dir,
         &fields.profile,
         &fields.mode,
+        &fields.llxprt_debug,
     ];
     let focuses = [
         AgentFormFocus::Name,
@@ -58,6 +66,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         AgentFormFocus::WorkDir,
         AgentFormFocus::Profile,
         AgentFormFocus::Mode,
+        AgentFormFocus::LlxprtDebug,
     ];
 
     let mut field_lines: Vec<AnyElement<'static>> = labels
