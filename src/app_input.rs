@@ -212,6 +212,8 @@ pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
         let mut state = app_state.write();
 
         if state.terminal_focused {
+            // Leaving terminal capture should always return keyboard focus to agents.
+            state.pane_focus = PaneFocus::Agents;
             *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
             (false, None)
         } else {
