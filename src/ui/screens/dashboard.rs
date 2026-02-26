@@ -132,7 +132,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                 Box(width: 36u32, height: 100pct) {
                     Preview(
                         agent: selected_agent_data,
-                        focused: !terminal_focused && pane_focus == PaneFocus::Terminal,
+                        focused: false,
                         colors: colors.clone(),
                     )
                 }

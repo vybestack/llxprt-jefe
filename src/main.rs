@@ -463,36 +463,47 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     }
                 }
                 TerminalEvent::Paste(pasted_text) => {
-                    let state = app_state.read();
-                    let terminal_input_enabled =
-                        state.terminal_focused && state.pane_focus == PaneFocus::Terminal;
-                    drop(state);
+                    let input_mode = {
+                        let state = app_state.read();
+                        input_mode_for_state(&state)
+                    };
 
-                    if !terminal_input_enabled {
-                        return;
+                    match input_mode {
+                        InputMode::TerminalCapture => {
+                            let Some(ctx_arc) = &ctx else {
+                                return;
+                            };
+                            let Ok(mut ctx_guard) = ctx_arc.lock() else {
+                                return;
+                            };
+
+                            let bytes = if ctx_guard.runtime.bracketed_paste_active() {
+                                let mut payload = Vec::with_capacity(pasted_text.len() + 12);
+                                payload.extend_from_slice(b"\x1b[200~");
+                                payload.extend_from_slice(pasted_text.as_bytes());
+                                payload.extend_from_slice(b"\x1b[201~");
+                                payload
+                            } else {
+                                pasted_text.into_bytes()
+                            };
+
+                            if let Err(e) = ctx_guard.runtime.write_input(&bytes) {
+                                warn!(error = %e, "runtime.write_input failed for paste");
+                            }
+                            suppress_next_enter.set(false);
+                        }
+                        InputMode::Form | InputMode::Search => {
+                            let mut state = app_state.write();
+                            for ch in pasted_text.chars().filter(|ch| *ch != '\r' && *ch != '\n') {
+                                *state = std::mem::take(&mut *state).apply(AppEvent::FormChar(ch));
+                            }
+                            persist_state_snapshot(&ctx, &state);
+                            suppress_next_enter.set(false);
+                        }
+                        _ => {
+                            suppress_next_enter.set(false);
+                        }
                     }
-
-                    let Some(ctx_arc) = &ctx else {
-                        return;
-                    };
-                    let Ok(mut ctx_guard) = ctx_arc.lock() else {
-                        return;
-                    };
-
-                    let bytes = if ctx_guard.runtime.bracketed_paste_active() {
-                        let mut payload = Vec::with_capacity(pasted_text.len() + 12);
-                        payload.extend_from_slice(b"\x1b[200~");
-                        payload.extend_from_slice(pasted_text.as_bytes());
-                        payload.extend_from_slice(b"\x1b[201~");
-                        payload
-                    } else {
-                        pasted_text.into_bytes()
-                    };
-
-                    if let Err(e) = ctx_guard.runtime.write_input(&bytes) {
-                        warn!(error = %e, "runtime.write_input failed for paste");
-                    }
-                    suppress_next_enter.set(false);
                 }
                 TerminalEvent::Key(key_event) => {
                     // Ignore release events if we've seen press/repeat.
@@ -570,10 +581,15 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                             if let Some(ctx_arc) = &ctx {
                                 if let Ok(mut ctx_guard) = ctx_arc.lock() {
                                     if let Err(e) = ctx_guard.runtime.write_input(&bytes) {
-                                        warn!(error = %e, "runtime.write_input failed");
+                                        if !matches!(e, RuntimeError::WriteFailed(_)) {
+                                            warn!(error = %e, "runtime.write_input failed");
+                                        }
                                     }
                                 }
                             }
+                        } else {
+                            // Unmapped key: ignore immediately and clear suppression arm.
+                            suppress_next_enter.set(false);
                         }
                         return;
                     }

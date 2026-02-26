@@ -217,9 +217,21 @@ pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
             *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
             (false, None)
         } else {
-            state.pane_focus = PaneFocus::Terminal;
-            *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
-            (true, state.selected_agent().map(|agent| agent.id.clone()))
+            let selected_running_agent_id = state
+                .selected_agent()
+                .filter(|agent| agent.is_running())
+                .map(|agent| agent.id.clone());
+
+            if selected_running_agent_id.is_some() {
+                state.pane_focus = PaneFocus::Terminal;
+                *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+                (true, selected_running_agent_id)
+            } else {
+                // Dead/non-running agents are not attachable.
+                state.pane_focus = PaneFocus::Agents;
+                state.terminal_focused = false;
+                (false, None)
+            }
         }
     };
 
@@ -247,6 +259,7 @@ pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
         if !attached {
             let mut state = app_state.write();
             state.terminal_focused = false;
+            state.pane_focus = PaneFocus::Agents;
         }
     }
 
@@ -560,16 +573,27 @@ pub fn handle_normal_key_event(
             None
         }
         KeyCode::Char('t' | 'T') => {
-            let selected_agent_id = {
+            let selected_running_agent_id = {
                 let mut state = app_state.write();
-                state.pane_focus = PaneFocus::Terminal;
-                if !state.terminal_focused {
-                    *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+                let running_agent_id = state
+                    .selected_agent()
+                    .filter(|agent| agent.is_running())
+                    .map(|agent| agent.id.clone());
+
+                if running_agent_id.is_some() {
+                    state.pane_focus = PaneFocus::Terminal;
+                    if !state.terminal_focused {
+                        *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+                    }
+                } else {
+                    state.pane_focus = PaneFocus::Agents;
+                    state.terminal_focused = false;
                 }
-                state.selected_agent().map(|agent| agent.id.clone())
+
+                running_agent_id
             };
 
-            if let Some(agent_id) = selected_agent_id {
+            if let Some(agent_id) = selected_running_agent_id {
                 if let Some(ctx_arc) = &ctx
                     && let Ok(mut ctx_guard) = ctx_arc.lock()
                     && let Err(e) = ctx_guard.runtime.attach(&agent_id)
@@ -581,11 +605,13 @@ pub fn handle_normal_key_event(
                     );
                     let mut state = app_state.write();
                     state.terminal_focused = false;
+                    state.pane_focus = PaneFocus::Agents;
                     persist_state_snapshot(ctx, &state);
                 }
             } else {
                 let mut state = app_state.write();
                 state.terminal_focused = false;
+                state.pane_focus = PaneFocus::Agents;
                 persist_state_snapshot(ctx, &state);
             }
 
