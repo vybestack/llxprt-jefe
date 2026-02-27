@@ -15,6 +15,7 @@ use crate::domain::{
 /// Form fields for creating/editing an agent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentFormFields {
+    pub shortcut_slot: Option<u8>,
     pub name: String,
     pub description: String,
     pub work_dir: String,
@@ -31,6 +32,7 @@ pub struct AgentFormFields {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum AgentFormFocus {
     #[default]
+    Shortcut,
     Name,
     Description,
     WorkDir,
@@ -48,6 +50,7 @@ impl AgentFormFocus {
     #[must_use]
     pub fn next(self) -> Self {
         match self {
+            Self::Shortcut => Self::Name,
             Self::Name => Self::Description,
             Self::Description => Self::WorkDir,
             Self::WorkDir => Self::Profile,
@@ -57,7 +60,7 @@ impl AgentFormFocus {
             Self::PassContinue => Self::Sandbox,
             Self::Sandbox => Self::SandboxEngine,
             Self::SandboxEngine => Self::SandboxFlags,
-            Self::SandboxFlags => Self::Name,
+            Self::SandboxFlags => Self::Shortcut,
         }
     }
 
@@ -65,7 +68,8 @@ impl AgentFormFocus {
     #[must_use]
     pub fn prev(self) -> Self {
         match self {
-            Self::Name => Self::SandboxFlags,
+            Self::Shortcut => Self::SandboxFlags,
+            Self::Name => Self::Shortcut,
             Self::Description => Self::Name,
             Self::WorkDir => Self::Description,
             Self::Profile => Self::WorkDir,
@@ -187,6 +191,7 @@ pub struct AppState {
     // Selection
     pub selected_repository_index: Option<usize>,
     pub selected_agent_index: Option<usize>,
+    pub last_selected_agent_by_repo: Vec<(RepositoryId, AgentId)>,
 
     // View state
     pub screen_mode: ScreenMode,
@@ -215,6 +220,7 @@ pub enum AppEvent {
     NavigateRight,
     SelectRepository(usize),
     SelectAgent(usize),
+    JumpToAgentByShortcut(u8),
 
     // Focus
     CyclePaneFocus,
@@ -278,6 +284,82 @@ impl AppState {
     fn selected_repository_id(&self) -> Option<&RepositoryId> {
         self.selected_repository_index
             .and_then(|idx| self.repositories.get(idx).map(|repo| &repo.id))
+    }
+
+    fn first_unused_shortcut_slot(&self, ignore_agent: Option<&AgentId>) -> Option<u8> {
+        (1u8..=9u8).find(|slot| {
+            self.agents.iter().all(|agent| {
+                if ignore_agent.is_some_and(|id| &agent.id == id) {
+                    true
+                } else {
+                    agent.shortcut_slot != Some(*slot)
+                }
+            })
+        })
+    }
+
+    fn enforce_shortcut_uniqueness(&mut self, owner_id: &AgentId, slot: Option<u8>) {
+        let Some(slot) = slot else {
+            return;
+        };
+        for agent in &mut self.agents {
+            if agent.id != *owner_id && agent.shortcut_slot == Some(slot) {
+                agent.shortcut_slot = None;
+            }
+        }
+    }
+
+    fn remember_selected_agent_for_current_repo(&mut self) {
+        let selected_repo_id = self.selected_repository_id().cloned();
+        let selected_agent_id = self.selected_agent().map(|agent| agent.id.clone());
+
+        if let Some(repo_id) = selected_repo_id {
+            if let Some(agent_id) = selected_agent_id {
+                if let Some(entry) = self
+                    .last_selected_agent_by_repo
+                    .iter_mut()
+                    .find(|(rid, _)| *rid == repo_id)
+                {
+                    entry.1 = agent_id;
+                } else {
+                    self.last_selected_agent_by_repo.push((repo_id, agent_id));
+                }
+            } else {
+                self.last_selected_agent_by_repo
+                    .retain(|(rid, _)| *rid != repo_id);
+            }
+        }
+    }
+
+    fn restore_selected_agent_for_current_repo(&mut self) {
+        let Some(repo_id) = self.selected_repository_id().cloned() else {
+            return;
+        };
+
+        let remembered_agent_id = self
+            .last_selected_agent_by_repo
+            .iter()
+            .find(|(rid, _)| *rid == repo_id)
+            .map(|(_, aid)| aid.clone());
+
+        let visible_indices = self.agent_indices_for_repository(&repo_id);
+        if visible_indices.is_empty() {
+            self.selected_agent_index = None;
+            return;
+        }
+
+        if let Some(agent_id) = remembered_agent_id
+            && let Some(global_idx) = self
+                .agents
+                .iter()
+                .position(|agent| agent.id == agent_id && agent.repository_id == repo_id)
+            && visible_indices.contains(&global_idx)
+        {
+            self.selected_agent_index = Some(global_idx);
+            return;
+        }
+
+        self.selected_agent_index = visible_indices.first().copied();
     }
 
     #[must_use]
@@ -376,7 +458,8 @@ impl AppState {
                 | AppEvent::NavigateLeft
                 | AppEvent::NavigateRight
                 | AppEvent::SelectRepository(_)
-                | AppEvent::SelectAgent(_) => {
+                | AppEvent::SelectAgent(_)
+                | AppEvent::JumpToAgentByShortcut(_) => {
                     debug!(event = ?event, "blocked navigation event (terminal_focused=true)");
                     return self;
                 }
@@ -390,7 +473,9 @@ impl AppState {
             AppEvent::NavigateDown => self.handle_navigate_down(),
             AppEvent::SelectRepository(idx) => {
                 if idx < self.repositories.len() {
+                    self.remember_selected_agent_for_current_repo();
                     self.selected_repository_index = Some(idx);
+                    self.restore_selected_agent_for_current_repo();
                 }
             }
             AppEvent::SelectAgent(idx) => {
@@ -398,7 +483,26 @@ impl AppState {
                     let visible_indices = self.agent_indices_for_repository(&repository_id);
                     if idx < visible_indices.len() {
                         self.selected_agent_index = Some(visible_indices[idx]);
+                        self.remember_selected_agent_for_current_repo();
                     }
+                }
+            }
+            AppEvent::JumpToAgentByShortcut(slot) => {
+                if let Some((agent_idx, target_repo_id)) =
+                    self.agents.iter().enumerate().find_map(|(idx, agent)| {
+                        (agent.shortcut_slot == Some(slot))
+                            .then_some((idx, agent.repository_id.clone()))
+                    })
+                {
+                    self.remember_selected_agent_for_current_repo();
+                    self.selected_repository_index = self
+                        .repositories
+                        .iter()
+                        .position(|repo| repo.id == target_repo_id);
+                    self.selected_agent_index = Some(agent_idx);
+                    self.pane_focus = PaneFocus::Agents;
+                    self.terminal_focused = false;
+                    self.remember_selected_agent_for_current_repo();
                 }
             }
 
@@ -548,6 +652,7 @@ impl AppState {
                 self.modal = ModalState::NewAgent {
                     repository_id,
                     fields: AgentFormFields {
+                        shortcut_slot: self.first_unused_shortcut_slot(None),
                         name: String::new(),
                         description: String::new(),
                         work_dir: base_dir,
@@ -570,6 +675,7 @@ impl AppState {
                     .iter()
                     .find(|a| a.id == id)
                     .map(|a| AgentFormFields {
+                        shortcut_slot: a.shortcut_slot,
                         name: a.name.clone(),
                         description: a.description.clone(),
                         work_dir: a.work_dir.to_string_lossy().into_owned(),
@@ -658,6 +764,14 @@ impl AppState {
 
         self.rebuild_repository_agent_ids();
         self.normalize_selection_indices();
+        self.last_selected_agent_by_repo
+            .retain(|(repo_id, agent_id)| {
+                self.repositories.iter().any(|repo| repo.id == *repo_id)
+                    && self
+                        .agents
+                        .iter()
+                        .any(|agent| agent.id == *agent_id && agent.repository_id == *repo_id)
+            });
         self
     }
 
@@ -665,7 +779,9 @@ impl AppState {
         match self.pane_focus {
             PaneFocus::Repositories => {
                 if let Some(idx) = self.selected_repository_index.filter(|&i| i > 0) {
+                    self.remember_selected_agent_for_current_repo();
                     self.selected_repository_index = Some(idx - 1);
+                    self.restore_selected_agent_for_current_repo();
                 }
             }
             PaneFocus::Agents => {
@@ -689,10 +805,12 @@ impl AppState {
                 match selected_local {
                     Some(local_idx) if local_idx > 0 => {
                         self.selected_agent_index = Some(visible_indices[local_idx - 1]);
+                        self.remember_selected_agent_for_current_repo();
                     }
                     Some(_) => {}
                     None => {
                         self.selected_agent_index = visible_indices.first().copied();
+                        self.remember_selected_agent_for_current_repo();
                     }
                 }
             }
@@ -706,7 +824,9 @@ impl AppState {
                 if let Some(idx) = self.selected_repository_index {
                     let max = self.repositories.len().saturating_sub(1);
                     if idx < max {
+                        self.remember_selected_agent_for_current_repo();
                         self.selected_repository_index = Some(idx + 1);
+                        self.restore_selected_agent_for_current_repo();
                     }
                 }
             }
@@ -731,10 +851,12 @@ impl AppState {
                 match selected_local {
                     Some(local_idx) if local_idx + 1 < visible_indices.len() => {
                         self.selected_agent_index = Some(visible_indices[local_idx + 1]);
+                        self.remember_selected_agent_for_current_repo();
                     }
                     Some(_) => {}
                     None => {
                         self.selected_agent_index = visible_indices.first().copied();
+                        self.remember_selected_agent_for_current_repo();
                     }
                 }
             }
@@ -782,6 +904,15 @@ impl AppState {
                 ..
             } => {
                 match focus {
+                    AgentFormFocus::Shortcut => {
+                        if c == '0' {
+                            fields.shortcut_slot = None;
+                        } else if let Some(digit) = c.to_digit(10)
+                            && (1..=9).contains(&digit)
+                        {
+                            fields.shortcut_slot = u8::try_from(digit).ok();
+                        }
+                    }
                     AgentFormFocus::Name => {
                         fields.name.push(c);
                         // Auto-update work_dir from name if not manually edited
@@ -823,6 +954,15 @@ impl AppState {
             }
             ModalState::EditAgent { fields, focus, .. } => {
                 match focus {
+                    AgentFormFocus::Shortcut => {
+                        if c == '0' {
+                            fields.shortcut_slot = None;
+                        } else if let Some(digit) = c.to_digit(10)
+                            && (1..=9).contains(&digit)
+                        {
+                            fields.shortcut_slot = u8::try_from(digit).ok();
+                        }
+                    }
                     AgentFormFocus::Name => fields.name.push(c),
                     AgentFormFocus::Description => fields.description.push(c),
                     AgentFormFocus::WorkDir => fields.work_dir.push(c),
@@ -873,6 +1013,9 @@ impl AppState {
 
     fn pop_agent_field(fields: &mut AgentFormFields, focus: AgentFormFocus) {
         match focus {
+            AgentFormFocus::Shortcut => {
+                fields.shortcut_slot = None;
+            }
             AgentFormFocus::Name => {
                 fields.name.pop();
             }
@@ -966,6 +1109,14 @@ impl AppState {
             | ModalState::EditAgent { fields, focus, .. } => match focus {
                 AgentFormFocus::PassContinue => {
                     fields.pass_continue = !fields.pass_continue;
+                }
+                AgentFormFocus::Shortcut => {
+                    let next = match fields.shortcut_slot {
+                        None => Some(1),
+                        Some(9) => None,
+                        Some(slot) => Some(slot + 1),
+                    };
+                    fields.shortcut_slot = next;
                 }
                 AgentFormFocus::Sandbox => {
                     fields.sandbox_enabled = !fields.sandbox_enabled;
@@ -1105,6 +1256,7 @@ impl AppState {
             id: AgentId(generate_id("agent")),
             display_id: format!("#{next_display_index}"),
             repository_id: repository_id.clone(),
+            shortcut_slot: fields.shortcut_slot,
             name: fields.name.clone(),
             description: fields.description.clone(),
             work_dir: std::path::PathBuf::from(&work_dir),
@@ -1122,6 +1274,7 @@ impl AppState {
 
     fn update_agent_from_fields(agent: &mut Agent, fields: &AgentFormFields) {
         agent.name.clone_from(&fields.name);
+        agent.shortcut_slot = fields.shortcut_slot;
         agent.description.clone_from(&fields.description);
 
         if !fields.work_dir.is_empty() {
@@ -1147,9 +1300,9 @@ impl AppState {
     }
 
     fn handle_submit_form(&mut self) {
-        match &self.modal {
+        match self.modal.clone() {
             ModalState::NewRepository { fields, .. } => {
-                if let Some(repo) = Self::create_repository_from_fields(fields) {
+                if let Some(repo) = Self::create_repository_from_fields(&fields) {
                     self.repositories.push(repo);
                     self.selected_repository_index = Some(self.repositories.len() - 1);
                     self.modal = ModalState::None;
@@ -1160,8 +1313,8 @@ impl AppState {
                     return;
                 }
 
-                if let Some(repo) = self.repositories.iter_mut().find(|r| r.id == *id) {
-                    Self::update_repository_from_fields(repo, fields);
+                if let Some(repo) = self.repositories.iter_mut().find(|r| r.id == id) {
+                    Self::update_repository_from_fields(repo, &fields);
                 }
                 self.modal = ModalState::None;
             }
@@ -1172,10 +1325,12 @@ impl AppState {
             } => {
                 let next_display_index = self.agents.len() + 1;
                 if let Some(agent) =
-                    Self::create_agent_from_fields(repository_id, fields, next_display_index)
+                    Self::create_agent_from_fields(&repository_id, &fields, next_display_index)
                 {
+                    self.enforce_shortcut_uniqueness(&agent.id, agent.shortcut_slot);
                     self.agents.push(agent);
                     self.selected_agent_index = Some(self.agents.len() - 1);
+                    self.remember_selected_agent_for_current_repo();
                     self.modal = ModalState::None;
                 }
             }
@@ -1184,9 +1339,11 @@ impl AppState {
                     return;
                 }
 
-                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == *id) {
-                    Self::update_agent_from_fields(agent, fields);
+                self.enforce_shortcut_uniqueness(&id, fields.shortcut_slot);
+                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == id) {
+                    Self::update_agent_from_fields(agent, &fields);
                 }
+                self.remember_selected_agent_for_current_repo();
                 self.modal = ModalState::None;
             }
             _ => {

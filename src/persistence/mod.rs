@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::{Agent, Repository};
+use crate::domain::{Agent, AgentId, Repository, RepositoryId};
 
 /// Persistence errors.
 #[derive(Debug, Clone)]
@@ -74,6 +74,8 @@ pub struct State {
     pub agents: Vec<Agent>,
     pub selected_repository_index: Option<usize>,
     pub selected_agent_index: Option<usize>,
+    #[serde(default)]
+    pub last_selected_agent_by_repo: Vec<(RepositoryId, AgentId)>,
 }
 
 impl State {
@@ -85,6 +87,7 @@ impl State {
             agents: Vec::new(),
             selected_repository_index: None,
             selected_agent_index: None,
+            last_selected_agent_by_repo: Vec::new(),
         }
     }
 }
@@ -426,6 +429,7 @@ mod tests {
             agents: vec![],
             selected_repository_index: Some(2),
             selected_agent_index: None,
+            last_selected_agent_by_repo: vec![],
         };
 
         mgr.save_state(&state).expect("should save");

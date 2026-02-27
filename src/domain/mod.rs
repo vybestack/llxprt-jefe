@@ -111,6 +111,8 @@ pub struct Agent {
     pub id: AgentId,
     pub display_id: String,
     pub repository_id: RepositoryId,
+    #[serde(default)]
+    pub shortcut_slot: Option<u8>,
     pub name: String,
     pub description: String,
     pub work_dir: PathBuf,
@@ -162,6 +164,7 @@ impl Agent {
             id: id.clone(),
             display_id: id.0.clone(),
             repository_id,
+            shortcut_slot: None,
             name,
             description: String::new(),
             work_dir,

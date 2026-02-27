@@ -16,9 +16,9 @@ use iocraft::prelude::*;
 use tracing::{debug, error, trace, warn};
 
 use app_input::{
-    dispatch_app_event, handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key,
-    handle_mode_help_key, handle_mode_search_key, handle_normal_key_event, persist_state_snapshot,
-    to_persisted_state,
+    dispatch_app_event, handle_f12_toggle, handle_global_shortcut_key, handle_mode_confirm_key,
+    handle_mode_form_key, handle_mode_help_key, handle_mode_search_key, handle_normal_key_event,
+    persist_state_snapshot, to_persisted_state,
 };
 use jefe::domain::{AgentId, AgentStatus, LaunchSignature, RepositoryId};
 use jefe::input::{InputMode, input_mode_for_state};
@@ -27,6 +27,7 @@ use jefe::persistence::{
 };
 use jefe::runtime::{RuntimeError, RuntimeManager, TerminalSnapshot, TmuxRuntimeManager};
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
+
 use jefe::theme::{FileThemeManager, ThemeColors, ThemeManager};
 use jefe::ui::{ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen};
 
@@ -221,6 +222,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 state.agents = persisted.agents;
                 state.selected_repository_index = persisted.selected_repository_index;
                 state.selected_agent_index = persisted.selected_agent_index;
+                state.last_selected_agent_by_repo = persisted.last_selected_agent_by_repo;
                 state.terminal_focused = false;
                 state.rebuild_repository_agent_ids();
                 state.normalize_selection_indices();
@@ -549,6 +551,11 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         return;
                     }
 
+                    // Global per-agent shortcut jump (works even in terminal capture mode).
+                    if handle_global_shortcut_key(&mut app_state, &ctx, &key_event) {
+                        return;
+                    }
+
                     // Determine active input mode from current state.
                     let input_mode = if term_focused && pane_focus != PaneFocus::Terminal {
                         // Defensive guard: terminal input is only valid when terminal pane is active.
@@ -854,6 +861,25 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     }
 }
 
+fn ctrl_char_to_byte(c: char) -> Option<u8> {
+    let c = c.to_ascii_lowercase();
+    match c {
+        '@' | ' ' | '2' => Some(0x00),
+        '[' | '3' => Some(0x1b),
+        '\\' | '4' => Some(0x1c),
+        ']' | '5' => Some(0x1d),
+        '^' | '6' => Some(0x1e),
+        '_' | '7' | '/' => Some(0x1f),
+        '?' | '8' => Some(0x7f),
+        _ if c.is_ascii_alphabetic() => {
+            let byte = (c as u8).wrapping_sub(b'a').wrapping_add(1);
+            Some(byte)
+        }
+        _ if c.is_ascii() => Some((c as u8) & 0x1f),
+        _ => None,
+    }
+}
+
 /// Convert a key event to raw bytes for PTY input.
 ///
 /// When `passthrough_enter` is true, Enter maps directly to CR regardless of
@@ -866,13 +892,10 @@ fn key_to_bytes(key: &KeyEvent, passthrough_enter: bool) -> Option<Vec<u8>> {
     let mut alt_encoded = false;
 
     let mut out = match key.code {
-        KeyCode::Char(c) if ctrl && c.is_ascii_alphabetic() => {
-            let byte = (c.to_ascii_lowercase() as u8)
-                .wrapping_sub(b'a')
-                .wrapping_add(1);
+        KeyCode::Char(c) if ctrl => {
+            let byte = ctrl_char_to_byte(c)?;
             vec![byte]
         }
-        KeyCode::Char(c) if ctrl => vec![(c as u8) & 0x1f],
         KeyCode::Char(c) => {
             let mut buf = [0u8; 4];
             let s = c.encode_utf8(&mut buf);
@@ -928,7 +951,6 @@ fn key_to_bytes(key: &KeyEvent, passthrough_enter: bool) -> Option<Vec<u8>> {
 fn should_suppress_synthetic_enter(armed: bool, key_event: &KeyEvent) -> bool {
     armed && key_event.code == KeyCode::Enter
 }
-
 fn should_arm_paste_enter_suppression(key_event: &KeyEvent, input_mode: InputMode) -> bool {
     input_mode == InputMode::TerminalCapture
         && key_event.modifiers.intersects(
@@ -941,25 +963,34 @@ fn should_arm_paste_enter_suppression(key_event: &KeyEvent, input_mode: InputMod
 fn mouse_event_to_bytes(event: &iocraft::FullscreenMouseEvent) -> Option<Vec<u8>> {
     use iocraft::MouseEventKind;
 
+    // Hold Shift for host-side selection/copy gestures.
+    // This mirrors typical terminal behavior where Shift bypasses app mouse reporting.
+    if event.modifiers.contains(iocraft::KeyModifiers::SHIFT) {
+        return None;
+    }
+
     let (cb, release) = match event.kind {
         MouseEventKind::Down(button) => {
             let code = match button {
                 crossterm::event::MouseButton::Left => 0,
-                _ => return None,
+                crossterm::event::MouseButton::Middle => 1,
+                crossterm::event::MouseButton::Right => 2,
             };
             (code, false)
         }
         MouseEventKind::Up(button) => {
             let code = match button {
                 crossterm::event::MouseButton::Left => 0,
-                _ => return None,
+                crossterm::event::MouseButton::Middle => 1,
+                crossterm::event::MouseButton::Right => 2,
             };
             (code, true)
         }
         MouseEventKind::Drag(button) => {
             let base = match button {
                 crossterm::event::MouseButton::Left => 0,
-                _ => return None,
+                crossterm::event::MouseButton::Middle => 1,
+                crossterm::event::MouseButton::Right => 2,
             };
             (base + 32, false)
         }
@@ -1045,7 +1076,8 @@ fn main() {
 #[cfg(test)]
 mod key_tests {
     use super::{
-        key_to_bytes, should_arm_paste_enter_suppression, should_suppress_synthetic_enter,
+        ctrl_char_to_byte, key_to_bytes, should_arm_paste_enter_suppression,
+        should_suppress_synthetic_enter,
     };
     use iocraft::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
     use jefe::input::InputMode;
@@ -1099,6 +1131,20 @@ mod key_tests {
     fn shift_alt_enter_maps_to_backslash_esc_cr() {
         let key = key_event(KeyCode::Enter, KeyModifiers::SHIFT | KeyModifiers::ALT);
         assert_eq!(key_to_bytes(&key, false), Some(b"\\\x1b\r".to_vec()));
+    }
+
+    #[test]
+    fn ctrl_backslash_maps_to_fs() {
+        let key = key_event(KeyCode::Char('\\'), KeyModifiers::CONTROL);
+        assert_eq!(ctrl_char_to_byte('\\'), Some(0x1c));
+        assert_eq!(key_to_bytes(&key, false), Some(vec![0x1c]));
+    }
+
+    #[test]
+    fn ctrl_underscore_maps_to_us() {
+        let key = key_event(KeyCode::Char('_'), KeyModifiers::CONTROL);
+        assert_eq!(ctrl_char_to_byte('_'), Some(0x1f));
+        assert_eq!(key_to_bytes(&key, false), Some(vec![0x1f]));
     }
 
     #[test]

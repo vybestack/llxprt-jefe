@@ -349,6 +349,101 @@ fn kill_agent_sets_status_to_dead() {
     );
 }
 
+#[test]
+fn jump_to_agent_by_shortcut_switches_repo_and_selection() {
+    let mut state = AppState::default();
+    let repo_a = Repository::new(
+        RepositoryId("repo-a".into()),
+        "Repo A".into(),
+        "repo-a".into(),
+        PathBuf::from("/repo-a"),
+    );
+    let repo_b = Repository::new(
+        RepositoryId("repo-b".into()),
+        "Repo B".into(),
+        "repo-b".into(),
+        PathBuf::from("/repo-b"),
+    );
+    state.repositories = vec![repo_a.clone(), repo_b.clone()];
+
+    let mut a1 = Agent::new(
+        AgentId("a1".into()),
+        repo_a.id.clone(),
+        "A1".into(),
+        PathBuf::from("/repo-a/a1"),
+    );
+    a1.shortcut_slot = Some(1);
+
+    let mut b1 = Agent::new(
+        AgentId("b1".into()),
+        repo_b.id.clone(),
+        "B1".into(),
+        PathBuf::from("/repo-b/b1"),
+    );
+    b1.shortcut_slot = Some(2);
+
+    state.agents = vec![a1, b1];
+    state.selected_repository_index = Some(0);
+    state.selected_agent_index = Some(0);
+
+    let next = state.apply(AppEvent::JumpToAgentByShortcut(2));
+
+    assert_eq!(next.selected_repository_index, Some(1));
+    assert_eq!(next.selected_agent_index, Some(1));
+    assert_eq!(next.pane_focus, PaneFocus::Agents);
+    assert!(!next.terminal_focused);
+}
+
+#[test]
+fn repository_navigation_restores_last_selected_agent_per_repo() {
+    let mut state = AppState::default();
+    let repo_a = Repository::new(
+        RepositoryId("repo-a".into()),
+        "Repo A".into(),
+        "repo-a".into(),
+        PathBuf::from("/repo-a"),
+    );
+    let repo_b = Repository::new(
+        RepositoryId("repo-b".into()),
+        "Repo B".into(),
+        "repo-b".into(),
+        PathBuf::from("/repo-b"),
+    );
+    state.repositories = vec![repo_a.clone(), repo_b.clone()];
+
+    let a1 = Agent::new(
+        AgentId("a1".into()),
+        repo_a.id.clone(),
+        "A1".into(),
+        PathBuf::from("/repo-a/a1"),
+    );
+    let a2 = Agent::new(
+        AgentId("a2".into()),
+        repo_a.id.clone(),
+        "A2".into(),
+        PathBuf::from("/repo-a/a2"),
+    );
+    let b1 = Agent::new(
+        AgentId("b1".into()),
+        repo_b.id.clone(),
+        "B1".into(),
+        PathBuf::from("/repo-b/b1"),
+    );
+    state.agents = vec![a1, a2, b1];
+
+    state.selected_repository_index = Some(0);
+    state.selected_agent_index = Some(1);
+    state.pane_focus = PaneFocus::Repositories;
+
+    let to_repo_b = state.apply(AppEvent::NavigateDown);
+    assert_eq!(to_repo_b.selected_repository_index, Some(1));
+    assert_eq!(to_repo_b.selected_agent_index, Some(2));
+
+    let back_to_repo_a = to_repo_b.apply(AppEvent::NavigateUp);
+    assert_eq!(back_to_repo_a.selected_repository_index, Some(0));
+    assert_eq!(back_to_repo_a.selected_agent_index, Some(1));
+}
+
 // =============================================================================
 // Error/Warning State (REQ-TECH-008)
 // =============================================================================

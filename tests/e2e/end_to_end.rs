@@ -180,6 +180,7 @@ fn persistence_roundtrip_preserves_state() {
         agents: vec![agent],
         selected_repository_index: Some(0),
         selected_agent_index: Some(0),
+        last_selected_agent_by_repo: vec![],
     };
 
     // Save and reload

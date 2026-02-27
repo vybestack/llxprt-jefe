@@ -44,7 +44,12 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     );
 
     // Build field lines with cursor indicator for focused field.
+    let shortcut_display = fields
+        .shortcut_slot
+        .map_or_else(|| "none".to_owned(), |slot| slot.to_string());
+
     let labels = [
+        "Shortcut (1-9)",
         "Name",
         "Description",
         "Work Dir",
@@ -53,6 +58,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         "LLXPRT_DEBUG",
     ];
     let values = [
+        &shortcut_display,
         &fields.name,
         &fields.description,
         &fields.work_dir,
@@ -61,6 +67,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         &fields.llxprt_debug,
     ];
     let focuses = [
+        AgentFormFocus::Shortcut,
         AgentFormFocus::Name,
         AgentFormFocus::Description,
         AgentFormFocus::WorkDir,

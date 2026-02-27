@@ -72,7 +72,10 @@ pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
                         AgentStatus::Queued => rc.dim,
                     };
                     let prefix = if selected { "> " } else { "  " };
-                    let label = format!("{}{} {}", prefix, status_icon, agent.name);
+                    let shortcut_label = agent
+                        .shortcut_slot
+                        .map_or_else(String::new, |slot| format!("[{slot}] "));
+                    let label = format!("{}{} {}{}", prefix, status_icon, shortcut_label, agent.name);
                     if selected {
                         element! {
                             Box(height: 1u32, background_color: rc.sel_bg) {
@@ -84,7 +87,7 @@ pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
                             Box(flex_direction: FlexDirection::Row, height: 1u32) {
                                 Text(content: prefix, color: rc.fg)
                                 Text(content: status_icon, color: status_color)
-                                Text(content: format!(" {}", agent.name), color: rc.fg)
+                                Text(content: format!(" {}{}", shortcut_label, agent.name), color: rc.fg)
                             }
                         }
                     }

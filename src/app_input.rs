@@ -5,9 +5,65 @@ use iocraft::prelude::*;
 use tracing::{debug, warn};
 
 use jefe::domain::{AgentId, LaunchSignature, SandboxEngine};
+
+const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
+    ('¡', 1),
+    ('™', 2),
+    ('£', 3),
+    ('¢', 4),
+    ('∞', 5),
+    ('§', 6),
+    ('¶', 7),
+    ('•', 8),
+    ('ª', 9),
+];
 use jefe::input::{SearchKeyRoute, route_search_key};
 use jefe::persistence::{PersistenceManager, State as PersistedState};
 use jefe::runtime::{RuntimeError, RuntimeManager};
+
+#[must_use]
+fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, slot: u8) -> bool {
+    let mut state = app_state.write();
+    *state = std::mem::take(&mut *state).apply(AppEvent::JumpToAgentByShortcut(slot));
+
+    let selected_running_agent_id = state
+        .selected_agent()
+        .filter(|agent| agent.is_running())
+        .map(|agent| agent.id.clone());
+
+    if let Some(agent_id) = selected_running_agent_id {
+        state.pane_focus = PaneFocus::Terminal;
+        if !state.terminal_focused {
+            *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
+        }
+        drop(state);
+
+        let attached_ok = if let Some(ctx_arc) = ctx
+            && let Ok(mut ctx_guard) = ctx_arc.lock()
+        {
+            ctx_guard.runtime.attach(&agent_id).is_ok()
+        } else {
+            false
+        };
+
+        let mut state = app_state.write();
+        if !attached_ok {
+            state.terminal_focused = false;
+            state.pane_focus = PaneFocus::Agents;
+            persist_state_snapshot(ctx, &state);
+            return false;
+        }
+
+        persist_state_snapshot(ctx, &state);
+        true
+    } else {
+        state.terminal_focused = false;
+        state.pane_focus = PaneFocus::Agents;
+        persist_state_snapshot(ctx, &state);
+        false
+    }
+}
+
 use jefe::state::{AgentFormFocus, AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
 use jefe::theme::ThemeManager;
 
@@ -23,6 +79,7 @@ pub fn to_persisted_state(state: &AppState) -> PersistedState {
         agents: state.agents.clone(),
         selected_repository_index: state.selected_repository_index,
         selected_agent_index: state.selected_agent_index,
+        last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
     }
 }
 
@@ -429,9 +486,9 @@ pub fn handle_mode_form_key(
             };
 
             match focused {
-                AgentFormFocus::PassContinue | AgentFormFocus::Sandbox => {
-                    Some(AppEvent::FormToggleCheckbox)
-                }
+                AgentFormFocus::PassContinue
+                | AgentFormFocus::Sandbox
+                | AgentFormFocus::Shortcut => Some(AppEvent::FormToggleCheckbox),
                 AgentFormFocus::SandboxEngine => {
                     let mut state = app_state.write();
                     if let ModalState::NewAgent { fields, .. }
@@ -459,6 +516,51 @@ pub fn handle_mode_form_key(
     }
 
     true
+}
+
+fn mac_alt_digit_slot(c: char) -> Option<u8> {
+    MAC_ALT_DIGIT_SHORTCUTS
+        .iter()
+        .find_map(|(symbol, slot)| (*symbol == c).then_some(*slot))
+}
+
+fn try_extract_shortcut_slot(key_event: &KeyEvent) -> Option<u8> {
+    match key_event.code {
+        KeyCode::Char(c) => {
+            if key_event.modifiers.contains(KeyModifiers::ALT) {
+                if let Some(digit) = c.to_digit(10)
+                    && (1..=9).contains(&digit)
+                {
+                    return u8::try_from(digit).ok();
+                }
+            }
+
+            // macOS default Option+digit emits these symbols when Option is not in Meta mode.
+            if !key_event.modifiers.contains(KeyModifiers::CONTROL)
+                && !key_event.modifiers.contains(KeyModifiers::SUPER)
+                && !key_event.modifiers.contains(KeyModifiers::META)
+                && let Some(slot) = mac_alt_digit_slot(c)
+            {
+                return Some(slot);
+            }
+
+            None
+        }
+        _ => None,
+    }
+}
+
+pub fn handle_global_shortcut_key(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    key_event: &KeyEvent,
+) -> bool {
+    if let Some(slot) = try_extract_shortcut_slot(key_event) {
+        let _ = jump_to_shortcut_agent(app_state, ctx, slot);
+        return true;
+    }
+
+    false
 }
 
 #[allow(clippy::too_many_lines)]
