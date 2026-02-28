@@ -7,9 +7,13 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::domain::LaunchSignature;
+use crate::domain::{LaunchSignature, SandboxEngine};
 
 use super::errors::RuntimeError;
+
+const SANDBOX_IMAGE_REPO: &str = "ghcr.io/vybestack/llxprt-code/sandbox";
+const SANDBOX_IMAGE_NIGHTLY_TAG: &str = "nightly";
+const SANDBOX_IMAGE_LATEST_TAG: &str = "latest";
 
 fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
     let mut cmd = Command::new("tmux");
@@ -49,6 +53,82 @@ fn apply_session_style(session_name: &str) {
         .as_ref(),
         None,
     );
+}
+
+fn parse_llxprt_version_tag(version_output: &str) -> Option<String> {
+    version_output
+        .split_whitespace()
+        .map(|token| {
+            token.trim_matches(|c: char| {
+                !(c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+            })
+        })
+        .find_map(|token| {
+            let normalized = token.strip_prefix('v').unwrap_or(token);
+            let mut parts = normalized.split('.');
+            let major = parts.next()?;
+            let minor = parts.next()?;
+            let patch = parts.next()?;
+            if parts.next().is_some() {
+                return None;
+            }
+            if [major, minor, patch]
+                .iter()
+                .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+            {
+                Some(format!("{major}.{minor}.{patch}"))
+            } else {
+                None
+            }
+        })
+}
+
+fn detect_llxprt_version_tag() -> Option<String> {
+    let output = Command::new("llxprt").arg("--version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_llxprt_version_tag(&stdout)
+}
+
+fn sandbox_manifest_exists(engine: SandboxEngine, image_ref: &str) -> bool {
+    let command = match engine {
+        SandboxEngine::Podman => "podman",
+        SandboxEngine::Docker => "docker",
+        SandboxEngine::Seatbelt => return false,
+    };
+
+    Command::new(command)
+        .args(["manifest", "inspect", image_ref])
+        .output()
+        .is_ok_and(|out| out.status.success())
+}
+
+fn resolve_sandbox_image(engine: SandboxEngine) -> Option<String> {
+    match engine {
+        SandboxEngine::Seatbelt => None,
+        SandboxEngine::Podman | SandboxEngine::Docker => {
+            if let Some(version_tag) = detect_llxprt_version_tag() {
+                let version_image = format!("{SANDBOX_IMAGE_REPO}:{version_tag}");
+                if sandbox_manifest_exists(engine, &version_image) {
+                    return Some(version_image);
+                }
+            }
+
+            let nightly_image = format!("{SANDBOX_IMAGE_REPO}:{SANDBOX_IMAGE_NIGHTLY_TAG}");
+            if sandbox_manifest_exists(engine, &nightly_image) {
+                return Some(nightly_image);
+            }
+
+            let latest_image = format!("{SANDBOX_IMAGE_REPO}:{SANDBOX_IMAGE_LATEST_TAG}");
+            if sandbox_manifest_exists(engine, &latest_image) {
+                return Some(latest_image);
+            }
+
+            None
+        }
+    }
 }
 
 /// Create a new detached tmux session running llxprt.
@@ -96,6 +176,12 @@ pub fn create_session(
             llxprt_args.push("--sandbox-engine".to_owned());
             llxprt_args.push(signature.sandbox_engine.as_llxprt_arg().to_owned());
             launch_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
+
+            if std::env::var_os("LLXPRT_SANDBOX_IMAGE").is_none()
+                && let Some(image_ref) = resolve_sandbox_image(signature.sandbox_engine)
+            {
+                launch_env.push(("LLXPRT_SANDBOX_IMAGE".to_owned(), image_ref));
+            }
         }
 
         if !signature.llxprt_debug.is_empty() {
@@ -253,5 +339,26 @@ mod tests {
                 .map(|(_, value)| value),
             Some("trace=1".to_owned())
         );
+    }
+
+    #[test]
+    fn parse_llxprt_version_tag_handles_plain_semver() {
+        assert_eq!(
+            parse_llxprt_version_tag("0.8.1\n"),
+            Some("0.8.1".to_owned())
+        );
+    }
+
+    #[test]
+    fn parse_llxprt_version_tag_handles_prefixed_semver() {
+        assert_eq!(
+            parse_llxprt_version_tag("llxprt v0.9.0"),
+            Some("0.9.0".to_owned())
+        );
+    }
+
+    #[test]
+    fn parse_llxprt_version_tag_rejects_non_semver() {
+        assert_eq!(parse_llxprt_version_tag("nightly build"), None);
     }
 }
