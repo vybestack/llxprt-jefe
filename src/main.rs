@@ -692,34 +692,56 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
         ("green-screen".to_owned(), ThemeColors::default())
     };
 
-    // Attach the viewer only when the selected running agent changes — not every frame.
+    // Track selected agent separately from selected-running agent.
+    let selected_agent_id = snapshot.selected_agent().map(|agent| agent.id.clone());
     let selected_running_agent_id = snapshot
         .selected_agent()
         .filter(|agent| agent.status == AgentStatus::Running)
         .map(|agent| agent.id.clone());
 
-    let selected_key = selected_running_agent_id.as_ref().map(|id| id.0.clone());
+    // Attach viewer only for running agents. Keep a running-agent key to avoid
+    // stale cross-agent snapshots when selection changes to a dead/non-running agent.
+    let selected_running_key = selected_running_agent_id.as_ref().map(|id| id.0.clone());
     let prev_key = last_attached_key.read().clone();
-    if prev_key != selected_key {
+    if prev_key != selected_running_key {
         if let Some(ctx_arc) = &ctx
             && let Ok(mut ctx_guard) = ctx_arc.lock()
         {
             if let Some(ref selected_agent_id) = selected_running_agent_id {
-                debug!(agent_id = %selected_agent_id.0, "render-path: attaching to new selection");
+                debug!(agent_id = %selected_agent_id.0, "render-path: attaching to new running selection");
                 let _ = ctx_guard.runtime.attach(selected_agent_id);
             } else {
                 debug!("render-path: detaching (no running agent selected)");
                 let _ = ctx_guard.runtime.detach();
             }
         }
-        last_attached_key.set(selected_key);
+        last_attached_key.set(selected_running_key);
     }
 
-    // Get terminal snapshot from currently attached viewer.
+    // Render snapshot rules:
+    //  - Running selected agent: live viewer snapshot (guarded by attachment match).
+    //  - Dead selected agent: captured dead pane output for same agent only.
+    //  - Other states: no terminal content.
     let terminal_snapshot: Option<TerminalSnapshot> = if let Some(ctx_arc) = &ctx {
         if let Ok(ctx_guard) = ctx_arc.lock() {
-            if selected_running_agent_id.is_some() {
-                ctx_guard.runtime.snapshot()
+            if let Some(selected_agent) = snapshot.selected_agent() {
+                match selected_agent.status {
+                    AgentStatus::Running => {
+                        if let Some(selected_agent_id) = selected_running_agent_id.as_ref() {
+                            if ctx_guard.runtime.attached_agent() == Some(selected_agent_id) {
+                                ctx_guard.runtime.snapshot()
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    AgentStatus::Dead => selected_agent_id
+                        .as_ref()
+                        .and_then(|agent_id| ctx_guard.runtime.capture_session_output(agent_id)),
+                    _ => None,
+                }
             } else {
                 None
             }

@@ -1393,7 +1393,49 @@ fn normalize_sandbox_flags(value: &str) -> String {
     if trimmed.is_empty() {
         DEFAULT_SANDBOX_FLAGS.to_owned()
     } else {
-        trimmed.to_owned()
+        normalize_memory_flag_to_mib(trimmed)
+    }
+}
+
+fn normalize_memory_flag_to_mib(flags: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for token in flags.split_whitespace() {
+        if let Some(raw_mem) = token.strip_prefix("--memory=") {
+            if let Some(normalized) = memory_value_to_mib(raw_mem) {
+                out.push(format!("--memory={normalized}"));
+            } else {
+                out.push(token.to_owned());
+            }
+        } else {
+            out.push(token.to_owned());
+        }
+    }
+    out.join(" ")
+}
+
+fn memory_value_to_mib(value: &str) -> Option<u64> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let split_at = lower
+        .find(|ch: char| !ch.is_ascii_digit())
+        .unwrap_or(lower.len());
+    let number_part = &lower[..split_at];
+    if number_part.is_empty() {
+        return None;
+    }
+    let numeric = number_part.parse::<u64>().ok()?;
+    let unit = lower[split_at..].trim();
+
+    match unit {
+        "" | "m" | "mb" => Some(numeric),
+        "g" | "gb" => Some(numeric.saturating_mul(1024)),
+        "k" | "kb" => Some(numeric / 1024),
+        "b" => Some(numeric / (1024 * 1024)),
+        _ => None,
     }
 }
 
@@ -1496,5 +1538,29 @@ mod tests {
             panic!("agent should be created");
         };
         assert!(created.llxprt_debug.is_empty());
+    }
+
+    #[test]
+    fn normalize_sandbox_flags_converts_gib_to_mib() {
+        assert_eq!(
+            normalize_sandbox_flags("--cpus=2 --memory=12g --pids-limit=256"),
+            "--cpus=2 --memory=12288 --pids-limit=256"
+        );
+    }
+
+    #[test]
+    fn normalize_sandbox_flags_leaves_unknown_memory_unit_unchanged() {
+        assert_eq!(
+            normalize_sandbox_flags("--cpus=2 --memory=12gi --pids-limit=256"),
+            "--cpus=2 --memory=12gi --pids-limit=256"
+        );
+    }
+
+    #[test]
+    fn normalize_sandbox_flags_uses_default_when_empty() {
+        assert_eq!(
+            normalize_sandbox_flags("   "),
+            DEFAULT_SANDBOX_FLAGS.to_owned()
+        );
     }
 }

@@ -213,6 +213,11 @@ pub fn create_session(
             .map_err(|e| RuntimeError::SpawnFailed(format!("tmux new-session: {e}")))?;
 
         if output.status.success() {
+            // Preserve dead pane output in tmux for post-mortem inspection/relaunch context.
+            let _ = tmux_cmd_status(
+                ["set-option", "-t", session_name, "remain-on-exit", "on"].as_ref(),
+                None,
+            );
             apply_session_style(session_name);
             return Ok(());
         }
@@ -247,6 +252,20 @@ pub fn session_exists(session_name: &str) -> bool {
         Ok(out) => out.status.success(),
         Err(_) => false,
     }
+}
+
+/// Capture pane output for a session as plain text lines.
+pub fn capture_pane_lines(session_name: &str) -> Option<Vec<String>> {
+    let output = Command::new("tmux")
+        .args(["capture-pane", "-p", "-t", session_name])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    Some(text.lines().map(|line| line.to_owned()).collect())
 }
 
 /// Kill a tmux session.

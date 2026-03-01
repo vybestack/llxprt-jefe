@@ -15,7 +15,7 @@ use super::attach::AttachedViewer;
 use super::commands;
 use super::errors::RuntimeError;
 use super::liveness;
-use super::session::{RuntimeSession, TerminalCellStyle, TerminalSnapshot};
+use super::session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 use crate::domain::{AgentId, LaunchSignature};
 
 /// Runtime manager trait - owns attach/reattach, input forwarding, kill/relaunch.
@@ -95,6 +95,9 @@ pub trait RuntimeManager: Send {
 
     /// Get a reference to a session by agent ID.
     fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession>;
+
+    /// Capture pane output for a known session (used for dead-pane crash text).
+    fn capture_session_output(&self, agent_id: &AgentId) -> Option<TerminalSnapshot>;
 }
 
 /// Stub implementation of RuntimeManager for testing.
@@ -228,6 +231,10 @@ impl RuntimeManager for StubRuntimeManager {
 
     fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession> {
         self.sessions.iter().find(|s| &s.agent_id == agent_id)
+    }
+
+    fn capture_session_output(&self, _agent_id: &AgentId) -> Option<TerminalSnapshot> {
+        None
     }
 }
 
@@ -494,5 +501,40 @@ impl RuntimeManager for TmuxRuntimeManager {
 
     fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession> {
         self.sessions.get(agent_id)
+    }
+
+    fn capture_session_output(&self, agent_id: &AgentId) -> Option<TerminalSnapshot> {
+        let session = self.sessions.get(agent_id)?;
+        let lines = commands::capture_pane_lines(&session.session_name)?;
+
+        let rows = lines.len();
+        let cols = lines
+            .iter()
+            .map(|line| line.chars().count())
+            .max()
+            .unwrap_or(0);
+
+        if rows == 0 || cols == 0 {
+            return Some(TerminalSnapshot::default());
+        }
+
+        let default_style = TerminalCellStyle {
+            fg: iocraft::Color::White,
+            bg: iocraft::Color::Black,
+            bold: false,
+            underline: false,
+        };
+
+        let mut snapshot = TerminalSnapshot::blank(rows, cols, default_style);
+        for (r, line) in lines.iter().enumerate() {
+            for (c, ch) in line.chars().enumerate() {
+                snapshot.cells[r][c] = TerminalCell {
+                    ch,
+                    style: default_style,
+                };
+            }
+        }
+
+        Some(snapshot)
     }
 }
