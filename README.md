@@ -7,6 +7,8 @@
 
 `jefe` gives you one terminal control plane for multiple [`LLxprt Code`](https://vybestack.dev/llxprt-code.html) agents across repositories.
 
+ New here? Start with the step-by-step guide: [`docs/getting-started.md`](docs/getting-started.md)
+
 ![jefe screenshot](docs/assets/jefe-screenshot.png)
 
 ## What it does for you

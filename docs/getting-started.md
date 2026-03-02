@@ -21,8 +21,9 @@ From the dashboard, press `N` (capital N) to open **New Repository**.
   - Example: `LLxprt Code`, `payments-service`, `client-foo`.
 
 - **Base Dir**
-  - The root path on disk for this repository.
-  - This is the default location used when creating new agents.
+  - Think of this as a **parent directory** for this repo’s work.
+  - A common pattern is: `~/projects/myreponame`
+  - New agent work dirs are usually created under this path.
   - If you leave it empty, Jefe falls back to a temp path (`/tmp/<slug>`), but in practice you almost always want a real project path.
 
 - **Default Profile**
@@ -60,6 +61,10 @@ With your repository selected, press `n` (lowercase n) to open **New Agent**.
 
 - **Work Dir**
   - Filesystem path where llxprt runs.
+  - A common pattern is: `~/projects/myreponame/somethingimdoing`
+  - That `somethingimdoing` directory can be either:
+    - a full checkout, or
+    - a git worktree
   - For **new** agents, Jefe auto-generates this from repository base dir + agent name until you edit this field manually.
 
 - **Profile**
