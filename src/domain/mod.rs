@@ -18,8 +18,8 @@ pub struct AgentId(pub String);
 
 /// Default sandbox resource flags passed to llxprt via SANDBOX_FLAGS.
 ///
-/// Memory is expressed as a unitless MiB-equivalent integer for sandbox engines.
-pub const DEFAULT_SANDBOX_FLAGS: &str = "--cpus=2 --memory=12288 --pids-limit=256";
+/// Memory is expressed in MiB to avoid unitless podman/crun interpretation issues.
+pub const DEFAULT_SANDBOX_FLAGS: &str = "--cpus=2 --memory=12288m --pids-limit=256";
 
 /// Sandbox engine to use when launching llxprt sessions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

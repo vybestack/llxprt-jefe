@@ -55,28 +55,58 @@ fn apply_session_style(session_name: &str) {
     );
 }
 
+fn looks_like_semver_tag(version: &str) -> bool {
+    let split_at = version.find(['-', '+']).unwrap_or(version.len());
+    let core = &version[..split_at];
+    let suffix = if split_at < version.len() {
+        Some(&version[split_at + 1..])
+    } else {
+        None
+    };
+
+    let mut parts = core.split('.');
+    let major = parts.next().unwrap_or_default();
+    let minor = parts.next().unwrap_or_default();
+    let patch = parts.next().unwrap_or_default();
+    if parts.next().is_some() {
+        return false;
+    }
+
+    if [major, minor, patch]
+        .iter()
+        .any(|part| part.is_empty() || !part.chars().all(|c| c.is_ascii_digit()))
+    {
+        return false;
+    }
+
+    if let Some(suffix) = suffix {
+        if suffix.is_empty() {
+            return false;
+        }
+
+        if !suffix
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+        {
+            return false;
+        }
+    }
+
+    true
+}
+
 fn parse_llxprt_version_tag(version_output: &str) -> Option<String> {
     version_output
         .split_whitespace()
         .map(|token| {
             token.trim_matches(|c: char| {
-                !(c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+                !(c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' || c == '+')
             })
         })
         .find_map(|token| {
             let normalized = token.strip_prefix('v').unwrap_or(token);
-            let mut parts = normalized.split('.');
-            let major = parts.next()?;
-            let minor = parts.next()?;
-            let patch = parts.next()?;
-            if parts.next().is_some() {
-                return None;
-            }
-            if [major, minor, patch]
-                .iter()
-                .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
-            {
-                Some(format!("{major}.{minor}.{patch}"))
+            if looks_like_semver_tag(normalized) {
+                Some(normalized.to_owned())
             } else {
                 None
             }
@@ -373,6 +403,14 @@ mod tests {
         assert_eq!(
             parse_llxprt_version_tag("llxprt v0.9.0"),
             Some("0.9.0".to_owned())
+        );
+    }
+
+    #[test]
+    fn parse_llxprt_version_tag_handles_nightly_semver_suffix() {
+        assert_eq!(
+            parse_llxprt_version_tag("0.9.0-nightly.260301.0223eb66a\n"),
+            Some("0.9.0-nightly.260301.0223eb66a".to_owned())
         );
     }
 

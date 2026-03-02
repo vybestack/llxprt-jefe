@@ -1402,7 +1402,7 @@ fn normalize_memory_flag_to_mib(flags: &str) -> String {
     for token in flags.split_whitespace() {
         if let Some(raw_mem) = token.strip_prefix("--memory=") {
             if let Some(normalized) = memory_value_to_mib(raw_mem) {
-                out.push(format!("--memory={normalized}"));
+                out.push(format!("--memory={normalized}m"));
             } else {
                 out.push(token.to_owned());
             }
@@ -1544,7 +1544,7 @@ mod tests {
     fn normalize_sandbox_flags_converts_gib_to_mib() {
         assert_eq!(
             normalize_sandbox_flags("--cpus=2 --memory=12g --pids-limit=256"),
-            "--cpus=2 --memory=12288 --pids-limit=256"
+            "--cpus=2 --memory=12288m --pids-limit=256"
         );
     }
 
