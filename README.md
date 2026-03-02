@@ -2,6 +2,12 @@
 
 Terminal UI for running and managing multiple `llxprt` coding agents across repositories.
 
+<p align="center">
+  <img src="docs/assets/jefe-logo.svg" alt="jefe logo" width="220" />
+</p>
+
+See the product page: https://vybestack.dev/jefe.html
+
 ![jefe screenshot](docs/assets/jefe-screenshot.png)
 
 ## What it does
@@ -72,6 +78,25 @@ Related runtime/env toggles:
 - `tmux` installed and available on PATH.
 - `llxprt` CLI installed separately and available on PATH.
 - A terminal with proper UTF-8 + color support.
+
+
+## tmux clipboard note
+
+If `llxprt` copy appears not to work inside `jefe`, verify tmux clipboard settings:
+
+```bash
+tmux set-option -g set-clipboard on
+tmux set-option -g allow-passthrough on
+tmux set-window-option -g allow-passthrough on
+```
+
+You can check current values with:
+
+```bash
+tmux show-options -g set-clipboard
+tmux show-options -g allow-passthrough
+tmux show-window-options -g allow-passthrough
+```
 
 ## Install with Homebrew (recommended)
 

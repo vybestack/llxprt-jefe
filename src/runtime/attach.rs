@@ -5,12 +5,13 @@
 //! @pseudocode component-002 lines 07-14
 
 use std::io::{Read, Write};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use alacritty_terminal::event::EventListener;
+use alacritty_terminal::event::{Event as TermEvent, EventListener};
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::term::Config as TermConfig;
 use alacritty_terminal::term::cell::Flags;
@@ -42,12 +43,86 @@ impl Dimensions for TermDimensions {
     }
 }
 
-/// Null event listener for alacritty_terminal.
+/// Runtime event listener for alacritty_terminal.
+///
+/// Handles OSC52 clipboard-store events so llxprt copy propagates to the host
+/// clipboard when running inside jefe's embedded PTY.
 #[derive(Clone, Copy, Debug)]
-pub struct NullListener;
+pub struct RuntimeListener;
 
-impl EventListener for NullListener {
-    fn send_event(&self, _event: alacritty_terminal::event::Event) {}
+fn copy_to_system_clipboard(text: &str) {
+    if text.is_empty() {
+        return;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut child = match Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(error) => {
+                warn!(%error, "failed to spawn pbcopy for OSC52 clipboard store");
+                return;
+            }
+        };
+
+        if let Some(stdin) = child.stdin.as_mut()
+            && let Err(error) = stdin.write_all(text.as_bytes())
+        {
+            warn!(%error, "failed to write clipboard payload to pbcopy");
+        }
+
+        if let Err(error) = child.wait() {
+            warn!(%error, "failed waiting for pbcopy to complete");
+        }
+
+        return;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        for (cmd, args) in [
+            ("xclip", ["-selection", "clipboard"].as_slice()),
+            ("xsel", ["--clipboard", "--input"].as_slice()),
+        ] {
+            let mut child = match Command::new(cmd)
+                .args(args)
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+            {
+                Ok(child) => child,
+                Err(_) => continue,
+            };
+
+            if let Some(stdin) = child.stdin.as_mut()
+                && stdin.write_all(text.as_bytes()).is_err()
+            {
+                continue;
+            }
+
+            if child.wait().is_ok_and(|status| status.success()) {
+                return;
+            }
+        }
+
+        warn!("failed to store OSC52 clipboard data: xclip/xsel unavailable or failed");
+    }
+}
+
+impl EventListener for RuntimeListener {
+    fn send_event(&self, event: TermEvent) {
+        match event {
+            TermEvent::ClipboardStore(_, text) => {
+                copy_to_system_clipboard(&text);
+            }
+            TermEvent::ClipboardLoad(_, _) => {
+                // Paste-request events are currently routed via host paste events.
+            }
+            _ => {}
+        }
+    }
 }
 
 /// An attached viewer representing a PTY connected to a tmux session.
@@ -57,7 +132,7 @@ pub struct AttachedViewer {
     /// Write end for sending input.
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     /// Terminal state model.
-    term: Arc<Mutex<Term<NullListener>>>,
+    term: Arc<Mutex<Term<RuntimeListener>>>,
     /// Liveness flag.
     alive: Arc<AtomicBool>,
     /// Child process handle for deterministic teardown.
@@ -229,7 +304,7 @@ fn resolve_color(
     clippy::cast_sign_loss,
     clippy::too_many_lines
 )]
-fn snapshot_from_term(term: &Term<NullListener>) -> TerminalSnapshot {
+fn snapshot_from_term(term: &Term<RuntimeListener>) -> TerminalSnapshot {
     let rows = term.screen_lines();
     let cols = term.columns();
 
@@ -367,7 +442,7 @@ impl AttachedViewer {
             cols: cols as usize,
             rows: rows as usize,
         };
-        let term = Term::new(config, &term_size, NullListener);
+        let term = Term::new(config, &term_size, RuntimeListener);
         let term = Arc::new(Mutex::new(term));
 
         let alive = Arc::new(AtomicBool::new(true));
@@ -527,7 +602,7 @@ impl Drop for AttachedViewer {
 /// Reader loop that feeds PTY output into the terminal model.
 fn reader_loop(
     mut reader: Box<dyn Read + Send>,
-    term: Arc<Mutex<Term<NullListener>>>,
+    term: Arc<Mutex<Term<RuntimeListener>>>,
     alive: Arc<AtomicBool>,
 ) {
     let mut buf = [0u8; 4096];
