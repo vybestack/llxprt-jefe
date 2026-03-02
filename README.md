@@ -3,39 +3,20 @@
   <a href="https://vybestack.dev/jefe.html">LLxprt Jefe</a>
 </h1>
 
-Terminal UI for running and managing multiple [`LLxprt Code`](https://vybestack.dev/llxprt-code.html) agents across repositories.
+**Problem:** "I have too many terminals open and can't keep track of which agent is working on what issue."
+
+`jefe` gives you one terminal control plane for multiple [`LLxprt Code`](https://vybestack.dev/llxprt-code.html) agents across repositories.
 
 ![jefe screenshot](docs/assets/jefe-screenshot.png)
 
-## What it does
+## What it does for you
 
-`jefe` gives you one place to:
-
-- organize repositories,
-- create and run multiple coding agents (each in its own tmux-backed session),
-- watch status/output across agents,
-- jump directly to an agent and attach keyboard input to it,
-- manage agents (edit, kill, relaunch, delete),
-- switch themes and keep state persisted between runs.
-
-Instead of juggling many terminal tabs/windows, `jefe` keeps the workflow in a single fullscreen TUI.
-
-## How it works (high level)
-
-`jefe` is a Rust application built around:
-
-- **iocraft + crossterm** for terminal UI and input events,
-- **portable-pty + tmux** for process/session hosting,
-- **alacritty_terminal** for terminal emulation and screen snapshots,
-- **serde/json** for persistence.
-
-Runtime model:
-
-1. Each agent maps to a tmux session.
-2. `jefe` keeps one attached viewer PTY for rendering/interacting with the selected running agent.
-3. UI state is event-driven (`AppEvent` + deterministic state transitions in `AppState`).
-4. A render loop snapshots current state + terminal content and draws dashboard/split/modal views.
-5. Settings/state are loaded at startup and saved on mutation.
+- shows all your repos and agents in one place,
+- keeps each agent in its own tmux-backed session,
+- lets you quickly jump to the right agent and terminal,
+- makes it easy to see status/output without tab chaos,
+- supports day-to-day operations (create, edit, kill, relaunch, delete),
+- persists your setup/state between runs.
 
 ## Main UI modes
 
@@ -55,6 +36,68 @@ Runtime model:
 - `s`: split view.
 - `?` / `h` / `F1`: help.
 
+## Install jefe
+
+### Homebrew (macOS/Linux)
+
+```bash
+brew tap vybestack/tap https://github.com/vybestack/homebrew-tap
+brew install jefe
+```
+
+### Linux `.deb` packages (Ubuntu/Debian)
+
+Pick the latest release and architecture-specific asset from:
+
+https://github.com/vybestack/llxprt-jefe/releases/latest
+
+Then install:
+
+```bash
+sudo dpkg -i ./jefe-vX.Y.Z-x86_64-unknown-linux-gnu.deb
+# or
+sudo dpkg -i ./jefe-vX.Y.Z-aarch64-unknown-linux-gnu.deb
+```
+
+If dependencies are missing:
+
+```bash
+sudo apt-get install -f
+```
+
+### Linux `.rpm` packages (Fedora/RHEL/openSUSE)
+
+Pick the latest release and architecture-specific asset from:
+
+https://github.com/vybestack/llxprt-jefe/releases/latest
+
+Then install:
+
+```bash
+sudo rpm -i ./jefe-vX.Y.Z-x86_64-unknown-linux-gnu.rpm
+# or
+sudo rpm -i ./jefe-vX.Y.Z-aarch64-unknown-linux-gnu.rpm
+```
+
+(If upgrading an existing install, use `sudo rpm -Uvh ...`.)
+
+## Install llxprt (required)
+
+`jefe` launches `llxprt` agents, so install `llxprt` separately and ensure it is on PATH.
+
+### Homebrew
+
+```bash
+brew tap vybestack/tap https://github.com/vybestack/homebrew-tap
+brew install llxprt
+```
+
+### npm
+
+```bash
+npm i -g @vybestack/llxprt-code
+```
+
 ## Persistence and paths
 
 By default, `jefe` resolves settings/state using platform paths, with env var overrides:
@@ -68,14 +111,6 @@ Related runtime/env toggles:
 
 - `JEFE_WINDOWED=1` to disable fullscreen mode.
 - `JEFE_LOG_FILE` and `JEFE_LOG` for structured logging output/filtering.
-
-## Requirements
-
-- Rust toolchain (edition 2024 crate).
-- `tmux` installed and available on PATH.
-- `llxprt` CLI installed separately and available on PATH.
-- A terminal with proper UTF-8 + color support.
-
 
 ## tmux clipboard note
 
@@ -95,44 +130,6 @@ tmux show-options -g allow-passthrough
 tmux show-window-options -g allow-passthrough
 ```
 
-## Install with Homebrew (recommended)
+## For contributors
 
-`jefe` is published via the Vybestack tap:
-
-```bash
-brew tap vybestack/tap https://github.com/vybestack/homebrew-tap
-brew install jefe
-```
-
-`jefe` does **not** install `llxprt` for you. Install `llxprt` separately and ensure it is on PATH.
-
-## Build and run
-
-```bash
-cargo run
-```
-
-Version:
-
-```bash
-cargo run -- --version
-```
-
-## Development verification
-
-```bash
-cargo fmt
-cargo check -q
-cargo test -q
-cargo clippy --all-targets --all-features -- -D warnings
-```
-
-## Project structure
-
-- `src/main.rs` — app entry + event/render loop wiring.
-- `src/state/` — app state machine and events.
-- `src/runtime/` — tmux/PTTY attach, input, snapshots, liveness.
-- `src/ui/` — screens/components/modals.
-- `src/theme/` — themes and color resolution.
-- `src/persistence/` — load/save settings and state.
-- `docs/` — technical and product docs.
+Build/test/developer details moved to [`docs/building.md`](docs/building.md).
