@@ -1,6 +1,7 @@
 research/
 *.png
 *.PNG
+!docs/assets/jefe-screenshot.png
 
 # Build artifacts and local runtime scratch
 /target/
