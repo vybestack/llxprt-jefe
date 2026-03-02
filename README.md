@@ -1,10 +1,9 @@
-# LLxprt Jefe ([product page](https://vybestack.dev/jefe.html))
+<h1>
+  <img src="docs/assets/jefe-logo.svg" alt="jefe logo" width="42" />
+  <a href="https://vybestack.dev/jefe.html">LLxprt Jefe</a>
+</h1>
 
-<p align="center">
-  <img src="docs/assets/jefe-logo.svg" alt="jefe logo" width="110" />
-</p>
-
-Terminal UI for running and managing multiple [`LLxprt Code` agents](https://vybestack.dev/llxprt-code.html) across repositories.
+Terminal UI for running and managing multiple [`LLxprt Code`](https://vybestack.dev/llxprt-code.html) agents across repositories.
 
 ![jefe screenshot](docs/assets/jefe-screenshot.png)
 
