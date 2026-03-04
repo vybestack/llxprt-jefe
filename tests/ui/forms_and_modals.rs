@@ -8,7 +8,7 @@
 //! Acceptance criteria from: analysis/crud-validation-error-matrix.md
 
 use jefe::domain::{Agent, AgentId, Repository, RepositoryId};
-use jefe::state::{AppEvent, AppState, ModalState};
+use jefe::state::{AgentFormFocus, AppEvent, AppState, ModalState, RepositoryFormFocus};
 use std::path::PathBuf;
 
 /// Create a test state with form-related fields.
@@ -280,4 +280,56 @@ fn submit_new_agent_form_trims_llxprt_debug() {
     };
 
     assert_eq!(created.llxprt_debug, "io=trace");
+}
+
+#[test]
+fn repository_form_cursor_moves_and_inserts_in_place() {
+    let mut state = create_form_test_state();
+
+    state = state.apply(AppEvent::OpenNewRepository);
+    state = state.apply(AppEvent::FormChar('a'));
+    state = state.apply(AppEvent::FormChar('c'));
+    state = state.apply(AppEvent::FormMoveCursorLeft);
+    state = state.apply(AppEvent::FormChar('b'));
+
+    match state.modal {
+        ModalState::NewRepository {
+            fields,
+            focus,
+            cursor,
+        } => {
+            assert_eq!(focus, RepositoryFormFocus::Name);
+            assert_eq!(fields.name, "abc");
+            assert_eq!(cursor.name, 2);
+        }
+        _ => panic!("expected new-repository modal"),
+    }
+}
+
+#[test]
+fn agent_form_cursor_delete_and_backspace_are_caret_based() {
+    let mut state = create_form_test_state();
+
+    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".into())));
+    state = state.apply(AppEvent::FormNextField); // Name
+    state = state.apply(AppEvent::FormChar('a'));
+    state = state.apply(AppEvent::FormChar('b'));
+    state = state.apply(AppEvent::FormChar('c'));
+    state = state.apply(AppEvent::FormMoveCursorLeft); // ab|c
+    state = state.apply(AppEvent::FormDelete); // remove c => ab|
+    state = state.apply(AppEvent::FormBackspace); // remove b => a|
+
+    match state.modal {
+        ModalState::NewAgent {
+            fields,
+            focus,
+            cursor,
+            ..
+        } => {
+            assert_eq!(focus, AgentFormFocus::Name);
+            assert_eq!(fields.name, "a");
+            assert_eq!(cursor.name, 1);
+        }
+        _ => panic!("expected new-agent modal"),
+    }
 }

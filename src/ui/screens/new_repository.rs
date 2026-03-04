@@ -6,7 +6,7 @@
 
 use iocraft::prelude::*;
 
-use crate::state::{AppState, ModalState, RepositoryFormFocus};
+use crate::state::{AppState, ModalState, RepositoryFormCursor, RepositoryFormFocus};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the new repository form.
@@ -18,31 +18,55 @@ pub struct NewRepositoryFormProps {
     pub colors: Option<ThemeColors>,
 }
 
+fn render_text_with_caret(value: &str, cursor: usize) -> String {
+    let char_len = value.chars().count();
+    let clamped = cursor.min(char_len);
+
+    let byte_idx = if clamped == 0 {
+        0
+    } else {
+        value
+            .char_indices()
+            .nth(clamped)
+            .map_or_else(|| value.len(), |(idx, _)| idx)
+    };
+
+    format!("{}▏{}", &value[..byte_idx], &value[byte_idx..])
+}
+
 /// Form for creating/editing a repository.
 #[component]
 pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(props.colors.as_ref());
 
     // Extract form state from modal
-    let (title, fields, focus) = props.state.as_ref().map_or_else(
+    let (title, fields, focus, cursor) = props.state.as_ref().map_or_else(
         || {
             (
                 "New Repository",
                 crate::state::RepositoryFormFields::default(),
                 RepositoryFormFocus::default(),
+                RepositoryFormCursor::default(),
             )
         },
         |state| match &state.modal {
-            ModalState::NewRepository { fields, focus } => {
-                ("New Repository", fields.clone(), *focus)
-            }
-            ModalState::EditRepository { fields, focus, .. } => {
-                ("Edit Repository", fields.clone(), *focus)
-            }
+            ModalState::NewRepository {
+                fields,
+                focus,
+                cursor,
+                ..
+            } => ("New Repository", fields.clone(), *focus, cursor.clone()),
+            ModalState::EditRepository {
+                fields,
+                focus,
+                cursor,
+                ..
+            } => ("Edit Repository", fields.clone(), *focus, cursor.clone()),
             _ => (
                 "New Repository",
                 crate::state::RepositoryFormFields::default(),
                 RepositoryFormFocus::default(),
+                RepositoryFormCursor::default(),
             ),
         },
     );
@@ -55,18 +79,21 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         RepositoryFormFocus::BaseDir,
         RepositoryFormFocus::DefaultProfile,
     ];
+    let cursors = [cursor.name, cursor.base_dir, cursor.default_profile];
 
     let field_lines: Vec<AnyElement<'static>> = labels
         .iter()
         .zip(values.iter())
         .zip(focuses.iter())
-        .map(|((label, value), field_focus)| {
+        .zip(cursors.iter())
+        .map(|(((label, value), field_focus), field_cursor)| {
             let is_focused = focus == *field_focus;
-            let display = if is_focused {
-                format!("  {label:<16} [{value}_]")
+            let rendered_value = if is_focused {
+                render_text_with_caret(value, *field_cursor)
             } else {
-                format!("  {label:<16} [{value}]")
+                (*value).to_owned()
             };
+            let display = format!("  {label:<16} [{rendered_value}]");
             let color = if is_focused { rc.bright } else { rc.fg };
             element! {
                 Box(height: 1u32) {
@@ -105,7 +132,7 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
                     Text(content: "".to_owned(), color: rc.fg)
                 }
                 Box(height: 1u32) {
-                    Text(content: "  Tab/Down next  Shift+Tab/Up prev  Enter submit  Esc cancel".to_owned(), color: rc.dim)
+                    Text(content: "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Enter submit  Esc cancel".to_owned(), color: rc.dim)
                 }
             }
         }

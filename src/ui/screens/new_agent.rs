@@ -6,7 +6,7 @@
 
 use iocraft::prelude::*;
 
-use crate::state::{AgentFormFocus, AppState, ModalState};
+use crate::state::{AgentFormCursor, AgentFormFocus, AppState, ModalState};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the new agent form.
@@ -18,27 +18,55 @@ pub struct NewAgentFormProps {
     pub colors: Option<ThemeColors>,
 }
 
+fn render_text_with_caret(value: &str, cursor: usize) -> String {
+    let char_len = value.chars().count();
+    let clamped = cursor.min(char_len);
+
+    let byte_idx = if clamped == 0 {
+        0
+    } else {
+        value
+            .char_indices()
+            .nth(clamped)
+            .map_or_else(|| value.len(), |(idx, _)| idx)
+    };
+
+    format!("{}▏{}", &value[..byte_idx], &value[byte_idx..])
+}
+
 /// Form for creating/editing an agent.
 #[component]
 pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(props.colors.as_ref());
 
     // Extract form state from modal
-    let (title, fields, focus) = props.state.as_ref().map_or_else(
+    let (title, fields, focus, cursor) = props.state.as_ref().map_or_else(
         || {
             (
                 "New Agent",
                 crate::state::AgentFormFields::default(),
                 AgentFormFocus::default(),
+                AgentFormCursor::default(),
             )
         },
         |state| match &state.modal {
-            ModalState::NewAgent { fields, focus, .. } => ("New Agent", fields.clone(), *focus),
-            ModalState::EditAgent { fields, focus, .. } => ("Edit Agent", fields.clone(), *focus),
+            ModalState::NewAgent {
+                fields,
+                focus,
+                cursor,
+                ..
+            } => ("New Agent", fields.clone(), *focus, cursor.clone()),
+            ModalState::EditAgent {
+                fields,
+                focus,
+                cursor,
+                ..
+            } => ("Edit Agent", fields.clone(), *focus, cursor.clone()),
             _ => (
                 "New Agent",
                 crate::state::AgentFormFields::default(),
                 AgentFormFocus::default(),
+                AgentFormCursor::default(),
             ),
         },
     );
@@ -75,18 +103,29 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         AgentFormFocus::Mode,
         AgentFormFocus::LlxprtDebug,
     ];
+    let cursors = [
+        0,
+        cursor.name,
+        cursor.description,
+        cursor.work_dir,
+        cursor.profile,
+        cursor.mode,
+        cursor.llxprt_debug,
+    ];
 
     let mut field_lines: Vec<AnyElement<'static>> = labels
         .iter()
         .zip(values.iter())
         .zip(focuses.iter())
-        .map(|((label, value), field_focus)| {
+        .zip(cursors.iter())
+        .map(|(((label, value), field_focus), field_cursor)| {
             let is_focused = focus == *field_focus;
-            let display = if is_focused {
-                format!("  {label:<16} [{value}_]")
+            let rendered_value = if is_focused && *field_focus != AgentFormFocus::Shortcut {
+                render_text_with_caret(value, *field_cursor)
             } else {
-                format!("  {label:<16} [{value}]")
+                (*value).to_owned()
             };
+            let display = format!("  {label:<16} [{rendered_value}]");
             let color = if is_focused { rc.bright } else { rc.fg };
             element! {
                 Box(height: 1u32) {
@@ -153,11 +192,12 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     // Sandbox flags field.
     let flags_focused = focus == AgentFormFocus::SandboxFlags;
     let flags_color = if flags_focused { rc.bright } else { rc.fg };
-    let flags_display = if flags_focused {
-        format!("  {:<16} [{}_]", "Sandbox Flags", fields.sandbox_flags)
+    let flags_value = if flags_focused {
+        render_text_with_caret(&fields.sandbox_flags, cursor.sandbox_flags)
     } else {
-        format!("  {:<16} [{}]", "Sandbox Flags", fields.sandbox_flags)
+        fields.sandbox_flags.clone()
     };
+    let flags_display = format!("  {:<16} [{}]", "Sandbox Flags", flags_value);
     field_lines.push(
         element! {
             Box(height: 1u32) {
@@ -195,7 +235,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
                     Text(content: "".to_owned(), color: rc.fg)
                 }
                 Box(height: 1u32) {
-                    Text(content: "  Tab/Down next  Shift+Tab/Up prev  Space toggles/cycles checkboxes  Enter submit  Esc cancel".to_owned(), color: rc.dim)
+                    Text(content: "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles/cycles checkboxes  Enter submit  Esc cancel".to_owned(), color: rc.dim)
                 }
             }
         }

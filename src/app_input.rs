@@ -472,7 +472,10 @@ pub fn handle_mode_form_key(
         }
         KeyCode::Tab | KeyCode::Down => Some(AppEvent::FormNextField),
         KeyCode::BackTab | KeyCode::Up => Some(AppEvent::FormPrevField),
+        KeyCode::Left => Some(AppEvent::FormMoveCursorLeft),
+        KeyCode::Right => Some(AppEvent::FormMoveCursorRight),
         KeyCode::Backspace => Some(AppEvent::FormBackspace),
+        KeyCode::Delete => Some(AppEvent::FormDelete),
         // Space toggles checkbox or cycles sandbox engine on the dedicated controls.
         KeyCode::Char(' ') => {
             let focused = {

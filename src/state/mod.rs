@@ -28,6 +28,18 @@ pub struct AgentFormFields {
     pub sandbox_flags: String,
 }
 
+/// Cursor positions for editable agent form text fields.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AgentFormCursor {
+    pub name: usize,
+    pub description: usize,
+    pub work_dir: usize,
+    pub profile: usize,
+    pub mode: usize,
+    pub llxprt_debug: usize,
+    pub sandbox_flags: usize,
+}
+
 /// Which field is focused in the agent form.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum AgentFormFocus {
@@ -91,6 +103,14 @@ pub struct RepositoryFormFields {
     pub default_profile: String,
 }
 
+/// Cursor positions for repository form text fields.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RepositoryFormCursor {
+    pub name: usize,
+    pub base_dir: usize,
+    pub default_profile: usize,
+}
+
 /// Which field is focused in the repository form.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum RepositoryFormFocus {
@@ -134,11 +154,13 @@ pub enum ModalState {
     NewRepository {
         fields: RepositoryFormFields,
         focus: RepositoryFormFocus,
+        cursor: RepositoryFormCursor,
     },
     EditRepository {
         id: RepositoryId,
         fields: RepositoryFormFields,
         focus: RepositoryFormFocus,
+        cursor: RepositoryFormCursor,
     },
     ConfirmDeleteRepository {
         id: RepositoryId,
@@ -147,6 +169,7 @@ pub enum ModalState {
         repository_id: RepositoryId,
         fields: AgentFormFields,
         focus: AgentFormFocus,
+        cursor: AgentFormCursor,
         /// Track if work_dir was manually edited (stop auto-deriving from name).
         work_dir_manual: bool,
     },
@@ -154,6 +177,7 @@ pub enum ModalState {
         id: AgentId,
         fields: AgentFormFields,
         focus: AgentFormFocus,
+        cursor: AgentFormCursor,
     },
     ConfirmDeleteAgent {
         id: AgentId,
@@ -246,6 +270,9 @@ pub enum AppEvent {
     // Form input events
     FormChar(char),
     FormBackspace,
+    FormDelete,
+    FormMoveCursorLeft,
+    FormMoveCursorRight,
     FormNextField,
     FormPrevField,
     FormToggleCheckbox,
@@ -597,6 +624,15 @@ impl AppState {
             AppEvent::FormBackspace => {
                 self.handle_form_backspace();
             }
+            AppEvent::FormDelete => {
+                self.handle_form_delete();
+            }
+            AppEvent::FormMoveCursorLeft => {
+                self.handle_form_move_cursor_left();
+            }
+            AppEvent::FormMoveCursorRight => {
+                self.handle_form_move_cursor_right();
+            }
             AppEvent::FormNextField => {
                 self.handle_form_next_field();
             }
@@ -612,6 +648,7 @@ impl AppState {
                 self.modal = ModalState::NewRepository {
                     fields: RepositoryFormFields::default(),
                     focus: RepositoryFormFocus::default(),
+                    cursor: RepositoryFormCursor::default(),
                 };
             }
             AppEvent::OpenEditRepository(id) => {
@@ -628,6 +665,11 @@ impl AppState {
                     .unwrap_or_default();
                 self.modal = ModalState::EditRepository {
                     id,
+                    cursor: RepositoryFormCursor {
+                        name: fields.name.chars().count(),
+                        base_dir: fields.base_dir.chars().count(),
+                        default_profile: fields.default_profile.chars().count(),
+                    },
                     fields,
                     focus: RepositoryFormFocus::default(),
                 };
@@ -649,6 +691,9 @@ impl AppState {
                     })
                     .unwrap_or_default();
 
+                let work_dir_len = base_dir.chars().count();
+                let profile_len = default_profile.chars().count();
+
                 self.modal = ModalState::NewAgent {
                     repository_id,
                     fields: AgentFormFields {
@@ -663,6 +708,13 @@ impl AppState {
                         sandbox_enabled: false,
                         sandbox_engine: SandboxEngine::Podman.label().to_owned(),
                         sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+                    },
+                    cursor: AgentFormCursor {
+                        work_dir: work_dir_len,
+                        profile: profile_len,
+                        mode: "--yolo".chars().count(),
+                        sandbox_flags: DEFAULT_SANDBOX_FLAGS.chars().count(),
+                        ..AgentFormCursor::default()
                     },
                     focus: AgentFormFocus::default(),
                     work_dir_manual: false,
@@ -690,6 +742,15 @@ impl AppState {
                     .unwrap_or_default();
                 self.modal = ModalState::EditAgent {
                     id,
+                    cursor: AgentFormCursor {
+                        name: fields.name.chars().count(),
+                        description: fields.description.chars().count(),
+                        work_dir: fields.work_dir.chars().count(),
+                        profile: fields.profile.chars().count(),
+                        mode: fields.mode.chars().count(),
+                        llxprt_debug: fields.llxprt_debug.chars().count(),
+                        sandbox_flags: fields.sandbox_flags.chars().count(),
+                    },
                     fields,
                     focus: AgentFormFocus::default(),
                 };
@@ -884,161 +945,279 @@ impl AppState {
 
     #[allow(clippy::too_many_lines)]
     fn handle_form_char(&mut self, c: char) {
+        let mut refresh_work_dir = false;
+
         match &mut self.modal {
             ModalState::Search { query } => {
                 query.push(c);
             }
-            ModalState::NewRepository { fields, focus, .. }
-            | ModalState::EditRepository { fields, focus, .. } => {
-                let field = match focus {
-                    RepositoryFormFocus::Name => &mut fields.name,
-                    RepositoryFormFocus::BaseDir => &mut fields.base_dir,
-                    RepositoryFormFocus::DefaultProfile => &mut fields.default_profile,
-                };
-                field.push(c);
+            ModalState::NewRepository {
+                fields,
+                focus,
+                cursor,
+                ..
             }
+            | ModalState::EditRepository {
+                fields,
+                focus,
+                cursor,
+                ..
+            } => match focus {
+                RepositoryFormFocus::Name => {
+                    cursor.name = insert_char_at(&mut fields.name, cursor.name, c);
+                }
+                RepositoryFormFocus::BaseDir => {
+                    cursor.base_dir = insert_char_at(&mut fields.base_dir, cursor.base_dir, c);
+                }
+                RepositoryFormFocus::DefaultProfile => {
+                    cursor.default_profile =
+                        insert_char_at(&mut fields.default_profile, cursor.default_profile, c);
+                }
+            },
             ModalState::NewAgent {
                 fields,
                 focus,
+                cursor,
                 work_dir_manual,
                 ..
-            } => {
-                match focus {
-                    AgentFormFocus::Shortcut => {
-                        if c == '0' {
-                            fields.shortcut_slot = None;
-                        } else if let Some(digit) = c.to_digit(10)
-                            && (1..=9).contains(&digit)
-                        {
-                            fields.shortcut_slot = u8::try_from(digit).ok();
-                        }
+            } => match focus {
+                AgentFormFocus::Shortcut => {
+                    if c == '0' {
+                        fields.shortcut_slot = None;
+                    } else if let Some(digit) = c.to_digit(10)
+                        && (1..=9).contains(&digit)
+                    {
+                        fields.shortcut_slot = u8::try_from(digit).ok();
                     }
-                    AgentFormFocus::Name => {
-                        fields.name.push(c);
-                        // Auto-update work_dir from name if not manually edited
-                        if !*work_dir_manual {
-                            self.update_agent_work_dir_from_name();
-                        }
-                    }
-                    AgentFormFocus::Description => fields.description.push(c),
-                    AgentFormFocus::WorkDir => {
-                        fields.work_dir.push(c);
-                        *work_dir_manual = true;
-                    }
-                    AgentFormFocus::Profile => fields.profile.push(c),
-                    AgentFormFocus::Mode => fields.mode.push(c),
-                    AgentFormFocus::LlxprtDebug => fields.llxprt_debug.push(c),
-                    AgentFormFocus::PassContinue => {
-                        // Space or 'x' toggles checkbox, ignore other chars
-                        if c == ' ' || c == 'x' || c == 'X' {
-                            fields.pass_continue = !fields.pass_continue;
-                        }
-                    }
-                    AgentFormFocus::Sandbox => {
-                        if c == ' ' || c == 'x' || c == 'X' {
-                            fields.sandbox_enabled = !fields.sandbox_enabled;
-                        }
-                    }
-                    AgentFormFocus::SandboxEngine => {
-                        if c == ' ' || c == 'x' || c == 'X' {
-                            let current = SandboxEngine::from_form_value(&fields.sandbox_engine)
-                                .unwrap_or_default();
-                            current
-                                .next()
-                                .label()
-                                .clone_into(&mut fields.sandbox_engine);
-                        }
-                    }
-                    AgentFormFocus::SandboxFlags => fields.sandbox_flags.push(c),
                 }
-            }
-            ModalState::EditAgent { fields, focus, .. } => {
-                match focus {
-                    AgentFormFocus::Shortcut => {
-                        if c == '0' {
-                            fields.shortcut_slot = None;
-                        } else if let Some(digit) = c.to_digit(10)
-                            && (1..=9).contains(&digit)
-                        {
-                            fields.shortcut_slot = u8::try_from(digit).ok();
-                        }
+                AgentFormFocus::Name => {
+                    cursor.name = insert_char_at(&mut fields.name, cursor.name, c);
+                    if !*work_dir_manual {
+                        refresh_work_dir = true;
                     }
-                    AgentFormFocus::Name => fields.name.push(c),
-                    AgentFormFocus::Description => fields.description.push(c),
-                    AgentFormFocus::WorkDir => fields.work_dir.push(c),
-                    AgentFormFocus::Profile => fields.profile.push(c),
-                    AgentFormFocus::Mode => fields.mode.push(c),
-                    AgentFormFocus::LlxprtDebug => fields.llxprt_debug.push(c),
-                    AgentFormFocus::PassContinue => {
-                        // Space or 'x' toggles checkbox, ignore other chars
-                        if c == ' ' || c == 'x' || c == 'X' {
-                            fields.pass_continue = !fields.pass_continue;
-                        }
-                    }
-                    AgentFormFocus::Sandbox => {
-                        if c == ' ' || c == 'x' || c == 'X' {
-                            fields.sandbox_enabled = !fields.sandbox_enabled;
-                        }
-                    }
-                    AgentFormFocus::SandboxEngine => {
-                        if c == ' ' || c == 'x' || c == 'X' {
-                            let current = SandboxEngine::from_form_value(&fields.sandbox_engine)
-                                .unwrap_or_default();
-                            current
-                                .next()
-                                .label()
-                                .clone_into(&mut fields.sandbox_engine);
-                        }
-                    }
-                    AgentFormFocus::SandboxFlags => fields.sandbox_flags.push(c),
                 }
-            }
+                AgentFormFocus::Description => {
+                    cursor.description =
+                        insert_char_at(&mut fields.description, cursor.description, c);
+                }
+                AgentFormFocus::WorkDir => {
+                    cursor.work_dir = insert_char_at(&mut fields.work_dir, cursor.work_dir, c);
+                    *work_dir_manual = true;
+                }
+                AgentFormFocus::Profile => {
+                    cursor.profile = insert_char_at(&mut fields.profile, cursor.profile, c);
+                }
+                AgentFormFocus::Mode => {
+                    cursor.mode = insert_char_at(&mut fields.mode, cursor.mode, c);
+                }
+                AgentFormFocus::LlxprtDebug => {
+                    cursor.llxprt_debug =
+                        insert_char_at(&mut fields.llxprt_debug, cursor.llxprt_debug, c);
+                }
+                AgentFormFocus::PassContinue => {
+                    // Space or 'x' toggles checkbox, ignore other chars
+                    if c == ' ' || c == 'x' || c == 'X' {
+                        fields.pass_continue = !fields.pass_continue;
+                    }
+                }
+                AgentFormFocus::Sandbox => {
+                    if c == ' ' || c == 'x' || c == 'X' {
+                        fields.sandbox_enabled = !fields.sandbox_enabled;
+                    }
+                }
+                AgentFormFocus::SandboxEngine => {
+                    if c == ' ' || c == 'x' || c == 'X' {
+                        let current = SandboxEngine::from_form_value(&fields.sandbox_engine)
+                            .unwrap_or_default();
+                        current
+                            .next()
+                            .label()
+                            .clone_into(&mut fields.sandbox_engine);
+                    }
+                }
+                AgentFormFocus::SandboxFlags => {
+                    cursor.sandbox_flags =
+                        insert_char_at(&mut fields.sandbox_flags, cursor.sandbox_flags, c);
+                }
+            },
+            ModalState::EditAgent {
+                fields,
+                focus,
+                cursor,
+                ..
+            } => match focus {
+                AgentFormFocus::Shortcut => {
+                    if c == '0' {
+                        fields.shortcut_slot = None;
+                    } else if let Some(digit) = c.to_digit(10)
+                        && (1..=9).contains(&digit)
+                    {
+                        fields.shortcut_slot = u8::try_from(digit).ok();
+                    }
+                }
+                AgentFormFocus::Name => {
+                    cursor.name = insert_char_at(&mut fields.name, cursor.name, c);
+                }
+                AgentFormFocus::Description => {
+                    cursor.description =
+                        insert_char_at(&mut fields.description, cursor.description, c);
+                }
+                AgentFormFocus::WorkDir => {
+                    cursor.work_dir = insert_char_at(&mut fields.work_dir, cursor.work_dir, c);
+                }
+                AgentFormFocus::Profile => {
+                    cursor.profile = insert_char_at(&mut fields.profile, cursor.profile, c);
+                }
+                AgentFormFocus::Mode => {
+                    cursor.mode = insert_char_at(&mut fields.mode, cursor.mode, c);
+                }
+                AgentFormFocus::LlxprtDebug => {
+                    cursor.llxprt_debug =
+                        insert_char_at(&mut fields.llxprt_debug, cursor.llxprt_debug, c);
+                }
+                AgentFormFocus::PassContinue => {
+                    // Space or 'x' toggles checkbox, ignore other chars
+                    if c == ' ' || c == 'x' || c == 'X' {
+                        fields.pass_continue = !fields.pass_continue;
+                    }
+                }
+                AgentFormFocus::Sandbox => {
+                    if c == ' ' || c == 'x' || c == 'X' {
+                        fields.sandbox_enabled = !fields.sandbox_enabled;
+                    }
+                }
+                AgentFormFocus::SandboxEngine => {
+                    if c == ' ' || c == 'x' || c == 'X' {
+                        let current = SandboxEngine::from_form_value(&fields.sandbox_engine)
+                            .unwrap_or_default();
+                        current
+                            .next()
+                            .label()
+                            .clone_into(&mut fields.sandbox_engine);
+                    }
+                }
+                AgentFormFocus::SandboxFlags => {
+                    cursor.sandbox_flags =
+                        insert_char_at(&mut fields.sandbox_flags, cursor.sandbox_flags, c);
+                }
+            },
             _ => {}
         }
-    }
 
-    fn pop_repository_field(fields: &mut RepositoryFormFields, focus: RepositoryFormFocus) {
-        match focus {
-            RepositoryFormFocus::Name => {
-                fields.name.pop();
-            }
-            RepositoryFormFocus::BaseDir => {
-                fields.base_dir.pop();
-            }
-            RepositoryFormFocus::DefaultProfile => {
-                fields.default_profile.pop();
+        if refresh_work_dir {
+            self.update_agent_work_dir_from_name();
+            if let ModalState::NewAgent { fields, cursor, .. } = &mut self.modal {
+                cursor.work_dir = fields.work_dir.chars().count();
             }
         }
     }
 
-    fn pop_agent_field(fields: &mut AgentFormFields, focus: AgentFormFocus) {
+    fn delete_repository_field_before_cursor(
+        fields: &mut RepositoryFormFields,
+        cursor: &mut RepositoryFormCursor,
+        focus: RepositoryFormFocus,
+    ) {
+        match focus {
+            RepositoryFormFocus::Name => {
+                cursor.name = delete_char_before(&mut fields.name, cursor.name);
+            }
+            RepositoryFormFocus::BaseDir => {
+                cursor.base_dir = delete_char_before(&mut fields.base_dir, cursor.base_dir);
+            }
+            RepositoryFormFocus::DefaultProfile => {
+                cursor.default_profile =
+                    delete_char_before(&mut fields.default_profile, cursor.default_profile);
+            }
+        }
+    }
+
+    fn delete_repository_field_at_cursor(
+        fields: &mut RepositoryFormFields,
+        cursor: &mut RepositoryFormCursor,
+        focus: RepositoryFormFocus,
+    ) {
+        match focus {
+            RepositoryFormFocus::Name => {
+                delete_char_at(&mut fields.name, cursor.name);
+            }
+            RepositoryFormFocus::BaseDir => {
+                delete_char_at(&mut fields.base_dir, cursor.base_dir);
+            }
+            RepositoryFormFocus::DefaultProfile => {
+                delete_char_at(&mut fields.default_profile, cursor.default_profile);
+            }
+        }
+    }
+
+    fn delete_agent_field_before_cursor(
+        fields: &mut AgentFormFields,
+        cursor: &mut AgentFormCursor,
+        focus: AgentFormFocus,
+    ) {
         match focus {
             AgentFormFocus::Shortcut => {
                 fields.shortcut_slot = None;
             }
             AgentFormFocus::Name => {
-                fields.name.pop();
+                cursor.name = delete_char_before(&mut fields.name, cursor.name);
             }
             AgentFormFocus::Description => {
-                fields.description.pop();
+                cursor.description =
+                    delete_char_before(&mut fields.description, cursor.description);
             }
             AgentFormFocus::WorkDir => {
-                fields.work_dir.pop();
+                cursor.work_dir = delete_char_before(&mut fields.work_dir, cursor.work_dir);
             }
             AgentFormFocus::Profile => {
-                fields.profile.pop();
+                cursor.profile = delete_char_before(&mut fields.profile, cursor.profile);
             }
             AgentFormFocus::Mode => {
-                fields.mode.pop();
+                cursor.mode = delete_char_before(&mut fields.mode, cursor.mode);
             }
             AgentFormFocus::LlxprtDebug => {
-                fields.llxprt_debug.pop();
+                cursor.llxprt_debug =
+                    delete_char_before(&mut fields.llxprt_debug, cursor.llxprt_debug);
             }
             AgentFormFocus::PassContinue
             | AgentFormFocus::Sandbox
             | AgentFormFocus::SandboxEngine => {}
             AgentFormFocus::SandboxFlags => {
-                fields.sandbox_flags.pop();
+                cursor.sandbox_flags =
+                    delete_char_before(&mut fields.sandbox_flags, cursor.sandbox_flags);
+            }
+        }
+    }
+
+    fn delete_agent_field_at_cursor(
+        fields: &mut AgentFormFields,
+        cursor: &mut AgentFormCursor,
+        focus: AgentFormFocus,
+    ) {
+        match focus {
+            AgentFormFocus::Shortcut
+            | AgentFormFocus::PassContinue
+            | AgentFormFocus::Sandbox
+            | AgentFormFocus::SandboxEngine => {}
+            AgentFormFocus::Name => {
+                delete_char_at(&mut fields.name, cursor.name);
+            }
+            AgentFormFocus::Description => {
+                delete_char_at(&mut fields.description, cursor.description);
+            }
+            AgentFormFocus::WorkDir => {
+                delete_char_at(&mut fields.work_dir, cursor.work_dir);
+            }
+            AgentFormFocus::Profile => {
+                delete_char_at(&mut fields.profile, cursor.profile);
+            }
+            AgentFormFocus::Mode => {
+                delete_char_at(&mut fields.mode, cursor.mode);
+            }
+            AgentFormFocus::LlxprtDebug => {
+                delete_char_at(&mut fields.llxprt_debug, cursor.llxprt_debug);
+            }
+            AgentFormFocus::SandboxFlags => {
+                delete_char_at(&mut fields.sandbox_flags, cursor.sandbox_flags);
             }
         }
     }
@@ -1050,32 +1229,221 @@ impl AppState {
             ModalState::Search { query } => {
                 query.pop();
             }
-            ModalState::NewRepository { fields, focus, .. }
-            | ModalState::EditRepository { fields, focus, .. } => {
-                Self::pop_repository_field(fields, *focus);
+            ModalState::NewRepository {
+                fields,
+                focus,
+                cursor,
+                ..
+            }
+            | ModalState::EditRepository {
+                fields,
+                focus,
+                cursor,
+                ..
+            } => {
+                Self::delete_repository_field_before_cursor(fields, cursor, *focus);
             }
             ModalState::NewAgent {
                 fields,
                 focus,
+                cursor,
                 work_dir_manual,
                 ..
             } => {
                 let focused = *focus;
-                Self::pop_agent_field(fields, focused);
+                Self::delete_agent_field_before_cursor(fields, cursor, focused);
                 if focused == AgentFormFocus::WorkDir {
                     *work_dir_manual = true;
                 } else if focused == AgentFormFocus::Name && !*work_dir_manual {
                     refresh_work_dir = true;
                 }
             }
-            ModalState::EditAgent { fields, focus, .. } => {
-                Self::pop_agent_field(fields, *focus);
+            ModalState::EditAgent {
+                fields,
+                focus,
+                cursor,
+                ..
+            } => {
+                Self::delete_agent_field_before_cursor(fields, cursor, *focus);
             }
             _ => {}
         }
 
         if refresh_work_dir {
             self.update_agent_work_dir_from_name();
+            if let ModalState::NewAgent { fields, cursor, .. } = &mut self.modal {
+                cursor.work_dir = fields.work_dir.chars().count();
+            }
+        }
+    }
+
+    fn handle_form_delete(&mut self) {
+        let mut refresh_work_dir = false;
+
+        match &mut self.modal {
+            ModalState::Search { .. } => {}
+            ModalState::NewRepository {
+                fields,
+                focus,
+                cursor,
+                ..
+            }
+            | ModalState::EditRepository {
+                fields,
+                focus,
+                cursor,
+                ..
+            } => {
+                Self::delete_repository_field_at_cursor(fields, cursor, *focus);
+            }
+            ModalState::NewAgent {
+                fields,
+                focus,
+                cursor,
+                work_dir_manual,
+                ..
+            } => {
+                let focused = *focus;
+                Self::delete_agent_field_at_cursor(fields, cursor, focused);
+                if focused == AgentFormFocus::WorkDir {
+                    *work_dir_manual = true;
+                } else if focused == AgentFormFocus::Name && !*work_dir_manual {
+                    refresh_work_dir = true;
+                }
+            }
+            ModalState::EditAgent {
+                fields,
+                focus,
+                cursor,
+                ..
+            } => {
+                Self::delete_agent_field_at_cursor(fields, cursor, *focus);
+            }
+            _ => {}
+        }
+
+        if refresh_work_dir {
+            self.update_agent_work_dir_from_name();
+            if let ModalState::NewAgent { fields, cursor, .. } = &mut self.modal {
+                cursor.work_dir = fields.work_dir.chars().count();
+            }
+        }
+    }
+
+    fn handle_form_move_cursor_left(&mut self) {
+        match &mut self.modal {
+            ModalState::Search { .. } => {}
+            ModalState::NewRepository { focus, cursor, .. }
+            | ModalState::EditRepository { focus, cursor, .. } => match focus {
+                RepositoryFormFocus::Name => {
+                    cursor.name = move_cursor_left(cursor.name);
+                }
+                RepositoryFormFocus::BaseDir => {
+                    cursor.base_dir = move_cursor_left(cursor.base_dir);
+                }
+                RepositoryFormFocus::DefaultProfile => {
+                    cursor.default_profile = move_cursor_left(cursor.default_profile);
+                }
+            },
+            ModalState::NewAgent { focus, cursor, .. }
+            | ModalState::EditAgent { focus, cursor, .. } => match focus {
+                AgentFormFocus::Shortcut
+                | AgentFormFocus::PassContinue
+                | AgentFormFocus::Sandbox
+                | AgentFormFocus::SandboxEngine => {}
+                AgentFormFocus::Name => {
+                    cursor.name = move_cursor_left(cursor.name);
+                }
+                AgentFormFocus::Description => {
+                    cursor.description = move_cursor_left(cursor.description);
+                }
+                AgentFormFocus::WorkDir => {
+                    cursor.work_dir = move_cursor_left(cursor.work_dir);
+                }
+                AgentFormFocus::Profile => {
+                    cursor.profile = move_cursor_left(cursor.profile);
+                }
+                AgentFormFocus::Mode => {
+                    cursor.mode = move_cursor_left(cursor.mode);
+                }
+                AgentFormFocus::LlxprtDebug => {
+                    cursor.llxprt_debug = move_cursor_left(cursor.llxprt_debug);
+                }
+                AgentFormFocus::SandboxFlags => {
+                    cursor.sandbox_flags = move_cursor_left(cursor.sandbox_flags);
+                }
+            },
+            _ => {}
+        }
+    }
+
+    fn handle_form_move_cursor_right(&mut self) {
+        match &mut self.modal {
+            ModalState::Search { .. } => {}
+            ModalState::NewRepository {
+                fields,
+                focus,
+                cursor,
+                ..
+            }
+            | ModalState::EditRepository {
+                fields,
+                focus,
+                cursor,
+                ..
+            } => match focus {
+                RepositoryFormFocus::Name => {
+                    cursor.name = move_cursor_right(&fields.name, cursor.name);
+                }
+                RepositoryFormFocus::BaseDir => {
+                    cursor.base_dir = move_cursor_right(&fields.base_dir, cursor.base_dir);
+                }
+                RepositoryFormFocus::DefaultProfile => {
+                    cursor.default_profile =
+                        move_cursor_right(&fields.default_profile, cursor.default_profile);
+                }
+            },
+            ModalState::NewAgent {
+                fields,
+                focus,
+                cursor,
+                ..
+            }
+            | ModalState::EditAgent {
+                fields,
+                focus,
+                cursor,
+                ..
+            } => match focus {
+                AgentFormFocus::Shortcut
+                | AgentFormFocus::PassContinue
+                | AgentFormFocus::Sandbox
+                | AgentFormFocus::SandboxEngine => {}
+                AgentFormFocus::Name => {
+                    cursor.name = move_cursor_right(&fields.name, cursor.name);
+                }
+                AgentFormFocus::Description => {
+                    cursor.description = move_cursor_right(&fields.description, cursor.description);
+                }
+                AgentFormFocus::WorkDir => {
+                    cursor.work_dir = move_cursor_right(&fields.work_dir, cursor.work_dir);
+                }
+                AgentFormFocus::Profile => {
+                    cursor.profile = move_cursor_right(&fields.profile, cursor.profile);
+                }
+                AgentFormFocus::Mode => {
+                    cursor.mode = move_cursor_right(&fields.mode, cursor.mode);
+                }
+                AgentFormFocus::LlxprtDebug => {
+                    cursor.llxprt_debug =
+                        move_cursor_right(&fields.llxprt_debug, cursor.llxprt_debug);
+                }
+                AgentFormFocus::SandboxFlags => {
+                    cursor.sandbox_flags =
+                        move_cursor_right(&fields.sandbox_flags, cursor.sandbox_flags);
+                }
+            },
+            _ => {}
         }
     }
 
@@ -1441,6 +1809,60 @@ fn memory_value_to_mib(value: &str) -> Option<u64> {
 
 fn normalize_llxprt_debug(value: &str) -> String {
     value.trim().to_owned()
+}
+
+fn clamp_cursor(s: &str, cursor: usize) -> usize {
+    cursor.min(s.chars().count())
+}
+
+fn byte_index_at_char(s: &str, char_idx: usize) -> usize {
+    if char_idx == 0 {
+        return 0;
+    }
+
+    s.char_indices()
+        .nth(char_idx)
+        .map_or_else(|| s.len(), |(idx, _)| idx)
+}
+
+fn insert_char_at(s: &mut String, cursor: usize, ch: char) -> usize {
+    let clamped = clamp_cursor(s, cursor);
+    let byte_idx = byte_index_at_char(s, clamped);
+    s.insert(byte_idx, ch);
+    clamped + 1
+}
+
+fn delete_char_before(s: &mut String, cursor: usize) -> usize {
+    let clamped = clamp_cursor(s, cursor);
+    if clamped == 0 {
+        return 0;
+    }
+
+    let start = byte_index_at_char(s, clamped - 1);
+    let end = byte_index_at_char(s, clamped);
+    s.replace_range(start..end, "");
+    clamped - 1
+}
+
+fn delete_char_at(s: &mut String, cursor: usize) {
+    let clamped = clamp_cursor(s, cursor);
+    let len = s.chars().count();
+    if clamped >= len {
+        return;
+    }
+
+    let start = byte_index_at_char(s, clamped);
+    let end = byte_index_at_char(s, clamped + 1);
+    s.replace_range(start..end, "");
+}
+
+fn move_cursor_left(cursor: usize) -> usize {
+    cursor.saturating_sub(1)
+}
+
+fn move_cursor_right(s: &str, cursor: usize) -> usize {
+    let len = s.chars().count();
+    clamp_cursor(s, cursor).saturating_add(1).min(len)
 }
 
 #[cfg(test)]
