@@ -7,9 +7,12 @@
 use std::path::Path;
 use std::process::Command;
 
+use tracing::debug;
+
 use crate::domain::{LaunchSignature, SandboxEngine};
 
 use super::errors::RuntimeError;
+use super::preflight::sandbox_ssh_agent_warning;
 
 const SANDBOX_IMAGE_REPO: &str = "ghcr.io/vybestack/llxprt-code/sandbox";
 const SANDBOX_IMAGE_NIGHTLY_TAG: &str = "nightly";
@@ -53,6 +56,47 @@ fn apply_session_style(session_name: &str) {
         .as_ref(),
         None,
     );
+}
+
+pub fn enforce_clipboard_passthrough(session_name: &str) {
+    let _ = tmux_cmd_status(
+        ["set-option", "-g", "set-clipboard", "on"].as_ref(),
+        None,
+    );
+    let _ = tmux_cmd_status(
+        ["set-option", "-gp", "allow-passthrough", "on"].as_ref(),
+        None,
+    );
+    let _ = tmux_cmd_status(
+        ["set-option", "-t", session_name, "set-clipboard", "on"].as_ref(),
+        None,
+    );
+    let _ = tmux_cmd_status(
+        [
+            "set-option",
+            "-p",
+            "-t",
+            session_name,
+            "allow-passthrough",
+            "on",
+        ]
+        .as_ref(),
+        None,
+    );
+
+    if let Ok(output) = Command::new("tmux")
+        .args(["list-panes", "-t", session_name, "-F", "#{session_name}:#{window_index}.#{pane_index}"])
+        .output()
+        && output.status.success()
+    {
+        let panes = String::from_utf8_lossy(&output.stdout);
+        for pane in panes.lines().map(str::trim).filter(|line| !line.is_empty()) {
+            let _ = tmux_cmd_status(
+                ["set-option", "-pt", pane, "allow-passthrough", "on"].as_ref(),
+                None,
+            );
+        }
+    }
 }
 
 fn looks_like_semver_tag(version: &str) -> bool {
@@ -173,6 +217,8 @@ pub fn create_session(
     work_dir: &Path,
     signature: &LaunchSignature,
 ) -> Result<(), RuntimeError> {
+    debug!(session_name = %session_name, work_dir = %work_dir.display(), "create_session start");
+
     // Kill any stale session with the same name first
     let _ = kill_session(session_name);
 
@@ -201,6 +247,7 @@ pub fn create_session(
         // Sandbox launch parity with llxprt-code: explicit --sandbox and engine,
         // plus SANDBOX_FLAGS environment support.
         let mut launch_env: Vec<(String, String)> = Vec::new();
+        let mut launch_warning: Option<String> = None;
         if signature.sandbox_enabled {
             llxprt_args.push("--sandbox".to_owned());
             llxprt_args.push("--sandbox-engine".to_owned());
@@ -212,6 +259,8 @@ pub fn create_session(
             {
                 launch_env.push(("LLXPRT_SANDBOX_IMAGE".to_owned(), image_ref));
             }
+
+            launch_warning = sandbox_ssh_agent_warning();
         }
 
         if !signature.llxprt_debug.is_empty() {
@@ -225,6 +274,8 @@ pub fn create_session(
             .arg(session_name)
             .arg("-c")
             .arg(work_dir.to_str().unwrap_or("."));
+
+        debug!(session_name = %session_name, attempt, "create_session invoking tmux new-session");
 
         if !launch_env.is_empty() {
             cmd.arg("env");
@@ -243,12 +294,33 @@ pub fn create_session(
             .map_err(|e| RuntimeError::SpawnFailed(format!("tmux new-session: {e}")))?;
 
         if output.status.success() {
+            debug!(session_name = %session_name, attempt, "create_session tmux new-session succeeded");
+
+            // Enforce clipboard passthrough for each new session regardless of
+            // user/system tmux defaults.
+            enforce_clipboard_passthrough(session_name);
+
             // Preserve dead pane output in tmux for post-mortem inspection/relaunch context.
             let _ = tmux_cmd_status(
                 ["set-option", "-t", session_name, "remain-on-exit", "on"].as_ref(),
                 None,
             );
             apply_session_style(session_name);
+
+            if let Some(warning) = launch_warning {
+                debug!(session_name = %session_name, warning = %warning, "runtime launch preflight warning");
+                let _ = tmux_cmd_status(
+                    [
+                        "display-message",
+                        "-t",
+                        session_name,
+                        &format!("[jefe] warning: {warning}"),
+                    ]
+                    .as_ref(),
+                    None,
+                );
+            }
+
             return Ok(());
         }
 
@@ -257,10 +329,12 @@ pub fn create_session(
             stderr.contains("fork failed") || stderr.contains("Device not configured");
 
         if attempt == 0 && fork_broken {
+            debug!(session_name = %session_name, attempt, stderr = %stderr, "create_session retrying after tmux fork failure");
             reset_tmux_server();
             continue;
         }
 
+        debug!(session_name = %session_name, attempt, stderr = %stderr, "create_session tmux new-session failed");
         return Err(RuntimeError::SpawnFailed(format!(
             "tmux new-session failed: {stderr}"
         )));

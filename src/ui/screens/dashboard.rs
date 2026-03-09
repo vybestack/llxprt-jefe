@@ -86,6 +86,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                 agent_count: agent_count,
                 theme_name: props.theme_name.clone(),
                 version: crate::VERSION.to_owned(),
+                warning_message: state.and_then(|s| s.warning_message.clone()),
                 colors: colors.clone(),
             )
 

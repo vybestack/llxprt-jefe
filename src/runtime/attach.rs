@@ -20,6 +20,7 @@ use alacritty_terminal::vte::ansi::{self, Processor, StdSyncHandler};
 use portable_pty::{Child as PtyChild, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use tracing::{debug, warn};
 
+use super::commands;
 use super::errors::RuntimeError;
 use super::session::{TerminalCell, TerminalCellStyle, TerminalSnapshot};
 
@@ -115,6 +116,7 @@ impl EventListener for RuntimeListener {
     fn send_event(&self, event: TermEvent) {
         match event {
             TermEvent::ClipboardStore(_, text) => {
+                debug!(len = text.len(), "received OSC52 ClipboardStore event");
                 copy_to_system_clipboard(&text);
             }
             TermEvent::ClipboardLoad(_, _) => {
@@ -400,6 +402,10 @@ impl AttachedViewer {
     ///
     /// @pseudocode component-002 lines 10-13
     pub fn spawn(session_name: &str, rows: u16, cols: u16) -> Result<Self, RuntimeError> {
+        debug!(session_name = %session_name, rows, cols, "AttachedViewer::spawn start");
+        commands::enforce_clipboard_passthrough(session_name);
+        debug!(session_name = %session_name, "AttachedViewer::spawn clipboard passthrough enforced");
+
         let pty_system = native_pty_system();
 
         let pty_pair = pty_system
@@ -421,6 +427,7 @@ impl AttachedViewer {
             .slave
             .spawn_command(cmd)
             .map_err(|e| RuntimeError::SpawnFailed(format!("spawn tmux attach: {e}")))?;
+        debug!(session_name = %session_name, "AttachedViewer::spawn tmux attach child spawned");
         let child = Arc::new(Mutex::new(child));
 
         let reader = pty_pair
@@ -454,6 +461,7 @@ impl AttachedViewer {
             reader_loop(reader, term_clone, alive_clone);
         });
 
+        debug!(session_name = %session_name, "AttachedViewer::spawn ready");
         Ok(Self {
             master,
             writer,

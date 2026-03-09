@@ -12,10 +12,12 @@ mod commands;
 mod errors;
 mod liveness;
 mod manager;
+mod preflight;
 mod session;
 
 pub use errors::RuntimeError;
 pub use manager::{RuntimeManager, StubRuntimeManager, TmuxRuntimeManager};
+pub use preflight::sandbox_ssh_agent_warning;
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 
 #[cfg(test)]

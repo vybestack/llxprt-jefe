@@ -19,7 +19,7 @@ const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
 ];
 use jefe::input::{SearchKeyRoute, route_search_key};
 use jefe::persistence::{PersistenceManager, State as PersistedState};
-use jefe::runtime::{RuntimeError, RuntimeManager};
+use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_ssh_agent_warning};
 
 #[must_use]
 fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, slot: u8) -> bool {
@@ -89,6 +89,14 @@ pub fn persist_state_snapshot(ctx: &SharedContext, state: &AppState) {
         && let Err(e) = ctx_guard.persistence.save_state(&to_persisted_state(state))
     {
         warn!(error = %e, "could not save state");
+    }
+}
+
+fn clear_runtime_warning(state: &mut AppState) {
+    if state.warning_message.as_deref().is_some_and(|warning| {
+        warning.contains("SSH_AUTH_SOCK") || warning.contains("SSH agent socket")
+    }) {
+        state.warning_message = None;
     }
 }
 
@@ -253,6 +261,11 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
             *state = std::mem::take(&mut *state).apply(evt);
             if relaunched {
                 state.terminal_focused = false;
+                if let Some(warning) = sandbox_ssh_agent_warning() {
+                    state.warning_message = Some(warning);
+                } else {
+                    clear_runtime_warning(&mut state);
+                }
             }
             persist_state_snapshot(ctx, &state);
         }
@@ -449,20 +462,33 @@ pub fn handle_mode_form_key(
                     persist_state_snapshot(ctx, &state);
                     drop(state);
 
-                    if let Some(ctx_arc) = &ctx
-                        && let Ok(mut ctx_guard) = ctx_arc.lock()
-                    {
-                        if let Err(e) = ctx_guard
-                            .runtime
-                            .spawn_session(&agent_id, &work_dir, &signature)
-                        {
+                    if let Some(ctx_arc) = &ctx {
+                        let spawn_result = if let Ok(mut ctx_guard) = ctx_arc.lock() {
+                            let spawn = ctx_guard.runtime.spawn_session(&agent_id, &work_dir, &signature);
+                            if spawn.is_ok() {
+                                if let Err(e) = ctx_guard.runtime.attach(&agent_id) {
+                                    warn!(
+                                        agent_id = %agent_id.0,
+                                        error = %e,
+                                        "could not attach session for new agent"
+                                    );
+                                }
+                            }
+                            spawn
+                        } else {
+                            Ok(())
+                        };
+
+                        if let Err(e) = spawn_result {
                             warn!(error = %e, "could not spawn session for new agent");
-                        } else if let Err(e) = ctx_guard.runtime.attach(&agent_id) {
-                            warn!(
-                                agent_id = %agent_id.0,
-                                error = %e,
-                                "could not attach session for new agent"
-                            );
+                        } else {
+                            let mut state = app_state.write();
+                            if let Some(warning) = sandbox_ssh_agent_warning() {
+                                state.warning_message = Some(warning);
+                            } else {
+                                clear_runtime_warning(&mut state);
+                            }
+                            persist_state_snapshot(ctx, &state);
                         }
                     }
                 }

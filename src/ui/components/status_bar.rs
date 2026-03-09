@@ -20,6 +20,8 @@ pub struct StatusBarProps {
     pub theme_name: String,
     /// App version string.
     pub version: String,
+    /// Optional warning text shown in the center status area.
+    pub warning_message: Option<String>,
     /// Theme colors.
     pub colors: ThemeColors,
 }
@@ -29,9 +31,14 @@ pub struct StatusBarProps {
 pub fn StatusBar(props: &StatusBarProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
 
-    let stats = format!(
-        "{} repos | {}/{} running",
-        props.repo_count, props.running_count, props.agent_count
+    let stats = props.warning_message.as_ref().map_or_else(
+        || {
+            format!(
+                "{} repos | {}/{} running",
+                props.repo_count, props.running_count, props.agent_count
+            )
+        },
+        |warning| format!("WARN: {warning}"),
     );
 
     element! {

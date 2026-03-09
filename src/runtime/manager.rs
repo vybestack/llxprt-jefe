@@ -378,7 +378,9 @@ impl RuntimeManager for TmuxRuntimeManager {
             let session_name = self.sessions[agent_id].session_name.clone();
 
             // Spawn new viewer
+            debug!(agent_id = %agent_id.0, session_name = %session_name, "attach: spawning AttachedViewer");
             let viewer = AttachedViewer::spawn(&session_name, self.rows, self.cols)?;
+            debug!(agent_id = %agent_id.0, session_name = %session_name, "attach: AttachedViewer spawned");
             self.viewer = Some(viewer);
             self.attached_agent_id = Some(agent_id.clone());
         }
@@ -444,8 +446,9 @@ impl RuntimeManager for TmuxRuntimeManager {
             .remove(agent_id)
             .ok_or_else(|| RuntimeError::NotRunning(agent_id.clone()))?;
 
-        // Spawn with stored signature
-        self.spawn_session(agent_id, &signature.work_dir.clone(), &signature)?;
+        // Spawn with stored signature using force-fresh semantics so runtime
+        // warnings are surfaced consistently through the relaunch path.
+        self.spawn_session_fresh(agent_id, &signature.work_dir.clone(), &signature)?;
 
         Ok(())
     }

@@ -283,6 +283,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
             if let Ok(mut ctx_guard) = ctx_arc.lock() {
                 let mut revived_running = Vec::new();
                 let mut newly_dead = Vec::new();
+                let mut runtime_warning: Option<String> = None;
 
                 for agent in agents {
                     if agent.status != AgentStatus::Running {
@@ -307,6 +308,10 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                         Ok(()) | Err(RuntimeError::AlreadyRunning(_)) => {
                             // Runtime map now contains this running session.
                             revived_running.push(agent.id.clone());
+
+                            if runtime_warning.is_none() {
+                                runtime_warning = jefe::runtime::sandbox_ssh_agent_warning();
+                            }
                         }
                         Err(e) => {
                             warn!(agent_id = %agent.id.0, error = %e, "could not restore session");
@@ -317,7 +322,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
 
                 drop(ctx_guard);
 
-                if !revived_running.is_empty() || !newly_dead.is_empty() {
+                if !revived_running.is_empty() || !newly_dead.is_empty() || runtime_warning.is_some() {
                     let mut state = app_state.write();
                     for agent_id in revived_running {
                         *state = std::mem::take(&mut *state)
@@ -326,6 +331,9 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                     for agent_id in newly_dead {
                         *state = std::mem::take(&mut *state)
                             .apply(AppEvent::AgentStatusChanged(agent_id, AgentStatus::Dead));
+                    }
+                    if let Some(warning) = runtime_warning {
+                        state.warning_message = Some(warning);
                     }
                     persist_state_snapshot(&ctx, &state);
                 }
