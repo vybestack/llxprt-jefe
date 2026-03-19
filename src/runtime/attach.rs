@@ -402,9 +402,30 @@ impl AttachedViewer {
     ///
     /// @pseudocode component-002 lines 10-13
     pub fn spawn(session_name: &str, rows: u16, cols: u16) -> Result<Self, RuntimeError> {
-        debug!(session_name = %session_name, rows, cols, "AttachedViewer::spawn start");
-        commands::enforce_clipboard_passthrough(session_name);
-        debug!(session_name = %session_name, "AttachedViewer::spawn clipboard passthrough enforced");
+        Self::spawn_command(session_name, rows, cols, None)
+    }
+
+    pub fn spawn_remote(
+        session_name: &str,
+        rows: u16,
+        cols: u16,
+        ssh_command: &str,
+    ) -> Result<Self, RuntimeError> {
+        Self::spawn_command(session_name, rows, cols, Some(ssh_command))
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn spawn_command(
+        session_name: &str,
+        rows: u16,
+        cols: u16,
+        ssh_command: Option<&str>,
+    ) -> Result<Self, RuntimeError> {
+        debug!(session_name = %session_name, rows, cols, remote = ssh_command.is_some(), "AttachedViewer::spawn start");
+        if ssh_command.is_none() {
+            commands::enforce_clipboard_passthrough(session_name);
+            debug!(session_name = %session_name, "AttachedViewer::spawn clipboard passthrough enforced");
+        }
 
         let pty_system = native_pty_system();
 
@@ -417,10 +438,21 @@ impl AttachedViewer {
             })
             .map_err(|e| RuntimeError::SpawnFailed(format!("openpty: {e}")))?;
 
-        let mut cmd = CommandBuilder::new("tmux");
-        cmd.arg("attach-session");
-        cmd.arg("-t");
-        cmd.arg(session_name);
+        let mut cmd = if let Some(ssh_command) = ssh_command {
+            let mut cmd = CommandBuilder::new("sh");
+            cmd.arg("-lc");
+            cmd.arg(ssh_command);
+            cmd
+        } else {
+            let mut cmd = CommandBuilder::new("tmux");
+            cmd.arg("-f");
+            cmd.arg("/dev/null");
+            cmd.arg("attach-session");
+            cmd.arg("-t");
+            cmd.arg(session_name);
+            cmd.env("TERM", "xterm-256color");
+            cmd
+        };
         cmd.env("TERM", "xterm-256color");
 
         let child = pty_pair

@@ -16,7 +16,18 @@ use super::commands;
 use super::errors::RuntimeError;
 use super::liveness;
 use super::session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
-use crate::domain::{AgentId, LaunchSignature};
+use crate::domain::{AgentId, LaunchSignature, RemoteRepositorySettings};
+
+/// Lightweight metadata for checking session liveness without holding the runtime lock.
+///
+/// Callers collect these under the lock, drop it, then run the (potentially slow)
+/// liveness checks externally — avoiding mutex contention with input/render paths.
+#[derive(Clone)]
+pub struct LivenessCheck {
+    pub agent_id: AgentId,
+    pub session_name: String,
+    pub remote: Option<RemoteRepositorySettings>,
+}
 
 /// Runtime manager trait - owns attach/reattach, input forwarding, kill/relaunch.
 ///
@@ -277,6 +288,57 @@ impl TmuxRuntimeManager {
         self.cols = cols;
     }
 
+    /// Collect liveness check metadata for all tracked sessions.
+    ///
+    /// The caller can drop the runtime lock before performing the actual
+    /// (potentially blocking) liveness checks, preventing SSH round-trips
+    /// from stalling the input/render loop.
+    #[must_use]
+    pub fn liveness_targets(&self) -> Vec<LivenessCheck> {
+        self.sessions
+            .iter()
+            .map(|(agent_id, session)| LivenessCheck {
+                agent_id: agent_id.clone(),
+                session_name: session.session_name.clone(),
+                remote: if session.launch_signature.remote.enabled {
+                    Some(session.launch_signature.remote.clone())
+                } else {
+                    None
+                },
+            })
+            .collect()
+    }
+
+    /// Check whether a session exists using explicit launch-signature context.
+    #[must_use]
+    pub fn session_exists_for_signature(
+        &self,
+        agent_id: &AgentId,
+        signature: &LaunchSignature,
+    ) -> bool {
+        let session_name = RuntimeSession::session_name_for(agent_id);
+        if signature.remote.enabled {
+            commands::remote_session_exists(&signature.remote, &session_name).unwrap_or(false)
+        } else {
+            liveness::check_session_alive(&session_name)
+        }
+    }
+
+    pub fn mark_session_dead(&mut self, agent_id: &AgentId) -> bool {
+        let Some(session) = self.sessions.remove(agent_id) else {
+            return false;
+        };
+
+        if self.attached_agent_id.as_ref() == Some(agent_id) {
+            self.attached_agent_id = None;
+            let _ = self.viewer.take();
+        }
+
+        self.dead_signatures
+            .insert(agent_id.clone(), session.launch_signature.clone());
+        true
+    }
+
     fn spawn_session_internal(
         &mut self,
         agent_id: &AgentId,
@@ -292,14 +354,19 @@ impl TmuxRuntimeManager {
         let session_name = RuntimeSession::session_name_for(agent_id);
 
         // Reattach-first behavior is only allowed for restore/startup paths.
-        let can_reattach = allow_reattach && liveness::check_session_alive(&session_name);
+        let can_reattach = allow_reattach && self.session_exists_for_signature(agent_id, signature);
         if can_reattach {
             debug!(session_name = %session_name, "reattaching to existing tmux session");
         } else {
             if !allow_reattach {
                 // Explicit relaunch-after-kill path: best-effort kill by name so a
                 // stale session cannot be reused with old environment values.
-                if let Err(error) = commands::kill_session(&session_name) {
+                let kill_result = if signature.remote.enabled {
+                    commands::kill_remote_session(&signature.remote, &session_name)
+                } else {
+                    commands::kill_session(&session_name)
+                };
+                if let Err(error) = kill_result {
                     debug!(
                         session_name = %session_name,
                         error = %error,
@@ -375,11 +442,31 @@ impl RuntimeManager for TmuxRuntimeManager {
             let _ = self.viewer.take();
 
             // Get session name for spawning
-            let session_name = self.sessions[agent_id].session_name.clone();
+            let session = self.sessions.get(agent_id).expect("session must exist");
+            let session_name = session.session_name.clone();
 
             // Spawn new viewer
             debug!(agent_id = %agent_id.0, session_name = %session_name, "attach: spawning AttachedViewer");
-            let viewer = AttachedViewer::spawn(&session_name, self.rows, self.cols)?;
+            let viewer = if session.launch_signature.remote.enabled {
+                let ssh_command = commands::build_remote_attach_command(
+                    &session.launch_signature.remote,
+                    &session_name,
+                );
+                AttachedViewer::spawn_remote(&session_name, self.rows, self.cols, &ssh_command)?
+            } else {
+                AttachedViewer::spawn(&session_name, self.rows, self.cols)?
+            };
+
+            if !viewer.is_alive() {
+                debug!(agent_id = %agent_id.0, session_name = %session_name, "attach: viewer exited immediately");
+                if let Some(session) = self.sessions.get_mut(agent_id) {
+                    session.attached = false;
+                }
+                return Err(RuntimeError::AttachFailed(format!(
+                    "session {session_name} terminated before attach completed"
+                )));
+            }
+
             debug!(agent_id = %agent_id.0, session_name = %session_name, "attach: AttachedViewer spawned");
             self.viewer = Some(viewer);
             self.attached_agent_id = Some(agent_id.clone());
@@ -428,7 +515,14 @@ impl RuntimeManager for TmuxRuntimeManager {
         }
 
         // Kill tmux session
-        commands::kill_session(&session.session_name)?;
+        if session.launch_signature.remote.enabled {
+            commands::kill_remote_session(
+                &session.launch_signature.remote,
+                &session.session_name,
+            )?;
+        } else {
+            commands::kill_session(&session.session_name)?;
+        }
 
         Ok(())
     }
@@ -455,13 +549,30 @@ impl RuntimeManager for TmuxRuntimeManager {
 
     fn is_alive(&self, agent_id: &AgentId) -> bool {
         if let Some(session) = self.sessions.get(agent_id) {
-            liveness::check_session_alive(&session.session_name)
+            if session.launch_signature.remote.enabled {
+                liveness::check_remote_session_alive(
+                    &session.launch_signature.remote,
+                    &session.session_name,
+                )
+            } else {
+                liveness::check_session_alive(&session.session_name)
+            }
         } else {
             false
         }
     }
 
     fn session_exists(&self, agent_id: &AgentId) -> bool {
+        if let Some(session) = self.sessions.get(agent_id) {
+            if session.launch_signature.remote.enabled {
+                return commands::remote_session_exists(
+                    &session.launch_signature.remote,
+                    &session.session_name,
+                )
+                .unwrap_or(false);
+            }
+        }
+
         let session_name = RuntimeSession::session_name_for(agent_id);
         liveness::check_session_alive(&session_name)
     }
@@ -508,6 +619,10 @@ impl RuntimeManager for TmuxRuntimeManager {
 
     fn capture_session_output(&self, agent_id: &AgentId) -> Option<TerminalSnapshot> {
         let session = self.sessions.get(agent_id)?;
+        if session.launch_signature.remote.enabled {
+            return None;
+        }
+
         let lines = commands::capture_pane_lines(&session.session_name)?;
 
         let rows = lines.len();

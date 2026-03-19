@@ -83,6 +83,21 @@ fn default_sandbox_flags() -> String {
     DEFAULT_SANDBOX_FLAGS.to_owned()
 }
 
+/// Remote SSH execution settings owned by a repository.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct RemoteRepositorySettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub login_user: String,
+    #[serde(default)]
+    pub host: String,
+    #[serde(default)]
+    pub run_as_user: String,
+    #[serde(default)]
+    pub setup_env_default: bool,
+}
+
 /// A repository is a named codebase container.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Repository {
@@ -91,6 +106,8 @@ pub struct Repository {
     pub slug: String,
     pub base_dir: PathBuf,
     pub default_profile: String,
+    #[serde(default)]
+    pub remote: RemoteRepositorySettings,
     pub agent_ids: Vec<AgentId>,
 }
 
@@ -154,6 +171,8 @@ pub struct LaunchSignature {
     pub sandbox_enabled: bool,
     pub sandbox_engine: SandboxEngine,
     pub sandbox_flags: String,
+    #[serde(default)]
+    pub remote: RemoteRepositorySettings,
 }
 
 impl Agent {
@@ -199,6 +218,7 @@ impl Repository {
             slug,
             base_dir,
             default_profile: String::new(),
+            remote: RemoteRepositorySettings::default(),
             agent_ids: Vec::new(),
         }
     }
@@ -286,5 +306,23 @@ mod tests {
             panic!("launch signature should deserialize");
         };
         assert!(signature.llxprt_debug.is_empty());
+        assert_eq!(signature.remote, RemoteRepositorySettings::default());
+    }
+
+    #[test]
+    fn repository_deserializes_missing_remote_settings_with_defaults() {
+        let value = json!({
+            "id": "repo-1",
+            "name": "Repo One",
+            "slug": "repo-one",
+            "base_dir": "/tmp/repo-one",
+            "default_profile": "",
+            "agent_ids": []
+        });
+
+        let Ok(repository) = serde_json::from_value::<Repository>(value) else {
+            panic!("repository should deserialize");
+        };
+        assert_eq!(repository.remote, RemoteRepositorySettings::default());
     }
 }

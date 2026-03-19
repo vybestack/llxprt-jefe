@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use jefe::domain::{Agent, AgentId, LaunchSignature, RepositoryId};
+use jefe::domain::{Agent, AgentId, LaunchSignature, RemoteRepositorySettings, RepositoryId};
 use jefe::runtime::{RuntimeError, RuntimeManager, StubRuntimeManager};
 use jefe::state::{AppEvent, AppState, PaneFocus};
 
@@ -34,6 +34,7 @@ fn make_signature(agent: &Agent) -> LaunchSignature {
         sandbox_enabled: agent.sandbox_enabled,
         sandbox_engine: agent.sandbox_engine,
         sandbox_flags: agent.sandbox_flags.clone(),
+        remote: RemoteRepositorySettings::default(),
     }
 }
 

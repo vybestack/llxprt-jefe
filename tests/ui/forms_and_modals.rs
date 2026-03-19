@@ -307,6 +307,46 @@ fn repository_form_cursor_moves_and_inserts_in_place() {
 }
 
 #[test]
+fn repository_form_toggles_remote_fields() {
+    let mut state = create_form_test_state();
+
+    state = state.apply(AppEvent::OpenNewRepository);
+    state = state.apply(AppEvent::FormNextField); // Base Dir
+    state = state.apply(AppEvent::FormNextField); // Default Profile
+    state = state.apply(AppEvent::FormNextField); // RemoteEnabled
+    state = state.apply(AppEvent::FormToggleCheckbox);
+    state = state.apply(AppEvent::FormNextField); // LoginUser
+    state = state.apply(AppEvent::FormChar('o'));
+    state = state.apply(AppEvent::FormChar('p'));
+    state = state.apply(AppEvent::FormNextField); // Host
+    state = state.apply(AppEvent::FormChar('1'));
+    state = state.apply(AppEvent::FormChar('0'));
+    state = state.apply(AppEvent::FormNextField); // RunAsUser
+    state = state.apply(AppEvent::FormChar('m'));
+    state = state.apply(AppEvent::FormNextField); // SetupEnvDefault
+    state = state.apply(AppEvent::FormToggleCheckbox);
+
+    match state.modal {
+        ModalState::NewRepository {
+            fields,
+            focus,
+            cursor,
+        } => {
+            assert_eq!(focus, RepositoryFormFocus::SetupEnvDefault);
+            assert!(fields.remote_enabled);
+            assert_eq!(fields.login_user, "op");
+            assert_eq!(fields.host, "10");
+            assert_eq!(fields.run_as_user, "m");
+            assert!(fields.setup_env_default);
+            assert_eq!(cursor.login_user, 2);
+            assert_eq!(cursor.host, 2);
+            assert_eq!(cursor.run_as_user, 1);
+        }
+        _ => panic!("expected new-repository modal"),
+    }
+}
+
+#[test]
 fn agent_form_cursor_delete_and_backspace_are_caret_based() {
     let mut state = create_form_test_state();
 

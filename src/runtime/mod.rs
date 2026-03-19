@@ -16,7 +16,8 @@ mod preflight;
 mod session;
 
 pub use errors::RuntimeError;
-pub use manager::{RuntimeManager, StubRuntimeManager, TmuxRuntimeManager};
+pub use liveness::{check_remote_session_alive, check_session_alive};
+pub use manager::{LivenessCheck, RuntimeManager, StubRuntimeManager, TmuxRuntimeManager};
 pub use preflight::sandbox_ssh_agent_warning;
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 
@@ -42,6 +43,7 @@ mod tests {
             sandbox_enabled: false,
             sandbox_engine: crate::domain::SandboxEngine::Podman,
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
+            remote: crate::domain::RemoteRepositorySettings::default(),
         };
 
         mgr.spawn_session(&agent_id, &work_dir, &signature)
@@ -66,6 +68,7 @@ mod tests {
             sandbox_enabled: false,
             sandbox_engine: crate::domain::SandboxEngine::Podman,
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
+            remote: crate::domain::RemoteRepositorySettings::default(),
         };
 
         mgr.spawn_session(&agent_id, &work_dir, &signature)
@@ -95,6 +98,7 @@ mod tests {
             sandbox_enabled: false,
             sandbox_engine: crate::domain::SandboxEngine::Podman,
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
+            remote: crate::domain::RemoteRepositorySettings::default(),
         };
 
         mgr.spawn_session(&agent_id, &work_dir, &signature)
@@ -117,6 +121,7 @@ mod tests {
             sandbox_enabled: false,
             sandbox_engine: crate::domain::SandboxEngine::Podman,
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
+            remote: crate::domain::RemoteRepositorySettings::default(),
         };
 
         mgr.spawn_session_fresh(&agent_id, &work_dir, &signature)

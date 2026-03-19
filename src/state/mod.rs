@@ -9,7 +9,8 @@
 use tracing::{debug, trace};
 
 use crate::domain::{
-    Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, Repository, RepositoryId, SandboxEngine,
+    Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, RemoteRepositorySettings, Repository,
+    RepositoryId, SandboxEngine,
 };
 
 /// Form fields for creating/editing an agent.
@@ -101,6 +102,11 @@ pub struct RepositoryFormFields {
     pub name: String,
     pub base_dir: String,
     pub default_profile: String,
+    pub remote_enabled: bool,
+    pub login_user: String,
+    pub host: String,
+    pub run_as_user: String,
+    pub setup_env_default: bool,
 }
 
 /// Cursor positions for repository form text fields.
@@ -109,6 +115,9 @@ pub struct RepositoryFormCursor {
     pub name: usize,
     pub base_dir: usize,
     pub default_profile: usize,
+    pub login_user: usize,
+    pub host: usize,
+    pub run_as_user: usize,
 }
 
 /// Which field is focused in the repository form.
@@ -118,6 +127,11 @@ pub enum RepositoryFormFocus {
     Name,
     BaseDir,
     DefaultProfile,
+    RemoteEnabled,
+    LoginUser,
+    Host,
+    RunAsUser,
+    SetupEnvDefault,
 }
 
 impl RepositoryFormFocus {
@@ -127,7 +141,12 @@ impl RepositoryFormFocus {
         match self {
             Self::Name => Self::BaseDir,
             Self::BaseDir => Self::DefaultProfile,
-            Self::DefaultProfile => Self::Name,
+            Self::DefaultProfile => Self::RemoteEnabled,
+            Self::RemoteEnabled => Self::LoginUser,
+            Self::LoginUser => Self::Host,
+            Self::Host => Self::RunAsUser,
+            Self::RunAsUser => Self::SetupEnvDefault,
+            Self::SetupEnvDefault => Self::Name,
         }
     }
 
@@ -135,9 +154,14 @@ impl RepositoryFormFocus {
     #[must_use]
     pub fn prev(self) -> Self {
         match self {
-            Self::Name => Self::DefaultProfile,
+            Self::Name => Self::SetupEnvDefault,
             Self::BaseDir => Self::Name,
             Self::DefaultProfile => Self::BaseDir,
+            Self::RemoteEnabled => Self::DefaultProfile,
+            Self::LoginUser => Self::RemoteEnabled,
+            Self::Host => Self::LoginUser,
+            Self::RunAsUser => Self::Host,
+            Self::SetupEnvDefault => Self::RunAsUser,
         }
     }
 }
@@ -311,6 +335,17 @@ impl AppState {
     fn selected_repository_id(&self) -> Option<&RepositoryId> {
         self.selected_repository_index
             .and_then(|idx| self.repositories.get(idx).map(|repo| &repo.id))
+    }
+
+    #[must_use]
+    pub fn repository_by_id(&self, repository_id: &RepositoryId) -> Option<&Repository> {
+        self.repositories.iter().find(|repo| &repo.id == repository_id)
+    }
+
+    #[must_use]
+    pub fn repository_for_agent(&self, agent_id: &AgentId) -> Option<&Repository> {
+        let agent = self.agents.iter().find(|agent| &agent.id == agent_id)?;
+        self.repository_by_id(&agent.repository_id)
     }
 
     fn first_unused_shortcut_slot(&self, ignore_agent: Option<&AgentId>) -> Option<u8> {
@@ -661,6 +696,11 @@ impl AppState {
                         name: r.name.clone(),
                         base_dir: r.base_dir.to_string_lossy().into_owned(),
                         default_profile: r.default_profile.clone(),
+                        remote_enabled: r.remote.enabled,
+                        login_user: r.remote.login_user.clone(),
+                        host: r.remote.host.clone(),
+                        run_as_user: r.remote.run_as_user.clone(),
+                        setup_env_default: r.remote.setup_env_default,
                     })
                     .unwrap_or_default();
                 self.modal = ModalState::EditRepository {
@@ -669,6 +709,9 @@ impl AppState {
                         name: fields.name.chars().count(),
                         base_dir: fields.base_dir.chars().count(),
                         default_profile: fields.default_profile.chars().count(),
+                        login_user: fields.login_user.chars().count(),
+                        host: fields.host.chars().count(),
+                        run_as_user: fields.run_as_user.chars().count(),
                     },
                     fields,
                     focus: RepositoryFormFocus::default(),
@@ -786,7 +829,9 @@ impl AppState {
                 }
             }
             AppEvent::RelaunchAgent(ref agent_id) => {
-                if let Some(agent) = self.agents.iter_mut().find(|a| &a.id == agent_id) {
+                if let Some(agent) = self.agents.iter_mut().find(|a| &a.id == agent_id)
+                    && agent.runtime_binding.is_some()
+                {
                     agent.status = AgentStatus::Running;
                 }
             }
@@ -973,6 +1018,22 @@ impl AppState {
                     cursor.default_profile =
                         insert_char_at(&mut fields.default_profile, cursor.default_profile, c);
                 }
+                RepositoryFormFocus::LoginUser => {
+                    cursor.login_user =
+                        insert_char_at(&mut fields.login_user, cursor.login_user, c);
+                }
+                RepositoryFormFocus::Host => {
+                    cursor.host = insert_char_at(&mut fields.host, cursor.host, c);
+                }
+                RepositoryFormFocus::RunAsUser => {
+                    cursor.run_as_user =
+                        insert_char_at(&mut fields.run_as_user, cursor.run_as_user, c);
+                }
+                RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {
+                    if c == ' ' || c == 'x' || c == 'X' {
+                        Self::toggle_repository_checkbox(fields, *focus);
+                    }
+                }
             },
             ModalState::NewAgent {
                 fields,
@@ -1128,6 +1189,18 @@ impl AppState {
                 cursor.default_profile =
                     delete_char_before(&mut fields.default_profile, cursor.default_profile);
             }
+            RepositoryFormFocus::LoginUser => {
+                cursor.login_user =
+                    delete_char_before(&mut fields.login_user, cursor.login_user);
+            }
+            RepositoryFormFocus::Host => {
+                cursor.host = delete_char_before(&mut fields.host, cursor.host);
+            }
+            RepositoryFormFocus::RunAsUser => {
+                cursor.run_as_user =
+                    delete_char_before(&mut fields.run_as_user, cursor.run_as_user);
+            }
+            RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {}
         }
     }
 
@@ -1146,6 +1219,16 @@ impl AppState {
             RepositoryFormFocus::DefaultProfile => {
                 delete_char_at(&mut fields.default_profile, cursor.default_profile);
             }
+            RepositoryFormFocus::LoginUser => {
+                delete_char_at(&mut fields.login_user, cursor.login_user);
+            }
+            RepositoryFormFocus::Host => {
+                delete_char_at(&mut fields.host, cursor.host);
+            }
+            RepositoryFormFocus::RunAsUser => {
+                delete_char_at(&mut fields.run_as_user, cursor.run_as_user);
+            }
+            RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {}
         }
     }
 
@@ -1335,6 +1418,7 @@ impl AppState {
             ModalState::Search { .. } => {}
             ModalState::NewRepository { focus, cursor, .. }
             | ModalState::EditRepository { focus, cursor, .. } => match focus {
+                RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {}
                 RepositoryFormFocus::Name => {
                     cursor.name = move_cursor_left(cursor.name);
                 }
@@ -1343,6 +1427,15 @@ impl AppState {
                 }
                 RepositoryFormFocus::DefaultProfile => {
                     cursor.default_profile = move_cursor_left(cursor.default_profile);
+                }
+                RepositoryFormFocus::LoginUser => {
+                    cursor.login_user = move_cursor_left(cursor.login_user);
+                }
+                RepositoryFormFocus::Host => {
+                    cursor.host = move_cursor_left(cursor.host);
+                }
+                RepositoryFormFocus::RunAsUser => {
+                    cursor.run_as_user = move_cursor_left(cursor.run_as_user);
                 }
             },
             ModalState::NewAgent { focus, cursor, .. }
@@ -1392,6 +1485,7 @@ impl AppState {
                 cursor,
                 ..
             } => match focus {
+                RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {}
                 RepositoryFormFocus::Name => {
                     cursor.name = move_cursor_right(&fields.name, cursor.name);
                 }
@@ -1401,6 +1495,16 @@ impl AppState {
                 RepositoryFormFocus::DefaultProfile => {
                     cursor.default_profile =
                         move_cursor_right(&fields.default_profile, cursor.default_profile);
+                }
+                RepositoryFormFocus::LoginUser => {
+                    cursor.login_user = move_cursor_right(&fields.login_user, cursor.login_user);
+                }
+                RepositoryFormFocus::Host => {
+                    cursor.host = move_cursor_right(&fields.host, cursor.host);
+                }
+                RepositoryFormFocus::RunAsUser => {
+                    cursor.run_as_user =
+                        move_cursor_right(&fields.run_as_user, cursor.run_as_user);
                 }
             },
             ModalState::NewAgent {
@@ -1471,8 +1575,29 @@ impl AppState {
         }
     }
 
+    fn toggle_repository_checkbox(fields: &mut RepositoryFormFields, focus: RepositoryFormFocus) {
+        match focus {
+            RepositoryFormFocus::RemoteEnabled => {
+                fields.remote_enabled = !fields.remote_enabled;
+            }
+            RepositoryFormFocus::SetupEnvDefault => {
+                fields.setup_env_default = !fields.setup_env_default;
+            }
+            RepositoryFormFocus::Name
+            | RepositoryFormFocus::BaseDir
+            | RepositoryFormFocus::DefaultProfile
+            | RepositoryFormFocus::LoginUser
+            | RepositoryFormFocus::Host
+            | RepositoryFormFocus::RunAsUser => {}
+        }
+    }
+
     fn handle_form_toggle_checkbox(&mut self) {
         match &mut self.modal {
+            ModalState::NewRepository { fields, focus, .. }
+            | ModalState::EditRepository { fields, focus, .. } => {
+                Self::toggle_repository_checkbox(fields, *focus);
+            }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => match focus {
                 AgentFormFocus::PassContinue => {
@@ -1551,6 +1676,16 @@ impl AppState {
         }
     }
 
+    fn remote_settings_from_fields(fields: &RepositoryFormFields) -> RemoteRepositorySettings {
+        RemoteRepositorySettings {
+            enabled: fields.remote_enabled,
+            login_user: fields.login_user.trim().to_owned(),
+            host: fields.host.trim().to_owned(),
+            run_as_user: fields.run_as_user.trim().to_owned(),
+            setup_env_default: fields.setup_env_default,
+        }
+    }
+
     fn create_repository_from_fields(fields: &RepositoryFormFields) -> Option<Repository> {
         if fields.name.is_empty() {
             return None;
@@ -1566,11 +1701,15 @@ impl AppState {
 
         let base_dir = if fields.base_dir.is_empty() {
             format!("/tmp/{slug}")
+        } else if fields.remote_enabled {
+            fields.base_dir.clone()
         } else {
             expand_tilde(&fields.base_dir)
         };
 
-        let _ = std::fs::create_dir_all(&base_dir);
+        if !fields.remote_enabled {
+            let _ = std::fs::create_dir_all(&base_dir);
+        }
 
         Some(Repository {
             id: RepositoryId(generate_id("repo")),
@@ -1578,6 +1717,7 @@ impl AppState {
             slug,
             base_dir: std::path::PathBuf::from(&base_dir),
             default_profile: normalize_profile(&fields.default_profile),
+            remote: Self::remote_settings_from_fields(fields),
             agent_ids: Vec::new(),
         })
     }
@@ -1593,14 +1733,19 @@ impl AppState {
             .collect();
 
         if !fields.base_dir.is_empty() {
-            repo.base_dir = std::path::PathBuf::from(expand_tilde(&fields.base_dir));
+            repo.base_dir = if fields.remote_enabled {
+                std::path::PathBuf::from(&fields.base_dir)
+            } else {
+                std::path::PathBuf::from(expand_tilde(&fields.base_dir))
+            };
         }
 
         repo.default_profile = normalize_profile(&fields.default_profile);
+        repo.remote = Self::remote_settings_from_fields(fields);
     }
 
     fn create_agent_from_fields(
-        repository_id: &RepositoryId,
+        repository: &Repository,
         fields: &AgentFormFields,
         next_display_index: usize,
     ) -> Option<Agent> {
@@ -1608,8 +1753,14 @@ impl AppState {
             return None;
         }
 
-        let work_dir = expand_tilde(&fields.work_dir);
-        let _ = std::fs::create_dir_all(&work_dir);
+        let work_dir = if repository.remote.enabled {
+            fields.work_dir.clone()
+        } else {
+            expand_tilde(&fields.work_dir)
+        };
+        if !repository.remote.enabled {
+            let _ = std::fs::create_dir_all(&work_dir);
+        }
 
         let mode_flags: Vec<String> = if fields.mode.trim().is_empty() {
             vec!["--yolo".to_owned()]
@@ -1623,7 +1774,7 @@ impl AppState {
         Some(Agent {
             id: AgentId(generate_id("agent")),
             display_id: format!("#{next_display_index}"),
-            repository_id: repository_id.clone(),
+            repository_id: repository.id.clone(),
             shortcut_slot: fields.shortcut_slot,
             name: fields.name.clone(),
             description: fields.description.clone(),
@@ -1640,14 +1791,18 @@ impl AppState {
         })
     }
 
-    fn update_agent_from_fields(agent: &mut Agent, fields: &AgentFormFields) {
+    fn update_agent_from_fields(agent: &mut Agent, repository: &Repository, fields: &AgentFormFields) {
         agent.name.clone_from(&fields.name);
         agent.shortcut_slot = fields.shortcut_slot;
         agent.description.clone_from(&fields.description);
 
         if !fields.work_dir.is_empty() {
-            let new_dir = expand_tilde(&fields.work_dir);
-            if new_dir != agent.work_dir.to_string_lossy() {
+            let new_dir = if repository.remote.enabled {
+                fields.work_dir.clone()
+            } else {
+                expand_tilde(&fields.work_dir)
+            };
+            if !repository.remote.enabled && new_dir != agent.work_dir.to_string_lossy() {
                 let _ = std::fs::create_dir_all(&new_dir);
             }
             agent.work_dir = std::path::PathBuf::from(&new_dir);
@@ -1692,8 +1847,9 @@ impl AppState {
                 ..
             } => {
                 let next_display_index = self.agents.len() + 1;
-                if let Some(agent) =
-                    Self::create_agent_from_fields(&repository_id, &fields, next_display_index)
+                if let Some(repository) = self.repository_by_id(&repository_id).cloned()
+                    && let Some(agent) =
+                        Self::create_agent_from_fields(&repository, &fields, next_display_index)
                 {
                     self.enforce_shortcut_uniqueness(&agent.id, agent.shortcut_slot);
                     self.agents.push(agent);
@@ -1708,8 +1864,11 @@ impl AppState {
                 }
 
                 self.enforce_shortcut_uniqueness(&id, fields.shortcut_slot);
-                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == id) {
-                    Self::update_agent_from_fields(agent, &fields);
+                let repository = self.repository_for_agent(&id).cloned();
+                if let Some(repository) = repository
+                    && let Some(agent) = self.agents.iter_mut().find(|a| a.id == id)
+                {
+                    Self::update_agent_from_fields(agent, &repository, &fields);
                 }
                 self.remember_selected_agent_for_current_repo();
                 self.modal = ModalState::None;
@@ -1895,6 +2054,7 @@ mod tests {
             slug: "repo-1".to_owned(),
             base_dir: std::path::PathBuf::from("/tmp/repo-1"),
             default_profile: String::new(),
+            remote: RemoteRepositorySettings::default(),
             agent_ids: Vec::new(),
         }
     }
@@ -1984,5 +2144,75 @@ mod tests {
             normalize_sandbox_flags("   "),
             DEFAULT_SANDBOX_FLAGS.to_owned()
         );
+    }
+
+    #[test]
+    fn remote_repository_creation_preserves_remote_base_dir_without_local_expansion() {
+        let fields = RepositoryFormFields {
+            name: "Remote Repo".to_owned(),
+            base_dir: "~/remote/worktrees".to_owned(),
+            default_profile: "ship".to_owned(),
+            remote_enabled: true,
+            login_user: "ubuntu".to_owned(),
+            host: "170.9.234.179".to_owned(),
+            run_as_user: "acoliver".to_owned(),
+            setup_env_default: true,
+        };
+
+        let Some(repository) = AppState::create_repository_from_fields(&fields) else {
+            panic!("repository should be created");
+        };
+
+        assert_eq!(
+            repository.base_dir,
+            std::path::PathBuf::from("~/remote/worktrees")
+        );
+        assert!(repository.remote.enabled);
+        assert_eq!(repository.remote.login_user, "ubuntu");
+        assert_eq!(repository.remote.host, "170.9.234.179");
+        assert_eq!(repository.remote.run_as_user, "acoliver");
+        assert!(repository.remote.setup_env_default);
+    }
+
+    #[test]
+    fn repository_checkbox_toggle_updates_remote_fields() {
+        let mut state = AppState {
+            repositories: vec![seed_repository()],
+            ..AppState::default()
+        };
+        state = state.apply(AppEvent::OpenNewRepository);
+        state = state.apply(AppEvent::FormNextField);
+        state = state.apply(AppEvent::FormNextField);
+        state = state.apply(AppEvent::FormNextField);
+        state = state.apply(AppEvent::FormToggleCheckbox);
+        state = state.apply(AppEvent::FormNextField);
+        state = state.apply(AppEvent::FormChar('u'));
+        state = state.apply(AppEvent::FormChar('b'));
+        state = state.apply(AppEvent::FormNextField);
+        state = state.apply(AppEvent::FormChar('1'));
+        state = state.apply(AppEvent::FormChar('.'));
+        state = state.apply(AppEvent::FormNextField);
+        state = state.apply(AppEvent::FormChar('a'));
+        state = state.apply(AppEvent::FormNextField);
+        state = state.apply(AppEvent::FormToggleCheckbox);
+
+        match state.modal {
+            ModalState::NewRepository {
+                fields,
+                focus,
+                cursor,
+            } => {
+                assert_eq!(focus, RepositoryFormFocus::SetupEnvDefault);
+                assert!(fields.remote_enabled);
+                assert_eq!(fields.login_user, "ub");
+                assert_eq!(fields.host, "1.");
+                assert_eq!(fields.run_as_user, "a");
+                assert!(fields.setup_env_default);
+                assert_eq!(cursor.login_user, 2);
+                assert_eq!(cursor.host, 2);
+                assert_eq!(cursor.run_as_user, 1);
+            }
+            _ => panic!("expected new-repository modal"),
+        }
     }
 }

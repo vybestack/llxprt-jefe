@@ -4,7 +4,9 @@ use iocraft::hooks::State as HookState;
 use iocraft::prelude::*;
 use tracing::{debug, warn};
 
-use jefe::domain::{AgentId, LaunchSignature, SandboxEngine};
+use std::time::Duration;
+
+use jefe::domain::{AgentId, AgentStatus, LaunchSignature, Repository, SandboxEngine};
 
 const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
     ('¡', 1),
@@ -19,6 +21,8 @@ const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
 ];
 use jefe::input::{SearchKeyRoute, route_search_key};
 use jefe::persistence::{PersistenceManager, State as PersistedState};
+const REMOTE_ATTACH_SETTLE_DELAY: Duration = Duration::from_millis(150);
+
 use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_ssh_agent_warning};
 
 #[must_use]
@@ -50,10 +54,13 @@ fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, s
         if !attached_ok {
             state.terminal_focused = false;
             state.pane_focus = PaneFocus::Agents;
+            mark_agent_runtime_attached(&mut state, &agent_id, false);
             persist_state_snapshot(ctx, &state);
             return false;
         }
 
+        clear_agent_runtime_attachment(&mut state);
+        mark_agent_runtime_attached(&mut state, &agent_id, true);
         persist_state_snapshot(ctx, &state);
         true
     } else {
@@ -64,8 +71,17 @@ fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, s
     }
 }
 
-use jefe::state::{AgentFormFocus, AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
+use jefe::state::{
+    AgentFormFocus, AppEvent, AppState, ModalState, PaneFocus, RepositoryFormFocus, ScreenMode,
+};
 use jefe::theme::ThemeManager;
+
+fn repository_focus_toggles_checkbox(focus: RepositoryFormFocus) -> bool {
+    matches!(
+        focus,
+        RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault
+    )
+}
 
 pub type SharedContext = Option<Arc<std::sync::Mutex<super::AppContext>>>;
 pub type AppStateHandle = HookState<AppState>;
@@ -99,6 +115,69 @@ fn clear_runtime_warning(state: &mut AppState) {
         state.warning_message = None;
     }
 }
+
+fn launch_signature_for_agent(agent: &jefe::domain::Agent, repository: &Repository) -> LaunchSignature {
+    LaunchSignature {
+        work_dir: agent.work_dir.clone(),
+        profile: agent.profile.clone(),
+        mode_flags: agent.mode_flags.clone(),
+        llxprt_debug: agent.llxprt_debug.clone(),
+        pass_continue: agent.pass_continue,
+        sandbox_enabled: agent.sandbox_enabled,
+        sandbox_engine: agent.sandbox_engine,
+        sandbox_flags: agent.sandbox_flags.clone(),
+        remote: repository.remote.clone(),
+    }
+}
+
+fn agent_and_signature(state: &AppState, agent_id: &AgentId) -> Option<(jefe::domain::Agent, LaunchSignature)> {
+    let agent = state.agents.iter().find(|agent| &agent.id == agent_id)?.clone();
+    let repository = state.repository_by_id(&agent.repository_id)?;
+    let signature = launch_signature_for_agent(&agent, repository);
+    Some((agent, signature))
+}
+
+fn set_agent_runtime_binding(
+    state: &mut AppState,
+    agent_id: &AgentId,
+    session_name: String,
+    signature: LaunchSignature,
+) {
+    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
+        agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
+            session_name,
+            launch_signature: signature,
+            attached: false,
+            last_seen: None,
+        });
+    }
+}
+
+fn mark_agent_runtime_attached(state: &mut AppState, agent_id: &AgentId, attached: bool) {
+    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id)
+        && let Some(binding) = agent.runtime_binding.as_mut()
+    {
+        binding.attached = attached;
+    }
+}
+
+fn clear_agent_runtime_attachment(state: &mut AppState) {
+    for agent in &mut state.agents {
+        if let Some(binding) = agent.runtime_binding.as_mut() {
+            binding.attached = false;
+        }
+    }
+}
+
+fn mark_runtime_session_dead_if_present(state: &mut AppState, agent_id: &AgentId) {
+    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
+        agent.status = AgentStatus::Dead;
+        if let Some(binding) = agent.runtime_binding.as_mut() {
+            binding.attached = false;
+        }
+    }
+}
+
 
 fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
     let mut state = app_state.write();
@@ -187,28 +266,18 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
             state.terminal_focused = false;
             persist_state_snapshot(ctx, &state);
         }
-        AppEvent::RelaunchAgent(ref agent_id) => {
+        AppEvent::RelaunchAgent(agent_id) => {
             let mut relaunched = false;
+            let relaunch_event = AppEvent::RelaunchAgent(agent_id.clone());
             if let Some(ctx_arc) = &ctx
                 && let Ok(mut ctx_guard) = ctx_arc.lock()
             {
                 // Always relaunch from current in-memory agent config so edits made
                 // before relaunch (e.g. LLXPRT_DEBUG changes) are applied.
                 let state_ro = app_state.read();
-                if let Some(agent) = state_ro.agents.iter().find(|a| a.id == *agent_id) {
-                    let signature = LaunchSignature {
-                        work_dir: agent.work_dir.clone(),
-                        profile: agent.profile.clone(),
-                        mode_flags: agent.mode_flags.clone(),
-                        llxprt_debug: agent.llxprt_debug.clone(),
-                        pass_continue: agent.pass_continue,
-                        sandbox_enabled: agent.sandbox_enabled,
-                        sandbox_engine: agent.sandbox_engine,
-                        sandbox_flags: agent.sandbox_flags.clone(),
-                    };
-
+                if let Some((agent, signature)) = agent_and_signature(&state_ro, &agent_id) {
                     match ctx_guard.runtime.spawn_session_fresh(
-                        agent_id,
+                        &agent_id,
                         &agent.work_dir,
                         &signature,
                     ) {
@@ -220,7 +289,7 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
                             // This keeps behavior stable for edge cases while still preferring fresh config.
                             match e {
                                 RuntimeError::AlreadyRunning(_) => {
-                                    match ctx_guard.runtime.relaunch(agent_id) {
+                                    match ctx_guard.runtime.relaunch(&agent_id) {
                                         Ok(()) => {
                                             relaunched = true;
                                         }
@@ -247,28 +316,53 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
 
                 if relaunched {
                     // Relaunch should make output visible immediately; focus remains separate.
-                    if let Err(e) = ctx_guard.runtime.attach(agent_id) {
-                        warn!(
-                            agent_id = %agent_id.0,
-                            error = %e,
-                            "could not attach relaunched session"
-                        );
+                    std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
+                    match ctx_guard.runtime.attach(&agent_id) {
+                        Ok(()) => {}
+                        Err(e) => {
+                            warn!(
+                                agent_id = %agent_id.0,
+                                error = %e,
+                                "could not attach relaunched session"
+                            );
+                            let _ = ctx_guard.runtime.mark_session_dead(&agent_id);
+                            relaunched = false;
+                        }
                     }
                 }
             }
 
             let mut state = app_state.write();
-            *state = std::mem::take(&mut *state).apply(evt);
             if relaunched {
+                if let Some((agent, signature)) = agent_and_signature(&state, &agent_id) {
+                    set_agent_runtime_binding(
+                        &mut state,
+                        &agent_id,
+                        jefe::runtime::RuntimeSession::session_name_for(&agent.id),
+                        signature,
+                    );
+                }
+                *state = std::mem::take(&mut *state).apply(relaunch_event);
                 state.terminal_focused = false;
+                clear_agent_runtime_attachment(&mut state);
+                mark_agent_runtime_attached(&mut state, &agent_id, true);
                 if let Some(warning) = sandbox_ssh_agent_warning() {
                     state.warning_message = Some(warning);
                 } else {
                     clear_runtime_warning(&mut state);
                 }
+            } else {
+                *state = std::mem::take(&mut *state).apply(relaunch_event);
+                state.terminal_focused = false;
+                state.pane_focus = PaneFocus::Agents;
+                mark_runtime_session_dead_if_present(&mut state, &agent_id);
+                if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) {
+                    agent.runtime_binding = None;
+                }
             }
             persist_state_snapshot(ctx, &state);
         }
+
         _ => {
             apply_and_persist(app_state, ctx, evt);
         }
@@ -326,10 +420,16 @@ pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
             }
         });
 
+        let mut state = app_state.write();
         if !attached {
-            let mut state = app_state.write();
             state.terminal_focused = false;
             state.pane_focus = PaneFocus::Agents;
+            if let Some(agent_id) = selected_agent_id.as_ref() {
+                mark_agent_runtime_attached(&mut state, agent_id, false);
+            }
+        } else if let Some(agent_id) = selected_agent_id.as_ref() {
+            clear_agent_runtime_attachment(&mut state);
+            mark_agent_runtime_attached(&mut state, agent_id, true);
         }
     }
 
@@ -447,42 +547,58 @@ pub fn handle_mode_form_key(
                 if let Some(agent) = state.selected_agent().cloned() {
                     let agent_id = agent.id.clone();
                     let work_dir = agent.work_dir.clone();
-                    let signature = LaunchSignature {
-                        work_dir: agent.work_dir.clone(),
-                        profile: agent.profile.clone(),
-                        mode_flags: agent.mode_flags.clone(),
-                        llxprt_debug: agent.llxprt_debug.clone(),
-                        pass_continue: agent.pass_continue,
-                        sandbox_enabled: agent.sandbox_enabled,
-                        sandbox_engine: agent.sandbox_engine,
-                        sandbox_flags: agent.sandbox_flags.clone(),
+                    let repository = state.repository_by_id(&agent.repository_id).cloned();
+                    let Some(repository) = repository else {
+                        state.terminal_focused = false;
+                        state.error_message = Some("selected agent repository not found".to_owned());
+                        persist_state_snapshot(ctx, &state);
+                        return true;
                     };
+                    let signature = launch_signature_for_agent(&agent, &repository);
                     // Match toy1 behavior: new agent opens attached and focused.
                     state.terminal_focused = true;
                     persist_state_snapshot(ctx, &state);
                     drop(state);
 
                     if let Some(ctx_arc) = &ctx {
-                        let spawn_result = if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                            let spawn = ctx_guard.runtime.spawn_session(&agent_id, &work_dir, &signature);
-                            if spawn.is_ok() {
-                                if let Err(e) = ctx_guard.runtime.attach(&agent_id) {
-                                    warn!(
-                                        agent_id = %agent_id.0,
-                                        error = %e,
-                                        "could not attach session for new agent"
-                                    );
+                        let attach_result = if let Ok(mut ctx_guard) = ctx_arc.lock() {
+                            match ctx_guard.runtime.spawn_session(&agent_id, &work_dir, &signature) {
+                                Ok(()) => {
+                                    std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
+                                    ctx_guard.runtime.attach(&agent_id)
                                 }
+                                Err(error) => Err(error),
                             }
-                            spawn
                         } else {
                             Ok(())
                         };
 
-                        if let Err(e) = spawn_result {
-                            warn!(error = %e, "could not spawn session for new agent");
+                        if let Err(e) = attach_result {
+                            warn!(error = %e, "could not spawn or attach session for new agent");
+                            let mut state = app_state.write();
+                            state.terminal_focused = false;
+                            state.pane_focus = PaneFocus::Agents;
+                            state.error_message = Some(e.to_string());
+                            if let Some(ctx_arc) = &ctx
+                                && let Ok(mut ctx_guard) = ctx_arc.lock()
+                            {
+                                let _ = ctx_guard.runtime.mark_session_dead(&agent_id);
+                            }
+                            if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) {
+                                agent.runtime_binding = None;
+                            }
+                            mark_runtime_session_dead_if_present(&mut state, &agent_id);
+                            persist_state_snapshot(ctx, &state);
                         } else {
                             let mut state = app_state.write();
+                            set_agent_runtime_binding(
+                                &mut state,
+                                &agent_id,
+                                jefe::runtime::RuntimeSession::session_name_for(&agent_id),
+                                signature,
+                            );
+                            clear_agent_runtime_attachment(&mut state);
+                            mark_agent_runtime_attached(&mut state, &agent_id, true);
                             if let Some(warning) = sandbox_ssh_agent_warning() {
                                 state.warning_message = Some(warning);
                             } else {
@@ -504,21 +620,34 @@ pub fn handle_mode_form_key(
         KeyCode::Delete => Some(AppEvent::FormDelete),
         // Space toggles checkbox or cycles sandbox engine on the dedicated controls.
         KeyCode::Char(' ') => {
+            enum FocusedFormField {
+                Repository(RepositoryFormFocus),
+                Agent(AgentFormFocus),
+                None,
+            }
+
             let focused = {
                 let state = app_state.read();
                 match &state.modal {
+                    ModalState::NewRepository { focus, .. }
+                    | ModalState::EditRepository { focus, .. } => FocusedFormField::Repository(*focus),
                     ModalState::NewAgent { focus, .. } | ModalState::EditAgent { focus, .. } => {
-                        *focus
+                        FocusedFormField::Agent(*focus)
                     }
-                    _ => AgentFormFocus::Name,
+                    _ => FocusedFormField::None,
                 }
             };
 
             match focused {
-                AgentFormFocus::PassContinue
-                | AgentFormFocus::Sandbox
-                | AgentFormFocus::Shortcut => Some(AppEvent::FormToggleCheckbox),
-                AgentFormFocus::SandboxEngine => {
+                FocusedFormField::Repository(focus) if repository_focus_toggles_checkbox(focus) => {
+                    Some(AppEvent::FormToggleCheckbox)
+                }
+                FocusedFormField::Agent(
+                    AgentFormFocus::PassContinue
+                    | AgentFormFocus::Sandbox
+                    | AgentFormFocus::Shortcut,
+                ) => Some(AppEvent::FormToggleCheckbox),
+                FocusedFormField::Agent(AgentFormFocus::SandboxEngine) => {
                     let mut state = app_state.write();
                     if let ModalState::NewAgent { fields, .. }
                     | ModalState::EditAgent { fields, .. } = &mut state.modal

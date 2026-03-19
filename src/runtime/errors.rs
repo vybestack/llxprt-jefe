@@ -14,6 +14,8 @@ pub enum RuntimeError {
     AttachFailed(String),
     /// Failed to spawn session.
     SpawnFailed(String),
+    /// Failed to execute remote SSH session lifecycle command.
+    RemoteExecutionFailed(String),
     /// Failed to kill session.
     KillFailed(String),
     /// Agent is already running.
@@ -34,6 +36,7 @@ impl std::fmt::Display for RuntimeError {
             Self::SessionNotFound(name) => write!(f, "session not found: {name}"),
             Self::AttachFailed(msg) => write!(f, "attach failed: {msg}"),
             Self::SpawnFailed(msg) => write!(f, "spawn failed: {msg}"),
+            Self::RemoteExecutionFailed(msg) => write!(f, "remote execution failed: {msg}"),
             Self::KillFailed(msg) => write!(f, "kill failed: {msg}"),
             Self::AlreadyRunning(id) => write!(f, "agent already running: {}", id.0),
             Self::NotRunning(id) => write!(f, "agent not running: {}", id.0),
