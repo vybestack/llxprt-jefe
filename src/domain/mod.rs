@@ -58,9 +58,9 @@ impl SandboxEngine {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Podman => "podman",
-            Self::Docker => "docker",
-            Self::Seatbelt => "seatbelt",
+            Self::Podman => "Podman",
+            Self::Docker => "Docker",
+            Self::Seatbelt => "Seatbelt",
         }
     }
 
@@ -160,7 +160,7 @@ pub struct RuntimeBinding {
 }
 
 /// Launch signature for recreating runtime sessions.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LaunchSignature {
     pub work_dir: PathBuf,
     pub profile: String,

@@ -9,9 +9,10 @@
 use tracing::{debug, trace};
 
 use crate::domain::{
-    Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, RemoteRepositorySettings, Repository,
-    RepositoryId, SandboxEngine,
+    Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature, RemoteRepositorySettings,
+    Repository, RepositoryId, SandboxEngine,
 };
+use crate::runtime::PreflightIssue;
 
 /// Form fields for creating/editing an agent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -210,6 +211,18 @@ pub enum ModalState {
     ConfirmKillAgent {
         id: AgentId,
     },
+    /// Preflight check failed — prompt the user for remediation before launch.
+    PreflightPrompt {
+        /// The agent being launched (so we can resume after remediation).
+        agent_id: AgentId,
+        /// The launch signature (so we can resume the spawn).
+        signature: LaunchSignature,
+        /// The issue that was detected.
+        issue: PreflightIssue,
+        /// The remaining issues to check after this one is resolved.
+        remaining_issues: Vec<PreflightIssue>,
+    },
+
 }
 
 /// Screen mode variants.

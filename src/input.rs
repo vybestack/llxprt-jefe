@@ -37,7 +37,8 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
         | ModalState::EditAgent { .. } => return InputMode::Form,
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
-        | ModalState::ConfirmKillAgent { .. } => return InputMode::Confirm,
+        | ModalState::ConfirmKillAgent { .. }
+        | ModalState::PreflightPrompt { .. } => return InputMode::Confirm,
         ModalState::None => {}
     }
 

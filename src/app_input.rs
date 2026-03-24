@@ -23,7 +23,10 @@ use jefe::input::{SearchKeyRoute, route_search_key};
 use jefe::persistence::{PersistenceManager, State as PersistedState};
 const REMOTE_ATTACH_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
-use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_ssh_agent_warning};
+use jefe::runtime::{
+    RuntimeError, RuntimeManager, execute_preflight_action, sandbox_preflight,
+    sandbox_ssh_agent_warning,
+};
 
 #[must_use]
 fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, slot: u8) -> bool {
@@ -188,6 +191,103 @@ fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: A
 fn close_modal_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     apply_and_persist(app_state, ctx, AppEvent::CloseModal);
 }
+/// Run sandbox preflight checks and either show a prompt or proceed with launch.
+///
+/// Returns `true` if the launch can proceed immediately (no issues or sandbox
+/// not enabled).  Returns `false` if a `PreflightPrompt` modal was opened and
+/// the caller should abort the immediate launch path.
+fn preflight_or_prompt(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+    signature: &LaunchSignature,
+) -> bool {
+    if !signature.sandbox_enabled {
+        return true;
+    }
+
+    if let Some(issue) = sandbox_preflight(signature.sandbox_engine) {
+        let mut state = app_state.write();
+        state.modal = ModalState::PreflightPrompt {
+            agent_id: agent_id.clone(),
+            signature: signature.clone(),
+            issue,
+            remaining_issues: Vec::new(),
+        };
+        persist_state_snapshot(ctx, &state);
+        return false;
+    }
+
+    true
+}
+
+/// Actually spawn + attach an agent session (shared by fresh-launch and
+/// post-preflight resume paths).
+fn execute_agent_launch(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+    work_dir: &std::path::Path,
+    signature: &LaunchSignature,
+    is_relaunch: bool,
+) {
+    let attach_result = if let Some(ctx_arc) = ctx {
+        if let Ok(mut ctx_guard) = ctx_arc.lock() {
+            let spawn_result = if is_relaunch {
+                ctx_guard.runtime.spawn_session_fresh(agent_id, work_dir, signature)
+            } else {
+                ctx_guard.runtime.spawn_session(agent_id, work_dir, signature)
+            };
+            match spawn_result {
+                Ok(()) => {
+                    std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
+                    ctx_guard.runtime.attach(agent_id)
+                }
+                Err(error) => Err(error),
+            }
+        } else {
+            Ok(())
+        }
+    } else {
+        Ok(())
+    };
+
+    if let Err(e) = attach_result {
+        warn!(error = %e, "could not spawn or attach session for agent");
+        let mut state = app_state.write();
+        state.terminal_focused = false;
+        state.pane_focus = PaneFocus::Agents;
+        state.error_message = Some(e.to_string());
+        if let Some(ctx_arc) = ctx
+            && let Ok(mut ctx_guard) = ctx_arc.lock()
+        {
+            let _ = ctx_guard.runtime.mark_session_dead(agent_id);
+        }
+        if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == *agent_id) {
+            agent.runtime_binding = None;
+        }
+        mark_runtime_session_dead_if_present(&mut state, agent_id);
+        persist_state_snapshot(ctx, &state);
+    } else {
+        let mut state = app_state.write();
+        set_agent_runtime_binding(
+            &mut state,
+            agent_id,
+            jefe::runtime::RuntimeSession::session_name_for(agent_id),
+            signature.clone(),
+        );
+        clear_agent_runtime_attachment(&mut state);
+        mark_agent_runtime_attached(&mut state, agent_id, true);
+        if let Some(warning) = sandbox_ssh_agent_warning() {
+            state.warning_message = Some(warning);
+        } else {
+            clear_runtime_warning(&mut state);
+        }
+        persist_state_snapshot(ctx, &state);
+    }
+}
+
+
 
 pub fn handle_mode_help_key(
     app_state: &mut AppStateHandle,
@@ -267,6 +367,17 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
             persist_state_snapshot(ctx, &state);
         }
         AppEvent::RelaunchAgent(agent_id) => {
+            // Run preflight before attempting the relaunch.
+            {
+                let state_ro = app_state.read();
+                if let Some((_agent, signature)) = agent_and_signature(&state_ro, &agent_id) {
+                    drop(state_ro);
+                    if !preflight_or_prompt(app_state, ctx, &agent_id, &signature) {
+                        return;
+                    }
+                }
+            }
+
             let mut relaunched = false;
             let relaunch_event = AppEvent::RelaunchAgent(agent_id.clone());
             if let Some(ctx_arc) = &ctx
@@ -514,6 +625,52 @@ pub fn handle_mode_confirm_key(
                     state.modal = ModalState::None;
                     persist_state_snapshot(ctx, &state);
                 }
+                ModalState::PreflightPrompt {
+                    agent_id,
+                    signature,
+                    issue,
+                    ..
+                } => {
+                    let action = issue.action();
+                    match execute_preflight_action(&action) {
+                        Ok(()) => {
+                            // Re-run preflight to check for remaining issues.
+                            if let Some(next) = sandbox_preflight(signature.sandbox_engine) {
+                                let mut state = app_state.write();
+                                state.modal = ModalState::PreflightPrompt {
+                                    agent_id,
+                                    signature,
+                                    issue: next,
+                                    remaining_issues: Vec::new(),
+                                };
+                                persist_state_snapshot(ctx, &state);
+                            } else {
+                                // All clear — close modal and launch.
+                                let work_dir = signature.work_dir.clone();
+                                {
+                                    let mut state = app_state.write();
+                                    state.modal = ModalState::None;
+                                    state.terminal_focused = true;
+                                    persist_state_snapshot(ctx, &state);
+                                }
+                                execute_agent_launch(
+                                    app_state,
+                                    ctx,
+                                    &agent_id,
+                                    &work_dir,
+                                    &signature,
+                                    false,
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            let mut state = app_state.write();
+                            state.modal = ModalState::None;
+                            state.error_message = Some(e);
+                            persist_state_snapshot(ctx, &state);
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -543,6 +700,7 @@ pub fn handle_mode_form_key(
             persist_state_snapshot(ctx, &state);
 
             // If new agent was created, spawn session and attach viewer.
+            // If new agent was created, spawn session and attach viewer.
             if is_new_agent && state.modal == ModalState::None {
                 if let Some(agent) = state.selected_agent().cloned() {
                     let agent_id = agent.id.clone();
@@ -555,58 +713,30 @@ pub fn handle_mode_form_key(
                         return true;
                     };
                     let signature = launch_signature_for_agent(&agent, &repository);
-                    // Match toy1 behavior: new agent opens attached and focused.
-                    state.terminal_focused = true;
-                    persist_state_snapshot(ctx, &state);
+
+                    // Drop write guard before preflight (it may take the lock).
                     drop(state);
 
-                    if let Some(ctx_arc) = &ctx {
-                        let attach_result = if let Ok(mut ctx_guard) = ctx_arc.lock() {
-                            match ctx_guard.runtime.spawn_session(&agent_id, &work_dir, &signature) {
-                                Ok(()) => {
-                                    std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
-                                    ctx_guard.runtime.attach(&agent_id)
-                                }
-                                Err(error) => Err(error),
-                            }
-                        } else {
-                            Ok(())
-                        };
-
-                        if let Err(e) = attach_result {
-                            warn!(error = %e, "could not spawn or attach session for new agent");
-                            let mut state = app_state.write();
-                            state.terminal_focused = false;
-                            state.pane_focus = PaneFocus::Agents;
-                            state.error_message = Some(e.to_string());
-                            if let Some(ctx_arc) = &ctx
-                                && let Ok(mut ctx_guard) = ctx_arc.lock()
-                            {
-                                let _ = ctx_guard.runtime.mark_session_dead(&agent_id);
-                            }
-                            if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) {
-                                agent.runtime_binding = None;
-                            }
-                            mark_runtime_session_dead_if_present(&mut state, &agent_id);
-                            persist_state_snapshot(ctx, &state);
-                        } else {
-                            let mut state = app_state.write();
-                            set_agent_runtime_binding(
-                                &mut state,
-                                &agent_id,
-                                jefe::runtime::RuntimeSession::session_name_for(&agent_id),
-                                signature,
-                            );
-                            clear_agent_runtime_attachment(&mut state);
-                            mark_agent_runtime_attached(&mut state, &agent_id, true);
-                            if let Some(warning) = sandbox_ssh_agent_warning() {
-                                state.warning_message = Some(warning);
-                            } else {
-                                clear_runtime_warning(&mut state);
-                            }
-                            persist_state_snapshot(ctx, &state);
-                        }
+                    // Run preflight checks before spawning.
+                    if !preflight_or_prompt(app_state, ctx, &agent_id, &signature) {
+                        return true;
                     }
+
+                    // Match toy1 behavior: new agent opens attached and focused.
+                    {
+                        let mut state = app_state.write();
+                        state.terminal_focused = true;
+                        persist_state_snapshot(ctx, &state);
+                    }
+
+                    execute_agent_launch(
+                        app_state,
+                        ctx,
+                        &agent_id,
+                        &work_dir,
+                        &signature,
+                        false,
+                    );
                 }
             }
 

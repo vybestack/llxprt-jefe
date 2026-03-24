@@ -967,6 +967,12 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 false,
             ))
         }
+        ModalState::PreflightPrompt { issue, .. } => Some((
+            issue.prompt_title(),
+            issue.prompt_message(),
+            false,
+            false,
+        )),
         _ => None,
     };
 
@@ -996,7 +1002,9 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
             }
             .into_any(),
         ),
-        ModalState::ConfirmDeleteRepository { .. } | ModalState::ConfirmDeleteAgent { .. } => {
+        ModalState::ConfirmDeleteRepository { .. }
+        | ModalState::ConfirmDeleteAgent { .. }
+        | ModalState::PreflightPrompt { .. } => {
             confirm_modal_data.map(|(title, message, show_delete_work_dir, delete_work_dir)| {
                 element! {
                     ConfirmModal(
