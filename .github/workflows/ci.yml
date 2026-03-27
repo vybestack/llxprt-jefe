@@ -28,6 +28,8 @@ jobs:
   lint:
     name: Lint (clippy)
     runs-on: ubuntu-latest
+    env:
+      CLIPPY_CONF_DIR: .github/clippy
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -35,7 +37,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Run clippy (warnings as errors)
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: rustup run stable cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   source_file_size:
     name: Source file length checks
@@ -92,6 +94,8 @@ jobs:
   complexity:
     name: Complexity checks
     runs-on: ubuntu-latest
+    env:
+      CLIPPY_CONF_DIR: .github/clippy
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -100,7 +104,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Enforce complexity limits
         run: |
-          cargo clippy --workspace --all-targets --all-features -- \
+          rustup run stable cargo clippy --workspace --all-targets --all-features -- \
             -A clippy::all \
             -A clippy::pedantic \
             -A clippy::nursery \
@@ -123,9 +127,12 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Enforce line coverage threshold
         run: |
-          LLVM_COV="$(rustc --print target-libdir)/../bin/llvm-cov" \
-          LLVM_PROFDATA="$(rustc --print target-libdir)/../bin/llvm-profdata" \
-          cargo llvm-cov \
+          RUSTC_BIN="$(rustup which --toolchain stable rustc)"
+          TOOLCHAIN_DIR="$(dirname "$(dirname "$RUSTC_BIN")")"
+          HOST_TRIPLE="$(rustup run stable rustc -vV | sed -n 's/^host: //p')"
+          LLVM_COV="$TOOLCHAIN_DIR/lib/rustlib/$HOST_TRIPLE/bin/llvm-cov" \
+          LLVM_PROFDATA="$TOOLCHAIN_DIR/lib/rustlib/$HOST_TRIPLE/bin/llvm-profdata" \
+          rustup run stable cargo llvm-cov \
             --workspace \
             --all-features \
             --summary-only \

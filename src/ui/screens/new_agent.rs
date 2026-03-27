@@ -226,13 +226,13 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
                     Text(content: format!(" {}", title), color: rc.fg, weight: Weight::Bold)
                 }
                 Box(height: 1u32) {
-                    Text(content: "".to_owned(), color: rc.fg)
+                    Text(content: String::new(), color: rc.fg)
                 }
 
                 #(field_lines)
 
                 Box(height: 1u32) {
-                    Text(content: "".to_owned(), color: rc.fg)
+                    Text(content: String::new(), color: rc.fg)
                 }
                 Box(height: 1u32) {
                     Text(content: "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles/cycles checkboxes  Enter submit  Esc cancel".to_owned(), color: rc.dim)

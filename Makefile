@@ -4,8 +4,8 @@ build: ci-check
 
 ci-check:
 	cargo fmt --all --check
-	cargo clippy --workspace --all-targets --all-features -- -D warnings
-	cargo clippy --workspace --all-targets --all-features -- \
+	CLIPPY_CONF_DIR=.github/clippy rustup run stable cargo clippy --workspace --all-targets --all-features -- -D warnings
+	CLIPPY_CONF_DIR=.github/clippy rustup run stable cargo clippy --workspace --all-targets --all-features -- \
 		-A clippy::all \
 		-A clippy::pedantic \
 		-A clippy::nursery \
@@ -14,9 +14,12 @@ ci-check:
 		-D clippy::too_many_arguments \
 		-D clippy::type_complexity \
 		-D clippy::struct_excessive_bools
-	LLVM_COV="$$(rustc --print target-libdir)/../bin/llvm-cov" \
-	LLVM_PROFDATA="$$(rustc --print target-libdir)/../bin/llvm-profdata" \
-	cargo llvm-cov \
+	RUSTC_BIN="$$(rustup which --toolchain stable rustc)"; \
+	TOOLCHAIN_DIR="$$(dirname "$$(dirname "$$RUSTC_BIN")")"; \
+	HOST_TRIPLE="$$(rustup run stable rustc -vV | sed -n 's/^host: //p')"; \
+	LLVM_COV="$$TOOLCHAIN_DIR/lib/rustlib/$$HOST_TRIPLE/bin/llvm-cov" \
+	LLVM_PROFDATA="$$TOOLCHAIN_DIR/lib/rustlib/$$HOST_TRIPLE/bin/llvm-profdata" \
+	rustup run stable cargo llvm-cov \
 		--workspace \
 		--all-features \
 		--summary-only \

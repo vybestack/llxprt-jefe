@@ -86,13 +86,12 @@ fn copy_to_system_clipboard(text: &str) {
             ("xclip", ["-selection", "clipboard"].as_slice()),
             ("xsel", ["--clipboard", "--input"].as_slice()),
         ] {
-            let mut child = match Command::new(cmd)
+            let Ok(mut child) = Command::new(cmd)
                 .args(args)
                 .stdin(std::process::Stdio::piped())
                 .spawn()
-            {
-                Ok(child) => child,
-                Err(_) => continue,
+            else {
+                continue;
             };
 
             if let Some(stdin) = child.stdin.as_mut()
