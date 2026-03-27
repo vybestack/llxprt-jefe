@@ -1,1 +1,9 @@
 msrv = "1.92"
+
+# Mirror root clippy.toml thresholds so CLIPPY_CONF_DIR does not
+# silently fall back to clippy defaults in CI.
+cognitive-complexity-threshold = 15
+too-many-lines-threshold = 60
+too-many-arguments-threshold = 6
+max-struct-bools = 3
+type-complexity-threshold = 250
