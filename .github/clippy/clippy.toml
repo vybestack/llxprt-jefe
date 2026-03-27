@@ -1,4 +1,4 @@
-msrv = "1.92"
+msrv = "1.75"
 
 # Mirror root clippy.toml thresholds so CLIPPY_CONF_DIR does not
 # silently fall back to clippy defaults in CI.

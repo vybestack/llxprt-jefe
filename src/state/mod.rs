@@ -515,7 +515,7 @@ impl AppState {
 
         if self
             .selected_repository_index
-            .is_none_or(|idx| !visible_repo_indices.contains(&idx))
+            .map_or(true, |idx| !visible_repo_indices.contains(&idx))
         {
             self.selected_repository_index = visible_repo_indices.first().copied();
         }
