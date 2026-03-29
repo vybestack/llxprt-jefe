@@ -3,13 +3,27 @@
 use iocraft::hooks::State as HookState;
 use tracing::warn;
 
-use jefe::domain::{AgentId, AgentStatus, LaunchSignature};
+use jefe::domain::{Agent, AgentId, AgentStatus, LaunchSignature, RemoteRepositorySettings};
 use jefe::persistence::{PersistenceManager, Settings, State as PersistedState};
 use jefe::runtime::{RuntimeError, RuntimeManager, RuntimeSession};
 use jefe::state::{AppEvent, AppState};
 use jefe::theme::ThemeManager;
 
 use crate::app_input::{SharedContext, persist_state_snapshot, to_persisted_state};
+
+fn launch_signature_for_agent(agent: &Agent, remote: &RemoteRepositorySettings) -> LaunchSignature {
+    LaunchSignature {
+        work_dir: agent.work_dir.clone(),
+        profile: agent.profile.clone(),
+        mode_flags: agent.mode_flags.clone(),
+        llxprt_debug: agent.llxprt_debug.clone(),
+        pass_continue: agent.pass_continue,
+        sandbox_enabled: agent.sandbox_enabled,
+        sandbox_engine: agent.sandbox_engine,
+        sandbox_flags: agent.sandbox_flags.clone(),
+        remote: remote.clone(),
+    }
+}
 
 /// Load persisted state and settings into `app_state` exactly once.
 ///
@@ -62,17 +76,7 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
 
         running_agents.push((
             agent.id.clone(),
-            LaunchSignature {
-                work_dir: agent.work_dir.clone(),
-                profile: agent.profile.clone(),
-                mode_flags: agent.mode_flags.clone(),
-                llxprt_debug: agent.llxprt_debug.clone(),
-                pass_continue: agent.pass_continue,
-                sandbox_enabled: agent.sandbox_enabled,
-                sandbox_engine: agent.sandbox_engine,
-                sandbox_flags: agent.sandbox_flags.clone(),
-                remote: repository.remote.clone(),
-            },
+            launch_signature_for_agent(agent, &repository.remote),
         ));
     }
     for (agent_id, signature) in running_agents {
@@ -102,7 +106,9 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
         {
             warn!(error = %e, "could not save reconciled startup state");
         }
-        let _ = ctx_mut.theme_manager.set_active(&settings.theme);
+        if let Err(e) = ctx_mut.theme_manager.set_active(&settings.theme) {
+            warn!(error = %e, theme = %settings.theme, "could not activate saved theme");
+        }
     }
 }
 
@@ -143,17 +149,7 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
             newly_dead.push(agent.id.clone());
             continue;
         };
-        let signature = LaunchSignature {
-            work_dir: agent.work_dir.clone(),
-            profile: agent.profile.clone(),
-            mode_flags: agent.mode_flags.clone(),
-            llxprt_debug: agent.llxprt_debug.clone(),
-            pass_continue: agent.pass_continue,
-            sandbox_enabled: agent.sandbox_enabled,
-            sandbox_engine: agent.sandbox_engine,
-            sandbox_flags: agent.sandbox_flags.clone(),
-            remote: repository.remote.clone(),
-        };
+        let signature = launch_signature_for_agent(&agent, &repository.remote);
 
         if !ctx_guard
             .runtime

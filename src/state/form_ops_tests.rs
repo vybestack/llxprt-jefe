@@ -97,6 +97,30 @@ fn llxprt_debug_is_trimmed_to_empty_when_blank() {
 }
 
 #[test]
+fn new_agent_work_dir_slug_excludes_slashes_from_name() {
+    let mut state = AppState {
+        repositories: vec![seed_repository()],
+        ..AppState::default()
+    };
+
+    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+    if let ModalState::NewAgent { fields, .. } = &mut state.modal {
+        fields.name = "API / Worker".to_owned();
+    } else {
+        panic!("expected new-agent modal");
+    }
+
+    state.update_agent_work_dir_from_name();
+
+    match &state.modal {
+        ModalState::NewAgent { fields, .. } => {
+            assert_eq!(fields.work_dir, "/tmp/repo-1/api--worker");
+        }
+        _ => panic!("expected new-agent modal"),
+    }
+}
+
+#[test]
 fn remote_repository_creation_preserves_remote_base_dir_without_local_expansion() {
     let fields = RepositoryFormFields {
         name: "Remote Repo".to_owned(),

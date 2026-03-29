@@ -674,7 +674,11 @@ impl AppState {
                 .to_lowercase()
                 .replace(' ', "-")
                 .chars()
-                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '/')
+                // Agent names map to a single directory segment under base_dir;
+                // slash is intentionally excluded so users cannot create nested
+                // paths via the name field. Use the work_dir field for custom
+                // nested paths when needed.
+                .filter(|c| c.is_alphanumeric() || *c == '-')
                 .collect::<String>();
 
             fields.work_dir = if slug.is_empty() {

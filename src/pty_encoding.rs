@@ -116,9 +116,9 @@ pub fn should_suppress_synthetic_enter(armed: bool, key_event: &KeyEvent) -> boo
 
 pub fn should_arm_paste_enter_suppression(key_event: &KeyEvent, input_mode: InputMode) -> bool {
     input_mode == InputMode::TerminalCapture
-        && key_event.modifiers.intersects(
-            KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META | KeyModifiers::ALT,
-        )
+        && key_event
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::META)
         && matches!(key_event.code, KeyCode::Char('v' | 'V'))
 }
 
@@ -225,11 +225,58 @@ mod key_tests {
             InputMode::Normal
         ));
 
+        let cmd_v = key_event(KeyCode::Char('v'), KeyModifiers::SUPER);
+        assert!(should_arm_paste_enter_suppression(
+            &cmd_v,
+            InputMode::TerminalCapture
+        ));
+
+        let meta_v = key_event(KeyCode::Char('v'), KeyModifiers::META);
+        assert!(should_arm_paste_enter_suppression(
+            &meta_v,
+            InputMode::TerminalCapture
+        ));
+
+        let alt_v = key_event(KeyCode::Char('v'), KeyModifiers::ALT);
+        assert!(!should_arm_paste_enter_suppression(
+            &alt_v,
+            InputMode::TerminalCapture
+        ));
+
         let plain_v = key_event(KeyCode::Char('v'), KeyModifiers::NONE);
         assert!(!should_arm_paste_enter_suppression(
             &plain_v,
             InputMode::TerminalCapture
         ));
+    }
+
+    #[test]
+    fn passthrough_enter_keeps_cr_for_common_newline_modifiers() {
+        let plain_enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
+        let shift_enter = key_event(KeyCode::Enter, KeyModifiers::SHIFT);
+        let ctrl_enter = key_event(KeyCode::Enter, KeyModifiers::CONTROL);
+
+        assert_eq!(key_to_bytes(&plain_enter, true), Some(vec![b'\r']));
+        assert_eq!(key_to_bytes(&shift_enter, true), Some(vec![b'\r']));
+        assert_eq!(key_to_bytes(&ctrl_enter, true), Some(vec![b'\r']));
+    }
+
+    #[test]
+    fn passthrough_enter_with_alt_preserves_escape_prefix() {
+        let alt_enter = key_event(KeyCode::Enter, KeyModifiers::ALT);
+        assert_eq!(key_to_bytes(&alt_enter, true), Some(vec![0x1b, b'\r']));
+    }
+
+    #[test]
+    fn alt_char_prefixes_escape() {
+        let alt_x = key_event(KeyCode::Char('x'), KeyModifiers::ALT);
+        assert_eq!(key_to_bytes(&alt_x, false), Some(b"\x1bx".to_vec()));
+    }
+
+    #[test]
+    fn alt_shift_enter_does_not_double_prefix_escape() {
+        let key = key_event(KeyCode::Enter, KeyModifiers::ALT | KeyModifiers::SHIFT);
+        assert_eq!(key_to_bytes(&key, false), Some(b"\\\x1b\r".to_vec()));
     }
 
     #[test]
@@ -269,5 +316,44 @@ mod key_tests {
         assert_eq!(key_to_bytes(&f2, false), Some(b"\x1bOQ".to_vec()));
         assert_eq!(key_to_bytes(&f12, false), Some(b"\x1b[24~".to_vec()));
         assert_ne!(key_to_bytes(&f2, false), key_to_bytes(&insert, false));
+    }
+}
+
+#[cfg(test)]
+mod mouse_tests {
+    use super::mouse_event_to_bytes;
+    use crossterm::event::MouseButton;
+    use iocraft::{FullscreenMouseEvent, KeyModifiers, MouseEventKind};
+
+    #[test]
+    fn shift_mouse_events_are_not_forwarded_to_pty() {
+        let mut event = FullscreenMouseEvent::new(MouseEventKind::Down(MouseButton::Left), 9, 4);
+        event.modifiers = KeyModifiers::SHIFT;
+        assert_eq!(mouse_event_to_bytes(&event), None);
+    }
+
+    #[test]
+    fn left_click_uses_sgr_press_encoding() {
+        let event = FullscreenMouseEvent::new(MouseEventKind::Down(MouseButton::Left), 9, 4);
+        assert_eq!(
+            mouse_event_to_bytes(&event),
+            Some(b"\x1b[<0;10;5M".to_vec())
+        );
+    }
+
+    #[test]
+    fn right_release_uses_sgr_release_suffix() {
+        let event = FullscreenMouseEvent::new(MouseEventKind::Up(MouseButton::Right), 3, 7);
+        assert_eq!(mouse_event_to_bytes(&event), Some(b"\x1b[<2;4;8m".to_vec()));
+    }
+
+    #[test]
+    fn drag_with_alt_and_ctrl_sets_modifier_bits() {
+        let mut event = FullscreenMouseEvent::new(MouseEventKind::Drag(MouseButton::Left), 0, 0);
+        event.modifiers = KeyModifiers::ALT | KeyModifiers::CONTROL;
+        assert_eq!(
+            mouse_event_to_bytes(&event),
+            Some(b"\x1b[<56;1;1M".to_vec())
+        );
     }
 }
