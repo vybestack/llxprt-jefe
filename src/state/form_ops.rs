@@ -4,6 +4,7 @@
 use crate::domain::{
     Agent, AgentStatus, RemoteRepositorySettings, Repository, RepositoryId, SandboxEngine,
 };
+use tracing::warn;
 
 use super::AppState;
 use super::types::{
@@ -721,7 +722,13 @@ impl AppState {
         };
 
         if !fields.remote_enabled {
-            let _ = std::fs::create_dir_all(&base_dir);
+            if let Err(e) = std::fs::create_dir_all(&base_dir) {
+                warn!(
+                    base_dir = %base_dir,
+                    error = %e,
+                    "could not create local repository base directory"
+                );
+            }
         }
 
         Some(Repository {
@@ -775,7 +782,13 @@ impl AppState {
             expand_tilde(&fields.work_dir)
         };
         if !repository.remote.enabled {
-            let _ = std::fs::create_dir_all(&work_dir);
+            if let Err(e) = std::fs::create_dir_all(&work_dir) {
+                warn!(
+                    work_dir = %work_dir,
+                    error = %e,
+                    "could not create local agent work directory"
+                );
+            }
         }
 
         let mode_flags: Vec<String> = if fields.mode.trim().is_empty() {
@@ -823,7 +836,13 @@ impl AppState {
                 expand_tilde(&fields.work_dir)
             };
             if !repository.remote.enabled && new_dir != agent.work_dir.to_string_lossy() {
-                let _ = std::fs::create_dir_all(&new_dir);
+                if let Err(e) = std::fs::create_dir_all(&new_dir) {
+                    warn!(
+                        work_dir = %new_dir,
+                        error = %e,
+                        "could not create updated local agent work directory"
+                    );
+                }
             }
             agent.work_dir = std::path::PathBuf::from(&new_dir);
         }

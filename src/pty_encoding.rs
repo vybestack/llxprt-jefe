@@ -24,6 +24,24 @@ pub fn ctrl_char_to_byte(c: char) -> Option<u8> {
     }
 }
 
+fn function_key_to_bytes(n: u8) -> Option<Vec<u8>> {
+    Some(match n {
+        1 => b"\x1bOP".to_vec(),
+        2 => b"\x1bOQ".to_vec(),
+        3 => b"\x1bOR".to_vec(),
+        4 => b"\x1bOS".to_vec(),
+        5 => b"\x1b[15~".to_vec(),
+        6 => b"\x1b[17~".to_vec(),
+        7 => b"\x1b[18~".to_vec(),
+        8 => b"\x1b[19~".to_vec(),
+        9 => b"\x1b[20~".to_vec(),
+        10 => b"\x1b[21~".to_vec(),
+        11 => b"\x1b[23~".to_vec(),
+        12 => b"\x1b[24~".to_vec(),
+        _ => return None,
+    })
+}
+
 /// Convert a key event to raw bytes for PTY input.
 ///
 /// When `passthrough_enter` is true, Enter maps directly to CR regardless of
@@ -78,7 +96,7 @@ pub fn key_to_bytes(key: &KeyEvent, passthrough_enter: bool) -> Option<Vec<u8>> 
         KeyCode::PageDown => b"\x1b[6~".to_vec(),
         KeyCode::Delete => b"\x1b[3~".to_vec(),
         KeyCode::Insert => b"\x1b[2~".to_vec(),
-        KeyCode::F(n) => format!("\x1b[{n}~").into_bytes(),
+        KeyCode::F(n) => function_key_to_bytes(n)?,
         _ => return None,
     };
 
@@ -197,8 +215,7 @@ mod key_tests {
 
     #[test]
     fn paste_shortcut_arming_only_applies_in_terminal_capture() {
-        let mut ctrl_v = key_event(KeyCode::Char('v'), KeyModifiers::CONTROL);
-        ctrl_v.modifiers = KeyModifiers::CONTROL;
+        let ctrl_v = key_event(KeyCode::Char('v'), KeyModifiers::CONTROL);
         assert!(should_arm_paste_enter_suppression(
             &ctrl_v,
             InputMode::TerminalCapture
@@ -239,5 +256,18 @@ mod key_tests {
     fn ctrl_enter_maps_to_lf() {
         let key = key_event(KeyCode::Enter, KeyModifiers::CONTROL);
         assert_eq!(key_to_bytes(&key, false), Some(vec![b'\n']));
+    }
+
+    #[test]
+    fn function_keys_use_expected_xterm_sequences() {
+        let f1 = key_event(KeyCode::F(1), KeyModifiers::NONE);
+        let f2 = key_event(KeyCode::F(2), KeyModifiers::NONE);
+        let f12 = key_event(KeyCode::F(12), KeyModifiers::NONE);
+        let insert = key_event(KeyCode::Insert, KeyModifiers::NONE);
+
+        assert_eq!(key_to_bytes(&f1, false), Some(b"\x1bOP".to_vec()));
+        assert_eq!(key_to_bytes(&f2, false), Some(b"\x1bOQ".to_vec()));
+        assert_eq!(key_to_bytes(&f12, false), Some(b"\x1b[24~".to_vec()));
+        assert_ne!(key_to_bytes(&f2, false), key_to_bytes(&insert, false));
     }
 }

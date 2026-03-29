@@ -46,33 +46,35 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     state.normalize_selection_indices();
 
     // Reconcile persisted Running statuses against actual tmux sessions.
-    let running_agents: Vec<(AgentId, LaunchSignature)> = state
+    // Running agents without a backing repository are stale and must be marked
+    // Dead during startup reconciliation.
+    let mut running_agents: Vec<(AgentId, LaunchSignature)> = Vec::new();
+    let mut dead_ids = Vec::new();
+    for agent in state
         .agents
         .iter()
         .filter(|agent| agent.status == AgentStatus::Running)
-        .filter_map(|agent| {
-            state
-                .repository_by_id(&agent.repository_id)
-                .map(|repository| {
-                    (
-                        agent.id.clone(),
-                        LaunchSignature {
-                            work_dir: agent.work_dir.clone(),
-                            profile: agent.profile.clone(),
-                            mode_flags: agent.mode_flags.clone(),
-                            llxprt_debug: agent.llxprt_debug.clone(),
-                            pass_continue: agent.pass_continue,
-                            sandbox_enabled: agent.sandbox_enabled,
-                            sandbox_engine: agent.sandbox_engine,
-                            sandbox_flags: agent.sandbox_flags.clone(),
-                            remote: repository.remote.clone(),
-                        },
-                    )
-                })
-        })
-        .collect();
+    {
+        let Some(repository) = state.repository_by_id(&agent.repository_id) else {
+            dead_ids.push(agent.id.clone());
+            continue;
+        };
 
-    let mut dead_ids = Vec::new();
+        running_agents.push((
+            agent.id.clone(),
+            LaunchSignature {
+                work_dir: agent.work_dir.clone(),
+                profile: agent.profile.clone(),
+                mode_flags: agent.mode_flags.clone(),
+                llxprt_debug: agent.llxprt_debug.clone(),
+                pass_continue: agent.pass_continue,
+                sandbox_enabled: agent.sandbox_enabled,
+                sandbox_engine: agent.sandbox_engine,
+                sandbox_flags: agent.sandbox_flags.clone(),
+                remote: repository.remote.clone(),
+            },
+        ));
+    }
     for (agent_id, signature) in running_agents {
         if !ctx_guard
             .runtime
