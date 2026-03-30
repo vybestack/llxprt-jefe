@@ -32,6 +32,16 @@ pub enum SandboxEngine {
     Seatbelt,
 }
 
+/// All known engine variants in canonical order.
+const ALL_ENGINES: [SandboxEngine; 3] = [
+    SandboxEngine::Podman,
+    SandboxEngine::Docker,
+    SandboxEngine::Seatbelt,
+];
+
+/// Linux-supported engine variants in canonical order.
+const LINUX_ENGINES: [SandboxEngine; 2] = [SandboxEngine::Podman, SandboxEngine::Docker];
+
 impl SandboxEngine {
     /// Convert to llxprt CLI `--sandbox-engine` argument.
     #[must_use]
@@ -64,13 +74,96 @@ impl SandboxEngine {
         }
     }
 
-    /// Cycle to the next engine for form UX.
+    /// Cycle to the next *supported* engine for form UX.
     #[must_use]
-    pub const fn next(self) -> Self {
-        match self {
-            Self::Podman => Self::Docker,
-            Self::Docker => Self::Seatbelt,
-            Self::Seatbelt => Self::Podman,
+    pub fn next(self) -> Self {
+        self.next_for_capabilities(&PlatformCapabilities::current())
+    }
+
+    #[must_use]
+    fn next_for_capabilities(self, caps: &PlatformCapabilities) -> Self {
+        let supported = caps.supported_engines();
+        if supported.is_empty() {
+            return self;
+        }
+
+        let current_pos = supported.iter().position(|e| *e == self);
+        match current_pos {
+            Some(pos) => supported[(pos + 1) % supported.len()],
+            // Current engine not in supported list — reset to first supported.
+            None => supported[0],
+        }
+    }
+
+    /// Parse a form value and advance to the next supported engine.
+    #[must_use]
+    pub fn next_from_form_value(value: &str) -> Self {
+        Self::from_form_value(value).map_or_else(Self::default, Self::next)
+    }
+}
+
+/// Runtime platform capabilities — resolves which sandbox engines and features
+/// are available on the current OS.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlatformCapabilities {
+    pub os: &'static str,
+}
+
+impl PlatformCapabilities {
+    /// Detect capabilities for the running platform.
+    #[must_use]
+    pub fn current() -> Self {
+        Self {
+            os: std::env::consts::OS,
+        }
+    }
+
+    /// Build capabilities for a specific OS (for testing).
+    #[must_use]
+    pub fn for_os(os: &'static str) -> Self {
+        Self { os }
+    }
+
+    /// Engines supported on this platform in display/cycle order.
+    #[must_use]
+    pub fn supported_engines(&self) -> &'static [SandboxEngine] {
+        match self.os {
+            "macos" => &ALL_ENGINES,
+            "linux" => &LINUX_ENGINES,
+            _ => &[],
+        }
+    }
+
+    /// Whether a specific engine is supported on this platform.
+    #[must_use]
+    pub fn is_engine_supported(&self, engine: SandboxEngine) -> bool {
+        match self.os {
+            "macos" => true,
+            "linux" => !matches!(engine, SandboxEngine::Seatbelt),
+            _ => false,
+        }
+    }
+
+    /// If `engine` is unsupported, return the first supported fallback.
+    ///
+    /// Returns `None` when this platform supports no sandbox engines.
+    #[must_use]
+    pub fn normalize_engine(&self, engine: SandboxEngine) -> Option<SandboxEngine> {
+        if self.is_engine_supported(engine) {
+            return Some(engine);
+        }
+
+        self.supported_engines().first().copied()
+    }
+
+    /// Short human-readable platform description for diagnostics.
+    #[must_use]
+    pub fn platform_label(&self) -> &'static str {
+        match self.os {
+            "macos" => "macOS",
+            "linux" => "Linux",
+            "windows" => "Windows",
+            _ => "Unknown",
         }
     }
 }
@@ -324,5 +417,115 @@ mod tests {
             panic!("repository should deserialize");
         };
         assert_eq!(repository.remote, RemoteRepositorySettings::default());
+    }
+
+    #[test]
+    fn platform_capabilities_macos_supports_all_engines() {
+        let caps = PlatformCapabilities::for_os("macos");
+        assert!(caps.is_engine_supported(SandboxEngine::Podman));
+        assert!(caps.is_engine_supported(SandboxEngine::Docker));
+        assert!(caps.is_engine_supported(SandboxEngine::Seatbelt));
+        assert_eq!(caps.supported_engines().len(), 3);
+    }
+
+    #[test]
+    fn platform_capabilities_linux_excludes_seatbelt() {
+        let caps = PlatformCapabilities::for_os("linux");
+        assert!(caps.is_engine_supported(SandboxEngine::Podman));
+        assert!(caps.is_engine_supported(SandboxEngine::Docker));
+        assert!(!caps.is_engine_supported(SandboxEngine::Seatbelt));
+        assert_eq!(caps.supported_engines().len(), 2);
+    }
+
+    #[test]
+    fn platform_capabilities_windows_has_no_supported_engines() {
+        let caps = PlatformCapabilities::for_os("windows");
+        assert!(!caps.is_engine_supported(SandboxEngine::Podman));
+        assert!(!caps.is_engine_supported(SandboxEngine::Docker));
+        assert!(!caps.is_engine_supported(SandboxEngine::Seatbelt));
+        assert!(caps.supported_engines().is_empty());
+    }
+
+    #[test]
+    fn normalize_engine_returns_none_when_platform_has_no_supported_engines() {
+        let caps = PlatformCapabilities::for_os("windows");
+        assert_eq!(caps.normalize_engine(SandboxEngine::Seatbelt), None);
+    }
+
+    #[test]
+    fn next_for_capabilities_returns_self_when_supported_engines_empty() {
+        let caps = PlatformCapabilities::for_os("windows");
+        assert_eq!(
+            SandboxEngine::Docker.next_for_capabilities(&caps),
+            SandboxEngine::Docker
+        );
+    }
+
+    #[test]
+    fn platform_capabilities_normalize_unsupported_engine_to_podman() {
+        let caps = PlatformCapabilities::for_os("linux");
+        assert_eq!(
+            caps.normalize_engine(SandboxEngine::Seatbelt),
+            Some(SandboxEngine::Podman)
+        );
+        assert_eq!(
+            caps.normalize_engine(SandboxEngine::Docker),
+            Some(SandboxEngine::Docker)
+        );
+    }
+
+    #[test]
+    fn platform_capabilities_normalize_is_noop_on_macos() {
+        let caps = PlatformCapabilities::for_os("macos");
+        assert_eq!(
+            caps.normalize_engine(SandboxEngine::Seatbelt),
+            Some(SandboxEngine::Seatbelt)
+        );
+    }
+
+    #[test]
+    fn platform_label_returns_readable_names() {
+        assert_eq!(
+            PlatformCapabilities::for_os("macos").platform_label(),
+            "macOS"
+        );
+        assert_eq!(
+            PlatformCapabilities::for_os("linux").platform_label(),
+            "Linux"
+        );
+        assert_eq!(
+            PlatformCapabilities::for_os("windows").platform_label(),
+            "Windows"
+        );
+        assert_eq!(
+            PlatformCapabilities::for_os("freebsd").platform_label(),
+            "Unknown"
+        );
+    }
+
+    #[test]
+    fn seatbelt_deserialization_still_works_across_platforms() {
+        // Seatbelt must always deserialize (for persisted state portability).
+        // Platform filtering happens at the capabilities layer, not serde.
+        let value = json!({
+            "id": "agent-seatbelt",
+            "display_id": "#1",
+            "repository_id": "repo-1",
+            "name": "Seatbelt Agent",
+            "description": "",
+            "work_dir": "/tmp/sb-agent",
+            "profile": "",
+            "mode_flags": ["--yolo"],
+            "pass_continue": true,
+            "sandbox_enabled": true,
+            "sandbox_engine": "seatbelt",
+            "sandbox_flags": DEFAULT_SANDBOX_FLAGS,
+            "status": "Queued",
+            "runtime_binding": null
+        });
+        let Ok(agent) = serde_json::from_value::<Agent>(value) else {
+            panic!("agent with seatbelt engine should deserialize");
+        };
+        assert_eq!(agent.sandbox_engine, SandboxEngine::Seatbelt);
     }
 }

@@ -38,6 +38,18 @@
 - `s`: split view.
 - `?` / `h` / `F1`: help.
 
+## Platform support matrix
+
+| Platform | Status | Sandbox Engines |
+|----------|--------|-----------------|
+| macOS (arm64/x86_64) | **Supported** | Podman, Docker, Seatbelt |
+| Linux (x86_64/aarch64) | **Supported** | Podman, Docker |
+| Windows | **Not supported** | — |
+
+Seatbelt (macOS `sandbox-exec`) is available only on macOS. If a persisted
+configuration references an unsupported engine, `jefe` normalizes it to Podman
+at startup with a warning.
+
 ## Install jefe
 
 ### Homebrew (macOS/Linux)

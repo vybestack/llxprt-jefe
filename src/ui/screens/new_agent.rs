@@ -6,6 +6,7 @@
 
 use iocraft::prelude::*;
 
+use crate::domain::PlatformCapabilities;
 use crate::state::{AgentFormCursor, AgentFormFocus, AppState, ModalState};
 use crate::theme::{ResolvedColors, ThemeColors};
 
@@ -172,10 +173,16 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     // Sandbox engine pseudo-dropdown.
     let engine_focused = focus == AgentFormFocus::SandboxEngine;
     let engine_color = if engine_focused { rc.bright } else { rc.fg };
+    let caps = PlatformCapabilities::current();
+    let supported_engine_labels: Vec<&str> = caps
+        .supported_engines()
+        .iter()
+        .map(|engine| engine.label())
+        .collect();
     let engine_hint = if fields.sandbox_enabled {
-        "space cycles"
+        format!("space cycles: {}", supported_engine_labels.join(" / "))
     } else {
-        "disabled"
+        String::from("disabled")
     };
     field_lines.push(
         element! {

@@ -2,7 +2,8 @@
 //! navigation, checkbox toggling, and form submission logic.
 
 use crate::domain::{
-    Agent, AgentStatus, RemoteRepositorySettings, Repository, RepositoryId, SandboxEngine,
+    Agent, AgentStatus, PlatformCapabilities, RemoteRepositorySettings, Repository, RepositoryId,
+    SandboxEngine,
 };
 use tracing::warn;
 
@@ -62,10 +63,7 @@ impl AppState {
                 fields.sandbox_enabled = !fields.sandbox_enabled;
             }
             AgentFormFocus::SandboxEngine => {
-                let current =
-                    SandboxEngine::from_form_value(&fields.sandbox_engine).unwrap_or_default();
-                current
-                    .next()
+                SandboxEngine::next_from_form_value(&fields.sandbox_engine)
                     .label()
                     .clone_into(&mut fields.sandbox_engine);
             }
@@ -646,10 +644,7 @@ impl AppState {
                     fields.sandbox_enabled = !fields.sandbox_enabled;
                 }
                 AgentFormFocus::SandboxEngine => {
-                    let current =
-                        SandboxEngine::from_form_value(&fields.sandbox_engine).unwrap_or_default();
-                    current
-                        .next()
+                    SandboxEngine::next_from_form_value(&fields.sandbox_engine)
                         .label()
                         .clone_into(&mut fields.sandbox_engine);
                 }
@@ -819,8 +814,10 @@ impl AppState {
             fields.mode.split_whitespace().map(String::from).collect()
         };
 
-        let sandbox_engine =
-            SandboxEngine::from_form_value(&fields.sandbox_engine).unwrap_or_default();
+        let caps = PlatformCapabilities::current();
+        let sandbox_engine = SandboxEngine::from_form_value(&fields.sandbox_engine)
+            .and_then(|engine| caps.normalize_engine(engine))
+            .unwrap_or_default();
 
         Some(Agent {
             id: crate::domain::AgentId(generate_id("agent")),
@@ -878,8 +875,10 @@ impl AppState {
         agent.llxprt_debug = normalize_llxprt_debug(&fields.llxprt_debug);
         agent.pass_continue = fields.pass_continue;
         agent.sandbox_enabled = fields.sandbox_enabled;
-        agent.sandbox_engine =
-            SandboxEngine::from_form_value(&fields.sandbox_engine).unwrap_or_default();
+        let caps = PlatformCapabilities::current();
+        agent.sandbox_engine = SandboxEngine::from_form_value(&fields.sandbox_engine)
+            .and_then(|engine| caps.normalize_engine(engine))
+            .unwrap_or_default();
         agent.sandbox_flags = normalize_sandbox_flags(&fields.sandbox_flags);
     }
 

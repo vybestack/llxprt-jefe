@@ -201,6 +201,9 @@ pub enum ModalState {
         id: AgentId,
     },
     /// Preflight check failed — prompt the user for remediation before launch.
+    ///
+    /// TODO(issue #24): Expand this to support a queue of issues if preflight
+    /// transitions from single-issue checks to batched diagnostics.
     PreflightPrompt {
         /// The agent being launched (so we can resume after remediation).
         agent_id: AgentId,
@@ -208,7 +211,7 @@ pub enum ModalState {
         signature: LaunchSignature,
         /// The issue that was detected.
         issue: PreflightIssue,
-        /// The remaining issues to check after this one is resolved.
+        /// Placeholder for future multi-issue handling.
         remaining_issues: Vec<PreflightIssue>,
     },
 }

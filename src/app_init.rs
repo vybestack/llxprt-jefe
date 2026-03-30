@@ -3,9 +3,12 @@
 use iocraft::hooks::State as HookState;
 use tracing::warn;
 
-use jefe::domain::{Agent, AgentId, AgentStatus, LaunchSignature, RemoteRepositorySettings};
+use jefe::domain::{
+    Agent, AgentId, AgentStatus, LaunchSignature, PlatformCapabilities, RemoteRepositorySettings,
+    SandboxEngine,
+};
 use jefe::persistence::{PersistenceManager, Settings, State as PersistedState};
-use jefe::runtime::{RuntimeError, RuntimeManager, RuntimeSession};
+use jefe::runtime::{RuntimeError, RuntimeManager, RuntimeSession, platform_engine_diagnostic};
 use jefe::state::AppState;
 use jefe::theme::ThemeManager;
 
@@ -23,6 +26,45 @@ fn launch_signature_for_agent(agent: &Agent, remote: &RemoteRepositorySettings) 
         sandbox_flags: agent.sandbox_flags.clone(),
         remote: remote.clone(),
     }
+}
+
+fn append_warning(state: &mut AppState, warning: String) {
+    state.warning_message = Some(match state.warning_message.take() {
+        Some(existing) => format!("{existing} {warning}"),
+        None => warning,
+    });
+}
+
+fn normalize_persisted_sandbox_engines(state: &mut AppState) -> bool {
+    let caps = PlatformCapabilities::current();
+    let mut normalized_agent_count = 0usize;
+
+    for agent in &mut state.agents {
+        if !caps.is_engine_supported(agent.sandbox_engine) {
+            warn!(
+                agent = %agent.name,
+                engine = agent.sandbox_engine.label(),
+                platform = caps.platform_label(),
+                "persisted sandbox engine not supported on this platform, normalizing to Podman"
+            );
+            agent.sandbox_engine = caps
+                .normalize_engine(agent.sandbox_engine)
+                .unwrap_or(SandboxEngine::Podman);
+            normalized_agent_count += 1;
+        }
+    }
+
+    if normalized_agent_count == 0 {
+        return false;
+    }
+
+    append_warning(
+        state,
+        format!(
+            "Normalized {normalized_agent_count} unsupported sandbox engine setting(s) to Podman for this platform."
+        ),
+    );
+    true
 }
 
 /// Load persisted state and settings into `app_state` exactly once.
@@ -59,6 +101,12 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
 
+    // Log platform engine diagnostic at startup.
+    tracing::info!("{}", platform_engine_diagnostic());
+
+    // Normalize any persisted sandbox engines that are unsupported on this platform.
+    let normalized_engines = normalize_persisted_sandbox_engines(&mut state);
+
     // Reconcile persisted Running statuses against actual tmux sessions.
     // Running agents without a backing repository are stale and must be marked
     // Dead during startup reconciliation.
@@ -88,8 +136,8 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
         }
     }
 
-    let state_to_persist: Option<PersistedState> = if dead_ids.is_empty() {
-        None
+    let should_persist = if dead_ids.is_empty() {
+        normalized_engines
     } else {
         for agent_id in dead_ids {
             if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) {
@@ -99,8 +147,9 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
         }
         state.rebuild_repository_agent_ids();
         state.normalize_selection_indices();
-        Some(to_persisted_state(&state))
+        true
     };
+    let state_to_persist = should_persist.then(|| to_persisted_state(&state));
 
     // Release state/context guards before reacquiring a mutable context lock
     // for persistence writes and theme activation.
@@ -215,7 +264,7 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
     if let Some(warning) = runtime_warning {
-        state.warning_message = Some(warning);
+        append_warning(&mut state, warning);
     }
 
     persist_state_snapshot(ctx, &state);

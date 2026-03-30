@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
 mod normal;
+mod preflight;
 
 pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
+use preflight::handle_preflight_prompt_enter;
 
 use iocraft::hooks::State as HookState;
 use iocraft::prelude::*;
@@ -27,10 +29,7 @@ use jefe::input::{SearchKeyRoute, route_search_key};
 use jefe::persistence::{PersistenceManager, State as PersistedState};
 const REMOTE_ATTACH_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
-use jefe::runtime::{
-    RuntimeError, RuntimeManager, execute_preflight_action, sandbox_preflight,
-    sandbox_ssh_agent_warning,
-};
+use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_preflight, sandbox_ssh_agent_warning};
 
 #[must_use]
 fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, slot: u8) -> bool {
@@ -644,40 +643,7 @@ pub fn handle_mode_confirm_key(
                     issue,
                     ..
                 } => {
-                    let action = issue.action();
-                    match execute_preflight_action(&action) {
-                        Ok(()) => {
-                            // Re-run preflight to check for remaining issues.
-                            if let Some(next) = sandbox_preflight(signature.sandbox_engine) {
-                                let mut state = app_state.write();
-                                state.modal = ModalState::PreflightPrompt {
-                                    agent_id,
-                                    signature,
-                                    issue: next,
-                                    remaining_issues: Vec::new(),
-                                };
-                                persist_state_snapshot(ctx, &state);
-                            } else {
-                                // All clear — close modal and launch.
-                                let work_dir = signature.work_dir.clone();
-                                {
-                                    let mut state = app_state.write();
-                                    state.modal = ModalState::None;
-                                    state.terminal_focused = true;
-                                    persist_state_snapshot(ctx, &state);
-                                }
-                                execute_agent_launch(
-                                    app_state, ctx, &agent_id, &work_dir, &signature, false,
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            let mut state = app_state.write();
-                            state.modal = ModalState::None;
-                            state.error_message = Some(e);
-                            persist_state_snapshot(ctx, &state);
-                        }
-                    }
+                    handle_preflight_prompt_enter(app_state, ctx, agent_id, signature, issue);
                 }
                 _ => {}
             }
@@ -707,7 +673,6 @@ pub fn handle_mode_form_key(
             *state = std::mem::take(&mut *state).apply(AppEvent::SubmitForm);
             persist_state_snapshot(ctx, &state);
 
-            // If new agent was created, spawn session and attach viewer.
             // If new agent was created, spawn session and attach viewer.
             if is_new_agent && state.modal == ModalState::None {
                 if let Some(agent) = state.selected_agent().cloned() {
@@ -786,10 +751,7 @@ pub fn handle_mode_form_key(
                     if let ModalState::NewAgent { fields, .. }
                     | ModalState::EditAgent { fields, .. } = &mut state.modal
                     {
-                        let current = SandboxEngine::from_form_value(&fields.sandbox_engine)
-                            .unwrap_or_default();
-                        current
-                            .next()
+                        SandboxEngine::next_from_form_value(&fields.sandbox_engine)
                             .label()
                             .clone_into(&mut fields.sandbox_engine);
                     }
