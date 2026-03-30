@@ -6,7 +6,7 @@
 ## Prerequisites
 - Required: Phase P03 completed.
 - Verify previous artifacts: `.completed/P03.md` exists.
-- Expected files from previous phase: updated `src/domain/mod.rs`, `src/state/mod.rs`, `src/input.rs`, `src/lib.rs`, new `src/github/mod.rs`.
+- Expected files from previous phase: updated `src/domain/mod.rs`, `src/state/types.rs`, `src/state/mod.rs`, `src/input.rs`, `src/lib.rs`, new `src/github/mod.rs`.
 
 ## Requirements Implemented (Expanded)
 
@@ -69,7 +69,7 @@ grep -n "use crate::ui\|use crate::state\|use crate::app_input" src/github/mod.r
 ### ScreenMode Match Arm Verification
 ```bash
 # All match arms on ScreenMode should handle DashboardIssues
-grep -n "ScreenMode::" src/state/mod.rs src/app_input/mod.rs src/input.rs src/ui/ -r | grep -v "DashboardIssues" | grep "Dashboard\b" || echo "OK: all match arms likely updated"
+grep -n "ScreenMode::" src/state/types.rs src/state/mod.rs src/app_input/mod.rs src/input.rs src/ui/ -r | grep -v "DashboardIssues" | grep "Dashboard\b" || echo "OK: all match arms likely updated"
 ```
 
 ### Enum Preservation Verification
@@ -94,7 +94,7 @@ grep -A15 "pub enum InputMode" src/input.rs
 ### Traceability Marker Verification
 ```bash
 # Verify @plan, @requirement, @pseudocode markers in changed files
-for file in src/domain/mod.rs src/state/mod.rs src/input.rs src/github/mod.rs src/lib.rs; do
+for file in src/domain/mod.rs src/state/types.rs src/state/mod.rs src/input.rs src/github/mod.rs src/lib.rs; do
   echo "--- $file ---"
   grep -c "@plan\|@requirement\|@pseudocode" "$file" || echo "WARN: no markers found"
 done

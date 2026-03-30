@@ -193,7 +193,7 @@ Why it matters:
   - marker: `@plan PLAN-20260329-ISSUES-MODE.P11`
   - marker: `@requirement REQ-ISS-002`
 
-- `src/main.rs` — ensure `GhClient` is initialized and accessible; wire issues mode dispatch into terminal event handler:
+- `src/main.rs` — ensure `GhClient` field exists on `AppContext` (struct defined here) and is initialized in `fn main()`; wire issues mode dispatch into terminal event handler:
   - marker: `@plan PLAN-20260329-ISSUES-MODE.P11`
 
 ### Pseudocode traceability (if impl phase)

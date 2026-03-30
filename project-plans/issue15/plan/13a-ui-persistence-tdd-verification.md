@@ -48,10 +48,10 @@ done
 ### Traceability Marker Verification
 ```bash
 echo "--- @plan markers in UI/persistence tests ---"
-grep -rc "@plan PLAN-20260329-ISSUES-MODE.P13" src/persistence/mod.rs src/state/mod.rs src/ui/ || echo "WARN: missing"
+grep -rc "@plan PLAN-20260329-ISSUES-MODE.P13" src/persistence/mod.rs src/state/types.rs src/state/mod.rs src/ui/ || echo "WARN: missing"
 
 echo "--- @requirement markers in UI/persistence tests ---"
-grep -rc "@requirement" src/persistence/mod.rs src/state/mod.rs src/ui/ || echo "WARN: missing"
+grep -rc "@requirement" src/persistence/mod.rs src/state/types.rs src/state/mod.rs src/ui/ || echo "WARN: missing"
 ```
 
 ## Structural Verification Checklist

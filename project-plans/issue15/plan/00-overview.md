@@ -455,7 +455,7 @@ pub enum PaneFocus {
 **`PaneFocus` is NOT modified by this plan.** Issues mode introduces a separate `IssueFocus` enum:
 
 ```rust
-// NEW — added in src/state/mod.rs (issues module)
+// NEW — added in src/state/types.rs (re-exported via src/state/mod.rs)
 pub enum IssueFocus {
     RepoList,    // repo sidebar while in Issues Mode
     IssueList,   // issue list pane
@@ -522,15 +522,15 @@ This glossary maps every plan-level name used in the specification and pseudocod
 | `dashboard_issues` | `ScreenMode::DashboardIssues` | **New** | `src/state/types.rs` | New variant added to `ScreenMode` (re-exported via mod.rs). |
 | `split_mode` | `ScreenMode::Split` | **Existing** | `src/state/types.rs` L224 | Unchanged. |
 | Agents Mode | `ScreenMode::Dashboard` + `PaneFocus::{Repositories,Agents,Terminal}` | **Existing** | `src/state/types.rs` L221–234 | The current dashboard with agent management. |
-| Issues Mode | `ScreenMode::DashboardIssues` + `IssueFocus::{RepoList,IssueList,IssueDetail}` | **New** | `src/state/mod.rs` | New mode; uses separate focus enum. |
-| `repo_list` focus | `IssueFocus::RepoList` | **New** | `src/state/mod.rs` | Focus on the repository sidebar within Issues Mode. |
-| `issue_list` focus | `IssueFocus::IssueList` | **New** | `src/state/mod.rs` | Focus on the issue list pane. |
-| `issue_detail` focus | `IssueFocus::IssueDetail` | **New** | `src/state/mod.rs` | Focus on the detail/comments pane. |
-| focus domain | `AppState.issues_state.issue_focus: IssueFocus` | **New** | `src/state/mod.rs` | Active variant determines key dispatch branch. |
-| inline control | `InlineState::{Composer, Editor}` | **New** | `src/state/mod.rs` (issues submodule) | At most one active; exclusivity invariant enforced. |
+| Issues Mode | `ScreenMode::DashboardIssues` + `IssueFocus::{RepoList,IssueList,IssueDetail}` | **New** | `src/state/types.rs` | New mode; uses separate focus enum. |
+| `repo_list` focus | `IssueFocus::RepoList` | **New** | `src/state/types.rs` | Focus on the repository sidebar within Issues Mode. |
+| `issue_list` focus | `IssueFocus::IssueList` | **New** | `src/state/types.rs` | Focus on the issue list pane. |
+| `issue_detail` focus | `IssueFocus::IssueDetail` | **New** | `src/state/types.rs` | Focus on the detail/comments pane. |
+| focus domain | `AppState.issues_state.issue_focus: IssueFocus` | **New** | `src/state/types.rs` | Active variant determines key dispatch branch. |
+| inline control | `InlineState::{Composer, Editor}` | **New** | `src/state/types.rs` | At most one active; exclusivity invariant enforced. |
 | scope change | Repository selection change while `screen_mode == DashboardIssues` | Behavioral | `src/app_input/mod.rs` / `src/state/mod.rs` | Triggers `handle_repo_scope_change_in_issues_mode` (component-003 L128–135). |
 | `issue_base_prompt` | `Repository::issue_base_prompt: String` | **New** | `src/domain/mod.rs` L196+ | New field on existing struct; `#[serde(default)]` for compat. |
-| `IssuesState` | `AppState.issues_state: IssuesState` | **New** | `src/state/mod.rs` | Aggregate struct for all issues-mode runtime state. |
+| `IssuesState` | `AppState.issues_state: IssuesState` | **New** | `src/state/types.rs` | Aggregate struct for all issues-mode runtime state. |
 | `GhClient` | `crate::github::GhClient` | **New** | `src/github/mod.rs` | `gh` CLI wrapper; synchronous; isolated boundary. |
 | `GhError` | `crate::github::GhError` | **New** | `src/github/mod.rs` | Error enum (component-002 L75–82). |
 | `SendPayload` | `crate::github::SendPayload` | **New** | `src/github/mod.rs` | Built by `build_send_payload` (component-002 L62–74). |

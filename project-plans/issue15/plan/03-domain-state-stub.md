@@ -47,7 +47,7 @@ Why it matters:
 **Requirement text**: `i` from non-issues context enters `dashboard_issues` with `focus=issue_list`. `i` while already in `dashboard_issues` refocuses `issue_list`. `a` from `dashboard_issues` exits to `dashboard_agents`. `Esc` follows issues-mode precedence chain; exits mode only when no higher-priority cancel target exists.
 
 Behavior contract:
-- GIVEN: existing `ScreenMode` enum with `Dashboard`, `Split` variants in `src/state/mod.rs`
+- GIVEN: existing `ScreenMode` enum with `Dashboard`, `Split` variants in `src/state/types.rs`
 - WHEN: `DashboardIssues` variant is added
 - THEN: existing code compiles and existing match arms for `ScreenMode` are updated to handle the new variant
 
@@ -88,7 +88,7 @@ Why it matters:
   - marker: `@requirement REQ-ISS-006,REQ-ISS-009,REQ-ISS-012`
   - marker: `@pseudocode component-001 lines 83-96`
 
-- `src/state/mod.rs`
+- `src/state/types.rs` (re-exported via `pub use types::*` in `src/state/mod.rs`)
   - Add `DashboardIssues` variant to `ScreenMode` enum — do NOT rename or remove `Dashboard` or `Split`
   - Add `IssuesState` struct with all fields from domain model analysis
   - Add `IssueFocus` enum: `RepoList`, `IssueList`, `IssueDetail` — NEW type, separate from `PaneFocus`; do NOT modify `PaneFocus`
@@ -137,7 +137,7 @@ cargo test --workspace --all-features
 
 ## Structural Verification Checklist
 - [ ] New domain types compile (`Issue`, `IssueDetail`, `IssueComment`, `IssueState`, `IssueFilter`, `IssueFilterState`)
-- [ ] `IssuesState` and sub-types added to `src/state/mod.rs`
+- [ ] `IssuesState` and sub-types added to `src/state/types.rs`
 - [ ] `DashboardIssues` variant added to `ScreenMode`
 - [ ] `IssueFocus` is a NEW separate enum (not added to `PaneFocus`)
 - [ ] `PaneFocus` is UNCHANGED (still exactly: `Repositories`, `Agents`, `Terminal`)
@@ -177,7 +177,7 @@ Note: `todo!()` / `unimplemented!()` in stub method bodies within `src/github/mo
 - [ ] Semantic checks pass
 
 ## Failure Recovery
-- rollback steps: `git restore src/domain/mod.rs src/state/mod.rs src/input.rs src/lib.rs src/persistence/mod.rs` and `git clean -fd src/github/` (only removes untracked files in that directory; safer than `rm -rf`)
+- rollback steps: `git restore src/domain/mod.rs src/state/types.rs src/state/mod.rs src/input.rs src/lib.rs src/persistence/mod.rs` and `git checkout -- src/github/`
 - blocking issues to resolve before next phase: missing type contracts, serde backward compat failure, broken existing match arms
 
 ## Phase Completion Marker

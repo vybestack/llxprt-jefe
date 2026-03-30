@@ -54,13 +54,13 @@ done
 ```bash
 # Verify all test functions have @plan, @requirement, @pseudocode markers
 echo "--- @plan markers in test code ---"
-grep -c "@plan PLAN-20260329-ISSUES-MODE.P04" src/state/mod.rs src/domain/mod.rs || echo "WARN: missing plan markers"
+grep -c "@plan PLAN-20260329-ISSUES-MODE.P04" src/state/types.rs src/state/mod.rs src/domain/mod.rs || echo "WARN: missing plan markers"
 
 echo "--- @requirement markers in test code ---"
-grep -c "@requirement" src/state/mod.rs src/domain/mod.rs || echo "WARN: missing requirement markers"
+grep -c "@requirement" src/state/types.rs src/state/mod.rs src/domain/mod.rs || echo "WARN: missing requirement markers"
 
 echo "--- @pseudocode markers in test code ---"
-grep -c "@pseudocode" src/state/mod.rs src/domain/mod.rs || echo "WARN: missing pseudocode markers"
+grep -c "@pseudocode" src/state/types.rs src/state/mod.rs src/domain/mod.rs || echo "WARN: missing pseudocode markers"
 ```
 
 ## Structural Verification Checklist

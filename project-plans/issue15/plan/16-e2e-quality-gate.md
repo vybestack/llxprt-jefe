@@ -136,7 +136,7 @@ awk '
     found_plan=0
   }
   { found_plan=0 }
-' src/github/mod.rs src/state/mod.rs src/app_input/mod.rs src/input.rs src/domain/mod.rs 2>/dev/null
+' src/github/mod.rs src/state/types.rs src/state/mod.rs src/app_input/mod.rs src/input.rs src/domain/mod.rs 2>/dev/null
 
 # List all public functions in implementation files that are MISSING @requirement markers
 echo "=== Public functions missing @requirement markers ==="
@@ -147,12 +147,13 @@ awk '
     found_req=0
   }
   { found_req=0 }
-' src/github/mod.rs src/state/mod.rs src/app_input/mod.rs src/input.rs src/domain/mod.rs 2>/dev/null
+' src/github/mod.rs src/state/types.rs src/state/mod.rs src/app_input/mod.rs src/input.rs src/domain/mod.rs 2>/dev/null
 
 # Check each new/modified file individually for @plan presence
 echo "=== Per-file @plan marker check ==="
 for file in \
   src/github/mod.rs \
+  src/state/types.rs \
   src/state/mod.rs \
   src/domain/mod.rs \
   src/input.rs \
@@ -174,6 +175,7 @@ done
 echo "=== Per-file @requirement marker check ==="
 for file in \
   src/github/mod.rs \
+  src/state/types.rs \
   src/state/mod.rs \
   src/domain/mod.rs \
   src/input.rs \
@@ -195,6 +197,7 @@ done
 echo "=== Per-file @pseudocode marker check ==="
 for file in \
   src/github/mod.rs \
+  src/state/types.rs \
   src/state/mod.rs \
   src/app_input/mod.rs; do
   count=$(grep -c "@pseudocode component-" "$file" 2>/dev/null || echo 0)
@@ -221,7 +224,7 @@ done
 - [ ] All 17 requirement IDs traced to source code
 - [ ] Plan markers present in source code (`@plan` count ≥ expected)
 - [ ] `@requirement` markers present in all 10 new/modified implementation files
-- [ ] `@pseudocode` markers present in `src/github/mod.rs`, `src/state/mod.rs`, `src/app_input/mod.rs`
+- [ ] `@pseudocode` markers present in `src/github/mod.rs`, `src/state/types.rs`, `src/state/mod.rs`, `src/app_input/mod.rs`
 
 ## Semantic Verification Checklist (Mandatory)
 - [ ] **REQ-ISS-001**: Mode entry via `i` (state → `ScreenMode::DashboardIssues`), exit via `a` (state → `ScreenMode::Dashboard`), `IssuesState` clean on exit

@@ -49,7 +49,7 @@ grep -n "IssuesNormal\|IssuesInline\|IssuesSearch\|IssuesFilter\|IssuesChooser" 
 # Verify input_mode_for_state handles DashboardIssues
 grep -n "DashboardIssues" src/input.rs
 
-# Verify GhClient in context
+# Verify GhClient field on AppContext struct (defined in src/main.rs)
 grep -n "GhClient\|gh_client\|github" src/main.rs
 ```
 

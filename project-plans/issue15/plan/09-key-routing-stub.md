@@ -51,7 +51,7 @@ Why it matters:
   - marker: `@requirement REQ-ISS-002`
   - marker: `@pseudocode component-003 lines 01-38`
 
-- `src/main.rs` — ensure `GhClient` instance is created and accessible from `SharedContext`:
+- `src/main.rs` — add `GhClient` field to `AppContext` struct and initialize it in `fn main()` where the context is constructed:
   - marker: `@plan PLAN-20260329-ISSUES-MODE.P09`
 
 ### Pseudocode traceability (if impl phase)
@@ -69,7 +69,7 @@ cargo test --workspace --all-features
 - [ ] Issues mode key dispatch function exists and compiles in `src/app_input/mod.rs`
 - [ ] `input_mode_for_state()` handles all 5 issues mode states (normal, inline, search, filter, chooser)
 - [ ] Suppression stubs exist for `s`, `Ctrl-d`, `Ctrl-k`, `l`
-- [ ] `GhClient` accessible from context in `src/main.rs`
+- [ ] `GhClient` field added to `AppContext` in `src/main.rs` and initialized in `fn main()`
 - [ ] All existing tests pass
 - [ ] Phase/requirement/pseudocode markers present in ALL new code
 

@@ -87,14 +87,14 @@ test -d src/ui/modals && echo "ui/modals/: OK" || echo "MISSING: ui/modals/"
 
 Verify exact types, function signatures, and enum variants in target files.
 
-#### 4a) `src/state/mod.rs` — Enum and Struct Signatures
+#### 4a) `src/state/types.rs` — Enum and Struct Signatures (re-exported via `src/state/mod.rs`)
 
 - [ ] `ScreenMode` enum exists at ~L221 (in src/state/types.rs) with exactly: `Dashboard` (default), `Split`
 - [ ] `PaneFocus` enum exists at ~L229 (in src/state/types.rs) with exactly: `Repositories` (default), `Agents`, `Terminal`
 - [ ] `AppEvent` enum exists at ~L268 (in src/state/types.rs) with variants including: `NavigateUp`, `NavigateDown`, `NavigateLeft`, `NavigateRight`, `SelectRepository(usize)`, `SelectAgent(usize)`, `CyclePaneFocus`, `ToggleTerminalFocus`, `EnterSplitMode`, `ExitSplitMode`, `OpenHelp`, `OpenSearch`, `Quit`
 - [ ] `AppState` struct exists at ~L238 (in src/state/types.rs) with fields: `repositories: Vec<Repository>`, `agents: Vec<Agent>`, `selected_repository_index: Option<usize>`, `selected_agent_index: Option<usize>`, `screen_mode: ScreenMode`, `pane_focus: PaneFocus`, `terminal_focused: bool`, `modal: ModalState`
-- [ ] `ModalState` enum exists at ~L171 with variants: `None` (default), `Help`, `Search { query }`, `NewRepository { fields, focus, cursor }`, `EditRepository { ... }`, `ConfirmDeleteRepository { ... }`, `NewAgent { ... }`, `EditAgent { ... }`, `ConfirmDeleteAgent { ... }`, `ConfirmKillAgent { ... }`, `PreflightPrompt { ... }`
-- [ ] `AppState::apply()` method exists and is the event reducer
+- [ ] `ModalState` enum exists at ~L171 (in src/state/types.rs) with variants: `None` (default), `Help`, `Search { query }`, `NewRepository { fields, focus, cursor }`, `EditRepository { ... }`, `ConfirmDeleteRepository { ... }`, `NewAgent { ... }`, `EditAgent { ... }`, `ConfirmDeleteAgent { ... }`, `ConfirmKillAgent { ... }`, `PreflightPrompt { ... }`
+- [ ] `AppState::apply()` method exists in `src/state/mod.rs` and is the event reducer
 
 ```bash
 # Verify exact ScreenMode variants
@@ -107,16 +107,16 @@ grep -A6 "pub enum PaneFocus" src/state/types.rs
 
 # Verify AppState struct fields
 echo "--- AppState fields ---"
-grep -A20 "pub struct AppState" src/state/mod.rs
+grep -A20 "pub struct AppState" src/state/types.rs
 
 # Verify AppEvent exists and sample variants
 echo "--- AppEvent sample ---"
 grep -n "pub enum AppEvent" src/state/types.rs
-grep -c "NavigateUp\|NavigateDown\|CyclePaneFocus\|EnterSplitMode\|ExitSplitMode\|OpenHelp\|Quit" src/state/mod.rs
+grep -c "NavigateUp\|NavigateDown\|CyclePaneFocus\|EnterSplitMode\|ExitSplitMode\|OpenHelp\|Quit" src/state/types.rs
 
 # Verify ModalState variants
 echo "--- ModalState ---"
-grep -A3 "pub enum ModalState" src/state/mod.rs
+grep -A3 "pub enum ModalState" src/state/types.rs
 
 # Verify apply() method
 echo "--- apply() ---"
@@ -262,7 +262,7 @@ grep -rn "ScreenMode::" src/ | grep -v "test\|///\|//!" | cut -d: -f1 | sort | u
 
 # Verify CyclePaneFocus handler
 echo "--- CyclePaneFocus ---"
-grep -n "CyclePaneFocus" src/state/mod.rs
+grep -n "CyclePaneFocus" src/state/types.rs src/state/mod.rs
 
 # Verify input_mode_for_state default path
 echo "--- input_mode_for_state default ---"
@@ -361,7 +361,7 @@ Contents:
 
 This section lists the actual function signatures, enum variants, and struct fields—with verified line numbers—that the plan depends on. These were read directly from source at plan authoring time and must be re-confirmed during P00A execution.
 
-### `src/state/mod.rs` — Verified Signatures
+### `src/state/types.rs` — Verified Signatures (re-exported via `src/state/mod.rs`)
 
 #### `ScreenMode` — L221–225 (in src/state/types.rs)
 

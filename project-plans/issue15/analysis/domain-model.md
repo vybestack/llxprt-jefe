@@ -253,11 +253,13 @@ Invariants:
 - Add `Issue`, `IssueDetail`, `IssueComment`, `IssueState`, `IssueFilter`, `IssueFilterState` types.
 - Add `issue_base_prompt: String` field to `Repository`.
 
-### `src/state/mod.rs`
+### `src/state/types.rs` (types, re-exported via `src/state/mod.rs`)
 - Add `IssuesState` and related sub-types to `AppState`.
 - Add `dashboard_issues` variant to `ScreenMode`.
 - Add issues-specific focus domains.
 - Add issue events to `AppEvent` enum.
+
+### `src/state/mod.rs` (behavior)
 - Implement `apply()` cases for all new events.
 
 ### `src/input.rs`
