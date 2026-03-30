@@ -1,4 +1,4 @@
-use jefe::domain::{AgentId, LaunchSignature, SandboxEngine};
+use jefe::domain::{AgentId, LaunchSignature, PlatformCapabilities, SandboxEngine};
 use jefe::runtime::{PreflightAction, PreflightIssue, execute_preflight_action, sandbox_preflight};
 use jefe::state::ModalState;
 
@@ -14,12 +14,24 @@ pub(super) fn handle_preflight_prompt_enter(
 ) {
     let action = issue.action();
     if matches!(action, PreflightAction::SwitchToPodman) {
-        signature.sandbox_engine = SandboxEngine::Podman;
-        let mut state = app_state.write();
-        if let Some(agent) = state.agents.iter_mut().find(|a| a.id == agent_id) {
-            agent.sandbox_engine = SandboxEngine::Podman;
+        let caps = PlatformCapabilities::current();
+        if let Some(normalized_engine) = caps.normalize_engine(SandboxEngine::Podman) {
+            signature.sandbox_engine = normalized_engine;
+            let mut state = app_state.write();
+            if let Some(agent) = state.agents.iter_mut().find(|a| a.id == agent_id) {
+                agent.sandbox_engine = normalized_engine;
+            }
+            persist_state_snapshot(ctx, &state);
+        } else {
+            let mut state = app_state.write();
+            state.modal = ModalState::None;
+            state.error_message = Some(format!(
+                "No supported sandbox engines are available on {}. Disable sandbox to continue.",
+                caps.platform_label()
+            ));
+            persist_state_snapshot(ctx, &state);
+            return;
         }
-        persist_state_snapshot(ctx, &state);
     } else if let Err(e) = execute_preflight_action(&action) {
         let mut state = app_state.write();
         state.modal = ModalState::None;
