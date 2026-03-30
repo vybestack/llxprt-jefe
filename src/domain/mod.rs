@@ -39,6 +39,9 @@ const ALL_ENGINES: [SandboxEngine; 3] = [
     SandboxEngine::Seatbelt,
 ];
 
+/// Linux-supported engine variants in canonical order.
+const LINUX_ENGINES: [SandboxEngine; 2] = [SandboxEngine::Podman, SandboxEngine::Docker];
+
 impl SandboxEngine {
     /// Convert to llxprt CLI `--sandbox-engine` argument.
     #[must_use]
@@ -123,12 +126,12 @@ impl PlatformCapabilities {
 
     /// Engines supported on this platform in display/cycle order.
     #[must_use]
-    pub fn supported_engines(&self) -> Vec<SandboxEngine> {
-        ALL_ENGINES
-            .iter()
-            .copied()
-            .filter(|e| self.is_engine_supported(*e))
-            .collect()
+    pub fn supported_engines(&self) -> &'static [SandboxEngine] {
+        match self.os {
+            "macos" => &ALL_ENGINES,
+            "linux" => &LINUX_ENGINES,
+            _ => &[],
+        }
     }
 
     /// Whether a specific engine is supported on this platform.

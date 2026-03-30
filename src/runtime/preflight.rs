@@ -20,6 +20,7 @@ pub enum PreflightIssue {
     UnsupportedEngine {
         engine: SandboxEngine,
         platform: &'static str,
+        fallback: Option<SandboxEngine>,
     },
 }
 
@@ -33,8 +34,8 @@ pub enum PreflightAction {
     },
     /// Run `ssh-add` to load a key (the user picks the key path interactively).
     SshAdd,
-    /// Normalize the engine to Podman (unsupported platform selection).
-    SwitchToPodman,
+    /// Normalize the engine to a supported runtime.
+    SwitchEngine(SandboxEngine),
 }
 
 impl PreflightIssue {
@@ -53,14 +54,26 @@ impl PreflightIssue {
             Self::SshAgentNoIdentities => "SSH agent has no identities loaded. Run ssh-add?\n\n\
                  [Enter] run ssh-add  |  [Esc] cancel launch"
                 .to_owned(),
-            Self::UnsupportedEngine { engine, platform } => {
-                format!(
-                    "{} is not supported on {}. Switch to Podman?\n\n\
-                     [Enter] switch to Podman  |  [Esc] cancel launch",
+            Self::UnsupportedEngine {
+                engine,
+                platform,
+                fallback,
+            } => match fallback {
+                Some(target) => format!(
+                    "{} is not supported on {}. Switch to {}?\n\n\
+                     [Enter] switch to {}  |  [Esc] cancel launch",
                     engine.label(),
                     platform,
-                )
-            }
+                    target.label(),
+                    target.label(),
+                ),
+                None => format!(
+                    "{} is not supported on {} and no supported sandbox engines are available.\n\n\
+                     [Esc] cancel launch",
+                    engine.label(),
+                    platform,
+                ),
+            },
         }
     }
 
@@ -94,7 +107,13 @@ impl PreflightIssue {
                 }
             }
             Self::SshAgentNoIdentities => PreflightAction::SshAdd,
-            Self::UnsupportedEngine { .. } => PreflightAction::SwitchToPodman,
+            Self::UnsupportedEngine {
+                fallback: Some(target),
+                ..
+            } => PreflightAction::SwitchEngine(*target),
+            Self::UnsupportedEngine { fallback: None, .. } => {
+                PreflightAction::SwitchEngine(SandboxEngine::Podman)
+            }
         }
     }
 }
@@ -160,6 +179,7 @@ pub fn sandbox_preflight(engine: SandboxEngine) -> Option<PreflightIssue> {
         return Some(PreflightIssue::UnsupportedEngine {
             engine,
             platform: caps.platform_label(),
+            fallback: caps.supported_engines().first().copied(),
         });
     }
 
@@ -182,8 +202,8 @@ pub fn sandbox_preflight(engine: SandboxEngine) -> Option<PreflightIssue> {
 /// Execute the remediation action. Returns Ok(()) on success or an error message.
 pub fn execute_preflight_action(action: &PreflightAction) -> Result<(), String> {
     match action {
-        PreflightAction::SwitchToPodman => Err(
-            "SwitchToPodman requires caller state updates; handle this action at the call site."
+        PreflightAction::SwitchEngine(_) => Err(
+            "SwitchEngine requires caller state updates; handle this action at the call site."
                 .to_owned(),
         ),
         PreflightAction::StartContainerRuntime { command, .. } => {
@@ -306,6 +326,10 @@ mod tests {
                 ),
                 "seatbelt should never report container runtime not running on macOS"
             );
+            assert!(
+                !matches!(issue, Some(PreflightIssue::UnsupportedEngine { .. })),
+                "seatbelt should be supported on macOS"
+            );
         } else {
             assert!(
                 matches!(issue, Some(PreflightIssue::UnsupportedEngine { .. })),
@@ -330,6 +354,7 @@ mod tests {
         let issue = PreflightIssue::UnsupportedEngine {
             engine: SandboxEngine::Seatbelt,
             platform: "Linux",
+            fallback: Some(SandboxEngine::Podman),
         };
         assert!(!issue.prompt_message().is_empty());
         assert!(!issue.prompt_title().is_empty());
@@ -356,8 +381,12 @@ mod tests {
         let issue = PreflightIssue::UnsupportedEngine {
             engine: SandboxEngine::Seatbelt,
             platform: "Linux",
+            fallback: Some(SandboxEngine::Podman),
         };
-        assert!(matches!(issue.action(), PreflightAction::SwitchToPodman));
+        assert!(matches!(
+            issue.action(),
+            PreflightAction::SwitchEngine(SandboxEngine::Podman)
+        ));
     }
 
     #[test]
@@ -365,6 +394,7 @@ mod tests {
         let issue = PreflightIssue::UnsupportedEngine {
             engine: SandboxEngine::Seatbelt,
             platform: "Linux",
+            fallback: Some(SandboxEngine::Podman),
         };
         let msg = issue.prompt_message();
         assert!(msg.contains("Seatbelt"), "should mention engine name");
@@ -373,8 +403,24 @@ mod tests {
     }
 
     #[test]
-    fn execute_switch_to_podman_action_requires_caller_state_handling() {
-        let result = execute_preflight_action(&PreflightAction::SwitchToPodman);
+    fn unsupported_engine_without_fallback_is_cancel_only() {
+        let issue = PreflightIssue::UnsupportedEngine {
+            engine: SandboxEngine::Seatbelt,
+            platform: "Windows",
+            fallback: None,
+        };
+        let msg = issue.prompt_message();
+        assert!(msg.contains("no supported sandbox engines are available"));
+        assert!(
+            !msg.contains("[Enter]"),
+            "non-remediable unsupported engine prompts should not advertise Enter remediation"
+        );
+    }
+
+    #[test]
+    fn execute_switch_engine_action_requires_caller_state_handling() {
+        let result =
+            execute_preflight_action(&PreflightAction::SwitchEngine(SandboxEngine::Podman));
         assert!(result.is_err());
     }
 
@@ -388,7 +434,7 @@ mod tests {
         );
 
         let supported = PlatformCapabilities::current().supported_engines();
-        for engine in &supported {
+        for engine in supported {
             assert!(diag.contains(engine.label()));
         }
 

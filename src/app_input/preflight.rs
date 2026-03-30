@@ -1,4 +1,4 @@
-use jefe::domain::{AgentId, LaunchSignature, PlatformCapabilities, SandboxEngine};
+use jefe::domain::{AgentId, LaunchSignature, PlatformCapabilities};
 use jefe::runtime::{PreflightAction, PreflightIssue, execute_preflight_action, sandbox_preflight};
 use jefe::state::ModalState;
 
@@ -13,9 +13,9 @@ pub(super) fn handle_preflight_prompt_enter(
     issue: PreflightIssue,
 ) {
     let action = issue.action();
-    if matches!(action, PreflightAction::SwitchToPodman) {
+    if let PreflightAction::SwitchEngine(target_engine) = action {
         let caps = PlatformCapabilities::current();
-        if let Some(normalized_engine) = caps.normalize_engine(SandboxEngine::Podman) {
+        if let Some(normalized_engine) = caps.normalize_engine(target_engine) {
             signature.sandbox_engine = normalized_engine;
             let mut state = app_state.write();
             if let Some(agent) = state.agents.iter_mut().find(|a| a.id == agent_id) {
@@ -49,13 +49,19 @@ pub(super) fn handle_preflight_prompt_enter(
         };
         persist_state_snapshot(ctx, &state);
     } else {
-        let work_dir = signature.work_dir.clone();
         {
             let mut state = app_state.write();
             state.modal = ModalState::None;
             state.terminal_focused = true;
             persist_state_snapshot(ctx, &state);
         }
-        execute_agent_launch(app_state, ctx, &agent_id, &work_dir, &signature, false);
+        execute_agent_launch(
+            app_state,
+            ctx,
+            &agent_id,
+            &signature.work_dir,
+            &signature,
+            false,
+        );
     }
 }
