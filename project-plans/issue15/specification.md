@@ -8,7 +8,7 @@ Add a GitHub Issues browsing, interaction, and send-to-agent workflow to Jefe, s
 
 ## Strategy Contract
 
-1. **Extend existing architecture** — add `dashboard_issues` mode to `ScreenMode`/`AppState`, extend `PaneFocus` with issue-specific panes, and route keys through the established `InputMode` dispatch chain.
+1. **Extend existing architecture** — add `DashboardIssues` mode to `ScreenMode`/`AppState`, introduce a separate `IssueFocus` enum for issues-mode focus tracking (do NOT modify `PaneFocus`), and route keys through the established `InputMode` dispatch chain.
 2. **Reuse existing patterns** — follow the domain/state/event/UI layering established in firstversion; no parallel architecture forks.
 3. **GitHub API via `gh` CLI** — use the authenticated `gh` CLI as the GitHub API transport (no direct REST/GraphQL client library in v1).
 4. **Modify, don't fork** — update `src/app_input/`, `input.rs`, `src/state/types.rs` + `src/state/mod.rs`, `domain/mod.rs`, and UI modules directly.
