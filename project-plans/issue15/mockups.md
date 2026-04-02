@@ -1,38 +1,138 @@
-# Mockups — Issues Mode (Illustrative, Non-Normative)
+# Mockups — Issues Mode
 
-These mockups are illustrative only.
-Normative behavior is specified in `functional-overview.md` and `technical-overview.md`.
+Layout placement, pane composition, and control anchoring in this file are normative where referenced by `project-plans/issue15/plan/00-overview.md`. Visual styling examples remain illustrative.
+Normative behavior is specified in `functional-overview.md` and the contracts under `project-plans/issue15/plan/*.md`.
 
-## 1) Issues Mode Layout
+## Layout Architecture
+
+Issues Mode uses a **two-column layout**, not three columns:
+
+1. **Left column**: Repositories sidebar — fixed width (22u), full screen height. Identical placement and sizing to the baseline dashboard.
+2. **Right column**: Issues workspace — flex-grow, full height. Contains filters, issue list, and unified detail+comments view.
+
+Issue detail and comments are a **single unified scrollable view**, not separate panes or regions. The detail view contains: issue metadata → body → comments timeline → new comment field, all in one continuous scroll.
+
+## 1) Baseline Dashboard Shell (Preserved)
 
 ```text
-+----------------------------------------------------------------------------------------------------+
-| Header: [Mode: Issues] [Repo Scope: acme/api] [Sort: Updated desc] [Filters]                      |
-+----------------------------+------------------------------------+----------------------------------+
-| Repositories               | Issue List                         | Issue Detail                     |
-|----------------------------|------------------------------------|----------------------------------|
-| > acme/api                 | > #142 Fix auth refresh            | #142 Fix auth refresh            |
-|   acme/web                 |   open  @sam  upd 2h               | state: open                      |
-|   acme/infra               |   labels: bug,auth                 | author: @sam                     |
-|                            |   comments: 5                      | created: ...  updated: ...       |
-|                            |------------------------------------| labels: ...                      |
-|                            |   #141 Add export CSV              | assignees: ...                   |
-|                            |   closed @lee  upd 1d              | milestone: v1.4                  |
-|                            |                                    | body: ...                        |
-|                            |                                    | [Open in GitHub (o)] [Send to Agent (S)]
-+----------------------------+------------------------------------+----------------------------------+
-| Detail sub-region: Comments                                                                         |
-|------------------------------------------------------------------------------------------------------|
-| @pat 2026-03-28                                                                                     |
-|   Can we reproduce with token expiry?                                                               |
-|   [Press r for inline reply]                                                                        |
-|                                                                                                      |
-| @sam 2026-03-29 (edited)                                                                            |
-|   Added logs and narrowed to refresh path.                                                          |
-+------------------------------------------------------------------------------------------------------+
+┌────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Status bar                                                                                     │
+├───────────────────────┬──────────────────────────────────────────────┬─────────────────────────┤
+│ Repositories          │ Agents (top portion of center column)        │ Preview                │
+│ (full height)         │                                              │ (full height)          │
+│                       ├──────────────────────────────────────────────┤                         │
+│                       │ Terminal (bottom portion, much taller)       │                         │
+│                       │                                              │                         │
+│                       │                                              │                         │
+├───────────────────────┴──────────────────────────────────────────────┴─────────────────────────┤
+│ Keybind bar                                                                                    │
+└────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 2) Key Routing Snapshot
+## 2) Issues Mode — List-Focused
+
+Two-column layout: repos sidebar (full height) + issues workspace.
+
+```text
+┌ Status: ISSUE MODE | Repo scope: vybestack/llxprt-jefe | Auth: gh signed-in (v1) ────────────┐
+├───────────────────────┬────────────────────────────────────────────────────────────────────────┤
+│ Repositories          │ Issues workspace                                                      │
+│ (full height)         │                                                                        │
+│ > llxprt-jefe (gh [OK])  │ Filters: [state: open] [assignee: any] [labels: any] [milestone:any] │
+│   docs-site  (gh [OK])   │          [type:any] [project:any] [search: ______________________ ]   │
+│   toy-app    (gh -)   │                                                                        │
+│                       │ ┌────────────────────────────────────────────────────────────────────┐ │
+│                       │ │ > #17 Create a feature list and state diagram                     │ │
+│                       │ │   #16 Create an initial UI design                                 │ │
+│                       │ │   #15 Github Integration Main Issue                               │ │
+│                       │ │   ...                                                              │ │
+│                       │ │   [list scroll position indicator]                                │ │
+│                       │ └────────────────────────────────────────────────────────────────────┘ │
+│                       │                                                                        │
+│                       │ [f opens filter editor only while this list has focus]               │
+├───────────────────────┴────────────────────────────────────────────────────────────────────────┤
+│ Keybind: i focus issue list | r focus repos | a or Esc exit issues mode | / focus search      │
+└────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+## 3) Issues Mode — Detail-Focused (Inline Comment/Reply/Edit)
+
+The issues workspace splits vertically: issue list on top (selection drives detail), unified detail+thread on bottom (one scrollable view).
+
+```text
+┌ Status: ISSUE MODE | Focus: Issue Detail ──────────────────────────────────────────────────────┐
+├───────────────────────┬────────────────────────────────────────────────────────────────────────┤
+│ Repositories          │ Top: issue list (selection drives detail)                             │
+│ (full height)         │                                                                        │
+│ > llxprt-jefe         │ Bottom: issue detail + thread (one scrollable view)                   │
+│                       │ ┌────────────────────────────────────────────────────────────────────┐ │
+│                       │ │ #17 Create a feature list and state diagram                        │ │
+│                       │ │ OPEN | assignees: - | labels: - | milestone: - | type: -         │ │
+│                       │ │ project: -                                                         │ │
+│                       │ │                                                                    │ │
+│                       │ │ Issue description                                                   │ │
+│                       │ │ [read mode text...]                                                │ │
+│                       │ │                                                                    │ │
+│                       │ │ Comments                                                            │ │
+│                       │ │ - Comment A                                                        │ │
+│                       │ │   [Reply inline field: ________________________________________]   │ │
+│                       │ │   [Submit] [Cancel]                                                │ │
+│                       │ │                                                                    │ │
+│                       │ │ - Comment B (focused)                                              │ │
+│                       │ │                                                                    │ │
+│                       │ │ New comment                                                        │ │
+│                       │ │ [Inline field: ________________________________________________]   │ │
+│                       │ │ [Submit] [Cancel]                                                  │ │
+│                       │ │                                                                    │ │
+│                       │ │ [detail/thread scroll position indicator]                          │ │
+│                       │ └────────────────────────────────────────────────────────────────────┘ │
+├───────────────────────┴────────────────────────────────────────────────────────────────────────┤
+│ e on focused body => inline issue-body edit; e on focused comment => inline comment edit       │
+└────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Key layout points:
+- Detail and comments are **one unified scrollable view** — not separate panes or regions.
+- Scroll position indicator is for the single combined detail+comments view.
+- Inline reply/edit fields appear in-place within the unified scroll.
+- New comment field is at the bottom of the same scrollable view.
+
+## 4) Send-to-Agent (Anchored in Issues Workspace)
+
+```text
+┌ Send issue to agent (inline panel or compact modal anchored in issues workspace) ─────────────┐
+│ Issue: #17 Create a feature list and state diagram                                             │
+│ Repository: vybestack/llxprt-jefe                                                              │
+│ Target agent: [agent-a ▼]   (existing agents only)                                             │
+│                                                                                                │
+│ Base prompt source: repository default                                                         │
+│ Prompt preview:                                                                                │
+│ - repository base prompt                                                                       │
+│ - issue title/body/metadata context                                                            │
+│ - comments included option                                                                     │
+│                                                                                                │
+│ [Launch] [Cancel]                                                                              │
+└────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+## 5) Inline Error Surfaces
+
+```text
+[Issue list inline error banner]
+GraphQL request failed: insufficient repository permissions for project/type fields.
+[Retry] [Open auth help]
+
+[Repository not configured in detail pane]
+No GitHub repo configured for this repository.
+Set repository GitHub slug in Edit Repository (owner/name).
+[Open repository settings]
+
+[Connectivity error]
+Unable to reach GitHub API endpoint.
+[Retry]
+```
+
+## 6) Key Routing Snapshot
 
 ```text
 Global in Issues Mode:
@@ -48,13 +148,12 @@ Issue List focus:
   /            focus search input
   Enter        focus selected issue detail
 
-Issue Detail focus:
-  Up/Down      scroll detail
+Issue Detail focus (unified scrollable view):
+  Up/Down      scroll detail+comments view
   Tab          cycle subfocus: body -> comments -> new comment -> body
   Shift+Tab    reverse issue-detail subfocus cycle
   e            edit focused issue body/comment inline
   r            open inline reply for focused comment (no-op if comment not focused)
-  o            open selected issue in GitHub
   S            send-to-agent chooser (only when no inline editor/composer active)
 
 Suppressed in Issues Mode:
@@ -67,7 +166,7 @@ No-op in Issues Mode:
   Enter in repo list (selection already active)
 ```
 
-## 3) Search Lifecycle with Esc
+## 7) Search Lifecycle with Esc
 
 ```text
 State A: search focused, text non-empty
@@ -80,7 +179,7 @@ State C: no inner control consuming Esc
 Esc -> exit Issues Mode
 ```
 
-## 4) Inline Composer and Editor (Mutually Exclusive)
+## 8) Inline Composer and Editor (Mutually Exclusive)
 
 ```text
 Allowed states:
@@ -92,7 +191,9 @@ Disallowed state:
 - editor active and composer active at the same time
 ```
 
-### New comment inline
+All inline controls appear in-place within the unified detail+comments scrollable view:
+
+### New comment inline (at bottom of unified detail view)
 ```text
 [New Comment]
 +----------------------------------------------------------------+
@@ -101,7 +202,7 @@ Disallowed state:
 [Save (Cmd/Ctrl+Enter)] [Cancel (Esc)]
 ```
 
-### Inline reply
+### Inline reply (within comments section of unified detail view)
 ```text
 @pat
   Can we reproduce with token expiry?
@@ -112,7 +213,7 @@ Disallowed state:
   [Save (Cmd/Ctrl+Enter)] [Cancel (Esc)]
 ```
 
-### Inline edit (issue body/comment)
+### Inline edit (within unified detail view, on focused body or comment)
 ```text
 [Editing Focused Item]
 +----------------------------------------------------------------+
@@ -121,7 +222,7 @@ Disallowed state:
 [Save (Cmd/Ctrl+Enter)] [Cancel (Esc)]
 ```
 
-## 5) Filter/Search Controls
+## 9) Filter/Search Controls
 
 ```text
 Issue List Header Controls
@@ -143,7 +244,7 @@ Default:
   no structured filters committed
 ```
 
-## 6) Send-to-Agent Chooser
+## 10) Send-to-Agent Chooser
 
 ```text
 Send to Agent (existing agents only)
@@ -161,7 +262,7 @@ No-agent state:
 No agents available. Create/select an agent in Agents Mode.
 ```
 
-## 7) Empty and Error States
+## 11) Empty and Error States
 
 ```text
 No accessible repositories in current gh context.
@@ -172,7 +273,7 @@ GitHub CLI is not authenticated. Run: gh auth login
 Could not load issues for acme/api. [Retry]
 ```
 
-## 8) Repository Config: `issue_base_prompt`
+## 12) Repository Config: `issue_base_prompt`
 
 ```text
 Repository Settings: acme/api
@@ -186,3 +287,14 @@ Issue Base Prompt
 
 [Save] [Reset to last saved]
 ```
+
+## Layout Summary
+
+| Aspect | Correct (per #16) | Wrong (drifted) |
+|--------|-------------------|-----------------|
+| Column count | **Two** (repos + workspace) | Three (repos + list + detail) |
+| Repos sidebar | Full screen height, fixed 22u | Same — but three-column dilutes workspace |
+| Detail + comments | **One unified scrollable view** | Separate detail pane + separate comments region |
+| Comments region | Part of detail scroll | Full-width separate section at bottom |
+| Scroll indicators | One, for unified detail+comments | Potentially multiple for split regions |
+| Inline controls | In-place within unified scroll | Ambiguous anchoring across split regions |

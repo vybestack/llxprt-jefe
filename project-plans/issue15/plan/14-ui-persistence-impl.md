@@ -10,6 +10,22 @@
 
 ## Requirements Implemented (Expanded)
 
+### Mockup Alignment Gate (Issue #16) — Implementation
+**Requirement text**: Issues mode layout and panel placement must match Issue #16 mockups, including persistent repo sidebar and issues workspace composition.
+
+Behavior contract:
+- GIVEN issues mode is active
+- WHEN UI renders list-focused and detail-focused states
+- THEN layout matches #16 placement contract:
+  - repo pane fixed on left (full height),
+  - issues workspace on right,
+  - filter band visible in list-focused context,
+  - detail/thread region present in detail-focused context,
+  - send-to-agent panel anchored to issues workspace.
+
+Why it matters:
+- Without concrete placement verification, UI can pass superficial tests while violating intended UX structure.
+
 ### REQ-ISS-006: Issue List Display — Implementation
 **Requirement text**: Each row: number, title, state, author, updated timestamp, assignee summary, label summary, comment count. Default sort: `updated_at desc`, tie-breaker `number asc`.
 
@@ -45,7 +61,7 @@ Behavior contract:
 - THEN header fields, body text, and 3 comment blocks are displayed
 
 Why it matters:
-- Detail pane is the primary reading surface; markdown must be translated to terminal-friendly output so users can read formatted content.
+- The unified detail+comments view is the primary reading surface; markdown must be translated to terminal-friendly output so users can read formatted content.
 
 ### REQ-ISS-010: Inline Create/Edit — UI Implementation
 **Requirement text**: New-comment field, reply field with @author, edit field. Save: Ctrl+Enter. Cancel: Esc. At most one inline mutable control active at a time.
@@ -116,7 +132,7 @@ Why it matters:
   - marker: `@requirement REQ-ISS-011`
 
 - `src/ui/screens/issues.rs`
-  - Implement full three-pane layout with conditional visibility for filter controls and agent chooser overlays
+  - Implement full two-column layout (repos sidebar + issues workspace) with issue list and unified detail+comments view inside the workspace, plus conditional visibility for filter controls and agent chooser overlays
   - marker: `@plan PLAN-20260329-ISSUES-MODE.P14`
   - marker: `@requirement REQ-ISS-001`
 
@@ -161,6 +177,7 @@ cargo test --workspace --all-features
 - [ ] `@plan`, `@requirement` markers present in all changed files
 - [ ] All existing tests pass (zero regressions)
 - [ ] No stub rendering content remains (no "placeholder" or "loading..." as final state when data is loaded)
+- [ ] Mockup #16 panel placement checks documented with concrete file/line evidence for repo pane, issues workspace, list region, detail region, and send panel placement
 
 ## Semantic Verification Checklist (Mandatory)
 - [ ] Issue list renders all 8 fields per row (number, title, state, author, updated, assignees, labels, comment count)
@@ -173,6 +190,7 @@ cargo test --workspace --all-features
 - [ ] Keybind bar shows issues mode bindings (different from agents mode)
 - [ ] `issue_base_prompt` form field works in repository config (multiline, Save, Reset)
 - [ ] Dashboard switches between agents and issues layouts based on `screen_mode` (`Dashboard` vs `DashboardIssues`)
+- [ ] Mockup #16 sizing/placement matches plan contract: left repo pane full height fixed width, right issues workspace (two-column layout, not three), issue list + unified detail+comments view within workspace, filter/list/detail presence by focus state
 - [ ] Feature behavior is reachable from real app flow: UI rendering path handles all `IssuesState` conditions that key routing + state reducer can produce
 - [ ] No placeholder/deferred rendering patterns remain in production code paths
 

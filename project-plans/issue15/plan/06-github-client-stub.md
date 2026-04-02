@@ -53,9 +53,9 @@ Why it matters:
   - Define `SendPayload` struct with all fields from pseudocode component-002 lines 62-74
   - Expand `GhClient` struct with full method signatures:
     - `check_auth() -> Result<(), GhError>`
-    - `list_issues(owner, repo, filter, page_cursor, page_size) -> Result<IssueListResponse, GhError>`
+    - `list_issues(owner, repo, filter, cursor, page_size) -> Result<IssueListResponse, GhError>`
     - `get_issue_detail(owner, repo, number) -> Result<IssueDetail, GhError>`
-    - `list_comments(owner, repo, number, page_cursor, page_size) -> Result<CommentsResponse, GhError>`
+    - `list_comments(owner, repo, number, cursor, page_size) -> Result<CommentsResponse, GhError>` — cursor-based comments pagination contract
     - `create_comment(owner, repo, number, body) -> Result<IssueComment, GhError>`
     - `update_comment(owner, repo, comment_id, body) -> Result<(), GhError>`
     - `update_issue_body(owner, repo, number, body) -> Result<(), GhError>`

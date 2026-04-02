@@ -12,6 +12,70 @@ Before implementing any phase:
 2. Integration points are explicitly listed
 3. TDD cycle is defined per slice
 4. Lint/test/coverage gates are declared
+5. Coordination follows `dev-docs/COORDINATING.md` exactly: no skipped phases, no batching, one worker + one verifier per phase, fail-blocked progression only
+
+## Global Coordination Protocol (COORDINATING.md Binding)
+
+This plan is executable only if coordinator behavior satisfies `dev-docs/COORDINATING.md`.
+
+- **Strict order only**: execute `P00A, P01, P01A, ... P16, P16A` in exact numeric order.
+- **One phase at a time**: never run multiple implementation phases in one worker launch.
+- **Atomic verification**: each verifier must emit `Phase NN: PASS` or `Phase NN: FAIL` with concrete remediation items.
+- **Failure loop mandatory**: on FAIL, perform same-phase remediation and re-verify; do not continue.
+- **Prerequisite gate**: before each phase, verify:
+  1. `project-plans/issue15/.completed/P(N-1).md` exists,
+  2. corresponding verification phase PASS exists,
+  3. required artifacts listed by phase are present.
+- **Todo discipline**: create/maintain todo entries for every phase and verification phase before execution starts.
+
+### Verifier Output Contract (Behavioral, Not Checklist-Only)
+
+Every verification phase MUST include evidence from real code behavior, not only checklist ticks.
+Verifier must provide:
+
+1. **Structural checks** (files, tests, markers, compilation)
+2. **Behavioral code-reading checks** with cited file/line evidence, proving the expected runtime path exists.
+3. **Runtime-path checks** showing key flows are reachable from actual dispatch chain, e.g.:
+   - key event source -> key routing -> `AppEvent` emission -> `dispatch_app_event` side effect -> reducer (`AppState::apply`) -> render condition in UI.
+4. **Contradiction scan**: identify places where tests pass but production path is missing (example: reducer handles `IssueListLoaded` but no side-effect emits it).
+5. **Atomic verdict**:
+   - `Phase NN: PASS` only when structural + behavioral checks both pass.
+   - `Phase NN: FAIL` with exact remediation items and blocking reason.
+
+A verifier output that only states "all checks passed" without cited behavioral evidence is non-compliant and must be treated as FAIL.
+
+## Mockup-Driven Layout Contract (Issue #16)
+
+Issue #16 mockups are normative for UI placement and composition checks in P14/P14A/P15/P15A/P16/P16A.
+Source: `gh issue view 16` and supplemental comment link in issue body.
+
+### Required layout measurements and placement checkpoints
+
+- **Baseline dashboard shell (preserved)**
+  - Repositories sidebar fixed width `22u32` (left, full height)
+  - Middle column split: top `25%` agent list, bottom `75%` terminal
+  - Preview pane fixed width `36u32` (right, full height)
+
+- **Issues mode shell (two-column layout)**
+  - Repositories sidebar remains visible, left, full height, same fixed width (`22u32`) — identical placement to baseline dashboard
+  - Issues workspace occupies remaining width to the right (single right column, NOT a third column)
+  - Issues workspace is vertically split into:
+    1. filter/search band (top),
+    2. issue list region (top portion, selection drives detail),
+    3. unified detail+comments view (bottom portion — one scrollable view containing: issue metadata, body, comments timeline, new comment field, inline controls)
+  - Issue detail and comments are **one unified scrollable view**, not separate panes or regions
+  - Layout matches mockup focus states (list-focused and detail-focused) from Issue #16
+
+- **Placement acceptance checks** (must be explicitly verified):
+  1. repo pane is persistent in issues mode, full screen height, and responds to focus/nav,
+  2. layout is two columns (repos sidebar + issues workspace) — NOT three columns,
+  3. issue list and unified detail view are both present within the issues workspace with deterministic sizing,
+  4. detail+comments is one scrollable view with a single scroll indicator (not split into separate regions),
+  5. send-to-agent panel is anchored to issues workspace (not detached global placement),
+  6. inline error surfaces are visible in-pane where failures occur,
+  7. keybind text reflects issues-mode bindings and suppression rules.
+
+Any deviation from the #16 mockup contract requires explicit documented rationale and user sign-off.
 
 ## Global Mandate: Pseudocode Line Ranges in All Implementation Phases
 
@@ -152,15 +216,15 @@ NEW AppEvent variants (added, not replacing anything):
   IssueListLoadFailed { ... },
   IssueDetailLoaded { ... }, IssueDetailLoadFailed { ... },
   IssueCommentsPageLoaded { ... }, IssueCommentsPageFailed { ... },
-  OpenFilterControls, CloseFilterControls,
-  ApplyFilter { ... }, ClearFilter,
-  FocusSearchInput, BlurSearchInput,
-  ApplySearch { ... }, ClearSearch,
-  OpenNewCommentComposer, OpenReplyComposer { ... },
-  OpenInlineEditor { ... },
+  IssuesScrollDetailUp, IssuesScrollDetailDown,
+  IssueDetailSubfocusNext, IssueDetailSubfocusPrev,
+  OpenFilterControls, CloseFilterControls, ApplyFilter, ClearFilter,
+  FocusSearchInput, BlurSearchInput, SetSearchQuery { ... }, ApplySearch, ClearSearch,
+  UpdateDraftFilter { ... },
+  OpenNewCommentComposer, OpenReplyComposer { ... }, OpenInlineEditor { ... },
   InlineChar(char), InlineBackspace, InlineSubmit, InlineCancelOrEsc,
   CommentCreated { ... }, CommentCreateFailed { ... },
-  IssueBodyUpdated, CommentUpdated { ... }, MutationFailed { ... },
+  IssueBodyUpdated { ... }, CommentUpdated { ... }, MutationFailed { ... },
   OpenAgentChooser, AgentChooserNavigateUp, AgentChooserNavigateDown,
   AgentChooserConfirm, AgentChooserCancel,
   SendToAgentCompleted, SendToAgentFailed { ... },
@@ -273,16 +337,16 @@ The following file paths are confirmed to exist in the source tree at plan creat
 |----------|---------|------------|
 | `src/github/mod.rs` | GitHub client boundary (`GhClient`, `GhError`, response types) | P03 (skeleton), P06 (full signatures), P08 (implementation) |
 | `src/app_input/issues.rs` | Issues-mode key handler (`handle_issues_mode_key()` and sub-handlers), declared as `mod issues;` in `src/app_input/mod.rs` | P09 (stub), P11 (implementation) |
-| `src/ui/screens/issues.rs` | Issues mode screen layout (three-pane) | P12 (stub), P14 (implementation) |
+| `src/ui/screens/issues.rs` | Issues mode screen layout (two-column: repos sidebar + issues workspace) | P12 (stub), P14 (implementation) |
 | `src/ui/components/issue_list.rs` | Issue list pane component | P12 (stub), P14 (implementation) |
-| `src/ui/components/issue_detail.rs` | Issue detail pane (body, comments, inline controls) | P12 (stub), P14 (implementation) |
+| `src/ui/components/issue_detail.rs` | Unified issue detail+comments scrollable view (metadata, body, comments timeline, inline controls) | P12 (stub), P14 (implementation) |
 | `src/ui/components/filter_controls.rs` | Filter controls component | P12 (stub), P14 (implementation) |
 | `src/ui/components/agent_chooser.rs` | Send-to-agent agent chooser overlay | P12 (stub), P14 (implementation) |
 
 ## Integration Contract
 
 ### Existing Callers
-- `src/main.rs` — app bootstrap, event loop, terminal event dispatch; uses `SharedContext` (not `AppContext`)
+- `src/main.rs` — app bootstrap, event loop, terminal event dispatch; uses `SharedContext` as the runtime context object
 - `src/app_input/normal.rs` — key routing via `handle_normal_key_event()` (L61)
 - `src/app_input/mod.rs` — event dispatch via `dispatch_app_event()` (L359)
 - `src/input.rs` — `input_mode_for_state()` resolution; currently returns `Normal`/`TerminalCapture`/`Help`/`Search`/`Form`/`Confirm`
@@ -497,15 +561,18 @@ IssuesNavigateUp, IssuesNavigateDown,
 IssuesNavigatePageUp, IssuesNavigatePageDown,
 IssuesNavigateHome, IssuesNavigateEnd,
 IssuesEnter, IssuesCycleFocus, IssuesCycleFocusReverse,
+IssuesScrollDetailUp, IssuesScrollDetailDown,
+IssueDetailSubfocusNext, IssueDetailSubfocusPrev,
 IssueListLoaded { ... }, IssueListPageLoaded { ... }, IssueListLoadFailed { ... },
 IssueDetailLoaded { ... }, IssueDetailLoadFailed { ... },
 IssueCommentsPageLoaded { ... }, IssueCommentsPageFailed { ... },
-OpenFilterControls, CloseFilterControls, ApplyFilter { ... }, ClearFilter,
-FocusSearchInput, BlurSearchInput, ApplySearch { ... }, ClearSearch,
+OpenFilterControls, CloseFilterControls, ApplyFilter, ClearFilter,
+FocusSearchInput, BlurSearchInput, SetSearchQuery { ... }, ApplySearch, ClearSearch,
+UpdateDraftFilter { ... },
 OpenNewCommentComposer, OpenReplyComposer { ... }, OpenInlineEditor { ... },
 InlineChar(char), InlineBackspace, InlineSubmit, InlineCancelOrEsc,
 CommentCreated { ... }, CommentCreateFailed { ... },
-IssueBodyUpdated, CommentUpdated { ... }, MutationFailed { ... },
+IssueBodyUpdated { ... }, CommentUpdated { ... }, MutationFailed { ... },
 OpenAgentChooser, AgentChooserNavigateUp, AgentChooserNavigateDown,
 AgentChooserConfirm, AgentChooserCancel,
 SendToAgentCompleted, SendToAgentFailed { ... },
@@ -576,3 +643,6 @@ Each row covers one requirement from `specification.md`. Phases are listed in im
 | REQ-ISS-NFR-001 | Responsiveness | P15 (integration), P16 (quality gate) | N/A | Non-algorithmic; verified behaviorally in integration tests |
 | REQ-ISS-NFR-002 | Reliability | P15 (integration), P16 (quality gate) | N/A | Non-algorithmic; verified behaviorally (error non-crash) |
 | REQ-ISS-NFR-003 | Maintainability | P00A (preflight), P01 (analysis), P16 (quality gate) | N/A | Architectural constraint; verified structurally via boundary isolation |
+ via boundary isolation |
+d structurally via boundary isolation |
+ via boundary isolation |

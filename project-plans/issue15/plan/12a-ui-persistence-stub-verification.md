@@ -82,7 +82,7 @@ done
 
 ## Semantic Verification Checklist (Mandatory)
 - [ ] Dashboard renders correctly in agents mode (`ScreenMode::Dashboard`) — existing behavior preserved.
-- [ ] Issues mode layout is structurally present (three-pane composition in `issues.rs`) — not just an empty file.
+- [ ] Issues mode layout is structurally present (two-column composition in `issues.rs`: repos sidebar + issues workspace) — not just an empty file.
 - [ ] Repository form includes `issue_base_prompt` field — verified by `grep`.
 - [ ] Keybind bar has issues mode bindings — different from agents mode.
 - [ ] Feature behavior is reachable from real app flow: state with `ScreenMode::DashboardIssues` triggers issues layout rendering path.

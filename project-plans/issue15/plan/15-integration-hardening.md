@@ -8,6 +8,19 @@
 - Verify previous phase markers/artifacts exist: `.completed/P14.md`, `.completed/P14A.md`
 - Expected files from previous phase: implemented domain, state, GitHub client, key routing, UI, and persistence (all tests GREEN)
 
+
+### Phase Checkpoints (Hard Gates)
+
+P15 cannot be marked complete unless all checkpoints below are explicitly demonstrated with code and tests:
+
+1. **Entry checkpoint**: normal-mode `i` dispatches `EnterIssuesMode` and issues screen renders.
+2. **Loading checkpoint**: entering issues mode resolves `list_loading` through real dispatch of `IssueListLoaded` or `IssueListLoadFailed`.
+3. **Detail checkpoint**: issue selection triggers detail/comments load and resolves loading/error states.
+4. **Scope checkpoint**: repo change invalidates issues state, discards draft with notice, and reloads new scope.
+5. **Slug checkpoint**: repository missing GitHub slug shows in-pane actionable error from mockup #16.
+
+If any checkpoint is not proven, Phase 15 is FAIL.
+
 ## Requirements Implemented (Expanded)
 
 ### REQ-ISS-001: End-to-End Mode Lifecycle
@@ -191,6 +204,18 @@ Why it matters:
   - component-003 lines 102–111: send-to-agent payload assembly
   - component-003 lines 128–135: repo switch clears all issues state, triggers reload
   - component-003 lines 138–141: inline exclusivity guard blocks concurrent open attempts
+
+### Behavioral Verification Evidence (Mandatory)
+Verifier must include cited code paths proving runtime behavior exists in production flow:
+
+- key source -> `handle_normal_key_event` -> issues router -> emitted `AppEvent`
+- event dispatch -> `dispatch_app_event` side effect -> `GhClient` call
+- success/failure dispatch -> reducer transition -> UI state rendering condition
+
+Checklist-only outputs are non-compliant.
+Verdict must be atomic:
+- `Phase 15: PASS`
+- or `Phase 15: FAIL` with remediation items.
 
 ## Verification Commands
 

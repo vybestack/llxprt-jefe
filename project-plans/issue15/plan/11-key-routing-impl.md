@@ -6,7 +6,7 @@
 ## Prerequisites
 - Required: Phase P10A completed
 - Verify previous phase markers/artifacts exist: `.completed/P10.md`, `.completed/P10A.md`
-- Expected files from previous phase: failing (RED) test suite for key routing (25 tests) in `src/app_input/issues.rs` and/or `src/state/mod.rs`
+- Expected files from previous phase: failing (RED) test suite for key routing (35 tests) in `src/app_input/issues.rs` and/or `src/state/mod.rs`
 
 ## Requirements Implemented (Expanded)
 
@@ -26,7 +26,7 @@ Why it matters:
 - Mode entry triggers the initial data load; mode exit must restore focus cleanly to avoid user disorientation
 
 ### REQ-ISS-002: Full Key Routing — Implementation
-**Requirement text**: While in Issues Mode: suppress keys, route by 7-level priority chain, handle per-focus-domain dispatch.
+**Requirement text**: While in Issues Mode: suppress keys, route by 8-level priority chain, handle per-focus-domain dispatch.
 
 Behavior contract:
 - GIVEN state in `DashboardIssues` with issue list focused
@@ -125,7 +125,7 @@ Why it matters:
 ## Implementation Tasks
 
 ### Files to modify
-- `src/app_input/issues.rs` — implement `handle_issues_mode_key()` with full 7-level priority chain:
+- `src/app_input/issues.rs` — implement `handle_issues_mode_key()` with full 8-level priority chain:
   - Level 1: inline editor/composer keys (Esc, Ctrl+Enter, Char, Backspace)
     - marker: `@plan PLAN-20260329-ISSUES-MODE.P11`
     - marker: `@requirement REQ-ISS-010`
@@ -193,7 +193,7 @@ Why it matters:
   - marker: `@plan PLAN-20260329-ISSUES-MODE.P11`
   - marker: `@requirement REQ-ISS-002`
 
-- `src/main.rs` — ensure `GhClient` field exists on `AppContext` (struct defined here) and is initialized in `fn main()`; wire issues mode dispatch into terminal event handler:
+- `src/main.rs` — ensure `GhClient` field exists on the `SharedContext` runtime wiring path and is initialized in `fn main()`/app init; wire issues mode dispatch into terminal event handler:
   - marker: `@plan PLAN-20260329-ISSUES-MODE.P11`
 
 ### Pseudocode traceability (if impl phase)
@@ -236,7 +236,7 @@ cargo test --workspace --all-features
 - [ ] `i` enters issues mode and triggers `list_issues()` call
 - [ ] `a` exits issues mode with focus restoration per REQ-ISS-005 rules
 - [ ] Suppressed keys (`s`, `Ctrl-d`, `Ctrl-k`, `l`) are consumed as no-op with zero state change in any focus domain — verified by unit tests asserting state equality before/after
-- [ ] Priority chain: inline > chooser > search > filter > focus-domain > global > suppression — verified by Esc behavior tests
+- [ ] Priority chain: inline > chooser > search > filter > issues-global > focus-domain > pane-cycle > suppression — verified by routing and Esc behavior tests
 - [ ] Esc precedence chain works at all 6 levels (inline → chooser → search-clear → search-blur → filter-close → exit) — verified by dedicated tests
 - [ ] Navigation keys dispatch correct events per focus domain; Enter on issue triggers `get_issue_detail()` + `list_comments()`
 - [ ] `e` opens editor for body/comment; `r` opens reply composer with `@author ` prefill — verified by tests
@@ -254,7 +254,7 @@ grep -RIn "TODO\|FIXME\|HACK\|placeholder\|for now\|will be implemented" src/app
 ```
 
 ## Success Criteria
-- [ ] All key routing tests GREEN (25 tests)
+- [ ] All key routing tests GREEN (35 tests)
 - [ ] Verification commands pass
 - [ ] No placeholder code remains
 - [ ] Semantic checks pass

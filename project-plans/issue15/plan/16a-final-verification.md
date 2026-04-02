@@ -21,6 +21,21 @@ Behavior contract:
 Why it matters:
 - This is the merge gate. Any gap left here — a missing requirement trace, a preserved deferred pattern, a broken existing test — becomes a defect in production. The cost of catching it here is near zero; the cost after merge is orders of magnitude higher.
 
+### Final Verifier Behavioral Audit Requirement
+Final verifier must prove behavior from source and tests, not just pass command gates.
+
+Mandatory cited proofs:
+1. Normal-mode `i` mapping exists and reaches issues mode.
+2. Loading pipeline cannot remain permanently in `list_loading=true` without success/failure transition path.
+3. Detail/comments loading has a real completion path (not stuck in loading state).
+4. Repo scope switch invalidates stale state, discards draft, triggers reload.
+5. Mockup #16 placement checks hold in final code (repo pane `22u32`, issues workspace composition).
+6. Missing GitHub slug path surfaces actionable inline error per mockup #16.
+7. Contradiction scan: no reducer arms handle events that no side-effect emits; no side-effects emit events with no reducer arm.
+
+Any missing behavioral proof -> `Phase 16A: FAIL`.
+
+
 ## Implementation Tasks
 
 ### Files to create
@@ -75,6 +90,15 @@ find src/github/ src/app_input/issues.rs src/ui/components/issue_list.rs src/ui/
 cargo test --workspace --all-features 2>&1 | grep "test result:"
 ```
 
+### Mockup #16 completion audit
+```bash
+echo "--- Mockup #16 panel placement checks ---"
+grep -n "Box(width: 22u32" src/ui/screens/dashboard.rs src/ui/screens/issues.rs
+grep -n "Issues workspace\|IssueList\|IssueDetail\|FilterControls\|AgentChooser" src/ui/screens/issues.rs
+grep -n "No GitHub repo configured\|slug\|owner/name" src/ui/ src/app_input/ src/state/ -r
+```
+
+
 ### Phase Completion Audit
 ```bash
 # Verify all phase completion markers exist
@@ -85,6 +109,7 @@ for phase in P00A P01 P01A P02 P02A P03 P03A P04 P04A P05 P05A P06 P06A P07 P07A
     echo "MISSING: $phase not completed"
   fi
 done
+echo "NOTE: P16A marker is created by this phase — its absence before execution is expected."
 ```
 
 ## Structural Verification Checklist
@@ -99,6 +124,7 @@ done
 - [ ] `IssueFocus` is separate enum.
 - [ ] `ScreenMode` has `Dashboard`, `Split`, `DashboardIssues`.
 - [ ] All new files accounted for (7 new files: `src/github/mod.rs`, `src/app_input/issues.rs`, `src/ui/screens/issues.rs`, `src/ui/components/issue_list.rs`, `src/ui/components/issue_detail.rs`, `src/ui/components/filter_controls.rs`, `src/ui/components/agent_chooser.rs`).
+- [ ] Verifier includes behavioral code-path evidence with file/line citations (not checklist-only).
 
 ## Semantic Verification Checklist (Mandatory)
 - [ ] **Complete user journey verified**: User can enter issues mode (`i`), browse issue list, select issue, view detail, create comment, reply to comment, edit body, send to agent, filter issues, search issues, paginate, and exit (`a`/`Esc`).

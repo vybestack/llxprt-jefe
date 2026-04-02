@@ -18,6 +18,22 @@ Behavior contract:
 - WHEN all tests execute and verification checks run
 - THEN all 14 UI+persistence tests GREEN, all prior tests GREEN, no placeholder rendering, dashboard switches modes correctly.
 
+
+### Behavioral Verifier Requirement (Mandatory)
+Verifier must inspect source code and prove runtime behavior paths with cited file/line evidence, not checklist-only output.
+
+Minimum required evidence set:
+1. `i` entry path exists in normal-mode key routing and reaches `EnterIssuesMode`.
+2. Issues-mode render branch in dashboard routes to issues screen.
+3. Issues screen layout placement matches #16 contract (repo pane persistence + issues workspace composition) with concrete measurements: repo pane `22u32` fixed width, issues workspace occupies remaining width.
+4. Keybind display in issues mode differs from agents mode and includes documented bindings.
+5. Loading resolution: `list_loading=true` state is not a dead end — verify that a dispatch path exists to emit `IssueListLoaded` or `IssueListLoadFailed` to clear the loading state.
+6. Contradiction scan: verify no reducer arms handle events that no side-effect emits, and no side-effects emit events that no reducer arm handles.
+
+Output must end with exactly one atomic verdict:
+- `Phase 14A: PASS`
+- or `Phase 14A: FAIL` + remediation list.
+
 ## Implementation Tasks
 
 ### Files to create
@@ -62,6 +78,7 @@ done
 - [ ] All prior tests pass (zero regressions).
 - [ ] No placeholder rendering code.
 - [ ] Traceability markers present in all UI component files.
+- [ ] Mockup #16 placement evidence recorded (repo pane fixed/persistent, issues workspace composition, panel anchoring).
 - [ ] Tracker updated.
 
 ## Semantic Verification Checklist (Mandatory)
@@ -71,6 +88,7 @@ done
 - [ ] Issue detail shows all fields + comments + inline controls.
 - [ ] Empty states show correct messages for all 3 categories.
 - [ ] Repository form `issue_base_prompt` field works (multiline, Save, Reset).
+- [ ] Mockup #16 panel measurements/placement validated against source: left repo pane fixed width and full height; right-side issues workspace with list/detail composition.
 - [ ] Feature behavior is reachable from real app flow: full chain from `i` key -> state change -> UI render is functional.
 - [ ] No placeholder/deferred patterns remain.
 

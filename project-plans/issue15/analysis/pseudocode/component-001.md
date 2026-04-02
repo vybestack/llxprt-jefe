@@ -12,177 +12,209 @@ Requirements: REQ-ISS-001,002,003,004,005,006,007,008,010,014
 05:     CASE RefocusIssueList -> set state.issues_state.issue_focus = IssueList
 06:     CASE IssuesNavigateUp -> handle_issues_navigate_up(state)
 07:     CASE IssuesNavigateDown -> handle_issues_navigate_down(state)
-08:     CASE IssuesPageUp -> handle_issues_page_up(state)
-09:     CASE IssuesPageDown -> handle_issues_page_down(state)
-10:     CASE IssuesHome -> handle_issues_home(state)
-11:     CASE IssuesEnd -> handle_issues_end(state)
+08:     CASE IssuesNavigatePageUp -> handle_issues_page_up(state)
+09:     CASE IssuesNavigatePageDown -> handle_issues_page_down(state)
+10:     CASE IssuesNavigateHome -> handle_issues_home(state)
+11:     CASE IssuesNavigateEnd -> handle_issues_end(state)
 12:     CASE IssuesEnter -> handle_issues_enter(state)
 13:     CASE IssuesCycleFocus -> cycle_issues_focus(state)
 14:     CASE IssuesCycleFocusReverse -> cycle_issues_focus_reverse(state)
-15:     CASE IssueListLoaded -> apply_issue_list_loaded(event, state)
-16:     CASE IssueListLoadFailed -> apply_issue_list_load_failed(event, state)
-17:     CASE IssueListPageLoaded -> apply_issue_list_page_loaded(event, state)
-18:     CASE IssueDetailLoaded -> apply_issue_detail_loaded(event, state)
-19:     CASE IssueDetailLoadFailed -> apply_issue_detail_load_failed(event, state)
-20:     CASE IssueCommentsPageLoaded -> apply_comments_page_loaded(event, state)
-21:     CASE IssueCommentsPageFailed -> apply_comments_page_failed(event, state)
-22:     CASE OpenFilterControls -> open_filter_controls(state)
-23:     CASE CloseFilterControls -> close_filter_controls(state)
-24:     CASE ApplyFilter -> apply_committed_filter(state)
-25:     CASE ClearFilter -> clear_committed_filter(state)
-26:     CASE FocusSearchInput -> focus_search_input(state)
-27:     CASE BlurSearchInput -> blur_search_input(state)
-28:     CASE ApplySearch -> apply_search_query(state)
-29:     CASE ClearSearch -> clear_search_query(state)
-30:     CASE Inline* -> dispatch_inline_event(event, state)
-31:     CASE AgentChooser* -> dispatch_agent_chooser_event(event, state)
-32:   RETURN state + side_effects
+15:     CASE IssueDetailSubfocusNext -> handle_detail_subfocus_tab(state)
+16:     CASE IssueDetailSubfocusPrev -> handle_detail_subfocus_shift_tab(state)
+17:     CASE IssueListLoaded -> apply_issue_list_loaded(event, state)
+18:     CASE IssueListLoadFailed -> apply_issue_list_load_failed(event, state)
+19:     CASE IssueListPageLoaded -> apply_issue_list_page_loaded(event, state)
+20:     CASE IssueDetailLoaded -> apply_issue_detail_loaded(event, state)
+21:     CASE IssueDetailLoadFailed -> apply_issue_detail_load_failed(event, state)
+22:     CASE IssueCommentsPageLoaded -> apply_comments_page_loaded(event, state)
+23:     CASE IssueCommentsPageFailed -> apply_comments_page_failed(event, state)
+24:     CASE OpenFilterControls -> open_filter_controls(state)
+25:     CASE CloseFilterControls -> close_filter_controls(state)
+26:     CASE ApplyFilter -> apply_committed_filter(state)
+27:     CASE ClearFilter -> clear_committed_filter(state)
+28:     CASE FocusSearchInput -> focus_search_input(state)
+29:     CASE BlurSearchInput -> blur_search_input(state)
+30:     CASE SetSearchQuery -> set_search_query(event, state)
+31:     CASE ApplySearch -> apply_search_query(state)
+32:     CASE ClearSearch -> clear_search_query(state)
+33:     CASE UpdateDraftFilter -> update_draft_filter(event, state)
+34:     CASE OpenNewCommentComposer -> open_new_comment_composer(state)
+35:     CASE OpenReplyComposer -> open_reply_composer(event, state)
+36:     CASE OpenInlineEditor -> open_inline_editor(event, state)
+37:     CASE InlineChar -> apply_inline_char(event, state)
+38:     CASE InlineBackspace -> apply_inline_backspace(state)
+39:     CASE InlineSubmit -> apply_inline_submit(state)
+40:     CASE InlineCancelOrEsc -> apply_inline_cancel(state)
+41:     CASE CommentCreated -> apply_comment_created(event, state)
+42:     CASE CommentCreateFailed -> apply_comment_create_failed(event, state)
+43:     CASE IssueBodyUpdated -> apply_issue_body_updated(event, state)
+44:     CASE CommentUpdated -> apply_comment_updated(event, state)
+45:     CASE MutationFailed -> apply_mutation_failed(event, state)
+46:     CASE OpenAgentChooser -> open_agent_chooser(state)
+47:     CASE AgentChooserNavigateUp -> agent_chooser_navigate_up(state)
+48:     CASE AgentChooserNavigateDown -> agent_chooser_navigate_down(state)
+49:     CASE AgentChooserConfirm -> apply_agent_chooser_confirm(state)
+50:     CASE AgentChooserCancel -> apply_agent_chooser_cancel(state)
+51:     CASE SendToAgentCompleted -> apply_send_to_agent_completed(state)
+52:     CASE SendToAgentFailed -> apply_send_to_agent_failed(event, state)
+53:   RETURN state + side_effects
 
-33: FUNCTION enter_issues_mode(state)
-34:   SAVE prior_agent_focus from current pane_focus + selection indices
-35:   SET state.screen_mode = DashboardIssues
-36:   SET state.issues_state.active = true
-37:   SET state.issues_state.issue_focus = IssueList
-38:   CLEAR issues_state data (list, detail, filters, inline controls)
-39:   EMIT side_effect: load_issue_list(selected_repository_id, default_filter)
-40:   RETURN state
+54: FUNCTION enter_issues_mode(state)
+55:   SAVE prior_agent_focus from current pane_focus + selection indices
+56:   SET state.screen_mode = DashboardIssues
+57:   SET state.issues_state.active = true
+58:   SET state.issues_state.issue_focus = IssueList
+59:   CLEAR issues_state data (list, detail, filters, inline controls)
+60:   EMIT side_effect: load_issue_list(selected_repository_id, default_filter)
+61:   RETURN state
 
-41: FUNCTION exit_issues_mode(state)
-42:   SET state.screen_mode = Dashboard
-43:   SET state.issues_state.active = false
-44:   DISCARD unsent inline drafts with notice if present
-45:   RESTORE prior_agent_focus if valid:
-46:     IF prior_focus.target exists AND target is focusable
-47:       RESTORE pane_focus + selection indices
-48:     ELSE
-49:       SET pane_focus = Agents, selection = default
-50:   CLEAR issues_state transient data
-51:   RETURN state
+62: FUNCTION exit_issues_mode(state)
+63:   SET state.screen_mode = Dashboard
+64:   SET state.issues_state.active = false
+65:   DISCARD unsent inline drafts with notice if present
+66:   RESTORE prior_agent_focus if valid:
+67:     IF prior_focus.target exists AND target is focusable
+68:       RESTORE pane_focus + selection indices
+69:     ELSE
+70:       SET pane_focus = Agents, selection = default
+71:   CLEAR issues_state transient data
+72:   RETURN state
 
-52: FUNCTION handle_issues_navigate_up(state)
-53:   MATCH state.issues_state.issue_focus
-54:     CASE RepoList -> move repo selection up (existing behavior)
-55:                      EMIT side_effect: reload_issues_for_new_scope
-56:     CASE IssueList -> move issue selection up in current page
-57:                       IF new_index < 0 THEN clamp to 0
-58:                       EMIT side_effect: load_detail_for_selected
-59:     CASE IssueDetail -> scroll detail content up
-60:   RETURN state
+73: FUNCTION handle_issues_navigate_up(state)
+74:   MATCH state.issues_state.issue_focus
+75:     CASE RepoList -> move repo selection up (existing behavior)
+76:                      EMIT side_effect: reload_issues_for_new_scope
+77:     CASE IssueList -> move issue selection up in current page
+78:                       IF new_index < 0 THEN clamp to 0
+79:                       EMIT side_effect: load_detail_for_selected
+80:     CASE IssueDetail -> scroll detail content up
+81:   RETURN state
 
-61: FUNCTION handle_issues_navigate_down(state)
-62:   MATCH state.issues_state.issue_focus
-63:     CASE RepoList -> move repo selection down (existing behavior)
-64:                      EMIT side_effect: reload_issues_for_new_scope
-65:     CASE IssueList -> move issue selection down
-66:                       IF at_last_loaded AND has_more_issues
-67:                         EMIT side_effect: load_next_page
-68:                       EMIT side_effect: load_detail_for_selected
-69:     CASE IssueDetail -> scroll detail content down
-70:   RETURN state
+82: FUNCTION handle_issues_navigate_down(state)
+83:   MATCH state.issues_state.issue_focus
+84:     CASE RepoList -> move repo selection down (existing behavior)
+85:                      EMIT side_effect: reload_issues_for_new_scope
+86:     CASE IssueList -> move issue selection down
+87:                       IF at_last_loaded AND has_more_issues
+88:                         EMIT side_effect: load_next_page
+89:                       EMIT side_effect: load_detail_for_selected
+90:     CASE IssueDetail -> scroll detail content down
+91:   RETURN state
 
-71: FUNCTION cycle_issues_focus(state)
-72:   MATCH state.issues_state.issue_focus
-73:     CASE RepoList -> SET IssueList
-74:     CASE IssueList -> SET IssueDetail
-75:     CASE IssueDetail -> SET RepoList
-76:   RETURN state
+92: FUNCTION cycle_issues_focus(state)
+93:   MATCH state.issues_state.issue_focus
+94:     CASE RepoList -> SET IssueList
+95:     CASE IssueList -> SET IssueDetail
+96:     CASE IssueDetail -> SET RepoList
+97:   RETURN state
 
-77: FUNCTION cycle_issues_focus_reverse(state)
-78:   MATCH state.issues_state.issue_focus
-79:     CASE RepoList -> SET IssueDetail
-80:     CASE IssueList -> SET RepoList
-81:     CASE IssueDetail -> SET IssueList
-82:   RETURN state
+98: FUNCTION cycle_issues_focus_reverse(state)
+99:   MATCH state.issues_state.issue_focus
+100:     CASE RepoList -> SET IssueDetail
+101:     CASE IssueList -> SET RepoList
+102:     CASE IssueDetail -> SET IssueList
+103:   RETURN state
 
-83: FUNCTION apply_issue_list_loaded(event, state)
-84:   VALIDATE event.scope matches current selected_repository_id
-85:   IF scope mismatch THEN discard (stale response)
-86:   SET state.issues_state.issues = event.issues
-87:   SET state.issues_state.list_page_cursor = event.cursor
-88:   SET state.issues_state.has_more_issues = event.has_more
-89:   SET state.issues_state.list_loading = false
-90:   IF issues non-empty
-91:     SET selected_issue_index = 0
-92:     EMIT side_effect: load_detail_for_selected
-93:   ELSE
-94:     SET selected_issue_index = None
-95:     CLEAR issue_detail
-96:   RETURN state
+104: FUNCTION apply_issue_list_loaded(event, state)
+105:   VALIDATE event.scope_repo_id matches current selected_repository_id
+106:   VALIDATE event.request_id matches current outstanding list request
+107:   IF validation fails THEN discard (stale response)
+108:   SET state.issues_state.issues = event.issues
+109:   SET state.issues_state.list_cursor = event.cursor
+110:   SET state.issues_state.has_more_issues = event.has_more
+111:   SET state.issues_state.list_loading = false
+112:   IF issues non-empty
+113:     SET selected_issue_index = 0
+114:     EMIT side_effect: load_detail_for_selected
+115:   ELSE
+116:     SET selected_issue_index = None
+117:     CLEAR issue_detail
+118:   RETURN state
 
-97: FUNCTION apply_issue_list_page_loaded(event, state)
-98:   VALIDATE event.scope matches current
-99:   APPEND event.issues to state.issues_state.issues
-100:  UPDATE list_page_cursor and has_more_issues
-101:  SET list_loading = false
-102:  RETURN state
+119: FUNCTION apply_issue_list_page_loaded(event, state)
+120:   VALIDATE event.scope_repo_id matches current selected_repository_id
+121:  VALIDATE event.request_id matches current outstanding list request
+122:  IF validation fails THEN discard (stale response)
+123:  APPEND event.issues to state.issues_state.issues
+124:  UPDATE list_cursor and has_more_issues
+125:  SET list_loading = false
+126:  RETURN state
 
-103: FUNCTION apply_issue_detail_loaded(event, state)
-104:  VALIDATE event.scope and event.issue_number match current selection
-105:  SET state.issues_state.issue_detail = Some(event.detail)
-106:  SET state.issues_state.detail_loading = false
-107:  SET state.issues_state.detail_subfocus = Body
-108:  RETURN state
+127: FUNCTION apply_issue_detail_loaded(event, state)
+128:  VALIDATE event.scope_repo_id matches current selected_repository_id
+129:  VALIDATE event.request_id matches current outstanding detail request
+130:  VALIDATE event.issue_number matches current selection
+131:  IF validation fails THEN discard (stale response)
+132:  SET state.issues_state.issue_detail = Some(event.detail)
+133:  SET state.issues_state.detail_loading = false
+134:  SET state.issues_state.detail_subfocus = Body
+135:  RETURN state
 
-109: FUNCTION apply_comments_page_loaded(event, state)
-110:  VALIDATE scope match
-111:  APPEND event.comments to existing detail.comments (stable order)
-112:  UPDATE comments_cursor and has_more_comments
-113:  SET comments_loading = false
-114:  RETURN state
+136: FUNCTION apply_comments_page_loaded(event, state)
+137:  VALIDATE event.scope_repo_id matches current selected_repository_id
+138:  VALIDATE event.request_id matches current outstanding comments request
+139:  VALIDATE event.issue_number matches current detail issue number
+140:  IF validation fails THEN discard (stale response)
+141:  ASSERT event.comments are older than currently loaded visible comments
+142:  APPEND older comments after currently loaded comments in stable timeline order
+143:  DO NOT reorder or replace already loaded comments
+144:  UPDATE comments_cursor and has_more_comments
+145:  SET comments_loading = false
+146:  RETURN state
 
-115: FUNCTION handle_esc_in_issues_mode(state)
-116:  IF state.issues_state.inline_state != None
-117:    CANCEL inline control -> InlineState::None
-118:  ELSE IF state.issues_state.agent_chooser.is_some()
-119:    CLOSE agent chooser -> None
-120:  ELSE IF state.issues_state.search_input_focused AND search_query non-empty
-121:    CLEAR search_query, keep search_input_focused
-122:  ELSE IF state.issues_state.search_input_focused AND search_query empty
-123:    SET search_input_focused = false
-124:  ELSE IF state.issues_state.filter_controls_open
-125:    CLOSE filter_controls (cancel, no commit)
-126:  ELSE
-127:    exit_issues_mode(state)
-128:  RETURN state
+147: FUNCTION handle_esc_in_issues_mode(state)
+148:  IF state.issues_state.inline_state != None
+149:    CANCEL inline control -> InlineState::None
+150:  ELSE IF state.issues_state.agent_chooser.is_some()
+151:    CLOSE agent chooser -> None
+152:  ELSE IF state.issues_state.search_input_focused AND search_query non-empty
+153:    CLEAR search_query, keep search_input_focused
+154:  ELSE IF state.issues_state.search_input_focused AND search_query empty
+155:    SET search_input_focused = false
+156:  ELSE IF state.issues_state.filter_controls_open
+157:    CLOSE filter_controls (cancel, no commit)
+158:  ELSE
+159:    exit_issues_mode(state)
+160:  RETURN state
 
-129: FUNCTION handle_issues_enter(state)
-130:  IF issue_focus == IssueList AND selected_issue exists
-131:    SET issue_focus = IssueDetail
-132:  RETURN state
+161: FUNCTION handle_issues_enter(state)
+162:  IF issue_focus == IssueList AND selected_issue exists
+163:    SET issue_focus = IssueDetail
+164:  RETURN state
 
-133: FUNCTION handle_detail_subfocus_tab(state)
-134:  IF detail has comments
-135:    MATCH detail_subfocus
-136:      CASE Body -> SET Comment(0)
-137:      CASE Comment(i) ->
-138:        IF i + 1 < comments.len() THEN SET Comment(i + 1)
-139:        ELSE SET NewComment
-140:      CASE NewComment -> SET Body
-141:  ELSE (no comments)
-142:    MATCH detail_subfocus
-143:      CASE Body -> SET NewComment
-144:      CASE NewComment -> SET Body
-145:  RETURN state
+165: FUNCTION handle_detail_subfocus_tab(state)
+166:  IF detail has comments
+167:    MATCH detail_subfocus
+168:      CASE Body -> SET Comment(0)
+169:      CASE Comment(i) ->
+170:        IF i + 1 < comments.len() THEN SET Comment(i + 1)
+171:        ELSE SET NewComment
+172:      CASE NewComment -> SET Body
+173:  ELSE (no comments)
+174:    MATCH detail_subfocus
+175:      CASE Body -> SET NewComment
+176:      CASE NewComment -> SET Body
+177:  RETURN state
 
-146: FUNCTION handle_detail_subfocus_shift_tab(state)
-147:  IF detail has comments
-148:    MATCH detail_subfocus
-149:      CASE Body -> SET NewComment
-150:      CASE Comment(0) -> SET Body
-151:      CASE Comment(i) -> SET Comment(i - 1)
-152:      CASE NewComment -> SET Comment(comments.len() - 1)
-153:  ELSE
-154:    MATCH detail_subfocus
-155:      CASE Body -> SET NewComment
-156:      CASE NewComment -> SET Body
-157:  RETURN state
+178: FUNCTION handle_detail_subfocus_shift_tab(state)
+179:  IF detail has comments
+180:    MATCH detail_subfocus
+181:      CASE Body -> SET NewComment
+182:      CASE Comment(0) -> SET Body
+183:      CASE Comment(i) -> SET Comment(i - 1)
+184:      CASE NewComment -> SET Comment(comments.len() - 1)
+185:  ELSE
+186:    MATCH detail_subfocus
+187:      CASE Body -> SET NewComment
+188:      CASE NewComment -> SET Body
+189:  RETURN state
 
-158: FUNCTION selection_after_filter_change(state, new_issues)
-159:  IF current selected issue number exists in new_issues
-160:    SET selected_issue_index to matching index
-161:  ELSE IF new_issues non-empty
-162:    SET selected_issue_index = 0
-163:  ELSE
-164:    SET selected_issue_index = None
-165:  RETURN state
+190: FUNCTION selection_after_filter_change(state, new_issues)
+191:  IF current selected issue number exists in new_issues
+192:    SET selected_issue_index to matching index
+193:  ELSE IF new_issues non-empty
+194:    SET selected_issue_index = 0
+195:  ELSE
+196:    SET selected_issue_index = None
+197:  RETURN state
 ```

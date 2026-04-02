@@ -89,6 +89,8 @@ grep -c "@plan PLAN-20260329-ISSUES-MODE.P09\|@requirement REQ-ISS-002\|@pseudoc
 - [ ] Issues mode dispatch is reachable when `screen_mode == DashboardIssues`.
 - [ ] Input mode priority: inline > chooser > search > filter > normal (check code order in `input_mode_for_state()`).
 - [ ] Feature behavior is reachable from real app flow: key press with issues mode state reaches `handle_issues_mode_key()`.
+- [ ] Behavioral runtime-path evidence is provided with file:line citations for issues-mode dispatch entry and preserved non-issues dispatch entry.
+- [ ] Contradiction scan outcome is explicitly reported (P09/P09A/overview consistency check).
 
 ## Deferred Implementation Detection (Mandatory)
 
@@ -101,6 +103,7 @@ Note: Stub bodies with early returns in `handle_issues_mode_key()` are allowed.
 ## Success Criteria
 - [ ] Stub verification pass.
 - [ ] All existing key handling unaffected.
+- [ ] Output ends with atomic verdict line (`Phase 09A: PASS` or `Phase 09A: FAIL`).
 
 ## Failure Recovery
 - rollback steps: Fix compilation issues or dispatch wiring.

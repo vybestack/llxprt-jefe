@@ -92,7 +92,7 @@ grep -B5 "pub fn\|pub struct\|pub enum" src/github/mod.rs | grep "@plan\|@requir
 - [ ] No forbidden cross-module imports.
 - [ ] `SendPayload` has all specification-required fields: repository slug, issue number, issue title, issue body, issue state, labels, assignees, focused comment body (optional), focused comment author (optional), issue_base_prompt.
 - [ ] `IssueListResponse` has fields: `issues: Vec<Issue>`, `cursor: Option<String>`, `has_more: bool`.
-- [ ] `CommentsResponse` has fields: `comments: Vec<IssueComment>`, `cursor: Option<String>`, `has_more: bool`.
+- [ ] `CommentsResponse` has fields: `comments: Vec<IssueComment>`, `cursor: Option<String>`, `has_more: bool` (cursor-based comments pagination, not page-number pagination).
 - [ ] Feature behavior is reachable from real app flow: `GhClient` type can be imported by `src/app_input/issues.rs` for use in issues-mode key routing.
 - [ ] Method return types align with state events: `list_issues` result maps to `IssueListLoaded` event, `get_issue_detail` to `IssueDetailLoaded`, `list_comments` to `IssueCommentsPageLoaded`, `create_comment` to `CommentCreated`.
 

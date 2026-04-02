@@ -26,7 +26,7 @@ Why it matters:
 - Mode entry and exit are the gatekeeping transitions; if they fail, Issues Mode is permanently unreachable or unescapable
 
 ### REQ-ISS-002: Key Suppression and Routing Priority — TDD
-**Requirement text**: While in Issues Mode: suppress `a` focus-agents, `s/S` split-mode, destructive lifecycle keys (`Ctrl-d`, `Ctrl-k`, `l`). Priority chain: inline > chooser > search > filter > focus-domain > global > suppression.
+**Requirement text**: While in Issues Mode: suppress `a` focus-agents, `s/S` split-mode, destructive lifecycle keys (`Ctrl-d`, `Ctrl-k`, `l`). Priority chain: inline > chooser > search > filter > issues-global > focus-domain > pane-cycle > suppression.
 
 Behavior contract:
 - GIVEN state in `DashboardIssues` mode
@@ -69,7 +69,7 @@ Behavior contract:
 - THEN focus cycles in reverse
 
 Why it matters:
-- Navigation is how the user moves through the three-pane layout; incorrect cycling traps focus
+- Navigation is how the user moves through the two-column layout (repos sidebar + issues workspace with list and unified detail view); incorrect cycling traps focus
 
 ### REQ-ISS-004: Esc Precedence Chain — TDD
 **Requirement text**: Esc precedence: cancel inline > cancel chooser > clear search text > blur search > close filter controls > exit mode.
@@ -208,6 +208,26 @@ Why it matters:
     - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
     - marker: `@requirement REQ-ISS-003`
     - marker: `@pseudocode component-003 lines 39-50`
+  - `test_up_in_issue_list_dispatches_navigate`
+    - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
+    - marker: `@requirement REQ-ISS-003`
+    - marker: `@pseudocode component-003 lines 39-50`
+  - `test_page_up_in_issue_list_dispatches_navigate`
+    - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
+    - marker: `@requirement REQ-ISS-003`
+    - marker: `@pseudocode component-003 lines 39-50`
+  - `test_page_down_in_issue_list_dispatches_navigate`
+    - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
+    - marker: `@requirement REQ-ISS-003`
+    - marker: `@pseudocode component-003 lines 39-50`
+  - `test_home_in_issue_list_dispatches_navigate`
+    - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
+    - marker: `@requirement REQ-ISS-003`
+    - marker: `@pseudocode component-003 lines 39-50`
+  - `test_end_in_issue_list_dispatches_navigate`
+    - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
+    - marker: `@requirement REQ-ISS-003`
+    - marker: `@pseudocode component-003 lines 39-50`
   - `test_enter_in_issue_list_focuses_detail`
     - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
     - marker: `@requirement REQ-ISS-003`
@@ -237,6 +257,14 @@ Why it matters:
     - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
     - marker: `@requirement REQ-ISS-010`
     - marker: `@pseudocode component-003 lines 51-72`
+  - `test_ctrl_enter_submits_inline`
+    - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
+    - marker: `@requirement REQ-ISS-010`
+    - marker: `@pseudocode component-003 lines 73-77`
+  - `test_esc_cancels_inline_editor`
+    - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
+    - marker: `@requirement REQ-ISS-010`
+    - marker: `@pseudocode component-003 lines 73-77`
   - `test_S_opens_agent_chooser`
     - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
     - marker: `@requirement REQ-ISS-011`
@@ -249,6 +277,10 @@ Why it matters:
     - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
     - marker: `@requirement REQ-ISS-011`
     - marker: `@pseudocode component-003 lines 102-111`
+  - `test_o_key_noop_in_issue_detail`
+    - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
+    - marker: `@requirement REQ-ISS-009`
+    - marker: `@pseudocode component-003 lines 50-70`
   - `test_input_mode_issues_normal`
     - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
     - marker: `@requirement REQ-ISS-002`
@@ -261,6 +293,16 @@ Why it matters:
     - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
     - marker: `@requirement REQ-ISS-002`
     - marker: `@pseudocode component-003 lines 01-17`
+  - `test_input_mode_issues_search`
+    - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
+    - marker: `@requirement REQ-ISS-002`
+    - marker: `@requirement REQ-ISS-008`
+    - marker: `@pseudocode component-003 lines 10-12`
+  - `test_input_mode_issues_filter`
+    - marker: `@plan PLAN-20260329-ISSUES-MODE.P10`
+    - marker: `@requirement REQ-ISS-002`
+    - marker: `@requirement REQ-ISS-008`
+    - marker: `@pseudocode component-003 lines 14-16`
 
 ### Pseudocode traceability (if impl phase)
 - Uses pseudocode component-003 lines 01-141 (full key routing + inline + chooser)
@@ -285,7 +327,7 @@ cargo test --workspace --all-features
 ```
 
 ## Structural Verification Checklist
-- [ ] All 25 planned test names exist and compile
+- [ ] All 35 planned test names exist and compile
 - [ ] Tests target key routing behavior outcomes (state changes), not internal dispatch wiring
 - [ ] At least one required test fails (RED step)
 - [ ] No skipped phase dependencies
@@ -294,13 +336,13 @@ cargo test --workspace --all-features
 
 ## Semantic Verification Checklist (Mandatory)
 - [ ] Suppression tests cover all 4 specified keys (`s`, `Ctrl-d`, `Ctrl-k`, `l`) — state is UNCHANGED after key press
-- [ ] Priority tests verify inline > chooser > focus-domain > global ordering — Esc cancels the highest-priority active control, not mode exit
-- [ ] Navigation tests cover all specified keys per focus domain (Up, Down, PageUp, PageDown, Home, End, Enter)
+- [ ] Priority tests verify inline > chooser > search > filter > issues-global > focus-domain > pane-cycle > suppression ordering — Esc cancels the highest-priority active control, not mode exit
+- [ ] Navigation tests cover all specified keys per focus domain (Up, Down, PageUp, PageDown, Home, End, Enter) — all 7 present
 - [ ] Tab/Shift+Tab tests verify full pane cycle: repo_list → issue_list → issue_detail → repo_list
-- [ ] Inline mutation tests cover `e` (body + comment), `r` (comment + noop hint), save (`Ctrl+Enter`), cancel (`Esc`)
+- [ ] Inline mutation tests cover `e` (body + comment), `r` (comment + noop hint), save (`Ctrl+Enter`), cancel (`Esc`) — all 6 present
 - [ ] Exclusivity test verifies `e` while inline active does not open a second editor
 - [ ] Agent chooser tests cover: open, no-agent case, inline-active suppression
-- [ ] `InputMode` detection tests cover all 5 issues mode states (normal, inline, chooser, search, filter)
+- [ ] `InputMode` detection tests cover all 5 issues mode states (normal, inline, chooser, search, filter) — all 5 present
 - [ ] Feature behavior is reachable from real app flow: tests exercise the dispatch path from key event to state change
 - [ ] No placeholder test patterns (`assert!(true)`, `#[ignore]`, empty bodies)
 
@@ -311,7 +353,7 @@ grep -RIn "TODO\|FIXME\|HACK\|placeholder\|for now\|will be implemented" src/
 ```
 
 ## Success Criteria
-- [ ] RED test suite established for key routing (25 tests)
+- [ ] RED test suite established for key routing (35 tests)
 - [ ] Verification commands pass except expected RED failures
 - [ ] Semantic checks pass
 
@@ -326,7 +368,8 @@ Contents:
 - phase ID: `PLAN-20260329-ISSUES-MODE.P10`
 - timestamp
 - files changed
-- tests added: 25 test names
+- tests added: 35 test names
 - RED test verification: list of failing tests
 - verification command outputs
+- semantic verification summary
 - semantic verification summary

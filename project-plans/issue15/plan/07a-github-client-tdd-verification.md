@@ -10,13 +10,20 @@
 
 ## Requirements Implemented (Expanded)
 
-### Verification of TDD Test Coverage for REQ-ISS-006,007,008,009,010,011,013,014
+### Verification of TDD Test Coverage for REQ-ISS-006,007,008,009,010,011,013
 **Requirement text**: Confirm failing tests cover all planned behavior contracts for GitHub client boundary.
 
 Behavior contract:
 - GIVEN RED test suite from P07
 - WHEN verification checks are executed
 - THEN all 18 test names exist, tests compile, failures are for unimplemented logic (not compilation), tests use fixture data, and traceability markers are present.
+
+### Behavioral Runtime-Path Evidence Requirement (Mandatory)
+Verifier output must include all of the following before issuing PASS:
+1. At least one file:line runtime-path proof showing how a `GhClient` result maps to a typed issues event consumed by the state layer.
+2. At least one file:line proof that test coverage exercises production parsing/payload-building paths rather than detached helper-only logic.
+3. A contradiction scan across P07/P07A/component-002 notes any mismatched method names, response field names, or pagination semantics.
+4. Output must end with exactly one atomic verdict line: `Phase 07A: PASS` or `Phase 07A: FAIL`.
 
 ## Implementation Tasks
 

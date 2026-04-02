@@ -30,9 +30,13 @@ This is a functional specification only. It does not include implementation plan
 While Issues Mode is active, key handling precedence is:
 
 1. Inline editor/composer controls
-2. Focused-pane controls
-3. Issues Mode global controls
-4. Dashboard-global controls (only if not claimed above)
+2. Send-to-agent chooser controls
+3. Search input controls
+4. Filter controls
+5. Issues Mode global unwind/mode controls (`i`, `a`, `Esc`, help)
+6. Focus-domain controls (repo list / issue list / issue detail)
+7. Pane-cycle controls (`Tab`, `Shift+Tab`) when not claimed by issue-detail subfocus handling
+8. Suppressed dashboard/destructive keys consumed as no-op
 
 ### Explicit binding overrides in Issues Mode
 
@@ -58,6 +62,8 @@ When `Esc` is pressed in Issues Mode:
 5. Else close active transient controls (for example filter controls).
 6. Else exit Issues Mode.
 
+Transient notices and loading indicators do not consume `Esc`; if no higher-priority mutable control is active, `Esc` exits Issues Mode.
+
 ## Pane Focus and Navigation
 
 ### Inter-pane focus
@@ -75,8 +81,9 @@ When `Esc` is pressed in Issues Mode:
 ### Issue List focus
 
 - `Up/Down`: move issue selection.
-- `PageUp/PageDown`: scroll list page.
-- `Home/End`: jump to start/end of loaded list.
+- `PageUp/PageDown`: move selection by page within the currently loaded list window.
+- `Home/End`: jump selection to the start/end of the currently loaded list.
+- Reaching the last loaded row while more results exist triggers cursor-pagination fetch; this is separate from viewport/page navigation.
 - `Enter`: focus Issue Detail for selected issue.
 - `f`: open filter controls (list-focus-only; no-op elsewhere).
 - `/`: focus search input.
@@ -273,7 +280,13 @@ For network/API/rate-limit/repository-access failures:
 
 - No repositories accessible in auth context.
 - No issues matching current scoped criteria.
-- No comments on selected issue.
+- No comments yet on the selected issue.
+- No available agents for send-to-agent.
+
+## Out of Scope
+
+- Creating a new agent from send-to-agent.
+- Modal comment/reply flow.
 - No available agents for send-to-agent.
 
 ## Out of Scope

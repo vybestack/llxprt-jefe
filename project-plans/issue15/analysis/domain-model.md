@@ -109,7 +109,7 @@ Invariants:
 - `list_loading: bool`
 - `detail_loading: bool`
 - `comments_loading: bool`
-- `list_page_cursor: Option<String>`
+- `list_cursor: Option<String>`
 - `has_more_issues: bool`
 - `error: Option<String>`
 - `issue_focus: IssueFocus` — current focus domain within issues mode
@@ -165,24 +165,26 @@ Invariants:
 ### Issues Navigation
 - `IssuesNavigateUp`
 - `IssuesNavigateDown`
-- `IssuesPageUp`
-- `IssuesPageDown`
-- `IssuesHome`
-- `IssuesEnd`
+- `IssuesNavigatePageUp`
+- `IssuesNavigatePageDown`
+- `IssuesNavigateHome`
+- `IssuesNavigateEnd`
 - `IssuesEnter`
-- `IssuesCycleFocus` (Tab)
-- `IssuesCycleFocusReverse` (Shift+Tab)
+- `IssuesCycleFocus` (Tab outside issue detail)
+- `IssuesCycleFocusReverse` (Shift+Tab outside issue detail)
 - `IssuesScrollDetailUp`
 - `IssuesScrollDetailDown`
+- `IssueDetailSubfocusNext` (Tab within issue detail)
+- `IssueDetailSubfocusPrev` (Shift+Tab within issue detail)
 
 ### Issue Data Loading
-- `IssueListLoaded { issues: Vec<Issue>, cursor: Option<String>, has_more: bool }`
-- `IssueListLoadFailed { error: String }`
-- `IssueListPageLoaded { issues: Vec<Issue>, cursor: Option<String>, has_more: bool }`
-- `IssueDetailLoaded { detail: IssueDetail }`
-- `IssueDetailLoadFailed { error: String }`
-- `IssueCommentsPageLoaded { comments: Vec<IssueComment>, cursor: Option<String>, has_more: bool }`
-- `IssueCommentsPageFailed { error: String }`
+- `IssueListLoaded { scope_repo_id: RepositoryId, request_id: u64, issues: Vec<Issue>, cursor: Option<String>, has_more: bool }`
+- `IssueListLoadFailed { scope_repo_id: RepositoryId, request_id: u64, error: String }`
+- `IssueListPageLoaded { scope_repo_id: RepositoryId, request_id: u64, issues: Vec<Issue>, cursor: Option<String>, has_more: bool }`
+- `IssueDetailLoaded { scope_repo_id: RepositoryId, request_id: u64, issue_number: u64, detail: IssueDetail }`
+- `IssueDetailLoadFailed { scope_repo_id: RepositoryId, request_id: u64, issue_number: u64, error: String }`
+- `IssueCommentsPageLoaded { scope_repo_id: RepositoryId, request_id: u64, issue_number: u64, comments: Vec<IssueComment>, cursor: Option<String>, has_more: bool }`
+- `IssueCommentsPageFailed { scope_repo_id: RepositoryId, request_id: u64, issue_number: u64, error: String }`
 
 ### Filter/Search
 - `OpenFilterControls`
@@ -243,7 +245,7 @@ Invariants:
 - Edit non-editable target → no-op with non-blocking hint.
 - Send-to-agent with no agents → disable action, show message.
 - Empty issue list → scoped empty state display.
-- Empty comments → "No comments yet" display.
+- Empty comments → "No comments yet on the selected issue" display.
 
 ---
 

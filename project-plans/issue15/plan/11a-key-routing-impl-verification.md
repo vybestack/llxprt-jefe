@@ -6,7 +6,7 @@
 ## Prerequisites
 - Required: Phase P11 completed.
 - Verify previous artifacts: `.completed/P11.md` exists.
-- Expected files from previous phase: implemented key routing in `src/app_input/issues.rs` (declared as `mod issues;` in `src/app_input/mod.rs`) and `src/input.rs` with all 25 tests GREEN, `GhClient` wired for all operations, no stubs remaining.
+- Expected files from previous phase: implemented key routing in `src/app_input/issues.rs` (declared as `mod issues;` in `src/app_input/mod.rs`) and `src/input.rs` with all 35 tests GREEN, `GhClient` wired for all operations, no stubs remaining.
 
 ## Requirements Implemented (Expanded)
 
@@ -16,7 +16,7 @@
 Behavior contract:
 - GIVEN implemented key routing in `handle_issues_mode_key()` and all sub-handlers
 - WHEN all tests execute and verification checks run
-- THEN all 25 key routing tests GREEN, all existing tests GREEN, no stub returns in dispatch code, GhClient wired for all operations.
+- THEN all 35 key routing tests GREEN, all existing tests GREEN, no stub returns in dispatch code, GhClient wired for all operations.
 
 Why it matters:
 - Key routing is the only path from user input to state change. Stubs or missing wiring here means features are unreachable from the real app even if state and client layers are correct. Regression in existing routing breaks the entire agents-mode workflow.
@@ -76,7 +76,7 @@ grep -B5 "fn handle_issues\|fn handle_issue_list\|fn handle_issue_detail\|fn han
 - [ ] Tracker updated.
 
 ## Semantic Verification Checklist (Mandatory)
-- [ ] Full key routing chain functional (all 7 priority levels).
+- [ ] Full key routing chain functional (all 8 priority levels).
 - [ ] Suppression rules verified: `s`, `Ctrl-d`, `Ctrl-k`, `l` consumed as no-op in issues mode — state unchanged.
 - [ ] Esc precedence chain verified at all 6 levels (inline -> chooser -> search-clear -> search-blur -> filter-close -> exit) — each level independently testable.
 - [ ] Existing dashboard/agents mode behavior unaffected — `a`, `s`, `Ctrl-d`, `Ctrl-k`, `l` still work outside issues mode.

@@ -113,6 +113,23 @@ Not acceptable:
 
 ---
 
+## Behavioral Evidence Requirement
+
+Verification output must include **behavioral code-reading evidence**, not checklist-only results.
+
+Every verifier must provide:
+
+1. **Structural checks**: files exist, tests compile/pass, markers present.
+2. **Behavioral code-reading checks**: cited `file:line` evidence proving expected runtime paths exist in production code.
+3. **Runtime-path checks**: key flows are reachable from actual dispatch chain (e.g., key input → event → dispatch → side effect → reducer → render).
+4. **Contradiction scan**: identify cases where tests pass but production path is missing.
+
+A verifier output that only states "all checks passed" without cited behavioral evidence is non-compliant and must be treated as FAIL.
+
+When mockup or layout contracts are specified by the plan, verifiers must validate panel placement and sizing against the declared measurements.
+
+---
+
 ## Failure and Remediation Loop
 
 If phase verification fails:
@@ -121,6 +138,8 @@ If phase verification fails:
 2. Create remediation task for same phase.
 3. Re-run verification.
 4. Repeat until PASS or blocked by external dependency.
+
+If 3 consecutive remediation attempts on the same phase fail, escalate to the user for manual intervention. Do not loop indefinitely.
 
 If blocked, document blocker and pause plan progression.
 

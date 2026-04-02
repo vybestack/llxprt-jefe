@@ -54,6 +54,19 @@ Behavior contract:
 Why it matters:
 - The quality gate is the final checkpoint before marking the feature complete; all requirements must be traceable to source and to passing tests.
 
+### Mockup #16 E2E Layout Gate (Mandatory)
+
+Run and record explicit checks that #16 layout is respected end-to-end:
+- two-column layout (repos sidebar + issues workspace) — NOT three columns,
+- left repositories pane fixed width, full screen height, and persistent,
+- issues workspace composition (filter band, issue list, unified detail+comments view as one scrollable region),
+- detail+comments is one unified scrollable view (not separate panes or regions),
+- send-to-agent panel placement anchored in issues workspace,
+- inline error surfaces displayed in contextual pane.
+
+Provide concrete evidence from source and tests. Any mismatch is blocking.
+
+
 ## Implementation Tasks
 
 ### Files to create or modify
@@ -99,6 +112,15 @@ find src/ -name "*v2*" -o -name "*_new*" -o -name "*_old*" | head -5
 grep -A6 "pub enum PaneFocus" src/state/types.rs
 grep -A5 "pub enum IssueFocus" src/state/types.rs
 grep -A6 "pub enum ScreenMode" src/state/types.rs
+
+
+# Runtime-path proof gate (must show real behavior path exists)
+echo "=== Runtime path proof: enter issues -> load list -> clear loading ==="
+grep -n "Char('i'\|EnterIssuesMode" src/app_input/normal.rs
+grep -n "handle_issues_mode_key" src/app_input/issues.rs src/app_input/mod.rs
+grep -n "IssueListLoaded\|IssueListLoadFailed\|list_issues" src/app_input/mod.rs src/app_input/issues.rs
+grep -n "IssueListLoaded\|IssueListLoadFailed" src/state/mod.rs
+grep -n "Loading issues" src/ui/components/issue_list.rs
 
 # Requirement traceability gate
 for req in REQ-ISS-001 REQ-ISS-002 REQ-ISS-003 REQ-ISS-004 REQ-ISS-005 REQ-ISS-006 REQ-ISS-007 REQ-ISS-008 REQ-ISS-009 REQ-ISS-010 REQ-ISS-011 REQ-ISS-012 REQ-ISS-013 REQ-ISS-014 REQ-ISS-NFR-001 REQ-ISS-NFR-002 REQ-ISS-NFR-003; do
@@ -231,7 +253,7 @@ done
 
 ## Semantic Verification Checklist (Mandatory)
 - [ ] **REQ-ISS-001**: Mode entry via `i` (state → `ScreenMode::DashboardIssues`), exit via `a` (state → `ScreenMode::Dashboard`), `IssuesState` clean on exit
-- [ ] **REQ-ISS-002**: Key suppression works (`s`, `Ctrl-d`, `Ctrl-k`, `l` no-op in issues mode); priority chain correct (7 levels)
+- [ ] **REQ-ISS-002**: Key suppression works (`s`, `Ctrl-d`, `Ctrl-k`, `l` no-op in issues mode); priority chain correct (8 levels)
 - [ ] **REQ-ISS-003**: Pane focus cycling works (Tab cycles `RepoList → IssueList → IssueDetail → RepoList` via `IssueFocus`); navigation works per domain
 - [ ] **REQ-ISS-004**: Esc precedence chain works at all 6 levels (inline, chooser, search-clear, search-blur, filter, exit)
 - [ ] **REQ-ISS-005**: Exit focus restoration works (valid target restored; stale target falls back to default)

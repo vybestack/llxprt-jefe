@@ -35,7 +35,7 @@ Why it matters:
 Behavior contract:
 - GIVEN authenticated `gh` CLI and a repository with issues
 - WHEN `list_issues()` is called
-- THEN returns `Vec<Issue>` sorted by `updated_at` desc, `number` asc tie-break; `has_more` is true iff result count equals page_size
+- THEN returns `Vec<Issue>` sorted by `updated_at` desc, `number` asc tie-break; `cursor` and `has_more` are derived from GraphQL `pageInfo`
 
 Why it matters:
 - Deterministic sort order is required for stable pagination and consistent UI
@@ -55,9 +55,9 @@ Why it matters:
 **Requirement text**: Lists paginated/lazy-loaded. Comment pagination appends in stable order. Failure retains loaded comments and exposes retry.
 
 Behavior contract:
-- GIVEN `list_comments()` called with a page cursor
-- WHEN response returns N items where N equals page_size
-- THEN `has_more=true`; next call with cursor appends without reordering prior results
+- GIVEN `list_comments()` called with a comments cursor
+- WHEN response returns comments plus GraphQL pageInfo with `hasNextPage` and `endCursor`
+- THEN `has_more` and `cursor` are populated from pageInfo; next call with cursor appends without reordering prior results
 
 Why it matters:
 - Pagination correctness determines whether long threads are complete and stable
@@ -111,7 +111,7 @@ Why it matters:
     - marker: `@plan PLAN-20260329-ISSUES-MODE.P08`
     - marker: `@requirement REQ-ISS-013`
     - marker: `@pseudocode component-002 lines 04-08`
-  - `list_issues()`: build args from `IssueFilter`, run `gh issue list --json ...`, parse JSON, sort by `updated_at` desc / `number` asc, determine `has_more`
+  - `list_issues()`: build GraphQL query args from `IssueFilter`, run `gh api graphql`, parse JSON, sort by `updated_at` desc / `number` asc, derive `has_more` and `cursor` from `pageInfo`
     - marker: `@plan PLAN-20260329-ISSUES-MODE.P08`
     - marker: `@requirement REQ-ISS-006`
     - marker: `@requirement REQ-ISS-008`
@@ -120,11 +120,11 @@ Why it matters:
     - marker: `@plan PLAN-20260329-ISSUES-MODE.P08`
     - marker: `@requirement REQ-ISS-009`
     - marker: `@pseudocode component-002 lines 26-32`
-  - `list_comments()`: run `gh api /repos/{owner}/{repo}/issues/{number}/comments`, parse JSON, handle pagination
+  - `list_comments()`: run `gh api graphql` for issue comments connection, parse JSON, extract `pageInfo`, handle cursor pagination
     - marker: `@plan PLAN-20260329-ISSUES-MODE.P08`
     - marker: `@requirement REQ-ISS-007`
     - marker: `@pseudocode component-002 lines 33-43`
-  - `create_comment()`: run `gh issue comment`, verify success, parse result
+  - `create_comment()`: run `gh api --method POST /repos/{owner}/{repo}/issues/{number}/comments`, verify success, parse created comment JSON
     - marker: `@plan PLAN-20260329-ISSUES-MODE.P08`
     - marker: `@requirement REQ-ISS-010`
     - marker: `@pseudocode component-002 lines 44-48`
@@ -182,8 +182,8 @@ cargo test --workspace --all-features
 - [ ] Issue list parsing handles all JSON fields correctly
 - [ ] Sorting is `updated_at` desc, `number` asc tie-break
 - [ ] Filter args correctly map all `IssueFilter` fields to CLI arguments (state, author, assignee, labels, mentioned, search)
-- [ ] `has_more` detection based on result count equals page_size
-- [ ] Comments pagination logic works (page append, `has_more` detection from result count)
+- [ ] `has_more` and `cursor` are derived from GraphQL `pageInfo` for both issue list and comments flows
+- [ ] Comments pagination logic works (cursor append, stable ordering, no replacement of prior loaded comments)
 - [ ] Mutation operations construct correct CLI commands with proper argument escaping
 - [ ] Error categorization correctly identifies: rate limit, auth failure, access denied, parse errors, network errors
 - [ ] Send payload `repository` field is the repo slug from the argument (no silent global substitution)

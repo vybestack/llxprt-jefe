@@ -35,7 +35,7 @@ Behavior contract:
 Behavior contract:
 - GIVEN Issues Mode key routing specification
 - WHEN pseudocode is reviewed
-- THEN priority ordering (inline > chooser > search > filter > focus-domain > global > suppression), suppression rules, and 6-level Esc chain are explicit and verifiable.
+- THEN priority ordering (inline > chooser > search > filter > issues-global > focus-domain > pane-cycle > suppression), suppression rules, and 6-level Esc chain are explicit and verifiable.
 
 Why it matters:
 - Key routing is the highest-complexity correctness path in Issues Mode. Pseudocode prevents ambiguity.
@@ -99,7 +99,7 @@ Behavior contract:
   - marker: `@plan PLAN-20260329-ISSUES-MODE.P02`
   - marker: `@requirement REQ-ISS-001,002,003,004,010,011,012`
   - Must be numbered line-by-line
-  - Must include: 7-level priority chain, suppression rules (list of suppressed keys: `s`, `Ctrl-d`, `Ctrl-k`, `l`), inline key handling (save `Ctrl+Enter`, cancel `Esc`, text entry), agent chooser key handling (`Up/Down`, `Enter`, `Esc`), search input handling, filter controls handling, scope change handler (with draft discard), reply `@author` prefill, exclusivity guard, `InputMode` resolution for all 5 issues variants
+  - Must include: 8-level priority chain, suppression rules (list of suppressed keys: `s`, `Ctrl-d`, `Ctrl-k`, `l`), inline key handling (save `Ctrl+Enter`, cancel `Esc`, text entry), agent chooser key handling (`Up/Down`, `Enter`, `Esc`), search input handling, filter controls handling, issues-global unwind/mode controls, focus-domain handling, pane-cycle handling, scope change handler (with draft discard), reply `@author` prefill, exclusivity guard, `InputMode` resolution for all 5 issues variants
 
 ### Files to modify
 - `project-plans/issue15/plan/00-overview.md`
@@ -144,13 +144,13 @@ cargo test --workspace --all-features
   - Auth check with `GhError::NotAuthenticated`/`NotInstalled` distinction
   - `list_issues()` with full filter arg construction and response sorting
   - `get_issue_detail()` with all fields
-  - Comments pagination (append, `has_more` from count)
+  - Comments pagination (append, `cursor`/`has_more` derived from GraphQL `pageInfo`)
   - Create/update comment
   - Update issue body
   - `build_send_payload()` with ALL required fields (including `issue_base_prompt`)
   - Error categorization (all 7 `GhError` variants)
 - [ ] Key routing pseudocode (component-003) covers:
-  - 7-level priority chain (explicitly enumerated)
+  - 8-level priority chain (explicitly enumerated)
   - Suppression rules (all 4 suppressed keys listed)
   - Inline key handling (text entry, `Ctrl+Enter` save, `Esc` cancel)
   - Agent chooser keys (`Up/Down`, `Enter`, `Esc`)
@@ -187,5 +187,8 @@ Contents:
 - timestamp
 - files changed: list of pseudocode files created
 - REQ-to-line-range traceability table (all 17 REQs mapped to component:line-range)
+- verification outputs
+- semantic verification summary
+nge)
 - verification outputs
 - semantic verification summary

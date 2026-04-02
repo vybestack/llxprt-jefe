@@ -11,7 +11,7 @@
 ## Requirements Implemented (Expanded)
 
 ### REQ-ISS-001: Mode-Conditional Dashboard Layout
-**Requirement text**: `i` from non-issues context enters `dashboard_issues` with `focus=issue_list`. Issues Mode renders three-pane layout: repo list, issue list, issue detail.
+**Requirement text**: `i` from non-issues context enters `dashboard_issues` with `focus=issue_list`. Issues Mode renders two-column layout: repos sidebar (full height) + issues workspace (containing filter band, issue list, and unified detail+comments view).
 
 Behavior contract:
 - GIVEN `screen_mode == ScreenMode::DashboardIssues`
@@ -56,7 +56,7 @@ Behavior contract:
 - THEN `src/ui/components/issue_detail.rs` exists, compiles, and renders stub content when detail is loaded
 
 Why it matters:
-- Detail pane stub is required for the three-pane layout to compile and for subsequent TDD phases to target.
+- Detail view stub is required for the two-column layout to compile and for subsequent TDD phases to target.
 
 ### REQ-ISS-011: Send-to-Agent — UI Skeleton
 **Requirement text**: Agent chooser overlay with list, selection, confirm/cancel.
@@ -83,7 +83,7 @@ Why it matters:
 ## Implementation Tasks
 
 ### Files to create
-- `src/ui/screens/issues.rs` — Issues mode screen layout (three-pane: repo list, issue list, issue detail)
+- `src/ui/screens/issues.rs` — Issues mode screen layout (two-column: repos sidebar + issues workspace containing list and unified detail+comments view)
   - marker: `@plan PLAN-20260329-ISSUES-MODE.P12`
   - marker: `@requirement REQ-ISS-001,006`
   - Traceability: module-level doc comment MUST include `@plan`, `@requirement` markers
@@ -92,7 +92,7 @@ Why it matters:
   - marker: `@plan PLAN-20260329-ISSUES-MODE.P12`
   - marker: `@requirement REQ-ISS-006`
 
-- `src/ui/components/issue_detail.rs` — Issue detail pane component (stub rendering)
+- `src/ui/components/issue_detail.rs` — Unified issue detail+comments scrollable view component (stub rendering)
   - marker: `@plan PLAN-20260329-ISSUES-MODE.P12`
   - marker: `@requirement REQ-ISS-009,010`
 
@@ -164,7 +164,7 @@ cargo test --workspace --all-features
 
 ## Semantic Verification Checklist (Mandatory)
 - [ ] Dashboard rendering is not broken for normal/agents mode (`ScreenMode::Dashboard`) — verify by inspection or existing tests
-- [ ] Issues mode layout has three panes (repo list, issue list, issue detail) — visible in component composition
+- [ ] Issues mode layout is two-column (repos sidebar + issues workspace containing issue list and unified detail+comments view) — visible in component composition
 - [ ] Keybind bar shows issues mode bindings when in issues mode (different from agents mode bindings)
 - [ ] Persistence backward compatibility maintained (serde default on `issue_base_prompt`)
 - [ ] Feature behavior is reachable from real app flow: entering issues mode via `i` key produces `ScreenMode::DashboardIssues` state that dashboard rendering can now display

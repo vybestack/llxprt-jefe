@@ -21,6 +21,21 @@ Behavior contract:
 Why it matters:
 - Integration is the phase where component-level correctness is tested as a system. Gaps here — stale-scope handling, draft lifecycle, error recovery — are invisible in unit tests but critical to real-world reliability. This verification confirms the system is ready for the quality gate.
 
+### Verifier Strictness Rule (Mandatory)
+Verifier must perform behavioral code-reading audit, not only command/checklist execution.
+
+Required behavioral proofs (with file:line citations):
+1. `i` path from normal mode to issues mode is reachable in production flow.
+2. Issues list loading has real completion path (`IssueListLoaded`/`IssueListLoadFailed` emitted from dispatch layer).
+3. Detail/comments loading has real completion path.
+4. Repo scope switch invalidates stale state and triggers reload.
+5. Mockup #16 placement contract still holds after integration hardening.
+6. Repository missing GitHub slug surfaces in-pane actionable error per mockup #16 (P15 slug checkpoint).
+7. Contradiction scan: no reducer arms handle events that are never emitted; no side-effects emit events with no reducer arm.
+
+Without these citations, output is FAIL regardless of test pass status.
+
+
 ## Implementation Tasks
 
 ### Files to create
@@ -105,8 +120,9 @@ grep -RIn "TODO\|FIXME\|HACK\|placeholder\|for now\|will be implemented" src/
 - [ ] Semantic checks pass.
 
 ## Failure Recovery
-- rollback steps: Fix remaining integration issues. If a specific test fails, identify the component boundary and fix the integration glue.
-- blocking issues: failing tests, deferred patterns, missing requirement traceability.
+- rollback steps: Revert specific file fixes with `git restore <file>`; do not revert entire phases. If a specific test fails, identify the component boundary (state/key-routing/client/UI) and fix the integration glue at that boundary.
+- blocking issues: failing tests, deferred patterns, missing requirement traceability, slug checkpoint failure.
+- escalation: If 3 consecutive remediation attempts fail on the same issue, escalate to user.
 
 ## Phase Completion Marker
 Create: `project-plans/issue15/.completed/P15A.md`
