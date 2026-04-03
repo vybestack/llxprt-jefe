@@ -14,9 +14,8 @@ use super::scrollable_text::ScrollableText;
 /// Fixed number of rows the metadata header occupies (title, state, labels, url, separator).
 const HEADER_ROWS: usize = 5;
 
-/// Fixed total rows for the entire detail pane content area (below border).
-/// The scrollable viewport gets VIEWPORT_TOTAL - HEADER_ROWS rows.
-const VIEWPORT_TOTAL: usize = 25;
+/// Overhead rows outside the detail pane: status bar (1) + keybind bar (1) + border (2).
+const CHROME_ROWS: usize = 4;
 
 /// Insert a caret character at the given byte-offset cursor position in the text.
 fn render_text_with_caret(value: &str, cursor: usize) -> String {
@@ -203,7 +202,11 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
         BorderStyle::Round
     };
 
-    let scroll_rows = VIEWPORT_TOTAL.saturating_sub(HEADER_ROWS);
+    // Compute viewport rows dynamically from terminal height.
+    // The detail pane gets ~70% of the available height (after chrome).
+    let term_rows = crossterm::terminal::size().map_or(40, |(_, h)| h as usize);
+    let pane_rows = (term_rows.saturating_sub(CHROME_ROWS)) * 7 / 10;
+    let scroll_rows = pane_rows.saturating_sub(HEADER_ROWS).max(5);
 
     // Build header and content — same structure whether issue is loaded or not
     let (h_title, h_state, h_labels, h_url, content, state_color) = if let Some(detail) =

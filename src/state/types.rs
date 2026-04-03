@@ -385,10 +385,19 @@ pub struct IssuesState {
     pub draft_notice: Option<String>,
 }
 
-/// Scroll viewport rows must match `VIEWPORT_TOTAL - HEADER_ROWS` in issue_detail.rs.
-const DETAIL_SCROLL_VIEWPORT: usize = 20;
+/// Header + chrome overhead matching issue_detail.rs layout constants.
+const DETAIL_HEADER_ROWS: usize = 5;
+const DETAIL_CHROME_ROWS: usize = 4;
 
 impl IssuesState {
+    /// Compute the scroll viewport rows dynamically from terminal height,
+    /// matching the same formula used by `IssueDetailView`.
+    fn detail_viewport_rows() -> usize {
+        let term_rows = crossterm::terminal::size().map_or(40, |(_, h)| h as usize);
+        let pane_rows = (term_rows.saturating_sub(DETAIL_CHROME_ROWS)) * 7 / 10;
+        pane_rows.saturating_sub(DETAIL_HEADER_ROWS).max(5)
+    }
+
     /// Maximum scroll offset so the last line of content sits at the bottom of the viewport.
     /// Returns 0 when content fits entirely within the viewport (no scrolling needed).
     #[must_use]
@@ -396,6 +405,8 @@ impl IssuesState {
         let Some(detail) = &self.issue_detail else {
             return 0;
         };
+
+        let viewport = Self::detail_viewport_rows();
 
         // Estimate content lines to match build_detail_content() in issue_detail.rs:
         //   Body section: 1 (label) + body lines + 1 (separator)
@@ -424,7 +435,7 @@ impl IssuesState {
 
         total += 2; // new comment label + hint
 
-        total.saturating_sub(DETAIL_SCROLL_VIEWPORT)
+        total.saturating_sub(viewport)
     }
 }
 
