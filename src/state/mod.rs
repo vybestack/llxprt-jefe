@@ -690,20 +690,25 @@ impl AppState {
             | AppEvent::ApplySearch
             | AppEvent::InlineSubmit => {}
 
-            // Scroll detail pane viewport
+            // Scroll detail pane viewport (clamped to content length)
             AppEvent::IssuesScrollDetailUp => {
                 self.issues_state.detail_scroll_offset =
                     self.issues_state.detail_scroll_offset.saturating_sub(1);
             }
             AppEvent::IssuesScrollDetailDown => {
-                self.issues_state.detail_scroll_offset += 1;
+                let max = self.issues_state.max_detail_scroll_offset();
+                if self.issues_state.detail_scroll_offset < max {
+                    self.issues_state.detail_scroll_offset += 1;
+                }
             }
             AppEvent::IssuesScrollDetailPageUp => {
                 self.issues_state.detail_scroll_offset =
                     self.issues_state.detail_scroll_offset.saturating_sub(10);
             }
             AppEvent::IssuesScrollDetailPageDown => {
-                self.issues_state.detail_scroll_offset += 10;
+                let max = self.issues_state.max_detail_scroll_offset();
+                self.issues_state.detail_scroll_offset =
+                    (self.issues_state.detail_scroll_offset + 10).min(max);
             }
 
             // Issues Mode events — P05 Domain + State Implementation

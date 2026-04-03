@@ -384,6 +384,50 @@ pub struct IssuesState {
     pub prior_agent_focus: Option<PriorAgentFocus>,
     pub draft_notice: Option<String>,
 }
+
+/// Scroll viewport rows must match `VIEWPORT_TOTAL - HEADER_ROWS` in issue_detail.rs.
+const DETAIL_SCROLL_VIEWPORT: usize = 20;
+
+impl IssuesState {
+    /// Maximum scroll offset so the last line of content sits at the bottom of the viewport.
+    /// Returns 0 when content fits entirely within the viewport (no scrolling needed).
+    #[must_use]
+    pub fn max_detail_scroll_offset(&self) -> usize {
+        let Some(detail) = &self.issue_detail else {
+            return 0;
+        };
+
+        // Estimate content lines to match build_detail_content() in issue_detail.rs:
+        //   Body section: 1 (label) + body lines + 1 (separator)
+        //   Comments section: 1 (header) + per-comment (1 author + body lines + 1 blank)
+        //   New Comment section: 1 (label) + 1 (hint)
+        let body_lines = if detail.body.is_empty() {
+            1
+        } else {
+            detail.body.lines().count()
+        };
+        let mut total = 1 + body_lines + 1; // body label + body + separator
+
+        total += 1; // "Comments" header
+        if detail.comments.is_empty() {
+            total += 1; // "No comments yet."
+        } else {
+            for c in &detail.comments {
+                let c_lines = if c.body.is_empty() {
+                    1
+                } else {
+                    c.body.lines().count()
+                };
+                total += 1 + c_lines + 1; // author + body + blank
+            }
+        }
+
+        total += 2; // new comment label + hint
+
+        total.saturating_sub(DETAIL_SCROLL_VIEWPORT)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     // Navigation
