@@ -1252,10 +1252,12 @@ impl AppState {
 
             // @requirement REQ-ISS-011
             AppEvent::OpenAgentChooser => {
-                // Populate from current agents
+                // Only show agents belonging to the currently selected repository
+                let repo_id = self.selected_repository_id().cloned();
                 let agents: Vec<_> = self
                     .agents
                     .iter()
+                    .filter(|a| repo_id.as_ref().is_some_and(|rid| a.repository_id == *rid))
                     .map(|a| (a.id.clone(), a.name.clone()))
                     .collect();
                 if !agents.is_empty() {
