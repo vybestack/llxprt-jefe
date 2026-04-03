@@ -17,6 +17,49 @@ use tracing::{debug, trace};
 use crate::domain::{Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, SandboxEngine};
 use crate::domain::{IssueFilter, Repository, RepositoryId};
 
+/// Move the inline editor cursor up or down by `direction` lines (-1 = up, 1 = down).
+/// Attempts to land on the same column in the target line, clamping to line length.
+fn inline_cursor_vertical(text: &str, cursor: &mut usize, direction: i32) {
+    // Find line boundaries and current line/column
+    let mut line_starts: Vec<usize> = vec![0];
+    for (i, ch) in text.char_indices() {
+        if ch == char::from(0x0Au8) {
+            line_starts.push(i + ch.len_utf8());
+        }
+    }
+
+    // Find which line the cursor is on
+    let mut current_line = 0;
+    for (i, &start) in line_starts.iter().enumerate() {
+        if *cursor >= start {
+            current_line = i;
+        }
+    }
+
+    let col = *cursor - line_starts[current_line];
+    let target_line = if direction < 0 {
+        current_line.saturating_sub(1)
+    } else {
+        (current_line + 1).min(line_starts.len() - 1)
+    };
+
+    if target_line == current_line {
+        return; // already at first/last line
+    }
+
+    // Find end of target line
+    let target_start = line_starts[target_line];
+    let target_end = if target_line + 1 < line_starts.len() {
+        // end is just before the newline
+        line_starts[target_line + 1] - 1
+    } else {
+        text.len()
+    };
+
+    let target_len = target_end - target_start;
+    *cursor = target_start + col.min(target_len);
+}
+
 impl AppState {
     fn selected_repository_id(&self) -> Option<&RepositoryId> {
         self.selected_repository_index
@@ -1110,6 +1153,24 @@ impl AppState {
                         let next = text[*cursor..].chars().next().map_or(0, char::len_utf8);
                         *cursor += next;
                     }
+                }
+                InlineState::None => {}
+            },
+
+            // Move cursor to equivalent column on previous line
+            AppEvent::InlineCursorUp => match &mut self.issues_state.inline_state {
+                InlineState::Composer { text, cursor, .. }
+                | InlineState::Editor { text, cursor, .. } => {
+                    inline_cursor_vertical(text, cursor, -1);
+                }
+                InlineState::None => {}
+            },
+
+            // Move cursor to equivalent column on next line
+            AppEvent::InlineCursorDown => match &mut self.issues_state.inline_state {
+                InlineState::Composer { text, cursor, .. }
+                | InlineState::Editor { text, cursor, .. } => {
+                    inline_cursor_vertical(text, cursor, 1);
                 }
                 InlineState::None => {}
             },
@@ -3240,5 +3301,54 @@ mod tests {
         let state = state.apply(AppEvent::ExitIssuesMode);
         assert_eq!(state.screen_mode, ScreenMode::Dashboard);
         assert!(!state.issues_state.active);
+    }
+
+    /// InlineCursorUp/Down move the cursor between lines in multi-line text.
+    #[test]
+    fn test_inline_cursor_vertical_navigation() {
+        use super::inline_cursor_vertical;
+
+        // 3 lines: abc, def, ghi — offsets [0..3], [4..7], [8..11]
+        let text = ["abc", "def", "ghi"].join(&String::from(char::from(0x0Au8)));
+
+        // Down from line 0 col 1 to line 1 col 1
+        let mut cursor = 1;
+        inline_cursor_vertical(&text, &mut cursor, 1);
+        assert_eq!(cursor, 5);
+
+        // Down from line 1 col 1 to line 2 col 1
+        inline_cursor_vertical(&text, &mut cursor, 1);
+        assert_eq!(cursor, 9);
+
+        // Down from last line stays
+        inline_cursor_vertical(&text, &mut cursor, 1);
+        assert_eq!(cursor, 9);
+
+        // Up from line 2 col 1 to line 1 col 1
+        inline_cursor_vertical(&text, &mut cursor, -1);
+        assert_eq!(cursor, 5);
+
+        // Up from line 1 col 1 to line 0 col 1
+        inline_cursor_vertical(&text, &mut cursor, -1);
+        assert_eq!(cursor, 1);
+
+        // Up from first line stays
+        inline_cursor_vertical(&text, &mut cursor, -1);
+        assert_eq!(cursor, 1);
+    }
+
+    /// InlineCursorUp/Down clamp column when target line is shorter.
+    #[test]
+    fn test_inline_cursor_vertical_column_clamping() {
+        use super::inline_cursor_vertical;
+
+        // 3 lines: abcdef (len 6), xy (len 2), z (len 1)
+        let nl = String::from(char::from(0x0Au8));
+        let text = ["abcdef", "xy", "z"].join(&nl);
+
+        // Cursor at col 5 of line 0 → down to line 1 (len 2) → clamp to col 2
+        let mut cursor = 5;
+        inline_cursor_vertical(&text, &mut cursor, 1);
+        assert_eq!(cursor, 9); // line 1 start=7, col clamped to 2 = byte 9
     }
 }

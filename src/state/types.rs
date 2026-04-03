@@ -546,6 +546,8 @@ pub enum AppEvent {
     InlineBackspace,
     InlineCursorLeft,
     InlineCursorRight,
+    InlineCursorUp,
+    InlineCursorDown,
     InlineSubmit,
     InlineCancelOrEsc,
     CommentCreated {

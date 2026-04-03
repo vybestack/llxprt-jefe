@@ -27,6 +27,27 @@ fn render_text_with_caret(value: &str, cursor: usize) -> String {
     format!("{}▏{}", &value[..byte_idx], &value[byte_idx..])
 }
 
+/// Maximum visible lines for body/comment text before truncation.
+const MAX_BODY_LINES: usize = 20;
+/// Maximum visible lines for a single comment body.
+const MAX_COMMENT_LINES: usize = 12;
+
+/// Split text into lines, truncating to `max_lines` and appending an indicator if needed.
+fn truncate_lines(text: &str, max_lines: usize) -> Vec<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() <= max_lines {
+        lines.iter().map(|s| (*s).to_string()).collect()
+    } else {
+        let mut result: Vec<String> = lines[..max_lines]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        let remaining = lines.len() - max_lines;
+        result.push(format!("... ({remaining} more lines)"));
+        result
+    }
+}
+
 /// Props for the issue detail view.
 #[derive(Default, Props)]
 pub struct IssueDetailViewProps {
@@ -177,31 +198,37 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
                         weight: Weight::Bold,
                     )
                 }
-                #(if body_editing {
-                    vec![
-                        element! {
-                            Box(
-                                border_style: BorderStyle::Round,
-                                border_color: rc.bright,
-                                padding_left: 1u32,
-                                padding_right: 1u32,
-                                width: 100pct,
-                            ) {
-                                Text(content: body_display.clone(), color: rc.fg)
-                            }
-                        },
-                        element! {
-                            Box(height: 1u32) {
-                                Text(content: "  Ctrl+Enter save | Esc cancel", color: rc.dim)
-                            }
-                        },
-                    ]
-                } else {
-                    vec![element! {
-                        Box(padding_left: 2u32, padding_right: 1u32) {
-                            Text(content: body_display.clone(), color: rc.fg)
+                #({
+                    let lines = truncate_lines(&body_display, MAX_BODY_LINES);
+                    let mut elems = Vec::new();
+                    if body_editing {
+                        for line in &lines {
+                            elems.push(element! {
+                                Box(
+                                    height: 1u32,
+                                    border_color: rc.bright,
+                                    padding_left: 1u32,
+                                    padding_right: 1u32,
+                                ) {
+                                    Text(content: line.clone(), color: rc.fg)
+                                }
+                            });
                         }
-                    }]
+                        elems.push(element! {
+                            Box(height: 1u32) {
+                                Text(content: "  Ctrl+Enter save | Esc cancel".to_string(), color: rc.dim)
+                            }
+                        });
+                    } else {
+                        for line in &lines {
+                            elems.push(element! {
+                                Box(height: 1u32, padding_left: 2u32, padding_right: 1u32) {
+                                    Text(content: line.clone(), color: rc.fg)
+                                }
+                            });
+                        }
+                    }
+                    elems
                 })
                 Box(height: 1u32) {
                     Text(
@@ -267,31 +294,38 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
                                         weight: if comment_focused { Weight::Bold } else { Weight::Normal },
                                     )
                                 }
-                                #(if edit_active {
-                                    vec![
-                                        element! {
-                                            Box(
-                                                border_style: BorderStyle::Round,
-                                                border_color: rc.bright,
-                                                padding_left: 1u32,
-                                                padding_right: 1u32,
-                                                width: 100pct,
-                                            ) {
-                                                Text(content: edit_text.clone(), color: rc.fg)
-                                            }
-                                        },
-                                        element! {
-                                            Box(height: 1u32) {
-                                                Text(content: "  Ctrl+Enter save | Esc cancel", color: rc.dim)
-                                            }
-                                        },
-                                    ]
-                                } else {
-                                    vec![element! {
-                                        Box(padding_left: 4u32, padding_right: 1u32) {
-                                            Text(content: comment.body.clone(), color: rc.fg)
+                                #({
+                                    let mut cmt_elems = Vec::new();
+                                    if edit_active {
+                                        let edit_lines = truncate_lines(&edit_text, MAX_COMMENT_LINES);
+                                        for line in &edit_lines {
+                                            cmt_elems.push(element! {
+                                                Box(
+                                                    height: 1u32,
+                                                    border_color: rc.bright,
+                                                    padding_left: 1u32,
+                                                    padding_right: 1u32,
+                                                ) {
+                                                    Text(content: line.clone(), color: rc.fg)
+                                                }
+                                            });
                                         }
-                                    }]
+                                        cmt_elems.push(element! {
+                                            Box(height: 1u32) {
+                                                Text(content: "  Ctrl+Enter save | Esc cancel".to_string(), color: rc.dim)
+                                            }
+                                        });
+                                    } else {
+                                        let cmt_lines = truncate_lines(&comment.body, MAX_COMMENT_LINES);
+                                        for line in &cmt_lines {
+                                            cmt_elems.push(element! {
+                                                Box(height: 1u32, padding_left: 4u32, padding_right: 1u32) {
+                                                    Text(content: line.clone(), color: rc.fg)
+                                                }
+                                            });
+                                        }
+                                    }
+                                    cmt_elems
                                 })
                                 #(if reply_active {
                                     vec![

@@ -45,6 +45,8 @@ pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Optio
             KeyCode::Backspace => Some(AppEvent::InlineBackspace),
             KeyCode::Left => Some(AppEvent::InlineCursorLeft),
             KeyCode::Right => Some(AppEvent::InlineCursorRight),
+            KeyCode::Up => Some(AppEvent::InlineCursorUp),
+            KeyCode::Down => Some(AppEvent::InlineCursorDown),
             _ => None, // consumed, no leak
         };
     }
@@ -104,7 +106,15 @@ pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Optio
     // @plan PLAN-20260329-ISSUES-MODE.P11
     // @pseudocode component-003 lines 19-26
     match key_event.code {
-        KeyCode::Char('a') | KeyCode::Esc => return Some(AppEvent::ExitIssuesMode),
+        KeyCode::Char('a') => return Some(AppEvent::ExitIssuesMode),
+        KeyCode::Esc => {
+            // Esc in IssueDetail goes back to IssueList, not all the way out
+            return if state.issues_state.issue_focus == IssueFocus::IssueDetail {
+                Some(AppEvent::RefocusIssueList)
+            } else {
+                Some(AppEvent::ExitIssuesMode)
+            };
+        }
         KeyCode::Char('i') => return Some(AppEvent::RefocusIssueList),
         KeyCode::Char('?' | 'h') | KeyCode::F(1) => {
             return Some(AppEvent::OpenHelp);
@@ -891,5 +901,46 @@ mod tests {
         let state = issues_state_with_focus(IssueFocus::IssueDetail);
         let event = resolve_issues_key_event(&state, &key(KeyCode::Char('o')));
         assert!(event.is_none());
+    }
+
+    /// Esc in IssueDetail focus goes back to IssueList (not exit mode).
+    #[test]
+    fn test_esc_in_detail_goes_back_to_list() {
+        let state = issues_state_with_focus(IssueFocus::IssueDetail);
+        let event = resolve_issues_key_event(&state, &key(KeyCode::Esc));
+        assert!(matches!(event, Some(AppEvent::RefocusIssueList)));
+    }
+
+    /// Esc in IssueList focus exits issues mode entirely.
+    #[test]
+    fn test_esc_in_list_exits_mode() {
+        let state = issues_state_with_focus(IssueFocus::IssueList);
+        let event = resolve_issues_key_event(&state, &key(KeyCode::Esc));
+        assert!(matches!(event, Some(AppEvent::ExitIssuesMode)));
+    }
+
+    /// Esc in RepoList focus exits issues mode entirely.
+    #[test]
+    fn test_esc_in_repo_list_exits_mode() {
+        let state = issues_state_with_focus(IssueFocus::RepoList);
+        let event = resolve_issues_key_event(&state, &key(KeyCode::Esc));
+        assert!(matches!(event, Some(AppEvent::ExitIssuesMode)));
+    }
+
+    /// Up/Down arrows in inline mode dispatch cursor movement events.
+    #[test]
+    fn test_up_down_in_inline_dispatches_cursor_vertical() {
+        let state = issues_state_with_inline(InlineState::Editor {
+            target: EditorTarget::IssueBody,
+            text: String::from(
+                "line1
+line2",
+            ),
+            cursor: 8,
+        });
+        let up = resolve_issues_key_event(&state, &key(KeyCode::Up));
+        assert!(matches!(up, Some(AppEvent::InlineCursorUp)));
+        let down = resolve_issues_key_event(&state, &key(KeyCode::Down));
+        assert!(matches!(down, Some(AppEvent::InlineCursorDown)));
     }
 }
