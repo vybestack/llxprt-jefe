@@ -1163,6 +1163,17 @@ impl AppState {
                 InlineState::None => {}
             },
 
+            AppEvent::InlineDelete => match &mut self.issues_state.inline_state {
+                InlineState::Composer { text, cursor, .. }
+                | InlineState::Editor { text, cursor, .. } => {
+                    if *cursor < text.len() {
+                        let next = text[*cursor..].chars().next().map_or(0, char::len_utf8);
+                        text.drain(*cursor..(*cursor + next));
+                    }
+                }
+                InlineState::None => {}
+            },
+
             // @requirement REQ-ISS-010
             AppEvent::InlineCursorLeft => match &mut self.issues_state.inline_state {
                 InlineState::Composer { text, cursor, .. }

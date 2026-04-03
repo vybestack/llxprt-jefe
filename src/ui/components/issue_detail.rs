@@ -17,18 +17,30 @@ const HEADER_ROWS: usize = 5;
 /// Overhead rows outside the detail pane: status bar (1) + keybind bar (1) + border (2).
 const CHROME_ROWS: usize = 4;
 
-/// Insert a caret character at the given byte-offset cursor position in the text.
-fn render_text_with_caret(value: &str, cursor: usize) -> String {
-    let byte_idx = cursor.min(value.len());
-    let byte_idx = if byte_idx == 0 || byte_idx >= value.len() {
-        byte_idx
-    } else {
-        value[..byte_idx]
-            .char_indices()
-            .last()
-            .map_or(0, |(i, c)| i + c.len_utf8())
-    };
-    format!("{}▏{}", &value[..byte_idx], &value[byte_idx..])
+/// Convert a byte-offset cursor in raw editor text to (line_index, char_column)
+/// relative to the content lines built by `build_detail_content`.
+///
+/// `content_line_start` is the index in the output `lines` vec where this editor's
+/// text lines begin. `prefix_len` is the char-length of the prefix prepended to each line.
+fn byte_cursor_to_line_col(
+    text: &str,
+    byte_cursor: usize,
+    content_line_start: usize,
+    prefix_len: usize,
+) -> (usize, usize) {
+    let clamped = byte_cursor.min(text.len());
+    let before = &text[..clamped];
+    let line_idx = before.matches(char::from(0x0Au8)).count();
+    let last_nl = before.rfind(char::from(0x0Au8)).map_or(0, |p| p + 1);
+    let col = before[last_nl..].chars().count();
+    (content_line_start + line_idx, prefix_len + col)
+}
+
+/// Result of building detail content: the display string and optional cursor position.
+struct DetailContent {
+    text: String,
+    /// Cursor position as (line_index, char_column) within the content lines.
+    cursor: Option<(usize, usize)>,
 }
 
 /// Build the scrollable content string for the body + comments + new-comment area.
@@ -38,35 +50,66 @@ fn build_detail_content(
     subfocus: DetailSubfocus,
     inline_state: &InlineState,
     comments_loading: bool,
-) -> String {
+) -> DetailContent {
     let nl = String::from(char::from(0x0Au8));
     let mut lines: Vec<String> = Vec::new();
+    let mut cursor_pos: Option<(usize, usize)> = None;
+
+    // Helper: push lines from editor text and compute cursor if editing
+    macro_rules! push_editor_lines {
+        ($text:expr, $cursor:expr, $editing:expr, $prefix_edit:expr, $prefix_view:expr, $lines:expr, $cursor_pos:expr) => {
+            let prefix = if $editing { $prefix_edit } else { $prefix_view };
+            let prefix_len = prefix.chars().count();
+            let content_start = $lines.len();
+            let source_text = $text;
+            if source_text.is_empty() {
+                $lines.push(format!("{prefix}(empty)"));
+            } else {
+                for line in source_text.lines() {
+                    $lines.push(format!("{prefix}{line}"));
+                }
+                // Handle trailing newline: `lines()` doesn't yield an empty final element
+                if source_text.ends_with(char::from(0x0Au8)) {
+                    $lines.push(format!("{prefix}"));
+                }
+            }
+            if $editing {
+                $cursor_pos = Some(byte_cursor_to_line_col(
+                    source_text,
+                    $cursor,
+                    content_start,
+                    prefix_len,
+                ));
+            }
+        };
+    }
 
     // ── Body section ────────────────────────────────────────────────
     let body_focused = subfocus == DetailSubfocus::Body;
     let body_label = if body_focused { "> Body" } else { "  Body" };
     lines.push(body_label.to_string());
 
-    let (body_text, body_editing) = match inline_state {
+    let (body_text, body_cursor, body_editing) = match inline_state {
         InlineState::Editor {
             target: crate::state::EditorTarget::IssueBody,
             text,
             cursor,
-        } => (render_text_with_caret(text, *cursor), true),
-        _ => (detail.body.clone(), false),
+        } => (text.as_str(), *cursor, true),
+        _ => (detail.body.as_str(), 0, false),
     };
 
     if body_editing {
         lines.push("[editing]".to_string());
     }
-    for line in body_text.lines() {
-        let prefix = if body_editing { "  │ " } else { "    " };
-        lines.push(format!("{prefix}{line}"));
-    }
-    if body_text.is_empty() {
-        let prefix = if body_editing { "  │ " } else { "    " };
-        lines.push(format!("{prefix}(empty)"));
-    }
+    push_editor_lines!(
+        body_text,
+        body_cursor,
+        body_editing,
+        "  │ ",
+        "    ",
+        lines,
+        cursor_pos
+    );
     if body_editing {
         lines.push("  Ctrl+Enter save | Esc cancel".to_string());
     }
@@ -88,26 +131,27 @@ fn build_detail_content(
                 prefix, comment.author_login, comment.created_at
             ));
 
-            let (cmt_text, cmt_editing) = match inline_state {
+            let (cmt_text, cmt_cursor, cmt_editing) = match inline_state {
                 InlineState::Editor {
                     target: crate::state::EditorTarget::Comment { comment_index },
                     text,
                     cursor,
-                } if *comment_index == idx => (render_text_with_caret(text, *cursor), true),
-                _ => (comment.body.clone(), false),
+                } if *comment_index == idx => (text.as_str(), *cursor, true),
+                _ => (comment.body.as_str(), 0, false),
             };
 
             if cmt_editing {
                 lines.push("  [editing]".to_string());
             }
-            for line in cmt_text.lines() {
-                let prefix = if cmt_editing { "    │ " } else { "      " };
-                lines.push(format!("{prefix}{line}"));
-            }
-            if cmt_text.is_empty() {
-                let prefix = if cmt_editing { "    │ " } else { "      " };
-                lines.push(format!("{prefix}(empty)"));
-            }
+            push_editor_lines!(
+                cmt_text,
+                cmt_cursor,
+                cmt_editing,
+                "    │ ",
+                "      ",
+                lines,
+                cursor_pos
+            );
             if cmt_editing {
                 lines.push("    Ctrl+Enter save | Esc cancel".to_string());
             }
@@ -120,13 +164,16 @@ fn build_detail_content(
                 && *comment_index == idx
             {
                 lines.push("    [Reply]".to_string());
-                let reply_text = render_text_with_caret(text, *cursor);
-                for line in reply_text.lines() {
-                    lines.push(format!("    │ {line}"));
-                }
-                if reply_text.is_empty() {
-                    lines.push("    │ ".to_string());
-                }
+                let reply_cursor = *cursor;
+                push_editor_lines!(
+                    text.as_str(),
+                    reply_cursor,
+                    true,
+                    "    │ ",
+                    "    │ ",
+                    lines,
+                    cursor_pos
+                );
                 lines.push("    Ctrl+Enter save | Esc cancel".to_string());
             }
 
@@ -151,19 +198,25 @@ fn build_detail_content(
         cursor,
     } = inline_state
     {
-        let composer_text = render_text_with_caret(text, *cursor);
-        for line in composer_text.lines() {
-            lines.push(format!("  │ {line}"));
-        }
-        if composer_text.is_empty() {
-            lines.push("  │ ".to_string());
-        }
+        let nc_cursor = *cursor;
+        push_editor_lines!(
+            text.as_str(),
+            nc_cursor,
+            true,
+            "  │ ",
+            "  │ ",
+            lines,
+            cursor_pos
+        );
         lines.push("  Ctrl+Enter submit | Esc cancel".to_string());
     } else {
         lines.push("  Press c to add a comment".to_string());
     }
 
-    lines.join(&nl)
+    DetailContent {
+        text: lines.join(&nl),
+        cursor: cursor_pos,
+    }
 }
 
 /// Props for the issue detail view.
@@ -209,7 +262,7 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
     let scroll_rows = pane_rows.saturating_sub(HEADER_ROWS).max(5);
 
     // Build header and content — same structure whether issue is loaded or not
-    let (h_title, h_state, h_labels, h_url, content, state_color) = if let Some(detail) =
+    let (h_title, h_state, h_labels, h_url, detail_content, state_color) = if let Some(detail) =
         props.issue_detail.as_ref()
     {
         let state_tag = match detail.state {
@@ -254,7 +307,10 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
             String::new(),
             String::new(),
             String::new(),
-            "No issue selected".to_string(),
+            DetailContent {
+                text: "No issue selected".to_string(),
+                cursor: None,
+            },
             rc.dim,
         )
     };
@@ -293,10 +349,14 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
             // ── Scrollable viewport — always exactly scroll_rows rows ─────
             Box(width: 100pct, padding_left: 1u32) {
                 ScrollableText(
-                    content: content,
+                    content: detail_content.text,
                     scroll_offset: props.scroll_offset,
                     viewport_rows: scroll_rows,
+                    cursor_line: detail_content.cursor.map(|(l, _)| l),
+                    cursor_col: detail_content.cursor.map(|(_, c)| c),
                     color: rc.fg,
+                    cursor_color: rc.bg,
+                    cursor_bg: rc.bright,
                     track_color: rc.dim,
                     thumb_color: rc.bright,
                 )

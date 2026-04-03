@@ -603,6 +603,7 @@ pub enum AppEvent {
     InlineChar(char),
     InlineNewline,
     InlineBackspace,
+    InlineDelete,
     InlineCursorLeft,
     InlineCursorRight,
     InlineCursorUp,

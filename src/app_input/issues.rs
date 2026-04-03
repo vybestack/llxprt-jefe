@@ -43,6 +43,7 @@ pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Optio
             KeyCode::Enter => Some(AppEvent::InlineNewline),
             KeyCode::Char(c) => Some(AppEvent::InlineChar(c)),
             KeyCode::Backspace => Some(AppEvent::InlineBackspace),
+            KeyCode::Delete => Some(AppEvent::InlineDelete),
             KeyCode::Left => Some(AppEvent::InlineCursorLeft),
             KeyCode::Right => Some(AppEvent::InlineCursorRight),
             KeyCode::Up => Some(AppEvent::InlineCursorUp),
