@@ -1,11 +1,14 @@
 use std::sync::Arc;
 
 mod issues;
+mod issues_dispatch;
+mod modal_handlers;
 mod normal;
 mod preflight;
 
+pub use modal_handlers::{handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key};
+
 pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
-use preflight::handle_preflight_prompt_enter;
 
 use iocraft::hooks::State as HookState;
 use iocraft::prelude::*;
@@ -13,7 +16,7 @@ use tracing::{debug, warn};
 
 use std::time::Duration;
 
-use jefe::domain::{AgentId, AgentStatus, LaunchSignature, Repository, SandboxEngine};
+use jefe::domain::{AgentId, AgentStatus, LaunchSignature, Repository};
 
 const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
     ('¡', 1),
@@ -78,7 +81,7 @@ fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, s
     }
 }
 
-use jefe::state::{AgentFormFocus, AppEvent, AppState, ModalState, PaneFocus, RepositoryFormFocus};
+use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, RepositoryFormFocus};
 
 fn repository_focus_toggles_checkbox(focus: RepositoryFormFocus) -> bool {
     matches!(
@@ -526,7 +529,7 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
                     let new_issue_idx = app_state.read().issues_state.selected_issue_index;
                     if new_issue_idx != prev_issue_idx {
                         // Build a lightweight preview from list data (no I/O)
-                        preview_issue_from_list(app_state);
+                        issues_dispatch::preview_issue_from_list(app_state);
                     }
                 }
                 jefe::state::IssueFocus::IssueDetail => {}
@@ -543,10 +546,10 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
             // Now perform the actual issue list fetch
             let (scope_repo_id, owner, repo, filter, cursor, page_size) = {
                 let state = app_state.read();
-                let gh_repo = resolve_gh_repo(&state);
+                let gh_repo = issues_dispatch::resolve_gh_repo(&state);
                 let filter = state.issues_state.committed_filter.clone();
                 let cursor = state.issues_state.list_cursor.clone();
-                let scope_repo_id = current_scope_repo_id(&state);
+                let scope_repo_id = issues_dispatch::current_scope_repo_id(&state);
                 (scope_repo_id, gh_repo.0, gh_repo.1, filter, cursor, 30u32)
             };
 
@@ -586,7 +589,7 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
                     drop(state);
                     // Show preview for the first issue (no I/O)
                     if has_issues {
-                        preview_issue_from_list(app_state);
+                        issues_dispatch::preview_issue_from_list(app_state);
                     }
                 }
                 Some(Err(e)) => {
@@ -610,7 +613,7 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
         // @requirement REQ-ISS-009
         AppEvent::IssuesEnter => {
             apply_and_persist(app_state, ctx, AppEvent::IssuesEnter);
-            load_issue_detail_for_selection(app_state, ctx);
+            issues_dispatch::load_issue_detail_for_selection(app_state, ctx);
         }
 
         // ── Send issue to agent ──────────────────────────────────────────
@@ -663,7 +666,7 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
                 return;
             }
             let prompt_path = prompt_dir.join("issue-prompt.md");
-            let prompt_content = format_issue_prompt(&payload);
+            let prompt_content = issues_dispatch::format_issue_prompt(&payload);
             if let Err(e) = std::fs::write(&prompt_path, &prompt_content) {
                 let mut state = app_state.write();
                 *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
@@ -764,7 +767,7 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
 
             let (owner, repo) = {
                 let state = app_state.read();
-                resolve_gh_repo(&state)
+                issues_dispatch::resolve_gh_repo(&state)
             };
 
             if owner.is_empty() || repo.is_empty() {
@@ -912,638 +915,6 @@ enum InlineSubmitAction {
         text: String,
     },
 }
-
-/// Get the RepositoryId of the currently selected repository (for scope tracking).
-fn current_scope_repo_id(state: &jefe::state::AppState) -> jefe::domain::RepositoryId {
-    state
-        .selected_repository_index
-        .and_then(|idx| state.repositories.get(idx))
-        .map_or_else(
-            || jefe::domain::RepositoryId(String::new()),
-            |r| r.id.clone(),
-        )
-}
-
-/// Resolve the GitHub owner/repo for the currently selected repository.
-/// Reads from the explicit `github_repo` field (format: `"owner/repo"`).
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P15
-/// @requirement REQ-ISS-013
-fn resolve_gh_repo(state: &jefe::state::AppState) -> (String, String) {
-    let repo = state
-        .selected_repository_index
-        .and_then(|idx| state.repositories.get(idx));
-
-    let Some(repo) = repo else {
-        return (String::new(), String::new());
-    };
-
-    let gh = repo.github_repo.trim();
-    if gh.is_empty() {
-        return (String::new(), String::new());
-    }
-
-    if let Some((owner, name)) = gh.split_once('/') {
-        let owner = owner.trim();
-        let name = name.trim();
-        if !owner.is_empty() && !name.is_empty() {
-            return (owner.to_owned(), name.to_owned());
-        }
-    }
-
-    (String::new(), String::new())
-}
-
-/// Build a lightweight issue detail preview from list data (no I/O).
-/// Used for instant preview while arrowing through the issue list.
-fn preview_issue_from_list(app_state: &mut AppStateHandle) {
-    let preview = {
-        let state = app_state.read();
-        state
-            .issues_state
-            .selected_issue_index
-            .and_then(|idx| state.issues_state.issues.get(idx))
-            .map(|issue| {
-                let gh_repo = resolve_gh_repo(&state);
-                jefe::domain::IssueDetail {
-                    repo_owner_name: format!("{}/{}", gh_repo.0, gh_repo.1),
-                    number: issue.number,
-                    title: issue.title.clone(),
-                    state: issue.state.clone(),
-                    author_login: issue.author_login.clone(),
-                    created_at: String::new(),
-                    updated_at: issue.updated_at.clone(),
-                    labels: issue
-                        .labels_summary
-                        .split(", ")
-                        .filter(|s| !s.is_empty())
-                        .map(String::from)
-                        .collect(),
-                    assignees: issue
-                        .assignee_summary
-                        .split(", ")
-                        .filter(|s| !s.is_empty())
-                        .map(String::from)
-                        .collect(),
-                    milestone: None,
-                    body: issue.body.clone(),
-                    external_url: String::new(),
-                    comments: Vec::new(),
-                    has_more_comments: false,
-                    comments_cursor: None,
-                }
-            })
-    };
-
-    if let Some(detail) = preview {
-        let mut state = app_state.write();
-        state.issues_state.issue_detail = Some(detail);
-        state.issues_state.detail_loading = false;
-    }
-}
-
-/// Load issue detail for the currently selected issue in the list.
-/// Used by IssuesEnter to get the full detail with comments.
-fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let (issue_number, scope_repo_id, owner, repo) = {
-        let state = app_state.read();
-        let num = state
-            .issues_state
-            .selected_issue_index
-            .and_then(|idx| state.issues_state.issues.get(idx))
-            .map(|issue| issue.number);
-        let gh_repo = resolve_gh_repo(&state);
-        (num, current_scope_repo_id(&state), gh_repo.0, gh_repo.1)
-    };
-
-    let Some(number) = issue_number else { return };
-    if owner.is_empty() || repo.is_empty() {
-        return;
-    }
-
-    // Mark detail as loading
-    {
-        let mut state = app_state.write();
-        state.issues_state.detail_loading = true;
-    }
-
-    let result = if let Some(ctx_arc) = &ctx
-        && let Ok(ctx_guard) = ctx_arc.lock()
-    {
-        Some(ctx_guard.gh_client.get_issue_detail(&owner, &repo, number))
-    } else {
-        None
-    };
-
-    match result {
-        Some(Ok(detail)) => {
-            let mut state = app_state.write();
-            *state = std::mem::take(&mut *state).apply(AppEvent::IssueDetailLoaded {
-                scope_repo_id,
-                issue_number: number,
-                detail: std::boxed::Box::new(detail),
-            });
-        }
-        Some(Err(e)) => {
-            let mut state = app_state.write();
-            *state = std::mem::take(&mut *state).apply(AppEvent::IssueDetailLoadFailed {
-                scope_repo_id,
-                issue_number: number,
-                error: e.to_string(),
-            });
-        }
-        None => {}
-    }
-}
-
-/// Format a `SendPayload` into a markdown issue prompt for the agent.
-fn format_issue_prompt(payload: &jefe::github::SendPayload) -> String {
-    use std::fmt::Write;
-    let mut out = String::new();
-    let _ = writeln!(
-        out,
-        "# GitHub Issue #{}: {}",
-        payload.issue_number, payload.issue_title
-    );
-    let _ = writeln!(out);
-    let _ = writeln!(out, "**Repository:** {}", payload.repository);
-    let _ = writeln!(out, "**State:** {}", payload.issue_state);
-    if !payload.issue_labels.is_empty() {
-        let _ = writeln!(out, "**Labels:** {}", payload.issue_labels.join(", "));
-    }
-    if !payload.issue_assignees.is_empty() {
-        let _ = writeln!(out, "**Assignees:** {}", payload.issue_assignees.join(", "));
-    }
-    let _ = writeln!(out);
-    let _ = writeln!(out, "## Body");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "{}", payload.issue_body);
-
-    if let Some(comment) = &payload.focused_comment {
-        let _ = writeln!(out);
-        if let Some(author) = &payload.focused_comment_author {
-            let _ = writeln!(out, "## Focused Comment (by @{author})");
-        } else {
-            let _ = writeln!(out, "## Focused Comment");
-        }
-        let _ = writeln!(out);
-        let _ = writeln!(out, "{comment}");
-    }
-
-    if !payload.issue_base_prompt.is_empty() {
-        let _ = writeln!(out);
-        let _ = writeln!(out, "## Instructions");
-        let _ = writeln!(out);
-        let _ = writeln!(out, "{}", payload.issue_base_prompt);
-    }
-
-    out
-}
-
-pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    // F12 toggles terminal input focus.
-    // When enabling, force pane focus to terminal and require attach success.
-    let (enabling_focus, selected_agent_id) = {
-        let mut state = app_state.write();
-
-        if state.terminal_focused {
-            // Leaving terminal capture should always return keyboard focus to agents.
-            state.pane_focus = PaneFocus::Agents;
-            *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
-            (false, None)
-        } else {
-            let selected_running_agent_id = state
-                .selected_agent()
-                .filter(|agent| agent.is_running())
-                .map(|agent| agent.id.clone());
-
-            if selected_running_agent_id.is_some() {
-                state.pane_focus = PaneFocus::Terminal;
-                *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
-                (true, selected_running_agent_id)
-            } else {
-                // Dead/non-running agents are not attachable.
-                state.pane_focus = PaneFocus::Agents;
-                state.terminal_focused = false;
-                (false, None)
-            }
-        }
-    };
-
-    if enabling_focus {
-        let attached = selected_agent_id.as_ref().is_some_and(|agent_id| {
-            if let Some(ctx_arc) = &ctx
-                && let Ok(mut ctx_guard) = ctx_arc.lock()
-            {
-                match ctx_guard.runtime.attach(agent_id) {
-                    Ok(()) => true,
-                    Err(e) => {
-                        warn!(
-                            agent_id = %agent_id.0,
-                            error = %e,
-                            "could not attach session on F12 focus"
-                        );
-                        false
-                    }
-                }
-            } else {
-                false
-            }
-        });
-
-        let mut state = app_state.write();
-        if !attached {
-            state.terminal_focused = false;
-            state.pane_focus = PaneFocus::Agents;
-            if let Some(agent_id) = selected_agent_id.as_ref() {
-                mark_agent_runtime_attached(&mut state, agent_id, false);
-            }
-        } else if let Some(agent_id) = selected_agent_id.as_ref() {
-            clear_agent_runtime_attachment(&mut state);
-            mark_agent_runtime_attached(&mut state, agent_id, true);
-        }
-    }
-
-    let state = app_state.read();
-    persist_state_snapshot(ctx, &state);
-}
-
-#[allow(clippy::too_many_lines)]
-pub fn handle_mode_confirm_key(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-) {
-    match key_event.code {
-        KeyCode::Esc => {
-            close_modal_and_persist(app_state, ctx);
-        }
-        KeyCode::Enter => {
-            let modal_snapshot = {
-                let state = app_state.read();
-                state.modal.clone()
-            };
-
-            match modal_snapshot {
-                ModalState::ConfirmDeleteAgent {
-                    id,
-                    delete_work_dir,
-                } => {
-                    if let Some(ctx_arc) = &ctx
-                        && let Ok(mut ctx_guard) = ctx_arc.lock()
-                        && let Err(e) = ctx_guard.runtime.kill(&id)
-                    {
-                        match e {
-                            RuntimeError::SessionNotFound(_) => {}
-                            _ => {
-                                warn!(
-                                    agent_id = %id.0,
-                                    error = %e,
-                                    "could not kill runtime session before delete"
-                                );
-                            }
-                        }
-                    }
-
-                    let mut state = app_state.write();
-                    let _ = super::delete_selected_agent(&mut state, &id, delete_work_dir);
-                    state.modal = ModalState::None;
-                    persist_state_snapshot(ctx, &state);
-                }
-                ModalState::ConfirmDeleteRepository { id } => {
-                    if let Some(ctx_arc) = &ctx
-                        && let Ok(mut ctx_guard) = ctx_arc.lock()
-                    {
-                        let agent_ids: Vec<AgentId> = {
-                            let state = app_state.read();
-                            state
-                                .agents
-                                .iter()
-                                .filter(|agent| agent.repository_id == id)
-                                .map(|agent| agent.id.clone())
-                                .collect()
-                        };
-
-                        for agent_id in &agent_ids {
-                            if let Err(e) = ctx_guard.runtime.kill(agent_id) {
-                                match e {
-                                    RuntimeError::SessionNotFound(_) => {}
-                                    _ => {
-                                        warn!(
-                                            agent_id = %agent_id.0,
-                                            error = %e,
-                                            "could not kill runtime session before repository delete"
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    let mut state = app_state.write();
-                    super::delete_selected_repository(&mut state, &id);
-                    state.modal = ModalState::None;
-                    persist_state_snapshot(ctx, &state);
-                }
-                ModalState::PreflightPrompt {
-                    agent_id,
-                    signature,
-                    issue,
-                    ..
-                } => {
-                    handle_preflight_prompt_enter(app_state, ctx, agent_id, signature, issue);
-                }
-                _ => {}
-            }
-        }
-        KeyCode::Char(' ' | 'd' | 'D') | KeyCode::Up | KeyCode::Down => {
-            apply_and_persist(app_state, ctx, AppEvent::ToggleDeleteWorkDir);
-        }
-        _ => {}
-    }
-}
-
-#[allow(clippy::too_many_lines)]
-pub fn handle_mode_form_key(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    key_event: &KeyEvent,
-) -> bool {
-    let app_event = match key_event.code {
-        KeyCode::Esc => Some(AppEvent::CloseModal),
-        KeyCode::Enter => {
-            // Submit form and spawn PTY if new agent.
-            let state_ro = app_state.read();
-            let is_new_agent = matches!(state_ro.modal, ModalState::NewAgent { .. });
-            drop(state_ro);
-
-            let mut state = app_state.write();
-            *state = std::mem::take(&mut *state).apply(AppEvent::SubmitForm);
-            persist_state_snapshot(ctx, &state);
-
-            // If new agent was created, spawn session and attach viewer.
-            if is_new_agent && state.modal == ModalState::None {
-                if let Some(agent) = state.selected_agent().cloned() {
-                    let agent_id = agent.id.clone();
-                    let work_dir = agent.work_dir.clone();
-                    let repository = state.repository_by_id(&agent.repository_id).cloned();
-                    let Some(repository) = repository else {
-                        state.terminal_focused = false;
-                        state.error_message =
-                            Some("selected agent repository not found".to_owned());
-                        persist_state_snapshot(ctx, &state);
-                        return true;
-                    };
-                    let signature = launch_signature_for_agent(&agent, &repository);
-
-                    // Drop write guard before preflight (it may take the lock).
-                    drop(state);
-
-                    // Run preflight checks before spawning.
-                    if !preflight_or_prompt(app_state, ctx, &agent_id, &signature) {
-                        return true;
-                    }
-
-                    // Match toy1 behavior: new agent opens attached and focused.
-                    {
-                        let mut state = app_state.write();
-                        state.terminal_focused = true;
-                        persist_state_snapshot(ctx, &state);
-                    }
-
-                    execute_agent_launch(app_state, ctx, &agent_id, &work_dir, &signature, false);
-                }
-            }
-
-            return true;
-        }
-        KeyCode::Tab | KeyCode::Down => Some(AppEvent::FormNextField),
-        KeyCode::BackTab | KeyCode::Up => Some(AppEvent::FormPrevField),
-        KeyCode::Left => Some(AppEvent::FormMoveCursorLeft),
-        KeyCode::Right => Some(AppEvent::FormMoveCursorRight),
-        KeyCode::Backspace => Some(AppEvent::FormBackspace),
-        KeyCode::Delete => Some(AppEvent::FormDelete),
-        // Space toggles checkbox or cycles sandbox engine on the dedicated controls.
-        KeyCode::Char(' ') => {
-            enum FocusedFormField {
-                Repository(RepositoryFormFocus),
-                Agent(AgentFormFocus),
-                None,
-            }
-
-            let focused = {
-                let state = app_state.read();
-                match &state.modal {
-                    ModalState::NewRepository { focus, .. }
-                    | ModalState::EditRepository { focus, .. } => {
-                        FocusedFormField::Repository(*focus)
-                    }
-                    ModalState::NewAgent { focus, .. } | ModalState::EditAgent { focus, .. } => {
-                        FocusedFormField::Agent(*focus)
-                    }
-                    _ => FocusedFormField::None,
-                }
-            };
-
-            match focused {
-                FocusedFormField::Repository(focus) if repository_focus_toggles_checkbox(focus) => {
-                    Some(AppEvent::FormToggleCheckbox)
-                }
-                FocusedFormField::Agent(
-                    AgentFormFocus::PassContinue
-                    | AgentFormFocus::Sandbox
-                    | AgentFormFocus::Shortcut,
-                ) => Some(AppEvent::FormToggleCheckbox),
-                FocusedFormField::Agent(AgentFormFocus::SandboxEngine) => {
-                    let mut state = app_state.write();
-                    if let ModalState::NewAgent { fields, .. }
-                    | ModalState::EditAgent { fields, .. } = &mut state.modal
-                    {
-                        SandboxEngine::next_from_form_value(&fields.sandbox_engine)
-                            .label()
-                            .clone_into(&mut fields.sandbox_engine);
-                    }
-                    persist_state_snapshot(ctx, &state);
-                    return true;
-                }
-                _ => Some(AppEvent::FormChar(' ')),
-            }
-        }
-        KeyCode::Char(c) => Some(AppEvent::FormChar(c)),
-        _ => None,
-    };
-
-    if let Some(evt) = app_event {
-        apply_and_persist(app_state, ctx, evt);
-    }
-
-    true
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-
-    use jefe::domain::{
-        Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
-        RemoteRepositorySettings, RepositoryId, RuntimeBinding, SandboxEngine,
-    };
-
-    fn sample_signature() -> LaunchSignature {
-        LaunchSignature {
-            work_dir: PathBuf::from("/tmp/agent"),
-            profile: String::new(),
-            mode_flags: vec![String::from("--yolo")],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: RemoteRepositorySettings::default(),
-        }
-    }
-
-    fn sample_agent(agent_id: &AgentId) -> Agent {
-        Agent::new(
-            agent_id.clone(),
-            RepositoryId(String::from("repo-1")),
-            String::from("Agent One"),
-            PathBuf::from("/tmp/agent"),
-        )
-    }
-
-    #[test]
-    fn repository_focus_toggles_checkbox_for_expected_fields() {
-        assert!(repository_focus_toggles_checkbox(
-            RepositoryFormFocus::RemoteEnabled
-        ));
-        assert!(repository_focus_toggles_checkbox(
-            RepositoryFormFocus::SetupEnvDefault
-        ));
-        assert!(!repository_focus_toggles_checkbox(
-            RepositoryFormFocus::Name
-        ));
-    }
-
-    #[test]
-    fn clear_runtime_warning_clears_only_ssh_agent_warnings() {
-        let mut state = AppState {
-            warning_message: Some(String::from("SSH_AUTH_SOCK is missing")),
-            ..AppState::default()
-        };
-        clear_runtime_warning(&mut state);
-        assert!(state.warning_message.is_none());
-
-        state.warning_message = Some(String::from("regular warning"));
-        clear_runtime_warning(&mut state);
-        assert_eq!(state.warning_message, Some(String::from("regular warning")));
-    }
-
-    #[test]
-    fn set_agent_runtime_binding_sets_session_and_signature() {
-        let agent_id = AgentId(String::from("agent-1"));
-        let mut state = AppState::default();
-        state.agents.push(sample_agent(&agent_id));
-
-        let signature = sample_signature();
-        set_agent_runtime_binding(
-            &mut state,
-            &agent_id,
-            String::from("jefe-agent-1"),
-            signature.clone(),
-        );
-
-        let binding = state
-            .agents
-            .iter()
-            .find(|agent| agent.id == agent_id)
-            .and_then(|agent| agent.runtime_binding.as_ref());
-
-        assert!(binding.is_some());
-        if let Some(binding) = binding {
-            assert_eq!(binding.session_name, String::from("jefe-agent-1"));
-            assert_eq!(binding.launch_signature, signature);
-            assert!(!binding.attached);
-        }
-    }
-
-    #[test]
-    fn mark_and_clear_runtime_attachment_flags() {
-        let agent_a = AgentId(String::from("agent-a"));
-        let agent_b = AgentId(String::from("agent-b"));
-
-        let mut first = sample_agent(&agent_a);
-        first.runtime_binding = Some(RuntimeBinding {
-            session_name: String::from("sess-a"),
-            launch_signature: sample_signature(),
-            attached: false,
-            last_seen: None,
-        });
-
-        let mut second = sample_agent(&agent_b);
-        second.runtime_binding = Some(RuntimeBinding {
-            session_name: String::from("sess-b"),
-            launch_signature: sample_signature(),
-            attached: true,
-            last_seen: None,
-        });
-
-        let mut state = AppState::default();
-        state.agents.push(first);
-        state.agents.push(second);
-
-        mark_agent_runtime_attached(&mut state, &agent_a, true);
-        assert!(
-            state.agents[0]
-                .runtime_binding
-                .as_ref()
-                .is_some_and(|binding| binding.attached)
-        );
-
-        clear_agent_runtime_attachment(&mut state);
-        assert!(state.agents.iter().all(|agent| {
-            agent
-                .runtime_binding
-                .as_ref()
-                .is_none_or(|binding| !binding.attached)
-        }));
-    }
-
-    #[test]
-    fn mark_runtime_session_dead_sets_dead_and_detaches() {
-        let agent_id = AgentId(String::from("agent-1"));
-        let mut agent = sample_agent(&agent_id);
-        agent.status = AgentStatus::Running;
-        agent.runtime_binding = Some(RuntimeBinding {
-            session_name: String::from("sess"),
-            launch_signature: sample_signature(),
-            attached: true,
-            last_seen: None,
-        });
-
-        let mut state = AppState::default();
-        state.agents.push(agent);
-
-        mark_runtime_session_dead_if_present(&mut state, &agent_id);
-
-        assert_eq!(state.agents[0].status, AgentStatus::Dead);
-        assert!(
-            state.agents[0]
-                .runtime_binding
-                .as_ref()
-                .is_some_and(|binding| !binding.attached)
-        );
-    }
-
-    #[test]
-    fn to_persisted_state_carries_hide_idle_toggle() {
-        let state = AppState {
-            hide_idle_repositories: true,
-            ..AppState::default()
-        };
-
-        let persisted = to_persisted_state(&state);
-        assert!(persisted.hide_idle_repositories);
-    }
-}
+#[path = "app_input_tests.rs"]
+mod tests;

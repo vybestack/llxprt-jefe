@@ -5,7 +5,7 @@
 
 use iocraft::prelude::*;
 
-use crate::domain::{IssueDetail, IssueState};
+use crate::domain::{IssueComment, IssueDetail, IssueState};
 use crate::state::{DetailSubfocus, InlineState};
 use crate::theme::{ResolvedColors, ThemeColors};
 
@@ -45,51 +45,63 @@ struct DetailContent {
     cursor: Option<(usize, usize)>,
 }
 
-/// Build the scrollable content string for the body + comments + new-comment area.
-#[allow(clippy::too_many_lines)]
-fn build_detail_content(
+/// Accumulated state for building detail content lines.
+struct ContentBuilder {
+    lines: Vec<String>,
+    cursor_pos: Option<(usize, usize)>,
+}
+
+impl ContentBuilder {
+    fn new() -> Self {
+        Self {
+            lines: Vec::new(),
+            cursor_pos: None,
+        }
+    }
+
+    /// Push editor/viewer lines and compute cursor position if editing.
+    fn push_editor_lines(
+        &mut self,
+        text: &str,
+        cursor: usize,
+        editing: bool,
+        prefix_edit: &str,
+        prefix_view: &str,
+    ) {
+        let prefix = if editing { prefix_edit } else { prefix_view };
+        let prefix_len = prefix.chars().count();
+        let content_start = self.lines.len();
+        if text.is_empty() {
+            self.lines.push(format!("{prefix}(empty)"));
+        } else {
+            for line in text.lines() {
+                self.lines.push(format!("{prefix}{line}"));
+            }
+            if text.ends_with(char::from(0x0Au8)) {
+                self.lines.push(prefix.to_string());
+            }
+        }
+        if editing {
+            self.cursor_pos = Some(byte_cursor_to_line_col(
+                text,
+                cursor,
+                content_start,
+                prefix_len,
+            ));
+        }
+    }
+}
+
+/// Build body section lines.
+fn build_body_section(
     detail: &IssueDetail,
     subfocus: DetailSubfocus,
     inline_state: &InlineState,
-    comments_loading: bool,
-) -> DetailContent {
-    let nl = String::from(char::from(0x0Au8));
-    let mut lines: Vec<String> = Vec::new();
-    let mut cursor_pos: Option<(usize, usize)> = None;
-
-    // Helper: push lines from editor text and compute cursor if editing
-    macro_rules! push_editor_lines {
-        ($text:expr, $cursor:expr, $editing:expr, $prefix_edit:expr, $prefix_view:expr, $lines:expr, $cursor_pos:expr) => {
-            let prefix = if $editing { $prefix_edit } else { $prefix_view };
-            let prefix_len = prefix.chars().count();
-            let content_start = $lines.len();
-            let source_text = $text;
-            if source_text.is_empty() {
-                $lines.push(format!("{prefix}(empty)"));
-            } else {
-                for line in source_text.lines() {
-                    $lines.push(format!("{prefix}{line}"));
-                }
-                // Handle trailing newline: `lines()` doesn't yield an empty final element
-                if source_text.ends_with(char::from(0x0Au8)) {
-                    $lines.push(format!("{prefix}"));
-                }
-            }
-            if $editing {
-                $cursor_pos = Some(byte_cursor_to_line_col(
-                    source_text,
-                    $cursor,
-                    content_start,
-                    prefix_len,
-                ));
-            }
-        };
-    }
-
-    // ── Body section ────────────────────────────────────────────────
+    builder: &mut ContentBuilder,
+) {
     let body_focused = subfocus == DetailSubfocus::Body;
     let body_label = if body_focused { "> Body" } else { "  Body" };
-    lines.push(body_label.to_string());
+    builder.lines.push(body_label.to_string());
 
     let (body_text, body_cursor, body_editing) = match inline_state {
         InlineState::Editor {
@@ -101,98 +113,100 @@ fn build_detail_content(
     };
 
     if body_editing {
-        lines.push("[editing]".to_string());
+        builder.lines.push("[editing]".to_string());
     }
-    push_editor_lines!(
-        body_text,
-        body_cursor,
-        body_editing,
-        "  │ ",
-        "    ",
-        lines,
-        cursor_pos
-    );
+    builder.push_editor_lines(body_text, body_cursor, body_editing, "  │ ", "    ");
     if body_editing {
-        lines.push("  Ctrl+Enter save | Esc cancel".to_string());
+        builder
+            .lines
+            .push("  Ctrl+Enter save | Esc cancel".to_string());
     }
+}
 
-    lines.push("─────────────────────────────────────────".to_string());
-
-    // ── Comments section ────────────────────────────────────────────
-    lines.push("Comments".to_string());
+/// Build comments section lines.
+fn build_comments_section(
+    detail: &IssueDetail,
+    subfocus: DetailSubfocus,
+    inline_state: &InlineState,
+    comments_loading: bool,
+    builder: &mut ContentBuilder,
+) {
+    builder.lines.push("Comments".to_string());
     if comments_loading {
-        lines.push("  Loading comments...".to_string());
+        builder.lines.push("  Loading comments...".to_string());
     } else if detail.comments.is_empty() {
-        lines.push("  No comments yet.".to_string());
+        builder.lines.push("  No comments yet.".to_string());
     } else {
         for (idx, comment) in detail.comments.iter().enumerate() {
-            let comment_focused = subfocus == DetailSubfocus::Comment(idx);
-            let prefix = if comment_focused { "> " } else { "  " };
-            lines.push(format!(
-                "{}@{}  {}",
-                prefix, comment.author_login, comment.created_at
-            ));
-
-            let (cmt_text, cmt_cursor, cmt_editing) = match inline_state {
-                InlineState::Editor {
-                    target: crate::state::EditorTarget::Comment { comment_index },
-                    text,
-                    cursor,
-                } if *comment_index == idx => (text.as_str(), *cursor, true),
-                _ => (comment.body.as_str(), 0, false),
-            };
-
-            if cmt_editing {
-                lines.push("  [editing]".to_string());
-            }
-            push_editor_lines!(
-                cmt_text,
-                cmt_cursor,
-                cmt_editing,
-                "    │ ",
-                "      ",
-                lines,
-                cursor_pos
-            );
-            if cmt_editing {
-                lines.push("    Ctrl+Enter save | Esc cancel".to_string());
-            }
-
-            if let InlineState::Composer {
-                target: crate::state::ComposerTarget::Reply { comment_index, .. },
-                text,
-                cursor,
-            } = inline_state
-                && *comment_index == idx
-            {
-                lines.push("    [Reply]".to_string());
-                let reply_cursor = *cursor;
-                push_editor_lines!(
-                    text.as_str(),
-                    reply_cursor,
-                    true,
-                    "    │ ",
-                    "    │ ",
-                    lines,
-                    cursor_pos
-                );
-                lines.push("    Ctrl+Enter save | Esc cancel".to_string());
-            }
-
-            lines.push(String::new());
+            build_single_comment(idx, comment, subfocus, inline_state, builder);
         }
     }
+}
 
-    lines.push("─────────────────────────────────────────".to_string());
+/// Build lines for a single comment (including inline editor/reply).
+fn build_single_comment(
+    idx: usize,
+    comment: &IssueComment,
+    subfocus: DetailSubfocus,
+    inline_state: &InlineState,
+    builder: &mut ContentBuilder,
+) {
+    let comment_focused = subfocus == DetailSubfocus::Comment(idx);
+    let prefix = if comment_focused { "> " } else { "  " };
+    builder.lines.push(format!(
+        "{}@{}  {}",
+        prefix, comment.author_login, comment.created_at
+    ));
 
-    // ── New Comment section ─────────────────────────────────────────
+    let (cmt_text, cmt_cursor, cmt_editing) = match inline_state {
+        InlineState::Editor {
+            target: crate::state::EditorTarget::Comment { comment_index },
+            text,
+            cursor,
+        } if *comment_index == idx => (text.as_str(), *cursor, true),
+        _ => (comment.body.as_str(), 0, false),
+    };
+
+    if cmt_editing {
+        builder.lines.push("  [editing]".to_string());
+    }
+    builder.push_editor_lines(cmt_text, cmt_cursor, cmt_editing, "    │ ", "      ");
+    if cmt_editing {
+        builder
+            .lines
+            .push("    Ctrl+Enter save | Esc cancel".to_string());
+    }
+
+    if let InlineState::Composer {
+        target: crate::state::ComposerTarget::Reply { comment_index, .. },
+        text,
+        cursor,
+    } = inline_state
+        && *comment_index == idx
+    {
+        builder.lines.push("    [Reply]".to_string());
+        builder.push_editor_lines(text.as_str(), *cursor, true, "    │ ", "    │ ");
+        builder
+            .lines
+            .push("    Ctrl+Enter save | Esc cancel".to_string());
+    }
+
+    builder.lines.push(String::new());
+}
+
+/// Build new-comment section lines.
+fn build_new_comment_section(
+    subfocus: DetailSubfocus,
+    inline_state: &InlineState,
+    builder: &mut ContentBuilder,
+) {
     let nc_focused = subfocus == DetailSubfocus::NewComment;
     let nc_label = if nc_focused {
         "> New Comment"
     } else {
         "  New Comment"
     };
-    lines.push(nc_label.to_string());
+    builder.lines.push(nc_label.to_string());
 
     if let InlineState::Composer {
         target: crate::state::ComposerTarget::NewComment,
@@ -200,24 +214,44 @@ fn build_detail_content(
         cursor,
     } = inline_state
     {
-        let nc_cursor = *cursor;
-        push_editor_lines!(
-            text.as_str(),
-            nc_cursor,
-            true,
-            "  │ ",
-            "  │ ",
-            lines,
-            cursor_pos
-        );
-        lines.push("  Ctrl+Enter submit | Esc cancel".to_string());
+        builder.push_editor_lines(text.as_str(), *cursor, true, "  │ ", "  │ ");
+        builder
+            .lines
+            .push("  Ctrl+Enter submit | Esc cancel".to_string());
     } else {
-        lines.push("  Press c to add a comment".to_string());
+        builder.lines.push("  Press c to add a comment".to_string());
     }
+}
+
+/// Build the scrollable content string for the body + comments + new-comment area.
+fn build_detail_content(
+    detail: &IssueDetail,
+    subfocus: DetailSubfocus,
+    inline_state: &InlineState,
+    comments_loading: bool,
+) -> DetailContent {
+    let nl = String::from(char::from(0x0Au8));
+    let mut builder = ContentBuilder::new();
+
+    build_body_section(detail, subfocus, inline_state, &mut builder);
+    builder
+        .lines
+        .push("─────────────────────────────────────────".to_string());
+    build_comments_section(
+        detail,
+        subfocus,
+        inline_state,
+        comments_loading,
+        &mut builder,
+    );
+    builder
+        .lines
+        .push("─────────────────────────────────────────".to_string());
+    build_new_comment_section(subfocus, inline_state, &mut builder);
 
     DetailContent {
-        text: lines.join(&nl),
-        cursor: cursor_pos,
+        text: builder.lines.join(&nl),
+        cursor: builder.cursor_pos,
     }
 }
 
