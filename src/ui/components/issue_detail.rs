@@ -14,7 +14,9 @@ use super::scrollable_text::ScrollableText;
 /// Fixed number of rows the metadata header occupies (title, state, labels, url, separator).
 const HEADER_ROWS: usize = 5;
 
-/// Overhead rows outside the detail pane: status bar (1) + keybind bar (1) + border (2).
+/// Overhead rows outside the detail pane:
+///   status bar (1) + keybind bar (1) + detail border (2) = 4
+/// The issue list occupies ~30% of the remaining height.
 const CHROME_ROWS: usize = 4;
 
 /// Convert a byte-offset cursor in raw editor text to (line_index, char_column)
@@ -255,11 +257,15 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
         BorderStyle::Round
     };
 
-    // Compute viewport rows dynamically from terminal height.
-    // The detail pane gets ~70% of the available height (after chrome).
+    // Compute viewport rows from terminal height.
+    // The iocraft layout gives the detail pane ~70% of workspace via flex_grow.
+    // We compute the same 70% here to know how many fixed-height row children to emit.
     let term_rows = crossterm::terminal::size().map_or(40, |(_, h)| h as usize);
-    let pane_rows = (term_rows.saturating_sub(CHROME_ROWS)) * 7 / 10;
-    let scroll_rows = pane_rows.saturating_sub(HEADER_ROWS).max(5);
+    let workspace_rows = term_rows.saturating_sub(CHROME_ROWS);
+    let list_rows = workspace_rows * 3 / 10; // 30% for issue list
+    let detail_pane_rows = workspace_rows.saturating_sub(list_rows);
+    // Subtract header rows and border (2 rows for top+bottom border)
+    let scroll_rows = detail_pane_rows.saturating_sub(HEADER_ROWS + 2).max(5);
 
     // Build header and content — same structure whether issue is loaded or not
     let (h_title, h_state, h_labels, h_url, detail_content, state_color) = if let Some(detail) =

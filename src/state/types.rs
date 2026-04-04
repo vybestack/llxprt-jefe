@@ -385,7 +385,7 @@ pub struct IssuesState {
     pub draft_notice: Option<String>,
 }
 
-/// Header + chrome overhead matching issue_detail.rs layout constants.
+/// Layout constants matching issue_detail.rs.
 const DETAIL_HEADER_ROWS: usize = 5;
 const DETAIL_CHROME_ROWS: usize = 4;
 
@@ -394,8 +394,12 @@ impl IssuesState {
     /// matching the same formula used by `IssueDetailView`.
     fn detail_viewport_rows() -> usize {
         let term_rows = crossterm::terminal::size().map_or(40, |(_, h)| h as usize);
-        let pane_rows = (term_rows.saturating_sub(DETAIL_CHROME_ROWS)) * 7 / 10;
-        pane_rows.saturating_sub(DETAIL_HEADER_ROWS).max(5)
+        let workspace_rows = term_rows.saturating_sub(DETAIL_CHROME_ROWS);
+        let list_rows = workspace_rows * 3 / 10;
+        let detail_pane_rows = workspace_rows.saturating_sub(list_rows);
+        detail_pane_rows
+            .saturating_sub(DETAIL_HEADER_ROWS + 2)
+            .max(5)
     }
 
     /// Maximum scroll offset so the last line of content sits at the bottom of the viewport.

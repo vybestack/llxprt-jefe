@@ -130,6 +130,8 @@ pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Optio
         IssueFocus::IssueList => match key_event.code {
             KeyCode::Up => return Some(AppEvent::IssuesNavigateUp),
             KeyCode::Down => return Some(AppEvent::IssuesNavigateDown),
+            KeyCode::Left => return Some(AppEvent::IssuesCycleFocusReverse),
+            KeyCode::Right => return Some(AppEvent::IssuesCycleFocus),
             KeyCode::PageUp => return Some(AppEvent::IssuesNavigatePageUp),
             KeyCode::PageDown => return Some(AppEvent::IssuesNavigatePageDown),
             KeyCode::Home => return Some(AppEvent::IssuesNavigateHome),
@@ -143,6 +145,7 @@ pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Optio
         IssueFocus::IssueDetail => match key_event.code {
             KeyCode::Up => return Some(AppEvent::IssuesScrollDetailUp),
             KeyCode::Down => return Some(AppEvent::IssuesScrollDetailDown),
+            KeyCode::Left => return Some(AppEvent::IssuesCycleFocusReverse),
             KeyCode::PageUp => return Some(AppEvent::IssuesScrollDetailPageUp),
             KeyCode::PageDown => return Some(AppEvent::IssuesScrollDetailPageDown),
             KeyCode::Char('e') => {
@@ -183,6 +186,7 @@ pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Optio
         IssueFocus::RepoList => match key_event.code {
             KeyCode::Up => return Some(AppEvent::IssuesNavigateUp),
             KeyCode::Down => return Some(AppEvent::IssuesNavigateDown),
+            KeyCode::Right => return Some(AppEvent::IssuesCycleFocus),
             _ => {}
         },
     }

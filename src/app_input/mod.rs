@@ -517,7 +517,7 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
                             state.issues_state.inline_state = jefe::state::InlineState::None;
                             state.issues_state.agent_chooser = None;
                             state.issues_state.list_loading = true;
-                            state.issues_state.issue_focus = jefe::state::IssueFocus::IssueList;
+                            // Stay in RepoList focus so user can keep navigating repos
                         }
                         dispatch_app_event(app_state, ctx, AppEvent::RefocusIssueList);
                     }
