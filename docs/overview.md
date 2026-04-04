@@ -143,6 +143,7 @@ Destructive actions (delete agent, delete repository, kill agent) require explic
 | `e`/Enter  | Edit selected agent or repository             |
 | `d`        | Delete selected item (with confirmation)      |
 | `k`        | Kill running agent                            |
+| `v`        | Toggle active-only visibility (repos + agents)|
 | `l`        | Relaunch dead agent                           |
 | `s`        | Toggle split view                             |
 | `/`        | Open search/command palette                   |

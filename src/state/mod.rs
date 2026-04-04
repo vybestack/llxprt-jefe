@@ -118,6 +118,10 @@ impl AppState {
             .any(|agent| &agent.repository_id == repository_id && agent.is_running())
     }
 
+    fn is_agent_visible_with_idle_filter(&self, agent: &Agent) -> bool {
+        !self.hide_idle_repositories || agent.is_running()
+    }
+
     #[must_use]
     pub fn visible_repository_indices(&self) -> Vec<usize> {
         self.repositories
@@ -144,7 +148,11 @@ impl AppState {
         self.agents
             .iter()
             .enumerate()
-            .filter_map(|(idx, agent)| (&agent.repository_id == repository_id).then_some(idx))
+            .filter_map(|(idx, agent)| {
+                (&agent.repository_id == repository_id
+                    && self.is_agent_visible_with_idle_filter(agent))
+                .then_some(idx)
+            })
             .collect()
     }
 
@@ -284,8 +292,9 @@ impl AppState {
             AppEvent::JumpToAgentByShortcut(slot) => {
                 if let Some((agent_idx, target_repo_id)) =
                     self.agents.iter().enumerate().find_map(|(idx, agent)| {
-                        (agent.shortcut_slot == Some(slot))
-                            .then_some((idx, agent.repository_id.clone()))
+                        (agent.shortcut_slot == Some(slot)
+                            && self.is_agent_visible_with_idle_filter(agent))
+                        .then_some((idx, agent.repository_id.clone()))
                     })
                     && let Some(target_repo_idx) = self
                         .repositories
@@ -733,6 +742,7 @@ impl AppState {
         let repository_id = self.selected_repository_id()?;
         let selected_idx = self.selected_agent_index?;
         let agent = self.agents.get(selected_idx)?;
-        (&agent.repository_id == repository_id).then_some(agent)
+        (&agent.repository_id == repository_id && self.is_agent_visible_with_idle_filter(agent))
+            .then_some(agent)
     }
 }

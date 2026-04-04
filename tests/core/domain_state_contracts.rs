@@ -224,6 +224,65 @@ fn toggle_hide_idle_repositories_filters_to_running_repositories() {
             .map(|repository| repository.id.clone()),
         Some(RepositoryId("r2".into()))
     );
+
+    let visible_agents = next
+        .selected_repository()
+        .map(|repository| next.agent_indices_for_repository(&repository.id))
+        .unwrap_or_default();
+    assert_eq!(visible_agents.len(), 1);
+    assert_eq!(
+        next.selected_agent().map(|agent| agent.id.clone()),
+        Some(AgentId("a2".into()))
+    );
+}
+
+#[test]
+fn toggle_hide_idle_repositories_hides_idle_agents_in_selected_repository() {
+    let state = AppState {
+        repositories: vec![Repository::new(
+            RepositoryId("r1".into()),
+            "R1".into(),
+            "r1".into(),
+            PathBuf::from("/r1"),
+        )],
+        agents: vec![
+            Agent::new(
+                AgentId("idle".into()),
+                RepositoryId("r1".into()),
+                "Idle A".into(),
+                PathBuf::from("/r1/idle"),
+            ),
+            {
+                let mut running = Agent::new(
+                    AgentId("running".into()),
+                    RepositoryId("r1".into()),
+                    "Running A".into(),
+                    PathBuf::from("/r1/running"),
+                );
+                running.status = AgentStatus::Running;
+                running
+            },
+        ],
+        selected_repository_index: Some(0),
+        selected_agent_index: Some(0),
+        pane_focus: PaneFocus::Agents,
+        ..AppState::default()
+    };
+
+    let hidden = state.apply(AppEvent::ToggleHideIdleRepositories);
+
+    assert!(hidden.hide_idle_repositories);
+    let visible_indices = hidden.agent_indices_for_repository(&RepositoryId("r1".into()));
+    assert_eq!(visible_indices.len(), 1);
+    assert_eq!(
+        hidden.selected_agent().map(|agent| agent.id.clone()),
+        Some(AgentId("running".into()))
+    );
+
+    let restored = hidden.apply(AppEvent::ToggleHideIdleRepositories);
+    assert!(!restored.hide_idle_repositories);
+    let restored_visible = restored.agent_indices_for_repository(&RepositoryId("r1".into()));
+    assert_eq!(restored_visible.len(), 2);
 }
 
 #[test]

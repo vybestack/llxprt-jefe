@@ -44,6 +44,17 @@ fn try_extract_shortcut_slot(key_event: &KeyEvent) -> Option<u8> {
     }
 }
 
+fn relaunch_event_for_selected_agent(
+    selected_agent_id: Option<jefe::domain::AgentId>,
+    selected_agent_is_running: bool,
+) -> Option<AppEvent> {
+    if selected_agent_is_running {
+        None
+    } else {
+        selected_agent_id.map(AppEvent::RelaunchAgent)
+    }
+}
+
 pub fn handle_global_shortcut_key(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -67,6 +78,9 @@ pub fn handle_normal_key_event(
 ) -> Option<AppEvent> {
     let state_ro = app_state.read();
     let pane_focus = state_ro.pane_focus;
+    let selected_agent_is_running = state_ro
+        .selected_agent()
+        .is_some_and(jefe::domain::Agent::is_running);
     let selected_repo_id = state_ro
         .selected_repository()
         .map(|repository| repository.id.clone());
@@ -141,8 +155,10 @@ pub fn handle_normal_key_event(
             selected_agent_id.clone().map(AppEvent::KillAgent)
         }
 
-        // Relaunch agent
-        KeyCode::Char('l' | 'L') => selected_agent_id.clone().map(AppEvent::RelaunchAgent),
+        // Relaunch agent (dead/non-running only)
+        KeyCode::Char('l' | 'L') => {
+            relaunch_event_for_selected_agent(selected_agent_id.clone(), selected_agent_is_running)
+        }
 
         // Split mode
         KeyCode::Char('s' | 'S') if screen_mode == ScreenMode::Dashboard => {
@@ -260,5 +276,27 @@ pub fn handle_normal_key_event(
         }
 
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::relaunch_event_for_selected_agent;
+    use jefe::domain::AgentId;
+    use jefe::state::AppEvent;
+
+    #[test]
+    fn relaunch_event_is_none_for_running_agent() {
+        let evt = relaunch_event_for_selected_agent(Some(AgentId(String::from("a1"))), true);
+        assert!(evt.is_none());
+    }
+
+    #[test]
+    fn relaunch_event_is_emitted_for_non_running_agent() {
+        let evt = relaunch_event_for_selected_agent(Some(AgentId(String::from("a1"))), false);
+        assert!(matches!(
+            evt,
+            Some(AppEvent::RelaunchAgent(AgentId(id))) if id == "a1"
+        ));
     }
 }

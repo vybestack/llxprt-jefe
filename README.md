@@ -34,6 +34,7 @@
 - `n` / `N`: new agent / new repository.
 - `Ctrl-d`: delete selected.
 - `Ctrl-k`: kill selected agent.
+- `v`: toggle active-only visibility (running repositories + running agents).
 - `l`: relaunch dead agent.
 - `s`: split view.
 - `?` / `h` / `F1`: help.
