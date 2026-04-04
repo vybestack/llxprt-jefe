@@ -73,10 +73,16 @@ pub fn handle_normal_key_event(
     let selected_agent_id = state_ro.selected_agent().map(|agent| agent.id.clone());
     drop(state_ro);
 
-    // Issues mode routing — route to issues handler when in DashboardIssues
+    // Issues mode routing — route to issues handler when in DashboardIssues.
+    // Quit is handled here (not in the issues resolver) because it uses
+    // the `should_quit` handle which is not an AppEvent.
     // @plan PLAN-20260329-ISSUES-MODE.P09
     // @requirement REQ-ISS-002
     if screen_mode == ScreenMode::DashboardIssues {
+        if matches!(key_event.code, KeyCode::Char('q' | 'Q')) {
+            should_quit.set(true);
+            return None;
+        }
         return super::issues::handle_issues_mode_key(&*app_state, ctx, key_event);
     }
 

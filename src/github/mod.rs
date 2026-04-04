@@ -103,7 +103,8 @@ pub fn categorize_error(exit_code: i32, stderr: &str) -> GhError {
 
     if stderr_lower.contains("401")
         || stderr_lower.contains("not logged in")
-        || stderr_lower.contains("auth")
+        || stderr_lower.contains("authentication")
+        || stderr_lower.contains("not authenticated")
     {
         return GhError::NotAuthenticated(stderr.to_string());
     }
@@ -333,7 +334,7 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
     // Extract repo_owner_name from URL (format: https://github.com/owner/repo/issues/NUM)
     let repo_owner_name = external_url
         .strip_prefix("https://github.com/")
-        .and_then(|rest| rest.rsplit_once('/').map(|x| x.0.to_string()))
+        .and_then(|rest| rest.find("/issues/").map(|idx| rest[..idx].to_string()))
         .unwrap_or_default();
 
     // Parse comments - REST format for issue detail
@@ -462,53 +463,7 @@ pub fn parse_comments_json(
 
     let mut comments = Vec::new();
     for node in nodes {
-        let id_str = node
-            .get("id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| GhError::ParseError("Missing comment id".to_string()))?;
-
-        // Extract numeric part from "IC_123" format
-        let comment_id = id_str
-            .split('_')
-            .nth(1)
-            .and_then(|s| s.parse::<u64>().ok())
-            .or_else(|| id_str.parse::<u64>().ok())
-            .ok_or_else(|| GhError::ParseError(format!("Invalid comment id: {id_str}")))?;
-
-        let author_login = node
-            .get("author")
-            .and_then(|a| a.get("login"))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-
-        let created_at = node
-            .get("createdAt")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-
-        let edited_at = node.get("lastEditedAt").and_then(|e| {
-            if e.is_null() {
-                None
-            } else {
-                e.as_str().map(String::from)
-            }
-        });
-
-        let body = node
-            .get("body")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-
-        comments.push(IssueComment {
-            comment_id,
-            author_login,
-            created_at,
-            edited_at,
-            body,
-        });
+        comments.push(parse_rest_comment(node)?);
     }
 
     Ok((comments, end_cursor, has_next_page))
@@ -771,45 +726,39 @@ impl GhClient {
         cursor: Option<&str>,
         page_size: u32,
     ) -> Result<CommentsResponse, GhError> {
-        // Build GraphQL query
-        let cursor_part = cursor
-            .map(|c| format!(", after: \"{c}\""))
-            .unwrap_or_default();
+        // Build GraphQL query using parameterized variables for safety
+        let query = if cursor.is_some() {
+            "query($owner: String!, $repo: String!, $number: Int!, $first: Int!, $after: String) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first, after: $after) { nodes { id author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }"
+        } else {
+            "query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first) { nodes { id author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }"
+        };
 
-        let query = format!(
-            r#"query {{
-                repository(owner: "{owner}", name: "{repo}") {{
-                    issue(number: {number}) {{
-                        comments(first: {page_size}{cursor_part}) {{
-                            nodes {{
-                                id
-                                author {{
-                                    login
-                                }}
-                                createdAt
-                                lastEditedAt
-                                body
-                            }}
-                            pageInfo {{
-                                hasNextPage
-                                endCursor
-                            }}
-                        }}
-                    }}
-                }}
-            }}"#
-        );
+        let mut args = vec![
+            "api".to_string(),
+            "graphql".to_string(),
+            "-f".to_string(),
+            format!("query={query}"),
+            "-F".to_string(),
+            format!("owner={owner}"),
+            "-F".to_string(),
+            format!("repo={repo}"),
+            "-F".to_string(),
+            format!("number={number}"),
+            "-F".to_string(),
+            format!("first={page_size}"),
+        ];
+        if let Some(c) = cursor {
+            args.push("-F".to_string());
+            args.push(format!("after={c}"));
+        }
 
-        let output = Command::new("gh")
-            .args(["api", "graphql", "-f", &format!("query={query}")])
-            .output()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    GhError::NotInstalled
-                } else {
-                    GhError::NetworkError(e.to_string())
-                }
-            })?;
+        let output = Command::new("gh").args(&args).output().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                GhError::NotInstalled
+            } else {
+                GhError::NetworkError(e.to_string())
+            }
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1188,6 +1137,7 @@ mod tests {
             detail.external_url,
             "https://github.com/owner/repo/issues/17"
         );
+        assert_eq!(detail.repo_owner_name, "owner/repo");
         assert_eq!(detail.comments.len(), 1);
         assert_eq!(detail.comments[0].body, "Comment body");
     }

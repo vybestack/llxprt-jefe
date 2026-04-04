@@ -429,6 +429,34 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                             persist_state_snapshot(&ctx, &state);
                             suppress_next_enter.set(false);
                         }
+                        InputMode::IssuesInline => {
+                            let mut state = app_state.write();
+                            for ch in pasted_text.chars().filter(|ch| *ch != '\r') {
+                                if ch == '\n' {
+                                    *state =
+                                        std::mem::take(&mut *state).apply(AppEvent::InlineNewline);
+                                } else {
+                                    *state =
+                                        std::mem::take(&mut *state).apply(AppEvent::InlineChar(ch));
+                                }
+                            }
+                            persist_state_snapshot(&ctx, &state);
+                            suppress_next_enter.set(false);
+                        }
+                        InputMode::IssuesSearch => {
+                            let mut state = app_state.write();
+                            let filtered: String = pasted_text
+                                .chars()
+                                .filter(|ch| *ch != '\r' && *ch != '\n')
+                                .collect();
+                            if !filtered.is_empty() {
+                                let mut query = state.issues_state.search_query.clone();
+                                query.push_str(&filtered);
+                                *state = std::mem::take(&mut *state)
+                                    .apply(AppEvent::SetSearchQuery { query });
+                            }
+                            suppress_next_enter.set(false);
+                        }
                         _ => {
                             suppress_next_enter.set(false);
                         }
