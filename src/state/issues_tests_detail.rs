@@ -4,9 +4,8 @@ use crate::domain::{
 use crate::state::AppState;
 use crate::state::types::{
     AgentChooserState, AppEvent, ComposerTarget, DetailSubfocus, EditorTarget, InlineState,
-    IssueFocus, PaneFocus, PriorAgentFocus, ScreenMode,
+    IssueFocus, PaneFocus, ScreenMode,
 };
-use std::path::PathBuf;
 
 /// Helper to create a test issue with the given number.
 fn make_test_issue(number: u64) -> Issue {
