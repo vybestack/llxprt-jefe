@@ -5,3 +5,4 @@
 
 mod domain_state_contracts;
 mod persistence_theme_contracts;
+mod visibility_filter_contracts;

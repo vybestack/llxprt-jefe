@@ -210,6 +210,18 @@ impl AppState {
             .collect()
     }
 
+    /// Return the visible agents for a repository, respecting the idle filter.
+    ///
+    /// This uses `agent_indices_for_repository` internally so the returned
+    /// list is always consistent with `selected_agent_local_index`.
+    #[must_use]
+    pub fn visible_agents_for_repository(&self, repository_id: &RepositoryId) -> Vec<Agent> {
+        self.agent_indices_for_repository(repository_id)
+            .iter()
+            .filter_map(|idx| self.agents.get(*idx).cloned())
+            .collect()
+    }
+
     pub fn rebuild_repository_agent_ids(&mut self) {
         for repository in &mut self.repositories {
             repository.agent_ids.clear();

@@ -78,13 +78,8 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
             .collect()
     });
     let agents = state.map_or_else(Vec::new, |s| {
-        s.selected_repository().map_or_else(Vec::new, |repo| {
-            s.agents
-                .iter()
-                .filter(|agent| agent.repository_id == repo.id)
-                .cloned()
-                .collect()
-        })
+        s.selected_repository()
+            .map_or_else(Vec::new, |repo| s.visible_agents_for_repository(&repo.id))
     });
     let selected_agent_data = state.and_then(|s| s.selected_agent().cloned());
 
