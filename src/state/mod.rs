@@ -364,19 +364,7 @@ impl AppState {
                     // @plan PLAN-20260329-ISSUES-MODE.P15
                     // @requirement REQ-ISS-001, REQ-ISS-013
                     if self.issues_state.active {
-                        // Discard unsent inline drafts with notice
-                        if self.issues_state.inline_state != InlineState::None {
-                            self.issues_state.draft_notice =
-                                Some("Unsent draft discarded".to_string());
-                            self.issues_state.inline_state = InlineState::None;
-                        }
-                        self.issues_state.issues.clear();
-                        self.issues_state.selected_issue_index = None;
-                        self.issues_state.issue_detail = None;
-                        self.issues_state.list_cursor = None;
-                        self.issues_state.has_more_issues = false;
-                        self.issues_state.error = None;
-                        self.issues_state.list_loading = true;
+                        self.reset_issues_for_repo_change();
                     }
                 }
             }

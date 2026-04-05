@@ -279,7 +279,7 @@ impl AppState {
     }
 
     /// Clear loaded issues data after a repo change in issues mode.
-    fn reset_issues_for_repo_change(&mut self) {
+    pub(super) fn reset_issues_for_repo_change(&mut self) {
         if self.issues_state.inline_state != InlineState::None {
             self.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
             self.issues_state.inline_state = InlineState::None;
