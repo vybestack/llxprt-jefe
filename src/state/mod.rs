@@ -880,3 +880,14 @@ mod issues_tests;
 )]
 #[path = "issues_tests_detail.rs"]
 mod issues_tests_detail;
+
+#[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::field_reassign_with_default,
+    clippy::manual_string_new,
+    clippy::uninlined_format_args
+)]
+#[path = "issues_tests_repo_nav.rs"]
+mod issues_tests_repo_nav;

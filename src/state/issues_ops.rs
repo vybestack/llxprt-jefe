@@ -246,6 +246,53 @@ impl AppState {
         }
     }
 
+    /// Navigate to the previous repository in issues mode.
+    ///
+    /// Unlike `handle_navigate_up` (which checks `pane_focus`), this always
+    /// navigates the repo list and resets issues state for the new scope.
+    fn navigate_repo_up_in_issues_mode(&mut self) {
+        let visible_repo_indices = self.visible_repository_indices();
+        let selected_visible_idx = self.selected_repository_visible_index();
+        if let Some(visible_idx) = selected_visible_idx.filter(|&idx| idx > 0) {
+            self.remember_selected_agent_for_current_repo();
+            self.selected_repository_index = Some(visible_repo_indices[visible_idx - 1]);
+            self.restore_selected_agent_for_current_repo();
+            self.reset_issues_for_repo_change();
+        }
+    }
+
+    /// Navigate to the next repository in issues mode.
+    ///
+    /// Unlike `handle_navigate_down` (which checks `pane_focus`), this always
+    /// navigates the repo list and resets issues state for the new scope.
+    fn navigate_repo_down_in_issues_mode(&mut self) {
+        let visible_repo_indices = self.visible_repository_indices();
+        let selected_visible_idx = self.selected_repository_visible_index();
+        if let Some(visible_idx) = selected_visible_idx
+            && visible_idx + 1 < visible_repo_indices.len()
+        {
+            self.remember_selected_agent_for_current_repo();
+            self.selected_repository_index = Some(visible_repo_indices[visible_idx + 1]);
+            self.restore_selected_agent_for_current_repo();
+            self.reset_issues_for_repo_change();
+        }
+    }
+
+    /// Clear loaded issues data after a repo change in issues mode.
+    fn reset_issues_for_repo_change(&mut self) {
+        if self.issues_state.inline_state != InlineState::None {
+            self.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
+            self.issues_state.inline_state = InlineState::None;
+        }
+        self.issues_state.issues.clear();
+        self.issues_state.selected_issue_index = None;
+        self.issues_state.issue_detail = None;
+        self.issues_state.list_cursor = None;
+        self.issues_state.has_more_issues = false;
+        self.issues_state.error = None;
+        self.issues_state.list_loading = true;
+    }
+
     /// Handle issues navigation and focus events.
     #[allow(clippy::too_many_lines)]
     fn apply_issues_navigation(&mut self, event: AppEvent) {
@@ -258,7 +305,7 @@ impl AppState {
                         self.issues_state.selected_issue_index = Some(idx - 1);
                     }
                 }
-                IssueFocus::RepoList => self.handle_navigate_up(),
+                IssueFocus::RepoList => self.navigate_repo_up_in_issues_mode(),
                 IssueFocus::IssueDetail => {}
             },
             AppEvent::IssuesNavigateDown => match self.issues_state.issue_focus {
@@ -269,7 +316,7 @@ impl AppState {
                         self.issues_state.selected_issue_index = Some(idx + 1);
                     }
                 }
-                IssueFocus::RepoList => self.handle_navigate_down(),
+                IssueFocus::RepoList => self.navigate_repo_down_in_issues_mode(),
                 IssueFocus::IssueDetail => {}
             },
             AppEvent::IssuesNavigatePageUp => {
