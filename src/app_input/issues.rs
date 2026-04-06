@@ -137,6 +137,7 @@ pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Optio
             KeyCode::Home => return Some(AppEvent::IssuesNavigateHome),
             KeyCode::End => return Some(AppEvent::IssuesNavigateEnd),
             KeyCode::Enter => return Some(AppEvent::IssuesEnter),
+            KeyCode::Char('n' | 'N') => return Some(AppEvent::OpenNewIssueComposer),
             KeyCode::Char('f') => return Some(AppEvent::OpenFilterControls),
             KeyCode::Char('/') => return Some(AppEvent::FocusSearchInput),
             _ => {}
@@ -521,6 +522,26 @@ mod tests {
         let state = issues_state_with_focus(IssueFocus::IssueList);
         let event = resolve_issues_key_event(&state, &key(KeyCode::Enter));
         assert!(matches!(event, Some(AppEvent::IssuesEnter)));
+    }
+
+    /// `n` in IssueList focus dispatches OpenNewIssueComposer.
+    ///
+    /// @plan PLAN-20260329-ISSUES-MODE.P10
+    /// @plan PLAN-20260329-ISSUES-MODE.P11
+    /// @requirement REQ-ISS-010
+    #[test]
+    fn test_n_opens_new_issue_composer_from_issue_list() {
+        let state = issues_state_with_focus(IssueFocus::IssueList);
+        let event = resolve_issues_key_event(&state, &key(KeyCode::Char('n')));
+        assert!(matches!(event, Some(AppEvent::OpenNewIssueComposer)));
+    }
+
+    /// `N` in IssueList focus dispatches OpenNewIssueComposer.
+    #[test]
+    fn test_upper_n_opens_new_issue_composer_from_issue_list() {
+        let state = issues_state_with_focus(IssueFocus::IssueList);
+        let event = resolve_issues_key_event(&state, &key(KeyCode::Char('N')));
+        assert!(matches!(event, Some(AppEvent::OpenNewIssueComposer)));
     }
 
     // ═══════════════════════════════════════════════════════════════════════

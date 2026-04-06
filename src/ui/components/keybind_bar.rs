@@ -34,7 +34,7 @@ pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
             }
             ScreenMode::Split => "^/v select | g grab | m move | Esc back | ? help",
             ScreenMode::DashboardIssues => {
-                "^/v navigate | Enter open detail | f filter | / search | Tab cycle focus | i issue list | r reply | S send-to-agent | e edit | c comment | a exit issues | Esc back/exit"
+                "^/v navigate | Enter open detail | n new issue | f filter | / search | Tab cycle focus | i issue list | r reply | S send-to-agent | e edit | c comment | a exit issues | Esc back/exit"
             }
         }
     };

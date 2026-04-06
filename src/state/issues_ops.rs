@@ -614,6 +614,19 @@ impl AppState {
 
             // @requirement REQ-ISS-010
             // @pseudocode component-001 lines 190-197
+            AppEvent::OpenNewIssueComposer => {
+                if self.issues_state.inline_state == InlineState::None {
+                    self.issues_state.issue_focus = IssueFocus::IssueList;
+                    self.issues_state.inline_state = InlineState::Composer {
+                        target: ComposerTarget::NewIssue,
+                        text: String::new(),
+                        cursor: 0,
+                    };
+                }
+            }
+
+            // @requirement REQ-ISS-010
+            // @pseudocode component-001 lines 190-197
             AppEvent::OpenNewCommentComposer => {
                 if self.issues_state.inline_state == InlineState::None {
                     self.issues_state.inline_state = InlineState::Composer {

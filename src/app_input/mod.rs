@@ -792,40 +792,97 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
 
             match action {
                 InlineSubmitAction::Create { target, text } => {
-                    let issue_number = {
-                        let state = app_state.read();
-                        state.issues_state.issue_detail.as_ref().map(|d| d.number)
-                    };
-                    let Some(number) = issue_number else { return };
+                    if target == jefe::state::ComposerTarget::NewIssue {
+                        let (title, body) =
+                            if let Some((first, rest)) = text.split_once(char::from(0x0Au8)) {
+                                (first.trim().to_string(), rest.to_string())
+                            } else {
+                                (text.trim().to_string(), String::new())
+                            };
 
-                    let result = if let Some(ctx_arc) = &ctx
-                        && let Ok(ctx_guard) = ctx_arc.lock()
-                    {
-                        Some(
-                            ctx_guard
-                                .gh_client
-                                .create_comment(&owner, &repo, number, &text),
-                        )
+                        if title.is_empty() {
+                            let mut state = app_state.write();
+                            *state = std::mem::take(&mut *state).apply(AppEvent::MutationFailed {
+                                error: "Issue title cannot be empty".to_string(),
+                            });
+                            return;
+                        }
+
+                        let result = if let Some(ctx_arc) = &ctx
+                            && let Ok(ctx_guard) = ctx_arc.lock()
+                        {
+                            Some(
+                                ctx_guard
+                                    .gh_client
+                                    .create_issue(&owner, &repo, &title, &body),
+                            )
+                        } else {
+                            None
+                        };
+
+                        match result {
+                            Some(Ok(issue)) => {
+                                {
+                                    let mut state = app_state.write();
+                                    state.issues_state.inline_state =
+                                        jefe::state::InlineState::None;
+                                    state.issues_state.error = None;
+                                    state.issues_state.draft_notice =
+                                        Some(format!("Created issue #{}", issue.number));
+                                }
+                                dispatch_app_event(app_state, ctx, AppEvent::RefocusIssueList);
+                            }
+                            Some(Err(e)) => {
+                                let mut state = app_state.write();
+                                *state =
+                                    std::mem::take(&mut *state).apply(AppEvent::MutationFailed {
+                                        error: e.to_string(),
+                                    });
+                            }
+                            None => {
+                                let mut state = app_state.write();
+                                *state =
+                                    std::mem::take(&mut *state).apply(AppEvent::MutationFailed {
+                                        error: "Application context unavailable".to_string(),
+                                    });
+                            }
+                        }
                     } else {
-                        None
-                    };
+                        let issue_number = {
+                            let state = app_state.read();
+                            state.issues_state.issue_detail.as_ref().map(|d| d.number)
+                        };
+                        let Some(number) = issue_number else { return };
 
-                    match result {
-                        Some(Ok(comment)) => {
-                            let mut state = app_state.write();
-                            *state = std::mem::take(&mut *state)
-                                .apply(AppEvent::CommentCreated { comment });
+                        let result = if let Some(ctx_arc) = &ctx
+                            && let Ok(ctx_guard) = ctx_arc.lock()
+                        {
+                            Some(
+                                ctx_guard
+                                    .gh_client
+                                    .create_comment(&owner, &repo, number, &text),
+                            )
+                        } else {
+                            None
+                        };
+
+                        match result {
+                            Some(Ok(comment)) => {
+                                let mut state = app_state.write();
+                                *state = std::mem::take(&mut *state)
+                                    .apply(AppEvent::CommentCreated { comment });
+                            }
+                            Some(Err(e)) => {
+                                let mut state = app_state.write();
+                                *state = std::mem::take(&mut *state).apply(
+                                    AppEvent::CommentCreateFailed {
+                                        error: e.to_string(),
+                                    },
+                                );
+                            }
+                            None => {}
                         }
-                        Some(Err(e)) => {
-                            let mut state = app_state.write();
-                            *state =
-                                std::mem::take(&mut *state).apply(AppEvent::CommentCreateFailed {
-                                    error: e.to_string(),
-                                });
-                        }
-                        None => {}
                     }
-                    let _ = target; // used for routing, not needed further
                 }
                 InlineSubmitAction::Edit { target, text } => match target {
                     jefe::state::EditorTarget::IssueBody => {

@@ -77,6 +77,16 @@ pub struct SendPayload {
     pub issue_base_prompt: String,
 }
 
+/// Payload for creating a new issue.
+///
+/// @plan PLAN-20260329-ISSUES-MODE.P03
+/// @requirement REQ-ISS-011
+pub struct CreateIssuePayload {
+    pub number: u64,
+    pub title: String,
+    pub body: String,
+}
+
 // GitHub CLI client wrapper
 // =============================================================================
 // Parsing and Building Helpers
@@ -528,6 +538,38 @@ pub fn parse_created_comment_json(json_str: &str) -> Result<IssueComment, GhErro
     })
 }
 
+/// Parse JSON response from `gh issue create --json number,title,body`.
+///
+/// @plan PLAN-20260329-ISSUES-MODE.P08
+/// @requirement REQ-ISS-011
+pub fn parse_created_issue_json(json_str: &str) -> Result<CreateIssuePayload, GhError> {
+    let value: Value = serde_json::from_str(json_str)
+        .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
+
+    let number = value
+        .get("number")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| GhError::ParseError("Missing or invalid issue number".to_string()))?;
+
+    let title = value
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
+    let body = value
+        .get("body")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
+    Ok(CreateIssuePayload {
+        number,
+        title,
+        body,
+    })
+}
+
 /// Build CLI arguments for `gh issue list` command.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P08
@@ -773,6 +815,46 @@ impl GhClient {
             cursor: end_cursor,
             has_more,
         })
+    }
+
+    /// Create a new issue.
+    ///
+    /// @plan PLAN-20260329-ISSUES-MODE.P08
+    /// @requirement REQ-ISS-011
+    pub fn create_issue(
+        &self,
+        owner: &str,
+        repo: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<CreateIssuePayload, GhError> {
+        let output = Command::new("gh")
+            .args([
+                "api",
+                "--method",
+                "POST",
+                &format!("/repos/{owner}/{repo}/issues"),
+                "-f",
+                &format!("title={title}"),
+                "-f",
+                &format!("body={body}"),
+            ])
+            .output()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    GhError::NotInstalled
+                } else {
+                    GhError::NetworkError(e.to_string())
+                }
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(categorize_error(output.status.code().unwrap_or(1), &stderr));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        parse_created_issue_json(&stdout)
     }
 
     /// Create a new comment on an issue.

@@ -361,6 +361,23 @@ fn test_create_comment_success() {
     assert_eq!(comment.body, "This is a new comment");
 }
 
+/// Test 11a: parse_created_issue_json parses created issue payload.
+/// @plan PLAN-20260329-ISSUES-MODE.P08
+/// @requirement REQ-ISS-011
+#[test]
+fn test_create_issue_success() {
+    let json = r#"{
+        "number": 45,
+        "title": "Create issue from issues mode",
+        "body": "Issue body details"
+    }"#;
+
+    let issue = parse_created_issue_json(json).expect("should parse created issue");
+    assert_eq!(issue.number, 45);
+    assert_eq!(issue.title, "Create issue from issues mode");
+    assert_eq!(issue.body, "Issue body details");
+}
+
 /// Test 11b: parse_created_comment_json handles REST API format (numeric id, "user", "created_at").
 /// @plan PLAN-20260329-ISSUES-MODE.P08
 /// @requirement REQ-ISS-011
