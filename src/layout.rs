@@ -12,6 +12,10 @@ pub const OUTER_BARS_HEIGHT: u16 = 2;
 pub const TERMINAL_WIDGET_CHROME_ROWS: u16 = 3;
 /// Terminal widget chrome columns: left + right border.
 pub const TERMINAL_WIDGET_CHROME_COLS: u16 = 2;
+/// Minimum rows reserved for the agent pane so it keeps its chrome and at least one content row.
+pub const AGENT_PANE_MIN_ROWS: u16 = 3;
+/// Minimum rows reserved for the terminal pane so it keeps its chrome and a usable viewport.
+pub const TERMINAL_PANE_MIN_ROWS: u16 = TERMINAL_WIDGET_CHROME_ROWS + 2;
 
 /// Check if fullscreen mode is enabled.
 #[must_use]
@@ -29,10 +33,42 @@ fn effective_render_size_inner(cols: u16, rows: u16, fullscreen: bool) -> (u16, 
     }
 }
 
+fn dashboard_middle_row_heights_inner(render_rows: u16) -> (u16, u16) {
+    let content_rows = render_rows.saturating_sub(OUTER_BARS_HEIGHT);
+
+    if content_rows <= AGENT_PANE_MIN_ROWS + TERMINAL_PANE_MIN_ROWS {
+        let terminal_rows = content_rows.saturating_sub(AGENT_PANE_MIN_ROWS).max(1);
+        let agent_rows = content_rows.saturating_sub(terminal_rows);
+        return (agent_rows, terminal_rows);
+    }
+
+    // Round to nearest (half-up) to match taffy's cumulative rounding of
+    // percentage-based flex children. Simple truncation (`*25/100`) under-
+    // counts by 1 row whenever the product has a fractional part ≥ 0.5.
+    let preferred_agent_rows = content_rows
+        .saturating_mul(25)
+        .saturating_add(50)
+        .saturating_div(100);
+    let max_agent_rows = content_rows.saturating_sub(TERMINAL_PANE_MIN_ROWS);
+    let agent_rows = preferred_agent_rows
+        .clamp(AGENT_PANE_MIN_ROWS, max_agent_rows)
+        .min(content_rows);
+    let terminal_rows = content_rows.saturating_sub(agent_rows).max(1);
+
+    (agent_rows, terminal_rows)
+}
+
 /// Calculate effective render dimensions.
 #[must_use]
 pub fn effective_render_size(cols: u16, rows: u16) -> (u16, u16) {
     effective_render_size_inner(cols, rows, is_fullscreen_enabled())
+}
+
+/// Compute adaptive middle-column row heights for the dashboard layout.
+#[must_use]
+pub fn dashboard_middle_row_heights(term_cols: u16, term_rows: u16) -> (u16, u16) {
+    let (_, render_rows) = effective_render_size(term_cols, term_rows);
+    dashboard_middle_row_heights_inner(render_rows)
 }
 
 /// Compute PTY viewport size and its origin for a given fullscreen flag.
@@ -44,18 +80,11 @@ fn compute_pty_layout_inner(
 ) -> (u16, u16, u16, u16) {
     let (render_cols, render_rows) = effective_render_size_inner(term_cols, term_rows, fullscreen);
 
-    let content_rows = render_rows.saturating_sub(OUTER_BARS_HEIGHT);
+    let (_, terminal_slot_rows) = dashboard_middle_row_heights_inner(render_rows);
     let middle_cols = render_cols.saturating_sub(LEFT_COL_WIDTH + RIGHT_COL_WIDTH);
-
-    // Round to nearest (half-up) to match taffy's cumulative rounding of
-    // percentage-based flex children.  Simple truncation (`*25/100`) under-
-    // counts by 1 row whenever the product has a fractional part ≥ 0.5,
-    // which shifts the mouse-coordinate origin for the terminal pane.
-    let agent_rows = content_rows
-        .saturating_mul(25)
-        .saturating_add(50)
-        .saturating_div(100);
-    let terminal_slot_rows = content_rows.saturating_sub(agent_rows);
+    let agent_rows = render_rows
+        .saturating_sub(OUTER_BARS_HEIGHT)
+        .saturating_sub(terminal_slot_rows);
 
     let pty_rows = terminal_slot_rows
         .saturating_sub(TERMINAL_WIDGET_CHROME_ROWS)
@@ -75,7 +104,8 @@ fn compute_pty_layout_inner(
 /// Layout mirrors dashboard proportions:
 /// - top status bar (1 row)
 /// - bottom keybind bar (1 row)
-/// - middle column split: agent list 25%, terminal 75%
+/// - middle column split: agent list prefers 25% and terminal gets the rest
+/// - under tight heights, the terminal keeps enough rows for its chrome and viewport
 /// - terminal widget chrome: border + header + border
 #[must_use]
 pub fn compute_pty_layout(term_cols: u16, term_rows: u16) -> (u16, u16, u16, u16) {
@@ -103,6 +133,22 @@ mod tests {
     fn compute_pty_layout_pane_origin() {
         let (_, _, pane_col0, _) = compute_pty_layout_inner(120, 40, true);
         assert_eq!(pane_col0, LEFT_COL_WIDTH + 1);
+    }
+
+    #[test]
+    fn dashboard_middle_row_heights_preserve_default_split_when_space_allows() {
+        assert_eq!(dashboard_middle_row_heights_inner(40), (10, 28));
+    }
+
+    #[test]
+    fn dashboard_middle_row_heights_protect_terminal_space_when_rows_are_tight() {
+        assert_eq!(dashboard_middle_row_heights_inner(10), (3, 5));
+    }
+
+    #[test]
+    fn dashboard_middle_row_heights_degrade_gracefully_when_extremely_small() {
+        assert_eq!(dashboard_middle_row_heights_inner(4), (1, 1));
+        assert_eq!(dashboard_middle_row_heights_inner(3), (0, 1));
     }
 
     #[test]

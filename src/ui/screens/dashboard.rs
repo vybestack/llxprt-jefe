@@ -7,6 +7,7 @@
 
 use iocraft::prelude::*;
 
+use crate::layout::dashboard_middle_row_heights;
 use crate::runtime::TerminalSnapshot;
 use crate::state::{AppState, PaneFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
@@ -98,6 +99,9 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
     let colors = props.colors.clone().unwrap_or_default();
     let rc = ResolvedColors::from_theme(Some(&colors));
 
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (agent_rows, terminal_rows) = dashboard_middle_row_heights(term_cols, term_rows);
+
     element! {
         Box(
             flex_direction: FlexDirection::Column,
@@ -139,7 +143,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                     flex_grow: 1.0,
                     height: 100pct,
                 ) {
-                    Box(height: 25pct, width: 100pct) {
+                    Box(height: agent_rows, width: 100pct) {
                         AgentList(
                             agents: agents,
                             selected: selected_agent_idx,
@@ -147,7 +151,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                             colors: colors.clone(),
                         )
                     }
-                    Box(height: 75pct, width: 100pct) {
+                    Box(height: terminal_rows, width: 100pct) {
                         TerminalView(
                             snapshot: props.terminal_snapshot.clone(),
                             focused: terminal_focused,
