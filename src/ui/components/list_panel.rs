@@ -4,11 +4,18 @@ use iocraft::prelude::*;
 
 use crate::theme::{ResolvedColors, ThemeColors};
 
+/// Single styled text segment in a list panel row.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ListPanelSegment {
+    pub text: String,
+    pub color: Option<Color>,
+}
+
 /// Single display row in a list panel.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ListPanelRow {
-    pub primary: String,
-    pub secondary: Option<String>,
+    pub primary: Vec<ListPanelSegment>,
+    pub secondary: Vec<ListPanelSegment>,
 }
 
 /// Props for the shared list panel component.
@@ -103,13 +110,39 @@ pub fn ListPanel(props: &ListPanelProps) -> impl Into<AnyElement<'static>> {
                 } else {
                     visible_rows.iter().map(|(i, row)| {
                         let selected = props.selected_index == Some(*i);
+                        let primary_text = row
+                            .primary
+                            .iter()
+                            .map(|segment| segment.text.as_str())
+                            .collect::<String>();
+                        let secondary_text = row
+                            .secondary
+                            .iter()
+                            .map(|segment| segment.text.as_str())
+                            .collect::<String>();
+                        let primary_color = if selected {
+                            rc.sel_fg
+                        } else {
+                            row.primary
+                                .iter()
+                                .find_map(|segment| segment.color)
+                                .unwrap_or(rc.fg)
+                        };
+                        let secondary_color = if selected {
+                            rc.sel_fg
+                        } else {
+                            row.secondary
+                                .iter()
+                                .find_map(|segment| segment.color)
+                                .unwrap_or(rc.dim)
+                        };
                         if selected {
                             if props.compact {
                                 element! {
                                     Box(height: 1u32, background_color: rc.sel_bg) {
                                         Text(
-                                            content: row.primary.clone(),
-                                            color: rc.sel_fg,
+                                            content: primary_text,
+                                            color: primary_color,
                                             weight: Weight::Bold,
                                         )
                                     }
@@ -119,15 +152,15 @@ pub fn ListPanel(props: &ListPanelProps) -> impl Into<AnyElement<'static>> {
                                     Box(flex_direction: FlexDirection::Column) {
                                         Box(height: 1u32, background_color: rc.sel_bg) {
                                             Text(
-                                                content: row.primary.clone(),
-                                                color: rc.sel_fg,
+                                                content: primary_text,
+                                                color: primary_color,
                                                 weight: Weight::Bold,
                                             )
                                         }
                                         Box(height: 1u32, background_color: rc.sel_bg) {
                                             Text(
-                                                content: row.secondary.clone().unwrap_or_default(),
-                                                color: rc.sel_fg,
+                                                content: secondary_text,
+                                                color: secondary_color,
                                             )
                                         }
                                     }
@@ -136,19 +169,19 @@ pub fn ListPanel(props: &ListPanelProps) -> impl Into<AnyElement<'static>> {
                         } else if props.compact {
                             element! {
                                 Box(height: 1u32) {
-                                    Text(content: row.primary.clone(), color: rc.fg)
+                                    Text(content: primary_text, color: primary_color)
                                 }
                             }
                         } else {
                             element! {
                                 Box(flex_direction: FlexDirection::Column) {
                                     Box(height: 1u32) {
-                                        Text(content: row.primary.clone(), color: rc.fg)
+                                        Text(content: primary_text, color: primary_color)
                                     }
                                     Box(height: 1u32) {
                                         Text(
-                                            content: row.secondary.clone().unwrap_or_default(),
-                                            color: rc.dim,
+                                            content: secondary_text,
+                                            color: secondary_color,
                                         )
                                     }
                                 }

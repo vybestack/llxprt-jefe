@@ -415,7 +415,8 @@ impl IssuesState {
     }
 
     /// Compute the visible rows available for the compact issue list pane.
-    fn issue_list_viewport_rows() -> usize {
+    #[must_use]
+    pub fn issue_list_viewport_rows() -> usize {
         let term_rows = crossterm::terminal::size().map_or(40, |(_, h)| h as usize);
         let workspace_rows = term_rows.saturating_sub(DETAIL_CHROME_ROWS);
         let list_rows = workspace_rows * 3 / 10;

@@ -9,7 +9,7 @@ use iocraft::prelude::*;
 use crate::domain::{Agent, AgentStatus};
 use crate::theme::ThemeColors;
 
-use super::{ListPanel, ListPanelRow};
+use super::{ListPanel, ListPanelRow, ListPanelSegment};
 
 /// Props for the agent list component.
 #[derive(Default, Props)]
@@ -34,14 +34,34 @@ fn agent_row(agent: &Agent, selected: bool) -> ListPanelRow {
         AgentStatus::Paused => "#",
         AgentStatus::Queued => "-",
     };
+    let status_color = match agent.status {
+        AgentStatus::Running | AgentStatus::Completed => Some(Color::Green),
+        AgentStatus::Dead | AgentStatus::Errored => Some(Color::Red),
+        AgentStatus::Waiting => Some(Color::Yellow),
+        AgentStatus::Paused => Some(Color::Blue),
+        AgentStatus::Queued => None,
+    };
     let prefix = if selected { "> " } else { "  " };
     let shortcut_label = agent
         .shortcut_slot
         .map_or_else(String::new, |slot| format!("[{slot}] "));
 
     ListPanelRow {
-        primary: format!("{}{} {}{}", prefix, status_icon, shortcut_label, agent.name),
-        secondary: None,
+        primary: vec![
+            ListPanelSegment {
+                text: prefix.to_string(),
+                color: None,
+            },
+            ListPanelSegment {
+                text: status_icon.to_string(),
+                color: status_color,
+            },
+            ListPanelSegment {
+                text: format!(" {}{}", shortcut_label, agent.name),
+                color: None,
+            },
+        ],
+        secondary: Vec::new(),
     }
 }
 

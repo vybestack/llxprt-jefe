@@ -22,7 +22,7 @@ pub use filter_controls::{FilterControls, FilterControlsProps};
 pub use issue_detail::{IssueDetailView, IssueDetailViewProps};
 pub use issue_list::{IssueList, IssueListProps};
 pub use keybind_bar::{KeybindBar, KeybindBarProps};
-pub use list_panel::{ListPanel, ListPanelProps, ListPanelRow};
+pub use list_panel::{ListPanel, ListPanelProps, ListPanelRow, ListPanelSegment};
 pub use preview::{Preview, PreviewProps};
 pub use scrollable_text::{ScrollableText, ScrollableTextProps};
 pub use sidebar::{Sidebar, SidebarProps};

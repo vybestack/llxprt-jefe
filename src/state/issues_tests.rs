@@ -2,6 +2,7 @@ use crate::domain::{
     Agent, AgentId, Issue, IssueComment, IssueDetail, IssueState, Repository, RepositoryId,
 };
 use crate::state::AppState;
+use crate::state::IssuesState;
 use crate::state::types::{
     AgentChooserState, AppEvent, ComposerTarget, DetailSubfocus, EditorTarget, InlineState,
     IssueFocus, PaneFocus, PriorAgentFocus, ScreenMode,
@@ -778,9 +779,17 @@ fn test_issue_list_scroll_offset_follows_selection() {
     state.issues_state.selected_issue_index = Some(499);
 
     let offset = state.issues_state.issue_list_scroll_offset();
+    let selected = state
+        .issues_state
+        .selected_issue_index
+        .expect("selection should be present");
+    let visible_rows = IssuesState::issue_list_viewport_rows();
+
     assert!(offset > 0);
     assert!(offset <= 499);
     assert!(offset < state.issues_state.issues.len());
+    assert!(selected >= offset);
+    assert!(selected < offset + visible_rows);
 }
 
 /// P13 Test 5: Entering issues mode sets list_loading to true initially.

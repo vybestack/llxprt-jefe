@@ -9,7 +9,7 @@ use iocraft::prelude::*;
 use crate::domain::{Issue, IssueState};
 use crate::theme::ThemeColors;
 
-use super::{ListPanel, ListPanelRow};
+use super::{ListPanel, ListPanelRow, ListPanelSegment};
 
 /// Props for the issue list pane.
 #[derive(Default, Props)]
@@ -58,8 +58,14 @@ fn issue_row(issue: &Issue, selected: bool) -> ListPanelRow {
     }
 
     ListPanelRow {
-        primary,
-        secondary: Some(format!("     {}", meta_parts.join("  "))),
+        primary: vec![ListPanelSegment {
+            text: primary,
+            color: None,
+        }],
+        secondary: vec![ListPanelSegment {
+            text: format!("     {}", meta_parts.join("  ")),
+            color: None,
+        }],
     }
 }
 
