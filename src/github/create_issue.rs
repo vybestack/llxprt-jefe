@@ -5,6 +5,7 @@ use serde_json::Value;
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-011
+#[derive(Debug)]
 pub struct CreatedIssue {
     pub number: u64,
     pub title: String,
