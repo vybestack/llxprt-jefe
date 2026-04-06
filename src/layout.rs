@@ -80,11 +80,8 @@ fn compute_pty_layout_inner(
 ) -> (u16, u16, u16, u16) {
     let (render_cols, render_rows) = effective_render_size_inner(term_cols, term_rows, fullscreen);
 
-    let (_, terminal_slot_rows) = dashboard_middle_row_heights_inner(render_rows);
+    let (agent_rows, terminal_slot_rows) = dashboard_middle_row_heights_inner(render_rows);
     let middle_cols = render_cols.saturating_sub(LEFT_COL_WIDTH + RIGHT_COL_WIDTH);
-    let agent_rows = render_rows
-        .saturating_sub(OUTER_BARS_HEIGHT)
-        .saturating_sub(terminal_slot_rows);
 
     let pty_rows = terminal_slot_rows
         .saturating_sub(TERMINAL_WIDGET_CHROME_ROWS)
