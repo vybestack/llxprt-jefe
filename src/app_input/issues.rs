@@ -10,6 +10,8 @@ use iocraft::prelude::*;
 
 use jefe::state::{AppEvent, AppState, DetailSubfocus, InlineState, IssueFocus};
 
+use super::issues_filter::resolve_filter_key_event;
+
 use super::{AppStateHandle, SharedContext};
 
 /// Pure key-routing logic for Issues Mode.
@@ -95,12 +97,9 @@ pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Optio
     // Priority 4: Filter controls open.
     // @plan PLAN-20260329-ISSUES-MODE.P11
     // @pseudocode component-003 lines 15-18
+    // @requirement REQ-ISS-008
     if filter_open {
-        return match key_event.code {
-            KeyCode::Enter => Some(AppEvent::ApplyFilter),
-            KeyCode::Esc => Some(AppEvent::CloseFilterControls),
-            _ => None, // filter field editing handled by UI layer
-        };
+        return resolve_filter_key_event(state, key_event);
     }
 
     // Priority 5: Issues-global unwind and mode controls.

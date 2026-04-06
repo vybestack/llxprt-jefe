@@ -386,6 +386,10 @@ pub struct IssuesState {
     pub inline_state: InlineState,
     pub agent_chooser: Option<AgentChooserState>,
     pub filter_controls_open: bool,
+    /// Index of the currently focused filter field (0=state, 1=author, 2=assignee, 3=labels, 4=query_text).
+    pub filter_field_index: usize,
+    /// Raw labels text while editing (preserves trailing commas). Parsed into Vec on apply.
+    pub draft_labels_text: String,
     pub search_input_focused: bool,
     pub prior_agent_focus: Option<PriorAgentFocus>,
     pub draft_notice: Option<String>,
@@ -590,6 +594,9 @@ pub enum AppEvent {
     CloseFilterControls,
     ApplyFilter,
     ClearFilter,
+    FilterNavigateNext,
+    FilterNavigatePrev,
+    CycleFilterState,
     FocusSearchInput,
     BlurSearchInput,
     SetSearchQuery {

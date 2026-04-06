@@ -17,6 +17,10 @@ pub struct FilterControlsProps {
     pub visible: bool,
     /// Theme colors.
     pub colors: ThemeColors,
+    /// Index of the currently focused filter field.
+    pub active_field_index: usize,
+    /// Raw labels text for display during editing.
+    pub draft_labels_text: String,
 }
 
 /// Filter controls — compact horizontal band showing current filter values and action hints.
@@ -31,6 +35,7 @@ pub fn FilterControls(props: &FilterControlsProps) -> impl Into<AnyElement<'stat
     }
 
     let rc = ResolvedColors::from_theme(Some(&props.colors));
+    let idx = props.active_field_index;
 
     let state_label = match props.draft_filter.state {
         Some(IssueFilterState::Open) | None => "open",
@@ -38,29 +43,34 @@ pub fn FilterControls(props: &FilterControlsProps) -> impl Into<AnyElement<'stat
         Some(IssueFilterState::All) => "all",
     };
 
-    let author_label = if props.draft_filter.author.is_empty() {
+    let author_val = if props.draft_filter.author.is_empty() {
         "any".to_string()
     } else {
         props.draft_filter.author.clone()
     };
 
-    let assignee_label = if props.draft_filter.assignee.is_empty() {
+    let assignee_val = if props.draft_filter.assignee.is_empty() {
         "any".to_string()
     } else {
         props.draft_filter.assignee.clone()
     };
 
-    let labels_label = if props.draft_filter.labels.is_empty() {
+    let labels_val = if props.draft_labels_text.is_empty() {
         "any".to_string()
     } else {
-        props.draft_filter.labels.join(", ")
+        props.draft_labels_text.clone()
     };
 
-    let search_label = if props.draft_filter.query_text.is_empty() {
-        String::new()
+    let search_val = if props.draft_filter.query_text.is_empty() {
+        "any".to_string()
     } else {
-        format!("  search:{}", props.draft_filter.query_text)
+        props.draft_filter.query_text.clone()
     };
+
+    // Active field: inverted colors (bright bg, dark fg). Inactive: normal.
+    let val_color = |active: bool| if active { rc.bg } else { rc.fg };
+    let val_bg = |active: bool| if active { rc.bright } else { rc.bg };
+    let label_color = |active: bool| if active { rc.bright } else { rc.dim };
 
     element! {
         Box(
@@ -75,20 +85,32 @@ pub fn FilterControls(props: &FilterControlsProps) -> impl Into<AnyElement<'stat
             // Filter values row
             Box(height: 1u32) {
                 Text(content: "Filter: ", color: rc.dim)
-                Text(content: "state:", color: rc.dim)
-                Text(content: state_label, color: rc.fg)
-                Text(content: "  author:", color: rc.dim)
-                Text(content: author_label, color: rc.fg)
-                Text(content: "  assignee:", color: rc.dim)
-                Text(content: assignee_label, color: rc.fg)
-                Text(content: "  labels:", color: rc.dim)
-                Text(content: labels_label, color: rc.fg)
-                Text(content: search_label, color: rc.fg)
+                Text(content: "state:", color: label_color(idx == 0))
+                Box(background_color: val_bg(idx == 0)) {
+                    Text(content: format!("[{state_label}]"), color: val_color(idx == 0))
+                }
+                Text(content: "  author:", color: label_color(idx == 1))
+                Box(background_color: val_bg(idx == 1)) {
+                    Text(content: format!("[{author_val}]"), color: val_color(idx == 1))
+                }
+                Text(content: "  assignee:", color: label_color(idx == 2))
+                Box(background_color: val_bg(idx == 2)) {
+                    Text(content: format!("[{assignee_val}]"), color: val_color(idx == 2))
+                }
+                Text(content: "  labels:", color: label_color(idx == 3))
+                Box(background_color: val_bg(idx == 3)) {
+                    Text(content: format!("[{labels_val}]"), color: val_color(idx == 3))
+                }
+                Text(content: "  search:", color: label_color(idx == 4))
+                Box(background_color: val_bg(idx == 4)) {
+                    Text(content: format!("[{search_val}]"), color: val_color(idx == 4))
+                }
             }
             // Actions hint row
             Box(height: 1u32) {
+                Text(content: "Tab next  ", color: rc.dim)
                 Text(content: "Enter apply  ", color: rc.dim)
-                Text(content: "c clear  ", color: rc.dim)
+                Text(content: "Ctrl-c clear  ", color: rc.dim)
                 Text(content: "Esc cancel", color: rc.dim)
             }
         }
