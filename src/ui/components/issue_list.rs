@@ -87,6 +87,7 @@ pub fn IssueList(props: &IssueListProps) -> impl Into<AnyElement<'static>> {
             selected_index: props.selected_index,
             focused: props.focused,
             loading: props.loading,
+            loading_message: "Loading issues...".to_string(),
             empty_message: empty_message.to_string(),
             compact: props.compact,
             scroll_offset: props.scroll_offset,

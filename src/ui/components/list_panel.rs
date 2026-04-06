@@ -25,6 +25,8 @@ pub struct ListPanelProps {
     pub focused: bool,
     /// Whether the panel is loading.
     pub loading: bool,
+    /// Loading-state message shown while rows are being fetched.
+    pub loading_message: String,
     /// Empty-state message when no rows are available.
     pub empty_message: String,
     /// Whether to render only the primary line for selected/unselected items.
@@ -79,9 +81,14 @@ pub fn ListPanel(props: &ListPanelProps) -> impl Into<AnyElement<'static>> {
                 background_color: rc.bg,
             ) {
                 #(if props.loading {
+                    let loading_message = if props.loading_message.is_empty() {
+                        "Loading..."
+                    } else {
+                        props.loading_message.as_str()
+                    };
                     vec![element! {
                         Box(padding_left: 1u32, height: 1u32) {
-                            Text(content: "Loading issues...", color: rc.dim)
+                            Text(content: loading_message, color: rc.dim)
                         }
                     }]
                 } else if props.rows.is_empty() {

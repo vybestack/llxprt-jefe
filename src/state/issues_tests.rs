@@ -769,17 +769,17 @@ fn test_issue_list_selection_highlight() {
 fn test_issue_list_scroll_offset_follows_selection() {
     let state = state_with_repo("repo-1").apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
-        issues: (1u64..=25).map(make_test_issue).collect(),
+        issues: (1u64..=500).map(make_test_issue).collect(),
         cursor: None,
         has_more: false,
     });
 
     let mut state = state;
-    state.issues_state.selected_issue_index = Some(24);
+    state.issues_state.selected_issue_index = Some(499);
 
     let offset = state.issues_state.issue_list_scroll_offset();
     assert!(offset > 0);
-    assert!(offset <= 24);
+    assert!(offset <= 499);
     assert!(offset < state.issues_state.issues.len());
 }
 

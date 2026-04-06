@@ -62,6 +62,7 @@ pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
             selected_index: Some(props.selected),
             focused: props.focused,
             loading: false,
+            loading_message: String::new(),
             empty_message: "No agents yet".to_string(),
             compact: true,
             scroll_offset: props.selected.saturating_sub(1),
