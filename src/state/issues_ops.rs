@@ -7,7 +7,7 @@ use super::{
     AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget,
     InlineState, IssueFocus, PaneFocus, PriorAgentFocus, ScreenMode, inline_cursor_vertical,
 };
-use crate::domain::IssueFilter;
+use crate::domain::{IssueFilter, IssueFilterState};
 
 impl AppState {
     /// Enter issues mode, saving prior focus state.
@@ -448,6 +448,13 @@ impl AppState {
                 "assignee" => self.issues_state.draft_filter.assignee = value,
                 "mentioned" => self.issues_state.draft_filter.mentioned = value,
                 "query_text" => self.issues_state.draft_filter.query_text = value,
+                "labels" => {
+                    self.issues_state.draft_filter.labels = value
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
                 "updated_before" => self.issues_state.draft_filter.updated_before = value,
                 "updated_after" => self.issues_state.draft_filter.updated_after = value,
                 _ => {}
@@ -566,6 +573,7 @@ impl AppState {
             // @requirement REQ-ISS-008
             AppEvent::OpenFilterControls => {
                 self.issues_state.filter_controls_open = true;
+                self.issues_state.filter_field_index = 0;
             }
 
             // @requirement REQ-ISS-008
@@ -575,15 +583,53 @@ impl AppState {
 
             // @requirement REQ-ISS-008
             AppEvent::ApplyFilter => {
-                // Commit draft filter to committed filter
+                // Commit draft filter to committed filter and reload
                 self.issues_state.committed_filter = self.issues_state.draft_filter.clone();
                 self.issues_state.filter_controls_open = false;
+                self.issues_state.issues.clear();
+                self.issues_state.selected_issue_index = None;
+                self.issues_state.issue_detail = None;
+                self.issues_state.list_cursor = None;
+                self.issues_state.has_more_issues = false;
+                self.issues_state.list_loading = true;
             }
 
             // @requirement REQ-ISS-008
             AppEvent::ClearFilter => {
                 self.issues_state.committed_filter = IssueFilter::default();
                 self.issues_state.draft_filter = IssueFilter::default();
+                self.issues_state.filter_controls_open = false;
+                self.issues_state.issues.clear();
+                self.issues_state.selected_issue_index = None;
+                self.issues_state.issue_detail = None;
+                self.issues_state.list_cursor = None;
+                self.issues_state.has_more_issues = false;
+                self.issues_state.list_loading = true;
+            }
+
+            // @requirement REQ-ISS-008
+            AppEvent::FilterNavigateNext => {
+                const FILTER_FIELD_COUNT: usize = 5;
+                let idx = self.issues_state.filter_field_index;
+                self.issues_state.filter_field_index = (idx + 1) % FILTER_FIELD_COUNT;
+            }
+
+            // @requirement REQ-ISS-008
+            AppEvent::FilterNavigatePrev => {
+                const FILTER_FIELD_COUNT: usize = 5;
+                let idx = self.issues_state.filter_field_index;
+                self.issues_state.filter_field_index =
+                    (idx + FILTER_FIELD_COUNT - 1) % FILTER_FIELD_COUNT;
+            }
+
+            // @requirement REQ-ISS-008
+            AppEvent::CycleFilterState => {
+                let current = self.issues_state.draft_filter.state;
+                self.issues_state.draft_filter.state = Some(match current {
+                    Some(IssueFilterState::Open) | None => IssueFilterState::Closed,
+                    Some(IssueFilterState::Closed) => IssueFilterState::All,
+                    Some(IssueFilterState::All) => IssueFilterState::Open,
+                });
             }
 
             // @requirement REQ-ISS-007

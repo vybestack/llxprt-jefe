@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 mod issues;
 mod issues_dispatch;
+mod issues_filter;
 mod modal_handlers;
 mod normal;
 mod preflight;
@@ -546,7 +547,10 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
         // ── Issues-mode events that require I/O ────────────────────────────
         // @plan PLAN-20260329-ISSUES-MODE.P15
         // @requirement REQ-ISS-006, REQ-ISS-013
-        AppEvent::EnterIssuesMode | AppEvent::RefocusIssueList => {
+        AppEvent::EnterIssuesMode
+        | AppEvent::RefocusIssueList
+        | AppEvent::ApplyFilter
+        | AppEvent::ClearFilter => {
             // Apply state transition first (sets list_loading = true, etc.)
             apply_and_persist(app_state, ctx, evt);
 
