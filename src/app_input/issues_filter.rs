@@ -50,11 +50,12 @@ pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -
 }
 
 /// Read the current value of a draft filter text field.
+/// For labels, reads the raw editing string to preserve trailing commas.
 fn current_filter_field_value(state: &AppState, field_name: &str) -> String {
     match field_name {
         "author" => state.issues_state.draft_filter.author.clone(),
         "assignee" => state.issues_state.draft_filter.assignee.clone(),
-        "labels" => state.issues_state.draft_filter.labels.join(","),
+        "labels" => state.issues_state.draft_labels_text.clone(),
         "query_text" => state.issues_state.draft_filter.query_text.clone(),
         _ => String::new(),
     }
@@ -184,7 +185,7 @@ mod tests {
     fn test_filter_labels_field_text_input() {
         let mut state = filter_state();
         state.issues_state.filter_field_index = 3; // labels
-        state.issues_state.draft_filter.labels = vec!["bug".to_string()];
+        state.issues_state.draft_labels_text = "bug".to_string();
 
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Char(',')));
         match evt {

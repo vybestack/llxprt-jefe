@@ -449,6 +449,7 @@ impl AppState {
                 "mentioned" => self.issues_state.draft_filter.mentioned = value,
                 "query_text" => self.issues_state.draft_filter.query_text = value,
                 "labels" => {
+                    self.issues_state.draft_labels_text = value.clone();
                     self.issues_state.draft_filter.labels = value
                         .split(',')
                         .map(|s| s.trim().to_string())
@@ -574,6 +575,8 @@ impl AppState {
             AppEvent::OpenFilterControls => {
                 self.issues_state.filter_controls_open = true;
                 self.issues_state.filter_field_index = 0;
+                self.issues_state.draft_labels_text =
+                    self.issues_state.draft_filter.labels.join(",");
             }
 
             // @requirement REQ-ISS-008
@@ -598,6 +601,7 @@ impl AppState {
             AppEvent::ClearFilter => {
                 self.issues_state.committed_filter = IssueFilter::default();
                 self.issues_state.draft_filter = IssueFilter::default();
+                self.issues_state.draft_labels_text.clear();
                 self.issues_state.filter_controls_open = false;
                 self.issues_state.issues.clear();
                 self.issues_state.selected_issue_index = None;

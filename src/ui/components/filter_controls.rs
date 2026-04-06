@@ -19,6 +19,8 @@ pub struct FilterControlsProps {
     pub colors: ThemeColors,
     /// Index of the currently focused filter field.
     pub active_field_index: usize,
+    /// Raw labels text for display during editing.
+    pub draft_labels_text: String,
 }
 
 /// Filter controls — compact horizontal band showing current filter values and action hints.
@@ -53,10 +55,10 @@ pub fn FilterControls(props: &FilterControlsProps) -> impl Into<AnyElement<'stat
         props.draft_filter.assignee.clone()
     };
 
-    let labels_val = if props.draft_filter.labels.is_empty() {
+    let labels_val = if props.draft_labels_text.is_empty() {
         "any".to_string()
     } else {
-        props.draft_filter.labels.join(",")
+        props.draft_labels_text.clone()
     };
 
     let search_val = if props.draft_filter.query_text.is_empty() {

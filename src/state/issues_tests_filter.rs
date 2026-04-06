@@ -160,3 +160,54 @@ fn test_update_draft_filter_text_fields() {
     assert_eq!(state.issues_state.draft_filter.assignee, "dev1");
     assert_eq!(state.issues_state.draft_filter.query_text, "crash");
 }
+
+/// Simulate sequential label keystrokes and verify round-trip through state.
+/// Typing b,u,g,comma,u,i should produce labels (bug, ui)
+/// while preserving the raw text in draft_labels_text.
+#[test]
+fn test_labels_sequential_typing_round_trip() {
+    let mut state = filter_open_state();
+    state.issues_state.filter_field_index = 3; // labels field
+
+    // Simulate typing "bug,ui" one character at a time
+    for ch in ['b', 'u', 'g', ',', 'u', 'i'] {
+        let raw = state.issues_state.draft_labels_text.clone();
+        let mut value = raw;
+        value.push(ch);
+        state = state.apply(AppEvent::UpdateDraftFilter {
+            field: "labels".to_string(),
+            value,
+        });
+    }
+
+    assert_eq!(state.issues_state.draft_labels_text, "bug,ui");
+    assert_eq!(
+        state.issues_state.draft_filter.labels,
+        vec!["bug".to_string(), "ui".to_string()]
+    );
+}
+
+/// Trailing comma in labels is preserved in draft_labels_text during editing.
+#[test]
+fn test_labels_trailing_comma_preserved() {
+    let mut state = filter_open_state();
+    state.issues_state.filter_field_index = 3;
+
+    // Type "bug,"
+    for ch in ['b', 'u', 'g', ','] {
+        let mut value = state.issues_state.draft_labels_text.clone();
+        value.push(ch);
+        state = state.apply(AppEvent::UpdateDraftFilter {
+            field: "labels".to_string(),
+            value,
+        });
+    }
+
+    // Raw text preserves trailing comma
+    assert_eq!(state.issues_state.draft_labels_text, "bug,");
+    // Parsed labels only has "bug" (no empty segment)
+    assert_eq!(
+        state.issues_state.draft_filter.labels,
+        vec!["bug".to_string()]
+    );
+}
