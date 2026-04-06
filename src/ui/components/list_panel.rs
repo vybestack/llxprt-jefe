@@ -52,8 +52,11 @@ pub fn ListPanel(props: &ListPanelProps) -> impl Into<AnyElement<'static>> {
     let viewport_rows = term_rows.saturating_sub(3).max(1);
     let max_visible_items = (viewport_rows / row_height).max(1);
     let total_items = props.rows.len();
-    let max_offset = total_items.saturating_sub(max_visible_items);
-    let offset = props.scroll_offset.min(max_offset);
+    let offset = if total_items == 0 {
+        0
+    } else {
+        props.scroll_offset.min(total_items - 1)
+    };
     let visible_rows: Vec<(usize, &ListPanelRow)> = props
         .rows
         .iter()
