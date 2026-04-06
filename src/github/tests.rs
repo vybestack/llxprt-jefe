@@ -1,4 +1,9 @@
-use super::*;
+use crate::domain::{Issue, IssueComment, IssueDetail, IssueFilter, IssueFilterState, IssueState};
+use crate::github::{
+    GhClient, GhError, build_list_issues_args, categorize_error, parse_comments_json,
+    parse_created_comment_json, parse_created_issue_json, parse_issue_detail_json,
+    parse_issues_json, sort_issues,
+};
 
 // =============================================================================
 // Error Categorization Tests

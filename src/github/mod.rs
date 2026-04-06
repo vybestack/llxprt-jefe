@@ -13,6 +13,9 @@ use crate::domain::{Issue, IssueComment, IssueDetail, IssueFilter, IssueFilterSt
 use serde_json::Value;
 use std::process::Command;
 
+mod create_issue;
+pub use create_issue::{CreatedIssue, parse_created_issue_json};
+
 /// Error types for GitHub CLI operations.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -75,16 +78,6 @@ pub struct SendPayload {
     pub focused_comment: Option<String>,
     pub focused_comment_author: Option<String>,
     pub issue_base_prompt: String,
-}
-
-/// Payload for creating a new issue.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-011
-pub struct CreateIssuePayload {
-    pub number: u64,
-    pub title: String,
-    pub body: String,
 }
 
 // GitHub CLI client wrapper
@@ -538,43 +531,6 @@ pub fn parse_created_comment_json(json_str: &str) -> Result<IssueComment, GhErro
     })
 }
 
-/// Parse JSON response from `gh issue create --json number,title,body`.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-011
-pub fn parse_created_issue_json(json_str: &str) -> Result<CreateIssuePayload, GhError> {
-    let value: Value = serde_json::from_str(json_str)
-        .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
-
-    let number = value
-        .get("number")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| GhError::ParseError("Missing or invalid issue number".to_string()))?;
-
-    let title = value
-        .get("title")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let body = value
-        .get("body")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    Ok(CreateIssuePayload {
-        number,
-        title,
-        body,
-    })
-}
-
-/// Build CLI arguments for `gh issue list` command.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-008
-/// @pseudocode component-002 lines 25-34
 #[must_use]
 pub fn build_list_issues_args(
     owner: &str,
@@ -827,7 +783,7 @@ impl GhClient {
         repo: &str,
         title: &str,
         body: &str,
-    ) -> Result<CreateIssuePayload, GhError> {
+    ) -> Result<CreatedIssue, GhError> {
         let output = Command::new("gh")
             .args([
                 "api",
@@ -1010,8 +966,3 @@ impl Default for GhClient {
         Self::new()
     }
 }
-
-#[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used, clippy::manual_string_new)]
-#[path = "tests.rs"]
-mod tests;
