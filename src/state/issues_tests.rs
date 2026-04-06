@@ -764,6 +764,25 @@ fn test_issue_list_selection_highlight() {
     assert_eq!(state.issues_state.selected_issue_index, Some(1));
 }
 
+/// P13 Test 4b: Issue list scroll offset follows the selected issue once it moves below the viewport.
+#[test]
+fn test_issue_list_scroll_offset_follows_selection() {
+    let state = state_with_repo("repo-1").apply(AppEvent::IssueListLoaded {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        issues: (1u64..=25).map(make_test_issue).collect(),
+        cursor: None,
+        has_more: false,
+    });
+
+    let mut state = state;
+    state.issues_state.selected_issue_index = Some(24);
+
+    let offset = state.issues_state.issue_list_scroll_offset();
+    assert!(offset > 0);
+    assert!(offset <= 24);
+    assert!(offset < state.issues_state.issues.len());
+}
+
 /// P13 Test 5: Entering issues mode sets list_loading to true initially.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P13

@@ -279,7 +279,7 @@ impl AppState {
         #[allow(clippy::unnecessary_map_or)]
         if self
             .selected_repository_index
-            .map_or(true, |idx| !visible_repo_indices.contains(&idx))
+            .is_none_or(|idx| !visible_repo_indices.contains(&idx))
         {
             self.selected_repository_index = visible_repo_indices.first().copied();
         }

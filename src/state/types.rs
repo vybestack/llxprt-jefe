@@ -395,9 +395,11 @@ pub struct IssuesState {
     pub draft_notice: Option<String>,
 }
 
-/// Layout constants matching issue_detail.rs.
+/// Layout constants matching issue_detail.rs and issues.rs.
 const DETAIL_HEADER_ROWS: usize = 5;
 const DETAIL_CHROME_ROWS: usize = 4;
+const ISSUE_LIST_TITLE_ROWS: usize = 1;
+const ISSUE_LIST_MIN_VIEWPORT_ROWS: usize = 3;
 
 impl IssuesState {
     /// Compute the scroll viewport rows dynamically from terminal height,
@@ -410,6 +412,32 @@ impl IssuesState {
         detail_pane_rows
             .saturating_sub(DETAIL_HEADER_ROWS + 2)
             .max(5)
+    }
+
+    /// Compute the visible rows available for the compact issue list pane.
+    fn issue_list_viewport_rows() -> usize {
+        let term_rows = crossterm::terminal::size().map_or(40, |(_, h)| h as usize);
+        let workspace_rows = term_rows.saturating_sub(DETAIL_CHROME_ROWS);
+        let list_rows = workspace_rows * 3 / 10;
+        list_rows
+            .saturating_sub(ISSUE_LIST_TITLE_ROWS + 2)
+            .max(ISSUE_LIST_MIN_VIEWPORT_ROWS)
+    }
+
+    /// Scroll offset needed to keep the selected issue visible in the issue list pane.
+    #[must_use]
+    pub fn issue_list_scroll_offset(&self) -> usize {
+        let Some(selected) = self.selected_issue_index else {
+            return 0;
+        };
+        let viewport = Self::issue_list_viewport_rows();
+        let max_offset = self.issues.len().saturating_sub(viewport);
+
+        if selected < viewport {
+            0
+        } else {
+            (selected + 1).saturating_sub(viewport).min(max_offset)
+        }
     }
 
     /// Maximum scroll offset so the last line of content sits at the bottom of the viewport.
