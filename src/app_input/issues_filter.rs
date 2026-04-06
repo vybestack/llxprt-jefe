@@ -28,8 +28,7 @@ pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -
             Some(AppEvent::CycleFilterState)
         }
         KeyCode::Char(c) if field_idx > 0 => {
-            // Text fields: append character
-            let field_name = FILTER_FIELD_NAMES[field_idx];
+            let &field_name = FILTER_FIELD_NAMES.get(field_idx)?;
             let mut value = current_filter_field_value(state, field_name);
             value.push(c);
             Some(AppEvent::UpdateDraftFilter {
@@ -38,7 +37,7 @@ pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -
             })
         }
         KeyCode::Backspace if field_idx > 0 => {
-            let field_name = FILTER_FIELD_NAMES[field_idx];
+            let &field_name = FILTER_FIELD_NAMES.get(field_idx)?;
             let mut value = current_filter_field_value(state, field_name);
             value.pop();
             Some(AppEvent::UpdateDraftFilter {

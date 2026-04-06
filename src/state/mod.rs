@@ -276,6 +276,7 @@ impl AppState {
             return;
         }
 
+        #[allow(clippy::unnecessary_map_or)]
         if self
             .selected_repository_index
             .map_or(true, |idx| !visible_repo_indices.contains(&idx))
