@@ -276,11 +276,11 @@ impl AppState {
             return;
         }
 
-        #[allow(clippy::unnecessary_map_or)]
-        if self
-            .selected_repository_index
-            .is_none_or(|idx| !visible_repo_indices.contains(&idx))
-        {
+        let selected_repo_hidden = match self.selected_repository_index {
+            Some(idx) => !visible_repo_indices.contains(&idx),
+            None => true,
+        };
+        if selected_repo_hidden {
             self.selected_repository_index = visible_repo_indices.first().copied();
         }
 
