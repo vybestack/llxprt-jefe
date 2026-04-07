@@ -73,11 +73,13 @@ pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
                     };
                     let prefix = if selected { "> " } else { "  " };
                     let name_color = if selected { rc.bright } else { rc.fg };
+                    let shortcut_label = agent.shortcut_slot
+                        .map_or_else(String::new, |slot| format!("[{slot}] "));
                     element! {
                         Box(flex_direction: FlexDirection::Row) {
                             Text(content: prefix, color: name_color)
                             Text(content: status_icon, color: status_color)
-                            Text(content: format!(" {}", agent.name), color: name_color)
+                            Text(content: format!(" {}{}", shortcut_label, agent.name), color: name_color)
                         }
                     }
                 }))
