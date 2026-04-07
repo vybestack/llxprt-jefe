@@ -7,9 +7,7 @@
 use iocraft::prelude::*;
 
 use crate::domain::{Agent, AgentStatus};
-use crate::theme::ThemeColors;
-
-use super::{ListPanel, ListPanelRow, ListPanelSegment};
+use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the agent list component.
 #[derive(Default, Props)]
@@ -24,69 +22,66 @@ pub struct AgentListProps {
     pub colors: ThemeColors,
 }
 
-fn agent_row(agent: &Agent, selected: bool) -> ListPanelRow {
-    let status_icon = match agent.status {
-        AgentStatus::Running => "o",
-        AgentStatus::Completed => "+",
-        AgentStatus::Dead => "!",
-        AgentStatus::Errored => "x",
-        AgentStatus::Waiting => "*",
-        AgentStatus::Paused => "#",
-        AgentStatus::Queued => "-",
-    };
-    let status_color = match agent.status {
-        AgentStatus::Running | AgentStatus::Completed => Some(Color::Green),
-        AgentStatus::Dead | AgentStatus::Errored => Some(Color::Red),
-        AgentStatus::Waiting => Some(Color::Yellow),
-        AgentStatus::Paused => Some(Color::Blue),
-        AgentStatus::Queued => None,
-    };
-    let prefix = if selected { "> " } else { "  " };
-    let shortcut_label = agent
-        .shortcut_slot
-        .map_or_else(String::new, |slot| format!("[{slot}] "));
-
-    ListPanelRow {
-        primary: vec![
-            ListPanelSegment {
-                text: prefix.to_string(),
-                color: None,
-            },
-            ListPanelSegment {
-                text: status_icon.to_string(),
-                color: status_color,
-            },
-            ListPanelSegment {
-                text: format!(" {}{}", shortcut_label, agent.name),
-                color: None,
-            },
-        ],
-        secondary: Vec::new(),
-    }
-}
-
 /// Agent list showing agents for the current repository.
 #[component]
 pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
-    let rows: Vec<ListPanelRow> = props
-        .agents
-        .iter()
-        .enumerate()
-        .map(|(i, agent)| agent_row(agent, i == props.selected))
-        .collect();
+    let rc = ResolvedColors::from_theme(Some(&props.colors));
+    let border_color = if props.focused {
+        rc.border_focused
+    } else {
+        rc.border
+    };
 
     element! {
-        ListPanel(
-            title: "Agents".to_string(),
-            rows: rows,
-            selected_index: Some(props.selected),
-            focused: props.focused,
-            loading: false,
-            loading_message: String::new(),
-            empty_message: "No agents yet".to_string(),
-            compact: true,
-            scroll_offset: props.selected.saturating_sub(1),
-            colors: props.colors.clone(),
-        )
+        Box(
+            flex_direction: FlexDirection::Column,
+            width: 100pct,
+            height: 100pct,
+            border_style: BorderStyle::Round,
+            border_color: border_color,
+            background_color: rc.bg,
+        ) {
+            // Title
+            Box(height: 1u32, padding_left: 1u32) {
+                Text(content: "Agents", weight: Weight::Bold, color: rc.fg)
+            }
+
+            // Agent list
+            Box(
+                flex_direction: FlexDirection::Column,
+                flex_grow: 1.0,
+                padding: 1u32,
+                background_color: rc.bg,
+            ) {
+                #(props.agents.iter().enumerate().map(|(i, agent)| {
+                    let selected = i == props.selected;
+                    let status_icon = match agent.status {
+                        AgentStatus::Running => "*",
+                        AgentStatus::Completed => "+",
+                        AgentStatus::Dead => "x",
+                        AgentStatus::Errored => "!",
+                        AgentStatus::Waiting => "?",
+                        AgentStatus::Paused => "-",
+                        AgentStatus::Queued => "o",
+                    };
+                    let status_color = match agent.status {
+                        AgentStatus::Running | AgentStatus::Completed => rc.bright,
+                        AgentStatus::Dead | AgentStatus::Errored => Color::Red,
+                        AgentStatus::Waiting => Color::Yellow,
+                        AgentStatus::Paused => Color::Blue,
+                        AgentStatus::Queued => rc.dim,
+                    };
+                    let prefix = if selected { "> " } else { "  " };
+                    let name_color = if selected { rc.bright } else { rc.fg };
+                    element! {
+                        Box(flex_direction: FlexDirection::Row) {
+                            Text(content: prefix, color: name_color)
+                            Text(content: status_icon, color: status_color)
+                            Text(content: format!(" {}", agent.name), color: name_color)
+                        }
+                    }
+                }))
+            }
+        }
     }
 }
