@@ -6,7 +6,7 @@
 use iocraft::prelude::*;
 
 use crate::domain::{IssueComment, IssueDetail, IssueState};
-use crate::state::{DetailSubfocus, InlineState};
+use crate::state::{ComposerTarget, DetailSubfocus, InlineState};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::scrollable_text::ScrollableText;
@@ -255,6 +255,36 @@ fn build_detail_content(
     }
 }
 
+/// Build a full-screen content block for creating a new issue.
+fn build_new_issue_content(inline_state: &InlineState) -> DetailContent {
+    let mut builder = ContentBuilder::new();
+
+    builder.lines.push("New Issue".to_string());
+    builder
+        .lines
+        .push("Title: first line | Body: remaining lines".to_string());
+    builder.lines.push(String::new());
+
+    if let InlineState::Composer {
+        target: ComposerTarget::NewIssue,
+        text,
+        cursor,
+    } = inline_state
+    {
+        builder.push_editor_lines(text.as_str(), *cursor, true, "  │ ", "  │ ");
+    }
+
+    builder
+        .lines
+        .push(String::from("Ctrl+Enter submit | Esc cancel"));
+
+    let nl = String::from(char::from(0x0Au8));
+    DetailContent {
+        text: builder.lines.join(&nl),
+        cursor: builder.cursor_pos,
+    }
+}
+
 /// Props for the issue detail view.
 #[derive(Default, Props)]
 pub struct IssueDetailViewProps {
@@ -301,59 +331,77 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
     // Subtract header rows and border (2 rows for top+bottom border)
     let scroll_rows = detail_pane_rows.saturating_sub(HEADER_ROWS + 2).max(5);
 
-    // Build header and content — same structure whether issue is loaded or not
-    let (h_title, h_state, h_labels, h_url, detail_content, state_color) = if let Some(detail) =
-        props.issue_detail.as_ref()
-    {
-        let state_tag = match detail.state {
-            IssueState::Open => "OPEN",
-            IssueState::Closed => "CLOSED",
-        };
-        let sc = match detail.state {
-            IssueState::Open => rc.bright,
-            IssueState::Closed => rc.dim,
-        };
-        let labels_str = if detail.labels.is_empty() {
-            "-".to_string()
-        } else {
-            detail.labels.join(", ")
-        };
-        let assignees_str = if detail.assignees.is_empty() {
-            "-".to_string()
-        } else {
-            detail.assignees.join(", ")
-        };
-        let milestone_str = detail.milestone.as_deref().unwrap_or("-").to_string();
+    // Build header and content.
+    let showing_new_issue_composer = matches!(
+        &props.inline_state,
+        InlineState::Composer {
+            target: ComposerTarget::NewIssue,
+            ..
+        }
+    );
 
-        (
-            format!("#{} {}", detail.number, detail.title),
-            format!(
-                "{}  by @{}  opened: {}  updated: {}",
-                state_tag, detail.author_login, detail.created_at, detail.updated_at
-            ),
-            format!("labels: {labels_str}  assignees: {assignees_str}  milestone: {milestone_str}"),
-            detail.external_url.clone(),
-            build_detail_content(
-                detail,
-                props.detail_subfocus,
-                &props.inline_state,
-                props.comments_loading,
-            ),
-            sc,
-        )
-    } else {
-        (
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-            DetailContent {
-                text: "No issue selected".to_string(),
-                cursor: None,
-            },
-            rc.dim,
-        )
-    };
+    let (h_title, h_state, h_labels, h_url, detail_content, state_color) =
+        if showing_new_issue_composer {
+            (
+                "New Issue".to_string(),
+                "Draft".to_string(),
+                String::new(),
+                String::new(),
+                build_new_issue_content(&props.inline_state),
+                rc.bright,
+            )
+        } else if let Some(detail) = props.issue_detail.as_ref() {
+            let state_tag = match detail.state {
+                IssueState::Open => "OPEN",
+                IssueState::Closed => "CLOSED",
+            };
+            let sc = match detail.state {
+                IssueState::Open => rc.bright,
+                IssueState::Closed => rc.dim,
+            };
+            let labels_str = if detail.labels.is_empty() {
+                "-".to_string()
+            } else {
+                detail.labels.join(", ")
+            };
+            let assignees_str = if detail.assignees.is_empty() {
+                "-".to_string()
+            } else {
+                detail.assignees.join(", ")
+            };
+            let milestone_str = detail.milestone.as_deref().unwrap_or("-").to_string();
+
+            (
+                format!("#{} {}", detail.number, detail.title),
+                format!(
+                    "{}  by @{}  opened: {}  updated: {}",
+                    state_tag, detail.author_login, detail.created_at, detail.updated_at
+                ),
+                format!(
+                    "labels: {labels_str}  assignees: {assignees_str}  milestone: {milestone_str}"
+                ),
+                detail.external_url.clone(),
+                build_detail_content(
+                    detail,
+                    props.detail_subfocus,
+                    &props.inline_state,
+                    props.comments_loading,
+                ),
+                sc,
+            )
+        } else {
+            (
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                DetailContent {
+                    text: "No issue selected".to_string(),
+                    cursor: None,
+                },
+                rc.dim,
+            )
+        };
 
     element! {
         Box(
@@ -401,6 +449,34 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
                     thumb_color: rc.bright,
                 )
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DetailContent, build_new_issue_content};
+    use crate::state::{ComposerTarget, InlineState};
+
+    #[test]
+    fn build_new_issue_content_renders_prompt_and_cursor() {
+        let inline = InlineState::Composer {
+            target: ComposerTarget::NewIssue,
+            text: "Issue title\nIssue body".to_string(),
+            cursor: "Issue title\nIssue body".len(),
+        };
+
+        let DetailContent { text, cursor } = build_new_issue_content(&inline);
+
+        assert!(text.contains("New Issue"));
+        assert!(text.contains("Title: first line | Body: remaining lines"));
+        assert!(text.contains("Ctrl+Enter submit | Esc cancel"));
+        // Cursor should be positioned at the end of the text
+        assert!(cursor.is_some());
+        if let Some((line, col)) = cursor {
+            // Cursor on second line (after the newline), at end of body
+            assert!(line > 0, "cursor should be on a text line");
+            assert!(col > 0, "cursor column should be non-zero at end of text");
         }
     }
 }

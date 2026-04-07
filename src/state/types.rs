@@ -324,6 +324,7 @@ pub enum InlineState {
 /// Target for inline composer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ComposerTarget {
+    NewIssue,
     NewComment,
     Reply {
         comment_index: usize,
@@ -610,6 +611,7 @@ pub enum AppEvent {
     },
 
     // Inline Mutation
+    OpenNewIssueComposer,
     OpenNewCommentComposer,
     OpenReplyComposer {
         comment_index: usize,

@@ -708,6 +708,18 @@ fn test_inline_exclusivity_all_combinations() {
         other => panic!("Editor should block composer open, got {other:?}"),
     }
 
+    // Editor active → OpenNewIssueComposer blocked
+    base.issues_state.inline_state = InlineState::Editor {
+        target: EditorTarget::IssueBody,
+        text: "edit".to_string(),
+        cursor: 4,
+    };
+    let state = base.clone().apply(AppEvent::OpenNewIssueComposer);
+    match &state.issues_state.inline_state {
+        InlineState::Editor { .. } => {}
+        other => panic!("Editor should block new-issue composer open, got {other:?}"),
+    }
+
     // Editor active → OpenReplyComposer blocked
     base.issues_state.inline_state = InlineState::Editor {
         target: EditorTarget::IssueBody,

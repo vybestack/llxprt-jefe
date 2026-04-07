@@ -13,6 +13,9 @@ use crate::domain::{Issue, IssueComment, IssueDetail, IssueFilter, IssueFilterSt
 use serde_json::Value;
 use std::process::Command;
 
+mod create_issue;
+pub use create_issue::{CreatedIssue, parse_created_issue_json};
+
 /// Error types for GitHub CLI operations.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -528,11 +531,6 @@ pub fn parse_created_comment_json(json_str: &str) -> Result<IssueComment, GhErro
     })
 }
 
-/// Build CLI arguments for `gh issue list` command.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-008
-/// @pseudocode component-002 lines 25-34
 #[must_use]
 pub fn build_list_issues_args(
     owner: &str,
@@ -775,6 +773,46 @@ impl GhClient {
         })
     }
 
+    /// Create a new issue.
+    ///
+    /// @plan PLAN-20260329-ISSUES-MODE.P08
+    /// @requirement REQ-ISS-011
+    pub fn create_issue(
+        &self,
+        owner: &str,
+        repo: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<CreatedIssue, GhError> {
+        let output = Command::new("gh")
+            .args([
+                "api",
+                "--method",
+                "POST",
+                &format!("/repos/{owner}/{repo}/issues"),
+                "-f",
+                &format!("title={title}"),
+                "-f",
+                &format!("body={body}"),
+            ])
+            .output()
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    GhError::NotInstalled
+                } else {
+                    GhError::NetworkError(e.to_string())
+                }
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(categorize_error(output.status.code().unwrap_or(1), &stderr));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        parse_created_issue_json(&stdout)
+    }
+
     /// Create a new comment on an issue.
     ///
     /// @plan PLAN-20260329-ISSUES-MODE.P08
@@ -928,8 +966,3 @@ impl Default for GhClient {
         Self::new()
     }
 }
-
-#[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used, clippy::manual_string_new)]
-#[path = "tests.rs"]
-mod tests;

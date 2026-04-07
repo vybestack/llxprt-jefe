@@ -871,6 +871,28 @@ fn test_issue_detail_inline_composer_visible() {
     }
 }
 
+/// P13 Test 9b: OpenNewIssueComposer transitions inline_state to Composer(NewIssue).
+///
+/// @plan PLAN-20260329-ISSUES-MODE.P13
+/// @requirement REQ-ISS-010
+#[test]
+fn test_issue_list_new_issue_composer_visible() {
+    let mut state = AppState::default();
+    state.issues_state.inline_state = InlineState::None;
+    state.issues_state.issue_focus = IssueFocus::IssueDetail;
+
+    let state = state.apply(AppEvent::OpenNewIssueComposer);
+
+    match state.issues_state.inline_state {
+        InlineState::Composer {
+            target: ComposerTarget::NewIssue,
+            ..
+        } => {}
+        other => panic!("expected Composer(NewIssue), got {other:?}"),
+    }
+    assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
+}
+
 /// P13 Test 10: UpdateDraftFilter sets values in draft_filter fields.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P13
