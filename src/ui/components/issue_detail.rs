@@ -278,8 +278,9 @@ fn build_new_issue_content(inline_state: &InlineState) -> DetailContent {
         .lines
         .push(String::from("Ctrl+Enter submit | Esc cancel"));
 
+    let nl = String::from(char::from(0x0Au8));
     DetailContent {
-        text: builder.lines.join("\n"),
+        text: builder.lines.join(&nl),
         cursor: builder.cursor_pos,
     }
 }
@@ -470,6 +471,12 @@ mod tests {
         assert!(text.contains("New Issue"));
         assert!(text.contains("Title: first line | Body: remaining lines"));
         assert!(text.contains("Ctrl+Enter submit | Esc cancel"));
+        // Cursor should be positioned at the end of the text
         assert!(cursor.is_some());
+        if let Some((line, col)) = cursor {
+            // Cursor on second line (after the newline), at end of body
+            assert!(line > 0, "cursor should be on a text line");
+            assert!(col > 0, "cursor column should be non-zero at end of text");
+        }
     }
 }
