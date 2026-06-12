@@ -6,8 +6,7 @@ pub(super) fn generate_id(prefix: &str) -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_nanos());
     format!("{prefix}-{timestamp:x}")
 }
 

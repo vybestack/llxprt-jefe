@@ -53,11 +53,9 @@ fn scrollbar_geometry(total: usize, visible: usize, offset: usize) -> (usize, us
     let thumb_size = (visible * visible / total).max(1).min(visible);
     let max_offset = total.saturating_sub(visible);
     let scrollable_rows = visible.saturating_sub(thumb_size);
-    let thumb_pos = if max_offset > 0 {
-        (offset * scrollable_rows / max_offset).min(scrollable_rows)
-    } else {
-        0
-    };
+    let thumb_pos = (offset * scrollable_rows)
+        .checked_div(max_offset)
+        .map_or(0, |pos| pos.min(scrollable_rows));
     (thumb_pos, thumb_size)
 }
 
