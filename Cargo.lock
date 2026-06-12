@@ -625,11 +625,13 @@ dependencies = [
  "serde",
  "serde_json",
  "smol",
+ "taffy",
  "tempfile",
  "thiserror 2.0.18",
  "toml",
  "tracing",
  "tracing-subscriber",
+ "unicode-width 0.2.2",
 ]
 
 [[package]]

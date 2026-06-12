@@ -16,6 +16,11 @@ toml = "0.8"
 # Terminal UI
 iocraft = "0.5"
 crossterm = "0.28"
+# Layout + width measurement for the low-level terminal canvas component.
+# Versions are pinned to those iocraft already resolves so the `taffy::Style`
+# type unifies with iocraft's internal layout engine.
+taffy = "0.5"
+unicode-width = "0.2"
 
 # Terminal/PTY
 portable-pty = "0.8"
