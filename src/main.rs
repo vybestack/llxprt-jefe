@@ -31,29 +31,46 @@ struct AppContext {
     gh_client: jefe::github::GhClient,
 }
 
+/// Parse CLI arguments, handling early-exit flags (`--version`, `--help`).
+///
+/// Returns the parsed [`CliArgs`] when execution should continue, or `None`
+/// when the process has already handled an early-exit flag and `main` should
+/// return.
 #[allow(clippy::print_stdout)]
-fn handle_cli_version_flag() -> bool {
-    let mut args = std::env::args().skip(1);
-    match (args.next().as_deref(), args.next()) {
-        (Some("--version" | "-V"), None) => {
-            let version = jefe::VERSION;
-            println!("jefe {version}");
-            true
+fn parse_cli_or_exit() -> Option<jefe::cli::CliArgs> {
+    match jefe::cli::parse_args(std::env::args().skip(1)) {
+        Ok(args) => {
+            if args.help {
+                println!("{}", jefe::cli::USAGE);
+                return None;
+            }
+            if args.version {
+                let version = jefe::VERSION;
+                println!("jefe {version}");
+                return None;
+            }
+            Some(args)
         }
-        _ => false,
+        Err(e) => {
+            eprintln!("error: {e}");
+            eprintln!();
+            eprintln!("{}", jefe::cli::USAGE);
+            std::process::exit(2);
+        }
     }
 }
 
 fn main() {
-    if handle_cli_version_flag() {
+    let Some(cli_args) = parse_cli_or_exit() else {
         return;
-    }
+    };
 
     // Initialize structured logging (no-op if JEFE_LOG_FILE is unset).
     jefe::logging::init();
     tracing::info!(version = jefe::VERSION, "jefe starting");
     tracing::debug!(
         log_file = ?jefe::logging::log_file_path(),
+        config_dir = ?cli_args.config_dir,
         "logging initialized"
     );
 
@@ -61,9 +78,17 @@ fn main() {
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let (pty_rows, pty_cols, _, _) = compute_pty_layout(cols, rows);
 
-    // Initialize managers.
-    let persistence = jefe::persistence::FilePersistenceManager::new();
-    let theme_manager = FileThemeManager::new();
+    // Initialize managers. An explicit `--config <dir>` isolates settings,
+    // state, and themes under that directory; otherwise fall back to the
+    // default platform paths and environment variable overrides.
+    let mut theme_manager = FileThemeManager::new();
+    let persistence = if let Some(dir) = cli_args.config_dir.as_deref() {
+        let paths = jefe::persistence::resolve_paths_from_dir(dir);
+        theme_manager.load_from_dir(&dir.join("themes"));
+        jefe::persistence::FilePersistenceManager::with_paths(paths)
+    } else {
+        jefe::persistence::FilePersistenceManager::new()
+    };
     let runtime = TmuxRuntimeManager::new(pty_rows, pty_cols);
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {

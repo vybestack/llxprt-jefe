@@ -4,6 +4,7 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P09
 //! @requirement REQ-TECH-001
 
+pub mod cli;
 pub mod domain;
 pub mod input;
 pub mod layout;

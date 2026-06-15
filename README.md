@@ -122,6 +122,27 @@ By default, `jefe` resolves settings/state using platform paths, with env var ov
 - `JEFE_STATE_PATH`
 - `JEFE_STATE_DIR`
 
+### Running multiple instances with `--config`
+
+Use the `--config <dir>` (short `-c <dir>`) runtime argument to point an
+instance at an isolated config directory. Both `settings.toml` and `state.json`
+live directly under that directory, and external themes are loaded from
+`<dir>/themes/`:
+
+```bash
+# Default instance
+jefe
+
+# Isolated dev/test instance that won't touch your main config/state
+jefe --config ~/.config/jefe-dev
+```
+
+This is handy when developing `jefe` with `jefe`: run a stable instance in one
+tab while testing changes against a throwaway config in another. The directory
+does not need to exist beforehand — it is created on first write. When
+`--config` is supplied, it takes precedence over the `JEFE_*` path environment
+variables.
+
 Related runtime/env toggles:
 
 - `JEFE_WINDOWED=1` to disable fullscreen mode.

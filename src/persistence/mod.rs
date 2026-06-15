@@ -123,6 +123,20 @@ pub fn resolve_paths() -> PersistencePaths {
     }
 }
 
+/// Resolve persistence paths rooted at an explicit config directory.
+///
+/// Both `settings.toml` and `state.json` live directly under `dir`. This is
+/// used by the `--config <dir>` runtime argument so multiple instances can run
+/// against fully isolated config/state without touching the default paths or
+/// environment variable overrides.
+#[must_use]
+pub fn resolve_paths_from_dir(dir: &std::path::Path) -> PersistencePaths {
+    PersistencePaths {
+        settings_path: dir.join("settings.toml"),
+        state_path: dir.join("state.json"),
+    }
+}
+
 fn resolve_settings_path() -> PathBuf {
     // 1. JEFE_SETTINGS_PATH
     if let Ok(path) = std::env::var("JEFE_SETTINGS_PATH") {
@@ -366,6 +380,14 @@ mod tests {
         let paths = resolve_paths();
         assert!(paths.settings_path.ends_with("settings.toml"));
         assert!(paths.state_path.ends_with("state.json"));
+    }
+
+    #[test]
+    fn resolve_paths_from_dir_roots_both_files_under_dir() {
+        let dir = std::path::Path::new("/tmp/jefe-dev-instance");
+        let paths = resolve_paths_from_dir(dir);
+        assert_eq!(paths.settings_path, dir.join("settings.toml"));
+        assert_eq!(paths.state_path, dir.join("state.json"));
     }
 
     #[test]
