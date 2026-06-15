@@ -11,6 +11,7 @@ pub mod layout;
 pub mod logging;
 pub mod persistence;
 pub mod runtime;
+pub mod services;
 pub mod state;
 pub mod theme;
 pub mod ui;
