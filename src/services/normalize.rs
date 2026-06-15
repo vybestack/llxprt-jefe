@@ -27,7 +27,7 @@ pub fn normalize_profile(value: &str) -> String {
     if trimmed.is_empty() || trimmed == "[]" {
         String::new()
     } else {
-        value.to_owned()
+        trimmed.to_owned()
     }
 }
 
@@ -152,6 +152,11 @@ mod tests {
         assert_eq!(normalize_profile("   "), "");
         assert_eq!(normalize_profile("[]"), "");
         assert_eq!(normalize_profile("custom"), "custom");
+    }
+
+    #[test]
+    fn normalize_profile_trims_surrounding_whitespace() {
+        assert_eq!(normalize_profile("  custom  "), "custom");
     }
 
     #[test]
