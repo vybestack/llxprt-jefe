@@ -73,6 +73,11 @@ where
                 let value = iter
                     .next()
                     .ok_or_else(|| CliError::MissingValue(arg.clone()))?;
+                // Reject empty values and flag-like tokens (e.g. a following
+                // `--help`) so they aren't silently swallowed as a directory.
+                if value.is_empty() || value.starts_with('-') {
+                    return Err(CliError::MissingValue(arg.clone()));
+                }
                 result.config_dir = Some(PathBuf::from(value));
             }
             other => {
@@ -155,6 +160,23 @@ mod tests {
 
         let err = parse(&["-c"]).expect_err("should error");
         assert_eq!(err, CliError::MissingValue("-c".to_string()));
+    }
+
+    #[test]
+    fn config_rejects_following_flag_as_value() {
+        let err = parse(&["--config", "--help"]).expect_err("should error");
+        assert_eq!(err, CliError::MissingValue("--config".to_string()));
+
+        let err = parse(&["-c", "-V"]).expect_err("should error");
+        assert_eq!(err, CliError::MissingValue("-c".to_string()));
+    }
+
+    #[test]
+    fn config_equals_form_allows_leading_dash_dir() {
+        // The explicit `=value` form is unambiguous, so a directory whose name
+        // starts with a dash is still accepted there.
+        let parsed = parse(&["--config=-weird-dir"]).expect("parse");
+        assert_eq!(parsed.config_dir, Some(PathBuf::from("-weird-dir")));
     }
 
     #[test]
