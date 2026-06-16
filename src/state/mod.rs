@@ -736,6 +736,7 @@ impl AppState {
             RuntimeMessage::KillAgent(agent_id) => {
                 if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
                     agent.status = AgentStatus::Dead;
+                    agent.runtime_binding = None;
                 }
             }
             RuntimeMessage::AgentStatusChanged(agent_id, status) => {
@@ -755,11 +756,12 @@ impl AppState {
 
     fn apply_persistence_message(&mut self, message: PersistenceMessage) {
         match message {
-            PersistenceMessage::LoadSuccess => self.error_message = None,
+            PersistenceMessage::LoadSuccess | PersistenceMessage::SaveSuccess => {
+                self.error_message = None;
+            }
             PersistenceMessage::LoadFailed(msg) | PersistenceMessage::SaveFailed(msg) => {
                 self.error_message = Some(msg);
             }
-            PersistenceMessage::SaveSuccess => {}
         }
     }
 

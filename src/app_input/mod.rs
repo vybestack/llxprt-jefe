@@ -385,11 +385,20 @@ pub fn dispatch_app_message(
             apply_and_persist(app_state, ctx, AppEvent::ToggleTerminalFocus);
         }
         AppMessage::Runtime(RuntimeMessage::KillAgent(agent_id)) => {
-            if let Some(ctx_arc) = &ctx
+            let kill_result = if let Some(ctx_arc) = &ctx
                 && let Ok(mut ctx_guard) = ctx_arc.lock()
-                && let Err(e) = ctx_guard.runtime.kill(&agent_id)
             {
-                warn!(agent_id = %agent_id.0, error = %e, "could not kill runtime session");
+                ctx_guard.runtime.kill(&agent_id).map_err(|e| e.to_string())
+            } else {
+                Ok(())
+            };
+
+            if let Err(error) = kill_result {
+                warn!(agent_id = %agent_id.0, error = %error, "could not kill runtime session");
+                let mut state = app_state.write();
+                state.error_message = Some(error);
+                persist_state_snapshot(ctx, &state);
+                return;
             }
 
             let mut state = app_state.write();
@@ -559,7 +568,8 @@ pub fn dispatch_app_message(
             message @ (IssuesMessage::EnterMode
             | IssuesMessage::RefocusList
             | IssuesMessage::ApplyFilter
-            | IssuesMessage::ClearFilter),
+            | IssuesMessage::ClearFilter
+            | IssuesMessage::ApplySearch),
         ) => {
             // Apply state transition first (sets list_loading = true, etc.)
             apply_and_persist(app_state, ctx, AppEvent::from(message));

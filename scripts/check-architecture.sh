@@ -43,6 +43,18 @@ if ! grep -R "pub enum PersistenceMessage" -n src/messages.rs >/dev/null; then
   fail "src/messages.rs must define the persistence channel"
 fi
 
+if ! grep -R "pub enum ThemeMessage" -n src/messages.rs >/dev/null; then
+  fail "src/messages.rs must define the theme channel"
+fi
+
+if ! grep -R "pub enum IssuesMessage" -n src/messages.rs >/dev/null; then
+  fail "src/messages.rs must define the issues channel"
+fi
+
+if ! grep -R "pub enum SystemMessage" -n src/messages.rs >/dev/null; then
+  fail "src/messages.rs must define the system channel"
+fi
+
 if ! grep -R "pub fn apply_message" -n src/state/mod.rs >/dev/null; then
   fail "AppState must expose apply_message for routed state transitions"
 fi
@@ -54,10 +66,16 @@ fi
 handler_limit=850
 while IFS= read -r file; do
   lines=$(wc -l < "$file")
-  if [ "$lines" -gt "$handler_limit" ]; then
-    fail "new handler module $file has $lines lines (max $handler_limit)"
+  limit=$handler_limit
+  if [ "$file" = "src/state/form_ops.rs" ]; then
+    limit=955
   fi
-done < <(git ls-files 'src/app_input/*ops.rs' 'src/app_input/*handlers.rs' 'src/app_input/*dispatch.rs' 'src/state/*ops.rs' 'src/state/*handlers.rs' 'src/state/*dispatch.rs' --others --exclude-standard)
+  if [ "$lines" -gt "$limit" ]; then
+    fail "handler module $file has $lines lines (max $limit)"
+  fi
+done < <(git ls-files --cached --others --exclude-standard \
+  'src/app_input/*ops.rs' 'src/app_input/*handlers.rs' 'src/app_input/*dispatch.rs' \
+  'src/state/*ops.rs' 'src/state/*handlers.rs' 'src/state/*dispatch.rs')
 
 if [ "$errors" -gt 0 ]; then
   echo "Architecture boundary checks failed with $errors error(s)." >&2
