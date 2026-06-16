@@ -804,3 +804,36 @@ fn theme_resolve_failed_sets_warning() {
         "ThemeResolveFailed should set warning_message"
     );
 }
+
+#[test]
+fn form_created_agent_has_running_status() {
+    let repo = Repository::new(
+        RepositoryId("repo-1".into()),
+        "Repo One".into(),
+        "repo-one".into(),
+        PathBuf::from("/tmp/repo-one"),
+    );
+    let mut state = AppState {
+        repositories: vec![repo],
+        ..AppState::default()
+    };
+
+    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".into())));
+    if let ModalState::NewAgent { fields, .. } = &mut state.modal {
+        fields.name = "Form Agent".into();
+        fields.work_dir = "/tmp/repo-one/form-agent".into();
+    } else {
+        panic!("expected new-agent modal");
+    }
+
+    state = state.apply(AppEvent::SubmitForm);
+
+    let Some(created) = state.agents.iter().find(|a| a.name == "Form Agent") else {
+        panic!("form-created agent should exist");
+    };
+    assert_eq!(
+        created.status,
+        AgentStatus::Running,
+        "app-created agents start Running because creation triggers launch"
+    );
+}

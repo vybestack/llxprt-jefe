@@ -361,6 +361,11 @@ pub struct LaunchSignature {
 impl Agent {
     /// Create a new agent with default values.
     ///
+    /// This domain constructor defaults to [`AgentStatus::Queued`] and is
+    /// intended for simple construction and testing. App-side creation should
+    /// go through [`crate::services::create_agent`], which is the canonical path
+    /// and sets `Running` (creation immediately triggers launch).
+    ///
     /// Invariant: `pass_continue` defaults to true for new agents.
     #[must_use]
     pub fn new(id: AgentId, repository_id: RepositoryId, name: String, work_dir: PathBuf) -> Self {

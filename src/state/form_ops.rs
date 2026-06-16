@@ -2,8 +2,7 @@
 //! navigation, checkbox toggling, and form submission logic.
 
 use crate::domain::{
-    Agent, AgentStatus, PlatformCapabilities, RemoteRepositorySettings, Repository, RepositoryId,
-    SandboxEngine,
+    Agent, PlatformCapabilities, RemoteRepositorySettings, Repository, RepositoryId, SandboxEngine,
 };
 use tracing::warn;
 
@@ -13,9 +12,11 @@ use super::types::{
     RepositoryFormFields, RepositoryFormFocus,
 };
 use super::util::{
-    delete_char_at, delete_char_before, expand_tilde, generate_id, insert_char_at,
-    move_cursor_left, move_cursor_right, normalize_llxprt_debug, normalize_profile,
-    normalize_sandbox_flags,
+    delete_char_at, delete_char_before, insert_char_at, move_cursor_left, move_cursor_right,
+};
+use crate::services::{
+    self, CreateAgentParams, expand_tilde, generate_id, normalize_llxprt_debug, normalize_profile,
+    normalize_sandbox_flags, resolve_agent_work_dir,
 };
 
 impl AppState {
@@ -28,16 +29,7 @@ impl AppState {
     }
 
     fn validated_agent_work_dir(repository: &Repository, value: &str) -> Option<String> {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-
-        if repository.remote.enabled {
-            Some(trimmed.to_owned())
-        } else {
-            Some(expand_tilde(trimmed))
-        }
+        resolve_agent_work_dir(repository, value)
     }
 
     fn handle_agent_shortcut_char(fields: &mut AgentFormFields, c: char) {
@@ -808,56 +800,46 @@ impl AppState {
         repo.remote = Self::remote_settings_from_fields(fields);
     }
 
+    /// Build an agent from New Agent form fields via the canonical
+    /// [`services::create_agent`] use-case.
+    ///
+    /// This is a thin state-layer adapter: it delegates all validation,
+    /// normalization, and lifecycle policy (including the `Running` initial
+    /// status) to the service, then performs the local filesystem side effect
+    /// of creating the work directory — which belongs in the state layer, not
+    /// the pure creation service.
     pub(super) fn create_agent_from_fields(
         repository: &Repository,
         fields: &AgentFormFields,
         next_display_index: usize,
     ) -> Option<Agent> {
-        let trimmed_name = fields.name.trim();
-        if trimmed_name.is_empty() {
-            return None;
-        }
+        let agent = services::create_agent(CreateAgentParams {
+            repository,
+            name: &fields.name,
+            description: &fields.description,
+            work_dir: &fields.work_dir,
+            profile: &fields.profile,
+            mode: &fields.mode,
+            llxprt_debug: &fields.llxprt_debug,
+            pass_continue: fields.pass_continue,
+            sandbox_enabled: fields.sandbox_enabled,
+            sandbox_engine: &fields.sandbox_engine,
+            sandbox_flags: &fields.sandbox_flags,
+            shortcut_slot: fields.shortcut_slot,
+            next_display_index,
+        })?;
 
-        let work_dir = Self::validated_agent_work_dir(repository, &fields.work_dir)?;
         if !repository.remote.enabled
-            && let Err(e) = std::fs::create_dir_all(&work_dir)
+            && let Err(e) = std::fs::create_dir_all(&agent.work_dir)
         {
             warn!(
-                work_dir = %work_dir,
+                work_dir = %agent.work_dir.display(),
                 error = %e,
                 "could not create local agent work directory"
             );
         }
 
-        let mode_flags: Vec<String> = if fields.mode.trim().is_empty() {
-            vec!["--yolo".to_owned()]
-        } else {
-            fields.mode.split_whitespace().map(String::from).collect()
-        };
-
-        let caps = PlatformCapabilities::current();
-        let sandbox_engine = SandboxEngine::from_form_value(&fields.sandbox_engine)
-            .and_then(|engine| caps.normalize_engine(engine))
-            .unwrap_or_default();
-
-        Some(Agent {
-            id: crate::domain::AgentId(generate_id("agent")),
-            display_id: format!("#{next_display_index}"),
-            repository_id: repository.id.clone(),
-            shortcut_slot: fields.shortcut_slot,
-            name: trimmed_name.to_owned(),
-            description: fields.description.clone(),
-            work_dir: std::path::PathBuf::from(&work_dir),
-            profile: normalize_profile(&fields.profile),
-            mode_flags,
-            llxprt_debug: normalize_llxprt_debug(&fields.llxprt_debug),
-            pass_continue: fields.pass_continue,
-            sandbox_enabled: fields.sandbox_enabled,
-            sandbox_engine,
-            sandbox_flags: normalize_sandbox_flags(&fields.sandbox_flags),
-            status: AgentStatus::Running,
-            runtime_binding: None,
-        })
+        Some(agent)
     }
 
     pub(super) fn update_agent_from_fields(
