@@ -571,6 +571,11 @@ pub fn dispatch_app_message(
             | IssuesMessage::ClearFilter
             | IssuesMessage::ApplySearch),
         ) => {
+            let fresh_reload = matches!(
+                &message,
+                IssuesMessage::RefocusList | IssuesMessage::ApplySearch
+            );
+
             // Apply state transition first (sets list_loading = true, etc.)
             apply_and_persist(app_state, ctx, AppEvent::from(message));
 
@@ -579,7 +584,11 @@ pub fn dispatch_app_message(
                 let state = app_state.read();
                 let gh_repo = issues_dispatch::resolve_gh_repo(&state);
                 let filter = state.issues_state.committed_filter.clone();
-                let cursor = state.issues_state.list_cursor.clone();
+                let cursor = if fresh_reload {
+                    None
+                } else {
+                    state.issues_state.list_cursor.clone()
+                };
                 let scope_repo_id = issues_dispatch::current_scope_repo_id(&state);
                 (scope_repo_id, gh_repo.0, gh_repo.1, filter, cursor, 30u32)
             };
@@ -898,7 +907,7 @@ pub fn dispatch_app_message(
                                     },
                                 );
                             }
-                            None => {}
+                            None => report_context_unavailable(app_state),
                         }
                     }
                 }
@@ -935,7 +944,7 @@ pub fn dispatch_app_message(
                                         error: e.to_string(),
                                     });
                             }
-                            None => {}
+                            None => report_context_unavailable(app_state),
                         }
                     }
                     jefe::state::EditorTarget::Comment { comment_index } => {
@@ -978,7 +987,7 @@ pub fn dispatch_app_message(
                                         error: e.to_string(),
                                     });
                             }
-                            None => {}
+                            None => report_context_unavailable(app_state),
                         }
                     }
                 },
@@ -989,6 +998,13 @@ pub fn dispatch_app_message(
             apply_and_persist(app_state, ctx, AppEvent::from(message));
         }
     }
+}
+
+fn report_context_unavailable(app_state: &mut AppStateHandle) {
+    let mut state = app_state.write();
+    *state = std::mem::take(&mut *state).apply(AppEvent::MutationFailed {
+        error: "Application context unavailable".to_string(),
+    });
 }
 
 /// Helper enum for classifying inline submit actions.
