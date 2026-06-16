@@ -386,10 +386,13 @@ pub fn dispatch_app_message(
             apply_and_persist(app_state, ctx, AppEvent::ToggleTerminalFocus);
         }
         AppMessage::Runtime(RuntimeMessage::KillAgent(agent_id)) => {
-            let kill_result = if let Some(ctx_arc) = &ctx
-                && let Ok(mut ctx_guard) = ctx_arc.lock()
-            {
-                ctx_guard.runtime.kill(&agent_id).map_err(|e| e.to_string())
+            let kill_result = if let Some(ctx_arc) = &ctx {
+                match ctx_arc.lock() {
+                    Ok(mut ctx_guard) => {
+                        ctx_guard.runtime.kill(&agent_id).map_err(|e| e.to_string())
+                    }
+                    Err(e) => Err(format!("application context lock poisoned: {e}")),
+                }
             } else {
                 Ok(())
             };

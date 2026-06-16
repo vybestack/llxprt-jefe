@@ -67,7 +67,7 @@ fn create_issue(
     repo: &str,
     text: String,
 ) {
-    let (title, body) = if let Some((first, rest)) = text.split_once(char::from(0x0Au8)) {
+    let (title, body) = if let Some((first, rest)) = text.split_once('\n') {
         (first.trim().to_string(), rest.to_string())
     } else {
         (text.trim().to_string(), String::new())
