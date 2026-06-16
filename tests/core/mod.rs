@@ -4,5 +4,6 @@
 //! @requirement REQ-TECH-002
 
 mod domain_state_contracts;
+mod message_bus_contracts;
 mod persistence_theme_contracts;
 mod visibility_filter_contracts;

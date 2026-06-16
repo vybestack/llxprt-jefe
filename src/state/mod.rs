@@ -19,6 +19,10 @@ use tracing::{debug, trace};
 
 use crate::domain::{Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, SandboxEngine};
 use crate::domain::{Repository, RepositoryId};
+use crate::messages::{
+    AppMessage, MessageRoute, ModalMessage, PersistenceMessage, RepositoryAgentMessage,
+    RuntimeMessage, SystemMessage, ThemeMessage, UiNavigationMessage,
+};
 
 /// Move the inline editor cursor up or down by `direction` lines (-1 = up, 1 = down).
 /// Attempts to land on the same column in the target line, clamping to line length.
@@ -315,418 +319,72 @@ impl AppState {
     }
 
     /// Apply an event to produce the next state.
+    #[must_use]
+    pub fn apply(self, event: AppEvent) -> Self {
+        self.apply_message(event.into())
+    }
+
+    /// Apply a routed domain message to produce the next state.
     ///
     /// State transitions are deterministic per REQ-TECH-003.
     /// @plan PLAN-20260216-FIRSTVERSION-V1.P05
     /// @requirement REQ-TECH-003
     /// @pseudocode component-001 lines 13-33
     #[must_use]
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
-    pub fn apply(mut self, event: AppEvent) -> Self {
+    pub fn apply_message(mut self, message: AppMessage) -> Self {
+        let route = message.route();
         trace!(
-            event = ?event,
+            message_domain = ?route.domain,
+            message = route.name,
             terminal_focused = self.terminal_focused,
             pane_focus = ?self.pane_focus,
             modal = ?std::mem::discriminant(&self.modal),
-            "state.apply"
+            "state.apply_message"
         );
 
-        // When terminal is focused, navigation events are forwarded to PTY
-        // and should NOT change UI selection state.
-        // However, CyclePaneFocus is allowed (user can switch panes even while F12 active).
-        if self.terminal_focused {
-            match &event {
-                AppEvent::NavigateUp
-                | AppEvent::NavigateDown
-                | AppEvent::NavigateLeft
-                | AppEvent::NavigateRight
-                | AppEvent::SelectRepository(_)
-                | AppEvent::SelectAgent(_)
-                | AppEvent::JumpToAgentByShortcut(_) => {
-                    debug!(event = ?event, "blocked navigation event (terminal_focused=true)");
-                    return self;
-                }
-                _ => {}
+        if self.terminal_focused && Self::terminal_blocks(&message) {
+            debug!(
+                message_domain = ?route.domain,
+                message = route.name,
+                "blocked navigation message (terminal_focused=true)"
+            );
+            return self;
+        }
+
+        match message {
+            AppMessage::UiNavigation(message) => self.apply_ui_navigation(message),
+            AppMessage::Modal(message) => self.apply_modal_message(message),
+            AppMessage::RepositoryAgent(message) => self.apply_repository_agent_message(message),
+            AppMessage::Runtime(message) => self.apply_runtime_message(message),
+            AppMessage::Persistence(message) => self.apply_persistence_message(message),
+            AppMessage::Theme(message) => self.apply_theme_message(message),
+            AppMessage::System(message) => self.apply_system_message(message),
+            AppMessage::Issues(message) => {
+                let handled = self.apply_issues_message(message);
+                debug_assert!(handled, "unhandled issues message in apply_message()");
             }
         }
 
-        match event {
-            // Navigation
-            AppEvent::NavigateUp => self.handle_navigate_up(),
-            AppEvent::NavigateDown => self.handle_navigate_down(),
-            AppEvent::SelectRepository(idx) => {
-                if idx < self.repositories.len()
-                    && (!self.hide_idle_repositories
-                        || self.visible_repository_indices().contains(&idx))
-                {
-                    self.remember_selected_agent_for_current_repo();
-                    self.selected_repository_index = Some(idx);
-                    self.restore_selected_agent_for_current_repo();
+        self.finalize_message(route);
+        self
+    }
 
-                    // Scope change while in issues mode invalidates loaded data.
-                    // @plan PLAN-20260329-ISSUES-MODE.P15
-                    // @requirement REQ-ISS-001, REQ-ISS-013
-                    if self.issues_state.active {
-                        self.reset_issues_for_repo_change();
-                    }
-                }
-            }
-            AppEvent::SelectAgent(idx) => {
-                if let Some(repository_id) = self.selected_repository_id().cloned() {
-                    let visible_indices = self.agent_indices_for_repository(&repository_id);
-                    if idx < visible_indices.len() {
-                        self.selected_agent_index = Some(visible_indices[idx]);
-                        self.remember_selected_agent_for_current_repo();
-                    }
-                }
-            }
-            AppEvent::JumpToAgentByShortcut(slot) => {
-                if let Some((agent_idx, target_repo_id)) =
-                    self.agents.iter().enumerate().find_map(|(idx, agent)| {
-                        (agent.shortcut_slot == Some(slot)
-                            && self.is_agent_visible_with_idle_filter(agent))
-                        .then_some((idx, agent.repository_id.clone()))
-                    })
-                    && let Some(target_repo_idx) = self
-                        .repositories
-                        .iter()
-                        .position(|repo| repo.id == target_repo_id)
-                    && (!self.hide_idle_repositories
-                        || self.visible_repository_indices().contains(&target_repo_idx))
-                {
-                    self.remember_selected_agent_for_current_repo();
-                    self.selected_repository_index = Some(target_repo_idx);
-                    self.selected_agent_index = Some(agent_idx);
-                    self.pane_focus = PaneFocus::Agents;
-                    self.terminal_focused = false;
-                    self.remember_selected_agent_for_current_repo();
-                }
-            }
+    fn terminal_blocks(message: &AppMessage) -> bool {
+        matches!(
+            message,
+            AppMessage::UiNavigation(
+                UiNavigationMessage::NavigateUp
+                    | UiNavigationMessage::NavigateDown
+                    | UiNavigationMessage::NavigateLeft
+                    | UiNavigationMessage::NavigateRight
+                    | UiNavigationMessage::SelectRepository(_)
+                    | UiNavigationMessage::SelectAgent(_)
+                    | UiNavigationMessage::JumpToAgentByShortcut(_)
+            )
+        )
+    }
 
-            // Focus — Tab wraps around, Right arrow clamps at Terminal.
-            AppEvent::CyclePaneFocus => {
-                let old = self.pane_focus;
-                self.pane_focus = match self.pane_focus {
-                    PaneFocus::Repositories => PaneFocus::Agents,
-                    PaneFocus::Agents => PaneFocus::Terminal,
-                    PaneFocus::Terminal => PaneFocus::Repositories,
-                };
-                debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (tab)");
-            }
-            AppEvent::NavigateRight => {
-                let old = self.pane_focus;
-                self.pane_focus = match self.pane_focus {
-                    PaneFocus::Repositories => PaneFocus::Agents,
-                    PaneFocus::Agents | PaneFocus::Terminal => PaneFocus::Terminal,
-                };
-                debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (right)");
-            }
-            AppEvent::ToggleTerminalFocus => {
-                self.terminal_focused = !self.terminal_focused;
-                debug!(
-                    terminal_focused = self.terminal_focused,
-                    "toggled terminal focus"
-                );
-            }
-            AppEvent::ToggleHideIdleRepositories => {
-                self.hide_idle_repositories = !self.hide_idle_repositories;
-                self.normalize_selection_indices();
-            }
-
-            // Screen mode
-            AppEvent::EnterSplitMode => {
-                self.screen_mode = ScreenMode::Split;
-            }
-            AppEvent::ExitSplitMode => {
-                self.screen_mode = ScreenMode::Dashboard;
-                self.split_filter = None;
-                self.split_grab_index = None;
-            }
-
-            // Grab mode for split view reordering
-            AppEvent::EnterGrabMode => {
-                self.split_grab_index = self.selected_repository_visible_index();
-            }
-            AppEvent::ExitGrabMode => {
-                self.split_grab_index = None;
-            }
-            AppEvent::GrabMoveUp => {
-                if let Some(grab_visible_idx) = self.split_grab_index
-                    && grab_visible_idx > 0
-                {
-                    let visible_repo_indices = self.visible_repository_indices();
-                    if let (Some(&current_global_idx), Some(&target_global_idx)) = (
-                        visible_repo_indices.get(grab_visible_idx),
-                        visible_repo_indices.get(grab_visible_idx - 1),
-                    ) {
-                        self.repositories
-                            .swap(current_global_idx, target_global_idx);
-                        self.split_grab_index = Some(grab_visible_idx - 1);
-                        self.selected_repository_index = Some(target_global_idx);
-                    }
-                }
-            }
-            AppEvent::GrabMoveDown => {
-                if let Some(grab_visible_idx) = self.split_grab_index {
-                    let visible_repo_indices = self.visible_repository_indices();
-                    if grab_visible_idx + 1 < visible_repo_indices.len()
-                        && let (Some(&current_global_idx), Some(&target_global_idx)) = (
-                            visible_repo_indices.get(grab_visible_idx),
-                            visible_repo_indices.get(grab_visible_idx + 1),
-                        )
-                    {
-                        self.repositories
-                            .swap(current_global_idx, target_global_idx);
-                        self.split_grab_index = Some(grab_visible_idx + 1);
-                        self.selected_repository_index = Some(target_global_idx);
-                    }
-                }
-            }
-            AppEvent::SetSplitFilter(filter) => {
-                self.split_filter = filter;
-            }
-
-            // Modal/form actions
-            AppEvent::OpenHelp => {
-                self.modal = ModalState::Help;
-            }
-            AppEvent::OpenSearch => {
-                self.modal = ModalState::Search {
-                    query: String::new(),
-                };
-            }
-            AppEvent::CloseModal => {
-                self.modal = ModalState::None;
-            }
-            AppEvent::SubmitForm => {
-                self.handle_submit_form();
-            }
-
-            // Form input events
-            AppEvent::FormChar(c) => {
-                self.handle_form_char(c);
-            }
-            AppEvent::FormBackspace => {
-                self.handle_form_backspace();
-            }
-            AppEvent::FormDelete => {
-                self.handle_form_delete();
-            }
-            AppEvent::FormMoveCursorLeft => {
-                self.handle_form_move_cursor_left();
-            }
-            AppEvent::FormMoveCursorRight => {
-                self.handle_form_move_cursor_right();
-            }
-            AppEvent::FormNextField => {
-                self.handle_form_next_field();
-            }
-            AppEvent::FormPrevField => {
-                self.handle_form_prev_field();
-            }
-            AppEvent::FormToggleCheckbox => {
-                self.handle_form_toggle_checkbox();
-            }
-
-            // CRUD
-            AppEvent::OpenNewRepository => {
-                self.modal = ModalState::NewRepository {
-                    fields: RepositoryFormFields::default(),
-                    focus: RepositoryFormFocus::default(),
-                    cursor: RepositoryFormCursor::default(),
-                };
-            }
-            AppEvent::OpenEditRepository(id) => {
-                let fields = self
-                    .repositories
-                    .iter()
-                    .find(|r| r.id == id)
-                    .map(|r| RepositoryFormFields {
-                        name: r.name.clone(),
-                        base_dir: r.base_dir.to_string_lossy().into_owned(),
-                        default_profile: r.default_profile.clone(),
-                        github_repo: r.github_repo.clone(),
-                        remote_enabled: r.remote.enabled,
-                        login_user: r.remote.login_user.clone(),
-                        host: r.remote.host.clone(),
-                        run_as_user: r.remote.run_as_user.clone(),
-                        setup_env_default: r.remote.setup_env_default,
-                    })
-                    .unwrap_or_default();
-                self.modal = ModalState::EditRepository {
-                    id,
-                    cursor: RepositoryFormCursor {
-                        name: fields.name.chars().count(),
-                        base_dir: fields.base_dir.chars().count(),
-                        default_profile: fields.default_profile.chars().count(),
-                        github_repo: fields.github_repo.chars().count(),
-                        login_user: fields.login_user.chars().count(),
-                        host: fields.host.chars().count(),
-                        run_as_user: fields.run_as_user.chars().count(),
-                    },
-                    fields,
-                    focus: RepositoryFormFocus::default(),
-                };
-            }
-            AppEvent::OpenDeleteRepository(id) => {
-                self.modal = ModalState::ConfirmDeleteRepository { id };
-            }
-            AppEvent::OpenNewAgent(repository_id) => {
-                let (base_dir, default_profile) = self
-                    .repositories
-                    .iter()
-                    .find(|r| r.id == repository_id)
-                    .map(|r| {
-                        (
-                            r.base_dir.to_string_lossy().into_owned(),
-                            r.default_profile.clone(),
-                        )
-                    })
-                    .unwrap_or_default();
-
-                let work_dir_len = base_dir.chars().count();
-                let profile_len = default_profile.chars().count();
-
-                self.modal = ModalState::NewAgent {
-                    repository_id,
-                    fields: AgentFormFields {
-                        shortcut_slot: self.first_unused_shortcut_slot(None),
-                        name: String::new(),
-                        description: String::new(),
-                        work_dir: base_dir,
-                        profile: default_profile,
-                        mode: "--yolo".to_owned(),
-                        llxprt_debug: String::new(),
-                        pass_continue: true,
-                        sandbox_enabled: false,
-                        sandbox_engine: SandboxEngine::Podman.label().to_owned(),
-                        sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-                    },
-                    cursor: AgentFormCursor {
-                        work_dir: work_dir_len,
-                        profile: profile_len,
-                        mode: "--yolo".chars().count(),
-                        sandbox_flags: DEFAULT_SANDBOX_FLAGS.chars().count(),
-                        ..AgentFormCursor::default()
-                    },
-                    focus: AgentFormFocus::default(),
-                    work_dir_manual: false,
-                };
-            }
-            AppEvent::OpenEditAgent(id) => {
-                let fields = self
-                    .agents
-                    .iter()
-                    .find(|a| a.id == id)
-                    .map(|a| AgentFormFields {
-                        shortcut_slot: a.shortcut_slot,
-                        name: a.name.clone(),
-                        description: a.description.clone(),
-                        work_dir: a.work_dir.to_string_lossy().into_owned(),
-                        profile: a.profile.clone(),
-                        mode: a.mode_flags.join(" "),
-                        llxprt_debug: a.llxprt_debug.clone(),
-                        pass_continue: a.pass_continue,
-                        sandbox_enabled: a.sandbox_enabled,
-                        sandbox_engine: a.sandbox_engine.label().to_owned(),
-                        sandbox_flags: a.sandbox_flags.clone(),
-                    })
-                    .unwrap_or_default();
-                self.modal = ModalState::EditAgent {
-                    id,
-                    cursor: AgentFormCursor {
-                        name: fields.name.chars().count(),
-                        description: fields.description.chars().count(),
-                        work_dir: fields.work_dir.chars().count(),
-                        profile: fields.profile.chars().count(),
-                        mode: fields.mode.chars().count(),
-                        llxprt_debug: fields.llxprt_debug.chars().count(),
-                        sandbox_flags: fields.sandbox_flags.chars().count(),
-                    },
-                    fields,
-                    focus: AgentFormFocus::default(),
-                };
-            }
-            AppEvent::OpenDeleteAgent(id) => {
-                self.modal = ModalState::ConfirmDeleteAgent {
-                    id,
-                    delete_work_dir: false,
-                };
-            }
-            AppEvent::ToggleDeleteWorkDir => {
-                if let ModalState::ConfirmDeleteAgent {
-                    id,
-                    delete_work_dir,
-                } = self.modal.clone()
-                {
-                    self.modal = ModalState::ConfirmDeleteAgent {
-                        id,
-                        delete_work_dir: !delete_work_dir,
-                    };
-                }
-            }
-
-            // Lifecycle
-            AppEvent::KillAgent(ref agent_id) => {
-                if let Some(agent) = self.agents.iter_mut().find(|a| &a.id == agent_id) {
-                    agent.status = AgentStatus::Dead;
-                }
-            }
-            AppEvent::AgentStatusChanged(ref agent_id, status) => {
-                if let Some(agent) = self.agents.iter_mut().find(|a| &a.id == agent_id) {
-                    agent.status = status;
-                }
-            }
-            AppEvent::RelaunchAgent(ref agent_id) => {
-                if let Some(agent) = self.agents.iter_mut().find(|a| &a.id == agent_id)
-                    && agent.runtime_binding.is_some()
-                {
-                    agent.status = AgentStatus::Running;
-                }
-            }
-
-            // Persistence results - clear or set error
-            AppEvent::PersistenceLoadSuccess | AppEvent::ClearError => {
-                self.error_message = None;
-            }
-            AppEvent::PersistenceLoadFailed(msg) | AppEvent::PersistenceSaveFailed(msg) => {
-                self.error_message = Some(msg);
-            }
-
-            // Theme
-            AppEvent::ThemeResolveFailed(msg) => {
-                self.warning_message = Some(msg);
-            }
-
-            // Clear warning
-            AppEvent::ClearWarning => {
-                self.warning_message = None;
-            }
-
-            // Pane focus navigation — Left/Right clamp at boundaries (no wrapping).
-            AppEvent::NavigateLeft => {
-                let old = self.pane_focus;
-                self.pane_focus = match self.pane_focus {
-                    PaneFocus::Repositories | PaneFocus::Agents => PaneFocus::Repositories,
-                    PaneFocus::Terminal => PaneFocus::Agents,
-                };
-                debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (left)");
-            }
-
-            // No-op events (handled elsewhere or reserved)
-            AppEvent::PersistenceSaveSuccess
-            | AppEvent::SetTheme(_)
-            | AppEvent::Quit
-            | AppEvent::ApplySearch
-            | AppEvent::InlineSubmit => {}
-
-            // Issues mode events — delegated to issues_ops.rs
-            event => {
-                let handled = self.apply_issues_event(event);
-                debug_assert!(handled, "unhandled AppEvent variant in apply()");
-            }
-        }
-
+    fn finalize_message(&mut self, route: MessageRoute) {
         self.rebuild_repository_agent_ids();
         self.normalize_selection_indices();
         self.last_selected_agent_by_repo
@@ -737,7 +395,387 @@ impl AppState {
                         .iter()
                         .any(|agent| agent.id == *agent_id && agent.repository_id == *repo_id)
             });
-        self
+
+        trace!(
+            message_domain = ?route.domain,
+            message = route.name,
+            terminal_focused = self.terminal_focused,
+            pane_focus = ?self.pane_focus,
+            modal = ?std::mem::discriminant(&self.modal),
+            "state.apply_message complete"
+        );
+    }
+
+    fn apply_ui_navigation(&mut self, message: UiNavigationMessage) {
+        match message {
+            UiNavigationMessage::NavigateUp => self.handle_navigate_up(),
+            UiNavigationMessage::NavigateDown => self.handle_navigate_down(),
+            UiNavigationMessage::NavigateLeft => self.move_pane_focus_left(),
+            UiNavigationMessage::NavigateRight => self.move_pane_focus_right(),
+            UiNavigationMessage::SelectRepository(idx) => self.select_repository_by_index(idx),
+            UiNavigationMessage::SelectAgent(idx) => self.select_agent_by_local_index(idx),
+            UiNavigationMessage::JumpToAgentByShortcut(slot) => {
+                self.jump_to_agent_by_shortcut(slot);
+            }
+            UiNavigationMessage::CyclePaneFocus => self.cycle_pane_focus(),
+            UiNavigationMessage::ToggleTerminalFocus => self.toggle_terminal_focus(),
+            UiNavigationMessage::ToggleHideIdleRepositories => {
+                self.hide_idle_repositories = !self.hide_idle_repositories;
+                self.normalize_selection_indices();
+            }
+            UiNavigationMessage::EnterSplitMode => self.screen_mode = ScreenMode::Split,
+            UiNavigationMessage::ExitSplitMode => self.exit_split_mode(),
+            UiNavigationMessage::EnterGrabMode => {
+                self.split_grab_index = self.selected_repository_visible_index();
+            }
+            UiNavigationMessage::ExitGrabMode => self.split_grab_index = None,
+            UiNavigationMessage::GrabMoveUp => self.move_split_grab_up(),
+            UiNavigationMessage::GrabMoveDown => self.move_split_grab_down(),
+            UiNavigationMessage::SetSplitFilter(filter) => self.split_filter = filter,
+        }
+    }
+
+    fn cycle_pane_focus(&mut self) {
+        let old = self.pane_focus;
+        self.pane_focus = match self.pane_focus {
+            PaneFocus::Repositories => PaneFocus::Agents,
+            PaneFocus::Agents => PaneFocus::Terminal,
+            PaneFocus::Terminal => PaneFocus::Repositories,
+        };
+        debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (tab)");
+    }
+
+    fn move_pane_focus_right(&mut self) {
+        let old = self.pane_focus;
+        self.pane_focus = match self.pane_focus {
+            PaneFocus::Repositories => PaneFocus::Agents,
+            PaneFocus::Agents | PaneFocus::Terminal => PaneFocus::Terminal,
+        };
+        debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (right)");
+    }
+
+    fn move_pane_focus_left(&mut self) {
+        let old = self.pane_focus;
+        self.pane_focus = match self.pane_focus {
+            PaneFocus::Repositories | PaneFocus::Agents => PaneFocus::Repositories,
+            PaneFocus::Terminal => PaneFocus::Agents,
+        };
+        debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (left)");
+    }
+
+    fn toggle_terminal_focus(&mut self) {
+        self.terminal_focused = !self.terminal_focused;
+        debug!(
+            terminal_focused = self.terminal_focused,
+            "toggled terminal focus"
+        );
+    }
+
+    fn exit_split_mode(&mut self) {
+        self.screen_mode = ScreenMode::Dashboard;
+        self.split_filter = None;
+        self.split_grab_index = None;
+    }
+
+    fn select_repository_by_index(&mut self, idx: usize) {
+        if idx < self.repositories.len()
+            && (!self.hide_idle_repositories || self.visible_repository_indices().contains(&idx))
+        {
+            self.remember_selected_agent_for_current_repo();
+            self.selected_repository_index = Some(idx);
+            self.restore_selected_agent_for_current_repo();
+
+            if self.issues_state.active {
+                self.reset_issues_for_repo_change();
+            }
+        }
+    }
+
+    fn select_agent_by_local_index(&mut self, idx: usize) {
+        if let Some(repository_id) = self.selected_repository_id().cloned() {
+            let visible_indices = self.agent_indices_for_repository(&repository_id);
+            if idx < visible_indices.len() {
+                self.selected_agent_index = Some(visible_indices[idx]);
+                self.remember_selected_agent_for_current_repo();
+            }
+        }
+    }
+
+    fn jump_to_agent_by_shortcut(&mut self, slot: u8) {
+        if let Some((agent_idx, target_repo_id)) =
+            self.agents.iter().enumerate().find_map(|(idx, agent)| {
+                (agent.shortcut_slot == Some(slot) && self.is_agent_visible_with_idle_filter(agent))
+                    .then_some((idx, agent.repository_id.clone()))
+            })
+            && let Some(target_repo_idx) = self
+                .repositories
+                .iter()
+                .position(|repo| repo.id == target_repo_id)
+            && (!self.hide_idle_repositories
+                || self.visible_repository_indices().contains(&target_repo_idx))
+        {
+            self.remember_selected_agent_for_current_repo();
+            self.selected_repository_index = Some(target_repo_idx);
+            self.selected_agent_index = Some(agent_idx);
+            self.pane_focus = PaneFocus::Agents;
+            self.terminal_focused = false;
+            self.remember_selected_agent_for_current_repo();
+        }
+    }
+
+    fn move_split_grab_up(&mut self) {
+        if let Some(grab_visible_idx) = self.split_grab_index
+            && grab_visible_idx > 0
+        {
+            let visible_repo_indices = self.visible_repository_indices();
+            if let (Some(&current_global_idx), Some(&target_global_idx)) = (
+                visible_repo_indices.get(grab_visible_idx),
+                visible_repo_indices.get(grab_visible_idx - 1),
+            ) {
+                self.repositories
+                    .swap(current_global_idx, target_global_idx);
+                self.split_grab_index = Some(grab_visible_idx - 1);
+                self.selected_repository_index = Some(target_global_idx);
+            }
+        }
+    }
+
+    fn move_split_grab_down(&mut self) {
+        if let Some(grab_visible_idx) = self.split_grab_index {
+            let visible_repo_indices = self.visible_repository_indices();
+            if grab_visible_idx + 1 < visible_repo_indices.len()
+                && let (Some(&current_global_idx), Some(&target_global_idx)) = (
+                    visible_repo_indices.get(grab_visible_idx),
+                    visible_repo_indices.get(grab_visible_idx + 1),
+                )
+            {
+                self.repositories
+                    .swap(current_global_idx, target_global_idx);
+                self.split_grab_index = Some(grab_visible_idx + 1);
+                self.selected_repository_index = Some(target_global_idx);
+            }
+        }
+    }
+
+    fn apply_modal_message(&mut self, message: ModalMessage) {
+        match message {
+            ModalMessage::OpenHelp => self.modal = ModalState::Help,
+            ModalMessage::OpenSearch => {
+                self.modal = ModalState::Search {
+                    query: String::new(),
+                };
+            }
+            ModalMessage::CloseModal => self.modal = ModalState::None,
+            ModalMessage::SubmitForm => self.handle_submit_form(),
+            ModalMessage::FormChar(c) => self.handle_form_char(c),
+            ModalMessage::FormBackspace => self.handle_form_backspace(),
+            ModalMessage::FormDelete => self.handle_form_delete(),
+            ModalMessage::FormMoveCursorLeft => self.handle_form_move_cursor_left(),
+            ModalMessage::FormMoveCursorRight => self.handle_form_move_cursor_right(),
+            ModalMessage::FormNextField => self.handle_form_next_field(),
+            ModalMessage::FormPrevField => self.handle_form_prev_field(),
+            ModalMessage::FormToggleCheckbox => self.handle_form_toggle_checkbox(),
+        }
+    }
+
+    fn apply_repository_agent_message(&mut self, message: RepositoryAgentMessage) {
+        match message {
+            RepositoryAgentMessage::OpenNewRepository => self.open_new_repository_modal(),
+            RepositoryAgentMessage::OpenEditRepository(id) => self.open_edit_repository_modal(id),
+            RepositoryAgentMessage::OpenDeleteRepository(id) => {
+                self.modal = ModalState::ConfirmDeleteRepository { id };
+            }
+            RepositoryAgentMessage::OpenNewAgent(repository_id) => {
+                self.open_new_agent_modal(repository_id);
+            }
+            RepositoryAgentMessage::OpenEditAgent(id) => self.open_edit_agent_modal(id),
+            RepositoryAgentMessage::OpenDeleteAgent(id) => {
+                self.modal = ModalState::ConfirmDeleteAgent {
+                    id,
+                    delete_work_dir: false,
+                };
+            }
+            RepositoryAgentMessage::ToggleDeleteWorkDir => self.toggle_delete_work_dir(),
+        }
+    }
+
+    fn open_new_repository_modal(&mut self) {
+        self.modal = ModalState::NewRepository {
+            fields: RepositoryFormFields::default(),
+            focus: RepositoryFormFocus::default(),
+            cursor: RepositoryFormCursor::default(),
+        };
+    }
+
+    fn open_edit_repository_modal(&mut self, id: RepositoryId) {
+        let fields = self
+            .repositories
+            .iter()
+            .find(|r| r.id == id)
+            .map(|r| RepositoryFormFields {
+                name: r.name.clone(),
+                base_dir: r.base_dir.to_string_lossy().into_owned(),
+                default_profile: r.default_profile.clone(),
+                github_repo: r.github_repo.clone(),
+                remote_enabled: r.remote.enabled,
+                login_user: r.remote.login_user.clone(),
+                host: r.remote.host.clone(),
+                run_as_user: r.remote.run_as_user.clone(),
+                setup_env_default: r.remote.setup_env_default,
+            })
+            .unwrap_or_default();
+        self.modal = ModalState::EditRepository {
+            id,
+            cursor: RepositoryFormCursor {
+                name: fields.name.chars().count(),
+                base_dir: fields.base_dir.chars().count(),
+                default_profile: fields.default_profile.chars().count(),
+                github_repo: fields.github_repo.chars().count(),
+                login_user: fields.login_user.chars().count(),
+                host: fields.host.chars().count(),
+                run_as_user: fields.run_as_user.chars().count(),
+            },
+            fields,
+            focus: RepositoryFormFocus::default(),
+        };
+    }
+
+    fn open_new_agent_modal(&mut self, repository_id: RepositoryId) {
+        let (base_dir, default_profile) = self
+            .repositories
+            .iter()
+            .find(|r| r.id == repository_id)
+            .map(|r| {
+                (
+                    r.base_dir.to_string_lossy().into_owned(),
+                    r.default_profile.clone(),
+                )
+            })
+            .unwrap_or_default();
+
+        let work_dir_len = base_dir.chars().count();
+        let profile_len = default_profile.chars().count();
+
+        self.modal = ModalState::NewAgent {
+            repository_id,
+            fields: AgentFormFields {
+                shortcut_slot: self.first_unused_shortcut_slot(None),
+                name: String::new(),
+                description: String::new(),
+                work_dir: base_dir,
+                profile: default_profile,
+                mode: "--yolo".to_owned(),
+                llxprt_debug: String::new(),
+                pass_continue: true,
+                sandbox_enabled: false,
+                sandbox_engine: SandboxEngine::Podman.label().to_owned(),
+                sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+            },
+            cursor: AgentFormCursor {
+                work_dir: work_dir_len,
+                profile: profile_len,
+                mode: "--yolo".chars().count(),
+                sandbox_flags: DEFAULT_SANDBOX_FLAGS.chars().count(),
+                ..AgentFormCursor::default()
+            },
+            focus: AgentFormFocus::default(),
+            work_dir_manual: false,
+        };
+    }
+
+    fn open_edit_agent_modal(&mut self, id: AgentId) {
+        let fields = self
+            .agents
+            .iter()
+            .find(|a| a.id == id)
+            .map(|a| AgentFormFields {
+                shortcut_slot: a.shortcut_slot,
+                name: a.name.clone(),
+                description: a.description.clone(),
+                work_dir: a.work_dir.to_string_lossy().into_owned(),
+                profile: a.profile.clone(),
+                mode: a.mode_flags.join(" "),
+                llxprt_debug: a.llxprt_debug.clone(),
+                pass_continue: a.pass_continue,
+                sandbox_enabled: a.sandbox_enabled,
+                sandbox_engine: a.sandbox_engine.label().to_owned(),
+                sandbox_flags: a.sandbox_flags.clone(),
+            })
+            .unwrap_or_default();
+        self.modal = ModalState::EditAgent {
+            id,
+            cursor: AgentFormCursor {
+                name: fields.name.chars().count(),
+                description: fields.description.chars().count(),
+                work_dir: fields.work_dir.chars().count(),
+                profile: fields.profile.chars().count(),
+                mode: fields.mode.chars().count(),
+                llxprt_debug: fields.llxprt_debug.chars().count(),
+                sandbox_flags: fields.sandbox_flags.chars().count(),
+            },
+            fields,
+            focus: AgentFormFocus::default(),
+        };
+    }
+
+    fn toggle_delete_work_dir(&mut self) {
+        if let ModalState::ConfirmDeleteAgent {
+            id,
+            delete_work_dir,
+        } = self.modal.clone()
+        {
+            self.modal = ModalState::ConfirmDeleteAgent {
+                id,
+                delete_work_dir: !delete_work_dir,
+            };
+        }
+    }
+
+    fn apply_runtime_message(&mut self, message: RuntimeMessage) {
+        match message {
+            RuntimeMessage::KillAgent(agent_id) => {
+                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
+                    agent.status = AgentStatus::Dead;
+                }
+            }
+            RuntimeMessage::AgentStatusChanged(agent_id, status) => {
+                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
+                    agent.status = status;
+                }
+            }
+            RuntimeMessage::RelaunchAgent(agent_id) => {
+                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id)
+                    && agent.runtime_binding.is_some()
+                {
+                    agent.status = AgentStatus::Running;
+                }
+            }
+        }
+    }
+
+    fn apply_persistence_message(&mut self, message: PersistenceMessage) {
+        match message {
+            PersistenceMessage::LoadSuccess => self.error_message = None,
+            PersistenceMessage::LoadFailed(msg) | PersistenceMessage::SaveFailed(msg) => {
+                self.error_message = Some(msg);
+            }
+            PersistenceMessage::SaveSuccess => {}
+        }
+    }
+
+    fn apply_theme_message(&mut self, message: ThemeMessage) {
+        match message {
+            ThemeMessage::ResolveFailed(msg) => self.warning_message = Some(msg),
+            ThemeMessage::SetTheme(_) => {}
+        }
+    }
+
+    fn apply_system_message(&mut self, message: SystemMessage) {
+        match message {
+            SystemMessage::ClearError => self.error_message = None,
+            SystemMessage::ClearWarning => self.warning_message = None,
+            SystemMessage::Quit => {}
+        }
     }
 
     fn handle_navigate_up(&mut self) {

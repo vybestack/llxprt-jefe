@@ -9,6 +9,7 @@ pub mod domain;
 pub mod input;
 pub mod layout;
 pub mod logging;
+pub mod messages;
 pub mod persistence;
 pub mod runtime;
 pub mod services;

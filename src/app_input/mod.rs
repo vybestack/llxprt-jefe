@@ -31,6 +31,7 @@ const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
     ('ª', 9),
 ];
 use jefe::input::{SearchKeyRoute, route_search_key};
+use jefe::messages::{AppMessage, IssuesMessage, RuntimeMessage, UiNavigationMessage};
 use jefe::persistence::{PersistenceManager, State as PersistedState};
 const REMOTE_ATTACH_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
@@ -360,30 +361,43 @@ pub fn handle_mode_search_key(
     }
 }
 
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
-    debug!(event = ?evt, "dispatching app event");
+    dispatch_app_message(app_state, ctx, evt.into());
+}
 
-    match evt {
-        AppEvent::ToggleTerminalFocus => {
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
+pub fn dispatch_app_message(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: AppMessage,
+) {
+    let route = message.route();
+    debug!(
+        message_domain = ?route.domain,
+        message = route.name,
+        "dispatching app message"
+    );
+
+    match message {
+        AppMessage::UiNavigation(UiNavigationMessage::ToggleTerminalFocus) => {
             // Keep Enter-in-terminal-pane as a UI focus toggle only.
             // Runtime attach/detach remains bound to F12.
             apply_and_persist(app_state, ctx, AppEvent::ToggleTerminalFocus);
         }
-        AppEvent::KillAgent(ref agent_id) => {
+        AppMessage::Runtime(RuntimeMessage::KillAgent(agent_id)) => {
             if let Some(ctx_arc) = &ctx
                 && let Ok(mut ctx_guard) = ctx_arc.lock()
-                && let Err(e) = ctx_guard.runtime.kill(agent_id)
+                && let Err(e) = ctx_guard.runtime.kill(&agent_id)
             {
                 warn!(agent_id = %agent_id.0, error = %e, "could not kill runtime session");
             }
 
             let mut state = app_state.write();
-            *state = std::mem::take(&mut *state).apply(evt);
+            *state = std::mem::take(&mut *state).apply(AppEvent::KillAgent(agent_id));
             state.terminal_focused = false;
             persist_state_snapshot(ctx, &state);
         }
-        AppEvent::RelaunchAgent(agent_id) => {
+        AppMessage::Runtime(RuntimeMessage::RelaunchAgent(agent_id)) => {
             // Run preflight before attempting the relaunch.
             {
                 let state_ro = app_state.read();
@@ -491,10 +505,7 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
             persist_state_snapshot(ctx, &state);
         }
 
-        // ── Issue list / repo list navigation with auto-load ─────────────
-        // @plan PLAN-20260329-ISSUES-MODE.P15
-        // @requirement REQ-ISS-001, REQ-ISS-006, REQ-ISS-009
-        AppEvent::IssuesNavigateUp | AppEvent::IssuesNavigateDown => {
+        AppMessage::Issues(message @ (IssuesMessage::NavigateUp | IssuesMessage::NavigateDown)) => {
             let (focus, prev_repo_idx, prev_issue_idx) = {
                 let state = app_state.read();
                 (
@@ -504,7 +515,7 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
                 )
             };
 
-            apply_and_persist(app_state, ctx, evt);
+            apply_and_persist(app_state, ctx, AppEvent::from(message));
 
             match focus {
                 jefe::state::IssueFocus::RepoList => {
@@ -544,15 +555,14 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
             }
         }
 
-        // ── Issues-mode events that require I/O ────────────────────────────
-        // @plan PLAN-20260329-ISSUES-MODE.P15
-        // @requirement REQ-ISS-006, REQ-ISS-013
-        AppEvent::EnterIssuesMode
-        | AppEvent::RefocusIssueList
-        | AppEvent::ApplyFilter
-        | AppEvent::ClearFilter => {
+        AppMessage::Issues(
+            message @ (IssuesMessage::EnterMode
+            | IssuesMessage::RefocusList
+            | IssuesMessage::ApplyFilter
+            | IssuesMessage::ClearFilter),
+        ) => {
             // Apply state transition first (sets list_loading = true, etc.)
-            apply_and_persist(app_state, ctx, evt);
+            apply_and_persist(app_state, ctx, AppEvent::from(message));
 
             // Now perform the actual issue list fetch
             let (scope_repo_id, owner, repo, filter, cursor, page_size) = {
@@ -621,16 +631,12 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
             }
         }
 
-        // @plan PLAN-20260329-ISSUES-MODE.P15
-        // @requirement REQ-ISS-009
-        AppEvent::IssuesEnter => {
+        AppMessage::Issues(IssuesMessage::Enter) => {
             apply_and_persist(app_state, ctx, AppEvent::IssuesEnter);
             issues_dispatch::load_issue_detail_for_selection(app_state, ctx);
         }
 
-        // ── Send issue to agent ──────────────────────────────────────────
-        // @requirement REQ-ISS-011
-        AppEvent::AgentChooserConfirm => {
+        AppMessage::Issues(IssuesMessage::AgentChooserConfirm) => {
             // Gather chosen agent and issue data before clearing the chooser
             let send_info = {
                 let state = app_state.read();
@@ -662,7 +668,7 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
             };
 
             // Clear the chooser regardless
-            apply_and_persist(app_state, ctx, evt);
+            apply_and_persist(app_state, ctx, AppEvent::AgentChooserConfirm);
 
             let Some((agent_id, work_dir, signature, payload)) = send_info else {
                 return;
@@ -755,9 +761,7 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
             persist_state_snapshot(ctx, &state);
         }
 
-        // @plan PLAN-20260329-ISSUES-MODE.P15
-        // @requirement REQ-ISS-010
-        AppEvent::InlineSubmit => {
+        AppMessage::Issues(IssuesMessage::InlineSubmit) => {
             let submit_action = {
                 let state = app_state.read();
                 match &state.issues_state.inline_state {
@@ -971,8 +975,8 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
             }
         }
 
-        _ => {
-            apply_and_persist(app_state, ctx, evt);
+        message => {
+            apply_and_persist(app_state, ctx, AppEvent::from(message));
         }
     }
 }

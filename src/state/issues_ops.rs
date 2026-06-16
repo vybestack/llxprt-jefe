@@ -8,6 +8,7 @@ use super::{
     InlineState, IssueFocus, PaneFocus, PriorAgentFocus, ScreenMode, inline_cursor_vertical,
 };
 use crate::domain::{IssueFilter, IssueFilterState};
+use crate::messages::IssuesMessage;
 
 impl AppState {
     /// Enter issues mode, saving prior focus state.
@@ -514,6 +515,10 @@ impl AppState {
     ///
     /// Returns `true` if the event was handled, `false` if it was not an
     /// issues-mode event (caller should handle it).
+    pub(super) fn apply_issues_message(&mut self, message: IssuesMessage) -> bool {
+        self.apply_issues_event(message.into())
+    }
+
     #[allow(clippy::too_many_lines)]
     pub(super) fn apply_issues_event(&mut self, event: AppEvent) -> bool {
         match event {
