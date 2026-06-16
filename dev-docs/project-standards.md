@@ -80,6 +80,7 @@ Contributors must keep project lint config active and respected.
 ## Explicit prohibitions
 - Do not disable lints globally.
 - Do not add blanket `#[allow(...)]` at module/file scope to silence debt.
+- Do not add new `#[allow(clippy::...)]` or `#![allow(clippy::...)]` attributes unless the exception has explicit review approval and is recorded in `clippy-allowlist.tsv` with an owner and removal target.
 - Do not merge code that passes only by muting warnings.
 
 If a local `#[allow]` is unavoidable:

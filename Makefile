@@ -4,6 +4,7 @@ build: ci-check
 
 ci-check:
 	cargo fmt --all --check
+	scripts/check-clippy-allows.sh
 	CLIPPY_CONF_DIR=.github/clippy rustup run stable cargo clippy --workspace --all-targets --all-features -- -D warnings
 	CLIPPY_CONF_DIR=.github/clippy rustup run stable cargo clippy --workspace --all-targets --all-features -- \
 		-A clippy::all \

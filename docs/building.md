@@ -34,6 +34,7 @@ This command runs:
 
 ```bash
 cargo fmt --all --check
+scripts/check-clippy-allows.sh
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo clippy --workspace --all-targets --all-features -- \
   -A clippy::all \

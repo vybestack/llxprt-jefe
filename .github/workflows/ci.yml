@@ -39,6 +39,14 @@ jobs:
       - name: Run clippy (warnings as errors)
         run: rustup run stable cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  clippy_allow_policy:
+    name: Clippy allow policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Block untracked clippy allow attributes
+        run: scripts/check-clippy-allows.sh
+
   source_file_size:
     name: Source file length checks
     runs-on: ubuntu-latest
@@ -135,7 +143,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [fmt, lint, source_file_size, complexity, coverage]
+    needs: [fmt, lint, clippy_allow_policy, source_file_size, complexity, coverage]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
