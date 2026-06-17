@@ -42,8 +42,12 @@ jobs:
   clippy_allow_policy:
     name: Clippy allow policy
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
       - name: Block untracked clippy allow attributes
         run: scripts/check-clippy-allows.sh
 

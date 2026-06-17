@@ -30,7 +30,7 @@ expected_file="$(make_temp_file)"
 trap 'rm -f "$actual_file" "$expected_file"' EXIT
 
 scan_actual_allows() {
-  git ls-files --cached --others --exclude-standard '*.rs' ':!vendor/**' \
+  git ls-files --cached '*.rs' ':!vendor/**' \
     | while IFS= read -r file; do
         awk -v file="$file" '
           function trim(value) {
