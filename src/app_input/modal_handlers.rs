@@ -24,6 +24,8 @@ pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
             .as_ref()
             .is_some_and(|agent_id| attach_for_f12(ctx, agent_id));
         update_f12_attachment_state(app_state, selected_agent_id.as_ref(), attached);
+    } else {
+        update_f12_attachment_state(app_state, None, false);
     }
 
     persist_current_state(app_state, ctx);
@@ -86,6 +88,7 @@ fn update_f12_attachment_state(
     if !attached {
         state.terminal_focused = false;
         state.pane_focus = PaneFocus::Agents;
+        clear_agent_runtime_attachment(&mut state);
         if let Some(agent_id) = selected_agent_id {
             mark_agent_runtime_attached(&mut state, agent_id, false);
         }

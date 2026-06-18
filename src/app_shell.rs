@@ -20,7 +20,6 @@ use crate::pty_encoding::{
 use jefe::domain::{AgentId, AgentStatus};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::layout::{compute_pty_layout, effective_render_size};
-use jefe::persistence::PersistenceManager;
 use jefe::runtime::{RuntimeError, RuntimeManager, TerminalSnapshot};
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
 use jefe::theme::{ThemeColors, ThemeManager};
@@ -143,15 +142,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                             agent.runtime_binding = None;
                         }
                     }
-                    // Persist after liveness updates.
-                    if let Ok(ctx_guard) = ctx_arc.lock() {
-                        if let Err(e) = ctx_guard
-                            .persistence
-                            .save_state(&to_persisted_state(&state))
-                        {
-                            warn!(error = %e, "could not save state after liveness update");
-                        }
-                    }
+                    let persisted = to_persisted_state(&state);
+                    drop(state);
+                    persist_state(&ctx, &persisted);
                 }
             }
         }

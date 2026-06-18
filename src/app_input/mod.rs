@@ -275,9 +275,15 @@ fn spawn_and_attach(
     signature: &LaunchSignature,
     is_relaunch: bool,
 ) -> Result<(), RuntimeError> {
-    let Some(ctx_arc) = ctx else { return Ok(()) };
+    let Some(ctx_arc) = ctx else {
+        return Err(RuntimeError::SpawnFailed(
+            "runtime context unavailable".to_owned(),
+        ));
+    };
     let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return Ok(());
+        return Err(RuntimeError::SpawnFailed(
+            "runtime context lock unavailable".to_owned(),
+        ));
     };
 
     let spawn_result = if is_relaunch {
