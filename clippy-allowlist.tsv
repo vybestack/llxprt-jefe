@@ -3,14 +3,6 @@
 # New #[allow(clippy::...)] or #![allow(clippy::...)] entries must not be added without an approved exception.
 src/app_init.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
 src/app_init.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/app_input/issues_filter.rs	#[allow(clippy::field_reassign_with_default)]	core-maintainers	next quality-cycle ratchet
-src/app_input/issues.rs	#[allow(clippy::match_same_arms)]	core-maintainers	next quality-cycle ratchet
-src/app_input/issues.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/app_input/issues.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/app_input/mod.rs	#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]	core-maintainers	next quality-cycle ratchet
-src/app_input/modal_handlers.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/app_input/modal_handlers.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/app_input/normal.rs	#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]	core-maintainers	next quality-cycle ratchet
 src/app_shell.rs	#[allow(clippy::cognitive_complexity)]	core-maintainers	next quality-cycle ratchet
 src/app_shell.rs	#[allow(clippy::cognitive_complexity)]	core-maintainers	next quality-cycle ratchet
 src/github/mod.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet

@@ -26,189 +26,164 @@ use super::{AppStateHandle, SharedContext};
 /// @plan PLAN-20260329-ISSUES-MODE.P11
 /// @requirement REQ-ISS-002
 /// @pseudocode component-003 lines 01-38
-#[allow(clippy::too_many_lines)]
 pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
-    let inline_state = &state.issues_state.inline_state;
-    let has_agent_chooser = state.issues_state.agent_chooser.is_some();
-    let search_focused = state.issues_state.search_input_focused;
-    let filter_open = state.issues_state.filter_controls_open;
-
-    // Priority 1: Inline editor/composer — consumes all keys when active.
-    // @plan PLAN-20260329-ISSUES-MODE.P11
-    // @pseudocode component-003 lines 03-06
-    if *inline_state != InlineState::None {
-        return match key_event.code {
-            KeyCode::Esc => Some(AppEvent::InlineCancelOrEsc),
-            KeyCode::Enter if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                Some(AppEvent::InlineSubmit)
-            }
-            KeyCode::Enter => Some(AppEvent::InlineNewline),
-            KeyCode::Char(c) => Some(AppEvent::InlineChar(c)),
-            KeyCode::Backspace => Some(AppEvent::InlineBackspace),
-            KeyCode::Delete => Some(AppEvent::InlineDelete),
-            KeyCode::Left => Some(AppEvent::InlineCursorLeft),
-            KeyCode::Right => Some(AppEvent::InlineCursorRight),
-            KeyCode::Up => Some(AppEvent::InlineCursorUp),
-            KeyCode::Down => Some(AppEvent::InlineCursorDown),
-            _ => None, // consumed, no leak
-        };
+    if state.issues_state.inline_state != InlineState::None {
+        return resolve_inline_key_event(key_event);
     }
 
-    // Priority 2: Agent chooser — consumes all keys when open.
-    // @plan PLAN-20260329-ISSUES-MODE.P11
-    // @pseudocode component-003 lines 07-10
-    if has_agent_chooser {
-        return match key_event.code {
-            KeyCode::Up => Some(AppEvent::AgentChooserNavigateUp),
-            KeyCode::Down => Some(AppEvent::AgentChooserNavigateDown),
-            KeyCode::Enter => Some(AppEvent::AgentChooserConfirm),
-            KeyCode::Esc => Some(AppEvent::AgentChooserCancel),
-            _ => None, // consumed
-        };
+    if state.issues_state.agent_chooser.is_some() {
+        return resolve_agent_chooser_key_event(key_event);
     }
 
-    // Priority 3: Search input focused.
-    // @plan PLAN-20260329-ISSUES-MODE.P11
-    // @pseudocode component-003 lines 11-14
-    if search_focused {
-        return match key_event.code {
-            KeyCode::Enter => Some(AppEvent::ApplySearch),
-            KeyCode::Esc => {
-                if state.issues_state.search_query.is_empty() {
-                    Some(AppEvent::BlurSearchInput)
-                } else {
-                    Some(AppEvent::ClearSearch)
-                }
-            }
-            KeyCode::Char(c) => {
-                let mut query = state.issues_state.search_query.clone();
-                query.push(c);
-                Some(AppEvent::SetSearchQuery { query })
-            }
-            KeyCode::Backspace => {
-                let mut query = state.issues_state.search_query.clone();
-                query.pop();
-                Some(AppEvent::SetSearchQuery { query })
-            }
-            _ => None,
-        };
+    if state.issues_state.search_input_focused {
+        return resolve_search_key_event(state, key_event);
     }
 
-    // Priority 4: Filter controls open.
-    // @plan PLAN-20260329-ISSUES-MODE.P11
-    // @pseudocode component-003 lines 15-18
-    // @requirement REQ-ISS-008
-    if filter_open {
+    if state.issues_state.filter_controls_open {
         return resolve_filter_key_event(state, key_event);
     }
 
-    // Priority 5: Issues-global unwind and mode controls.
-    // @plan PLAN-20260329-ISSUES-MODE.P11
-    // @pseudocode component-003 lines 19-26
-    match key_event.code {
-        KeyCode::Char('a') => return Some(AppEvent::ExitIssuesMode),
-        KeyCode::Esc => {
-            // Esc in IssueDetail goes back to IssueList, not all the way out
-            return if state.issues_state.issue_focus == IssueFocus::IssueDetail {
-                Some(AppEvent::RefocusIssueList)
-            } else {
-                Some(AppEvent::ExitIssuesMode)
-            };
-        }
-        KeyCode::Char('i') => return Some(AppEvent::RefocusIssueList),
-        KeyCode::Char('?' | 'h') | KeyCode::F(1) => {
-            return Some(AppEvent::OpenHelp);
-        }
-        _ => {}
-    }
+    resolve_global_issues_key_event(state, key_event)
+        .or_else(|| resolve_focus_key_event(state, key_event))
+        .or_else(|| resolve_pane_cycle_key_event(key_event))
+}
 
-    // Priority 6: Focus-domain handlers.
-    // @plan PLAN-20260329-ISSUES-MODE.P11
-    // @pseudocode component-003 lines 27-72
+fn resolve_inline_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Esc => Some(AppEvent::InlineCancelOrEsc),
+        KeyCode::Enter if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(AppEvent::InlineSubmit)
+        }
+        KeyCode::Enter => Some(AppEvent::InlineNewline),
+        KeyCode::Char(c) => Some(AppEvent::InlineChar(c)),
+        KeyCode::Backspace => Some(AppEvent::InlineBackspace),
+        KeyCode::Delete => Some(AppEvent::InlineDelete),
+        KeyCode::Left => Some(AppEvent::InlineCursorLeft),
+        KeyCode::Right => Some(AppEvent::InlineCursorRight),
+        KeyCode::Up => Some(AppEvent::InlineCursorUp),
+        KeyCode::Down => Some(AppEvent::InlineCursorDown),
+        _ => None,
+    }
+}
+
+fn resolve_agent_chooser_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Up => Some(AppEvent::AgentChooserNavigateUp),
+        KeyCode::Down => Some(AppEvent::AgentChooserNavigateDown),
+        KeyCode::Enter => Some(AppEvent::AgentChooserConfirm),
+        KeyCode::Esc => Some(AppEvent::AgentChooserCancel),
+        _ => None,
+    }
+}
+
+fn resolve_search_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Enter => Some(AppEvent::ApplySearch),
+        KeyCode::Esc if state.issues_state.search_query.is_empty() => {
+            Some(AppEvent::BlurSearchInput)
+        }
+        KeyCode::Esc => Some(AppEvent::ClearSearch),
+        KeyCode::Char(c) => {
+            let mut query = state.issues_state.search_query.clone();
+            query.push(c);
+            Some(AppEvent::SetSearchQuery { query })
+        }
+        KeyCode::Backspace => {
+            let mut query = state.issues_state.search_query.clone();
+            query.pop();
+            Some(AppEvent::SetSearchQuery { query })
+        }
+        _ => None,
+    }
+}
+
+fn resolve_global_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Esc if state.issues_state.issue_focus == IssueFocus::IssueDetail => {
+            Some(AppEvent::RefocusIssueList)
+        }
+        KeyCode::Char('a') | KeyCode::Esc => Some(AppEvent::ExitIssuesMode),
+        KeyCode::Char('i') => Some(AppEvent::RefocusIssueList),
+        KeyCode::Char('?' | 'h') | KeyCode::F(1) => Some(AppEvent::OpenHelp),
+        _ => None,
+    }
+}
+
+fn resolve_focus_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     match state.issues_state.issue_focus {
-        IssueFocus::IssueList => match key_event.code {
-            KeyCode::Up => return Some(AppEvent::IssuesNavigateUp),
-            KeyCode::Down => return Some(AppEvent::IssuesNavigateDown),
-            KeyCode::Left => return Some(AppEvent::IssuesCycleFocusReverse),
-            KeyCode::Right => return Some(AppEvent::IssuesCycleFocus),
-            KeyCode::PageUp => return Some(AppEvent::IssuesNavigatePageUp),
-            KeyCode::PageDown => return Some(AppEvent::IssuesNavigatePageDown),
-            KeyCode::Home => return Some(AppEvent::IssuesNavigateHome),
-            KeyCode::End => return Some(AppEvent::IssuesNavigateEnd),
-            KeyCode::Enter => return Some(AppEvent::IssuesEnter),
-            KeyCode::Char('n' | 'N') => return Some(AppEvent::OpenNewIssueComposer),
-            KeyCode::Char('f') => return Some(AppEvent::OpenFilterControls),
-            KeyCode::Char('/') => return Some(AppEvent::FocusSearchInput),
-            _ => {}
-        },
-
-        IssueFocus::IssueDetail => match key_event.code {
-            KeyCode::Up => return Some(AppEvent::IssuesScrollDetailUp),
-            KeyCode::Down => return Some(AppEvent::IssuesScrollDetailDown),
-            KeyCode::Left => return Some(AppEvent::IssuesCycleFocusReverse),
-            KeyCode::PageUp => return Some(AppEvent::IssuesScrollDetailPageUp),
-            KeyCode::PageDown => return Some(AppEvent::IssuesScrollDetailPageDown),
-            KeyCode::Char('e') => {
-                return match state.issues_state.detail_subfocus {
-                    DetailSubfocus::Body => Some(AppEvent::OpenInlineEditor {
-                        target: jefe::state::EditorTarget::IssueBody,
-                    }),
-                    DetailSubfocus::Comment(idx) => Some(AppEvent::OpenInlineEditor {
-                        target: jefe::state::EditorTarget::Comment { comment_index: idx },
-                    }),
-                    DetailSubfocus::NewComment => None,
-                };
-            }
-            KeyCode::Char('c') => {
-                return Some(AppEvent::OpenNewCommentComposer);
-            }
-            KeyCode::Char('r') => {
-                return match state.issues_state.detail_subfocus {
-                    DetailSubfocus::Comment(idx) => {
-                        Some(AppEvent::OpenReplyComposer { comment_index: idx })
-                    }
-                    _ => None,
-                };
-            }
-            KeyCode::Char('S') => {
-                // Only open chooser if agents exist.
-                return if state.agents.is_empty() {
-                    None
-                } else {
-                    Some(AppEvent::OpenAgentChooser)
-                };
-            }
-            KeyCode::Tab => return Some(AppEvent::IssueDetailSubfocusNext),
-            KeyCode::BackTab => return Some(AppEvent::IssueDetailSubfocusPrev),
-            _ => {}
-        },
-
-        IssueFocus::RepoList => match key_event.code {
-            KeyCode::Up => return Some(AppEvent::IssuesNavigateUp),
-            KeyCode::Down => return Some(AppEvent::IssuesNavigateDown),
-            KeyCode::Right => return Some(AppEvent::IssuesCycleFocus),
-            _ => {}
-        },
+        IssueFocus::IssueList => resolve_issue_list_key_event(key_event),
+        IssueFocus::IssueDetail => resolve_issue_detail_key_event(state, key_event),
+        IssueFocus::RepoList => resolve_repo_list_key_event(key_event),
     }
+}
 
-    // Priority 7: Pane focus cycling — catch-all Tab/Shift+Tab when not in detail.
-    // @plan PLAN-20260329-ISSUES-MODE.P11
-    // @pseudocode component-003 lines 73-80
+fn resolve_issue_list_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
     match key_event.code {
-        KeyCode::Tab => return Some(AppEvent::IssuesCycleFocus),
-        KeyCode::BackTab => return Some(AppEvent::IssuesCycleFocusReverse),
-        _ => {}
+        KeyCode::Up => Some(AppEvent::IssuesNavigateUp),
+        KeyCode::Down => Some(AppEvent::IssuesNavigateDown),
+        KeyCode::Left => Some(AppEvent::IssuesCycleFocusReverse),
+        KeyCode::Right => Some(AppEvent::IssuesCycleFocus),
+        KeyCode::PageUp => Some(AppEvent::IssuesNavigatePageUp),
+        KeyCode::PageDown => Some(AppEvent::IssuesNavigatePageDown),
+        KeyCode::Home => Some(AppEvent::IssuesNavigateHome),
+        KeyCode::End => Some(AppEvent::IssuesNavigateEnd),
+        KeyCode::Enter => Some(AppEvent::IssuesEnter),
+        KeyCode::Char('n' | 'N') => Some(AppEvent::OpenNewIssueComposer),
+        KeyCode::Char('f') => Some(AppEvent::OpenFilterControls),
+        KeyCode::Char('/') => Some(AppEvent::FocusSearchInput),
+        _ => None,
     }
+}
 
-    // Priority 8: Suppression — consumed as no-op in issues mode.
-    // @plan PLAN-20260329-ISSUES-MODE.P11
-    // @pseudocode component-003 lines 81-90
-    #[allow(clippy::match_same_arms)]
+fn resolve_issue_detail_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     match key_event.code {
-        KeyCode::Char('s') => None,
-        KeyCode::Char('d') if key_event.modifiers.contains(KeyModifiers::CONTROL) => None,
-        KeyCode::Char('k') if key_event.modifiers.contains(KeyModifiers::CONTROL) => None,
-        KeyCode::Char('l') => None,
+        KeyCode::Up => Some(AppEvent::IssuesScrollDetailUp),
+        KeyCode::Down => Some(AppEvent::IssuesScrollDetailDown),
+        KeyCode::Left => Some(AppEvent::IssuesCycleFocusReverse),
+        KeyCode::PageUp => Some(AppEvent::IssuesScrollDetailPageUp),
+        KeyCode::PageDown => Some(AppEvent::IssuesScrollDetailPageDown),
+        KeyCode::Char('e') => editor_event_for_subfocus(state.issues_state.detail_subfocus),
+        KeyCode::Char('c') => Some(AppEvent::OpenNewCommentComposer),
+        KeyCode::Char('r') => reply_event_for_subfocus(state.issues_state.detail_subfocus),
+        KeyCode::Char('S') if !state.agents.is_empty() => Some(AppEvent::OpenAgentChooser),
+        KeyCode::Tab => Some(AppEvent::IssueDetailSubfocusNext),
+        KeyCode::BackTab => Some(AppEvent::IssueDetailSubfocusPrev),
+        _ => None,
+    }
+}
+
+fn editor_event_for_subfocus(subfocus: DetailSubfocus) -> Option<AppEvent> {
+    match subfocus {
+        DetailSubfocus::Body => Some(AppEvent::OpenInlineEditor {
+            target: jefe::state::EditorTarget::IssueBody,
+        }),
+        DetailSubfocus::Comment(idx) => Some(AppEvent::OpenInlineEditor {
+            target: jefe::state::EditorTarget::Comment { comment_index: idx },
+        }),
+        DetailSubfocus::NewComment => None,
+    }
+}
+
+fn reply_event_for_subfocus(subfocus: DetailSubfocus) -> Option<AppEvent> {
+    match subfocus {
+        DetailSubfocus::Comment(idx) => Some(AppEvent::OpenReplyComposer { comment_index: idx }),
+        _ => None,
+    }
+}
+
+fn resolve_repo_list_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Up => Some(AppEvent::IssuesNavigateUp),
+        KeyCode::Down => Some(AppEvent::IssuesNavigateDown),
+        KeyCode::Right => Some(AppEvent::IssuesCycleFocus),
+        _ => None,
+    }
+}
+
+fn resolve_pane_cycle_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Tab => Some(AppEvent::IssuesCycleFocus),
+        KeyCode::BackTab => Some(AppEvent::IssuesCycleFocusReverse),
         _ => None,
     }
 }
@@ -219,7 +194,6 @@ pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Optio
 /// @plan PLAN-20260329-ISSUES-MODE.P11
 /// @requirement REQ-ISS-002
 /// @pseudocode component-003 lines 01-38
-#[allow(clippy::too_many_lines)]
 pub fn handle_issues_mode_key(
     app_state: &AppStateHandle,
     _ctx: &SharedContext,

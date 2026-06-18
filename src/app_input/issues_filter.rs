@@ -62,7 +62,6 @@ fn current_filter_field_value(state: &AppState, field_name: &str) -> String {
 }
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use iocraft::prelude::{KeyCode, KeyEventKind, KeyModifiers};
@@ -79,12 +78,16 @@ mod tests {
     }
 
     fn filter_state() -> AppState {
-        let mut state = AppState::default();
-        state.screen_mode = ScreenMode::DashboardIssues;
-        state.issues_state.active = true;
-        state.issues_state.filter_controls_open = true;
-        state.issues_state.filter_field_index = 0;
-        state
+        AppState {
+            screen_mode: ScreenMode::DashboardIssues,
+            issues_state: jefe::state::IssuesState {
+                active: true,
+                filter_controls_open: true,
+                filter_field_index: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
     }
 
     #[test]
