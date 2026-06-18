@@ -9,7 +9,7 @@ use jefe::theme::ThemeManager;
 
 use super::{
     AppStateHandle, MAC_ALT_DIGIT_SHORTCUTS, QuitHandle, SharedContext, jump_to_shortcut_agent,
-    persist_state_snapshot,
+    persist_state, to_persisted_state,
 };
 
 fn mac_alt_digit_slot(c: char) -> Option<u8> {
@@ -21,12 +21,11 @@ fn mac_alt_digit_slot(c: char) -> Option<u8> {
 fn try_extract_shortcut_slot(key_event: &KeyEvent) -> Option<u8> {
     match key_event.code {
         KeyCode::Char(c) => {
-            if key_event.modifiers.contains(KeyModifiers::ALT) {
-                if let Some(digit) = c.to_digit(10)
-                    && (1..=9).contains(&digit)
-                {
-                    return u8::try_from(digit).ok();
-                }
+            if key_event.modifiers.contains(KeyModifiers::ALT)
+                && let Some(digit) = c.to_digit(10)
+                && (1..=9).contains(&digit)
+            {
+                return u8::try_from(digit).ok();
             }
 
             // macOS default Option+digit emits these symbols when Option is not in Meta mode.
@@ -135,7 +134,9 @@ pub fn handle_normal_key_event(
                     let mut state_mut = app_state.write();
                     state_mut.selected_repository_index = Some(first_visible_idx);
                     state_mut.normalize_selection_indices();
-                    persist_state_snapshot(ctx, &state_mut);
+                    let persisted = to_persisted_state(&state_mut);
+                    drop(state_mut);
+                    persist_state(ctx, &persisted);
                 }
                 first_id
             });
@@ -205,13 +206,17 @@ pub fn handle_normal_key_event(
         KeyCode::Char('r' | 'R') => {
             let mut state = app_state.write();
             state.pane_focus = PaneFocus::Repositories;
-            persist_state_snapshot(ctx, &state);
+            let persisted = to_persisted_state(&state);
+            drop(state);
+            persist_state(ctx, &persisted);
             None
         }
         KeyCode::Char('a' | 'A') => {
             let mut state = app_state.write();
             state.pane_focus = PaneFocus::Agents;
-            persist_state_snapshot(ctx, &state);
+            let persisted = to_persisted_state(&state);
+            drop(state);
+            persist_state(ctx, &persisted);
             None
         }
         KeyCode::Char('t' | 'T') => {
@@ -248,13 +253,17 @@ pub fn handle_normal_key_event(
                     let mut state = app_state.write();
                     state.terminal_focused = false;
                     state.pane_focus = PaneFocus::Agents;
-                    persist_state_snapshot(ctx, &state);
+                    let persisted = to_persisted_state(&state);
+                    drop(state);
+                    persist_state(ctx, &persisted);
                 }
             } else {
                 let mut state = app_state.write();
                 state.terminal_focused = false;
                 state.pane_focus = PaneFocus::Agents;
-                persist_state_snapshot(ctx, &state);
+                let persisted = to_persisted_state(&state);
+                drop(state);
+                persist_state(ctx, &persisted);
             }
 
             None

@@ -3,16 +3,12 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1
 //! @requirement REQ-TECH-001
 
-#![allow(clippy::print_stderr)]
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::clone_on_copy)]
-#![allow(clippy::significant_drop_tightening)]
-
 mod app_init;
 mod app_input;
 mod app_shell;
 mod pty_encoding;
 
+use std::io::Write;
 use std::sync::Arc;
 
 use iocraft::prelude::*;
@@ -36,28 +32,41 @@ struct AppContext {
 /// Returns the parsed [`CliArgs`] when execution should continue, or `None`
 /// when the process has already handled an early-exit flag and `main` should
 /// return.
-#[allow(clippy::print_stdout)]
 fn parse_cli_or_exit() -> Option<jefe::cli::CliArgs> {
     match jefe::cli::parse_args(std::env::args().skip(1)) {
-        Ok(args) => {
-            if args.help {
-                println!("{}", jefe::cli::USAGE);
-                return None;
-            }
-            if args.version {
-                let version = jefe::VERSION;
-                println!("jefe {version}");
-                return None;
-            }
-            Some(args)
-        }
+        Ok(args) => handle_parsed_cli_args(args),
         Err(e) => {
-            eprintln!("error: {e}");
-            eprintln!();
-            eprintln!("{}", jefe::cli::USAGE);
+            write_cli_error(&e);
             std::process::exit(2);
         }
     }
+}
+
+fn handle_parsed_cli_args(args: jefe::cli::CliArgs) -> Option<jefe::cli::CliArgs> {
+    if args.help {
+        write_stdout_line(jefe::cli::USAGE);
+        return None;
+    }
+    if args.version {
+        let version = jefe::VERSION;
+        write_stdout_line(&format!("jefe {version}"));
+        return None;
+    }
+    Some(args)
+}
+
+fn write_stdout_line(message: &str) {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    let _ = writeln!(handle, "{message}");
+}
+
+fn write_cli_error(error: &jefe::cli::CliError) {
+    let stderr = std::io::stderr();
+    let mut handle = stderr.lock();
+    let _ = writeln!(handle, "error: {error}");
+    let _ = writeln!(handle);
+    let _ = writeln!(handle, "{}", jefe::cli::USAGE);
 }
 
 fn main() {

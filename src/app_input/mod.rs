@@ -68,18 +68,24 @@ fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, s
             state.terminal_focused = false;
             state.pane_focus = PaneFocus::Agents;
             mark_agent_runtime_attached(&mut state, &agent_id, false);
-            persist_state_snapshot(ctx, &state);
+            let persisted = to_persisted_state(&state);
+            drop(state);
+            persist_state(ctx, &persisted);
             return false;
         }
 
         clear_agent_runtime_attachment(&mut state);
         mark_agent_runtime_attached(&mut state, &agent_id, true);
-        persist_state_snapshot(ctx, &state);
+        let persisted = to_persisted_state(&state);
+        drop(state);
+        persist_state(ctx, &persisted);
         true
     } else {
         state.terminal_focused = false;
         state.pane_focus = PaneFocus::Agents;
-        persist_state_snapshot(ctx, &state);
+        let persisted = to_persisted_state(&state);
+        drop(state);
+        persist_state(ctx, &persisted);
         false
     }
 }
@@ -110,10 +116,10 @@ pub fn to_persisted_state(state: &AppState) -> PersistedState {
     }
 }
 
-pub fn persist_state_snapshot(ctx: &SharedContext, state: &AppState) {
+pub fn persist_state(ctx: &SharedContext, persisted: &PersistedState) {
     if let Some(ctx_arc) = &ctx
         && let Ok(ctx_guard) = ctx_arc.lock()
-        && let Err(e) = ctx_guard.persistence.save_state(&to_persisted_state(state))
+        && let Err(e) = ctx_guard.persistence.save_state(persisted)
     {
         warn!(error = %e, "could not save state");
     }
@@ -202,7 +208,9 @@ fn mark_runtime_session_dead_if_present(state: &mut AppState, agent_id: &AgentId
 fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
     let mut state = app_state.write();
     *state = std::mem::take(&mut *state).apply(evt);
-    persist_state_snapshot(ctx, &state);
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
 }
 
 fn close_modal_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -231,7 +239,9 @@ fn preflight_or_prompt(
             issue,
             remaining_issues: Vec::new(),
         };
-        persist_state_snapshot(ctx, &state);
+        let persisted = to_persisted_state(&state);
+        drop(state);
+        persist_state(ctx, &persisted);
         return false;
     }
 
@@ -248,64 +258,91 @@ fn execute_agent_launch(
     signature: &LaunchSignature,
     is_relaunch: bool,
 ) {
-    let attach_result = if let Some(ctx_arc) = ctx {
-        if let Ok(mut ctx_guard) = ctx_arc.lock() {
-            let spawn_result = if is_relaunch {
-                ctx_guard
-                    .runtime
-                    .spawn_session_fresh(agent_id, work_dir, signature)
-            } else {
-                ctx_guard
-                    .runtime
-                    .spawn_session(agent_id, work_dir, signature)
-            };
-            match spawn_result {
-                Ok(()) => {
-                    std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
-                    ctx_guard.runtime.attach(agent_id)
-                }
-                Err(error) => Err(error),
-            }
-        } else {
-            Ok(())
-        }
-    } else {
-        Ok(())
-    };
+    let attach_result = spawn_and_attach(ctx, agent_id, work_dir, signature, is_relaunch);
 
     if let Err(e) = attach_result {
         warn!(error = %e, "could not spawn or attach session for agent");
-        let mut state = app_state.write();
-        state.terminal_focused = false;
-        state.pane_focus = PaneFocus::Agents;
-        state.error_message = Some(e.to_string());
-        if let Some(ctx_arc) = ctx
-            && let Ok(mut ctx_guard) = ctx_arc.lock()
-        {
-            let _ = ctx_guard.runtime.mark_session_dead(agent_id);
-        }
-        if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == *agent_id) {
-            agent.runtime_binding = None;
-        }
-        mark_runtime_session_dead_if_present(&mut state, agent_id);
-        persist_state_snapshot(ctx, &state);
+        mark_launch_failed(app_state, ctx, agent_id, e);
     } else {
-        let mut state = app_state.write();
-        set_agent_runtime_binding(
-            &mut state,
-            agent_id,
-            jefe::runtime::RuntimeSession::session_name_for(agent_id),
-            signature.clone(),
-        );
-        clear_agent_runtime_attachment(&mut state);
-        mark_agent_runtime_attached(&mut state, agent_id, true);
-        if let Some(warning) = sandbox_ssh_agent_warning() {
-            state.warning_message = Some(warning);
-        } else {
-            clear_runtime_warning(&mut state);
-        }
-        persist_state_snapshot(ctx, &state);
+        mark_launch_attached(app_state, ctx, agent_id, signature);
     }
+}
+
+fn spawn_and_attach(
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+    work_dir: &std::path::Path,
+    signature: &LaunchSignature,
+    is_relaunch: bool,
+) -> Result<(), RuntimeError> {
+    let Some(ctx_arc) = ctx else { return Ok(()) };
+    let Ok(mut ctx_guard) = ctx_arc.lock() else {
+        return Ok(());
+    };
+
+    let spawn_result = if is_relaunch {
+        ctx_guard
+            .runtime
+            .spawn_session_fresh(agent_id, work_dir, signature)
+    } else {
+        ctx_guard
+            .runtime
+            .spawn_session(agent_id, work_dir, signature)
+    };
+    spawn_result.and_then(|()| {
+        std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
+        ctx_guard.runtime.attach(agent_id)
+    })
+}
+
+fn mark_launch_failed(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+    error: RuntimeError,
+) {
+    if let Some(ctx_arc) = ctx
+        && let Ok(mut ctx_guard) = ctx_arc.lock()
+    {
+        let _ = ctx_guard.runtime.mark_session_dead(agent_id);
+    }
+
+    let mut state = app_state.write();
+    state.terminal_focused = false;
+    state.pane_focus = PaneFocus::Agents;
+    state.error_message = Some(error.to_string());
+    if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == *agent_id) {
+        agent.runtime_binding = None;
+    }
+    mark_runtime_session_dead_if_present(&mut state, agent_id);
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
+}
+
+fn mark_launch_attached(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+    signature: &LaunchSignature,
+) {
+    let mut state = app_state.write();
+    set_agent_runtime_binding(
+        &mut state,
+        agent_id,
+        jefe::runtime::RuntimeSession::session_name_for(agent_id),
+        signature.clone(),
+    );
+    clear_agent_runtime_attachment(&mut state);
+    mark_agent_runtime_attached(&mut state, agent_id, true);
+    if let Some(warning) = sandbox_ssh_agent_warning() {
+        state.warning_message = Some(warning);
+    } else {
+        clear_runtime_warning(&mut state);
+    }
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
 }
 
 pub fn handle_mode_help_key(
@@ -401,14 +438,18 @@ pub fn dispatch_app_message(
                 warn!(agent_id = %agent_id.0, error = %error, "could not kill runtime session");
                 let mut state = app_state.write();
                 state.error_message = Some(error);
-                persist_state_snapshot(ctx, &state);
+                let persisted = to_persisted_state(&state);
+                drop(state);
+                persist_state(ctx, &persisted);
                 return;
             }
 
             let mut state = app_state.write();
             *state = std::mem::take(&mut *state).apply(AppEvent::KillAgent(agent_id));
             state.terminal_focused = false;
-            persist_state_snapshot(ctx, &state);
+            let persisted = to_persisted_state(&state);
+            drop(state);
+            persist_state(ctx, &persisted);
         }
         AppMessage::Runtime(RuntimeMessage::RelaunchAgent(agent_id)) => {
             // Run preflight before attempting the relaunch.
@@ -515,7 +556,9 @@ pub fn dispatch_app_message(
                     agent.runtime_binding = None;
                 }
             }
-            persist_state_snapshot(ctx, &state);
+            let persisted = to_persisted_state(&state);
+            drop(state);
+            persist_state(ctx, &persisted);
         }
 
         AppMessage::Issues(message @ (IssuesMessage::NavigateUp | IssuesMessage::NavigateDown)) => {
@@ -594,7 +637,9 @@ pub fn dispatch_app_message(
                     state.issues_state.list_cursor.clone()
                 };
                 let scope_repo_id = issues_dispatch::current_scope_repo_id(&state);
-                (scope_repo_id, gh_repo.0, gh_repo.1, filter, cursor, 30u32)
+                let fetch_params = (scope_repo_id, gh_repo.0, gh_repo.1, filter, cursor, 30u32);
+                drop(state);
+                fetch_params
             };
 
             if owner.is_empty() || repo.is_empty() {
@@ -603,7 +648,9 @@ pub fn dispatch_app_message(
                 state.issues_state.error = Some(
                     "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
                 );
-                persist_state_snapshot(ctx, &state);
+                let persisted = to_persisted_state(&state);
+                drop(state);
+                persist_state(ctx, &persisted);
                 return;
             }
 
@@ -667,7 +714,7 @@ pub fn dispatch_app_message(
                 let detail = state.issues_state.issue_detail.as_ref();
                 let subfocus = state.issues_state.detail_subfocus;
 
-                (|| -> Option<_> {
+                let send_info = (|| -> Option<_> {
                     let (ch, det) = chooser.zip(detail)?;
                     let (agent_id, _) = ch.agents.get(ch.selected_index)?.clone();
                     let agent = state.agents.iter().find(|a| a.id == agent_id)?.clone();
@@ -687,7 +734,9 @@ pub fn dispatch_app_message(
                         &base_prompt,
                     );
                     Some((agent_id, agent.work_dir.clone(), signature, payload))
-                })()
+                })();
+                drop(state);
+                send_info
             };
 
             // Clear the chooser regardless
@@ -781,7 +830,9 @@ pub fn dispatch_app_message(
                     error: "Failed to launch agent".to_string(),
                 });
             }
-            persist_state_snapshot(ctx, &state);
+            let persisted = to_persisted_state(&state);
+            drop(state);
+            persist_state(ctx, &persisted);
         }
         AppMessage::Issues(IssuesMessage::InlineSubmit) => {
             issues_mutation::handle_inline_submit(app_state, ctx);

@@ -61,7 +61,7 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
                     repo_owner_name: format!("{}/{}", gh_repo.0, gh_repo.1),
                     number: issue.number,
                     title: issue.title.clone(),
-                    state: issue.state.clone(),
+                    state: issue.state,
                     author_login: issue.author_login.clone(),
                     created_at: String::new(),
                     updated_at: issue.updated_at.clone(),
@@ -108,7 +108,9 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
             .and_then(|idx| state.issues_state.issues.get(idx))
             .map(|issue| issue.number);
         let gh_repo = resolve_gh_repo(&state);
-        (num, current_scope_repo_id(&state), gh_repo.0, gh_repo.1)
+        let selection = (num, current_scope_repo_id(&state), gh_repo.0, gh_repo.1);
+        drop(state);
+        selection
     };
 
     let Some(number) = issue_number else { return };

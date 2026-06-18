@@ -13,21 +13,11 @@ src/app_input/modal_handlers.rs	#[allow(clippy::too_many_lines)]	core-maintainer
 src/app_input/normal.rs	#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]	core-maintainers	next quality-cycle ratchet
 src/app_shell.rs	#[allow(clippy::cognitive_complexity)]	core-maintainers	next quality-cycle ratchet
 src/app_shell.rs	#[allow(clippy::cognitive_complexity)]	core-maintainers	next quality-cycle ratchet
-src/cli.rs	#[allow(clippy::expect_used, clippy::unwrap_used)]	core-maintainers	next quality-cycle ratchet
-src/domain/mod.rs	#[allow(clippy::expect_used, clippy::unwrap_used)]	core-maintainers	next quality-cycle ratchet
 src/github/mod.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
 src/github/mod.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
 src/github/mod.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/lib.rs	#[allow(clippy::expect_used, clippy::unwrap_used, clippy::manual_string_new)]	core-maintainers	next quality-cycle ratchet
-src/logging.rs	#[allow(clippy::print_stderr)]	core-maintainers	next quality-cycle ratchet
-src/main.rs	#![allow(clippy::clone_on_copy)]	core-maintainers	next quality-cycle ratchet
-src/main.rs	#![allow(clippy::collapsible_if)]	core-maintainers	next quality-cycle ratchet
-src/main.rs	#![allow(clippy::print_stderr)]	core-maintainers	next quality-cycle ratchet
-src/main.rs	#![allow(clippy::significant_drop_tightening)]	core-maintainers	next quality-cycle ratchet
-src/main.rs	#[allow(clippy::print_stdout)]	core-maintainers	next quality-cycle ratchet
 src/messages.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
 src/messages.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/persistence/mod.rs	#![allow(clippy::expect_used, clippy::unwrap_used)]	core-maintainers	next quality-cycle ratchet
 src/runtime/attach.rs	#[allow(clippy::significant_drop_tightening)]	core-maintainers	next quality-cycle ratchet
 src/runtime/attach.rs	#[allow(clippy::significant_drop_tightening)]	core-maintainers	next quality-cycle ratchet
 src/runtime/attach.rs	#[allow(clippy::significant_drop_tightening)]	core-maintainers	next quality-cycle ratchet

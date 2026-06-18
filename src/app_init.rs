@@ -12,7 +12,7 @@ use jefe::runtime::{RuntimeError, RuntimeManager, RuntimeSession, platform_engin
 use jefe::state::AppState;
 use jefe::theme::ThemeManager;
 
-use crate::app_input::{SharedContext, persist_state_snapshot, to_persisted_state};
+use crate::app_input::{SharedContext, persist_state, to_persisted_state};
 
 fn launch_signature_for_agent(agent: &Agent, remote: &RemoteRepositorySettings) -> LaunchSignature {
     LaunchSignature {
@@ -267,5 +267,7 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
         append_warning(&mut state, warning);
     }
 
-    persist_state_snapshot(ctx, &state);
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
 }

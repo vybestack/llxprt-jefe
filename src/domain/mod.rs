@@ -416,11 +416,22 @@ impl Repository {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use serde_json::json;
 
+    trait TestResultExt<T> {
+        fn value_or_panic(self, context: &str) -> T;
+    }
+
+    impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
+        fn value_or_panic(self, context: &str) -> T {
+            match self {
+                Ok(value) => value,
+                Err(error) => panic!("{context}: {error:?}"),
+            }
+        }
+    }
     #[test]
     fn agent_pass_continue_defaults_true() {
         let agent = Agent::new(
@@ -646,8 +657,8 @@ mod tests {
             agent_ids: vec![],
         };
 
-        let json = serde_json::to_value(&repo).expect("should serialize");
-        let repo2: Repository = serde_json::from_value(json).expect("should deserialize");
+        let json = serde_json::to_value(&repo).value_or_panic("should serialize");
+        let repo2: Repository = serde_json::from_value(json).value_or_panic("should deserialize");
 
         assert_eq!(repo2.issue_base_prompt, "Prioritize diagnosis");
     }
@@ -675,7 +686,7 @@ mod tests {
             // Note: no issue_base_prompt field
         });
 
-        let repo: Repository = serde_json::from_value(value).expect("should deserialize");
+        let repo: Repository = serde_json::from_value(value).value_or_panic("should deserialize");
         assert_eq!(repo.issue_base_prompt, "");
     }
 }
