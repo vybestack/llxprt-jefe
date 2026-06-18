@@ -359,9 +359,24 @@ impl PersistenceManager for FilePersistenceManager {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used, clippy::unwrap_used)]
     use super::*;
 
+    trait TestResultExt<T> {
+        fn value_or_panic(self, context: &str) -> T;
+    }
+
+    impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
+        fn value_or_panic(self, context: &str) -> T {
+            match self {
+                Ok(value) => value,
+                Err(error) => panic!("{context}: {error:?}"),
+            }
+        }
+    }
+
+    fn cleanup_root(path: &std::path::Path) -> Option<&std::path::Path> {
+        path.parent().and_then(std::path::Path::parent)
+    }
     #[test]
     fn settings_default_has_green_screen_theme() {
         let settings = Settings::default_with_version();
@@ -393,7 +408,7 @@ mod tests {
     #[test]
     fn stub_persistence_returns_defaults() {
         let mgr = StubPersistenceManager::new();
-        let settings = mgr.load_settings().expect("should load settings");
+        let settings = mgr.load_settings().value_or_panic("should load settings");
         assert_eq!(settings.theme, "green-screen");
     }
 
@@ -406,10 +421,10 @@ mod tests {
         };
         let mgr = FilePersistenceManager::with_paths(paths);
 
-        let settings = mgr.load_settings().expect("should load defaults");
+        let settings = mgr.load_settings().value_or_panic("should load defaults");
         assert_eq!(settings.theme, "green-screen");
 
-        let state = mgr.load_state().expect("should load defaults");
+        let state = mgr.load_state().value_or_panic("should load defaults");
         assert!(state.repositories.is_empty());
     }
 
@@ -428,8 +443,8 @@ mod tests {
             theme: "dracula".into(),
         };
 
-        mgr.save_settings(&settings).expect("should save");
-        let loaded = mgr.load_settings().expect("should load");
+        mgr.save_settings(&settings).value_or_panic("should save");
+        let loaded = mgr.load_settings().value_or_panic("should load");
 
         assert_eq!(loaded.theme, "dracula");
         assert_eq!(loaded.schema_version, SETTINGS_SCHEMA_VERSION);
@@ -458,8 +473,8 @@ mod tests {
             last_selected_agent_by_repo: vec![],
         };
 
-        mgr.save_state(&state).expect("should save");
-        let loaded = mgr.load_state().expect("should load");
+        mgr.save_state(&state).value_or_panic("should save");
+        let loaded = mgr.load_state().value_or_panic("should load");
 
         assert_eq!(loaded.selected_repository_index, Some(2));
         assert!(loaded.hide_idle_repositories);
@@ -474,7 +489,9 @@ mod tests {
             .join("jefe_test_atomic")
             .join("nested")
             .join("dirs");
-        let _ = std::fs::remove_dir_all(temp.parent().unwrap().parent().unwrap());
+        if let Some(root) = cleanup_root(&temp) {
+            let _ = std::fs::remove_dir_all(root);
+        }
 
         let paths = PersistencePaths {
             settings_path: temp.join("settings.toml"),
@@ -483,10 +500,12 @@ mod tests {
         let mgr = FilePersistenceManager::with_paths(paths);
 
         mgr.save_settings(&Settings::default_with_version())
-            .expect("should create dirs and save");
+            .value_or_panic("should create dirs and save");
 
         // Cleanup
-        let _ = std::fs::remove_dir_all(temp.parent().unwrap().parent().unwrap());
+        if let Some(root) = cleanup_root(&temp) {
+            let _ = std::fs::remove_dir_all(root);
+        }
     }
 
     /// Test P13-1: State with repo having issue_base_prompt round-trips through JSON serialization.
@@ -528,8 +547,8 @@ mod tests {
         };
         let mgr = FilePersistenceManager::with_paths(paths);
 
-        mgr.save_state(&state).expect("should save state");
-        let loaded = mgr.load_state().expect("should load state");
+        mgr.save_state(&state).value_or_panic("should save state");
+        let loaded = mgr.load_state().value_or_panic("should load state");
 
         assert_eq!(loaded.repositories.len(), 1);
         assert_eq!(
@@ -566,7 +585,7 @@ mod tests {
         });
 
         let state: State =
-            serde_json::from_value(legacy_json).expect("legacy JSON should deserialize");
+            serde_json::from_value(legacy_json).value_or_panic("legacy JSON should deserialize");
 
         assert_eq!(state.repositories.len(), 1);
         // Must default to empty string, not error

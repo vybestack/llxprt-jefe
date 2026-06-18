@@ -16,7 +16,7 @@ pub(super) fn handle_inline_submit(app_state: &mut AppStateHandle, ctx: &SharedC
             }
             jefe::state::InlineState::Editor { target, text, .. } => {
                 Some(InlineSubmitAction::Edit {
-                    target: target.clone(),
+                    target: *target,
                     text: text.clone(),
                 })
             }

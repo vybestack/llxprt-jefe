@@ -10,7 +10,7 @@ use crate::AppContext;
 use crate::app_input::{
     dispatch_app_event, handle_f12_toggle, handle_global_shortcut_key, handle_mode_confirm_key,
     handle_mode_form_key, handle_mode_help_key, handle_mode_search_key, handle_normal_key_event,
-    persist_state_snapshot, to_persisted_state,
+    persist_state, to_persisted_state,
 };
 use crate::pty_encoding::{
     key_to_bytes, mouse_event_to_bytes, should_arm_paste_enter_suppression,
@@ -20,7 +20,6 @@ use crate::pty_encoding::{
 use jefe::domain::{AgentId, AgentStatus};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::layout::{compute_pty_layout, effective_render_size};
-use jefe::persistence::PersistenceManager;
 use jefe::runtime::{RuntimeError, RuntimeManager, TerminalSnapshot};
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
 use jefe::theme::{ThemeColors, ThemeManager};
@@ -69,7 +68,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
 
     // Poll for PTY output updates (~30fps).
     hooks.use_future({
-        let mut render_tick = render_tick.clone();
+        let mut render_tick = render_tick;
         async move {
             loop {
                 smol::Timer::after(std::time::Duration::from_millis(33)).await;
@@ -88,7 +87,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // when the user selects/attaches to one.
     hooks.use_future({
         let ctx = ctx.clone();
-        let mut app_state = app_state.clone();
+        let mut app_state = app_state;
         async move {
             loop {
                 smol::Timer::after(std::time::Duration::from_secs(2)).await;
@@ -143,15 +142,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                             agent.runtime_binding = None;
                         }
                     }
-                    // Persist after liveness updates.
-                    if let Ok(ctx_guard) = ctx_arc.lock() {
-                        if let Err(e) = ctx_guard
-                            .persistence
-                            .save_state(&to_persisted_state(&state))
-                        {
-                            warn!(error = %e, "could not save state after liveness update");
-                        }
-                    }
+                    let persisted = to_persisted_state(&state);
+                    drop(state);
+                    persist_state(&ctx, &persisted);
                 }
             }
         }
@@ -160,7 +153,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // Handle terminal events.
     hooks.use_terminal_events({
         let ctx = ctx.clone();
-        let mut app_state = app_state.clone();
+        let mut app_state = app_state;
         let mut should_quit = should_quit;
         let mut help_scroll = help_scroll;
 
@@ -260,7 +253,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                             for ch in pasted_text.chars().filter(|ch| *ch != '\r' && *ch != '\n') {
                                 *state = std::mem::take(&mut *state).apply(AppEvent::FormChar(ch));
                             }
-                            persist_state_snapshot(&ctx, &state);
+                            let persisted = to_persisted_state(&state);
+                            drop(state);
+                            persist_state(&ctx, &persisted);
                             suppress_next_enter.set(false);
                         }
                         InputMode::IssuesInline => {
@@ -274,7 +269,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                                         std::mem::take(&mut *state).apply(AppEvent::InlineChar(ch));
                                 }
                             }
-                            persist_state_snapshot(&ctx, &state);
+                            let persisted = to_persisted_state(&state);
+                            drop(state);
+                            persist_state(&ctx, &persisted);
                             suppress_next_enter.set(false);
                         }
                         InputMode::IssuesSearch => {
@@ -289,6 +286,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                                 *state = std::mem::take(&mut *state)
                                     .apply(AppEvent::SetSearchQuery { query });
                             }
+                            drop(state);
                             suppress_next_enter.set(false);
                         }
                         _ => {
@@ -360,7 +358,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                         );
                         let mut state = app_state.write();
                         state.terminal_focused = false;
-                        persist_state_snapshot(&ctx, &state);
+                        let persisted = to_persisted_state(&state);
+                        drop(state);
+                        persist_state(&ctx, &persisted);
                         InputMode::Normal
                     } else {
                         let state = app_state.read();
@@ -449,7 +449,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     if should_quit.get() {
         // Save state before exiting.
         let state = app_state.read();
-        persist_state_snapshot(&ctx, &state);
+        let persisted = to_persisted_state(&state);
+        drop(state);
+        persist_state(&ctx, &persisted);
 
         hooks.use_context_mut::<SystemContext>().exit();
 

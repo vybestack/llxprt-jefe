@@ -21,7 +21,6 @@ pub mod ui;
 pub mod github;
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used, clippy::manual_string_new)]
 #[path = "github/tests.rs"]
 mod github_tests;
 

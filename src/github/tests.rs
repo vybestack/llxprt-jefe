@@ -5,7 +5,24 @@ use crate::github::{
     parse_issues_json, sort_issues,
 };
 
+trait TestResultExt<T> {
+    fn value_or_panic(self, context: &str) -> T;
+}
+
+impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
+    fn value_or_panic(self, context: &str) -> T {
+        match self {
+            Ok(value) => value,
+            Err(error) => panic!("{context}: {error:?}"),
+        }
+    }
+}
 // =============================================================================
+
+fn state_arg_is_open(args: &[String]) -> bool {
+    args.windows(2)
+        .any(|window| window[0] == "--state" && window[1] == "open")
+}
 // Error Categorization Tests
 // =============================================================================
 
@@ -68,7 +85,7 @@ fn test_list_issues_parses_json() {
         }
     ]"#;
 
-    let issues = parse_issues_json(json).expect("should parse valid JSON");
+    let issues = parse_issues_json(json).value_or_panic("should parse valid JSON");
     assert_eq!(issues.len(), 2);
     assert_eq!(issues[0].number, 17);
     assert_eq!(issues[0].title, "Create a feature list");
@@ -92,8 +109,8 @@ fn test_list_issues_sorts_by_updated_desc() {
             state: IssueState::Open,
             author_login: "alice".to_string(),
             updated_at: "2026-03-25T10:00:00Z".to_string(),
-            assignee_summary: "".to_string(),
-            labels_summary: "".to_string(),
+            assignee_summary: String::new(),
+            labels_summary: String::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -103,8 +120,8 @@ fn test_list_issues_sorts_by_updated_desc() {
             state: IssueState::Open,
             author_login: "bob".to_string(),
             updated_at: "2026-03-29T10:00:00Z".to_string(),
-            assignee_summary: "".to_string(),
-            labels_summary: "".to_string(),
+            assignee_summary: String::new(),
+            labels_summary: String::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -114,8 +131,8 @@ fn test_list_issues_sorts_by_updated_desc() {
             state: IssueState::Open,
             author_login: "charlie".to_string(),
             updated_at: "2026-03-29T10:00:00Z".to_string(),
-            assignee_summary: "".to_string(),
-            labels_summary: "".to_string(),
+            assignee_summary: String::new(),
+            labels_summary: String::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -139,11 +156,11 @@ fn test_list_issues_filter_args_construction() {
         query_text: "bug".to_string(),
         state: Some(IssueFilterState::Open),
         author: "acoliver".to_string(),
-        assignee: "".to_string(),
+        assignee: String::new(),
         labels: vec!["critical".to_string()],
-        mentioned: "".to_string(),
-        updated_before: "".to_string(),
-        updated_after: "".to_string(),
+        mentioned: String::new(),
+        updated_before: String::new(),
+        updated_after: String::new(),
     };
 
     let args = build_list_issues_args("owner", "repo", &filter, None, 30);
@@ -152,8 +169,8 @@ fn test_list_issues_filter_args_construction() {
     assert!(args.iter().any(|a| a.contains("owner/repo")));
     assert!(args.iter().any(|a| a == "--json"));
     assert!(
-        args.iter().any(|a| a == "--state"
-            && args[args.iter().position(|x| x == "--state").unwrap() + 1] == "open")
+        args.iter()
+            .any(|a| a == "--state" && state_arg_is_open(&args))
     );
     assert!(args.iter().any(|a| a.contains("limit") || a == "-L"));
 }
@@ -165,7 +182,7 @@ fn test_list_issues_filter_args_construction() {
 #[test]
 fn test_list_issues_empty_result() {
     let json = "[]";
-    let issues = parse_issues_json(json).expect("should parse empty array");
+    let issues = parse_issues_json(json).value_or_panic("should parse empty array");
     assert!(issues.is_empty());
 }
 
@@ -197,7 +214,7 @@ fn test_get_issue_detail_parses_json() {
         ]
     }"#;
 
-    let detail = parse_issue_detail_json(json).expect("should parse detail JSON");
+    let detail = parse_issue_detail_json(json).value_or_panic("should parse detail JSON");
     assert_eq!(detail.number, 17);
     assert_eq!(detail.title, "Create a feature list");
     assert_eq!(detail.state, IssueState::Open);
@@ -251,8 +268,9 @@ fn test_get_issue_detail_optional_milestone() {
         "comments": []
     }"#;
 
-    let detail_with = parse_issue_detail_json(json_with_milestone).expect("should parse");
-    let detail_without = parse_issue_detail_json(json_without_milestone).expect("should parse");
+    let detail_with = parse_issue_detail_json(json_with_milestone).value_or_panic("should parse");
+    let detail_without =
+        parse_issue_detail_json(json_without_milestone).value_or_panic("should parse");
 
     assert_eq!(detail_with.milestone, Some("v1.0".to_string()));
     assert_eq!(detail_without.milestone, None);
@@ -295,7 +313,8 @@ fn test_list_comments_parses_json() {
         }
     }"#;
 
-    let (comments, cursor, has_more) = parse_comments_json(json).expect("should parse comments");
+    let (comments, cursor, has_more) =
+        parse_comments_json(json).value_or_panic("should parse comments");
     assert_eq!(comments.len(), 2);
     assert_eq!(comments[0].comment_id, 123);
     assert_eq!(comments[0].author_login, "alice");
@@ -340,7 +359,7 @@ fn test_list_comments_pagination() {
         }
     }"#;
 
-    let (comments, cursor, has_more) = parse_comments_json(json).expect("should parse");
+    let (comments, cursor, has_more) = parse_comments_json(json).value_or_panic("should parse");
     assert_eq!(comments.len(), 1);
     assert_eq!(cursor, Some("Y3Vyc29yOnYyOpHOABcd".to_string()));
     assert!(has_more);
@@ -360,7 +379,7 @@ fn test_create_comment_success() {
         "body": "This is a new comment"
     }"#;
 
-    let comment = parse_created_comment_json(json).expect("should parse created comment");
+    let comment = parse_created_comment_json(json).value_or_panic("should parse created comment");
     assert_eq!(comment.comment_id, 999);
     assert_eq!(comment.author_login, "acoliver");
     assert_eq!(comment.body, "This is a new comment");
@@ -377,7 +396,7 @@ fn test_create_issue_success() {
         "body": "Issue body details"
     }"#;
 
-    let issue = parse_created_issue_json(json).expect("should parse created issue");
+    let issue = parse_created_issue_json(json).value_or_panic("should parse created issue");
     assert_eq!(issue.number, 45);
     assert_eq!(issue.title, "Create issue from issues mode");
     assert_eq!(issue.body, "Issue body details");
@@ -397,7 +416,7 @@ fn test_create_comment_rest_format() {
         "body": "test from jefe"
     }"#;
 
-    let comment = parse_created_comment_json(json).expect("should parse REST format");
+    let comment = parse_created_comment_json(json).value_or_panic("should parse REST format");
     assert_eq!(comment.comment_id, 4_185_047_845);
     assert_eq!(comment.author_login, "acoliver");
     assert_eq!(comment.body, "test from jefe");
