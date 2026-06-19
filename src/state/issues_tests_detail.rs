@@ -7,16 +7,23 @@ use crate::state::types::{
     IssueFocus, PaneFocus, ScreenMode,
 };
 
+fn dashboard_issues_state() -> AppState {
+    AppState {
+        screen_mode: ScreenMode::DashboardIssues,
+        ..AppState::default()
+    }
+}
+
 /// Helper to create a test issue with the given number.
 fn make_test_issue(number: u64) -> Issue {
     Issue {
         number,
-        title: format!("Test Issue #{}", number),
+        title: format!("Test Issue #{number}"),
         state: IssueState::Open,
         author_login: "testuser".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
-        assignee_summary: "".to_string(),
-        labels_summary: "".to_string(),
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
         comment_count: 0,
         body: String::new(),
     }
@@ -65,7 +72,7 @@ fn p15_detail(number: u64) -> IssueDetail {
     IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number,
-        title: format!("Issue #{}", number),
+        title: format!("Issue #{number}"),
         state: IssueState::Open,
         author_login: "user".to_string(),
         created_at: "2024-01-01T00:00:00Z".to_string(),
@@ -74,8 +81,61 @@ fn p15_detail(number: u64) -> IssueDetail {
         assignees: vec![],
         milestone: None,
         body: "Issue body".to_string(),
-        external_url: format!("https://github.com/owner/repo/issues/{}", number),
+        external_url: format!("https://github.com/owner/repo/issues/{number}"),
         comments: vec![],
+        has_more_comments: false,
+        comments_cursor: None,
+    }
+}
+
+fn p15_comment(comment_id: u64, author_login: &str, created_at: &str, body: &str) -> IssueComment {
+    IssueComment {
+        comment_id,
+        author_login: author_login.to_string(),
+        created_at: created_at.to_string(),
+        edited_at: None,
+        body: body.to_string(),
+    }
+}
+
+fn state_with_repo_and_agent() -> AppState {
+    let mut state = AppState {
+        selected_repository_index: Some(0),
+        ..AppState::default()
+    };
+    state.repositories.push(Repository::new(
+        RepositoryId("repo-1".to_string()),
+        "Repo 1".to_string(),
+        "repo-1".to_string(),
+        std::path::PathBuf::from("/tmp/r1"),
+    ));
+    state.agents.push(Agent::new(
+        AgentId("agent-1".to_string()),
+        RepositoryId("repo-1".to_string()),
+        "My Agent".to_string(),
+        std::path::PathBuf::from("/tmp/a1"),
+    ));
+    state
+}
+
+fn send_payload_detail() -> IssueDetail {
+    IssueDetail {
+        repo_owner_name: "owner/repo".to_string(),
+        number: 7,
+        title: "Fix crash".to_string(),
+        state: IssueState::Open,
+        author_login: "octocat".to_string(),
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-02T00:00:00Z".to_string(),
+        labels: vec!["bug".to_string()],
+        assignees: vec![],
+        milestone: None,
+        body: "Crash on startup".to_string(),
+        external_url: "https://github.com/owner/repo/issues/7".to_string(),
+        comments: vec![
+            p15_comment(100, "dev", "2024-01-02T00:00:00Z", "Reproduced on main"),
+            p15_comment(101, "tester", "2024-01-03T00:00:00Z", "Also seen in v2.1"),
+        ],
         has_more_comments: false,
         comments_cursor: None,
     }
@@ -104,7 +164,7 @@ fn test_mode_lifecycle_enter_browse_exit() {
     });
     assert_eq!(state.issues_state.issues.len(), 3);
     assert_eq!(state.issues_state.selected_issue_index, Some(0));
-    assert!(!state.issues_state.list_loading);
+    assert!(!state.issues_state.loading.list);
 
     // Navigate down to select issue #2
     let state = state.apply(AppEvent::IssuesNavigateDown);
@@ -172,7 +232,7 @@ fn test_mode_lifecycle_enter_interact_exit() {
 #[test]
 fn test_key_routing_all_focus_domains() {
     // RepoList domain: IssuesNavigateUp/Down delegate to repo navigation
-    let mut state = AppState::default();
+    let mut state = dashboard_issues_state();
     state.repositories.push(Repository::new(
         RepositoryId("r1".to_string()),
         "R1".to_string(),
@@ -186,7 +246,6 @@ fn test_key_routing_all_focus_domains() {
         std::path::PathBuf::from("/tmp/r2"),
     ));
     state.selected_repository_index = Some(0);
-    state.screen_mode = ScreenMode::DashboardIssues;
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::RepoList;
 
@@ -235,8 +294,7 @@ fn test_key_routing_suppression_comprehensive() {
     ];
 
     for domain in domains {
-        let mut state = AppState::default();
-        state.screen_mode = ScreenMode::DashboardIssues;
+        let mut state = dashboard_issues_state();
         state.issues_state.active = true;
         state.issues_state.issue_focus = domain;
 
@@ -253,7 +311,6 @@ fn test_key_routing_suppression_comprehensive() {
     // Separately verify that all 4 suppressed-key AppEvent equivalents (no direct
     // mapping) don't affect issues mode state: mode stays active, focus unchanged.
     let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueList;
 
@@ -314,13 +371,17 @@ fn test_error_handling_auth_failure_blocks_ops() {
 
     // Error is shown
     assert!(state.issues_state.error.is_some());
-    let err = state.issues_state.error.as_ref().unwrap();
+    let err = state
+        .issues_state
+        .error
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected value"));
     assert!(err.contains("authentication") || err.contains("token"));
     // Mode remains active
     assert!(state.issues_state.active);
     assert_eq!(state.screen_mode, ScreenMode::DashboardIssues);
     // List loading is cleared
-    assert!(!state.issues_state.list_loading);
+    assert!(!state.issues_state.loading.list);
 }
 
 /// P15 Test 7: Apply network error — mode/focus stable, error shown.
@@ -372,7 +433,6 @@ fn test_pagination_issue_list_auto_load() {
 /// @plan PLAN-20260329-ISSUES-MODE.P15
 /// @requirement REQ-ISS-007
 #[test]
-#[allow(clippy::too_many_lines)]
 fn test_pagination_comments_append() {
     let repo_id = RepositoryId("repo-1".to_string());
 
@@ -388,7 +448,7 @@ fn test_pagination_comments_append() {
             .issues_state
             .issue_detail
             .as_ref()
-            .unwrap()
+            .unwrap_or_else(|| panic!("expected value"))
             .comments
             .len(),
         0
@@ -399,25 +459,17 @@ fn test_pagination_comments_append() {
         scope_repo_id: repo_id.clone(),
         issue_number: 42,
         comments: vec![
-            IssueComment {
-                comment_id: 1,
-                author_login: "alice".to_string(),
-                created_at: "2024-01-01T00:00:00Z".to_string(),
-                edited_at: None,
-                body: "First comment".to_string(),
-            },
-            IssueComment {
-                comment_id: 2,
-                author_login: "bob".to_string(),
-                created_at: "2024-01-02T00:00:00Z".to_string(),
-                edited_at: None,
-                body: "Second comment".to_string(),
-            },
+            p15_comment(1, "alice", "2024-01-01T00:00:00Z", "First comment"),
+            p15_comment(2, "bob", "2024-01-02T00:00:00Z", "Second comment"),
         ],
         cursor: Some("page2".to_string()),
         has_more: true,
     });
-    let detail = state.issues_state.issue_detail.as_ref().unwrap();
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected value"));
     assert_eq!(detail.comments.len(), 2);
     assert!(detail.has_more_comments);
 
@@ -425,17 +477,20 @@ fn test_pagination_comments_append() {
     let state = state.apply(AppEvent::IssueCommentsPageLoaded {
         scope_repo_id: repo_id.clone(),
         issue_number: 42,
-        comments: vec![IssueComment {
-            comment_id: 3,
-            author_login: "carol".to_string(),
-            created_at: "2024-01-03T00:00:00Z".to_string(),
-            edited_at: None,
-            body: "Third comment".to_string(),
-        }],
+        comments: vec![p15_comment(
+            3,
+            "carol",
+            "2024-01-03T00:00:00Z",
+            "Third comment",
+        )],
         cursor: None,
         has_more: false,
     });
-    let detail = state.issues_state.issue_detail.as_ref().unwrap();
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected value"));
     assert_eq!(detail.comments.len(), 3);
     assert!(!detail.has_more_comments);
     // Comments appear in insertion order
@@ -566,14 +621,14 @@ fn test_scope_change_invalidation() {
         });
     assert_eq!(state.issues_state.issues.len(), 2);
     assert!(state.issues_state.has_more_issues);
-    assert!(!state.issues_state.list_loading);
+    assert!(!state.issues_state.loading.list);
 
     // Switch to a different repository
     let state = state.apply(AppEvent::SelectRepository(1));
 
     // Issues data should be cleared and reload triggered
     assert!(state.issues_state.issues.is_empty());
-    assert!(state.issues_state.list_loading);
+    assert!(state.issues_state.loading.list);
     assert!(!state.issues_state.has_more_issues);
     assert!(state.issues_state.list_cursor.is_none());
     assert!(state.issues_state.selected_issue_index.is_none());
@@ -679,8 +734,7 @@ fn test_draft_discard_on_scope_change() {
 /// @requirement REQ-ISS-010
 #[test]
 fn test_inline_exclusivity_all_combinations() {
-    let mut base = AppState::default();
-    base.screen_mode = ScreenMode::DashboardIssues;
+    let mut base = dashboard_issues_state();
 
     // Composer active → OpenInlineEditor blocked
     base.issues_state.inline_state = InlineState::Composer {
@@ -743,89 +797,36 @@ fn test_inline_exclusivity_all_combinations() {
 /// @plan PLAN-20260329-ISSUES-MODE.P15
 /// @requirement REQ-ISS-011
 #[test]
-#[allow(clippy::too_many_lines)]
 fn test_send_to_agent_payload_complete() {
-    let mut state = AppState::default();
-
-    state.repositories.push(Repository::new(
-        RepositoryId("repo-1".to_string()),
-        "Repo 1".to_string(),
-        "repo-1".to_string(),
-        std::path::PathBuf::from("/tmp/r1"),
-    ));
-    state.selected_repository_index = Some(0);
-
-    state.agents.push(Agent::new(
-        AgentId("agent-1".to_string()),
-        RepositoryId("repo-1".to_string()),
-        "My Agent".to_string(),
-        std::path::PathBuf::from("/tmp/a1"),
-    ));
-
-    // Load issue detail with 2 comments
-    let state = state
+    let state = state_with_repo_and_agent()
         .apply(AppEvent::EnterIssuesMode)
         .apply(AppEvent::IssueDetailLoaded {
             scope_repo_id: RepositoryId("repo-1".to_string()),
             issue_number: 7,
-            detail: Box::new(IssueDetail {
-                repo_owner_name: "owner/repo".to_string(),
-                number: 7,
-                title: "Fix crash".to_string(),
-                state: IssueState::Open,
-                author_login: "octocat".to_string(),
-                created_at: "2024-01-01T00:00:00Z".to_string(),
-                updated_at: "2024-01-02T00:00:00Z".to_string(),
-                labels: vec!["bug".to_string()],
-                assignees: vec![],
-                milestone: None,
-                body: "Crash on startup".to_string(),
-                external_url: "https://github.com/owner/repo/issues/7".to_string(),
-                comments: vec![
-                    IssueComment {
-                        comment_id: 100,
-                        author_login: "dev".to_string(),
-                        created_at: "2024-01-02T00:00:00Z".to_string(),
-                        edited_at: None,
-                        body: "Reproduced on main".to_string(),
-                    },
-                    IssueComment {
-                        comment_id: 101,
-                        author_login: "tester".to_string(),
-                        created_at: "2024-01-03T00:00:00Z".to_string(),
-                        edited_at: None,
-                        body: "Also seen in v2.1".to_string(),
-                    },
-                ],
-                has_more_comments: false,
-                comments_cursor: None,
-            }),
+            detail: Box::new(send_payload_detail()),
         });
 
-    // Subfocus on comment index 1
-    let state = state.apply(AppEvent::IssueDetailSubfocusNext); // Body -> Comment(0)
-    let state = state.apply(AppEvent::IssueDetailSubfocusNext); // Comment(0) -> Comment(1)
+    let state = state.apply(AppEvent::IssueDetailSubfocusNext);
+    let state = state.apply(AppEvent::IssueDetailSubfocusNext);
     assert_eq!(
         state.issues_state.detail_subfocus,
         DetailSubfocus::Comment(1)
     );
 
-    // Open agent chooser
     let state = state.apply(AppEvent::OpenAgentChooser);
     let chooser = state
         .issues_state
         .agent_chooser
         .as_ref()
-        .expect("chooser should be open");
+        .unwrap_or_else(|| panic!("chooser should be open"));
     assert_eq!(chooser.agents.len(), 1);
     assert_eq!(chooser.agents[0].1, "My Agent");
 
-    // Verify all payload fields are accessible from state
     let detail = state
         .issues_state
         .issue_detail
         .as_ref()
-        .expect("detail should be set");
+        .unwrap_or_else(|| panic!("detail should be set"));
     assert_eq!(detail.number, 7);
     assert_eq!(detail.title, "Fix crash");
     assert_eq!(detail.body, "Crash on startup");
@@ -833,8 +834,12 @@ fn test_send_to_agent_payload_complete() {
         DetailSubfocus::Comment(idx) => detail.comments.get(idx),
         _ => None,
     };
-    assert!(focused_comment.is_some());
-    assert_eq!(focused_comment.unwrap().comment_id, 101);
+    assert_eq!(
+        focused_comment
+            .unwrap_or_else(|| panic!("expected value"))
+            .comment_id,
+        101
+    );
 }
 
 /// P15 Test 17: OpenAgentChooser with no agents — chooser not opened.
@@ -875,7 +880,7 @@ fn test_issue_base_prompt_in_payload() {
     // Verify the field is accessible from selected repository
     let repo = state
         .selected_repository()
-        .expect("repo should be selected");
+        .unwrap_or_else(|| panic!("repo should be selected"));
     assert_eq!(
         repo.issue_base_prompt,
         "Always look for root causes before proposing fixes."
@@ -898,8 +903,7 @@ fn test_issue_base_prompt_in_payload() {
 #[test]
 fn test_esc_chain_all_six_levels_integrated() {
     // Level 1: Inline Composer — InlineCancelOrEsc closes it
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.inline_state = InlineState::Composer {
         target: ComposerTarget::NewComment,
@@ -932,9 +936,9 @@ fn test_esc_chain_all_six_levels_integrated() {
 
     // Level 5: Filter controls open — CloseFilterControls closes them
     let mut state = state;
-    state.issues_state.filter_controls_open = true;
+    state.issues_state.filter_ui.controls_open = true;
     let state = state.apply(AppEvent::CloseFilterControls);
-    assert!(!state.issues_state.filter_controls_open);
+    assert!(!state.issues_state.filter_ui.controls_open);
 
     // Level 6: Nothing else active — ExitIssuesMode exits mode
     let state = state.apply(AppEvent::ExitIssuesMode);

@@ -365,7 +365,6 @@ pub struct PriorAgentFocus {
 /// @pseudocode component-001 lines 33-40
 /// Aggregate state for Issues Mode.
 #[derive(Debug, Clone, Default)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct IssuesState {
     pub active: bool,
     pub issues: Vec<crate::domain::Issue>,
@@ -374,9 +373,7 @@ pub struct IssuesState {
     pub committed_filter: crate::domain::IssueFilter,
     pub draft_filter: crate::domain::IssueFilter,
     pub search_query: String,
-    pub list_loading: bool,
-    pub detail_loading: bool,
-    pub comments_loading: bool,
+    pub loading: IssueLoadingState,
     pub list_cursor: Option<String>,
     pub has_more_issues: bool,
     pub error: Option<String>,
@@ -386,14 +383,26 @@ pub struct IssuesState {
     pub detail_scroll_offset: usize,
     pub inline_state: InlineState,
     pub agent_chooser: Option<AgentChooserState>,
-    pub filter_controls_open: bool,
-    /// Index of the currently focused filter field (0=state, 1=author, 2=assignee, 3=labels, 4=query_text).
-    pub filter_field_index: usize,
-    /// Raw labels text while editing (preserves trailing commas). Parsed into Vec on apply.
-    pub draft_labels_text: String,
+    pub filter_ui: IssueFilterUiState,
     pub search_input_focused: bool,
     pub prior_agent_focus: Option<PriorAgentFocus>,
     pub draft_notice: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct IssueLoadingState {
+    pub list: bool,
+    pub detail: bool,
+    pub comments: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct IssueFilterUiState {
+    pub controls_open: bool,
+    /// Index of the currently focused filter field (0=state, 1=author, 2=assignee, 3=labels, 4=query_text).
+    pub field_index: usize,
+    /// Raw labels text while editing (preserves trailing commas). Parsed into Vec on apply.
+    pub draft_labels_text: String,
 }
 
 /// Layout constants matching issue_detail.rs and issues.rs.

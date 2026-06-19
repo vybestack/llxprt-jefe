@@ -690,7 +690,7 @@ fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
     }
     state.issues_state.inline_state = jefe::state::InlineState::None;
     state.issues_state.agent_chooser = None;
-    state.issues_state.list_loading = true;
+    state.issues_state.loading.list = true;
 }
 
 fn refresh_issue_preview_if_changed(app_state: &mut AppStateHandle, prev_issue_idx: Option<usize>) {
@@ -747,7 +747,7 @@ fn issue_fetch_params(app_state: &AppStateHandle, fresh_reload: bool) -> IssueFe
 
 fn persist_missing_github_repo(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let mut state = app_state.write();
-    state.issues_state.list_loading = false;
+    state.issues_state.loading.list = false;
     state.issues_state.error = Some(
         "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings."
             .to_string(),

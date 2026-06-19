@@ -39,7 +39,7 @@ pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Optio
         return resolve_search_key_event(state, key_event);
     }
 
-    if state.issues_state.filter_controls_open {
+    if state.issues_state.filter_ui.controls_open {
         return resolve_filter_key_event(state, key_event);
     }
 
@@ -879,7 +879,7 @@ mod tests {
     #[test]
     fn test_input_mode_issues_filter() {
         let mut state = issues_base_state();
-        state.issues_state.filter_controls_open = true;
+        state.issues_state.filter_ui.controls_open = true;
         assert!(matches!(
             input_mode_for_state(&state),
             InputMode::IssuesFilter

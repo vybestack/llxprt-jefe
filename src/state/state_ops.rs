@@ -96,13 +96,6 @@ pub fn delete_selected_agent(
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::field_reassign_with_default,
-    clippy::manual_string_new,
-    clippy::uninlined_format_args
-)]
 mod tests {
     use super::*;
     use crate::domain::{Agent, RemoteRepositorySettings, Repository};
@@ -115,7 +108,9 @@ mod tests {
 
         // Use a real temp directory so the work_dir.exists() guard is exercised.
         let tmp_dir = std::env::temp_dir().join("jefe-test-remote-skip");
-        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        if let Err(err) = std::fs::create_dir_all(&tmp_dir) {
+            panic!("create temp dir: {err}");
+        }
 
         let mut repository = Repository::new(
             repo_id.clone(),
