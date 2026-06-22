@@ -10,19 +10,7 @@ src/github/mod.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality
 src/github/mod.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
 src/messages.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
 src/messages.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/runtime/attach.rs	#[allow(clippy::significant_drop_tightening)]	core-maintainers	next quality-cycle ratchet
-src/runtime/attach.rs	#[allow(clippy::significant_drop_tightening)]	core-maintainers	next quality-cycle ratchet
-src/runtime/attach.rs	#[allow(clippy::significant_drop_tightening)]	core-maintainers	next quality-cycle ratchet
-src/runtime/attach.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/runtime/attach.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/runtime/attach.rs	#[allow( clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss, clippy::too_many_lines )]	core-maintainers	next quality-cycle ratchet
-src/runtime/commands.rs	#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]	core-maintainers	next quality-cycle ratchet
-src/runtime/commands.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/runtime/mod.rs	#![allow(clippy::expect_used)]	core-maintainers	next quality-cycle ratchet
 src/ui/components/issue_list.rs	#[allow(clippy::struct_excessive_bools)]	core-maintainers	next quality-cycle ratchet
-src/ui/components/terminal_view.rs	#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]	core-maintainers	next quality-cycle ratchet
-src/ui/components/terminal_view.rs	#[allow(clippy::cast_possible_wrap)]	core-maintainers	next quality-cycle ratchet
-src/ui/components/terminal_view.rs	#[allow(clippy::cast_possible_wrap)]	core-maintainers	next quality-cycle ratchet
 tests/core/domain_state_contracts.rs	#![allow(clippy::expect_used)]	core-maintainers	next quality-cycle ratchet
 tests/core/domain_state_contracts.rs	#![allow(clippy::unwrap_used)]	core-maintainers	next quality-cycle ratchet
 tests/core/persistence_theme_contracts.rs	#![allow(clippy::expect_used)]	core-maintainers	next quality-cycle ratchet

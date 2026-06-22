@@ -325,36 +325,31 @@ fn resolve_remote_llxprt_command(
     ))
 }
 
-#[allow(clippy::too_many_lines)]
-fn build_remote_launch_command(
-    session_name: &str,
-    work_dir: &Path,
-    signature: &LaunchSignature,
-) -> Result<String, RuntimeError> {
-    let remote = &signature.remote;
-    let work_dir_string = work_dir.to_string_lossy().into_owned();
-    let escaped_work_dir = shell_escape_single(&work_dir_string);
-    let llxprt_command = resolve_remote_llxprt_command(remote, work_dir, remote.setup_env_default)?;
-    let mut launch_args: Vec<String> = Vec::new();
-
+fn launch_args(signature: &LaunchSignature) -> Vec<String> {
+    let mut args = Vec::new();
     if !signature.profile.is_empty() {
-        launch_args.push("--profile-load".to_owned());
-        launch_args.push(signature.profile.clone());
+        args.push("--profile-load".to_owned());
+        args.push(signature.profile.clone());
     }
-    for flag in &signature.mode_flags {
-        if !flag.is_empty() {
-            launch_args.push(flag.clone());
-        }
-    }
+    args.extend(
+        signature
+            .mode_flags
+            .iter()
+            .filter(|flag| !flag.is_empty())
+            .cloned(),
+    );
     if signature.pass_continue {
-        launch_args.push("--continue".to_owned());
+        args.push("--continue".to_owned());
     }
     if signature.sandbox_enabled {
-        launch_args.push("--sandbox".to_owned());
-        launch_args.push("--sandbox-engine".to_owned());
-        launch_args.push(signature.sandbox_engine.as_llxprt_arg().to_owned());
+        args.push("--sandbox".to_owned());
+        args.push("--sandbox-engine".to_owned());
+        args.push(signature.sandbox_engine.as_llxprt_arg().to_owned());
     }
+    args
+}
 
+fn remote_env_exports(signature: &LaunchSignature) -> Vec<String> {
     let mut env_exports = Vec::new();
     if signature.sandbox_enabled {
         env_exports.push(format!(
@@ -374,29 +369,155 @@ fn build_remote_launch_command(
             shell_escape_single(&signature.llxprt_debug)
         ));
     }
+    env_exports
+}
 
-    let cli_command = if llxprt_command.contains(' ') {
-        format!("{} {}", llxprt_command, shell_join(&launch_args))
-    } else if launch_args.is_empty() {
-        llxprt_command
+fn remote_cli_command(llxprt_command: &str, launch_args: &[String]) -> String {
+    let executable = if llxprt_command == "llxprt" {
+        llxprt_command.to_owned()
     } else {
-        format!(
-            "{} {}",
-            shell_escape_single(&llxprt_command),
-            shell_join(&launch_args)
-        )
+        shell_escape_single(llxprt_command)
     };
 
-    let env_prefix = env_exports.join(" ");
+    if launch_args.is_empty() {
+        executable
+    } else {
+        format!("{} {}", executable, shell_join(launch_args))
+    }
+}
+
+fn build_remote_launch_command(
+    session_name: &str,
+    work_dir: &Path,
+    signature: &LaunchSignature,
+) -> Result<String, RuntimeError> {
+    let remote = &signature.remote;
+    let work_dir_string = work_dir.to_string_lossy().into_owned();
+    let escaped_work_dir = shell_escape_single(&work_dir_string);
+    let llxprt_command = resolve_remote_llxprt_command(remote, work_dir, remote.setup_env_default)?;
+    let args = launch_args(signature);
+    let cli_command = remote_cli_command(&llxprt_command, &args);
+    let env_prefix = remote_env_exports(signature).join(" ");
+    let escaped_session = shell_escape_single(session_name);
     let tmux_script = format!(
-        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {} -c {} {} \\; set-option -t {} remain-on-exit on",
-        shell_escape_single(session_name),
-        escaped_work_dir,
-        cli_command,
-        shell_escape_single(session_name),
+        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {cli_command} \\; set-option -t {escaped_session} remain-on-exit on"
     );
 
     Ok(remote_tmux_command(remote, &tmux_script))
+}
+
+struct LocalLaunchPlan {
+    args: Vec<String>,
+    env: Vec<(String, String)>,
+    warning: Option<String>,
+}
+
+fn local_launch_plan(signature: &LaunchSignature) -> LocalLaunchPlan {
+    let mut env = Vec::new();
+    let warning = if signature.sandbox_enabled {
+        env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
+        if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
+            env.push((
+                "LLXPRT_SANDBOX_IMAGE".to_owned(),
+                image_ref.to_string_lossy().into_owned(),
+            ));
+        }
+        sandbox_ssh_agent_warning()
+    } else {
+        None
+    };
+    if !signature.llxprt_debug.is_empty() {
+        env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
+    }
+    LocalLaunchPlan {
+        args: launch_args(signature),
+        env,
+        warning,
+    }
+}
+
+fn local_launch_command(session_name: &str, work_dir: &Path, plan: &LocalLaunchPlan) -> Command {
+    let mut cmd = tmux_command();
+    cmd.arg("new-session")
+        .arg("-d")
+        .arg("-s")
+        .arg(session_name)
+        .arg("-c")
+        .arg(work_dir);
+
+    if !plan.env.is_empty() {
+        cmd.arg("env");
+        for (key, value) in &plan.env {
+            cmd.arg(format!("{key}={value}"));
+        }
+    }
+
+    cmd.arg("llxprt");
+    cmd.args(&plan.args);
+    cmd
+}
+
+fn finalize_local_session(session_name: &str, warning: Option<String>) {
+    enforce_clipboard_passthrough(session_name);
+    let _ = tmux_cmd_status(
+        ["set-option", "-t", session_name, "remain-on-exit", "on"].as_ref(),
+        None,
+    );
+    apply_session_style(session_name);
+
+    if let Some(warning) = warning {
+        debug!(session_name = %session_name, warning = %warning, "runtime launch preflight warning");
+        let _ = tmux_cmd_status(
+            [
+                "display-message",
+                "-t",
+                session_name,
+                &format!("[jefe] warning: {warning}"),
+            ]
+            .as_ref(),
+            None,
+        );
+    }
+}
+
+fn try_local_create_session(
+    session_name: &str,
+    work_dir: &Path,
+    signature: &LaunchSignature,
+    attempt: u8,
+) -> Result<(), String> {
+    let plan = local_launch_plan(signature);
+    let mut cmd = local_launch_command(session_name, work_dir, &plan);
+    debug!(session_name = %session_name, attempt, "create_session invoking tmux new-session");
+
+    let output = cmd.output().map_err(|e| format!("tmux new-session: {e}"))?;
+    if output.status.success() {
+        debug!(session_name = %session_name, attempt, "create_session tmux new-session succeeded");
+        finalize_local_session(session_name, plan.warning);
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+fn create_remote_session(
+    session_name: &str,
+    work_dir: &Path,
+    signature: &LaunchSignature,
+) -> Result<(), RuntimeError> {
+    let remote_command = build_remote_launch_command(session_name, work_dir, signature)?;
+    let output = run_remote_ssh(&signature.remote, &remote_command)?;
+    ensure_remote_success(&signature.remote, "remote tmux new-session", output)?;
+    Ok(())
+}
+
+fn is_tmux_fork_broken(stderr: &str) -> bool {
+    stderr.contains("fork failed") || stderr.contains("Device not configured")
+}
+
+fn local_spawn_error(session_name: &str, attempt: u8, stderr: String) -> RuntimeError {
+    debug!(session_name = %session_name, attempt, stderr = %stderr, "create_session tmux new-session failed");
+    RuntimeError::SpawnFailed(format!("tmux new-session failed: {stderr}"))
 }
 
 /// Create a new detached tmux session running llxprt.
@@ -405,158 +526,30 @@ fn build_remote_launch_command(
 /// the tmux session becomes "dead" until explicit relaunch.
 ///
 /// @pseudocode component-002 lines 01-06
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 pub fn create_session(
     session_name: &str,
     work_dir: &Path,
     signature: &LaunchSignature,
 ) -> Result<(), RuntimeError> {
     debug!(session_name = %session_name, work_dir = %work_dir.display(), "create_session start");
-
     if remote_is_enabled(&signature.remote) {
-        let remote_command = build_remote_launch_command(session_name, work_dir, signature)?;
-        let output = run_remote_ssh(&signature.remote, &remote_command)?;
-        ensure_remote_success(&signature.remote, "remote tmux new-session", output)?;
-        return Ok(());
+        return create_remote_session(session_name, work_dir, signature);
     }
 
-    // Kill any stale session with the same name first
     let _ = kill_session(session_name);
-
-    // Retry once if tmux server is in a fork-broken state.
-    for attempt in 0..=1 {
-        let mut llxprt_args: Vec<String> = Vec::new();
-
-        // Add profile if specified.
-        if !signature.profile.is_empty() {
-            llxprt_args.push("--profile-load".to_owned());
-            llxprt_args.push(signature.profile.clone());
-        }
-
-        // Add mode flags (e.g., --yolo).
-        for flag in &signature.mode_flags {
-            if !flag.is_empty() {
-                llxprt_args.push(flag.clone());
-            }
-        }
-
-        // Add --continue if pass_continue is true.
-        if signature.pass_continue {
-            llxprt_args.push("--continue".to_owned());
-        }
-
-        // Sandbox launch parity with llxprt-code: explicit --sandbox and engine,
-        // plus SANDBOX_FLAGS environment support.
-        let mut launch_env: Vec<(String, String)> = Vec::new();
-        let launch_warning: Option<String> = if signature.sandbox_enabled {
-            llxprt_args.push("--sandbox".to_owned());
-            llxprt_args.push("--sandbox-engine".to_owned());
-            llxprt_args.push(signature.sandbox_engine.as_llxprt_arg().to_owned());
-            launch_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
-
-            // Let llxprt resolve its own sandbox image — it knows its version
-            // and can give clear errors (e.g. "daemon not running") instead of
-            // the misleading "image missing" that results from jefe pre-resolving
-            // via `manifest inspect` (which queries the registry without a daemon).
-            // The user can still override via LLXPRT_SANDBOX_IMAGE in their env.
-            if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
-                launch_env.push((
-                    "LLXPRT_SANDBOX_IMAGE".to_owned(),
-                    image_ref.to_string_lossy().into_owned(),
-                ));
-            }
-
-            sandbox_ssh_agent_warning()
-        } else {
-            None
-        };
-
-        if !signature.llxprt_debug.is_empty() {
-            launch_env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
-        }
-
-        let mut cmd = tmux_command();
-        cmd.arg("new-session")
-            .arg("-d")
-            .arg("-s")
-            .arg(session_name)
-            .arg("-c")
-            .arg(work_dir.to_str().unwrap_or("."));
-
-        debug!(session_name = %session_name, attempt, "create_session invoking tmux new-session");
-
-        if !launch_env.is_empty() {
-            cmd.arg("env");
-            for (key, value) in &launch_env {
-                // Each .arg() is a single argv entry to tmux.  tmux internally
-                // escapes each argument when joining them for sh -c, so spaces
-                // inside the value are preserved without any extra quoting.
-                // Adding shell_escape_single() here would embed literal quote
-                // characters in the value (double-quoting), breaking consumers
-                // like llxprt's shell-quote parser.
-                cmd.arg(format!("{key}={value}"));
-            }
-        }
-
-        cmd.arg("llxprt");
-        for arg in &llxprt_args {
-            cmd.arg(arg);
-        }
-
-        let output = cmd
-            .output()
-            .map_err(|e| RuntimeError::SpawnFailed(format!("tmux new-session: {e}")))?;
-
-        if output.status.success() {
-            debug!(session_name = %session_name, attempt, "create_session tmux new-session succeeded");
-
-            // Enforce clipboard passthrough for each new session regardless of
-            // user/system tmux defaults.
-            enforce_clipboard_passthrough(session_name);
-
-            // Preserve dead pane output in tmux for post-mortem inspection/relaunch context.
-            let _ = tmux_cmd_status(
-                ["set-option", "-t", session_name, "remain-on-exit", "on"].as_ref(),
-                None,
-            );
-            apply_session_style(session_name);
-
-            if let Some(warning) = launch_warning {
-                debug!(session_name = %session_name, warning = %warning, "runtime launch preflight warning");
-                let _ = tmux_cmd_status(
-                    [
-                        "display-message",
-                        "-t",
-                        session_name,
-                        &format!("[jefe] warning: {warning}"),
-                    ]
-                    .as_ref(),
-                    None,
-                );
-            }
-
-            return Ok(());
-        }
-
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let fork_broken =
-            stderr.contains("fork failed") || stderr.contains("Device not configured");
-
-        if attempt == 0 && fork_broken {
-            debug!(session_name = %session_name, attempt, stderr = %stderr, "create_session retrying after tmux fork failure");
+    match try_local_create_session(session_name, work_dir, signature, 0) {
+        Ok(()) => return Ok(()),
+        Err(stderr) if is_tmux_fork_broken(&stderr) => {
+            debug!(session_name = %session_name, attempt = 0, stderr = %stderr, "create_session retrying after tmux fork failure");
             reset_tmux_server();
-            continue;
         }
-
-        debug!(session_name = %session_name, attempt, stderr = %stderr, "create_session tmux new-session failed");
-        return Err(RuntimeError::SpawnFailed(format!(
-            "tmux new-session failed: {stderr}"
-        )));
+        Err(stderr) => return Err(local_spawn_error(session_name, 0, stderr)),
     }
 
-    Err(RuntimeError::SpawnFailed(
-        "tmux new-session failed after retry".to_owned(),
-    ))
+    match try_local_create_session(session_name, work_dir, signature, 1) {
+        Ok(()) => Ok(()),
+        Err(stderr) => Err(local_spawn_error(session_name, 1, stderr)),
+    }
 }
 
 /// Check if a tmux session exists.

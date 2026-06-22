@@ -12,12 +12,16 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::{Event as TermEvent, EventListener};
-use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::grid::{Dimensions, Indexed};
+use alacritty_terminal::selection::SelectionRange;
 use alacritty_terminal::term::Config as TermConfig;
-use alacritty_terminal::term::cell::Flags;
-use alacritty_terminal::term::{Term, TermMode};
+use alacritty_terminal::term::cell::{Cell, Flags};
+use alacritty_terminal::term::color::Colors;
+use alacritty_terminal::term::{RenderableCursor, Term, TermMode};
 use alacritty_terminal::vte::ansi::{self, Processor, StdSyncHandler};
-use portable_pty::{Child as PtyChild, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{
+    Child as PtyChild, CommandBuilder, MasterPty, PtyPair, PtySize, native_pty_system,
+};
 use tracing::{debug, warn};
 
 use super::commands;
@@ -143,101 +147,111 @@ fn rgb_to_iocraft(rgb: ansi::Rgb) -> iocraft::Color {
 }
 
 const ANSI_COLOR_CUBE_STEPS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+const ANSI_BASE_COLORS: [ansi::Rgb; 16] = [
+    ansi::Rgb { r: 0, g: 0, b: 0 },
+    ansi::Rgb {
+        r: 0xcd,
+        g: 0,
+        b: 0,
+    },
+    ansi::Rgb {
+        r: 0,
+        g: 0xcd,
+        b: 0,
+    },
+    ansi::Rgb {
+        r: 0xcd,
+        g: 0xcd,
+        b: 0,
+    },
+    ansi::Rgb {
+        r: 0,
+        g: 0,
+        b: 0xee,
+    },
+    ansi::Rgb {
+        r: 0xcd,
+        g: 0,
+        b: 0xcd,
+    },
+    ansi::Rgb {
+        r: 0,
+        g: 0xcd,
+        b: 0xcd,
+    },
+    ansi::Rgb {
+        r: 0xe5,
+        g: 0xe5,
+        b: 0xe5,
+    },
+    ansi::Rgb {
+        r: 0x7f,
+        g: 0x7f,
+        b: 0x7f,
+    },
+    ansi::Rgb {
+        r: 0xff,
+        g: 0,
+        b: 0,
+    },
+    ansi::Rgb {
+        r: 0,
+        g: 0xff,
+        b: 0,
+    },
+    ansi::Rgb {
+        r: 0xff,
+        g: 0xff,
+        b: 0,
+    },
+    ansi::Rgb {
+        r: 0x5c,
+        g: 0x5c,
+        b: 0xff,
+    },
+    ansi::Rgb {
+        r: 0xff,
+        g: 0,
+        b: 0xff,
+    },
+    ansi::Rgb {
+        r: 0,
+        g: 0xff,
+        b: 0xff,
+    },
+    ansi::Rgb {
+        r: 0xff,
+        g: 0xff,
+        b: 0xff,
+    },
+];
 
-#[allow(clippy::too_many_lines)]
 fn fallback_ansi_color(index: u8) -> ansi::Rgb {
     match index {
-        0 => ansi::Rgb { r: 0, g: 0, b: 0 },
-        1 => ansi::Rgb {
-            r: 0xcd,
-            g: 0x00,
-            b: 0x00,
-        },
-        2 => ansi::Rgb {
-            r: 0x00,
-            g: 0xcd,
-            b: 0x00,
-        },
-        3 => ansi::Rgb {
-            r: 0xcd,
-            g: 0xcd,
-            b: 0x00,
-        },
-        4 => ansi::Rgb {
-            r: 0x00,
-            g: 0x00,
-            b: 0xee,
-        },
-        5 => ansi::Rgb {
-            r: 0xcd,
-            g: 0x00,
-            b: 0xcd,
-        },
-        6 => ansi::Rgb {
-            r: 0x00,
-            g: 0xcd,
-            b: 0xcd,
-        },
-        7 => ansi::Rgb {
-            r: 0xe5,
-            g: 0xe5,
-            b: 0xe5,
-        },
-        8 => ansi::Rgb {
-            r: 0x7f,
-            g: 0x7f,
-            b: 0x7f,
-        },
-        9 => ansi::Rgb {
-            r: 0xff,
-            g: 0x00,
-            b: 0x00,
-        },
-        10 => ansi::Rgb {
-            r: 0x00,
-            g: 0xff,
-            b: 0x00,
-        },
-        11 => ansi::Rgb {
-            r: 0xff,
-            g: 0xff,
-            b: 0x00,
-        },
-        12 => ansi::Rgb {
-            r: 0x5c,
-            g: 0x5c,
-            b: 0xff,
-        },
-        13 => ansi::Rgb {
-            r: 0xff,
-            g: 0x00,
-            b: 0xff,
-        },
-        14 => ansi::Rgb {
-            r: 0x00,
-            g: 0xff,
-            b: 0xff,
-        },
-        15 => ansi::Rgb {
-            r: 0xff,
-            g: 0xff,
-            b: 0xff,
-        },
-        n @ 16..=231 => {
-            let idx = n - 16;
-            let r = idx / 36;
-            let g = (idx % 36) / 6;
-            let b = idx % 6;
-            ansi::Rgb {
-                r: ANSI_COLOR_CUBE_STEPS[usize::from(r)],
-                g: ANSI_COLOR_CUBE_STEPS[usize::from(g)],
-                b: ANSI_COLOR_CUBE_STEPS[usize::from(b)],
-            }
-        }
-        n @ 232..=255 => {
-            let v = 8 + (n - 232) * 10;
-            ansi::Rgb { r: v, g: v, b: v }
-        }
+        0..=15 => ANSI_BASE_COLORS[usize::from(index)],
+        n @ 16..=231 => ansi_color_cube(n),
+        n @ 232..=255 => ansi_grayscale(n),
+    }
+}
+
+fn ansi_color_cube(index: u8) -> ansi::Rgb {
+    let idx = index - 16;
+    let r = idx / 36;
+    let g = (idx % 36) / 6;
+    let b = idx % 6;
+    ansi::Rgb {
+        r: ANSI_COLOR_CUBE_STEPS[usize::from(r)],
+        g: ANSI_COLOR_CUBE_STEPS[usize::from(g)],
+        b: ANSI_COLOR_CUBE_STEPS[usize::from(b)],
+    }
+}
+
+fn ansi_grayscale(index: u8) -> ansi::Rgb {
+    let value = 8 + (index - 232) * 10;
+    ansi::Rgb {
+        r: value,
+        g: value,
+        b: value,
     }
 }
 
@@ -291,47 +305,83 @@ fn resolve_color(
     }
 }
 
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_possible_wrap,
-    clippy::cast_sign_loss,
-    clippy::too_many_lines
-)]
-fn snapshot_from_term(term: &Term<RuntimeListener>) -> TerminalSnapshot {
-    let rows = term.screen_lines();
-    let cols = term.columns();
+fn dim_rgb(rgb: ansi::Rgb) -> ansi::Rgb {
+    ansi::Rgb {
+        r: rgb.r / 2,
+        g: rgb.g / 2,
+        b: rgb.b / 2,
+    }
+}
 
-    let base_style = TerminalCellStyle {
+fn base_terminal_style() -> TerminalCellStyle {
+    TerminalCellStyle {
         fg: rgb_to_iocraft(fallback_ansi_color(7)),
         bg: rgb_to_iocraft(fallback_ansi_color(0)),
         bold: false,
         underline: false,
-    };
-    let mut snapshot = TerminalSnapshot::blank(rows, cols, base_style);
+    }
+}
 
+fn snapshot_position(indexed: &Indexed<&Cell>, rows: usize, cols: usize) -> Option<(usize, usize)> {
+    let line = indexed.point.line.0;
+    if line < 0 {
+        return None;
+    }
+
+    let row = usize::try_from(line).ok()?;
+    let col = indexed.point.column.0;
+    (row < rows && col < cols).then_some((row, col))
+}
+
+fn snapshot_cell_style(
+    indexed: &Indexed<&Cell>,
+    selection: Option<SelectionRange>,
+    cursor: RenderableCursor,
+    term_colors: &Colors,
+) -> TerminalCellStyle {
+    let mut fg = resolve_color(indexed.cell.fg, term_colors);
+    let mut bg = resolve_color(indexed.cell.bg, term_colors);
+    if indexed.cell.flags.intersects(Flags::DIM | Flags::DIM_BOLD) {
+        fg = dim_rgb(fg);
+    }
+    if indexed.cell.flags.contains(Flags::INVERSE) {
+        std::mem::swap(&mut fg, &mut bg);
+    }
+    if selection.is_some_and(|range| range.contains_cell(indexed, cursor.point, cursor.shape)) {
+        fg = fallback_ansi_color(0);
+        bg = fallback_ansi_color(7);
+    }
+    if cursor.shape != ansi::CursorShape::Hidden && indexed.point == cursor.point {
+        std::mem::swap(&mut fg, &mut bg);
+    }
+
+    TerminalCellStyle {
+        fg: rgb_to_iocraft(fg),
+        bg: rgb_to_iocraft(bg),
+        bold: indexed.cell.flags.intersects(Flags::BOLD | Flags::DIM_BOLD),
+        underline: indexed.cell.flags.intersects(Flags::ALL_UNDERLINES),
+    }
+}
+
+fn snapshot_cell(indexed: &Indexed<&Cell>, style: TerminalCellStyle) -> TerminalCell {
+    let ch = if indexed.cell.flags.contains(Flags::HIDDEN) || indexed.cell.c == '\0' {
+        ' '
+    } else {
+        indexed.cell.c
+    };
+    TerminalCell { ch, style }
+}
+
+fn snapshot_from_term(term: &Term<RuntimeListener>) -> TerminalSnapshot {
+    let rows = term.screen_lines();
+    let cols = term.columns();
+    let mut snapshot = TerminalSnapshot::blank(rows, cols, base_terminal_style());
     let renderable = term.renderable_content();
-    let selection = renderable.selection;
-    let cursor = renderable.cursor;
-    let term_colors = renderable.colors;
 
     for indexed in renderable.display_iter {
-        let line_i32 = indexed.point.line.0;
-        if line_i32 < 0 {
-            continue;
-        }
-
-        let Ok(row) = usize::try_from(line_i32) else {
+        let Some((row, col)) = snapshot_position(&indexed, rows, cols) else {
             continue;
         };
-        if row >= rows {
-            continue;
-        }
-
-        let col = indexed.point.column.0;
-        if col >= cols {
-            continue;
-        }
-
         if indexed
             .cell
             .flags
@@ -340,52 +390,46 @@ fn snapshot_from_term(term: &Term<RuntimeListener>) -> TerminalSnapshot {
             continue;
         }
 
-        let mut fg = resolve_color(indexed.cell.fg, term_colors);
-        let mut bg = resolve_color(indexed.cell.bg, term_colors);
-        let bold = indexed.cell.flags.contains(Flags::BOLD)
-            || indexed.cell.flags.contains(Flags::DIM_BOLD);
-        let underline = indexed.cell.flags.intersects(Flags::ALL_UNDERLINES);
-
-        if indexed.cell.flags.contains(Flags::DIM) || indexed.cell.flags.contains(Flags::DIM_BOLD) {
-            fg = fallback_ansi_color(8);
-        }
-
-        if indexed.cell.flags.contains(Flags::INVERSE) {
-            std::mem::swap(&mut fg, &mut bg);
-        }
-
-        let in_selection = selection
-            .is_some_and(|range| range.contains_cell(&indexed, cursor.point, cursor.shape));
-        if in_selection {
-            fg = fallback_ansi_color(0);
-            bg = fallback_ansi_color(7);
-        }
-
-        let is_cursor_cell =
-            cursor.shape != ansi::CursorShape::Hidden && indexed.point == cursor.point;
-        if is_cursor_cell {
-            std::mem::swap(&mut fg, &mut bg);
-        }
-
-        let ch = if indexed.cell.flags.contains(Flags::HIDDEN) {
-            ' '
-        } else {
-            let c = indexed.cell.c;
-            if c == '\0' { ' ' } else { c }
-        };
-
-        snapshot.cells[row][col] = TerminalCell {
-            ch,
-            style: TerminalCellStyle {
-                fg: rgb_to_iocraft(fg),
-                bg: rgb_to_iocraft(bg),
-                bold,
-                underline,
-            },
-        };
+        let style = snapshot_cell_style(
+            &indexed,
+            renderable.selection,
+            renderable.cursor,
+            renderable.colors,
+        );
+        snapshot.cells[row][col] = snapshot_cell(&indexed, style);
     }
 
     snapshot
+}
+
+fn attach_command(session_name: &str, ssh_command: Option<&str>) -> CommandBuilder {
+    let mut cmd = if let Some(ssh_command) = ssh_command {
+        let mut cmd = CommandBuilder::new("sh");
+        cmd.arg("-lc");
+        cmd.arg(ssh_command);
+        cmd
+    } else {
+        let mut cmd = CommandBuilder::new("tmux");
+        cmd.arg("-f");
+        cmd.arg("/dev/null");
+        cmd.arg("attach-session");
+        cmd.arg("-t");
+        cmd.arg(session_name);
+        cmd
+    };
+    cmd.env("TERM", "xterm-256color");
+    cmd
+}
+
+fn open_pty(rows: u16, cols: u16) -> Result<PtyPair, RuntimeError> {
+    native_pty_system()
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| RuntimeError::SpawnFailed(format!("openpty: {e}")))
 }
 
 impl AttachedViewer {
@@ -405,7 +449,6 @@ impl AttachedViewer {
         Self::spawn_command(session_name, rows, cols, Some(ssh_command))
     }
 
-    #[allow(clippy::too_many_lines)]
     fn spawn_command(
         session_name: &str,
         rows: u16,
@@ -418,33 +461,8 @@ impl AttachedViewer {
             debug!(session_name = %session_name, "AttachedViewer::spawn clipboard passthrough enforced");
         }
 
-        let pty_system = native_pty_system();
-
-        let pty_pair = pty_system
-            .openpty(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| RuntimeError::SpawnFailed(format!("openpty: {e}")))?;
-
-        let mut cmd = if let Some(ssh_command) = ssh_command {
-            let mut cmd = CommandBuilder::new("sh");
-            cmd.arg("-lc");
-            cmd.arg(ssh_command);
-            cmd
-        } else {
-            let mut cmd = CommandBuilder::new("tmux");
-            cmd.arg("-f");
-            cmd.arg("/dev/null");
-            cmd.arg("attach-session");
-            cmd.arg("-t");
-            cmd.arg(session_name);
-            cmd.env("TERM", "xterm-256color");
-            cmd
-        };
-        cmd.env("TERM", "xterm-256color");
+        let pty_pair = open_pty(rows, cols)?;
+        let cmd = attach_command(session_name, ssh_command);
 
         let child = pty_pair
             .slave
@@ -503,7 +521,6 @@ impl AttachedViewer {
     /// Write input bytes to the PTY.
     ///
     /// @pseudocode component-002 lines 18-20
-    #[allow(clippy::significant_drop_tightening)]
     pub fn write_input(&self, bytes: &[u8]) -> Result<(), RuntimeError> {
         if !self.is_alive() {
             return Err(RuntimeError::WriteFailed("viewer not alive".into()));
@@ -521,12 +538,12 @@ impl AttachedViewer {
         writer
             .flush()
             .map_err(|e| RuntimeError::WriteFailed(format!("flush: {e}")))?;
+        drop(writer);
 
         Ok(())
     }
 
     /// Resize the terminal.
-    #[allow(clippy::significant_drop_tightening)]
     pub fn resize(&self, rows: u16, cols: u16) -> Result<(), RuntimeError> {
         let master = self
             .master
@@ -557,7 +574,6 @@ impl AttachedViewer {
     }
 
     /// Get a snapshot of the terminal state.
-    #[allow(clippy::significant_drop_tightening)]
     pub fn snapshot(&self) -> Option<TerminalSnapshot> {
         let term = self.term.lock().ok()?;
         Some(snapshot_from_term(&term))

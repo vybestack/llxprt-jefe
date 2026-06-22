@@ -158,7 +158,13 @@ impl Component for TerminalGrid {
             .take(self.snapshot.rows.min(max_rows))
             .enumerate()
         {
+            let Some(y) = canvas_coord(row_idx) else {
+                continue;
+            };
             for run in row_to_runs(row, max_cols) {
+                let Some(x) = canvas_coord(run.start_col) else {
+                    continue;
+                };
                 // CanvasTextStyle is #[non_exhaustive]; build via Default then set fields.
                 let mut style = CanvasTextStyle::default();
                 style.color = Some(run.style.fg);
@@ -171,31 +177,46 @@ impl Component for TerminalGrid {
 
                 // Background is painted as a filled region under the run so that
                 // per-cell background colors are preserved.
-                #[allow(clippy::cast_possible_wrap)]
-                canvas.set_background_color(
-                    run.start_col as isize,
-                    row_idx as isize,
-                    run.width,
-                    1,
-                    run.style.bg,
-                );
-                #[allow(clippy::cast_possible_wrap)]
-                canvas.set_text(run.start_col as isize, row_idx as isize, &run.text, style);
+                canvas.set_background_color(x, y, run.width, 1, run.style.bg);
+                canvas.set_text(x, y, &run.text, style);
             }
         }
     }
 }
 
+fn canvas_coord(value: usize) -> Option<isize> {
+    isize::try_from(value).ok()
+}
+
 /// Convert a taffy `f32` layout dimension to a clamped, non-negative `usize`.
 ///
-/// Negative or non-finite values collapse to `0`; large values saturate.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+/// Negative or non-finite values collapse to `0`; implausibly large values clamp
+/// to a bound far beyond any supported terminal viewport.
+///
+/// The bounded binary search avoids float-to-integer casts so this hot-path
+/// conversion stays compliant with the no-new-clippy-allows policy.
 fn f32_to_usize(value: f32) -> usize {
+    const MAX_VIEWPORT_CELLS: u16 = u16::MAX;
+
     if !value.is_finite() || value <= 0.0 {
-        0
-    } else {
-        value.floor() as usize
+        return 0;
     }
+    if value >= f32::from(MAX_VIEWPORT_CELLS) {
+        return usize::from(MAX_VIEWPORT_CELLS);
+    }
+
+    let target = value.floor();
+    let mut low = 0u16;
+    let mut high = MAX_VIEWPORT_CELLS;
+    while low < high {
+        let mid = low + ((high - low) / 2) + 1;
+        if f32::from(mid) <= target {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+    usize::from(low)
 }
 
 /// A contiguous run of cells sharing the same style within a single row.
