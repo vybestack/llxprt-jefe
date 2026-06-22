@@ -156,13 +156,7 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         .unwrap_or("")
         .to_string();
 
-    let state = item
-        .get("state")
-        .and_then(Value::as_str)
-        .map_or(IssueState::Open, |s| match s {
-            "CLOSED" => IssueState::Closed,
-            _ => IssueState::Open,
-        });
+    let state = parse_issue_state(item);
 
     let author_login = item
         .get("author")
@@ -211,6 +205,7 @@ fn join_nodes_field(item: &Value, field: &str) -> String {
         .and_then(|f| f.get("nodes"))
         .and_then(Value::as_array)
         .map(|nodes| {
+            // `gh issue list` exposes label names under `name`; user-like nodes use `login`.
             let key = if field == "labels" { "name" } else { "login" };
             nodes
                 .iter()

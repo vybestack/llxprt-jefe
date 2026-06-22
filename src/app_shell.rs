@@ -734,7 +734,7 @@ fn capture_terminal_snapshot(
     selected_agent_id: Option<&AgentId>,
     selected_running_agent_id: Option<&AgentId>,
 ) -> Option<TerminalSnapshot> {
-    let ctx_arc = ctx.as_ref()?;
+    let ctx_arc = ctx?;
     let ctx_guard = ctx_arc.lock().ok()?;
     let selected_agent = snapshot.selected_agent()?;
     match selected_agent.status {
