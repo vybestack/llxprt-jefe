@@ -8,9 +8,24 @@ use iocraft::prelude::*;
 use crate::domain::{Issue, IssueState};
 use crate::theme::{ResolvedColors, ThemeColors};
 
+/// Issue list density variant.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum IssueListLayout {
+    /// Show title and metadata for each issue.
+    #[default]
+    Full,
+    /// Show only the title row for each issue.
+    Compact,
+}
+
+impl IssueListLayout {
+    fn is_compact(self) -> bool {
+        matches!(self, Self::Compact)
+    }
+}
+
 /// Props for the issue list pane.
 #[derive(Default, Props)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct IssueListProps {
     /// Issues to display.
     pub issues: Vec<Issue>,
@@ -22,8 +37,8 @@ pub struct IssueListProps {
     pub loading: bool,
     /// Whether filters are active (affects empty-state message).
     pub has_filters: bool,
-    /// Whether this is the compact (split) variant for detail view.
-    pub compact: bool,
+    /// List density variant.
+    pub layout: IssueListLayout,
     /// Theme colors.
     pub colors: ThemeColors,
 }
@@ -107,7 +122,7 @@ pub fn IssueList(props: &IssueListProps) -> impl Into<AnyElement<'static>> {
                         let meta_line = format!("     {}", meta_parts.join("  "));
 
                         if selected {
-                            if props.compact {
+                            if props.layout.is_compact() {
                                 element! {
                                     Box(height: 1u32, background_color: rc.sel_bg) {
                                         Text(
@@ -133,7 +148,7 @@ pub fn IssueList(props: &IssueListProps) -> impl Into<AnyElement<'static>> {
                                     }
                                 }
                             }
-                        } else if props.compact {
+                        } else if props.layout.is_compact() {
                             element! {
                                 Box(height: 1u32) {
                                     Text(content: title_line, color: rc.fg)

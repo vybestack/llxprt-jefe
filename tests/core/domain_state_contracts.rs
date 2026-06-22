@@ -6,8 +6,7 @@
 //!
 //! Pseudocode reference: component-001 lines 01-33
 
-#![allow(clippy::expect_used)]
-#![allow(clippy::unwrap_used)]
+use crate::support::TestOptionExt;
 
 use std::path::PathBuf;
 
@@ -578,7 +577,7 @@ fn agent_status_changed_updates_agent() {
         .agents
         .iter()
         .find(|a| a.id == agent_id)
-        .expect("agent should exist");
+        .test_unwrap("agent should exist");
     assert_eq!(
         agent.status,
         AgentStatus::Running,
@@ -605,7 +604,7 @@ fn kill_agent_sets_status_to_dead() {
         .agents
         .iter()
         .find(|a| a.id == agent_id)
-        .expect("agent should exist");
+        .test_unwrap("agent should exist");
     assert_eq!(
         agent.status,
         AgentStatus::Dead,
@@ -772,7 +771,7 @@ fn persistence_load_failed_sets_error() {
     assert!(
         next.error_message
             .as_ref()
-            .unwrap()
+            .test_unwrap("test unwrap")
             .contains("file not found"),
         "error_message should contain the error"
     );

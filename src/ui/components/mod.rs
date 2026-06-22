@@ -19,7 +19,7 @@ pub use agent_chooser::{AgentChooser, AgentChooserProps};
 pub use agent_list::{AgentList, AgentListProps};
 pub use filter_controls::{FilterControls, FilterControlsProps};
 pub use issue_detail::{IssueDetailView, IssueDetailViewProps};
-pub use issue_list::{IssueList, IssueListProps};
+pub use issue_list::{IssueList, IssueListLayout, IssueListProps};
 pub use keybind_bar::{KeybindBar, KeybindBarProps};
 pub use preview::{Preview, PreviewProps};
 pub use scrollable_text::{ScrollableText, ScrollableTextProps};

@@ -10,17 +10,3 @@ src/github/mod.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality
 src/github/mod.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
 src/messages.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
 src/messages.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/ui/components/issue_list.rs	#[allow(clippy::struct_excessive_bools)]	core-maintainers	next quality-cycle ratchet
-tests/core/domain_state_contracts.rs	#![allow(clippy::expect_used)]	core-maintainers	next quality-cycle ratchet
-tests/core/domain_state_contracts.rs	#![allow(clippy::unwrap_used)]	core-maintainers	next quality-cycle ratchet
-tests/core/persistence_theme_contracts.rs	#![allow(clippy::expect_used)]	core-maintainers	next quality-cycle ratchet
-tests/core/visibility_filter_contracts.rs	#![allow(clippy::expect_used)]	core-maintainers	next quality-cycle ratchet
-tests/core/visibility_filter_contracts.rs	#![allow(clippy::unwrap_used)]	core-maintainers	next quality-cycle ratchet
-tests/e2e/end_to_end.rs	#![allow(clippy::unwrap_used, clippy::expect_used)]	core-maintainers	next quality-cycle ratchet
-tests/e2e/recovery_paths.rs	#![allow(clippy::unwrap_used, clippy::expect_used)]	core-maintainers	next quality-cycle ratchet
-tests/runtime/runtime_lifecycle.rs	#![allow(clippy::expect_used)]	core-maintainers	next quality-cycle ratchet
-tests/runtime/runtime_lifecycle.rs	#![allow(clippy::unwrap_used)]	core-maintainers	next quality-cycle ratchet
-tests/runtime/terminal_focus_routing.rs	#![allow(clippy::expect_used)]	core-maintainers	next quality-cycle ratchet
-tests/runtime/terminal_focus_routing.rs	#![allow(clippy::unwrap_used)]	core-maintainers	next quality-cycle ratchet
-toy1/src/data/mock.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-toy1/src/events/bus.rs	#![allow(clippy::unnecessary_wraps)]	core-maintainers	next quality-cycle ratchet
