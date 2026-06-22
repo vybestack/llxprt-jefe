@@ -435,7 +435,6 @@ message_names!(IssuesMessage {
 });
 
 impl From<AppEvent> for AppMessage {
-    #[allow(clippy::too_many_lines)]
     fn from(event: AppEvent) -> Self {
         match event {
             AppEvent::NavigateUp => Self::UiNavigation(UiNavigationMessage::NavigateUp),
@@ -479,6 +478,18 @@ impl From<AppEvent> for AppMessage {
             AppEvent::FormNextField => Self::Modal(ModalMessage::FormNextField),
             AppEvent::FormPrevField => Self::Modal(ModalMessage::FormPrevField),
             AppEvent::FormToggleCheckbox => Self::Modal(ModalMessage::FormToggleCheckbox),
+            other => Self::from_non_ui_nav_event(other),
+        }
+    }
+}
+
+impl AppMessage {
+    /// Convert non-UI-navigation [`AppEvent`] variants into the typed message bus.
+    ///
+    /// Split out from [`AppMessage::from`] so the top-level converter stays
+    /// within the clippy line budget without a complexity suppression.
+    fn from_non_ui_nav_event(event: AppEvent) -> Self {
+        match event {
             AppEvent::OpenNewRepository => {
                 Self::RepositoryAgent(RepositoryAgentMessage::OpenNewRepository)
             }
@@ -518,161 +529,13 @@ impl From<AppEvent> for AppMessage {
             AppEvent::Quit => Self::System(SystemMessage::Quit),
             AppEvent::ClearError => Self::System(SystemMessage::ClearError),
             AppEvent::ClearWarning => Self::System(SystemMessage::ClearWarning),
-            AppEvent::EnterIssuesMode => Self::Issues(IssuesMessage::EnterMode),
-            AppEvent::ExitIssuesMode => Self::Issues(IssuesMessage::ExitMode),
-            AppEvent::RefocusIssueList => Self::Issues(IssuesMessage::RefocusList),
-            AppEvent::IssuesNavigateUp => Self::Issues(IssuesMessage::NavigateUp),
-            AppEvent::IssuesNavigateDown => Self::Issues(IssuesMessage::NavigateDown),
-            AppEvent::IssuesNavigatePageUp => Self::Issues(IssuesMessage::NavigatePageUp),
-            AppEvent::IssuesNavigatePageDown => Self::Issues(IssuesMessage::NavigatePageDown),
-            AppEvent::IssuesNavigateHome => Self::Issues(IssuesMessage::NavigateHome),
-            AppEvent::IssuesNavigateEnd => Self::Issues(IssuesMessage::NavigateEnd),
-            AppEvent::IssuesEnter => Self::Issues(IssuesMessage::Enter),
-            AppEvent::IssuesCycleFocus => Self::Issues(IssuesMessage::CycleFocus),
-            AppEvent::IssuesCycleFocusReverse => Self::Issues(IssuesMessage::CycleFocusReverse),
-            AppEvent::IssuesScrollDetailUp => Self::Issues(IssuesMessage::ScrollDetailUp),
-            AppEvent::IssuesScrollDetailDown => Self::Issues(IssuesMessage::ScrollDetailDown),
-            AppEvent::IssuesScrollDetailPageUp => Self::Issues(IssuesMessage::ScrollDetailPageUp),
-            AppEvent::IssuesScrollDetailPageDown => {
-                Self::Issues(IssuesMessage::ScrollDetailPageDown)
-            }
-            AppEvent::IssueDetailSubfocusNext => Self::Issues(IssuesMessage::DetailSubfocusNext),
-            AppEvent::IssueDetailSubfocusPrev => Self::Issues(IssuesMessage::DetailSubfocusPrev),
-            AppEvent::IssueListLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            } => Self::Issues(IssuesMessage::ListLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            }),
-            AppEvent::IssueListLoadFailed {
-                scope_repo_id,
-                error,
-            } => Self::Issues(IssuesMessage::ListLoadFailed {
-                scope_repo_id,
-                error,
-            }),
-            AppEvent::IssueListPageLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            } => Self::Issues(IssuesMessage::ListPageLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            }),
-            AppEvent::IssueDetailLoaded {
-                scope_repo_id,
-                issue_number,
-                detail,
-            } => Self::Issues(IssuesMessage::DetailLoaded {
-                scope_repo_id,
-                issue_number,
-                detail,
-            }),
-            AppEvent::IssueDetailLoadFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            } => Self::Issues(IssuesMessage::DetailLoadFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            }),
-            AppEvent::IssueCommentsPageLoaded {
-                scope_repo_id,
-                issue_number,
-                comments,
-                cursor,
-                has_more,
-            } => Self::Issues(IssuesMessage::CommentsPageLoaded {
-                scope_repo_id,
-                issue_number,
-                comments,
-                cursor,
-                has_more,
-            }),
-            AppEvent::IssueCommentsPageFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            } => Self::Issues(IssuesMessage::CommentsPageFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            }),
-            AppEvent::OpenFilterControls => Self::Issues(IssuesMessage::OpenFilterControls),
-            AppEvent::CloseFilterControls => Self::Issues(IssuesMessage::CloseFilterControls),
-            AppEvent::ApplyFilter => Self::Issues(IssuesMessage::ApplyFilter),
-            AppEvent::ClearFilter => Self::Issues(IssuesMessage::ClearFilter),
-            AppEvent::FilterNavigateNext => Self::Issues(IssuesMessage::FilterNavigateNext),
-            AppEvent::FilterNavigatePrev => Self::Issues(IssuesMessage::FilterNavigatePrev),
-            AppEvent::CycleFilterState => Self::Issues(IssuesMessage::CycleFilterState),
-            AppEvent::FocusSearchInput => Self::Issues(IssuesMessage::FocusSearchInput),
-            AppEvent::BlurSearchInput => Self::Issues(IssuesMessage::BlurSearchInput),
-            AppEvent::SetSearchQuery { query } => {
-                Self::Issues(IssuesMessage::SetSearchQuery { query })
-            }
-            AppEvent::ApplySearch => Self::Issues(IssuesMessage::ApplySearch),
-            AppEvent::ClearSearch => Self::Issues(IssuesMessage::ClearSearch),
-            AppEvent::UpdateDraftFilter { field, value } => {
-                Self::Issues(IssuesMessage::UpdateDraftFilter { field, value })
-            }
-            AppEvent::OpenNewIssueComposer => Self::Issues(IssuesMessage::OpenNewIssueComposer),
-            AppEvent::OpenNewCommentComposer => Self::Issues(IssuesMessage::OpenNewCommentComposer),
-            AppEvent::OpenReplyComposer { comment_index } => {
-                Self::Issues(IssuesMessage::OpenReplyComposer { comment_index })
-            }
-            AppEvent::OpenInlineEditor { target } => {
-                Self::Issues(IssuesMessage::OpenInlineEditor { target })
-            }
-            AppEvent::InlineChar(c) => Self::Issues(IssuesMessage::InlineChar(c)),
-            AppEvent::InlineNewline => Self::Issues(IssuesMessage::InlineNewline),
-            AppEvent::InlineBackspace => Self::Issues(IssuesMessage::InlineBackspace),
-            AppEvent::InlineDelete => Self::Issues(IssuesMessage::InlineDelete),
-            AppEvent::InlineCursorLeft => Self::Issues(IssuesMessage::InlineCursorLeft),
-            AppEvent::InlineCursorRight => Self::Issues(IssuesMessage::InlineCursorRight),
-            AppEvent::InlineCursorUp => Self::Issues(IssuesMessage::InlineCursorUp),
-            AppEvent::InlineCursorDown => Self::Issues(IssuesMessage::InlineCursorDown),
-            AppEvent::InlineSubmit => Self::Issues(IssuesMessage::InlineSubmit),
-            AppEvent::InlineCancelOrEsc => Self::Issues(IssuesMessage::InlineCancelOrEsc),
-            AppEvent::CommentCreated { comment } => {
-                Self::Issues(IssuesMessage::CommentCreated { comment })
-            }
-            AppEvent::CommentCreateFailed { error } => {
-                Self::Issues(IssuesMessage::CommentCreateFailed { error })
-            }
-            AppEvent::IssueBodyUpdated { body } => {
-                Self::Issues(IssuesMessage::IssueBodyUpdated { body })
-            }
-            AppEvent::CommentUpdated {
-                comment_index,
-                body,
-            } => Self::Issues(IssuesMessage::CommentUpdated {
-                comment_index,
-                body,
-            }),
-            AppEvent::MutationFailed { error } => {
-                Self::Issues(IssuesMessage::MutationFailed { error })
-            }
-            AppEvent::OpenAgentChooser => Self::Issues(IssuesMessage::OpenAgentChooser),
-            AppEvent::AgentChooserNavigateUp => Self::Issues(IssuesMessage::AgentChooserNavigateUp),
-            AppEvent::AgentChooserNavigateDown => {
-                Self::Issues(IssuesMessage::AgentChooserNavigateDown)
-            }
-            AppEvent::AgentChooserConfirm => Self::Issues(IssuesMessage::AgentChooserConfirm),
-            AppEvent::AgentChooserCancel => Self::Issues(IssuesMessage::AgentChooserCancel),
-            AppEvent::SendToAgentCompleted => Self::Issues(IssuesMessage::SendToAgentCompleted),
-            AppEvent::SendToAgentFailed { error } => {
-                Self::Issues(IssuesMessage::SendToAgentFailed { error })
-            }
+            other => Self::from_issues_event(other),
         }
+    }
+
+    /// Convert issues-domain [`AppEvent`] variants into the typed message bus.
+    fn from_issues_event(event: AppEvent) -> Self {
+        Self::Issues(IssuesMessage::from_app_event(event))
     }
 }
 
@@ -789,145 +652,410 @@ impl From<SystemMessage> for AppEvent {
 }
 
 impl From<IssuesMessage> for AppEvent {
-    #[allow(clippy::too_many_lines)]
     fn from(message: IssuesMessage) -> Self {
-        match message {
-            IssuesMessage::EnterMode => Self::EnterIssuesMode,
-            IssuesMessage::ExitMode => Self::ExitIssuesMode,
-            IssuesMessage::RefocusList => Self::RefocusIssueList,
-            IssuesMessage::NavigateUp => Self::IssuesNavigateUp,
-            IssuesMessage::NavigateDown => Self::IssuesNavigateDown,
-            IssuesMessage::NavigatePageUp => Self::IssuesNavigatePageUp,
-            IssuesMessage::NavigatePageDown => Self::IssuesNavigatePageDown,
-            IssuesMessage::NavigateHome => Self::IssuesNavigateHome,
-            IssuesMessage::NavigateEnd => Self::IssuesNavigateEnd,
-            IssuesMessage::Enter => Self::IssuesEnter,
-            IssuesMessage::CycleFocus => Self::IssuesCycleFocus,
-            IssuesMessage::CycleFocusReverse => Self::IssuesCycleFocusReverse,
-            IssuesMessage::ScrollDetailUp => Self::IssuesScrollDetailUp,
-            IssuesMessage::ScrollDetailDown => Self::IssuesScrollDetailDown,
-            IssuesMessage::ScrollDetailPageUp => Self::IssuesScrollDetailPageUp,
-            IssuesMessage::ScrollDetailPageDown => Self::IssuesScrollDetailPageDown,
-            IssuesMessage::DetailSubfocusNext => Self::IssueDetailSubfocusNext,
-            IssuesMessage::DetailSubfocusPrev => Self::IssueDetailSubfocusPrev,
-            IssuesMessage::ListLoaded {
+        message.into_app_event()
+    }
+}
+
+impl IssuesMessage {
+    /// Convert an issues-domain [`AppEvent`] into the typed message.
+    ///
+    /// `from_issues_event` only routes issues variants here; the exhaustive
+    /// fallback is split across focused helpers to stay within the clippy line
+    /// budget.
+    fn from_app_event(event: AppEvent) -> Self {
+        match event {
+            AppEvent::EnterIssuesMode
+            | AppEvent::ExitIssuesMode
+            | AppEvent::RefocusIssueList
+            | AppEvent::IssuesNavigateUp
+            | AppEvent::IssuesNavigateDown
+            | AppEvent::IssuesNavigatePageUp
+            | AppEvent::IssuesNavigatePageDown
+            | AppEvent::IssuesNavigateHome
+            | AppEvent::IssuesNavigateEnd
+            | AppEvent::IssuesEnter
+            | AppEvent::IssuesCycleFocus
+            | AppEvent::IssuesCycleFocusReverse
+            | AppEvent::IssuesScrollDetailUp
+            | AppEvent::IssuesScrollDetailDown
+            | AppEvent::IssuesScrollDetailPageUp
+            | AppEvent::IssuesScrollDetailPageDown
+            | AppEvent::IssueDetailSubfocusNext
+            | AppEvent::IssueDetailSubfocusPrev => Self::from_app_event_navigation(event),
+            other => Self::from_app_event_payload(other),
+        }
+    }
+
+    /// Navigation and scroll events that carry no payload.
+    fn from_app_event_navigation(event: AppEvent) -> Self {
+        match event {
+            AppEvent::EnterIssuesMode => Self::EnterMode,
+            AppEvent::ExitIssuesMode => Self::ExitMode,
+            AppEvent::RefocusIssueList => Self::RefocusList,
+            AppEvent::IssuesNavigateUp => Self::NavigateUp,
+            AppEvent::IssuesNavigateDown => Self::NavigateDown,
+            AppEvent::IssuesNavigatePageUp => Self::NavigatePageUp,
+            AppEvent::IssuesNavigatePageDown => Self::NavigatePageDown,
+            AppEvent::IssuesNavigateHome => Self::NavigateHome,
+            AppEvent::IssuesNavigateEnd => Self::NavigateEnd,
+            AppEvent::IssuesEnter => Self::Enter,
+            AppEvent::IssuesCycleFocus => Self::CycleFocus,
+            AppEvent::IssuesCycleFocusReverse => Self::CycleFocusReverse,
+            AppEvent::IssuesScrollDetailUp => Self::ScrollDetailUp,
+            AppEvent::IssuesScrollDetailDown => Self::ScrollDetailDown,
+            AppEvent::IssuesScrollDetailPageUp => Self::ScrollDetailPageUp,
+            AppEvent::IssuesScrollDetailPageDown => Self::ScrollDetailPageDown,
+            AppEvent::IssueDetailSubfocusNext => Self::DetailSubfocusNext,
+            AppEvent::IssueDetailSubfocusPrev => Self::DetailSubfocusPrev,
+            _ => unreachable!("non-navigation AppEvent routed to navigation converter"),
+        }
+    }
+
+    /// Loaded/error payload events and the remaining issues mutations.
+    fn from_app_event_payload(event: AppEvent) -> Self {
+        match event {
+            AppEvent::IssueListLoaded {
                 scope_repo_id,
                 issues,
                 cursor,
                 has_more,
-            } => Self::IssueListLoaded {
+            } => Self::ListLoaded {
                 scope_repo_id,
                 issues,
                 cursor,
                 has_more,
             },
-            IssuesMessage::ListLoadFailed {
+            AppEvent::IssueListLoadFailed {
                 scope_repo_id,
                 error,
-            } => Self::IssueListLoadFailed {
+            } => Self::ListLoadFailed {
                 scope_repo_id,
                 error,
             },
-            IssuesMessage::ListPageLoaded {
+            AppEvent::IssueListPageLoaded {
                 scope_repo_id,
                 issues,
                 cursor,
                 has_more,
-            } => Self::IssueListPageLoaded {
+            } => Self::ListPageLoaded {
                 scope_repo_id,
                 issues,
                 cursor,
                 has_more,
             },
-            IssuesMessage::DetailLoaded {
+            AppEvent::IssueDetailLoaded {
                 scope_repo_id,
                 issue_number,
                 detail,
-            } => Self::IssueDetailLoaded {
+            } => Self::DetailLoaded {
                 scope_repo_id,
                 issue_number,
                 detail,
             },
-            IssuesMessage::DetailLoadFailed {
+            AppEvent::IssueDetailLoadFailed {
                 scope_repo_id,
                 issue_number,
                 error,
-            } => Self::IssueDetailLoadFailed {
+            } => Self::DetailLoadFailed {
                 scope_repo_id,
                 issue_number,
                 error,
             },
-            IssuesMessage::CommentsPageLoaded {
+            other => Self::from_app_event_comments_and_controls(other),
+        }
+    }
+
+    /// Comments payloads, then controls.
+    fn from_app_event_comments_and_controls(event: AppEvent) -> Self {
+        match event {
+            AppEvent::IssueCommentsPageLoaded {
                 scope_repo_id,
                 issue_number,
                 comments,
                 cursor,
                 has_more,
-            } => Self::IssueCommentsPageLoaded {
+            } => Self::CommentsPageLoaded {
                 scope_repo_id,
                 issue_number,
                 comments,
                 cursor,
                 has_more,
             },
-            IssuesMessage::CommentsPageFailed {
+            AppEvent::IssueCommentsPageFailed {
                 scope_repo_id,
                 issue_number,
                 error,
-            } => Self::IssueCommentsPageFailed {
+            } => Self::CommentsPageFailed {
                 scope_repo_id,
                 issue_number,
                 error,
             },
-            IssuesMessage::OpenFilterControls => Self::OpenFilterControls,
-            IssuesMessage::CloseFilterControls => Self::CloseFilterControls,
-            IssuesMessage::ApplyFilter => Self::ApplyFilter,
-            IssuesMessage::ClearFilter => Self::ClearFilter,
-            IssuesMessage::FilterNavigateNext => Self::FilterNavigateNext,
-            IssuesMessage::FilterNavigatePrev => Self::FilterNavigatePrev,
-            IssuesMessage::CycleFilterState => Self::CycleFilterState,
-            IssuesMessage::FocusSearchInput => Self::FocusSearchInput,
-            IssuesMessage::BlurSearchInput => Self::BlurSearchInput,
-            IssuesMessage::SetSearchQuery { query } => Self::SetSearchQuery { query },
-            IssuesMessage::ApplySearch => Self::ApplySearch,
-            IssuesMessage::ClearSearch => Self::ClearSearch,
-            IssuesMessage::UpdateDraftFilter { field, value } => {
+            other => Self::from_app_event_controls(other),
+        }
+    }
+
+    /// Filter controls, search, composer, inline editor, and chooser events.
+    fn from_app_event_controls(event: AppEvent) -> Self {
+        match event {
+            AppEvent::OpenFilterControls => Self::OpenFilterControls,
+            AppEvent::CloseFilterControls => Self::CloseFilterControls,
+            AppEvent::ApplyFilter => Self::ApplyFilter,
+            AppEvent::ClearFilter => Self::ClearFilter,
+            AppEvent::FilterNavigateNext => Self::FilterNavigateNext,
+            AppEvent::FilterNavigatePrev => Self::FilterNavigatePrev,
+            AppEvent::CycleFilterState => Self::CycleFilterState,
+            AppEvent::FocusSearchInput => Self::FocusSearchInput,
+            AppEvent::BlurSearchInput => Self::BlurSearchInput,
+            AppEvent::SetSearchQuery { query } => Self::SetSearchQuery { query },
+            AppEvent::ApplySearch => Self::ApplySearch,
+            AppEvent::ClearSearch => Self::ClearSearch,
+            AppEvent::UpdateDraftFilter { field, value } => {
                 Self::UpdateDraftFilter { field, value }
             }
-            IssuesMessage::OpenNewIssueComposer => Self::OpenNewIssueComposer,
-            IssuesMessage::OpenNewCommentComposer => Self::OpenNewCommentComposer,
-            IssuesMessage::OpenReplyComposer { comment_index } => {
+            AppEvent::OpenNewIssueComposer => Self::OpenNewIssueComposer,
+            AppEvent::OpenNewCommentComposer => Self::OpenNewCommentComposer,
+            AppEvent::OpenReplyComposer { comment_index } => {
                 Self::OpenReplyComposer { comment_index }
             }
-            IssuesMessage::OpenInlineEditor { target } => Self::OpenInlineEditor { target },
-            IssuesMessage::InlineChar(c) => Self::InlineChar(c),
-            IssuesMessage::InlineNewline => Self::InlineNewline,
-            IssuesMessage::InlineBackspace => Self::InlineBackspace,
-            IssuesMessage::InlineDelete => Self::InlineDelete,
-            IssuesMessage::InlineCursorLeft => Self::InlineCursorLeft,
-            IssuesMessage::InlineCursorRight => Self::InlineCursorRight,
-            IssuesMessage::InlineCursorUp => Self::InlineCursorUp,
-            IssuesMessage::InlineCursorDown => Self::InlineCursorDown,
-            IssuesMessage::InlineSubmit => Self::InlineSubmit,
-            IssuesMessage::InlineCancelOrEsc => Self::InlineCancelOrEsc,
-            IssuesMessage::CommentCreated { comment } => Self::CommentCreated { comment },
-            IssuesMessage::CommentCreateFailed { error } => Self::CommentCreateFailed { error },
-            IssuesMessage::IssueBodyUpdated { body } => Self::IssueBodyUpdated { body },
-            IssuesMessage::CommentUpdated {
+            AppEvent::OpenInlineEditor { target } => Self::OpenInlineEditor { target },
+            AppEvent::InlineChar(c) => Self::InlineChar(c),
+            AppEvent::InlineNewline => Self::InlineNewline,
+            AppEvent::InlineBackspace => Self::InlineBackspace,
+            AppEvent::InlineDelete => Self::InlineDelete,
+            AppEvent::InlineCursorLeft => Self::InlineCursorLeft,
+            AppEvent::InlineCursorRight => Self::InlineCursorRight,
+            AppEvent::InlineCursorUp => Self::InlineCursorUp,
+            AppEvent::InlineCursorDown => Self::InlineCursorDown,
+            AppEvent::InlineSubmit => Self::InlineSubmit,
+            AppEvent::InlineCancelOrEsc => Self::InlineCancelOrEsc,
+            AppEvent::CommentCreated { comment } => Self::CommentCreated { comment },
+            AppEvent::CommentCreateFailed { error } => Self::CommentCreateFailed { error },
+            AppEvent::IssueBodyUpdated { body } => Self::IssueBodyUpdated { body },
+            AppEvent::CommentUpdated {
                 comment_index,
                 body,
             } => Self::CommentUpdated {
                 comment_index,
                 body,
             },
-            IssuesMessage::MutationFailed { error } => Self::MutationFailed { error },
-            IssuesMessage::OpenAgentChooser => Self::OpenAgentChooser,
-            IssuesMessage::AgentChooserNavigateUp => Self::AgentChooserNavigateUp,
-            IssuesMessage::AgentChooserNavigateDown => Self::AgentChooserNavigateDown,
-            IssuesMessage::AgentChooserConfirm => Self::AgentChooserConfirm,
-            IssuesMessage::AgentChooserCancel => Self::AgentChooserCancel,
-            IssuesMessage::SendToAgentCompleted => Self::SendToAgentCompleted,
-            IssuesMessage::SendToAgentFailed { error } => Self::SendToAgentFailed { error },
+            AppEvent::MutationFailed { error } => Self::MutationFailed { error },
+            AppEvent::OpenAgentChooser => Self::OpenAgentChooser,
+            AppEvent::AgentChooserNavigateUp => Self::AgentChooserNavigateUp,
+            AppEvent::AgentChooserNavigateDown => Self::AgentChooserNavigateDown,
+            AppEvent::AgentChooserConfirm => Self::AgentChooserConfirm,
+            AppEvent::AgentChooserCancel => Self::AgentChooserCancel,
+            AppEvent::SendToAgentCompleted => Self::SendToAgentCompleted,
+            AppEvent::SendToAgentFailed { error } => Self::SendToAgentFailed { error },
+            // All issues variants are covered above; other domains never reach here.
+            _ => unreachable!("non-issues AppEvent routed to issues converter"),
+        }
+    }
+
+    /// Convert this issues-domain message back into the historical [`AppEvent`].
+    ///
+    /// Delegates to focused helpers so each converter stays within the clippy
+    /// line budget without a complexity suppression.
+    fn into_app_event(self) -> AppEvent {
+        match self {
+            Self::EnterMode
+            | Self::ExitMode
+            | Self::RefocusList
+            | Self::NavigateUp
+            | Self::NavigateDown
+            | Self::NavigatePageUp
+            | Self::NavigatePageDown
+            | Self::NavigateHome
+            | Self::NavigateEnd
+            | Self::Enter
+            | Self::CycleFocus
+            | Self::CycleFocusReverse
+            | Self::ScrollDetailUp
+            | Self::ScrollDetailDown
+            | Self::ScrollDetailPageUp
+            | Self::ScrollDetailPageDown
+            | Self::DetailSubfocusNext
+            | Self::DetailSubfocusPrev => self.into_app_event_navigation(),
+            other => other.into_app_event_data(),
+        }
+    }
+
+    /// Navigation and scroll messages that carry no payload.
+    fn into_app_event_navigation(self) -> AppEvent {
+        match self {
+            Self::EnterMode => AppEvent::EnterIssuesMode,
+            Self::ExitMode => AppEvent::ExitIssuesMode,
+            Self::RefocusList => AppEvent::RefocusIssueList,
+            Self::NavigateUp => AppEvent::IssuesNavigateUp,
+            Self::NavigateDown => AppEvent::IssuesNavigateDown,
+            Self::NavigatePageUp => AppEvent::IssuesNavigatePageUp,
+            Self::NavigatePageDown => AppEvent::IssuesNavigatePageDown,
+            Self::NavigateHome => AppEvent::IssuesNavigateHome,
+            Self::NavigateEnd => AppEvent::IssuesNavigateEnd,
+            Self::Enter => AppEvent::IssuesEnter,
+            Self::CycleFocus => AppEvent::IssuesCycleFocus,
+            Self::CycleFocusReverse => AppEvent::IssuesCycleFocusReverse,
+            Self::ScrollDetailUp => AppEvent::IssuesScrollDetailUp,
+            Self::ScrollDetailDown => AppEvent::IssuesScrollDetailDown,
+            Self::ScrollDetailPageUp => AppEvent::IssuesScrollDetailPageUp,
+            Self::ScrollDetailPageDown => AppEvent::IssuesScrollDetailPageDown,
+            Self::DetailSubfocusNext => AppEvent::IssueDetailSubfocusNext,
+            Self::DetailSubfocusPrev => AppEvent::IssueDetailSubfocusPrev,
+            // The caller guarantees only navigation variants reach this helper.
+            _ => unreachable!("non-navigation IssuesMessage routed to navigation converter"),
+        }
+    }
+
+    /// Loaded/error payloads and composer/filter/inline/chooser mutations.
+    fn into_app_event_data(self) -> AppEvent {
+        match self {
+            Self::ListLoaded { .. }
+            | Self::ListLoadFailed { .. }
+            | Self::ListPageLoaded { .. }
+            | Self::DetailLoaded { .. }
+            | Self::DetailLoadFailed { .. } => self.into_app_event_list_detail(),
+            other => other.into_app_event_comments_and_controls(),
+        }
+    }
+
+    /// List and detail loaded/error payload messages.
+    fn into_app_event_list_detail(self) -> AppEvent {
+        match self {
+            Self::ListLoaded {
+                scope_repo_id,
+                issues,
+                cursor,
+                has_more,
+            } => AppEvent::IssueListLoaded {
+                scope_repo_id,
+                issues,
+                cursor,
+                has_more,
+            },
+            Self::ListLoadFailed {
+                scope_repo_id,
+                error,
+            } => AppEvent::IssueListLoadFailed {
+                scope_repo_id,
+                error,
+            },
+            Self::ListPageLoaded {
+                scope_repo_id,
+                issues,
+                cursor,
+                has_more,
+            } => AppEvent::IssueListPageLoaded {
+                scope_repo_id,
+                issues,
+                cursor,
+                has_more,
+            },
+            Self::DetailLoaded {
+                scope_repo_id,
+                issue_number,
+                detail,
+            } => AppEvent::IssueDetailLoaded {
+                scope_repo_id,
+                issue_number,
+                detail,
+            },
+            Self::DetailLoadFailed {
+                scope_repo_id,
+                issue_number,
+                error,
+            } => AppEvent::IssueDetailLoadFailed {
+                scope_repo_id,
+                issue_number,
+                error,
+            },
+            // Only list/detail variants are routed here by into_app_event_data.
+            _ => unreachable!("non-list/detail IssuesMessage routed to list/detail converter"),
+        }
+    }
+
+    /// Comments payloads, then controls; further delegates to controls helper.
+    fn into_app_event_comments_and_controls(self) -> AppEvent {
+        match self {
+            Self::CommentsPageLoaded {
+                scope_repo_id,
+                issue_number,
+                comments,
+                cursor,
+                has_more,
+            } => AppEvent::IssueCommentsPageLoaded {
+                scope_repo_id,
+                issue_number,
+                comments,
+                cursor,
+                has_more,
+            },
+            Self::CommentsPageFailed {
+                scope_repo_id,
+                issue_number,
+                error,
+            } => AppEvent::IssueCommentsPageFailed {
+                scope_repo_id,
+                issue_number,
+                error,
+            },
+            other => other.into_app_event_controls(),
+        }
+    }
+
+    /// Filter controls, search, composer, inline editor, and chooser messages.
+    fn into_app_event_controls(self) -> AppEvent {
+        match self {
+            Self::OpenFilterControls => AppEvent::OpenFilterControls,
+            Self::CloseFilterControls => AppEvent::CloseFilterControls,
+            Self::ApplyFilter => AppEvent::ApplyFilter,
+            Self::ClearFilter => AppEvent::ClearFilter,
+            Self::FilterNavigateNext => AppEvent::FilterNavigateNext,
+            Self::FilterNavigatePrev => AppEvent::FilterNavigatePrev,
+            Self::CycleFilterState => AppEvent::CycleFilterState,
+            Self::FocusSearchInput => AppEvent::FocusSearchInput,
+            Self::BlurSearchInput => AppEvent::BlurSearchInput,
+            Self::SetSearchQuery { query } => AppEvent::SetSearchQuery { query },
+            Self::ApplySearch => AppEvent::ApplySearch,
+            Self::ClearSearch => AppEvent::ClearSearch,
+            Self::UpdateDraftFilter { field, value } => {
+                AppEvent::UpdateDraftFilter { field, value }
+            }
+            Self::OpenNewIssueComposer => AppEvent::OpenNewIssueComposer,
+            Self::OpenNewCommentComposer => AppEvent::OpenNewCommentComposer,
+            Self::OpenReplyComposer { comment_index } => {
+                AppEvent::OpenReplyComposer { comment_index }
+            }
+            Self::OpenInlineEditor { target } => AppEvent::OpenInlineEditor { target },
+            Self::InlineChar(c) => AppEvent::InlineChar(c),
+            Self::InlineNewline => AppEvent::InlineNewline,
+            Self::InlineBackspace => AppEvent::InlineBackspace,
+            Self::InlineDelete => AppEvent::InlineDelete,
+            Self::InlineCursorLeft => AppEvent::InlineCursorLeft,
+            Self::InlineCursorRight => AppEvent::InlineCursorRight,
+            Self::InlineCursorUp => AppEvent::InlineCursorUp,
+            Self::InlineCursorDown => AppEvent::InlineCursorDown,
+            Self::InlineSubmit => AppEvent::InlineSubmit,
+            Self::InlineCancelOrEsc => AppEvent::InlineCancelOrEsc,
+            Self::CommentCreated { comment } => AppEvent::CommentCreated { comment },
+            Self::CommentCreateFailed { error } => AppEvent::CommentCreateFailed { error },
+            Self::IssueBodyUpdated { body } => AppEvent::IssueBodyUpdated { body },
+            Self::CommentUpdated {
+                comment_index,
+                body,
+            } => AppEvent::CommentUpdated {
+                comment_index,
+                body,
+            },
+            Self::MutationFailed { error } => AppEvent::MutationFailed { error },
+            Self::OpenAgentChooser => AppEvent::OpenAgentChooser,
+            Self::AgentChooserNavigateUp => AppEvent::AgentChooserNavigateUp,
+            Self::AgentChooserNavigateDown => AppEvent::AgentChooserNavigateDown,
+            Self::AgentChooserConfirm => AppEvent::AgentChooserConfirm,
+            Self::AgentChooserCancel => AppEvent::AgentChooserCancel,
+            Self::SendToAgentCompleted => AppEvent::SendToAgentCompleted,
+            Self::SendToAgentFailed { error } => AppEvent::SendToAgentFailed { error },
+            // Loaded/error payloads are routed by into_app_event_data first.
+            _ => unreachable!("routed IssuesMessage variant reached controls converter"),
         }
     }
 }
