@@ -6,8 +6,7 @@
 //!
 //! Tests for attach/reattach safety, kill, relaunch, and status transitions.
 
-#![allow(clippy::expect_used)]
-#![allow(clippy::unwrap_used)]
+use crate::support::{TestOptionExt, TestResultExt};
 
 use std::path::PathBuf;
 
@@ -48,7 +47,7 @@ fn spawn_creates_session_for_agent() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("spawn should succeed");
+        .test_unwrap("spawn should succeed");
 
     assert!(
         mgr.is_alive(&agent.id),
@@ -63,7 +62,7 @@ fn spawn_fails_for_duplicate_agent() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("first spawn should succeed");
+        .test_unwrap("first spawn should succeed");
 
     let result = mgr.spawn_session(&agent.id, &agent.work_dir, &sig);
     assert!(
@@ -81,9 +80,9 @@ fn spawn_allows_multiple_different_agents() {
     let sig2 = make_signature(&agent2);
 
     mgr.spawn_session(&agent1.id, &agent1.work_dir, &sig1)
-        .expect("first spawn should succeed");
+        .test_unwrap("first spawn should succeed");
     mgr.spawn_session(&agent2.id, &agent2.work_dir, &sig2)
-        .expect("second spawn should succeed");
+        .test_unwrap("second spawn should succeed");
 
     assert!(mgr.is_alive(&agent1.id));
     assert!(mgr.is_alive(&agent2.id));
@@ -100,8 +99,8 @@ fn attach_to_existing_session_succeeds() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("spawn");
-    mgr.attach(&agent.id).expect("attach should succeed");
+        .test_unwrap("spawn");
+    mgr.attach(&agent.id).test_unwrap("attach should succeed");
 
     assert_eq!(mgr.attached_agent(), Some(&agent.id));
 }
@@ -127,14 +126,14 @@ fn attach_switches_from_previous_session() {
     let sig2 = make_signature(&agent2);
 
     mgr.spawn_session(&agent1.id, &agent1.work_dir, &sig1)
-        .expect("spawn 1");
+        .test_unwrap("spawn 1");
     mgr.spawn_session(&agent2.id, &agent2.work_dir, &sig2)
-        .expect("spawn 2");
+        .test_unwrap("spawn 2");
 
-    mgr.attach(&agent1.id).expect("attach to 1");
+    mgr.attach(&agent1.id).test_unwrap("attach to 1");
     assert_eq!(mgr.attached_agent(), Some(&agent1.id));
 
-    mgr.attach(&agent2.id).expect("attach to 2");
+    mgr.attach(&agent2.id).test_unwrap("attach to 2");
     assert_eq!(
         mgr.attached_agent(),
         Some(&agent2.id),
@@ -143,7 +142,7 @@ fn attach_switches_from_previous_session() {
 
     // Verify agent1 session is still alive but not attached
     assert!(mgr.is_alive(&agent1.id));
-    let session1 = mgr.get_session(&agent1.id).expect("session 1 exists");
+    let session1 = mgr.get_session(&agent1.id).test_unwrap("session 1 exists");
     assert!(!session1.attached, "agent 1 should be detached");
 }
 
@@ -156,14 +155,14 @@ fn repeated_attach_switching_ends_on_last_selected_agent() {
     let sig2 = make_signature(&agent2);
 
     mgr.spawn_session(&agent1.id, &agent1.work_dir, &sig1)
-        .expect("spawn a");
+        .test_unwrap("spawn a");
     mgr.spawn_session(&agent2.id, &agent2.work_dir, &sig2)
-        .expect("spawn b");
+        .test_unwrap("spawn b");
 
     for i in 0..50 {
         let target = if i % 2 == 0 { &agent1.id } else { &agent2.id };
         mgr.attach(target)
-            .expect("attach during repeated switching");
+            .test_unwrap("attach during repeated switching");
     }
 
     assert_eq!(
@@ -172,8 +171,8 @@ fn repeated_attach_switching_ends_on_last_selected_agent() {
         "last switch should determine final attachment"
     );
 
-    let session1 = mgr.get_session(&agent1.id).expect("session a exists");
-    let session2 = mgr.get_session(&agent2.id).expect("session b exists");
+    let session1 = mgr.get_session(&agent1.id).test_unwrap("session a exists");
+    let session2 = mgr.get_session(&agent2.id).test_unwrap("session b exists");
     assert!(!session1.attached, "agent a should be detached at the end");
     assert!(session2.attached, "agent b should be attached at the end");
     assert!(mgr.is_alive(&agent1.id), "agent a should remain alive");
@@ -187,9 +186,9 @@ fn detach_clears_attached_agent() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("spawn");
-    mgr.attach(&agent.id).expect("attach");
-    mgr.detach().expect("detach should succeed");
+        .test_unwrap("spawn");
+    mgr.attach(&agent.id).test_unwrap("attach");
+    mgr.detach().test_unwrap("detach should succeed");
 
     assert_eq!(mgr.attached_agent(), None, "no agent should be attached");
 }
@@ -210,8 +209,8 @@ fn snapshot_returns_some_when_attached() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("spawn");
-    mgr.attach(&agent.id).expect("attach");
+        .test_unwrap("spawn");
+    mgr.attach(&agent.id).test_unwrap("attach");
 
     assert!(
         mgr.snapshot().is_some(),
@@ -230,10 +229,10 @@ fn kill_removes_session() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("spawn");
+        .test_unwrap("spawn");
     assert!(mgr.is_alive(&agent.id));
 
-    mgr.kill(&agent.id).expect("kill should succeed");
+    mgr.kill(&agent.id).test_unwrap("kill should succeed");
     assert!(
         !mgr.is_alive(&agent.id),
         "session should not be alive after kill"
@@ -259,9 +258,9 @@ fn kill_attached_session_clears_attachment() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("spawn");
-    mgr.attach(&agent.id).expect("attach");
-    mgr.kill(&agent.id).expect("kill");
+        .test_unwrap("spawn");
+    mgr.attach(&agent.id).test_unwrap("attach");
+    mgr.kill(&agent.id).test_unwrap("kill");
 
     assert_eq!(
         mgr.attached_agent(),
@@ -279,11 +278,11 @@ fn kill_one_session_preserves_others() {
     let sig2 = make_signature(&agent2);
 
     mgr.spawn_session(&agent1.id, &agent1.work_dir, &sig1)
-        .expect("spawn 1");
+        .test_unwrap("spawn 1");
     mgr.spawn_session(&agent2.id, &agent2.work_dir, &sig2)
-        .expect("spawn 2");
+        .test_unwrap("spawn 2");
 
-    mgr.kill(&agent1.id).expect("kill 1");
+    mgr.kill(&agent1.id).test_unwrap("kill 1");
 
     assert!(!mgr.is_alive(&agent1.id));
     assert!(mgr.is_alive(&agent2.id), "agent 2 should still be alive");
@@ -300,7 +299,7 @@ fn relaunch_running_session_fails() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("spawn");
+        .test_unwrap("spawn");
 
     let result = mgr.relaunch(&agent.id);
     assert!(
@@ -318,8 +317,8 @@ fn relaunch_dead_session_requires_signature() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("spawn");
-    mgr.kill(&agent.id).expect("kill");
+        .test_unwrap("spawn");
+    mgr.kill(&agent.id).test_unwrap("kill");
 
     let result = mgr.relaunch(&agent.id);
     // Stub returns NotRunning because it can't find stored signature
@@ -347,7 +346,7 @@ fn is_alive_returns_true_for_spawned_agent() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("spawn");
+        .test_unwrap("spawn");
     assert!(mgr.is_alive(&agent.id));
 }
 
@@ -358,7 +357,7 @@ fn is_alive_returns_false_after_kill() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("spawn");
-    mgr.kill(&agent.id).expect("kill");
+        .test_unwrap("spawn");
+    mgr.kill(&agent.id).test_unwrap("kill");
     assert!(!mgr.is_alive(&agent.id));
 }

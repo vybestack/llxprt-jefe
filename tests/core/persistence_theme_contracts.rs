@@ -7,7 +7,7 @@
 //!
 //! Pseudocode reference: component-003 lines 01-44
 
-#![allow(clippy::expect_used)]
+use crate::support::TestResultExt;
 
 use jefe::persistence::{
     PersistenceManager, SETTINGS_SCHEMA_VERSION, STATE_SCHEMA_VERSION, Settings, State,
@@ -97,14 +97,14 @@ fn state_default_has_empty_collections() {
 #[test]
 fn load_settings_returns_defaults_when_file_missing() {
     let mgr = StubPersistenceManager::new();
-    let settings = mgr.load_settings().expect("should return defaults");
+    let settings = mgr.load_settings().test_unwrap("should return defaults");
     assert_eq!(settings.theme, "green-screen");
 }
 
 #[test]
 fn load_state_returns_defaults_when_file_missing() {
     let mgr = StubPersistenceManager::new();
-    let state = mgr.load_state().expect("should return defaults");
+    let state = mgr.load_state().test_unwrap("should return defaults");
     assert!(state.repositories.is_empty());
 }
 

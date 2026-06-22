@@ -1,12 +1,31 @@
 //! Agent visibility filter and display–selection consistency tests (issue #41).
 
-#![allow(clippy::expect_used)]
-#![allow(clippy::unwrap_used)]
+use crate::support::TestOptionExt;
 
 use std::path::PathBuf;
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
+
+fn repository(id: &str) -> Repository {
+    Repository::new(
+        RepositoryId(id.into()),
+        id.to_uppercase(),
+        id.into(),
+        PathBuf::from(format!("/{id}")),
+    )
+}
+
+fn agent(id: &str, name: &str, status: AgentStatus) -> Agent {
+    let mut agent = Agent::new(
+        AgentId(id.into()),
+        RepositoryId("r1".into()),
+        name.into(),
+        PathBuf::from(format!("/r1/{id}")),
+    );
+    agent.status = status;
+    agent
+}
 
 #[test]
 fn visible_agents_matches_agent_indices_when_idle_hidden() {
@@ -127,8 +146,10 @@ fn selected_agent_local_index_matches_visible_agents_position() {
 
     let repo_id = RepositoryId("r1".into());
     let visible_agents = hidden.visible_agents_for_repository(&repo_id);
-    let local_idx = hidden.selected_agent_local_index().unwrap();
-    let selected = hidden.selected_agent().unwrap();
+    let local_idx = hidden
+        .selected_agent_local_index()
+        .test_unwrap("test unwrap");
+    let selected = hidden.selected_agent().test_unwrap("test unwrap");
 
     assert_eq!(
         visible_agents[local_idx].id, selected.id,
@@ -182,39 +203,11 @@ fn visible_agents_returns_all_when_filter_disabled() {
 #[test]
 fn delete_targets_correct_agent_when_idle_hidden() {
     let state = AppState {
-        repositories: vec![Repository::new(
-            RepositoryId("r1".into()),
-            "R1".into(),
-            "r1".into(),
-            PathBuf::from("/r1"),
-        )],
+        repositories: vec![repository("r1")],
         agents: vec![
-            Agent::new(
-                AgentId("idle1".into()),
-                RepositoryId("r1".into()),
-                "Idle A".into(),
-                PathBuf::from("/r1/idle1"),
-            ),
-            {
-                let mut running = Agent::new(
-                    AgentId("target".into()),
-                    RepositoryId("r1".into()),
-                    "Target Agent".into(),
-                    PathBuf::from("/r1/target"),
-                );
-                running.status = AgentStatus::Running;
-                running
-            },
-            {
-                let mut running = Agent::new(
-                    AgentId("other".into()),
-                    RepositoryId("r1".into()),
-                    "Other Agent".into(),
-                    PathBuf::from("/r1/other"),
-                );
-                running.status = AgentStatus::Running;
-                running
-            },
+            agent("idle1", "Idle A", AgentStatus::Queued),
+            agent("target", "Target Agent", AgentStatus::Running),
+            agent("other", "Other Agent", AgentStatus::Running),
         ],
         selected_repository_index: Some(0),
         selected_agent_index: Some(1),
@@ -223,17 +216,21 @@ fn delete_targets_correct_agent_when_idle_hidden() {
     };
 
     let hidden = state.apply(AppEvent::ToggleHideIdleRepositories);
-
     let repo_id = RepositoryId("r1".into());
     let visible_agents = hidden.visible_agents_for_repository(&repo_id);
-    let local_idx = hidden.selected_agent_local_index().unwrap();
-    let selected = hidden.selected_agent().unwrap();
+    let local_idx = hidden
+        .selected_agent_local_index()
+        .test_unwrap("selected agent local index should exist");
+    let selected_id = hidden
+        .selected_agent()
+        .test_unwrap("selected agent should exist")
+        .id
+        .clone();
 
-    assert_eq!(visible_agents[local_idx].id, selected.id);
-    assert_eq!(selected.id, AgentId("target".into()));
+    assert_eq!(visible_agents[local_idx].id, selected_id);
+    assert_eq!(selected_id, AgentId("target".into()));
 
-    let delete_event = AppEvent::OpenDeleteAgent(selected.id.clone());
-    let with_modal = hidden.apply(delete_event);
+    let with_modal = hidden.apply(AppEvent::OpenDeleteAgent(selected_id));
     match &with_modal.modal {
         ModalState::ConfirmDeleteAgent { id, .. } => {
             assert_eq!(

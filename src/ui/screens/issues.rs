@@ -11,7 +11,8 @@ use crate::state::{AppState, IssueFocus, PaneFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
-    AgentChooser, FilterControls, IssueDetailView, IssueList, KeybindBar, Sidebar, StatusBar,
+    AgentChooser, FilterControls, IssueDetailView, IssueList, IssueListLayout, KeybindBar, Sidebar,
+    StatusBar,
 };
 
 /// Props for the issues mode screen.
@@ -188,7 +189,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                             focused: list_focused,
                             loading: list_loading,
                             has_filters: has_filters,
-                            compact: true,
+                            layout: IssueListLayout::Compact,
                             colors: colors.clone(),
                         )
                     }

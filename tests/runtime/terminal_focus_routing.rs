@@ -6,8 +6,7 @@
 //!
 //! Tests for input routing based on terminal focus state.
 
-#![allow(clippy::expect_used)]
-#![allow(clippy::unwrap_used)]
+use crate::support::TestResultExt;
 
 use std::path::PathBuf;
 
@@ -93,8 +92,8 @@ fn write_input_succeeds_with_attached_viewer() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("spawn");
-    mgr.attach(&agent.id).expect("attach");
+        .test_unwrap("spawn");
+    mgr.attach(&agent.id).test_unwrap("attach");
 
     let result = mgr.write_input(b"test input");
     assert!(result.is_ok(), "write should succeed when attached");
@@ -107,9 +106,9 @@ fn write_input_fails_after_detach() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("spawn");
-    mgr.attach(&agent.id).expect("attach");
-    mgr.detach().expect("detach");
+        .test_unwrap("spawn");
+    mgr.attach(&agent.id).test_unwrap("attach");
+    mgr.detach().test_unwrap("detach");
 
     let result = mgr.write_input(b"test input");
     assert!(
@@ -139,8 +138,8 @@ fn resize_succeeds_with_attached_viewer() {
     let sig = make_signature(&agent);
 
     mgr.spawn_session(&agent.id, &agent.work_dir, &sig)
-        .expect("spawn");
-    mgr.attach(&agent.id).expect("attach");
+        .test_unwrap("spawn");
+    mgr.attach(&agent.id).test_unwrap("attach");
 
     let result = mgr.resize(24, 80);
     assert!(result.is_ok(), "resize should succeed when attached");

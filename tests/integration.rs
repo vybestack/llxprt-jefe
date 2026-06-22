@@ -8,4 +8,5 @@
 mod core;
 mod e2e;
 mod runtime;
+mod support;
 mod ui;
