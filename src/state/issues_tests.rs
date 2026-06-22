@@ -8,16 +8,23 @@ use crate::state::types::{
 };
 use std::path::PathBuf;
 
+fn dashboard_issues_state() -> AppState {
+    AppState {
+        screen_mode: ScreenMode::DashboardIssues,
+        ..AppState::default()
+    }
+}
+
 /// Helper to create a test issue with the given number.
 fn make_test_issue(number: u64) -> Issue {
     Issue {
         number,
-        title: format!("Test Issue #{}", number),
+        title: format!("Test Issue #{number}"),
         state: IssueState::Open,
         author_login: "testuser".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
-        assignee_summary: "".to_string(),
-        labels_summary: "".to_string(),
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
         comment_count: 0,
         body: String::new(),
     }
@@ -42,14 +49,19 @@ fn test_enter_issues_mode_sets_screen_mode() {
 /// @pseudocode component-001 lines 20-25
 #[test]
 fn test_enter_issues_mode_saves_prior_focus() {
-    let mut state = AppState::default();
-    state.pane_focus = PaneFocus::Agents;
-    state.selected_agent_index = Some(2);
-    state.selected_repository_index = Some(1);
+    let state = AppState {
+        pane_focus: PaneFocus::Agents,
+        selected_agent_index: Some(2),
+        selected_repository_index: Some(1),
+        ..AppState::default()
+    };
 
     let new_state = state.apply(AppEvent::EnterIssuesMode);
     assert!(new_state.issues_state.prior_agent_focus.is_some());
-    let saved = new_state.issues_state.prior_agent_focus.unwrap();
+    let saved = new_state
+        .issues_state
+        .prior_agent_focus
+        .unwrap_or_else(|| panic!("expected value"));
     assert_eq!(saved.pane_focus, PaneFocus::Agents);
     assert_eq!(saved.selected_agent_index, Some(2));
     assert_eq!(saved.selected_repository_index, Some(1));
@@ -61,8 +73,7 @@ fn test_enter_issues_mode_saves_prior_focus() {
 /// @pseudocode component-001 lines 30-35
 #[test]
 fn test_exit_issues_mode_restores_focus() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.prior_agent_focus = Some(PriorAgentFocus {
         pane_focus: PaneFocus::Agents,
@@ -105,8 +116,7 @@ fn test_exit_issues_mode_restores_focus() {
 /// @pseudocode component-001 lines 36-40
 #[test]
 fn test_exit_issues_mode_fallback_when_target_gone() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.prior_agent_focus = Some(PriorAgentFocus {
         pane_focus: PaneFocus::Agents,
@@ -148,8 +158,7 @@ fn test_exit_issues_mode_fallback_when_target_gone() {
 /// @pseudocode component-001 lines 45-50
 #[test]
 fn test_exit_issues_mode_discards_draft_with_notice() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.inline_state = InlineState::Composer {
         target: ComposerTarget::NewComment,
@@ -160,7 +169,10 @@ fn test_exit_issues_mode_discards_draft_with_notice() {
     let new_state = state.apply(AppEvent::ExitIssuesMode);
     assert_eq!(new_state.issues_state.inline_state, InlineState::None);
     assert!(new_state.issues_state.draft_notice.is_some());
-    let notice = new_state.issues_state.draft_notice.unwrap();
+    let notice = new_state
+        .issues_state
+        .draft_notice
+        .unwrap_or_else(|| panic!("expected value"));
     assert!(notice.contains("discarded") || notice.contains("Draft"));
 }
 
@@ -170,8 +182,7 @@ fn test_exit_issues_mode_discards_draft_with_notice() {
 /// @pseudocode component-001 lines 55-60
 #[test]
 fn test_issues_cycle_focus_tab() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::RepoList;
 
@@ -194,8 +205,7 @@ fn test_issues_cycle_focus_tab() {
 /// @pseudocode component-001 lines 61-66
 #[test]
 fn test_issues_cycle_focus_shift_tab() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::RepoList;
 
@@ -218,8 +228,7 @@ fn test_issues_cycle_focus_shift_tab() {
 /// @pseudocode component-001 lines 70-75
 #[test]
 fn test_issues_navigate_up_in_issue_list() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueList;
     state.issues_state.issues = vec![
@@ -241,8 +250,7 @@ fn test_issues_navigate_up_in_issue_list() {
 /// @pseudocode component-001 lines 76-80
 #[test]
 fn test_issues_navigate_up_clamps_at_zero() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueList;
     state.issues_state.issues = vec![make_test_issue(1), make_test_issue(2), make_test_issue(3)];
@@ -258,8 +266,7 @@ fn test_issues_navigate_up_clamps_at_zero() {
 /// @pseudocode component-001 lines 81-85
 #[test]
 fn test_issues_navigate_down_in_issue_list() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueList;
     state.issues_state.issues = vec![
@@ -281,9 +288,8 @@ fn test_issues_navigate_down_in_issue_list() {
 /// @pseudocode component-001 lines 90-95
 #[test]
 fn test_issue_list_loaded_selects_first() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
-    state.issues_state.list_loading = true;
+    let mut state = dashboard_issues_state();
+    state.issues_state.loading.list = true;
 
     // Set up repository
     state.repositories.push(Repository::new(
@@ -304,7 +310,7 @@ fn test_issue_list_loaded_selects_first() {
     });
 
     assert_eq!(new_state.issues_state.selected_issue_index, Some(0));
-    assert!(!new_state.issues_state.list_loading);
+    assert!(!new_state.issues_state.loading.list);
     assert_eq!(new_state.issues_state.issues.len(), 3);
 }
 
@@ -314,9 +320,8 @@ fn test_issue_list_loaded_selects_first() {
 /// @pseudocode component-001 lines 96-100
 #[test]
 fn test_issue_list_loaded_empty() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
-    state.issues_state.list_loading = true;
+    let mut state = dashboard_issues_state();
+    state.issues_state.loading.list = true;
 
     // Set up repository
     state.repositories.push(Repository::new(
@@ -354,7 +359,7 @@ fn test_issue_list_loaded_stale_scope_discarded() {
         PathBuf::from("/tmp/repo1"),
     ));
     state.selected_repository_index = Some(0);
-    state.issues_state.list_loading = true;
+    state.issues_state.loading.list = true;
 
     // Try to load issues for wrong repo
     let new_state = state.apply(AppEvent::IssueListLoaded {
@@ -366,7 +371,7 @@ fn test_issue_list_loaded_stale_scope_discarded() {
 
     // State should be unchanged (stale scope discarded)
     assert!(new_state.issues_state.issues.is_empty());
-    assert!(new_state.issues_state.list_loading);
+    assert!(new_state.issues_state.loading.list);
 }
 
 /// Test 14: IssueListPageLoaded appends issues to existing list.
@@ -375,8 +380,7 @@ fn test_issue_list_loaded_stale_scope_discarded() {
 /// @pseudocode component-001 lines 111-115
 #[test]
 fn test_issue_list_page_loaded_appends() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
 
     // Set up repository
     state.repositories.push(Repository::new(
@@ -408,8 +412,7 @@ fn test_issue_list_page_loaded_appends() {
 /// @pseudocode component-001 lines 120-125
 #[test]
 fn test_detail_subfocus_tab_with_comments() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueDetail;
     state.issues_state.detail_subfocus = DetailSubfocus::Body;
@@ -480,8 +483,7 @@ fn test_detail_subfocus_tab_with_comments() {
 /// @pseudocode component-001 lines 126-130
 #[test]
 fn test_detail_subfocus_tab_no_comments() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueDetail;
     state.issues_state.detail_subfocus = DetailSubfocus::Body;
@@ -523,8 +525,7 @@ fn test_detail_subfocus_tab_no_comments() {
 /// @pseudocode component-001 lines 135-140
 #[test]
 fn test_esc_cancels_inline_editor() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.inline_state = InlineState::Editor {
         target: EditorTarget::IssueBody,
         text: "draft content".to_string(),
@@ -541,8 +542,7 @@ fn test_esc_cancels_inline_editor() {
 /// @pseudocode component-001 lines 141-145
 #[test]
 fn test_esc_cancels_agent_chooser() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.agent_chooser = Some(AgentChooserState::default());
     state.issues_state.inline_state = InlineState::None;
 
@@ -556,8 +556,7 @@ fn test_esc_cancels_agent_chooser() {
 /// @pseudocode component-001 lines 146-150
 #[test]
 fn test_esc_clears_nonempty_search() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.search_input_focused = true;
     state.issues_state.search_query = "bug".to_string();
     state.issues_state.inline_state = InlineState::None;
@@ -574,10 +573,9 @@ fn test_esc_clears_nonempty_search() {
 /// @pseudocode component-001 lines 151-155
 #[test]
 fn test_esc_blurs_empty_search() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.search_input_focused = true;
-    state.issues_state.search_query = "".to_string();
+    state.issues_state.search_query = String::new();
 
     let new_state = state.apply(AppEvent::BlurSearchInput);
     assert!(!new_state.issues_state.search_input_focused);
@@ -589,12 +587,11 @@ fn test_esc_blurs_empty_search() {
 /// @pseudocode component-001 lines 156-160
 #[test]
 fn test_esc_closes_filter_controls() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
-    state.issues_state.filter_controls_open = true;
+    let mut state = dashboard_issues_state();
+    state.issues_state.filter_ui.controls_open = true;
 
     let new_state = state.apply(AppEvent::CloseFilterControls);
-    assert!(!new_state.issues_state.filter_controls_open);
+    assert!(!new_state.issues_state.filter_ui.controls_open);
 }
 
 /// Test 22: ExitIssuesMode when no inner controls are active.
@@ -603,12 +600,11 @@ fn test_esc_closes_filter_controls() {
 /// @pseudocode component-001 lines 161-165
 #[test]
 fn test_esc_exits_issues_mode() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.inline_state = InlineState::None;
     state.issues_state.agent_chooser = None;
-    state.issues_state.filter_controls_open = false;
+    state.issues_state.filter_ui.controls_open = false;
     state.issues_state.search_input_focused = false;
 
     let new_state = state.apply(AppEvent::ExitIssuesMode);
@@ -621,8 +617,7 @@ fn test_esc_exits_issues_mode() {
 /// @pseudocode component-001 lines 170-175
 #[test]
 fn test_inline_exclusivity_blocks_second_control() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
 
     // Set active Composer
     state.issues_state.inline_state = InlineState::Composer {
@@ -665,7 +660,7 @@ fn test_stale_scope_list_loaded_discarded() {
         PathBuf::from("/tmp/repo-a"),
     ));
     state.selected_repository_index = Some(0);
-    state.issues_state.list_loading = true;
+    state.issues_state.loading.list = true;
 
     // Load issues for wrong repo "repo-B"
     let new_state = state.apply(AppEvent::IssueListLoaded {
@@ -677,7 +672,7 @@ fn test_stale_scope_list_loaded_discarded() {
 
     // Issues list should remain unchanged
     assert!(new_state.issues_state.issues.is_empty());
-    assert!(new_state.issues_state.list_loading);
+    assert!(new_state.issues_state.loading.list);
 }
 
 // -------------------------------------------------------------------------
@@ -773,7 +768,7 @@ fn test_issue_list_loading_state() {
     let state = AppState::default().apply(AppEvent::EnterIssuesMode);
 
     // list_loading should be true right after EnterIssuesMode (before data arrives)
-    assert!(state.issues_state.list_loading);
+    assert!(state.issues_state.loading.list);
 }
 
 /// P13 Test 6: IssueListLoaded with empty vec leaves issues empty and selected_issue_index None.
@@ -811,7 +806,7 @@ fn test_issue_detail_all_fields() {
     let loaded = state
         .issues_state
         .issue_detail
-        .expect("detail should be Some");
+        .unwrap_or_else(|| panic!("detail should be Some"));
     assert_eq!(loaded.number, 42);
     assert_eq!(loaded.title, "Test detail issue");
     assert_eq!(loaded.author_login, "octocat");
@@ -845,7 +840,7 @@ fn test_issue_detail_comments_timeline() {
     let loaded = state
         .issues_state
         .issue_detail
-        .expect("detail should be Some");
+        .unwrap_or_else(|| panic!("detail should be Some"));
     assert_eq!(loaded.comments.len(), 3);
     assert_eq!(loaded.comments[0].author_login, "alice");
     assert_eq!(loaded.comments[2].author_login, "carol");
@@ -900,7 +895,7 @@ fn test_issue_list_new_issue_composer_visible() {
 #[test]
 fn test_filter_controls_value_binding() {
     let mut state = AppState::default();
-    state.issues_state.filter_controls_open = true;
+    state.issues_state.filter_ui.controls_open = true;
 
     // Update multiple draft filter fields
     let state = state
@@ -938,7 +933,7 @@ fn test_empty_state_no_issues() {
 
     // The UI rendering component checks this condition to show the empty message
     assert!(state.issues_state.issues.is_empty());
-    assert!(!state.issues_state.list_loading);
+    assert!(!state.issues_state.loading.list);
 }
 
 /// P13 Test 12: IssueDetailLoaded with no comments — detail.comments is empty.
@@ -958,7 +953,7 @@ fn test_empty_state_no_comments() {
     let loaded = state
         .issues_state
         .issue_detail
-        .expect("detail should be Some");
+        .unwrap_or_else(|| panic!("detail should be Some"));
     assert!(loaded.comments.is_empty());
 }
 

@@ -90,8 +90,8 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
     if let Some(detail) = preview {
         let mut state = app_state.write();
         state.issues_state.issue_detail = Some(detail);
-        state.issues_state.detail_loading = false;
-        state.issues_state.comments_loading = false;
+        state.issues_state.loading.detail = false;
+        state.issues_state.loading.comments = false;
         state.issues_state.detail_subfocus = jefe::state::DetailSubfocus::Body;
         state.issues_state.detail_scroll_offset = 0;
     }
@@ -121,7 +121,7 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
     // Mark detail as loading
     {
         let mut state = app_state.write();
-        state.issues_state.detail_loading = true;
+        state.issues_state.loading.detail = true;
     }
 
     let result = if let Some(ctx_arc) = &ctx
@@ -157,7 +157,7 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
         }
         None => {
             let mut state = app_state.write();
-            state.issues_state.detail_loading = false;
+            state.issues_state.loading.detail = false;
         }
     }
 }

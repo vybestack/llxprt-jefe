@@ -66,11 +66,12 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
     let issue_focus = state.map_or(IssueFocus::IssueList, |s| s.issues_state.issue_focus);
     let issues = state.map_or_else(Vec::new, |s| s.issues_state.issues.clone());
     let selected_issue_idx = state.and_then(|s| s.issues_state.selected_issue_index);
-    let list_loading = state.is_some_and(|s| s.issues_state.list_loading);
-    let filter_controls_open = state.is_some_and(|s| s.issues_state.filter_controls_open);
-    let filter_field_index = state.map_or(0, |s| s.issues_state.filter_field_index);
-    let draft_labels_text =
-        state.map_or_else(String::new, |s| s.issues_state.draft_labels_text.clone());
+    let list_loading = state.is_some_and(|s| s.issues_state.loading.list);
+    let filter_controls_open = state.is_some_and(|s| s.issues_state.filter_ui.controls_open);
+    let filter_field_index = state.map_or(0, |s| s.issues_state.filter_ui.field_index);
+    let draft_labels_text = state.map_or_else(String::new, |s| {
+        s.issues_state.filter_ui.draft_labels_text.clone()
+    });
     let draft_filter = state.map_or_else(Default::default, |s| s.issues_state.draft_filter.clone());
     let has_filters = state.is_some_and(|s| {
         let f = &s.issues_state.committed_filter;
@@ -85,7 +86,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
     let issue_detail = state.and_then(|s| s.issues_state.issue_detail.clone());
     let detail_subfocus = state.map_or_else(Default::default, |s| s.issues_state.detail_subfocus);
     let inline_state = state.map_or_else(Default::default, |s| s.issues_state.inline_state.clone());
-    let comments_loading = state.is_some_and(|s| s.issues_state.comments_loading);
+    let comments_loading = state.is_some_and(|s| s.issues_state.loading.comments);
     let detail_scroll_offset = state.map_or(0, |s| s.issues_state.detail_scroll_offset);
     let detail_focused = issue_focus == IssueFocus::IssueDetail;
 

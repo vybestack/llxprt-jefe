@@ -187,7 +187,7 @@ fn typed_apply_search_commits_query_and_starts_reload() {
     assert!(state.issues_state.issue_detail.is_none());
     assert_eq!(state.issues_state.list_cursor, None);
     assert!(!state.issues_state.has_more_issues);
-    assert!(state.issues_state.list_loading);
+    assert!(state.issues_state.loading.list);
 }
 
 #[test]

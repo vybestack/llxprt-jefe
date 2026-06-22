@@ -71,7 +71,7 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
         if state.issues_state.search_input_focused {
             return InputMode::IssuesSearch;
         }
-        if state.issues_state.filter_controls_open {
+        if state.issues_state.filter_ui.controls_open {
             return InputMode::IssuesFilter;
         }
         return InputMode::IssuesNormal;

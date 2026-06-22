@@ -11,9 +11,7 @@ use super::types::{
     AgentFormCursor, AgentFormFields, AgentFormFocus, ModalState, RepositoryFormCursor,
     RepositoryFormFields, RepositoryFormFocus,
 };
-use super::util::{
-    delete_char_at, delete_char_before, insert_char_at, move_cursor_left, move_cursor_right,
-};
+use super::util::{delete_char_at, delete_char_before, insert_char_at, move_cursor_left};
 use crate::services::{
     self, CreateAgentParams, expand_tilde, generate_id, normalize_llxprt_debug, normalize_profile,
     normalize_sandbox_flags, resolve_agent_work_dir,
@@ -113,13 +111,11 @@ impl AppState {
         }
     }
 
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     pub(super) fn handle_form_char(&mut self, c: char) {
-        let mut refresh_work_dir = false;
-
-        match &mut self.modal {
+        let refresh_work_dir = match &mut self.modal {
             ModalState::Search { query } => {
                 query.push(c);
+                false
             }
             ModalState::NewRepository {
                 fields,
@@ -132,38 +128,14 @@ impl AppState {
                 focus,
                 cursor,
                 ..
-            } => match focus {
-                RepositoryFormFocus::Name => {
-                    cursor.name = insert_char_at(&mut fields.name, cursor.name, c);
+            } => {
+                if crate::state::form_cursor::handle_repository_field_char(
+                    fields, cursor, *focus, c,
+                ) {
+                    Self::toggle_repository_checkbox(fields, *focus);
                 }
-                RepositoryFormFocus::BaseDir => {
-                    cursor.base_dir = insert_char_at(&mut fields.base_dir, cursor.base_dir, c);
-                }
-                RepositoryFormFocus::DefaultProfile => {
-                    cursor.default_profile =
-                        insert_char_at(&mut fields.default_profile, cursor.default_profile, c);
-                }
-                RepositoryFormFocus::GitHubRepo => {
-                    cursor.github_repo =
-                        insert_char_at(&mut fields.github_repo, cursor.github_repo, c);
-                }
-                RepositoryFormFocus::LoginUser => {
-                    cursor.login_user =
-                        insert_char_at(&mut fields.login_user, cursor.login_user, c);
-                }
-                RepositoryFormFocus::Host => {
-                    cursor.host = insert_char_at(&mut fields.host, cursor.host, c);
-                }
-                RepositoryFormFocus::RunAsUser => {
-                    cursor.run_as_user =
-                        insert_char_at(&mut fields.run_as_user, cursor.run_as_user, c);
-                }
-                RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {
-                    if c == ' ' || c == 'x' || c == 'X' {
-                        Self::toggle_repository_checkbox(fields, *focus);
-                    }
-                }
-            },
+                false
+            }
             ModalState::NewAgent {
                 fields,
                 focus,
@@ -174,11 +146,7 @@ impl AppState {
                 if *focus == AgentFormFocus::WorkDir {
                     *work_dir_manual = true;
                 }
-
-                let touched_name = Self::handle_agent_field_char(fields, cursor, *focus, c);
-                if touched_name && !*work_dir_manual {
-                    refresh_work_dir = true;
-                }
+                Self::handle_agent_field_char(fields, cursor, *focus, c) && !*work_dir_manual
             }
             ModalState::EditAgent {
                 fields,
@@ -187,9 +155,10 @@ impl AppState {
                 ..
             } => {
                 let _ = Self::handle_agent_field_char(fields, cursor, *focus, c);
+                false
             }
-            _ => {}
-        }
+            _ => false,
+        };
 
         if refresh_work_dir {
             self.update_agent_work_dir_from_name();
@@ -503,7 +472,6 @@ impl AppState {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
     pub(super) fn handle_form_move_cursor_right(&mut self) {
         match &mut self.modal {
             ModalState::NewRepository {
@@ -517,31 +485,9 @@ impl AppState {
                 focus,
                 cursor,
                 ..
-            } => match focus {
-                RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {}
-                RepositoryFormFocus::Name => {
-                    cursor.name = move_cursor_right(&fields.name, cursor.name);
-                }
-                RepositoryFormFocus::BaseDir => {
-                    cursor.base_dir = move_cursor_right(&fields.base_dir, cursor.base_dir);
-                }
-                RepositoryFormFocus::DefaultProfile => {
-                    cursor.default_profile =
-                        move_cursor_right(&fields.default_profile, cursor.default_profile);
-                }
-                RepositoryFormFocus::GitHubRepo => {
-                    cursor.github_repo = move_cursor_right(&fields.github_repo, cursor.github_repo);
-                }
-                RepositoryFormFocus::LoginUser => {
-                    cursor.login_user = move_cursor_right(&fields.login_user, cursor.login_user);
-                }
-                RepositoryFormFocus::Host => {
-                    cursor.host = move_cursor_right(&fields.host, cursor.host);
-                }
-                RepositoryFormFocus::RunAsUser => {
-                    cursor.run_as_user = move_cursor_right(&fields.run_as_user, cursor.run_as_user);
-                }
-            },
+            } => crate::state::form_cursor::move_repository_field_cursor_right(
+                fields, cursor, *focus,
+            ),
             ModalState::NewAgent {
                 fields,
                 focus,
@@ -553,35 +499,7 @@ impl AppState {
                 focus,
                 cursor,
                 ..
-            } => match focus {
-                AgentFormFocus::Shortcut
-                | AgentFormFocus::PassContinue
-                | AgentFormFocus::Sandbox
-                | AgentFormFocus::SandboxEngine => {}
-                AgentFormFocus::Name => {
-                    cursor.name = move_cursor_right(&fields.name, cursor.name);
-                }
-                AgentFormFocus::Description => {
-                    cursor.description = move_cursor_right(&fields.description, cursor.description);
-                }
-                AgentFormFocus::WorkDir => {
-                    cursor.work_dir = move_cursor_right(&fields.work_dir, cursor.work_dir);
-                }
-                AgentFormFocus::Profile => {
-                    cursor.profile = move_cursor_right(&fields.profile, cursor.profile);
-                }
-                AgentFormFocus::Mode => {
-                    cursor.mode = move_cursor_right(&fields.mode, cursor.mode);
-                }
-                AgentFormFocus::LlxprtDebug => {
-                    cursor.llxprt_debug =
-                        move_cursor_right(&fields.llxprt_debug, cursor.llxprt_debug);
-                }
-                AgentFormFocus::SandboxFlags => {
-                    cursor.sandbox_flags =
-                        move_cursor_right(&fields.sandbox_flags, cursor.sandbox_flags);
-                }
-            },
+            } => crate::state::form_cursor::move_agent_field_cursor_right(fields, cursor, *focus),
             _ => {}
         }
     }

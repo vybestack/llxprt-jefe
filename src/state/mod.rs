@@ -6,6 +6,7 @@
 //!
 //! Pseudocode reference: component-001 lines 01-12
 
+mod form_cursor;
 mod form_ops;
 mod issues_ops;
 pub mod state_ops;
@@ -891,45 +892,17 @@ impl AppState {
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::field_reassign_with_default,
-    clippy::manual_string_new,
-    clippy::uninlined_format_args
-)]
 #[path = "issues_tests.rs"]
 mod issues_tests;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::field_reassign_with_default,
-    clippy::manual_string_new,
-    clippy::uninlined_format_args
-)]
 #[path = "issues_tests_detail.rs"]
 mod issues_tests_detail;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::field_reassign_with_default,
-    clippy::manual_string_new,
-    clippy::uninlined_format_args
-)]
 #[path = "issues_tests_repo_nav.rs"]
 mod issues_tests_repo_nav;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::field_reassign_with_default,
-    clippy::manual_string_new,
-    clippy::uninlined_format_args
-)]
 #[path = "issues_tests_filter.rs"]
 mod issues_tests_filter;

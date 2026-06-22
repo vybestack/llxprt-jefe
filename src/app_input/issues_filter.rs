@@ -12,7 +12,7 @@ const FILTER_FIELD_NAMES: [&str; 5] = ["state", "author", "assignee", "labels", 
 /// Resolve a key event while filter controls are open.
 /// @requirement REQ-ISS-008
 pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
-    let field_idx = state.issues_state.filter_field_index;
+    let field_idx = state.issues_state.filter_ui.field_index;
 
     match key_event.code {
         KeyCode::Enter => Some(AppEvent::ApplyFilter),
@@ -55,7 +55,7 @@ fn current_filter_field_value(state: &AppState, field_name: &str) -> String {
     match field_name {
         "author" => state.issues_state.draft_filter.author.clone(),
         "assignee" => state.issues_state.draft_filter.assignee.clone(),
-        "labels" => state.issues_state.draft_labels_text.clone(),
+        "labels" => state.issues_state.filter_ui.draft_labels_text.clone(),
         "query_text" => state.issues_state.draft_filter.query_text.clone(),
         _ => String::new(),
     }
@@ -65,7 +65,7 @@ fn current_filter_field_value(state: &AppState, field_name: &str) -> String {
 mod tests {
     use super::*;
     use iocraft::prelude::{KeyCode, KeyEventKind, KeyModifiers};
-    use jefe::state::{AppState, ScreenMode};
+    use jefe::state::{AppState, IssueFilterUiState, ScreenMode};
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(KeyEventKind::Press, code)
@@ -82,8 +82,11 @@ mod tests {
             screen_mode: ScreenMode::DashboardIssues,
             issues_state: jefe::state::IssuesState {
                 active: true,
-                filter_controls_open: true,
-                filter_field_index: 0,
+                filter_ui: IssueFilterUiState {
+                    controls_open: true,
+                    field_index: 0,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             ..Default::default()
@@ -128,7 +131,7 @@ mod tests {
     #[test]
     fn test_filter_space_on_state_field_cycles() {
         let state = filter_state();
-        assert_eq!(state.issues_state.filter_field_index, 0);
+        assert_eq!(state.issues_state.filter_ui.field_index, 0);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Char(' ')));
         assert!(matches!(evt, Some(AppEvent::CycleFilterState)));
     }
@@ -143,7 +146,7 @@ mod tests {
     #[test]
     fn test_filter_char_on_text_field_appends() {
         let mut state = filter_state();
-        state.issues_state.filter_field_index = 1; // author
+        state.issues_state.filter_ui.field_index = 1; // author
         state.issues_state.draft_filter.author = "al".to_string();
 
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Char('i')));
@@ -159,7 +162,7 @@ mod tests {
     #[test]
     fn test_filter_backspace_on_text_field_pops() {
         let mut state = filter_state();
-        state.issues_state.filter_field_index = 2; // assignee
+        state.issues_state.filter_ui.field_index = 2; // assignee
         state.issues_state.draft_filter.assignee = "bob".to_string();
 
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Backspace));
@@ -175,7 +178,7 @@ mod tests {
     #[test]
     fn test_filter_char_on_state_field_not_text_input() {
         let state = filter_state();
-        assert_eq!(state.issues_state.filter_field_index, 0);
+        assert_eq!(state.issues_state.filter_ui.field_index, 0);
         // Typing a regular letter on the state field (idx 0) should be consumed
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Char('x')));
         assert!(
@@ -187,8 +190,8 @@ mod tests {
     #[test]
     fn test_filter_labels_field_text_input() {
         let mut state = filter_state();
-        state.issues_state.filter_field_index = 3; // labels
-        state.issues_state.draft_labels_text = "bug".to_string();
+        state.issues_state.filter_ui.field_index = 3; // labels
+        state.issues_state.filter_ui.draft_labels_text = "bug".to_string();
 
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Char(',')));
         match evt {

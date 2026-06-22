@@ -2,64 +2,69 @@ use crate::domain::IssueFilterState;
 use crate::state::AppState;
 use crate::state::types::{AppEvent, ScreenMode};
 
+fn dashboard_issues_state() -> AppState {
+    AppState {
+        screen_mode: ScreenMode::DashboardIssues,
+        ..AppState::default()
+    }
+}
+
 /// Helper: enter issues mode with filter controls open.
 fn filter_open_state() -> AppState {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
-    state.issues_state.filter_controls_open = true;
-    state.issues_state.filter_field_index = 0;
+    state.issues_state.filter_ui.controls_open = true;
+    state.issues_state.filter_ui.field_index = 0;
     state
 }
 
 /// OpenFilterControls resets filter_field_index to 0.
 #[test]
 fn test_open_filter_resets_field_index() {
-    let mut state = AppState::default();
-    state.screen_mode = ScreenMode::DashboardIssues;
+    let mut state = dashboard_issues_state();
     state.issues_state.active = true;
-    state.issues_state.filter_field_index = 3;
+    state.issues_state.filter_ui.field_index = 3;
 
     let state = state.apply(AppEvent::OpenFilterControls);
-    assert!(state.issues_state.filter_controls_open);
-    assert_eq!(state.issues_state.filter_field_index, 0);
+    assert!(state.issues_state.filter_ui.controls_open);
+    assert_eq!(state.issues_state.filter_ui.field_index, 0);
 }
 
 /// FilterNavigateNext cycles through fields 0..4.
 #[test]
 fn test_filter_navigate_next_cycles() {
     let state = filter_open_state();
-    assert_eq!(state.issues_state.filter_field_index, 0);
+    assert_eq!(state.issues_state.filter_ui.field_index, 0);
 
     let state = state.apply(AppEvent::FilterNavigateNext);
-    assert_eq!(state.issues_state.filter_field_index, 1);
+    assert_eq!(state.issues_state.filter_ui.field_index, 1);
 
     let state = state.apply(AppEvent::FilterNavigateNext);
-    assert_eq!(state.issues_state.filter_field_index, 2);
+    assert_eq!(state.issues_state.filter_ui.field_index, 2);
 
     let state = state.apply(AppEvent::FilterNavigateNext);
-    assert_eq!(state.issues_state.filter_field_index, 3);
+    assert_eq!(state.issues_state.filter_ui.field_index, 3);
 
     let state = state.apply(AppEvent::FilterNavigateNext);
-    assert_eq!(state.issues_state.filter_field_index, 4);
+    assert_eq!(state.issues_state.filter_ui.field_index, 4);
 
     // Wraps around
     let state = state.apply(AppEvent::FilterNavigateNext);
-    assert_eq!(state.issues_state.filter_field_index, 0);
+    assert_eq!(state.issues_state.filter_ui.field_index, 0);
 }
 
 /// FilterNavigatePrev cycles backward through fields.
 #[test]
 fn test_filter_navigate_prev_cycles() {
     let state = filter_open_state();
-    assert_eq!(state.issues_state.filter_field_index, 0);
+    assert_eq!(state.issues_state.filter_ui.field_index, 0);
 
     // Wraps to last field
     let state = state.apply(AppEvent::FilterNavigatePrev);
-    assert_eq!(state.issues_state.filter_field_index, 4);
+    assert_eq!(state.issues_state.filter_ui.field_index, 4);
 
     let state = state.apply(AppEvent::FilterNavigatePrev);
-    assert_eq!(state.issues_state.filter_field_index, 3);
+    assert_eq!(state.issues_state.filter_ui.field_index, 3);
 }
 
 /// CycleFilterState cycles through Open -> Closed -> All -> Open.
@@ -115,12 +120,12 @@ fn test_update_draft_filter_labels() {
 fn test_apply_filter_commits_and_reloads() {
     let mut state = filter_open_state();
     state.issues_state.draft_filter.author = "alice".to_string();
-    state.issues_state.list_loading = false;
+    state.issues_state.loading.list = false;
 
     let state = state.apply(AppEvent::ApplyFilter);
-    assert!(!state.issues_state.filter_controls_open);
+    assert!(!state.issues_state.filter_ui.controls_open);
     assert_eq!(state.issues_state.committed_filter.author, "alice");
-    assert!(state.issues_state.list_loading, "should trigger reload");
+    assert!(state.issues_state.loading.list, "should trigger reload");
     assert!(state.issues_state.issues.is_empty());
 }
 
@@ -130,13 +135,13 @@ fn test_clear_filter_resets_and_reloads() {
     let mut state = filter_open_state();
     state.issues_state.draft_filter.author = "bob".to_string();
     state.issues_state.committed_filter.author = "bob".to_string();
-    state.issues_state.list_loading = false;
+    state.issues_state.loading.list = false;
 
     let state = state.apply(AppEvent::ClearFilter);
-    assert!(!state.issues_state.filter_controls_open);
+    assert!(!state.issues_state.filter_ui.controls_open);
     assert!(state.issues_state.committed_filter.author.is_empty());
     assert!(state.issues_state.draft_filter.author.is_empty());
-    assert!(state.issues_state.list_loading, "should trigger reload");
+    assert!(state.issues_state.loading.list, "should trigger reload");
 }
 
 /// UpdateDraftFilter for text fields works as expected.
@@ -167,11 +172,11 @@ fn test_update_draft_filter_text_fields() {
 #[test]
 fn test_labels_sequential_typing_round_trip() {
     let mut state = filter_open_state();
-    state.issues_state.filter_field_index = 3; // labels field
+    state.issues_state.filter_ui.field_index = 3; // labels field
 
     // Simulate typing "bug,ui" one character at a time
     for ch in ['b', 'u', 'g', ',', 'u', 'i'] {
-        let raw = state.issues_state.draft_labels_text.clone();
+        let raw = state.issues_state.filter_ui.draft_labels_text.clone();
         let mut value = raw;
         value.push(ch);
         state = state.apply(AppEvent::UpdateDraftFilter {
@@ -180,7 +185,7 @@ fn test_labels_sequential_typing_round_trip() {
         });
     }
 
-    assert_eq!(state.issues_state.draft_labels_text, "bug,ui");
+    assert_eq!(state.issues_state.filter_ui.draft_labels_text, "bug,ui");
     assert_eq!(
         state.issues_state.draft_filter.labels,
         vec!["bug".to_string(), "ui".to_string()]
@@ -191,11 +196,11 @@ fn test_labels_sequential_typing_round_trip() {
 #[test]
 fn test_labels_trailing_comma_preserved() {
     let mut state = filter_open_state();
-    state.issues_state.filter_field_index = 3;
+    state.issues_state.filter_ui.field_index = 3;
 
     // Type "bug,"
     for ch in ['b', 'u', 'g', ','] {
-        let mut value = state.issues_state.draft_labels_text.clone();
+        let mut value = state.issues_state.filter_ui.draft_labels_text.clone();
         value.push(ch);
         state = state.apply(AppEvent::UpdateDraftFilter {
             field: "labels".to_string(),
@@ -204,7 +209,7 @@ fn test_labels_trailing_comma_preserved() {
     }
 
     // Raw text preserves trailing comma
-    assert_eq!(state.issues_state.draft_labels_text, "bug,");
+    assert_eq!(state.issues_state.filter_ui.draft_labels_text, "bug,");
     // Parsed labels only has "bug" (no empty segment)
     assert_eq!(
         state.issues_state.draft_filter.labels,
