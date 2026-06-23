@@ -4,9 +4,46 @@
 //! @requirement REQ-ISS-006
 
 use iocraft::prelude::*;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::domain::{Issue, IssueState};
 use crate::theme::{ResolvedColors, ThemeColors};
+
+/// Ellipsis character appended when a title is truncated.
+const ELLIPSIS: char = '…';
+
+/// Truncate `text` to fit within `max_width` terminal columns, appending an
+/// ellipsis when truncation occurs.
+///
+/// Uses character boundaries and Unicode display width so multi-byte characters
+/// are never split and wide characters are accounted for.
+fn truncate_title(text: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+    if UnicodeWidthStr::width(text) <= max_width {
+        return text.to_string();
+    }
+
+    let ellipsis_width = ELLIPSIS.width().unwrap_or(1);
+    if max_width <= ellipsis_width {
+        return ELLIPSIS.to_string();
+    }
+
+    let content_width = max_width - ellipsis_width;
+    let mut used = 0usize;
+    let mut result = String::new();
+    for ch in text.chars() {
+        let width = ch.width().unwrap_or(0);
+        if used + width > content_width {
+            break;
+        }
+        used += width;
+        result.push(ch);
+    }
+    result.push(ELLIPSIS);
+    result
+}
 
 /// Issue list density variant.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -41,6 +78,10 @@ pub struct IssueListProps {
     pub layout: IssueListLayout,
     /// Theme colors.
     pub colors: ThemeColors,
+    /// Available content width (in terminal columns) for title truncation.
+    ///
+    /// When provided, long issue titles are truncated with an ellipsis to fit.
+    pub available_width: Option<u16>,
 }
 
 /// Issue list pane — renders issues with selection highlight, loading, and empty states.
@@ -101,8 +142,21 @@ pub fn IssueList(props: &IssueListProps) -> impl Into<AnyElement<'static>> {
                             IssueState::Closed => "CLSD",
                         };
 
+                        // Truncate the title to fit the available width.
+                        // Layout: "<prefix>#<number> <title>"
+                        let number_prefix = format!("{}#{} ", prefix, issue.number);
+                        let title = match props.available_width {
+                            Some(width) => {
+                                // Account for the prefix+number columns already consumed.
+                                let used = UnicodeWidthStr::width(number_prefix.as_str());
+                                let budget = (width as usize).saturating_sub(used);
+                                truncate_title(&issue.title, budget)
+                            }
+                            None => issue.title.clone(),
+                        };
+
                         // Primary line: prefix + number + title
-                        let title_line = format!("{}#{} {}", prefix, issue.number, issue.title);
+                        let title_line = format!("{number_prefix}{title}");
 
                         // Secondary line: state, author, updated, comment count
                         let mut meta_parts = vec![
@@ -170,5 +224,56 @@ pub fn IssueList(props: &IssueListProps) -> impl Into<AnyElement<'static>> {
                 })
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_title;
+    use unicode_width::UnicodeWidthStr;
+
+    #[test]
+    fn short_title_is_returned_unchanged() {
+        assert_eq!(truncate_title("hello", 10), "hello");
+    }
+
+    #[test]
+    fn long_title_is_truncated_with_ellipsis() {
+        let result = truncate_title("a very long title that exceeds the budget", 10);
+        assert!(result.ends_with('\u{2026}'));
+        assert_eq!(UnicodeWidthStr::width(result.as_str()), 10);
+    }
+
+    #[test]
+    fn exact_fit_title_is_not_truncated() {
+        assert_eq!(truncate_title("exact", 5), "exact");
+    }
+
+    #[test]
+    fn unicode_title_truncates_on_character_boundary() {
+        // Each emoji is one char but multiple bytes; truncation must never
+        // split a multi-byte code point.
+        let title = "\u{1F600}\u{1F601}\u{1F602}\u{1F603}\u{1F604}\u{1F605}\u{1F606}\u{1F607}\u{1F608}\u{1F609}";
+        let result = truncate_title(title, 5);
+        assert!(UnicodeWidthStr::width(result.as_str()) <= 5);
+        assert!(result.ends_with('\u{2026}'));
+        // Ensure no panic on multi-byte slicing.
+        assert!(result.chars().next().is_some());
+    }
+
+    #[test]
+    fn one_column_budget_returns_ellipsis() {
+        assert_eq!(truncate_title("abcdef", 1), "…");
+    }
+
+    #[test]
+    fn full_width_prefix_display_width_is_counted_in_title_budget() {
+        let number_prefix = "  #１２ ";
+        let title = truncate_title(
+            "abcdef",
+            8usize.saturating_sub(UnicodeWidthStr::width(number_prefix)),
+        );
+        let line = format!("{number_prefix}{title}");
+        assert_eq!(UnicodeWidthStr::width(line.as_str()), 8);
     }
 }

@@ -458,6 +458,20 @@ mod tests {
         assert!(matches!(event, Some(AppEvent::IssuesNavigatePageDown)));
     }
 
+    #[test]
+    fn test_down_in_issue_detail_dispatches_scroll() {
+        let state = issues_state_with_focus(IssueFocus::IssueDetail);
+        let event = resolve_issues_key_event(&state, &key(KeyCode::Down));
+        assert!(matches!(event, Some(AppEvent::IssuesScrollDetailDown)));
+    }
+
+    #[test]
+    fn test_page_down_in_issue_detail_dispatches_page_scroll() {
+        let state = issues_state_with_focus(IssueFocus::IssueDetail);
+        let event = resolve_issues_key_event(&state, &key(KeyCode::PageDown));
+        assert!(matches!(event, Some(AppEvent::IssuesScrollDetailPageDown)));
+    }
+
     /// Home in IssueList focus dispatches IssuesNavigateHome.
     ///
     /// @plan PLAN-20260329-ISSUES-MODE.P10

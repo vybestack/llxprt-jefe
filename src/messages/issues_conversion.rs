@@ -66,54 +66,84 @@ impl IssuesMessage {
     /// Loaded/error payload events and the remaining issues mutations.
     fn from_app_event_payload(event: AppEvent) -> Self {
         match event {
+            AppEvent::IssueListLoaded { .. }
+            | AppEvent::IssueListLoadFailed { .. }
+            | AppEvent::IssueListPageLoaded { .. } => Self::from_app_event_list(event),
+            AppEvent::IssueDetailLoaded {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                detail,
+            } => Self::DetailLoaded {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                detail,
+            },
+            AppEvent::IssueDetailLoadFailed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                error,
+            } => Self::DetailLoadFailed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                error,
+            },
+            other => Self::from_app_event_comments_and_controls(other),
+        }
+    }
+
+    /// List loaded/error payload events.
+    fn from_app_event_list(event: AppEvent) -> Self {
+        match event {
             AppEvent::IssueListLoaded {
                 scope_repo_id,
+                filter,
+                request_id,
                 issues,
                 cursor,
                 has_more,
             } => Self::ListLoaded {
                 scope_repo_id,
+                filter,
+                request_id,
                 issues,
                 cursor,
                 has_more,
             },
             AppEvent::IssueListLoadFailed {
                 scope_repo_id,
+                filter,
+                request_id,
+                request_cursor,
                 error,
             } => Self::ListLoadFailed {
                 scope_repo_id,
+                filter,
+                request_id,
+                request_cursor,
                 error,
             },
             AppEvent::IssueListPageLoaded {
                 scope_repo_id,
+                filter,
+                request_id,
+                request_cursor,
                 issues,
                 cursor,
                 has_more,
             } => Self::ListPageLoaded {
                 scope_repo_id,
+                filter,
+                request_id,
+                request_cursor,
                 issues,
                 cursor,
                 has_more,
             },
-            AppEvent::IssueDetailLoaded {
-                scope_repo_id,
-                issue_number,
-                detail,
-            } => Self::DetailLoaded {
-                scope_repo_id,
-                issue_number,
-                detail,
-            },
-            AppEvent::IssueDetailLoadFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            } => Self::DetailLoadFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            },
-            other => Self::from_app_event_comments_and_controls(other),
+            _ => unreachable!("non-list AppEvent routed to list converter"),
         }
     }
 
@@ -123,12 +153,16 @@ impl IssuesMessage {
             AppEvent::IssueCommentsPageLoaded {
                 scope_repo_id,
                 issue_number,
+                request_id,
+                request_cursor,
                 comments,
                 cursor,
                 has_more,
             } => Self::CommentsPageLoaded {
                 scope_repo_id,
                 issue_number,
+                request_id,
+                request_cursor,
                 comments,
                 cursor,
                 has_more,
@@ -136,10 +170,14 @@ impl IssuesMessage {
             AppEvent::IssueCommentsPageFailed {
                 scope_repo_id,
                 issue_number,
+                request_id,
+                request_cursor,
                 error,
             } => Self::CommentsPageFailed {
                 scope_repo_id,
                 issue_number,
+                request_id,
+                request_cursor,
                 error,
             },
             other => Self::from_app_event_controls(other),
@@ -180,17 +218,13 @@ impl IssuesMessage {
             AppEvent::InlineCursorDown => Self::InlineCursorDown,
             AppEvent::InlineSubmit => Self::InlineSubmit,
             AppEvent::InlineCancelOrEsc => Self::InlineCancelOrEsc,
-            AppEvent::CommentCreated { comment } => Self::CommentCreated { comment },
-            AppEvent::CommentCreateFailed { error } => Self::CommentCreateFailed { error },
-            AppEvent::IssueBodyUpdated { body } => Self::IssueBodyUpdated { body },
-            AppEvent::CommentUpdated {
-                comment_index,
-                body,
-            } => Self::CommentUpdated {
-                comment_index,
-                body,
-            },
-            AppEvent::MutationFailed { error } => Self::MutationFailed { error },
+            AppEvent::MutationSubmitted { .. }
+            | AppEvent::IssueCreated { .. }
+            | AppEvent::CommentCreated { .. }
+            | AppEvent::CommentCreateFailed { .. }
+            | AppEvent::IssueBodyUpdated { .. }
+            | AppEvent::CommentUpdated { .. }
+            | AppEvent::MutationFailed { .. } => Self::from_app_event_mutation(event),
             AppEvent::OpenAgentChooser => Self::OpenAgentChooser,
             AppEvent::AgentChooserNavigateUp => Self::AgentChooserNavigateUp,
             AppEvent::AgentChooserNavigateDown => Self::AgentChooserNavigateDown,
@@ -199,6 +233,108 @@ impl IssuesMessage {
             AppEvent::SendToAgentCompleted => Self::SendToAgentCompleted,
             AppEvent::SendToAgentFailed { error } => Self::SendToAgentFailed { error },
             _ => unreachable!("non-issues AppEvent routed to issues converter"),
+        }
+    }
+
+    fn from_app_event_mutation(event: AppEvent) -> Self {
+        match event {
+            AppEvent::MutationSubmitted { .. }
+            | AppEvent::IssueCreated { .. }
+            | AppEvent::CommentCreated { .. }
+            | AppEvent::CommentCreateFailed { .. } => Self::from_app_event_mutation_start(event),
+            AppEvent::IssueBodyUpdated { .. }
+            | AppEvent::CommentUpdated { .. }
+            | AppEvent::MutationFailed { .. } => Self::from_app_event_mutation_finish(event),
+            _ => unreachable!("non-mutation AppEvent routed to mutation converter"),
+        }
+    }
+
+    fn from_app_event_mutation_start(event: AppEvent) -> Self {
+        match event {
+            AppEvent::MutationSubmitted {
+                scope_repo_id,
+                mutation_id,
+                target,
+            } => Self::MutationSubmitted {
+                scope_repo_id,
+                mutation_id,
+                target,
+            },
+            AppEvent::IssueCreated {
+                scope_repo_id,
+                mutation_id,
+                issue_number,
+            } => Self::IssueCreated {
+                scope_repo_id,
+                mutation_id,
+                issue_number,
+            },
+            AppEvent::CommentCreated {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                comment,
+            } => Self::CommentCreated {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                comment,
+            },
+            AppEvent::CommentCreateFailed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                error,
+            } => Self::CommentCreateFailed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                error,
+            },
+            _ => unreachable!("non-start mutation AppEvent routed to start converter"),
+        }
+    }
+
+    fn from_app_event_mutation_finish(event: AppEvent) -> Self {
+        match event {
+            AppEvent::IssueBodyUpdated {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                body,
+            } => Self::IssueBodyUpdated {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                body,
+            },
+            AppEvent::CommentUpdated {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                comment_id,
+                comment_index,
+                body,
+            } => Self::CommentUpdated {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                comment_id,
+                comment_index,
+                body,
+            },
+            AppEvent::MutationFailed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                error,
+            } => Self::MutationFailed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                error,
+            },
+            _ => unreachable!("non-finish mutation AppEvent routed to finish converter"),
         }
     }
 
@@ -258,66 +394,94 @@ impl IssuesMessage {
     /// Loaded/error payloads and composer/filter/inline/chooser mutations.
     fn into_app_event_data(self) -> AppEvent {
         match self {
-            Self::ListLoaded { .. }
-            | Self::ListLoadFailed { .. }
-            | Self::ListPageLoaded { .. }
-            | Self::DetailLoaded { .. }
-            | Self::DetailLoadFailed { .. } => self.into_app_event_list_detail(),
+            Self::ListLoaded { .. } | Self::ListLoadFailed { .. } | Self::ListPageLoaded { .. } => {
+                self.into_app_event_list()
+            }
+            Self::DetailLoaded { .. } | Self::DetailLoadFailed { .. } => {
+                self.into_app_event_detail()
+            }
             other => other.into_app_event_comments_and_controls(),
         }
     }
 
-    /// List and detail loaded/error payload messages.
-    fn into_app_event_list_detail(self) -> AppEvent {
+    /// List loaded/error payload messages.
+    fn into_app_event_list(self) -> AppEvent {
         match self {
             Self::ListLoaded {
                 scope_repo_id,
+                filter,
+                request_id,
                 issues,
                 cursor,
                 has_more,
             } => AppEvent::IssueListLoaded {
                 scope_repo_id,
+                filter,
+                request_id,
                 issues,
                 cursor,
                 has_more,
             },
             Self::ListLoadFailed {
                 scope_repo_id,
+                filter,
+                request_id,
+                request_cursor,
                 error,
             } => AppEvent::IssueListLoadFailed {
                 scope_repo_id,
+                filter,
+                request_id,
+                request_cursor,
                 error,
             },
             Self::ListPageLoaded {
                 scope_repo_id,
+                filter,
+                request_id,
+                request_cursor,
                 issues,
                 cursor,
                 has_more,
             } => AppEvent::IssueListPageLoaded {
                 scope_repo_id,
+                filter,
+                request_id,
+                request_cursor,
                 issues,
                 cursor,
                 has_more,
             },
+            _ => unreachable!("non-list IssuesMessage routed to list converter"),
+        }
+    }
+
+    /// Detail loaded/error payload messages.
+    fn into_app_event_detail(self) -> AppEvent {
+        match self {
             Self::DetailLoaded {
                 scope_repo_id,
                 issue_number,
+                request_id,
                 detail,
             } => AppEvent::IssueDetailLoaded {
                 scope_repo_id,
                 issue_number,
+                request_id,
                 detail,
             },
             Self::DetailLoadFailed {
                 scope_repo_id,
                 issue_number,
+                request_id,
                 error,
             } => AppEvent::IssueDetailLoadFailed {
                 scope_repo_id,
                 issue_number,
+                request_id,
                 error,
             },
-            _ => unreachable!("non-list/detail IssuesMessage routed to list/detail converter"),
+            _ => unreachable!("non-detail IssuesMessage routed to detail converter"),
         }
     }
 
@@ -327,12 +491,16 @@ impl IssuesMessage {
             Self::CommentsPageLoaded {
                 scope_repo_id,
                 issue_number,
+                request_id,
+                request_cursor,
                 comments,
                 cursor,
                 has_more,
             } => AppEvent::IssueCommentsPageLoaded {
                 scope_repo_id,
                 issue_number,
+                request_id,
+                request_cursor,
                 comments,
                 cursor,
                 has_more,
@@ -340,10 +508,14 @@ impl IssuesMessage {
             Self::CommentsPageFailed {
                 scope_repo_id,
                 issue_number,
+                request_id,
+                request_cursor,
                 error,
             } => AppEvent::IssueCommentsPageFailed {
                 scope_repo_id,
                 issue_number,
+                request_id,
+                request_cursor,
                 error,
             },
             other => other.into_app_event_controls(),
@@ -384,17 +556,13 @@ impl IssuesMessage {
             Self::InlineCursorDown => AppEvent::InlineCursorDown,
             Self::InlineSubmit => AppEvent::InlineSubmit,
             Self::InlineCancelOrEsc => AppEvent::InlineCancelOrEsc,
-            Self::CommentCreated { comment } => AppEvent::CommentCreated { comment },
-            Self::CommentCreateFailed { error } => AppEvent::CommentCreateFailed { error },
-            Self::IssueBodyUpdated { body } => AppEvent::IssueBodyUpdated { body },
-            Self::CommentUpdated {
-                comment_index,
-                body,
-            } => AppEvent::CommentUpdated {
-                comment_index,
-                body,
-            },
-            Self::MutationFailed { error } => AppEvent::MutationFailed { error },
+            Self::MutationSubmitted { .. }
+            | Self::IssueCreated { .. }
+            | Self::CommentCreated { .. }
+            | Self::CommentCreateFailed { .. }
+            | Self::IssueBodyUpdated { .. }
+            | Self::CommentUpdated { .. }
+            | Self::MutationFailed { .. } => self.into_app_event_mutation(),
             Self::OpenAgentChooser => AppEvent::OpenAgentChooser,
             Self::AgentChooserNavigateUp => AppEvent::AgentChooserNavigateUp,
             Self::AgentChooserNavigateDown => AppEvent::AgentChooserNavigateDown,
@@ -403,6 +571,108 @@ impl IssuesMessage {
             Self::SendToAgentCompleted => AppEvent::SendToAgentCompleted,
             Self::SendToAgentFailed { error } => AppEvent::SendToAgentFailed { error },
             _ => unreachable!("routed IssuesMessage variant reached controls converter"),
+        }
+    }
+
+    fn into_app_event_mutation(self) -> AppEvent {
+        match self {
+            Self::MutationSubmitted { .. }
+            | Self::IssueCreated { .. }
+            | Self::CommentCreated { .. }
+            | Self::CommentCreateFailed { .. } => self.into_app_event_mutation_start(),
+            Self::IssueBodyUpdated { .. }
+            | Self::CommentUpdated { .. }
+            | Self::MutationFailed { .. } => self.into_app_event_mutation_finish(),
+            _ => unreachable!("non-mutation IssuesMessage routed to mutation converter"),
+        }
+    }
+
+    fn into_app_event_mutation_start(self) -> AppEvent {
+        match self {
+            Self::MutationSubmitted {
+                scope_repo_id,
+                mutation_id,
+                target,
+            } => AppEvent::MutationSubmitted {
+                scope_repo_id,
+                mutation_id,
+                target,
+            },
+            Self::IssueCreated {
+                scope_repo_id,
+                mutation_id,
+                issue_number,
+            } => AppEvent::IssueCreated {
+                scope_repo_id,
+                mutation_id,
+                issue_number,
+            },
+            Self::CommentCreated {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                comment,
+            } => AppEvent::CommentCreated {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                comment,
+            },
+            Self::CommentCreateFailed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                error,
+            } => AppEvent::CommentCreateFailed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                error,
+            },
+            _ => unreachable!("non-start mutation IssuesMessage routed to start converter"),
+        }
+    }
+
+    fn into_app_event_mutation_finish(self) -> AppEvent {
+        match self {
+            Self::IssueBodyUpdated {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                body,
+            } => AppEvent::IssueBodyUpdated {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                body,
+            },
+            Self::CommentUpdated {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                comment_id,
+                comment_index,
+                body,
+            } => AppEvent::CommentUpdated {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                comment_id,
+                comment_index,
+                body,
+            },
+            Self::MutationFailed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                error,
+            } => AppEvent::MutationFailed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                error,
+            },
+            _ => unreachable!("non-finish mutation IssuesMessage routed to finish converter"),
         }
     }
 }

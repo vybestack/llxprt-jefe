@@ -94,6 +94,18 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
     // Error message
     let error_message = state.and_then(|s| s.issues_state.error.clone());
 
+    // Compute the actual rows/columns available to issue panes so child
+    // components do not have to infer from raw terminal size.
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (list_pane_rows, detail_pane_height) = crate::layout::issues_pane_rows(
+        usize::from(term_rows),
+        error_message.is_some(),
+        filter_controls_open,
+    );
+    let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
+    let detail_pane_height = u16::try_from(detail_pane_height).unwrap_or(u16::MAX);
+    let list_width = crate::layout::issue_list_content_width(term_cols);
+
     // Agent chooser overlay
     let agent_chooser = state.and_then(|s| s.issues_state.agent_chooser.clone());
     let chooser_visible = agent_chooser.is_some();
@@ -182,7 +194,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
 
                     // Issue list + detail (split view)
                     // Fixed 30/70 split: compact issue list + detail view
-                    Box(height: 30pct, width: 100pct) {
+                    Box(height: list_pane_rows, width: 100pct) {
                         IssueList(
                             issues: issues.clone(),
                             selected_index: selected_issue_idx,
@@ -191,6 +203,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                             has_filters: has_filters,
                             layout: IssueListLayout::Compact,
                             colors: colors.clone(),
+                            available_width: Some(list_width),
                         )
                     }
                     Box(flex_grow: 1.0, width: 100pct) {
@@ -202,6 +215,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                             focused: detail_focused,
                             scroll_offset: detail_scroll_offset,
                             colors: colors.clone(),
+                            available_height: Some(detail_pane_height),
                         )
                     }
 

@@ -5,285 +5,13 @@
 
 use iocraft::prelude::*;
 
-use crate::domain::{IssueComment, IssueDetail, IssueState};
+use crate::domain::{IssueDetail, IssueState};
+use crate::issue_detail_content::{DetailContent, build_detail_content, build_new_issue_content};
+use crate::layout::DETAIL_HEADER_ROWS as HEADER_ROWS;
 use crate::state::{ComposerTarget, DetailSubfocus, InlineState};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::scrollable_text::ScrollableText;
-
-/// Fixed number of rows the metadata header occupies (title, state, labels, url, separator).
-const HEADER_ROWS: usize = 5;
-
-/// Overhead rows outside the detail pane:
-///   status bar (1) + keybind bar (1) + detail border (2) = 4
-/// The issue list occupies ~30% of the remaining height.
-const CHROME_ROWS: usize = 4;
-
-/// Convert a byte-offset cursor in raw editor text to (line_index, char_column)
-/// relative to the content lines built by `build_detail_content`.
-///
-/// `content_line_start` is the index in the output `lines` vec where this editor's
-/// text lines begin. `prefix_len` is the char-length of the prefix prepended to each line.
-fn byte_cursor_to_line_col(
-    text: &str,
-    byte_cursor: usize,
-    content_line_start: usize,
-    prefix_len: usize,
-) -> (usize, usize) {
-    let clamped = byte_cursor.min(text.len());
-    let before = &text[..clamped];
-    let line_idx = before.matches(char::from(0x0Au8)).count();
-    let last_nl = before.rfind(char::from(0x0Au8)).map_or(0, |p| p + 1);
-    let col = before[last_nl..].chars().count();
-    (content_line_start + line_idx, prefix_len + col)
-}
-
-/// Result of building detail content: the display string and optional cursor position.
-struct DetailContent {
-    text: String,
-    /// Cursor position as (line_index, char_column) within the content lines.
-    cursor: Option<(usize, usize)>,
-}
-
-/// Accumulated state for building detail content lines.
-struct ContentBuilder {
-    lines: Vec<String>,
-    cursor_pos: Option<(usize, usize)>,
-}
-
-impl ContentBuilder {
-    fn new() -> Self {
-        Self {
-            lines: Vec::new(),
-            cursor_pos: None,
-        }
-    }
-
-    /// Push editor/viewer lines and compute cursor position if editing.
-    fn push_editor_lines(
-        &mut self,
-        text: &str,
-        cursor: usize,
-        editing: bool,
-        prefix_edit: &str,
-        prefix_view: &str,
-    ) {
-        let prefix = if editing { prefix_edit } else { prefix_view };
-        let prefix_len = prefix.chars().count();
-        let content_start = self.lines.len();
-        if text.is_empty() {
-            self.lines.push(format!("{prefix}(empty)"));
-        } else {
-            for line in text.lines() {
-                self.lines.push(format!("{prefix}{line}"));
-            }
-            if text.ends_with(char::from(0x0Au8)) {
-                self.lines.push(prefix.to_string());
-            }
-        }
-        if editing {
-            self.cursor_pos = Some(byte_cursor_to_line_col(
-                text,
-                cursor,
-                content_start,
-                prefix_len,
-            ));
-        }
-    }
-}
-
-/// Build body section lines.
-fn build_body_section(
-    detail: &IssueDetail,
-    subfocus: DetailSubfocus,
-    inline_state: &InlineState,
-    builder: &mut ContentBuilder,
-) {
-    let body_focused = subfocus == DetailSubfocus::Body;
-    let body_label = if body_focused { "> Body" } else { "  Body" };
-    builder.lines.push(body_label.to_string());
-
-    let (body_text, body_cursor, body_editing) = match inline_state {
-        InlineState::Editor {
-            target: crate::state::EditorTarget::IssueBody,
-            text,
-            cursor,
-        } => (text.as_str(), *cursor, true),
-        _ => (detail.body.as_str(), 0, false),
-    };
-
-    if body_editing {
-        builder.lines.push("[editing]".to_string());
-    }
-    builder.push_editor_lines(body_text, body_cursor, body_editing, "  │ ", "    ");
-    if body_editing {
-        builder
-            .lines
-            .push("  Ctrl+Enter save | Esc cancel".to_string());
-    }
-}
-
-/// Build comments section lines.
-fn build_comments_section(
-    detail: &IssueDetail,
-    subfocus: DetailSubfocus,
-    inline_state: &InlineState,
-    comments_loading: bool,
-    builder: &mut ContentBuilder,
-) {
-    builder.lines.push("Comments".to_string());
-    if comments_loading {
-        builder.lines.push("  Loading comments...".to_string());
-    } else if detail.comments.is_empty() {
-        builder.lines.push("  No comments yet.".to_string());
-    } else {
-        for (idx, comment) in detail.comments.iter().enumerate() {
-            build_single_comment(idx, comment, subfocus, inline_state, builder);
-        }
-    }
-}
-
-/// Build lines for a single comment (including inline editor/reply).
-fn build_single_comment(
-    idx: usize,
-    comment: &IssueComment,
-    subfocus: DetailSubfocus,
-    inline_state: &InlineState,
-    builder: &mut ContentBuilder,
-) {
-    let comment_focused = subfocus == DetailSubfocus::Comment(idx);
-    let prefix = if comment_focused { "> " } else { "  " };
-    builder.lines.push(format!(
-        "{}@{}  {}",
-        prefix, comment.author_login, comment.created_at
-    ));
-
-    let (cmt_text, cmt_cursor, cmt_editing) = match inline_state {
-        InlineState::Editor {
-            target: crate::state::EditorTarget::Comment { comment_index },
-            text,
-            cursor,
-        } if *comment_index == idx => (text.as_str(), *cursor, true),
-        _ => (comment.body.as_str(), 0, false),
-    };
-
-    if cmt_editing {
-        builder.lines.push("  [editing]".to_string());
-    }
-    builder.push_editor_lines(cmt_text, cmt_cursor, cmt_editing, "    │ ", "      ");
-    if cmt_editing {
-        builder
-            .lines
-            .push("    Ctrl+Enter save | Esc cancel".to_string());
-    }
-
-    if let InlineState::Composer {
-        target: crate::state::ComposerTarget::Reply { comment_index, .. },
-        text,
-        cursor,
-    } = inline_state
-        && *comment_index == idx
-    {
-        builder.lines.push("    [Reply]".to_string());
-        builder.push_editor_lines(text.as_str(), *cursor, true, "    │ ", "    │ ");
-        builder
-            .lines
-            .push("    Ctrl+Enter save | Esc cancel".to_string());
-    }
-
-    builder.lines.push(String::new());
-}
-
-/// Build new-comment section lines.
-fn build_new_comment_section(
-    subfocus: DetailSubfocus,
-    inline_state: &InlineState,
-    builder: &mut ContentBuilder,
-) {
-    let nc_focused = subfocus == DetailSubfocus::NewComment;
-    let nc_label = if nc_focused {
-        "> New Comment"
-    } else {
-        "  New Comment"
-    };
-    builder.lines.push(nc_label.to_string());
-
-    if let InlineState::Composer {
-        target: crate::state::ComposerTarget::NewComment,
-        text,
-        cursor,
-    } = inline_state
-    {
-        builder.push_editor_lines(text.as_str(), *cursor, true, "  │ ", "  │ ");
-        builder
-            .lines
-            .push("  Ctrl+Enter submit | Esc cancel".to_string());
-    } else {
-        builder.lines.push("  Press c to add a comment".to_string());
-    }
-}
-
-/// Build the scrollable content string for the body + comments + new-comment area.
-fn build_detail_content(
-    detail: &IssueDetail,
-    subfocus: DetailSubfocus,
-    inline_state: &InlineState,
-    comments_loading: bool,
-) -> DetailContent {
-    let nl = String::from(char::from(0x0Au8));
-    let mut builder = ContentBuilder::new();
-
-    build_body_section(detail, subfocus, inline_state, &mut builder);
-    builder
-        .lines
-        .push("─────────────────────────────────────────".to_string());
-    build_comments_section(
-        detail,
-        subfocus,
-        inline_state,
-        comments_loading,
-        &mut builder,
-    );
-    builder
-        .lines
-        .push("─────────────────────────────────────────".to_string());
-    build_new_comment_section(subfocus, inline_state, &mut builder);
-
-    DetailContent {
-        text: builder.lines.join(&nl),
-        cursor: builder.cursor_pos,
-    }
-}
-
-/// Build a full-screen content block for creating a new issue.
-fn build_new_issue_content(inline_state: &InlineState) -> DetailContent {
-    let mut builder = ContentBuilder::new();
-
-    builder.lines.push("New Issue".to_string());
-    builder
-        .lines
-        .push("Title: first line | Body: remaining lines".to_string());
-    builder.lines.push(String::new());
-
-    if let InlineState::Composer {
-        target: ComposerTarget::NewIssue,
-        text,
-        cursor,
-    } = inline_state
-    {
-        builder.push_editor_lines(text.as_str(), *cursor, true, "  │ ", "  │ ");
-    }
-
-    builder
-        .lines
-        .push(String::from("Ctrl+Enter submit | Esc cancel"));
-
-    let nl = String::from(char::from(0x0Au8));
-    DetailContent {
-        text: builder.lines.join(&nl),
-        cursor: builder.cursor_pos,
-    }
-}
 
 /// Props for the issue detail view.
 #[derive(Default, Props)]
@@ -302,6 +30,13 @@ pub struct IssueDetailViewProps {
     pub scroll_offset: usize,
     /// Theme colors.
     pub colors: ThemeColors,
+    /// Actual available height (in terminal rows) for the detail pane.
+    ///
+    /// When provided, this is used instead of computing the height from
+    /// `crossterm::terminal::size()`, ensuring the viewport matches the real
+    /// flex allocation in the parent layout. Falls back to the terminal-size
+    /// calculation when `None`.
+    pub available_height: Option<u16>,
 }
 
 /// Issue detail view — fixed structure that NEVER changes layout.
@@ -321,15 +56,21 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
         BorderStyle::Round
     };
 
-    // Compute viewport rows from terminal height.
-    // The iocraft layout gives the detail pane ~70% of workspace via flex_grow.
-    // We compute the same 70% here to know how many fixed-height row children to emit.
-    let term_rows = crossterm::terminal::size().map_or(40, |(_, h)| h as usize);
-    let workspace_rows = term_rows.saturating_sub(CHROME_ROWS);
-    let list_rows = workspace_rows * 3 / 10; // 30% for issue list
-    let detail_pane_rows = workspace_rows.saturating_sub(list_rows);
-    // Subtract header rows and border (2 rows for top+bottom border)
-    let scroll_rows = detail_pane_rows.saturating_sub(HEADER_ROWS + 2).max(5);
+    // Compute viewport rows. Prefer the actual available height passed from the
+    // parent layout; fall back to deriving it from the terminal size when the
+    // parent did not supply one.
+    let scroll_rows = if let Some(height) = props.available_height {
+        // The available height is the real flex allocation for the detail pane,
+        // including its borders and header. Subtract header + border (2) to get
+        // the scrollable viewport. Do NOT force the minimum-viewport floor here:
+        // on a very short terminal that floor would exceed the parent allocation
+        // and overflow the layout. The floor is only a fallback heuristic used
+        // when the parent does not report an actual height.
+        (height as usize).saturating_sub(HEADER_ROWS + 2)
+    } else {
+        let term_rows = crossterm::terminal::size().map_or(40, |(_, h)| h as usize);
+        crate::layout::detail_viewport_rows(term_rows)
+    };
 
     // Build header and content.
     let showing_new_issue_composer = matches!(

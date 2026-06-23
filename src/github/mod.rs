@@ -62,6 +62,8 @@ pub struct CommentsResponse {
     pub has_more: bool,
 }
 
+const ISSUE_DETAIL_COMMENT_PAGE_SIZE: u32 = 30;
+
 /// Payload for sending issue context to an agent.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -143,6 +145,36 @@ pub fn parse_issues_json(json_str: &str) -> Result<Vec<Issue>, GhError> {
         .collect::<Result<Vec<Issue>, GhError>>()
 }
 
+/// Parse JSON output from the GraphQL issue search query into a paginated response.
+pub fn parse_issue_search_json(json_str: &str) -> Result<IssueListResponse, GhError> {
+    let value: Value = serde_json::from_str(json_str)
+        .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
+    let search = value
+        .get("data")
+        .and_then(|data| data.get("search"))
+        .ok_or_else(|| GhError::ParseError("Missing issue search data".to_string()))?;
+    let nodes = search
+        .get("nodes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| GhError::ParseError("Missing issue search nodes".to_string()))?;
+    let page_info = search
+        .get("pageInfo")
+        .ok_or_else(|| GhError::ParseError("Missing pageInfo".to_string()))?;
+
+    let mut issues = nodes
+        .iter()
+        .map(parse_issue_from_item)
+        .collect::<Result<Vec<Issue>, GhError>>()?;
+    sort_issues(&mut issues);
+    let (cursor, has_more) = parse_page_info(page_info);
+
+    Ok(IssueListResponse {
+        issues,
+        cursor,
+        has_more,
+    })
+}
+
 /// Build a single [`Issue`] from one JSON array element of `gh issue list`.
 fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
     let number = item
@@ -200,13 +232,25 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
 }
 
 /// Read `field.nodes[*].<key>` (defaulting to "login"/"name") joined with ", ".
+///
+/// Supports two JSON shapes returned by the `gh` CLI:
+/// - GraphQL style: `{"nodes": [{"login": ...}, ...]}`.
+/// - REST/direct array style: `[{"login": ...}, ...]` (a bare array of objects).
 fn join_nodes_field(item: &Value, field: &str) -> String {
-    item.get(field)
-        .and_then(|f| f.get("nodes"))
-        .and_then(Value::as_array)
+    // `gh issue list` exposes label names under `name`; user-like nodes use `login`.
+    let key = if field == "labels" { "name" } else { "login" };
+
+    let nodes = item.get(field).and_then(|f| {
+        // GraphQL shape: {"nodes": [...]}.
+        if let Some(arr) = f.get("nodes").and_then(Value::as_array) {
+            return Some(arr);
+        }
+        // REST/direct array shape: [...] itself.
+        f.as_array()
+    });
+
+    nodes
         .map(|nodes| {
-            // `gh issue list` exposes label names under `name`; user-like nodes use `login`.
-            let key = if field == "labels" { "name" } else { "login" };
             nodes
                 .iter()
                 .filter_map(|n| n.get(key).and_then(Value::as_str))
@@ -265,9 +309,10 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
-                .filter_map(|c| parse_rest_comment(c).ok())
-                .collect()
+                .map(parse_rest_comment)
+                .collect::<Result<Vec<IssueComment>, GhError>>()
         })
+        .transpose()?
         .unwrap_or_default();
 
     Ok(IssueDetail {
@@ -343,23 +388,42 @@ fn parse_optional_string_field(value: &Value, field: &str, key: &str) -> Option<
     })
 }
 
-/// Helper to parse a REST API format comment
-fn parse_rest_comment(value: &Value) -> Result<IssueComment, GhError> {
+fn parse_comment_id(value: &Value) -> Result<u64, GhError> {
+    if let Some(id) = value.get("databaseId").and_then(Value::as_u64) {
+        return Ok(id);
+    }
+    if let Some(id) = value.get("id").and_then(Value::as_u64) {
+        return Ok(id);
+    }
+
     let id_str = value
         .get("id")
         .and_then(Value::as_str)
         .ok_or_else(|| GhError::ParseError("Missing comment id".to_string()))?;
-
-    // Extract numeric part from "IC_123" format
-    let comment_id = id_str
-        .split('_')
-        .nth(1)
-        .and_then(|s| s.parse::<u64>().ok())
+    id_str
+        .strip_prefix("IC_")
+        .and_then(|rest| rest.parse::<u64>().ok())
         .or_else(|| id_str.parse::<u64>().ok())
-        .ok_or_else(|| GhError::ParseError(format!("Invalid comment id: {id_str}")))?;
+        .or_else(|| parse_issuecomment_fragment(value))
+        .ok_or_else(|| GhError::ParseError(format!("Invalid comment id: {id_str}")))
+}
+
+fn parse_issuecomment_fragment(value: &Value) -> Option<u64> {
+    value
+        .get("url")
+        .or_else(|| value.get("html_url"))
+        .and_then(Value::as_str)
+        .and_then(|url| url.rsplit_once("#issuecomment-"))
+        .and_then(|(_, id)| id.parse::<u64>().ok())
+}
+
+/// Helper to parse a REST API format comment
+fn parse_rest_comment(value: &Value) -> Result<IssueComment, GhError> {
+    let comment_id = parse_comment_id(value)?;
 
     let author_login = value
         .get("author")
+        .or_else(|| value.get("user"))
         .and_then(|a| a.get("login"))
         .and_then(Value::as_str)
         .unwrap_or("")
@@ -463,19 +527,7 @@ pub fn parse_created_comment_json(json_str: &str) -> Result<IssueComment, GhErro
     let value: Value = serde_json::from_str(json_str)
         .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
 
-    // REST returns numeric id, GraphQL returns string "IC_xxx"
-    let comment_id = if let Some(n) = value.get("id").and_then(Value::as_u64) {
-        n
-    } else if let Some(id_str) = value.get("id").and_then(Value::as_str) {
-        id_str
-            .split('_')
-            .nth(1)
-            .and_then(|s| s.parse::<u64>().ok())
-            .or_else(|| id_str.parse::<u64>().ok())
-            .ok_or_else(|| GhError::ParseError(format!("Invalid comment id: {id_str}")))?
-    } else {
-        return Err(GhError::ParseError("Missing comment id".to_string()));
-    };
+    let comment_id = parse_comment_id(&value)?;
 
     // REST uses "user", GraphQL uses "author"
     let author_login = value
@@ -509,6 +561,14 @@ pub fn parse_created_comment_json(json_str: &str) -> Result<IssueComment, GhErro
     })
 }
 
+/// Build the `gh issue list` CLI argument vector for the given repository and
+/// filter.
+///
+/// The `cursor` parameter is accepted for API symmetry with
+/// [`GhClient::list_issues`] and the analogous comment pagination helpers, but
+/// is intentionally unused: `gh issue list` (the REST-backed CLI subcommand)
+/// does not expose cursor-based pagination. It is retained so that callers can
+/// be migrated to a future GraphQL issue query without signature churn.
 #[must_use]
 pub fn build_list_issues_args(
     owner: &str,
@@ -572,9 +632,72 @@ pub fn build_list_issues_args(
     args
 }
 
+fn issue_search_query(owner: &str, repo: &str, filter: &IssueFilter) -> String {
+    let mut terms = vec![format!("repo:{owner}/{repo}"), "is:issue".to_string()];
+    if let Some(state) = issue_filter_state_query(filter) {
+        terms.push(state);
+    }
+
+    terms.extend(filter.labels.iter().map(|label| format!("label:{label}")));
+    push_non_empty_term(&mut terms, "author:", &filter.author);
+    push_non_empty_term(&mut terms, "assignee:", &filter.assignee);
+    push_non_empty_term(&mut terms, "mentions:", &filter.mentioned);
+    push_non_empty_term(&mut terms, "updated:<", &filter.updated_before);
+    push_non_empty_term(&mut terms, "updated:>", &filter.updated_after);
+    if !filter.query_text.trim().is_empty() {
+        terms.push(filter.query_text.trim().to_string());
+    }
+
+    terms.join(" ")
+}
+
+fn issue_filter_state_query(filter: &IssueFilter) -> Option<String> {
+    match filter.state.unwrap_or_default() {
+        IssueFilterState::Open => Some("state:open".to_string()),
+        IssueFilterState::Closed => Some("state:closed".to_string()),
+        IssueFilterState::All => None,
+    }
+}
+
+fn push_non_empty_term(terms: &mut Vec<String>, prefix: &str, value: &str) {
+    if !value.trim().is_empty() {
+        terms.push(format!("{prefix}{}", value.trim()));
+    }
+}
+
+fn build_issue_search_args(
+    owner: &str,
+    repo: &str,
+    filter: &IssueFilter,
+    cursor: Option<&str>,
+    page_size: u32,
+) -> Vec<String> {
+    let query = if cursor.is_some() {
+        "query($query: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $query, first: $first, after: $after) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+    } else {
+        "query($query: String!, $first: Int!) { search(type: ISSUE, query: $query, first: $first) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+    };
+    let mut args = vec![
+        "api".to_string(),
+        "graphql".to_string(),
+        "-f".to_string(),
+        format!("query={query}"),
+        "-F".to_string(),
+        format!("query={}", issue_search_query(owner, repo, filter)),
+        "-F".to_string(),
+        format!("first={page_size}"),
+    ];
+    if let Some(c) = cursor {
+        args.push("-F".to_string());
+        args.push(format!("after={c}"));
+    }
+    args
+}
+
 /// @plan PLAN-20260329-ISSUES-MODE.P08
 /// @requirement REQ-ISS-013
 /// @pseudocode component-002 lines 01-03
+#[derive(Clone, Copy, Debug)]
 pub struct GhClient;
 
 impl GhClient {
@@ -622,7 +745,7 @@ impl GhClient {
         cursor: Option<&str>,
         page_size: u32,
     ) -> Result<IssueListResponse, GhError> {
-        let args = build_list_issues_args(owner, repo, filter, cursor, page_size);
+        let args = build_issue_search_args(owner, repo, filter, cursor, page_size);
 
         let output = Command::new("gh").args(&args).output().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -638,16 +761,7 @@ impl GhClient {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut issues = parse_issues_json(&stdout)?;
-        sort_issues(&mut issues);
-
-        // Note: gh CLI doesn't support cursor-based pagination directly for issue list
-        // We return has_more=false as a simplification
-        Ok(IssueListResponse {
-            issues,
-            cursor: None,
-            has_more: false,
-        })
+        parse_issue_search_json(&stdout)
     }
 
     /// Get full issue detail.
@@ -686,7 +800,13 @@ impl GhClient {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_issue_detail_json(&stdout)
+        let mut detail = parse_issue_detail_json(&stdout)?;
+        let comments_response =
+            self.list_comments(owner, repo, number, None, ISSUE_DETAIL_COMMENT_PAGE_SIZE)?;
+        detail.comments = comments_response.comments;
+        detail.comments_cursor = comments_response.cursor;
+        detail.has_more_comments = comments_response.has_more;
+        Ok(detail)
     }
 
     /// List comments for an issue with pagination.
@@ -702,11 +822,13 @@ impl GhClient {
         cursor: Option<&str>,
         page_size: u32,
     ) -> Result<CommentsResponse, GhError> {
-        // Build GraphQL query using parameterized variables for safety
+        // Build GraphQL query using parameterized variables for safety.
+        // `databaseId` is the numeric REST comment id needed for update/delete
+        // operations; GraphQL `id` is an opaque node id and is not parseable.
         let query = if cursor.is_some() {
-            "query($owner: String!, $repo: String!, $number: Int!, $first: Int!, $after: String) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first, after: $after) { nodes { id author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }"
+            "query($owner: String!, $repo: String!, $number: Int!, $first: Int!, $after: String) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first, after: $after) { nodes { id databaseId author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }"
         } else {
-            "query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first) { nodes { id author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }"
+            "query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first) { nodes { id databaseId author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }"
         };
 
         let mut args = vec![

@@ -381,12 +381,60 @@ pub struct IssuesState {
     pub detail_subfocus: DetailSubfocus,
     /// Scroll offset (in lines) for the detail pane viewport.
     pub detail_scroll_offset: usize,
+    /// Last rendered detail viewport height in rows.
+    pub detail_viewport_rows: usize,
     pub inline_state: InlineState,
     pub agent_chooser: Option<AgentChooserState>,
     pub filter_ui: IssueFilterUiState,
     pub search_input_focused: bool,
     pub prior_agent_focus: Option<PriorAgentFocus>,
     pub draft_notice: Option<String>,
+    pub mutation_pending: Option<IssueMutationPending>,
+    pub next_mutation_id: u64,
+    pub list_reload_pending: Option<IssueListReloadPending>,
+    pub next_issue_list_request_id: u64,
+    pub list_page_pending: Option<IssueListPagePending>,
+    pub detail_pending: Option<IssueDetailPending>,
+    pub next_issue_detail_request_id: u64,
+    pub comments_page_pending: Option<IssueCommentsPagePending>,
+    pub next_comments_page_request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueListReloadPending {
+    pub scope_repo_id: RepositoryId,
+    pub filter: crate::domain::IssueFilter,
+    pub request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueListPagePending {
+    pub scope_repo_id: RepositoryId,
+    pub filter: crate::domain::IssueFilter,
+    pub cursor: Option<String>,
+    pub request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueDetailPending {
+    pub scope_repo_id: RepositoryId,
+    pub issue_number: u64,
+    pub request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueCommentsPagePending {
+    pub scope_repo_id: RepositoryId,
+    pub issue_number: u64,
+    pub cursor: Option<String>,
+    pub request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueMutationPending {
+    pub scope_repo_id: RepositoryId,
+    pub id: u64,
+    pub target: InlineState,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -405,61 +453,57 @@ pub struct IssueFilterUiState {
     pub draft_labels_text: String,
 }
 
-/// Layout constants matching issue_detail.rs and issues.rs.
-const DETAIL_HEADER_ROWS: usize = 5;
-const DETAIL_CHROME_ROWS: usize = 4;
-
 impl IssuesState {
-    /// Compute the scroll viewport rows dynamically from terminal height,
-    /// matching the same formula used by `IssueDetailView`.
-    fn detail_viewport_rows() -> usize {
-        let term_rows = crossterm::terminal::size().map_or(40, |(_, h)| h as usize);
-        let workspace_rows = term_rows.saturating_sub(DETAIL_CHROME_ROWS);
-        let list_rows = workspace_rows * 3 / 10;
-        let detail_pane_rows = workspace_rows.saturating_sub(list_rows);
-        detail_pane_rows
-            .saturating_sub(DETAIL_HEADER_ROWS + 2)
-            .max(5)
+    /// Count the number of rendered content lines for the current detail view.
+    #[must_use]
+    pub fn detail_content_line_count(&self) -> usize {
+        let Some(detail) = &self.issue_detail else {
+            return 0;
+        };
+
+        crate::issue_detail_content::detail_content_line_count(
+            detail,
+            &self.inline_state,
+            self.loading.comments,
+        )
     }
 
     /// Maximum scroll offset so the last line of content sits at the bottom of the viewport.
     /// Returns 0 when content fits entirely within the viewport (no scrolling needed).
     #[must_use]
     pub fn max_detail_scroll_offset(&self) -> usize {
-        let Some(detail) = &self.issue_detail else {
+        let viewport_rows = if self.detail_viewport_rows == 0 {
+            crate::layout::detail_viewport_rows(40)
+        } else {
+            self.detail_viewport_rows
+        };
+        self.max_detail_scroll_offset_for_viewport(viewport_rows)
+    }
+
+    /// Maximum detail scroll offset for a caller-provided viewport row count.
+    #[must_use]
+    pub fn max_detail_scroll_offset_for_viewport(&self, viewport_rows: usize) -> usize {
+        if self.issue_detail.is_none() {
             return 0;
-        };
-
-        let viewport = Self::detail_viewport_rows();
-
-        // Estimate content lines to match build_detail_content() in issue_detail.rs:
-        //   Body section: 1 (label) + body lines + 1 (separator)
-        //   Comments section: 1 (header) + per-comment (1 author + body lines + 1 blank)
-        //   New Comment section: 1 (label) + 1 (hint)
-        let body_lines = if detail.body.is_empty() {
-            1
-        } else {
-            detail.body.lines().count()
-        };
-        let mut total = 1 + body_lines + 1; // body label + body + separator
-
-        total += 1; // "Comments" header
-        if detail.comments.is_empty() {
-            total += 1; // "No comments yet."
-        } else {
-            for c in &detail.comments {
-                let c_lines = if c.body.is_empty() {
-                    1
-                } else {
-                    c.body.lines().count()
-                };
-                total += 1 + c_lines + 1; // author + body + blank
-            }
         }
+        self.detail_content_line_count()
+            .saturating_sub(viewport_rows)
+    }
 
-        total += 2; // new comment label + hint
-
-        total.saturating_sub(viewport)
+    /// Maximum detail scroll offset for the Issues-mode layout bands currently
+    /// visible in the UI.
+    #[must_use]
+    pub fn max_detail_scroll_offset_for_layout(
+        &self,
+        term_rows: usize,
+        error_visible: bool,
+        filter_controls_open: bool,
+    ) -> usize {
+        self.max_detail_scroll_offset_for_viewport(crate::layout::issues_detail_viewport_rows(
+            term_rows,
+            error_visible,
+            filter_controls_open,
+        ))
     }
 }
 
@@ -562,16 +606,24 @@ pub enum AppEvent {
     // Issue Data Loading
     IssueListLoaded {
         scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::IssueFilter>,
+        request_id: u64,
         issues: Vec<crate::domain::Issue>,
         cursor: Option<String>,
         has_more: bool,
     },
     IssueListLoadFailed {
         scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::IssueFilter>,
+        request_id: u64,
+        request_cursor: Option<String>,
         error: String,
     },
     IssueListPageLoaded {
         scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::IssueFilter>,
+        request_id: u64,
+        request_cursor: Option<String>,
         issues: Vec<crate::domain::Issue>,
         cursor: Option<String>,
         has_more: bool,
@@ -579,16 +631,20 @@ pub enum AppEvent {
     IssueDetailLoaded {
         scope_repo_id: RepositoryId,
         issue_number: u64,
+        request_id: u64,
         detail: Box<crate::domain::IssueDetail>,
     },
     IssueDetailLoadFailed {
         scope_repo_id: RepositoryId,
         issue_number: u64,
+        request_id: u64,
         error: String,
     },
     IssueCommentsPageLoaded {
         scope_repo_id: RepositoryId,
         issue_number: u64,
+        request_id: u64,
+        request_cursor: Option<String>,
         comments: Vec<crate::domain::IssueComment>,
         cursor: Option<String>,
         has_more: bool,
@@ -596,6 +652,8 @@ pub enum AppEvent {
     IssueCommentsPageFailed {
         scope_repo_id: RepositoryId,
         issue_number: u64,
+        request_id: u64,
+        request_cursor: Option<String>,
         error: String,
     },
 
@@ -638,20 +696,46 @@ pub enum AppEvent {
     InlineCursorDown,
     InlineSubmit,
     InlineCancelOrEsc,
+    MutationSubmitted {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        target: InlineState,
+    },
+    IssueCreated {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        issue_number: u64,
+    },
     CommentCreated {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
         comment: crate::domain::IssueComment,
     },
     CommentCreateFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
         error: String,
     },
     IssueBodyUpdated {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
         body: String,
     },
     CommentUpdated {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
+        comment_id: u64,
         comment_index: usize,
         body: String,
     },
     MutationFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: Option<u64>,
+        mutation_id: Option<u64>,
         error: String,
     },
 

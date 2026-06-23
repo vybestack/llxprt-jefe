@@ -5,9 +5,11 @@
 //! behavior should be added to the smallest domain message enum rather than to
 //! app-shell-specific branching.
 
-use crate::domain::{AgentId, AgentStatus, Issue, IssueComment, IssueDetail, RepositoryId};
+use crate::domain::{
+    AgentId, AgentStatus, Issue, IssueComment, IssueDetail, IssueFilter, RepositoryId,
+};
 use crate::state::AppEvent;
-use crate::state::EditorTarget;
+use crate::state::{EditorTarget, InlineState};
 
 mod issues_conversion;
 
@@ -129,16 +131,24 @@ pub enum IssuesMessage {
     DetailSubfocusPrev,
     ListLoaded {
         scope_repo_id: RepositoryId,
+        filter: Box<IssueFilter>,
+        request_id: u64,
         issues: Vec<Issue>,
         cursor: Option<String>,
         has_more: bool,
     },
     ListLoadFailed {
         scope_repo_id: RepositoryId,
+        filter: Box<IssueFilter>,
+        request_id: u64,
+        request_cursor: Option<String>,
         error: String,
     },
     ListPageLoaded {
         scope_repo_id: RepositoryId,
+        filter: Box<IssueFilter>,
+        request_id: u64,
+        request_cursor: Option<String>,
         issues: Vec<Issue>,
         cursor: Option<String>,
         has_more: bool,
@@ -146,16 +156,20 @@ pub enum IssuesMessage {
     DetailLoaded {
         scope_repo_id: RepositoryId,
         issue_number: u64,
+        request_id: u64,
         detail: Box<IssueDetail>,
     },
     DetailLoadFailed {
         scope_repo_id: RepositoryId,
         issue_number: u64,
+        request_id: u64,
         error: String,
     },
     CommentsPageLoaded {
         scope_repo_id: RepositoryId,
         issue_number: u64,
+        request_id: u64,
+        request_cursor: Option<String>,
         comments: Vec<IssueComment>,
         cursor: Option<String>,
         has_more: bool,
@@ -163,6 +177,8 @@ pub enum IssuesMessage {
     CommentsPageFailed {
         scope_repo_id: RepositoryId,
         issue_number: u64,
+        request_id: u64,
+        request_cursor: Option<String>,
         error: String,
     },
     OpenFilterControls,
@@ -201,20 +217,46 @@ pub enum IssuesMessage {
     InlineCursorDown,
     InlineSubmit,
     InlineCancelOrEsc,
+    MutationSubmitted {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        target: InlineState,
+    },
+    IssueCreated {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        issue_number: u64,
+    },
     CommentCreated {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
         comment: IssueComment,
     },
     CommentCreateFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
         error: String,
     },
     IssueBodyUpdated {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
         body: String,
     },
     CommentUpdated {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
+        comment_id: u64,
         comment_index: usize,
         body: String,
     },
     MutationFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: Option<u64>,
+        mutation_id: Option<u64>,
         error: String,
     },
     OpenAgentChooser,
@@ -422,8 +464,10 @@ message_names!(IssuesMessage {
     Self::InlineCursorDown => "InlineCursorDown",
     Self::InlineSubmit => "InlineSubmit",
     Self::InlineCancelOrEsc => "InlineCancelOrEsc",
-    Self::CommentCreated { .. } => "CommentCreated",
-    Self::CommentCreateFailed { .. } => "CommentCreateFailed",
+            Self::MutationSubmitted { .. } => "MutationSubmitted",
+    Self::IssueCreated { .. } => "IssueCreated",
+            Self::CommentCreated { .. } => "CommentCreated",
+            Self::CommentCreateFailed { .. } => "CommentCreateFailed",
     Self::IssueBodyUpdated { .. } => "IssueBodyUpdated",
     Self::CommentUpdated { .. } => "CommentUpdated",
     Self::MutationFailed { .. } => "MutationFailed",

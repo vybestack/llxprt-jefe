@@ -30,6 +30,18 @@ fn sample_agent(agent_id: &AgentId) -> Agent {
 }
 
 #[test]
+fn filter_and_search_messages_are_fresh_issue_list_reloads() {
+    assert!(is_fresh_issue_list_reload(&IssuesMessage::EnterMode));
+    assert!(is_fresh_issue_list_reload(&IssuesMessage::RefocusList));
+    assert!(is_fresh_issue_list_reload(&IssuesMessage::ApplyFilter));
+    assert!(is_fresh_issue_list_reload(&IssuesMessage::ClearFilter));
+    assert!(is_fresh_issue_list_reload(&IssuesMessage::ApplySearch));
+    assert!(!is_fresh_issue_list_reload(
+        &IssuesMessage::NavigatePageDown
+    ));
+}
+
+#[test]
 fn repository_focus_toggles_checkbox_for_expected_fields() {
     assert!(repository_focus_toggles_checkbox(
         RepositoryFormFocus::RemoteEnabled

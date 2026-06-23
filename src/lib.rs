@@ -7,6 +7,7 @@
 pub mod cli;
 pub mod domain;
 pub mod input;
+pub mod issue_detail_content;
 pub mod layout;
 pub mod logging;
 pub mod messages;

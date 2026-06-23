@@ -282,7 +282,7 @@ pub enum IssueFilterState {
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-008
 /// Issue list filter criteria.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IssueFilter {
     pub query_text: String,
     pub state: Option<IssueFilterState>,

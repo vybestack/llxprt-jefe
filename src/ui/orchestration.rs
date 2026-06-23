@@ -7,6 +7,7 @@ use iocraft::prelude::*;
 
 use crate::state::{AppState, ModalState, ScreenMode};
 use crate::theme::ThemeColors;
+use crate::ui::screens::IssuesScreen;
 use crate::ui::{ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen};
 
 /// Data needed to render a confirmation modal.
@@ -78,12 +79,20 @@ pub fn build_screen_element(
     terminal_snapshot: Option<crate::runtime::TerminalSnapshot>,
 ) -> AnyElement<'static> {
     match snapshot.screen_mode {
-        ScreenMode::Dashboard | ScreenMode::DashboardIssues => element! {
+        ScreenMode::Dashboard => element! {
             Dashboard(
                 state: Some(snapshot.clone()),
                 colors: Some(colors.clone()),
                 theme_name: theme_name.to_owned(),
                 terminal_snapshot: terminal_snapshot,
+            )
+        }
+        .into_any(),
+        ScreenMode::DashboardIssues => element! {
+            IssuesScreen(
+                state: Some(snapshot.clone()),
+                colors: Some(colors.clone()),
+                theme_name: theme_name.to_owned(),
             )
         }
         .into_any(),

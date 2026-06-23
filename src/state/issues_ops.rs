@@ -1,11 +1,9 @@
 //! Issues mode state operations.
-//!
-//! Extracted from mod.rs to keep file sizes manageable.
 //! @plan PLAN-20260329-ISSUES-MODE.P05
 
 use super::{
-    AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget,
-    InlineState, IssueFocus, PaneFocus, PriorAgentFocus, ScreenMode, inline_cursor_vertical,
+    AgentChooserState, AppEvent, AppState, DetailSubfocus, InlineState, IssueFocus, PaneFocus,
+    PriorAgentFocus, ScreenMode,
 };
 use crate::domain::{IssueFilter, IssueFilterState};
 use crate::messages::IssuesMessage;
@@ -27,6 +25,11 @@ impl AppState {
         self.issues_state.list_cursor = None;
         self.issues_state.has_more_issues = false;
         self.issues_state.error = None;
+        self.issues_state.loading.comments = false;
+        self.issues_state.comments_page_pending = None;
+        self.issues_state.list_reload_pending = None;
+        self.issues_state.list_page_pending = None;
+        self.issues_state.detail_pending = None;
         self.issues_state.inline_state = InlineState::None;
         self.issues_state.agent_chooser = None;
         self.issues_state.filter_ui.controls_open = false;
@@ -69,150 +72,6 @@ impl AppState {
         }
     }
 
-    fn active_inline_text(inline_state: &mut InlineState) -> Option<(&mut String, &mut usize)> {
-        match inline_state {
-            InlineState::Composer { text, cursor, .. }
-            | InlineState::Editor { text, cursor, .. } => Some((text, cursor)),
-            InlineState::None => None,
-        }
-    }
-
-    fn insert_inline_char(inline_state: &mut InlineState, c: char) {
-        if let Some((text, cursor)) = Self::active_inline_text(inline_state) {
-            text.insert(*cursor, c);
-            *cursor += c.len_utf8();
-        }
-    }
-
-    fn delete_inline_previous_char(inline_state: &mut InlineState) {
-        if let Some((text, cursor)) = Self::active_inline_text(inline_state)
-            && *cursor > 0
-        {
-            let prev = text[..*cursor].chars().last().map_or(0, char::len_utf8);
-            text.drain((*cursor - prev)..*cursor);
-            *cursor -= prev;
-        }
-    }
-
-    fn delete_inline_next_char(inline_state: &mut InlineState) {
-        if let Some((text, cursor)) = Self::active_inline_text(inline_state)
-            && *cursor < text.len()
-        {
-            let next = text[*cursor..].chars().next().map_or(0, char::len_utf8);
-            text.drain(*cursor..(*cursor + next));
-        }
-    }
-
-    fn move_inline_cursor_left(inline_state: &mut InlineState) {
-        if let Some((text, cursor)) = Self::active_inline_text(inline_state)
-            && *cursor > 0
-        {
-            let prev = text[..*cursor].chars().last().map_or(0, char::len_utf8);
-            *cursor -= prev;
-        }
-    }
-
-    fn move_inline_cursor_right(inline_state: &mut InlineState) {
-        if let Some((text, cursor)) = Self::active_inline_text(inline_state)
-            && *cursor < text.len()
-        {
-            let next = text[*cursor..].chars().next().map_or(0, char::len_utf8);
-            *cursor += next;
-        }
-    }
-
-    /// Handle inline editor/composer text manipulation events.
-    /// Returns `true` if the event was handled.
-    fn apply_inline_event(&mut self, event: AppEvent) -> bool {
-        match event {
-            AppEvent::InlineChar(c) => {
-                Self::insert_inline_char(&mut self.issues_state.inline_state, c);
-            }
-            AppEvent::InlineNewline => {
-                Self::insert_inline_char(&mut self.issues_state.inline_state, char::from(0x0Au8));
-            }
-            AppEvent::InlineBackspace => {
-                Self::delete_inline_previous_char(&mut self.issues_state.inline_state);
-            }
-            AppEvent::InlineDelete => {
-                Self::delete_inline_next_char(&mut self.issues_state.inline_state);
-            }
-            AppEvent::InlineCursorLeft => {
-                Self::move_inline_cursor_left(&mut self.issues_state.inline_state);
-            }
-            AppEvent::InlineCursorRight => {
-                Self::move_inline_cursor_right(&mut self.issues_state.inline_state);
-            }
-            AppEvent::InlineCursorUp => {
-                if let Some((text, cursor)) =
-                    Self::active_inline_text(&mut self.issues_state.inline_state)
-                {
-                    inline_cursor_vertical(text, cursor, -1);
-                }
-            }
-            AppEvent::InlineCursorDown => {
-                if let Some((text, cursor)) =
-                    Self::active_inline_text(&mut self.issues_state.inline_state)
-                {
-                    inline_cursor_vertical(text, cursor, 1);
-                }
-            }
-            AppEvent::InlineCancelOrEsc => self.issues_state.inline_state = InlineState::None,
-            _ => return false,
-        }
-        true
-    }
-
-    /// Open a reply composer for the given comment.
-    fn open_reply_composer(&mut self, comment_index: usize) {
-        if self.issues_state.inline_state == InlineState::None {
-            let author = self
-                .issues_state
-                .issue_detail
-                .as_ref()
-                .and_then(|d| d.comments.get(comment_index))
-                .map(|c| format!("@{} ", c.author_login))
-                .unwrap_or_default();
-            let cursor = author.len();
-            self.issues_state.inline_state = InlineState::Composer {
-                target: ComposerTarget::Reply {
-                    comment_index,
-                    author: author.clone(),
-                },
-                text: author,
-                cursor,
-            };
-        }
-    }
-
-    /// Open an inline editor for the given target (issue body or comment).
-    fn open_inline_editor(&mut self, target: EditorTarget) {
-        if self.issues_state.inline_state == InlineState::None {
-            let text = match &target {
-                EditorTarget::IssueBody => self
-                    .issues_state
-                    .issue_detail
-                    .as_ref()
-                    .map(|d| d.body.clone())
-                    .unwrap_or_default(),
-                EditorTarget::Comment { comment_index } => self
-                    .issues_state
-                    .issue_detail
-                    .as_ref()
-                    .and_then(|d| d.comments.get(*comment_index))
-                    .map(|c| c.body.clone())
-                    .unwrap_or_default(),
-            };
-            let cursor = text.len();
-            self.issues_state.inline_state = InlineState::Editor {
-                target,
-                text,
-                cursor,
-            };
-        }
-    }
-
-    /// Advance detail subfocus to the next element.
     fn detail_subfocus_next(&mut self) {
         if let Some(detail) = &self.issues_state.issue_detail {
             let has_comments = !detail.comments.is_empty();
@@ -237,7 +96,6 @@ impl AppState {
         }
     }
 
-    /// Move detail subfocus to the previous element.
     fn detail_subfocus_prev(&mut self) {
         if let Some(detail) = &self.issues_state.issue_detail {
             let has_comments = !detail.comments.is_empty();
@@ -302,35 +160,76 @@ impl AppState {
         self.issues_state.has_more_issues = false;
         self.issues_state.error = None;
         self.issues_state.loading.list = true;
+        self.issues_state.loading.detail = false;
+        self.issues_state.loading.comments = false;
+        self.issues_state.list_reload_pending = None;
+        self.issues_state.list_page_pending = None;
+        self.issues_state.detail_pending = None;
+        self.issues_state.comments_page_pending = None;
     }
 
     fn navigate_issue_list_up(&mut self) {
-        if let Some(idx) = self.issues_state.selected_issue_index
+        let previous = self.issues_state.selected_issue_index;
+        if let Some(idx) = previous
             && idx > 0
         {
             self.issues_state.selected_issue_index = Some(idx - 1);
         }
+        self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
     fn navigate_issue_list_down(&mut self) {
-        if let Some(idx) = self.issues_state.selected_issue_index
+        let previous = self.issues_state.selected_issue_index;
+        if let Some(idx) = previous
             && idx + 1 < self.issues_state.issues.len()
         {
             self.issues_state.selected_issue_index = Some(idx + 1);
         }
+        self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
     fn navigate_issue_list_page_up(&mut self) {
-        if let Some(idx) = self.issues_state.selected_issue_index {
+        let previous = self.issues_state.selected_issue_index;
+        if let Some(idx) = previous {
             self.issues_state.selected_issue_index = Some(idx.saturating_sub(10));
         }
+        self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
     fn navigate_issue_list_page_down(&mut self) {
-        if let Some(idx) = self.issues_state.selected_issue_index {
+        let previous = self.issues_state.selected_issue_index;
+        if let Some(idx) = previous {
             let max = self.issues_state.issues.len().saturating_sub(1);
             self.issues_state.selected_issue_index = Some((idx + 10).min(max));
         }
+        self.invalidate_detail_requests_if_issue_selection_changed(previous);
+    }
+
+    fn navigate_issue_list_home(&mut self) {
+        let previous = self.issues_state.selected_issue_index;
+        if !self.issues_state.issues.is_empty() {
+            self.issues_state.selected_issue_index = Some(0);
+        }
+        self.invalidate_detail_requests_if_issue_selection_changed(previous);
+    }
+
+    fn navigate_issue_list_end(&mut self) {
+        let previous = self.issues_state.selected_issue_index;
+        if !self.issues_state.issues.is_empty() {
+            self.issues_state.selected_issue_index = Some(self.issues_state.issues.len() - 1);
+        }
+        self.invalidate_detail_requests_if_issue_selection_changed(previous);
+    }
+
+    fn invalidate_detail_requests_if_issue_selection_changed(&mut self, previous: Option<usize>) {
+        if self.issues_state.selected_issue_index == previous {
+            return;
+        }
+        self.issues_state.loading.detail = false;
+        self.issues_state.loading.comments = false;
+        self.issues_state.detail_pending = None;
+        self.issues_state.comments_page_pending = None;
+        self.issues_state.detail_scroll_offset = 0;
     }
 
     fn cycle_issues_focus(&mut self) {
@@ -364,17 +263,8 @@ impl AppState {
             },
             AppEvent::IssuesNavigatePageUp => self.navigate_issue_list_page_up(),
             AppEvent::IssuesNavigatePageDown => self.navigate_issue_list_page_down(),
-            AppEvent::IssuesNavigateHome => {
-                if !self.issues_state.issues.is_empty() {
-                    self.issues_state.selected_issue_index = Some(0);
-                }
-            }
-            AppEvent::IssuesNavigateEnd => {
-                if !self.issues_state.issues.is_empty() {
-                    self.issues_state.selected_issue_index =
-                        Some(self.issues_state.issues.len() - 1);
-                }
-            }
+            AppEvent::IssuesNavigateHome => self.navigate_issue_list_home(),
+            AppEvent::IssuesNavigateEnd => self.navigate_issue_list_end(),
             AppEvent::IssuesEnter => {
                 if self.issues_state.issue_focus == IssueFocus::IssueList
                     && self.issues_state.selected_issue_index.is_some()
@@ -388,189 +278,25 @@ impl AppState {
         }
     }
 
-    fn apply_issue_list_loaded(
-        &mut self,
-        scope_repo_id: crate::domain::RepositoryId,
-        issues: Vec<crate::domain::Issue>,
-        cursor: Option<String>,
-        has_more: bool,
-    ) {
-        let current_repo_id = self.selected_repository_id().cloned();
-        if current_repo_id.as_ref() == Some(&scope_repo_id) {
-            self.issues_state.error = None;
-            self.issues_state.issues = issues;
-            self.issues_state.list_cursor = cursor;
-            self.issues_state.has_more_issues = has_more;
-            self.issues_state.loading.list = false;
-            if self.issues_state.issues.is_empty() {
-                self.issues_state.selected_issue_index = None;
-                self.issues_state.issue_detail = None;
-            } else {
-                self.issues_state.selected_issue_index = Some(0);
-            }
-        }
-    }
-
-    fn apply_issue_list_page_loaded(
-        &mut self,
-        scope_repo_id: crate::domain::RepositoryId,
-        issues: Vec<crate::domain::Issue>,
-        cursor: Option<String>,
-        has_more: bool,
-    ) {
-        let current_repo_id = self.selected_repository_id().cloned();
-        if current_repo_id.as_ref() == Some(&scope_repo_id) {
-            self.issues_state.error = None;
-            self.issues_state.issues.extend(issues);
-            self.issues_state.list_cursor = cursor;
-            self.issues_state.has_more_issues = has_more;
-            self.issues_state.loading.list = false;
-        }
-    }
-
-    fn apply_issue_detail_loaded(
-        &mut self,
-        scope_repo_id: crate::domain::RepositoryId,
-        detail: crate::domain::IssueDetail,
-    ) {
-        let current_repo_id = self.selected_repository_id().cloned();
-        if current_repo_id.as_ref() == Some(&scope_repo_id) {
-            self.issues_state.error = None;
-            self.issues_state.issue_detail = Some(detail);
-            self.issues_state.loading.detail = false;
-            self.issues_state.detail_subfocus = DetailSubfocus::Body;
-            self.issues_state.detail_scroll_offset = 0;
-        }
-    }
-
-    fn apply_issue_comments_page_loaded(
-        &mut self,
-        scope_repo_id: crate::domain::RepositoryId,
-        issue_number: u64,
-        comments: Vec<crate::domain::IssueComment>,
-        cursor: Option<String>,
-        has_more: bool,
-    ) {
-        let current_repo_id = self.selected_repository_id().cloned();
-        if current_repo_id.as_ref() == Some(&scope_repo_id) {
-            if let Some(detail) = &mut self.issues_state.issue_detail
-                && detail.number == issue_number
-            {
-                detail.comments.extend(comments);
-                detail.comments_cursor = cursor;
-                detail.has_more_comments = has_more;
-            }
-            self.issues_state.error = None;
-            self.issues_state.loading.comments = false;
-        }
-    }
-
-    fn update_draft_filter_field(&mut self, field: String, value: String) {
-        match field.as_str() {
-            "author" => self.issues_state.draft_filter.author = value,
-            "assignee" => self.issues_state.draft_filter.assignee = value,
-            "mentioned" => self.issues_state.draft_filter.mentioned = value,
-            "query_text" => self.issues_state.draft_filter.query_text = value,
-            "labels" => {
-                self.issues_state
-                    .filter_ui
-                    .draft_labels_text
-                    .clone_from(&value);
-                self.issues_state.draft_filter.labels = value
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-            }
-            "updated_before" => self.issues_state.draft_filter.updated_before = value,
-            "updated_after" => self.issues_state.draft_filter.updated_after = value,
-            _ => {}
-        }
-    }
-
-    /// Handle data-loaded events (issue lists, details, comments, search, filters).
-    fn apply_issues_data(&mut self, event: AppEvent) {
+    pub(crate) fn apply_issue_mutation_error(&mut self, event: AppEvent) {
         match event {
-            AppEvent::IssueListLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            } => self.apply_issue_list_loaded(scope_repo_id, issues, cursor, has_more),
-            AppEvent::IssueListPageLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            } => self.apply_issue_list_page_loaded(scope_repo_id, issues, cursor, has_more),
-            AppEvent::IssueDetailLoaded {
-                scope_repo_id,
-                detail,
-                ..
-            } => self.apply_issue_detail_loaded(scope_repo_id, *detail),
-            AppEvent::IssueCommentsPageLoaded {
+            AppEvent::CommentCreateFailed {
                 scope_repo_id,
                 issue_number,
-                comments,
-                cursor,
-                has_more,
-            } => self.apply_issue_comments_page_loaded(
-                scope_repo_id,
-                issue_number,
-                comments,
-                cursor,
-                has_more,
+                mutation_id,
+                error,
+            } => self.apply_scoped_mutation_error(
+                &scope_repo_id,
+                Some(issue_number),
+                Some(mutation_id),
+                error,
             ),
-            AppEvent::SetSearchQuery { query } => self.issues_state.search_query = query,
-            AppEvent::UpdateDraftFilter { field, value } => {
-                self.update_draft_filter_field(field, value);
-            }
-            _ => {}
-        }
-    }
-
-    /// Handle error events.
-    fn apply_issues_error(&mut self, event: AppEvent) {
-        match event {
-            AppEvent::IssueListLoadFailed {
+            AppEvent::MutationFailed {
                 scope_repo_id,
+                issue_number,
+                mutation_id,
                 error,
-            } => {
-                let current_repo_id = self.selected_repository_id().cloned();
-                if current_repo_id.as_ref() == Some(&scope_repo_id) {
-                    self.issues_state.loading.list = false;
-                    self.issues_state.error = Some(error);
-                }
-            }
-            AppEvent::IssueDetailLoadFailed {
-                scope_repo_id,
-                error,
-                ..
-            } => {
-                let current_repo_id = self.selected_repository_id().cloned();
-                if current_repo_id.as_ref() == Some(&scope_repo_id) {
-                    self.issues_state.loading.detail = false;
-                    self.issues_state.error = Some(error);
-                }
-            }
-            AppEvent::IssueCommentsPageFailed {
-                scope_repo_id,
-                error,
-                ..
-            } => {
-                let current_repo_id = self.selected_repository_id().cloned();
-                if current_repo_id.as_ref() == Some(&scope_repo_id) {
-                    self.issues_state.loading.comments = false;
-                    self.issues_state.error = Some(error);
-                }
-            }
-            AppEvent::CommentCreateFailed { error } | AppEvent::MutationFailed { error } => {
-                self.issues_state.error = Some(error);
-                self.issues_state.inline_state = InlineState::None;
-            }
-            AppEvent::SendToAgentFailed { error } => {
-                self.issues_state.error = Some(error);
-            }
+            } => self.apply_scoped_mutation_error(&scope_repo_id, issue_number, mutation_id, error),
             _ => {}
         }
     }
@@ -592,6 +318,14 @@ impl AppState {
                 self.issues_state.has_more_issues = false;
                 self.issues_state.error = None;
                 self.issues_state.loading.list = true;
+                self.issues_state.loading.detail = false;
+                self.issues_state.loading.comments = false;
+                self.issues_state.detail_pending = None;
+                self.issues_state.comments_page_pending = None;
+                self.issues_state.list_reload_pending = None;
+                self.issues_state.list_page_pending = None;
+                self.issues_state.mutation_pending = None;
+                self.issues_state.inline_state = InlineState::None;
                 true
             }
             message => self.apply_issues_event(message.into()),
@@ -630,6 +364,12 @@ impl AppState {
         self.issues_state.issue_detail = None;
         self.issues_state.list_cursor = None;
         self.issues_state.has_more_issues = false;
+        self.issues_state.loading.detail = false;
+        self.issues_state.loading.comments = false;
+        self.issues_state.detail_pending = None;
+        self.issues_state.comments_page_pending = None;
+        self.issues_state.list_reload_pending = None;
+        self.issues_state.list_page_pending = None;
         self.issues_state.loading.list = true;
     }
 
@@ -675,65 +415,6 @@ impl AppState {
             }
             _ => return false,
         }
-        true
-    }
-
-    fn apply_inline_open_event(&mut self, event: AppEvent) -> bool {
-        match event {
-            AppEvent::OpenNewIssueComposer => {
-                if self.issues_state.inline_state == InlineState::None {
-                    self.issues_state.issue_focus = IssueFocus::IssueList;
-                    self.issues_state.inline_state = InlineState::Composer {
-                        target: ComposerTarget::NewIssue,
-                        text: String::new(),
-                        cursor: 0,
-                    };
-                }
-            }
-            AppEvent::OpenNewCommentComposer => {
-                if self.issues_state.inline_state == InlineState::None {
-                    self.issues_state.inline_state = InlineState::Composer {
-                        target: ComposerTarget::NewComment,
-                        text: String::new(),
-                        cursor: 0,
-                    };
-                }
-            }
-            AppEvent::OpenReplyComposer { comment_index } => {
-                self.open_reply_composer(comment_index);
-            }
-            AppEvent::OpenInlineEditor { target } => self.open_inline_editor(target),
-            _ => return false,
-        }
-        true
-    }
-
-    fn apply_issue_mutation_event(&mut self, event: AppEvent) -> bool {
-        match event {
-            AppEvent::CommentCreated { comment } => {
-                if let Some(detail) = &mut self.issues_state.issue_detail {
-                    detail.comments.push(comment);
-                }
-            }
-            AppEvent::IssueBodyUpdated { body } => {
-                if let Some(detail) = &mut self.issues_state.issue_detail {
-                    detail.body = body;
-                }
-            }
-            AppEvent::CommentUpdated {
-                comment_index,
-                body,
-            } => {
-                if let Some(detail) = &mut self.issues_state.issue_detail
-                    && let Some(comment) = detail.comments.get_mut(comment_index)
-                {
-                    comment.body = body;
-                }
-            }
-            _ => return false,
-        }
-        self.issues_state.error = None;
-        self.issues_state.inline_state = InlineState::None;
         true
     }
 
@@ -824,7 +505,7 @@ impl AppState {
     }
 
     pub(super) fn apply_issues_event(&mut self, event: AppEvent) -> bool {
-        if self.apply_issue_scroll_event(&event)
+        self.apply_issue_scroll_event(&event)
             || self.apply_issue_lifecycle_event(event.clone())
             || self.apply_issue_filter_event(event.clone())
             || self.apply_inline_open_event(event.clone())
@@ -832,9 +513,5 @@ impl AppState {
             || self.apply_issue_mutation_event(event.clone())
             || self.apply_agent_chooser_event(event.clone())
             || self.apply_issue_error_event(event)
-        {
-            return true;
-        }
-        false
     }
 }

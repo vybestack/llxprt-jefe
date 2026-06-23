@@ -270,3 +270,257 @@ fn repository_checkbox_toggle_updates_remote_fields() {
         _ => panic!("expected new-repository modal"),
     }
 }
+
+#[test]
+fn create_repository_rejects_invalid_github_repo_without_slash() {
+    let fields = RepositoryFormFields {
+        name: "Repo".to_owned(),
+        base_dir: String::new(),
+        default_profile: String::new(),
+        github_repo: "foo".to_owned(),
+        remote_enabled: false,
+        login_user: String::new(),
+        host: String::new(),
+        run_as_user: String::new(),
+        setup_env_default: false,
+    };
+    assert!(AppState::create_repository_from_fields(&fields).is_none());
+}
+
+#[test]
+fn create_repository_rejects_github_repo_with_extra_slash() {
+    let fields = RepositoryFormFields {
+        name: "Repo".to_owned(),
+        base_dir: String::new(),
+        default_profile: String::new(),
+        github_repo: "owner/repo/extra".to_owned(),
+        remote_enabled: false,
+        login_user: String::new(),
+        host: String::new(),
+        run_as_user: String::new(),
+        setup_env_default: false,
+    };
+    assert!(AppState::create_repository_from_fields(&fields).is_none());
+}
+
+#[test]
+fn create_repository_rejects_github_repo_missing_owner() {
+    let fields = RepositoryFormFields {
+        name: "Repo".to_owned(),
+        base_dir: String::new(),
+        default_profile: String::new(),
+        github_repo: "/repo".to_owned(),
+        remote_enabled: false,
+        login_user: String::new(),
+        host: String::new(),
+        run_as_user: String::new(),
+        setup_env_default: false,
+    };
+    assert!(AppState::create_repository_from_fields(&fields).is_none());
+}
+
+#[test]
+fn create_repository_rejects_github_repo_missing_repo_name() {
+    let fields = RepositoryFormFields {
+        name: "Repo".to_owned(),
+        base_dir: String::new(),
+        default_profile: String::new(),
+        github_repo: "owner/".to_owned(),
+        remote_enabled: false,
+        login_user: String::new(),
+        host: String::new(),
+        run_as_user: String::new(),
+        setup_env_default: false,
+    };
+    assert!(AppState::create_repository_from_fields(&fields).is_none());
+}
+
+#[test]
+fn create_repository_accepts_empty_github_repo() {
+    let fields = RepositoryFormFields {
+        name: "Repo".to_owned(),
+        base_dir: String::new(),
+        default_profile: String::new(),
+        github_repo: String::new(),
+        remote_enabled: false,
+        login_user: String::new(),
+        host: String::new(),
+        run_as_user: String::new(),
+        setup_env_default: false,
+    };
+    assert!(AppState::create_repository_from_fields(&fields).is_some());
+}
+
+#[test]
+fn create_repository_accepts_well_formed_github_repo() {
+    let fields = RepositoryFormFields {
+        name: "Repo".to_owned(),
+        base_dir: String::new(),
+        default_profile: String::new(),
+        github_repo: "owner/repo".to_owned(),
+        remote_enabled: false,
+        login_user: String::new(),
+        host: String::new(),
+        run_as_user: String::new(),
+        setup_env_default: false,
+    };
+    let Some(repo) = AppState::create_repository_from_fields(&fields) else {
+        panic!("valid repo");
+    };
+    assert_eq!(repo.github_repo, "owner/repo");
+}
+#[test]
+fn create_repository_rejects_github_repo_with_internal_whitespace_in_owner() {
+    let fields = RepositoryFormFields {
+        name: "Repo".to_owned(),
+        base_dir: String::new(),
+        default_profile: String::new(),
+        github_repo: "own er/repo".to_owned(),
+        remote_enabled: false,
+        login_user: String::new(),
+        host: String::new(),
+        run_as_user: String::new(),
+        setup_env_default: false,
+    };
+    assert!(AppState::create_repository_from_fields(&fields).is_none());
+}
+
+#[test]
+fn create_repository_rejects_github_repo_with_whitespace_around_slash() {
+    for value in ["owner /repo", "owner/ repo", "owner / repo"] {
+        let fields = RepositoryFormFields {
+            name: "Repo".to_owned(),
+            base_dir: String::new(),
+            default_profile: String::new(),
+            github_repo: value.to_owned(),
+            remote_enabled: false,
+            login_user: String::new(),
+            host: String::new(),
+            run_as_user: String::new(),
+            setup_env_default: false,
+        };
+        assert!(
+            AppState::create_repository_from_fields(&fields).is_none(),
+            "expected {value:?} to be rejected"
+        );
+    }
+}
+
+#[test]
+fn create_repository_accepts_github_repo_with_surrounding_whitespace_and_trims_it() {
+    let fields = RepositoryFormFields {
+        name: "Repo".to_owned(),
+        base_dir: String::new(),
+        default_profile: String::new(),
+        github_repo: "  owner/repo  ".to_owned(),
+        remote_enabled: false,
+        login_user: String::new(),
+        host: String::new(),
+        run_as_user: String::new(),
+        setup_env_default: false,
+    };
+    let Some(repo) = AppState::create_repository_from_fields(&fields) else {
+        panic!("valid repo with surrounding whitespace");
+    };
+    assert_eq!(repo.github_repo, "owner/repo");
+}
+
+#[test]
+fn update_repository_rejects_invalid_github_repo_keeping_existing() {
+    let mut repo = seed_repository();
+    repo.github_repo = "owner/existing".to_owned();
+    let fields = RepositoryFormFields {
+        name: "Repo".to_owned(),
+        base_dir: String::new(),
+        default_profile: String::new(),
+        github_repo: "no-slash".to_owned(),
+        remote_enabled: false,
+        login_user: String::new(),
+        host: String::new(),
+        run_as_user: String::new(),
+        setup_env_default: false,
+    };
+    assert!(!AppState::update_repository_from_fields(&mut repo, &fields));
+    // Existing value preserved because update was rejected.
+    assert_eq!(repo.github_repo, "owner/existing");
+}
+
+#[test]
+fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
+    let mut repo = seed_repository();
+    repo.github_repo = "owner/existing".to_owned();
+    let invalid = RepositoryFormFields {
+        name: "Repo".to_owned(),
+        base_dir: String::new(),
+        default_profile: String::new(),
+        github_repo: "no-slash".to_owned(),
+        remote_enabled: false,
+        login_user: String::new(),
+        host: String::new(),
+        run_as_user: String::new(),
+        setup_env_default: false,
+    };
+    assert!(!AppState::update_repository_from_fields(
+        &mut repo, &invalid
+    ));
+    assert_eq!(repo.github_repo, "owner/existing");
+
+    let valid = RepositoryFormFields {
+        github_repo: "owner/new".to_owned(),
+        ..invalid
+    };
+    assert!(AppState::update_repository_from_fields(&mut repo, &valid));
+    assert_eq!(repo.github_repo, "owner/new");
+}
+
+#[test]
+fn submit_edit_repository_keeps_modal_open_when_github_repo_invalid() {
+    let mut state = AppState {
+        repositories: vec![Repository {
+            github_repo: "owner/existing".to_owned(),
+            ..seed_repository()
+        }],
+        selected_repository_index: Some(0),
+        ..AppState::default()
+    };
+
+    state = state.apply(AppEvent::OpenEditRepository(RepositoryId(
+        "repo-1".to_owned(),
+    )));
+    if let ModalState::EditRepository { fields, .. } = &mut state.modal {
+        fields.github_repo = "owner/repo/extra".to_owned();
+    } else {
+        panic!("expected edit-repository modal");
+    }
+
+    state = state.apply(AppEvent::SubmitForm);
+
+    assert_eq!(state.repositories[0].github_repo, "owner/existing");
+    assert!(matches!(state.modal, ModalState::EditRepository { .. }));
+}
+
+#[test]
+fn submit_edit_repository_closes_modal_when_github_repo_valid() {
+    let mut state = AppState {
+        repositories: vec![Repository {
+            github_repo: "owner/existing".to_owned(),
+            ..seed_repository()
+        }],
+        selected_repository_index: Some(0),
+        ..AppState::default()
+    };
+
+    state = state.apply(AppEvent::OpenEditRepository(RepositoryId(
+        "repo-1".to_owned(),
+    )));
+    if let ModalState::EditRepository { fields, .. } = &mut state.modal {
+        fields.github_repo = "owner/new".to_owned();
+    } else {
+        panic!("expected edit-repository modal");
+    }
+
+    state = state.apply(AppEvent::SubmitForm);
+
+    assert_eq!(state.repositories[0].github_repo, "owner/new");
+    assert!(matches!(state.modal, ModalState::None));
+}

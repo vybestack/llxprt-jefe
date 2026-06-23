@@ -1,5 +1,6 @@
 use crate::domain::{
-    Agent, AgentId, Issue, IssueComment, IssueDetail, IssueState, Repository, RepositoryId,
+    Agent, AgentId, Issue, IssueComment, IssueDetail, IssueFilter, IssueState, Repository,
+    RepositoryId,
 };
 use crate::state::AppState;
 use crate::state::types::{
@@ -98,6 +99,24 @@ fn p15_comment(comment_id: u64, author_login: &str, created_at: &str, body: &str
     }
 }
 
+fn p15_comment_page() -> Vec<IssueComment> {
+    vec![
+        p15_comment(1, "alice", "2024-01-01T00:00:00Z", "First comment"),
+        p15_comment(2, "bob", "2024-01-02T00:00:00Z", "Second comment"),
+    ]
+}
+
+fn p15_state_with_loaded_detail(repo_id: &RepositoryId, issue_number: u64) -> AppState {
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), issue_number);
+    state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number,
+        request_id: 0,
+        detail: Box::new(p15_detail(issue_number)),
+    })
+}
+
 fn state_with_repo_and_agent() -> AppState {
     let mut state = AppState {
         selected_repository_index: Some(0),
@@ -158,6 +177,8 @@ fn test_mode_lifecycle_enter_browse_exit() {
     // Load issues
     let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(IssueFilter::default()),
+        request_id: 0,
         issues: vec![make_test_issue(1), make_test_issue(2), make_test_issue(3)],
         cursor: None,
         has_more: false,
@@ -188,6 +209,8 @@ fn test_mode_lifecycle_enter_interact_exit() {
     let state = state
         .apply(AppEvent::IssueListLoaded {
             scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id: 0,
             issues: vec![make_test_issue(10)],
             cursor: None,
             has_more: false,
@@ -327,22 +350,37 @@ fn test_key_routing_suppression_comprehensive() {
     assert!(state.issues_state.active);
 }
 
-/// P15 Test 5: Open composer, type text, apply CommentCreateFailed — draft preserved? error set.
-///
-/// Note: CommentCreateFailed clears inline_state (sends failed, draft gone). Error is set.
+/// P15 Test 5: Open composer, type text, apply CommentCreateFailed — draft preserved and error set.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
 /// @requirement REQ-ISS-013
 #[test]
 fn test_error_handling_rate_limit_preserves_draft() {
-    let mut state = AppState::default();
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let mut state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(p15_detail(42)),
+    });
     state.issues_state.inline_state = InlineState::Composer {
         target: ComposerTarget::NewComment,
         text: "my draft comment".to_string(),
         cursor: 16,
     };
+    let pending_target = state.issues_state.inline_state.clone();
+    let state = state.apply(AppEvent::MutationSubmitted {
+        scope_repo_id: repo_id.clone(),
+        mutation_id: 1,
+        target: pending_target,
+    });
 
     let state = state.apply(AppEvent::CommentCreateFailed {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        mutation_id: 1,
         error: "API rate limit exceeded".to_string(),
     });
 
@@ -351,8 +389,15 @@ fn test_error_handling_rate_limit_preserves_draft() {
         state.issues_state.error,
         Some("API rate limit exceeded".to_string())
     );
-    // Inline is cleared (failed submit clears state)
-    assert_eq!(state.issues_state.inline_state, InlineState::None);
+    assert_eq!(
+        state.issues_state.inline_state,
+        InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            text: "my draft comment".to_string(),
+            cursor: 16,
+        }
+    );
+    assert!(state.issues_state.mutation_pending.is_none());
 }
 
 /// P15 Test 6: Apply IssueListLoadFailed with auth message — error displayed, mode still active.
@@ -366,6 +411,9 @@ fn test_error_handling_auth_failure_blocks_ops() {
 
     let state = state.apply(AppEvent::IssueListLoadFailed {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(IssueFilter::default()),
+        request_id: 0,
+        request_cursor: None,
         error: "authentication required: token expired".to_string(),
     });
 
@@ -395,6 +443,9 @@ fn test_error_handling_network_error_stable_mode() {
 
     let state = state.apply(AppEvent::IssueListLoadFailed {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(IssueFilter::default()),
+        request_id: 0,
+        request_cursor: None,
         error: "network timeout: connection refused".to_string(),
     });
 
@@ -415,6 +466,8 @@ fn test_error_handling_network_error_stable_mode() {
 fn test_pagination_issue_list_auto_load() {
     let state = issues_mode_state_with_repo("repo-1").apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(IssueFilter::default()),
+        request_id: 0,
         issues: vec![make_test_issue(1), make_test_issue(2)],
         cursor: Some("cursor-abc".to_string()),
         has_more: true,
@@ -428,6 +481,32 @@ fn test_pagination_issue_list_auto_load() {
     assert_eq!(state.issues_state.issues.len(), 2);
 }
 
+#[test]
+fn test_detail_content_line_count_includes_empty_comments_separator() {
+    let mut state = dashboard_issues_state();
+    state.issues_state.issue_detail = Some(p15_detail(1));
+
+    assert_eq!(state.issues_state.detail_content_line_count(), 8);
+}
+
+#[test]
+fn test_detail_content_line_count_includes_loading_comments_separator() {
+    let mut state = dashboard_issues_state();
+    state.issues_state.issue_detail = Some(p15_detail(1));
+    state.issues_state.loading.comments = true;
+
+    assert_eq!(state.issues_state.detail_content_line_count(), 8);
+}
+
+#[test]
+fn test_detail_content_line_count_includes_non_empty_comments_separator() {
+    let mut detail = p15_detail(1);
+    detail.comments = vec![p15_comment(101, "alice", "2024-01-03T00:00:00Z", "hello")];
+    let mut state = dashboard_issues_state();
+    state.issues_state.issue_detail = Some(detail);
+
+    assert_eq!(state.issues_state.detail_content_line_count(), 10);
+}
 /// P15 Test 9: Load detail, load first comments page, load second — all comments present in order.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
@@ -436,32 +515,23 @@ fn test_pagination_issue_list_auto_load() {
 fn test_pagination_comments_append() {
     let repo_id = RepositoryId("repo-1".to_string());
 
-    // Load detail with no comments first
-    let detail = p15_detail(42);
-    let state = issues_mode_state_with_repo("repo-1").apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: repo_id.clone(),
-        issue_number: 42,
-        detail: Box::new(detail),
-    });
-    assert_eq!(
-        state
-            .issues_state
-            .issue_detail
-            .as_ref()
-            .unwrap_or_else(|| panic!("expected value"))
-            .comments
-            .len(),
-        0
-    );
+    let state = p15_state_with_loaded_detail(&repo_id, 42);
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected value"));
+    assert_eq!(detail.comments.len(), 0);
 
     // Load first page of comments
+    let mut state = state;
+    state.mark_comments_page_loading(repo_id.clone(), 42, None);
     let state = state.apply(AppEvent::IssueCommentsPageLoaded {
         scope_repo_id: repo_id.clone(),
         issue_number: 42,
-        comments: vec![
-            p15_comment(1, "alice", "2024-01-01T00:00:00Z", "First comment"),
-            p15_comment(2, "bob", "2024-01-02T00:00:00Z", "Second comment"),
-        ],
+        request_id: 0,
+        request_cursor: None,
+        comments: p15_comment_page(),
         cursor: Some("page2".to_string()),
         has_more: true,
     });
@@ -474,9 +544,13 @@ fn test_pagination_comments_append() {
     assert!(detail.has_more_comments);
 
     // Load second page of comments
+    let mut state = state;
+    state.mark_comments_page_loading(repo_id.clone(), 42, Some("page2".to_string()));
     let state = state.apply(AppEvent::IssueCommentsPageLoaded {
         scope_repo_id: repo_id.clone(),
         issue_number: 42,
+        request_id: 0,
+        request_cursor: Some("page2".to_string()),
         comments: vec![p15_comment(
             3,
             "carol",
@@ -499,7 +573,593 @@ fn test_pagination_comments_append() {
     assert_eq!(detail.comments[2].comment_id, 3);
 }
 
+#[test]
+fn test_stale_comment_page_same_repo_different_issue_does_not_clear_current_loading_or_error() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let mut state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(p15_detail(42)),
+    });
+    state.issues_state.loading.comments = true;
+    state.issues_state.error = Some("current load still pending".to_string());
+    state.mark_comments_page_loading(repo_id.clone(), 42, Some("current-cursor".to_string()));
+
+    let state = state.apply(AppEvent::IssueCommentsPageLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 99,
+        request_id: 0,
+        request_cursor: Some("stale-cursor".to_string()),
+        comments: vec![p15_comment(99, "stale", "2024-01-04T00:00:00Z", "stale")],
+        cursor: None,
+        has_more: false,
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected detail"));
+    assert_eq!(detail.number, 42);
+    assert!(detail.comments.is_empty());
+    assert!(state.issues_state.loading.comments);
+    assert_eq!(
+        state.issues_state.error.as_deref(),
+        Some("current load still pending")
+    );
+
+    let state = state.apply(AppEvent::IssueCommentsPageFailed {
+        scope_repo_id: repo_id,
+        issue_number: 99,
+        request_id: 0,
+        request_cursor: Some("stale-cursor".to_string()),
+        error: "stale failure".to_string(),
+    });
+
+    assert!(state.issues_state.loading.comments);
+    assert_eq!(
+        state.issues_state.error.as_deref(),
+        Some("current load still pending")
+    );
+}
+
+#[test]
+fn test_stale_comment_page_same_issue_different_cursor_does_not_clear_current_loading_or_error() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let mut state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(p15_detail(42)),
+    });
+    state.issues_state.loading.comments = true;
+    state.issues_state.error = Some("current comments page pending".to_string());
+    state.mark_comments_page_loading(repo_id.clone(), 42, Some("current-cursor".to_string()));
+
+    let state = state.apply(AppEvent::IssueCommentsPageLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        request_cursor: Some("stale-cursor".to_string()),
+        comments: vec![p15_comment(99, "stale", "2024-01-04T00:00:00Z", "stale")],
+        cursor: None,
+        has_more: false,
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected detail"));
+    assert!(detail.comments.is_empty());
+    assert!(state.issues_state.loading.comments);
+    assert_eq!(
+        state.issues_state.error.as_deref(),
+        Some("current comments page pending")
+    );
+
+    let state = state.apply(AppEvent::IssueCommentsPageFailed {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        request_id: 0,
+        request_cursor: Some("stale-cursor".to_string()),
+        error: "stale failure".to_string(),
+    });
+
+    assert!(state.issues_state.loading.comments);
+    assert_eq!(
+        state.issues_state.error.as_deref(),
+        Some("current comments page pending")
+    );
+}
+
+#[test]
+fn test_issue_navigation_invalidates_pending_detail_responses() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.issues_state.issues = vec![make_test_issue(42), make_test_issue(43)];
+    state.issues_state.selected_issue_index = Some(0);
+    state.issues_state.issue_focus = IssueFocus::IssueList;
+    state.issues_state.issue_detail = Some(p15_detail(42));
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+
+    let state = state.apply(AppEvent::IssuesNavigateDown);
+
+    assert_eq!(state.issues_state.selected_issue_index, Some(1));
+    assert!(!state.issues_state.loading.detail);
+    assert!(state.issues_state.detail_pending.is_none());
+
+    let mut stale_detail = p15_detail(42);
+    stale_detail.body = "stale detail body".to_string();
+    let state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(stale_detail),
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected existing preview/detail"));
+    assert_eq!(detail.body, "Issue body");
+
+    let state = state.apply(AppEvent::IssueDetailLoadFailed {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        request_id: 0,
+        error: "stale failure".to_string(),
+    });
+
+    assert!(state.issues_state.error.is_none());
+    assert!(!state.issues_state.loading.detail);
+}
+
+#[test]
+fn test_issue_navigation_away_and_back_invalidates_pending_comment_page() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.issues_state.issues = vec![make_test_issue(42), make_test_issue(43)];
+    state.issues_state.selected_issue_index = Some(0);
+    state.issues_state.issue_focus = IssueFocus::IssueList;
+    let mut detail = p15_detail(42);
+    detail.has_more_comments = true;
+    detail.comments_cursor = Some("cursor-1".to_string());
+    state.issues_state.issue_detail = Some(detail);
+    state.mark_comments_page_loading(repo_id.clone(), 42, Some("cursor-1".to_string()));
+
+    let state = state
+        .apply(AppEvent::IssuesNavigateDown)
+        .apply(AppEvent::IssuesNavigateUp);
+
+    assert_eq!(state.issues_state.selected_issue_index, Some(0));
+    assert!(!state.issues_state.loading.comments);
+    assert!(state.issues_state.comments_page_pending.is_none());
+
+    let state = state.apply(AppEvent::IssueCommentsPageLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        request_cursor: Some("cursor-1".to_string()),
+        comments: vec![p15_comment(99, "stale", "2024-01-04T00:00:00Z", "stale")],
+        cursor: None,
+        has_more: false,
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected existing detail"));
+    assert!(detail.comments.is_empty());
+
+    let state = state.apply(AppEvent::IssueCommentsPageFailed {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        request_id: 0,
+        request_cursor: Some("cursor-1".to_string()),
+        error: "stale failure".to_string(),
+    });
+
+    assert!(state.issues_state.error.is_none());
+    assert!(!state.issues_state.loading.comments);
+}
+#[test]
+fn test_issue_navigate_end_invalidates_pending_detail_responses() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.issues_state.issues = vec![make_test_issue(42), make_test_issue(43)];
+    state.issues_state.selected_issue_index = Some(0);
+    state.issues_state.issue_focus = IssueFocus::IssueList;
+    state.issues_state.issue_detail = Some(p15_detail(42));
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+
+    let state = state.apply(AppEvent::IssuesNavigateEnd);
+
+    assert_eq!(state.issues_state.selected_issue_index, Some(1));
+    assert!(!state.issues_state.loading.detail);
+    assert!(state.issues_state.detail_pending.is_none());
+
+    let mut stale_detail = p15_detail(42);
+    stale_detail.body = "stale detail body".to_string();
+    let state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(stale_detail),
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected existing preview/detail"));
+    assert_eq!(detail.body, "Issue body");
+}
+
+#[test]
+fn test_issue_navigate_home_invalidates_pending_comment_page() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.issues_state.issues = vec![make_test_issue(42), make_test_issue(43)];
+    state.issues_state.selected_issue_index = Some(1);
+    state.issues_state.issue_focus = IssueFocus::IssueList;
+    let mut detail = p15_detail(43);
+    detail.has_more_comments = true;
+    detail.comments_cursor = Some("cursor-1".to_string());
+    state.issues_state.issue_detail = Some(detail);
+    state.mark_comments_page_loading(repo_id.clone(), 43, Some("cursor-1".to_string()));
+
+    let state = state.apply(AppEvent::IssuesNavigateHome);
+
+    assert_eq!(state.issues_state.selected_issue_index, Some(0));
+    assert!(!state.issues_state.loading.comments);
+    assert!(state.issues_state.comments_page_pending.is_none());
+
+    let state = state.apply(AppEvent::IssueCommentsPageLoaded {
+        scope_repo_id: repo_id,
+        issue_number: 43,
+        request_id: 0,
+        request_cursor: Some("cursor-1".to_string()),
+        comments: vec![p15_comment(99, "stale", "2024-01-04T00:00:00Z", "stale")],
+        cursor: None,
+        has_more: false,
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected existing detail"));
+    assert!(detail.comments.is_empty());
+}
+
+#[test]
+fn test_stale_mutation_events_same_repo_different_issue_do_not_mutate_or_clear_inline_state() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut detail = p15_detail(42);
+    detail.comments = vec![p15_comment(7, "alice", "2024-01-03T00:00:00Z", "original")];
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let mut state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(detail),
+    });
+    state.issues_state.inline_state = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "draft".to_string(),
+        cursor: 5,
+    };
+    let pending_target = state.issues_state.inline_state.clone();
+    let state = state.apply(AppEvent::MutationSubmitted {
+        scope_repo_id: repo_id.clone(),
+        mutation_id: 1,
+        target: pending_target,
+    });
+    let mut state = state;
+    state.issues_state.error = Some("current error".to_string());
+
+    let state = state
+        .apply(AppEvent::CommentCreated {
+            scope_repo_id: repo_id.clone(),
+            issue_number: 99,
+            mutation_id: 1,
+            comment: p15_comment(8, "bob", "2024-01-04T00:00:00Z", "stale"),
+        })
+        .apply(AppEvent::IssueBodyUpdated {
+            scope_repo_id: repo_id.clone(),
+            issue_number: 99,
+            mutation_id: 1,
+            body: "stale body".to_string(),
+        })
+        .apply(AppEvent::CommentUpdated {
+            scope_repo_id: repo_id,
+            issue_number: 99,
+            mutation_id: 1,
+            comment_id: 7,
+            comment_index: 0,
+            body: "stale update".to_string(),
+        });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected detail"));
+    assert_eq!(detail.body, "Issue body");
+    assert_eq!(detail.comments.len(), 1);
+
+    assert_eq!(detail.comments[0].body, "original");
+    match &state.issues_state.inline_state {
+        InlineState::Composer { text, .. } => assert_eq!(text, "draft"),
+        other => panic!("expected composer draft to remain, got {other:?}"),
+    }
+    assert_eq!(state.issues_state.error.as_deref(), Some("current error"));
+}
+
+#[test]
+fn test_comment_update_matches_by_comment_id_when_index_shifted() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut detail = p15_detail(42);
+    detail.comments = vec![
+        p15_comment(1, "alice", "2024-01-01T00:00:00Z", "first"),
+        p15_comment(2, "bob", "2024-01-02T00:00:00Z", "second"),
+    ];
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(detail),
+    });
+
+    let state = state
+        .apply(AppEvent::MutationSubmitted {
+            scope_repo_id: repo_id.clone(),
+            mutation_id: 1,
+            target: InlineState::Editor {
+                target: EditorTarget::Comment { comment_index: 0 },
+                text: "updated by id".to_string(),
+                cursor: 13,
+            },
+        })
+        .apply(AppEvent::CommentUpdated {
+            scope_repo_id: repo_id,
+            issue_number: 42,
+            mutation_id: 1,
+            comment_id: 2,
+            comment_index: 0,
+            body: "updated by id".to_string(),
+        });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected detail"));
+    assert_eq!(detail.comments[0].body, "first");
+    assert_eq!(detail.comments[1].body, "updated by id");
+}
+
 /// P15 Test 10: Enter issues, exit — prior focus (pane_focus, selected_agent_index) restored.
+
+#[test]
+fn test_stale_mutation_failures_same_repo_different_issue_do_not_clear_inline_state() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let mut state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(p15_detail(42)),
+    });
+    state.issues_state.inline_state = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "draft".to_string(),
+        cursor: 5,
+    };
+    let pending_target = state.issues_state.inline_state.clone();
+    let state = state.apply(AppEvent::MutationSubmitted {
+        scope_repo_id: repo_id.clone(),
+        mutation_id: 1,
+        target: pending_target,
+    });
+    let mut state = state;
+    state.issues_state.error = Some("current error".to_string());
+
+    let state = state
+        .apply(AppEvent::CommentCreateFailed {
+            scope_repo_id: repo_id.clone(),
+            issue_number: 99,
+            mutation_id: 1,
+            error: "stale comment create failure".to_string(),
+        })
+        .apply(AppEvent::MutationFailed {
+            scope_repo_id: repo_id,
+            issue_number: Some(99),
+            mutation_id: Some(1),
+            error: "stale mutation failure".to_string(),
+        });
+
+    match &state.issues_state.inline_state {
+        InlineState::Composer { text, .. } => assert_eq!(text, "draft"),
+        other => panic!("expected composer draft to remain, got {other:?}"),
+    }
+    assert_eq!(state.issues_state.error.as_deref(), Some("current error"));
+}
+
+#[test]
+fn test_matching_mutation_response_does_not_clear_newer_inline_draft() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut detail = p15_detail(42);
+    detail.comments = vec![p15_comment(1, "alice", "2024-01-01T00:00:00Z", "original")];
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let mut state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(detail),
+    });
+    let submitted_target = InlineState::Editor {
+        target: EditorTarget::Comment { comment_index: 0 },
+        text: "submitted edit".to_string(),
+        cursor: 14,
+    };
+    state.issues_state.inline_state = submitted_target.clone();
+    let mut state = state.apply(AppEvent::MutationSubmitted {
+        scope_repo_id: repo_id.clone(),
+        mutation_id: 7,
+        target: submitted_target,
+    });
+    state.issues_state.inline_state = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "newer draft".to_string(),
+        cursor: 11,
+    };
+
+    let state = state.apply(AppEvent::CommentUpdated {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        mutation_id: 7,
+        comment_id: 1,
+        comment_index: 0,
+        body: "submitted edit".to_string(),
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected detail"));
+    assert_eq!(detail.comments[0].body, "submitted edit");
+    assert!(state.issues_state.mutation_pending.is_none());
+    match &state.issues_state.inline_state {
+        InlineState::Composer { text, .. } => assert_eq!(text, "newer draft"),
+        other => panic!("expected newer composer draft to remain, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_scope_reset_clears_pending_mutation_and_allows_new_inline_draft() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let submitted_target = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "submitted".to_string(),
+        cursor: 9,
+    };
+    let mut state = issues_mode_state_with_repo("repo-1").apply(AppEvent::MutationSubmitted {
+        scope_repo_id: repo_id,
+        mutation_id: 11,
+        target: submitted_target,
+    });
+    state.issues_state.inline_state = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "newer draft".to_string(),
+        cursor: 11,
+    };
+
+    let state = state.apply(AppEvent::ApplySearch);
+    assert!(state.issues_state.mutation_pending.is_none());
+    assert_eq!(state.issues_state.inline_state, InlineState::None);
+
+    let state = state.apply(AppEvent::OpenNewCommentComposer);
+    assert!(matches!(
+        state.issues_state.inline_state,
+        InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn test_stale_create_issue_success_after_repo_change_does_not_clear_current_draft() {
+    let submitted_target = InlineState::Composer {
+        target: ComposerTarget::NewIssue,
+        text: "title".to_string(),
+        cursor: 5,
+    };
+    let mut state = AppState::default();
+    state.repositories.push(Repository::new(
+        RepositoryId("repo-1".to_string()),
+        "Repo 1".to_string(),
+        "repo-1".to_string(),
+        std::path::PathBuf::from("/tmp/repo1"),
+    ));
+    state.repositories.push(Repository::new(
+        RepositoryId("repo-2".to_string()),
+        "Repo 2".to_string(),
+        "repo-2".to_string(),
+        std::path::PathBuf::from("/tmp/repo2"),
+    ));
+    state.selected_repository_index = Some(0);
+    let mut state = state.apply(AppEvent::MutationSubmitted {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 12,
+        target: submitted_target,
+    });
+    state.selected_repository_index = Some(1);
+    state.issues_state.inline_state = InlineState::Composer {
+        target: ComposerTarget::NewIssue,
+        text: "new repo draft".to_string(),
+        cursor: 14,
+    };
+
+    let state = state.apply(AppEvent::IssueCreated {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 12,
+        issue_number: 1,
+    });
+
+    assert!(state.issues_state.mutation_pending.is_some());
+    match &state.issues_state.inline_state {
+        InlineState::Composer { text, .. } => assert_eq!(text, "new repo draft"),
+        other => panic!("expected new repo draft to remain, got {other:?}"),
+    }
+    assert!(state.issues_state.draft_notice.is_none());
+}
+
+#[test]
+fn test_create_issue_success_for_current_repo_sets_notice_and_clears_pending() {
+    let submitted_target = InlineState::Composer {
+        target: ComposerTarget::NewIssue,
+        text: "title".to_string(),
+        cursor: 5,
+    };
+    let state = issues_mode_state_with_repo("repo-1");
+    let mut state = state.apply(AppEvent::MutationSubmitted {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 21,
+        target: submitted_target.clone(),
+    });
+    state.issues_state.inline_state = submitted_target;
+
+    let state = state.apply(AppEvent::IssueCreated {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 21,
+        issue_number: 77,
+    });
+
+    assert!(state.issues_state.mutation_pending.is_none());
+    assert_eq!(state.issues_state.inline_state, InlineState::None);
+    assert_eq!(
+        state.issues_state.draft_notice.as_deref(),
+        Some("Created issue #77")
+    );
+}
+
+/// P15 Test 10: Enter issues, exit — prior agent focus is restored.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
 /// @requirement REQ-ISS-005
@@ -615,6 +1275,8 @@ fn test_scope_change_invalidation() {
         .apply(AppEvent::EnterIssuesMode)
         .apply(AppEvent::IssueListLoaded {
             scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id: 0,
             issues: vec![make_test_issue(1), make_test_issue(2)],
             cursor: Some("cur".to_string()),
             has_more: true,
@@ -662,6 +1324,8 @@ fn test_stale_scope_response_suppressed() {
         .apply(AppEvent::EnterIssuesMode)
         .apply(AppEvent::IssueListLoaded {
             scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id: 0,
             issues: vec![make_test_issue(1)],
             cursor: None,
             has_more: false,
@@ -674,6 +1338,8 @@ fn test_stale_scope_response_suppressed() {
     // Now a stale response for repo-1 arrives
     let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(IssueFilter::default()),
+        request_id: 0,
         issues: vec![make_test_issue(99)],
         cursor: None,
         has_more: false,
@@ -798,13 +1464,33 @@ fn test_inline_exclusivity_all_combinations() {
 /// @requirement REQ-ISS-011
 #[test]
 fn test_send_to_agent_payload_complete() {
-    let state = state_with_repo_and_agent()
+    let mut state = state_with_repo_and_agent()
         .apply(AppEvent::EnterIssuesMode)
-        .apply(AppEvent::IssueDetailLoaded {
+        .apply(AppEvent::IssueListLoaded {
             scope_repo_id: RepositoryId("repo-1".to_string()),
-            issue_number: 7,
-            detail: Box::new(send_payload_detail()),
+            filter: Box::new(IssueFilter::default()),
+            request_id: 0,
+            issues: vec![crate::domain::Issue {
+                number: 7,
+                title: "Send payload issue".to_string(),
+                state: crate::domain::IssueState::Open,
+                author_login: "octocat".to_string(),
+                updated_at: "2024-01-01T00:00:00Z".to_string(),
+                labels_summary: String::new(),
+                assignee_summary: String::new(),
+                comment_count: 0,
+                body: String::new(),
+            }],
+            cursor: None,
+            has_more: false,
         });
+    state.mark_issue_detail_loading(RepositoryId("repo-1".to_string()), 7);
+    let state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        issue_number: 7,
+        request_id: 0,
+        detail: Box::new(send_payload_detail()),
+    });
 
     let state = state.apply(AppEvent::IssueDetailSubfocusNext);
     let state = state.apply(AppEvent::IssueDetailSubfocusNext);
@@ -989,8 +1675,150 @@ fn test_inline_cursor_vertical_column_clamping() {
     let nl = String::from(char::from(0x0Au8));
     let text = ["abcdef", "xy", "z"].join(&nl);
 
-    // Cursor at col 5 of line 0 → down to line 1 (len 2) → clamp to col 2
+    // Cursor at col 5 of line 0 -> down to line 1 (len 2) -> clamp to col 2
     let mut cursor = 5;
     inline_cursor_vertical(&text, &mut cursor, 1);
     assert_eq!(cursor, 9); // line 1 start=7, col clamped to 2 = byte 9
+}
+
+/// InlineCursorUp/Down compute columns in characters for multi-byte (Unicode) text.
+/// Without this fix, byte-based column math lands on invalid positions.
+#[test]
+fn test_inline_cursor_vertical_unicode_columns() {
+    use super::inline_cursor_vertical;
+
+    let nl = String::from(char::from(0x0Au8));
+    // Line 0: 3 emoji (4 bytes each = 12 bytes, 3 chars)
+    // Line 1: 2 emoji (4 bytes each = 8 bytes, 2 chars)
+    let emoji = "\u{1F600}\u{1F601}\u{1F602}";
+    let emoji_short = "\u{1F600}\u{1F601}";
+    let text = [emoji, emoji_short].join(&nl);
+    // Byte layout:
+    //   [0..4)   emoji 1 (line 0)
+    //   [4..8)   emoji 2 (line 0)
+    //   [8..12)  emoji 3 (line 0)
+    //   [12]     newline
+    //   [13..17) emoji 1 (line 1)
+    //   [17..21) emoji 2 (line 1)
+
+    // Place cursor after the 2nd emoji on line 0 (char col 2, byte 8).
+    let mut cursor = 8;
+    // Move down: char col 2 on line 1 (end of line 1) = byte 21.
+    // The old byte-based code would compute col=8 and clamp to 8, landing
+    // at byte 13+8=21 only by coincidence; for col 1 the bug is visible.
+    inline_cursor_vertical(&text, &mut cursor, 1);
+    assert_eq!(
+        cursor, 21,
+        "Unicode down: should land at char col 2 on line 1"
+    );
+
+    // Move back up: char col 2 on line 0 = byte 8 again.
+    inline_cursor_vertical(&text, &mut cursor, -1);
+    assert_eq!(cursor, 8, "Unicode up: should land at char col 2 on line 0");
+
+    // Place cursor after 1st emoji on line 0 (char col 1, byte 4).
+    let mut cursor = 4;
+    // Down: char col 1 on line 1 = byte 17.
+    // With the old byte-based code, col=4 would land at byte 13+4=17, which
+    // is the middle of emoji 2 on line 1 (bytes 17..21) — an invalid char
+    // boundary. The fix lands exactly on the boundary at byte 17.
+    inline_cursor_vertical(&text, &mut cursor, 1);
+    assert_eq!(
+        cursor, 17,
+        "Unicode down: should land at char col 1 on line 1"
+    );
+}
+
+#[test]
+fn test_detail_load_failure_with_pending_token_surfaces_error() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+
+    let state = state.apply(AppEvent::IssueDetailLoadFailed {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        request_id: 0,
+        error: "No GitHub repository configured".to_string(),
+    });
+
+    assert!(!state.issues_state.loading.detail);
+    assert!(state.issues_state.detail_pending.is_none());
+    assert_eq!(
+        state.issues_state.error.as_deref(),
+        Some("No GitHub repository configured")
+    );
+}
+
+#[test]
+fn test_comment_page_failure_with_pending_token_surfaces_error() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = p15_state_with_loaded_detail(&repo_id, 42);
+    state.mark_comments_page_loading(repo_id.clone(), 42, Some("cursor-1".to_string()));
+
+    let state = state.apply(AppEvent::IssueCommentsPageFailed {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        request_id: 0,
+        request_cursor: Some("cursor-1".to_string()),
+        error: "No GitHub repository configured".to_string(),
+    });
+
+    assert!(!state.issues_state.loading.comments);
+    assert!(state.issues_state.comments_page_pending.is_none());
+    assert_eq!(
+        state.issues_state.error.as_deref(),
+        Some("No GitHub repository configured")
+    );
+}
+
+#[test]
+fn test_untokened_mutation_failure_for_current_detail_surfaces_error() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let state = p15_state_with_loaded_detail(&repo_id, 42);
+
+    let state = state.apply(AppEvent::MutationFailed {
+        scope_repo_id: repo_id,
+        issue_number: Some(42),
+        mutation_id: None,
+        error: "No GitHub repository configured".to_string(),
+    });
+
+    assert_eq!(
+        state.issues_state.error.as_deref(),
+        Some("No GitHub repository configured")
+    );
+}
+
+#[test]
+fn test_detail_scroll_limit_uses_stored_viewport_rows() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut detail = p15_detail(42);
+    detail.body = (0..30)
+        .map(|line| format!("line {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let mut state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(detail),
+    });
+
+    state.issues_state.detail_viewport_rows = 5;
+    let compact_max = state.issues_state.max_detail_scroll_offset();
+    state.issues_state.detail_viewport_rows = 20;
+    let roomy_max = state.issues_state.max_detail_scroll_offset();
+
+    assert!(compact_max > roomy_max);
+    assert_eq!(
+        compact_max,
+        state.issues_state.max_detail_scroll_offset_for_viewport(5)
+    );
+    assert_eq!(
+        roomy_max,
+        state.issues_state.max_detail_scroll_offset_for_viewport(20)
+    );
 }

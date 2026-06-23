@@ -2,7 +2,7 @@ use crate::domain::{Issue, IssueComment, IssueDetail, IssueFilter, IssueFilterSt
 use crate::github::{
     GhClient, GhError, build_list_issues_args, categorize_error, parse_comments_json,
     parse_created_comment_json, parse_created_issue_json, parse_issue_detail_json,
-    parse_issues_json, sort_issues,
+    parse_issue_search_json, parse_issues_json, sort_issues,
 };
 
 trait TestResultExt<T> {
@@ -175,6 +175,40 @@ fn test_list_issues_filter_args_construction() {
     assert!(args.iter().any(|a| a.contains("limit") || a == "-L"));
 }
 
+#[test]
+fn test_parse_issue_search_json_pagination() {
+    let json = r#"{
+        "data": {
+            "search": {
+                "nodes": [
+                    {
+                        "number": 17,
+                        "title": "Create a feature list",
+                        "state": "OPEN",
+                        "author": {"login": "acoliver"},
+                        "updatedAt": "2026-03-29T10:00:00Z",
+                        "assignees": {"nodes": [{"login": "acoliver"}]},
+                        "labels": {"nodes": [{"name": "enhancement"}]},
+                        "comments": {"totalCount": 3},
+                        "body": "Issue body"
+                    }
+                ],
+                "pageInfo": {
+                    "hasNextPage": true,
+                    "endCursor": "cursor-1"
+                }
+            }
+        }
+    }"#;
+
+    let response = parse_issue_search_json(json).value_or_panic("should parse issue search");
+
+    assert_eq!(response.issues.len(), 1);
+    assert_eq!(response.issues[0].number, 17);
+    assert_eq!(response.cursor, Some("cursor-1".to_string()));
+    assert!(response.has_more);
+}
+
 /// Test 6: parse_issues_json handles empty result.
 /// @plan PLAN-20260329-ISSUES-MODE.P08
 /// @requirement REQ-ISS-006
@@ -230,6 +264,28 @@ fn test_get_issue_detail_parses_json() {
     assert_eq!(detail.repo_owner_name, "owner/repo");
     assert_eq!(detail.comments.len(), 1);
     assert_eq!(detail.comments[0].body, "Comment body");
+}
+#[test]
+fn test_parse_issue_detail_json_disables_pagination_until_graphql_comments_are_loaded() {
+    let json = r#"{
+        "number": 17,
+        "title": "Create a feature list",
+        "state": "OPEN",
+        "author": {"login": "acoliver"},
+        "createdAt": "2026-03-28T10:00:00Z",
+        "updatedAt": "2026-03-29T10:00:00Z",
+        "labels": [],
+        "assignees": [],
+        "milestone": null,
+        "body": "Issue body text here",
+        "url": "https://github.com/owner/repo/issues/17",
+        "comments": []
+    }"#;
+
+    let detail = parse_issue_detail_json(json).value_or_panic("should parse detail JSON");
+
+    assert!(!detail.has_more_comments);
+    assert_eq!(detail.comments_cursor, None);
 }
 
 /// Test 8: parse_issue_detail_json handles missing milestone.
@@ -327,6 +383,74 @@ fn test_list_comments_parses_json() {
     );
     assert_eq!(cursor, None);
     assert!(!has_more);
+}
+
+#[test]
+fn test_list_comments_parses_opaque_graphql_node_ids_with_database_id() {
+    let json = r#"{
+        "data": {
+            "repository": {
+                "issue": {
+                    "comments": {
+                        "nodes": [
+                            {
+                                "id": "IC_kwDORSOxIM75naWC",
+                                "databaseId": 4187858306,
+                                "author": {"login": "coderabbitai"},
+                                "createdAt": "2026-04-04T22:35:31Z",
+                                "lastEditedAt": null,
+                                "body": "Real GitHub node ids are opaque"
+                            }
+                        ],
+                        "pageInfo": {
+                            "hasNextPage": false,
+                            "endCursor": null
+                        }
+                    }
+                }
+            }
+        }
+    }"#;
+
+    let (comments, cursor, has_more) =
+        parse_comments_json(json).value_or_panic("should parse comments");
+
+    assert_eq!(comments.len(), 1);
+    assert_eq!(comments[0].comment_id, 4_187_858_306);
+    assert_eq!(comments[0].author_login, "coderabbitai");
+    assert_eq!(cursor, None);
+    assert!(!has_more);
+}
+
+#[test]
+fn test_issue_detail_comments_parse_opaque_node_id_from_url_fragment() {
+    let json = r#"{
+        "number": 39,
+        "title": "Issue mode follow-ups",
+        "state": "OPEN",
+        "author": {"login": "acoliver"},
+        "createdAt": "2026-04-04T22:00:00Z",
+        "updatedAt": "2026-04-04T22:35:31Z",
+        "labels": [],
+        "assignees": [],
+        "milestone": null,
+        "body": "Issue body",
+        "url": "https://github.com/vybestack/llxprt-jefe/issues/39",
+        "comments": [
+            {
+                "id": "IC_kwDORSOxIM75naWC",
+                "url": "https://github.com/vybestack/llxprt-jefe/issues/39#issuecomment-4187858306",
+                "author": {"login": "coderabbitai"},
+                "createdAt": "2026-04-04T22:35:31Z",
+                "body": "Real gh issue view comments have opaque ids and URL fragments"
+            }
+        ]
+    }"#;
+
+    let detail = parse_issue_detail_json(json).value_or_panic("should parse detail JSON");
+
+    assert_eq!(detail.comments.len(), 1);
+    assert_eq!(detail.comments[0].comment_id, 4_187_858_306);
 }
 
 /// Test 10: parse_comments_json extracts pagination info.
@@ -574,4 +698,91 @@ fn test_error_categorization_access_denied() {
     let stderr = "HTTP 403: Resource not accessible by personal access token";
     let error = categorize_error(1, stderr);
     assert!(matches!(error, GhError::AccessDenied(_)));
+}
+
+/// Test 19: parse_issues_json supports direct array format for assignees/labels.
+/// Some `gh` CLI responses return bare arrays instead of GraphQL `{nodes:[...]}`.
+#[test]
+fn test_parse_issues_json_direct_array_assignees_labels() {
+    let json = r#"[
+        {
+            "number": 1,
+            "title": "Test",
+            "state": "OPEN",
+            "author": {"login": "alice"},
+            "updatedAt": "2026-03-29T10:00:00Z",
+            "assignees": [{"login": "bob"}, {"login": "carol"}],
+            "labels": [{"name": "bug"}],
+            "comments": {"totalCount": 0}
+        }
+    ]"#;
+
+    let issues = parse_issues_json(json).value_or_panic("should parse direct-array JSON");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].assignee_summary, "bob, carol");
+    assert_eq!(issues[0].labels_summary, "bug");
+}
+
+/// Test 20: parse_issues_json supports GraphQL nodes format for assignees/labels.
+#[test]
+fn test_parse_issues_json_graphql_nodes_assignees_labels() {
+    let json = r#"[
+        {
+            "number": 2,
+            "title": "GraphQL",
+            "state": "OPEN",
+            "author": {"login": "alice"},
+            "updatedAt": "2026-03-29T10:00:00Z",
+            "assignees": {"nodes": [{"login": "dave"}]},
+            "labels": {"nodes": [{"name": "enhancement"}, {"name": "ui"}]},
+            "comments": {"totalCount": 0}
+        }
+    ]"#;
+
+    let issues = parse_issues_json(json).value_or_panic("should parse graphql-nodes JSON");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].assignee_summary, "dave");
+    assert_eq!(issues[0].labels_summary, "enhancement, ui");
+}
+
+/// Test 21: parse_issue_detail_json propagates comment parse errors instead of
+/// silently swallowing them.
+#[test]
+fn test_parse_issue_detail_json_propagates_comment_errors() {
+    let json = r#"{
+        "number": 17,
+        "title": "Bad comment",
+        "state": "OPEN",
+        "author": {"login": "acoliver"},
+        "createdAt": "2026-03-28T10:00:00Z",
+        "updatedAt": "2026-03-29T10:00:00Z",
+        "labels": [],
+        "assignees": [],
+        "milestone": null,
+        "body": "",
+        "url": "https://github.com/owner/repo/issues/17",
+        "comments": [
+            {
+                "author": {"login": "bob"},
+                "createdAt": "2026-03-29T11:00:00Z",
+                "body": "missing id field"
+            }
+        ]
+    }"#;
+
+    let result = parse_issue_detail_json(json);
+    assert!(
+        result.is_err(),
+        "should propagate parse error for malformed comment"
+    );
+    match result {
+        Err(GhError::ParseError(msg)) => {
+            assert!(
+                msg.contains("comment"),
+                "error message should mention comment: {msg}"
+            );
+        }
+        Err(e) => panic!("expected ParseError, got {e:?}"),
+        Ok(_) => panic!("should not succeed"),
+    }
 }

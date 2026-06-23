@@ -26,6 +26,32 @@ impl AppState {
             .collect::<String>()
     }
 
+    /// Validate a `github_repo` field value.
+    ///
+    /// An empty value is valid (no GitHub integration). A non-empty value must
+    /// be exactly `"owner/repo"`: a single forward slash with non-empty parts on
+    /// both sides and no internal whitespace (GitHub owner/repo names never
+    /// contain spaces). Returns `false` for malformed values like `"foo"`,
+    /// `"owner/repo/extra"`, `"/repo"`, `"owner/"`, `"owner /repo"`, or
+    /// `"owner/ repo"`. Surrounding whitespace on the whole value is ignored,
+    /// matching the trimming performed when the value is persisted.
+    fn validate_github_repo(value: &str) -> bool {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return true;
+        }
+        match trimmed.split_once('/') {
+            Some((owner, repo)) => {
+                !owner.is_empty()
+                    && !repo.is_empty()
+                    && !repo.contains('/')
+                    && !owner.contains(char::is_whitespace)
+                    && !repo.contains(char::is_whitespace)
+            }
+            None => false,
+        }
+    }
+
     fn validated_agent_work_dir(repository: &Repository, value: &str) -> Option<String> {
         resolve_agent_work_dir(repository, value)
     }
@@ -659,6 +685,14 @@ impl AppState {
             return None;
         }
 
+        if !Self::validate_github_repo(&fields.github_repo) {
+            warn!(
+                github_repo = %fields.github_repo,
+                "rejecting repository create: github_repo must be 'owner/repo' or empty"
+            );
+            return None;
+        }
+
         let trimmed_base_dir = fields.base_dir.trim();
         let base_dir = if trimmed_base_dir.is_empty() {
             format!("/tmp/{slug}")
@@ -694,11 +728,19 @@ impl AppState {
     pub(super) fn update_repository_from_fields(
         repo: &mut Repository,
         fields: &RepositoryFormFields,
-    ) {
+    ) -> bool {
         let trimmed_name = fields.name.trim();
         let slug = Self::repository_slug_from_name(trimmed_name);
         if trimmed_name.is_empty() || slug.is_empty() {
-            return;
+            return false;
+        }
+
+        if !Self::validate_github_repo(&fields.github_repo) {
+            warn!(
+                github_repo = %fields.github_repo,
+                "rejecting repository update: github_repo must be 'owner/repo' or empty"
+            );
+            return false;
         }
 
         trimmed_name.clone_into(&mut repo.name);
@@ -716,6 +758,7 @@ impl AppState {
         repo.default_profile = normalize_profile(&fields.default_profile);
         fields.github_repo.trim().clone_into(&mut repo.github_repo);
         repo.remote = Self::remote_settings_from_fields(fields);
+        true
     }
 
     /// Build an agent from New Agent form fields via the canonical
@@ -814,17 +857,12 @@ impl AppState {
                 }
             }
             ModalState::EditRepository { id, fields, .. } => {
-                let trimmed_name = fields.name.trim();
-                if trimmed_name.is_empty()
-                    || Self::repository_slug_from_name(trimmed_name).is_empty()
-                {
+                let Some(repo) = self.repositories.iter_mut().find(|r| r.id == id) else {
                     return;
+                };
+                if Self::update_repository_from_fields(repo, &fields) {
+                    self.modal = ModalState::None;
                 }
-
-                if let Some(repo) = self.repositories.iter_mut().find(|r| r.id == id) {
-                    Self::update_repository_from_fields(repo, &fields);
-                }
-                self.modal = ModalState::None;
             }
             ModalState::NewAgent {
                 repository_id,
