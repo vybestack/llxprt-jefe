@@ -476,18 +476,16 @@ impl AppState {
                 request_id,
                 request_cursor,
                 error,
-            } => {
-                if self.comments_page_pending_matches(
-                    &scope_repo_id,
-                    issue_number,
-                    request_id,
-                    request_cursor.as_deref(),
-                ) && self.current_detail_matches(&scope_repo_id, issue_number)
-                {
-                    self.issues_state.loading.comments = false;
-                    self.issues_state.comments_page_pending = None;
-                    self.issues_state.error = Some(error);
-                }
+            } if self.comments_page_pending_matches(
+                &scope_repo_id,
+                issue_number,
+                request_id,
+                request_cursor.as_deref(),
+            ) && self.current_detail_matches(&scope_repo_id, issue_number) =>
+            {
+                self.issues_state.loading.comments = false;
+                self.issues_state.comments_page_pending = None;
+                self.issues_state.error = Some(error);
             }
             _ => {}
         }

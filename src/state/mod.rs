@@ -903,8 +903,16 @@ impl AppState {
 mod issues_tests;
 
 #[cfg(test)]
+#[path = "issues_tests_components.rs"]
+mod issues_tests_components;
+
+#[cfg(test)]
 #[path = "issues_tests_detail.rs"]
 mod issues_tests_detail;
+
+#[cfg(test)]
+#[path = "issues_tests_detail_flow.rs"]
+mod issues_tests_detail_flow;
 
 #[cfg(test)]
 #[path = "issues_tests_repo_nav.rs"]

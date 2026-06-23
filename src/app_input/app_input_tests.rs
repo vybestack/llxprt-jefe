@@ -31,6 +31,7 @@ fn sample_agent(agent_id: &AgentId) -> Agent {
 
 #[test]
 fn filter_and_search_messages_are_fresh_issue_list_reloads() {
+    use super::issues_list_dispatch::is_fresh_issue_list_reload;
     assert!(is_fresh_issue_list_reload(&IssuesMessage::EnterMode));
     assert!(is_fresh_issue_list_reload(&IssuesMessage::RefocusList));
     assert!(is_fresh_issue_list_reload(&IssuesMessage::ApplyFilter));
