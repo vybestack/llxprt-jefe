@@ -392,3 +392,31 @@ stdout:
         String::from_utf8_lossy(&output.stdout)
     );
 }
+
+#[test]
+fn expect_clippy_path_is_rejected() {
+    let dir = write_fixture("#[expect(clippy::all)]\nfn expect_clippy() {}\n");
+    let output = run_script(dir.path().to_str());
+    assert!(
+        !output.status.success(),
+        "#[expect(clippy::...)] must be rejected, but the gate passed
+stdout:
+{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
+fn cfg_attr_expect_clippy_path_is_rejected() {
+    let dir = write_fixture(
+        "#[cfg_attr(test, expect(dead_code, r#clippy :: all))]\nfn expect_cfg_attr() {}\n",
+    );
+    let output = run_script(dir.path().to_str());
+    assert!(
+        !output.status.success(),
+        "#[cfg_attr(..., expect(dead_code, r#clippy :: ...))] must be rejected, but the gate passed
+stdout:
+{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}

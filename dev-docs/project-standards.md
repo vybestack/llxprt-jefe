@@ -80,7 +80,7 @@ Contributors must keep project lint config active and respected.
 ## Explicit prohibitions
 - Do not disable lints globally.
 - Do not add blanket `#[allow(...)]` at module/file scope to silence debt.
-- Do not add `#[allow(clippy::...)]`, `#![allow(clippy::...)]`, or `#[cfg_attr(..., allow(clippy::...))]` attributes in first-party code. The policy is zero-tolerance and there is no exception ledger. The gate `scripts/check-clippy-allows.sh` fails CI on any first-party clippy allow attribute.
+- Do not add `#[allow(clippy::...)]`, `#![allow(clippy::...)]`, or `#[cfg_attr(..., allow(clippy::...))]` attributes in first-party code (vendor remains ignored). The policy is zero-tolerance and there is no exception ledger. The gate `scripts/check-clippy-allows.sh` fails CI on any first-party clippy allow attribute.
 - Do not merge code that passes only by muting warnings.
 
 If a local non-clippy `#[allow]` is unavoidable:

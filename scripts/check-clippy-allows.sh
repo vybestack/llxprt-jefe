@@ -2,8 +2,8 @@
 # Zero-tolerance clippy allow policy.
 #
 # This gate fails if any tracked first-party Rust file (outside vendor/)
-# contains a clippy allow attribute. There is no exception ledger. If an
-# exception is genuinely required, it must be raised as a design discussion,
+# contains a clippy allow or expect attribute. There is no exception ledger. If
+# an exception is genuinely required, it must be raised as a design discussion,
 # not committed as debt.
 #
 # It also verifies that the root clippy.toml and the CI clippy.toml keep the
@@ -33,12 +33,12 @@ require_file() {
   fi
 }
 
-# Print clippy allow attributes found in the given Rust file, one per line as
-# "<file>\t<attribute>". Handles single-line and multi-line attributes and the
-# three attribute shapes the scanner must catch:
-#   #[allow(clippy::...)]
-#   #![allow(clippy::...)]
-#   #[cfg_attr(..., allow(clippy::...))]
+# Print clippy allow/expect attributes found in the given Rust file, one per
+# line as "<file>\t<attribute>". Handles single-line and multi-line attributes
+# and the three attribute shapes the scanner must catch:
+#   #[allow(clippy::...)] / #[expect(clippy::...)]
+#   #![allow(clippy::...)] / #![expect(clippy::...)]
+#   #[cfg_attr(..., allow(clippy::...))] / #[cfg_attr(..., expect(clippy::...))]
 #
 # Robustness: the scanner uses a small Rust-aware lexer to collect attribute
 # blocks beginning with `#[`, `#![`, `# [`, or `#! [` while ignoring comments
@@ -57,7 +57,7 @@ path = sys.argv[1]
 with open(path, "r", encoding="utf-8") as handle:
     source = handle.read()
 
-CLIPPY_ALLOW = re.compile(r"\ballow\s*\([^)]*(?:r#)?clippy\s*::")
+CLIPPY_ALLOW = re.compile(r"\b(?:allow|expect)\s*\([^)]*(?:r#)?clippy\s*::")
 
 
 def skip_line_comment(text, index):
@@ -270,6 +270,7 @@ check_no_allows() {
     while IFS= read -r line; do
       printf '  %s\n' "$line" >&2
     done <<<"$found"
+    return 1
   fi
 }
 
