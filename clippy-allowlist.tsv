@@ -1,3 +1,0 @@
-# Existing clippy allow attributes pending removal.
-# Columns are tab-separated: path, exact attribute text, owner, removal target.
-# New #[allow(clippy::...)] or #![allow(clippy::...)] entries must not be added without an approved exception.

@@ -115,7 +115,7 @@ Defined in `clippy.toml`:
 - **DON'T** use `.unwrap()` or `.expect()` in production code paths. These are acceptable ONLY in `#[cfg(test)]` blocks and in `const` contexts where the value is provably `Some`/`Ok`.
 - **DON'T** use `panic!()`, `unreachable!()`, `todo!()`, or `unimplemented!()` in production code paths. If a code path is genuinely unreachable, refactor the types to make that structurally impossible.
 - **DON'T** disable lints with `#[allow(...)]` without a code-review-approved comment explaining why. Every `allow` must have a justification. Blanket `#![allow(...)]` at the module level requires explicit approval and must be temporary.
-- **DON'T** add new `#[allow(clippy::...)]` or `#![allow(clippy::...)]` attributes unless the exception has explicit review approval and is recorded in `clippy-allowlist.tsv` with an owner and removal target.
+- **DON'T** add `#[allow(clippy::...)]`, `#![allow(clippy::...)]`, or `#[cfg_attr(..., allow(clippy::...))]` attributes in first-party code. The policy is zero-tolerance and there is no exception ledger. The gate `scripts/check-clippy-allows.sh` fails CI on any first-party clippy allow attribute (vendor remains ignored).
 - **DON'T** use `HashMap<String, serde_json::Value>` or equivalent weak typing. Define explicit structs with named, typed fields.
 - **DON'T** use `dyn Any` or downcasting for type erasure. Use enums or generics.
 - **DON'T** use wildcard imports (`use foo::*`) except for the `iocraft::prelude::*` import in component files.
