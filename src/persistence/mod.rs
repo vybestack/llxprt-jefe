@@ -22,7 +22,19 @@ pub enum PersistenceError {
     IoError(String),
     ParseError(String),
     SerializeError(String),
-    SchemaVersionMismatch { expected: u32, found: u32 },
+    SchemaVersionMismatch {
+        expected: u32,
+        found: u32,
+    },
+    /// An explicit configuration directory cannot be used for persistence.
+    ///
+    /// `path` is the directory supplied to `--config`; `reason` explains why it
+    /// is unusable (not a directory, unwritable, etc.). Surfaced fail-fast at
+    /// startup so silent data loss cannot occur mid-session.
+    InvalidConfigDir {
+        path: PathBuf,
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for PersistenceError {
@@ -35,6 +47,13 @@ impl std::fmt::Display for PersistenceError {
                 write!(
                     f,
                     "schema version mismatch: expected {expected}, found {found}"
+                )
+            }
+            Self::InvalidConfigDir { path, reason } => {
+                write!(
+                    f,
+                    "configuration directory '{}' is unusable: {reason}",
+                    path.display()
                 )
             }
         }
@@ -135,6 +154,221 @@ pub fn resolve_paths_from_dir(dir: &std::path::Path) -> PersistencePaths {
         settings_path: dir.join("settings.toml"),
         state_path: dir.join("state.json"),
     }
+}
+
+/// Validate that an explicit config directory can persist `settings.toml` and
+/// `state.json`.
+///
+/// This performs fail-fast startup validation so that a typo (e.g. an
+/// unwritable path from `--config="$pwd/.config/jefe"`) produces a clear,
+/// actionable error instead of silent apparent data loss after the first
+/// session.
+///
+/// Validation steps:
+/// 1. Create the directory (and parents) if it does not already exist.
+/// 2. Confirm the path is actually a directory.
+/// 3. Reject any persistence target (`settings.toml`/`state.json`) that already
+///    exists as a directory or non-regular file, since [`FilePersistenceManager`]
+///    cannot atomically write to such a path (its `atomic_write` does
+///    `File::create` on a temp sibling then `rename`, which cannot replace a
+///    directory with a file). Existing regular files are left untouched.
+/// 4. Probe write capability for both `settings.toml` and `state.json` by
+///    creating a temporary probe file next to each, then removing it. Any probe
+///    file left behind on failure is best-effort cleaned up.
+///
+/// # Errors
+///
+/// Returns [`PersistenceError::InvalidConfigDir`] when the directory cannot be
+/// created, is not a directory, a persistence target already exists as a
+/// non-regular path, or either persistence file cannot be written.
+pub fn validate_config_dir(dir: &std::path::Path) -> Result<(), PersistenceError> {
+    use std::fs;
+
+    // 1. If the path exists, confirm it is actually a directory. A common
+    //    failure mode is `--config` pointing at an existing regular file.
+    if dir.exists() {
+        let metadata = fs::metadata(dir).map_err(|e| PersistenceError::InvalidConfigDir {
+            path: dir.to_path_buf(),
+            reason: format!("could not read directory metadata: {e}"),
+        })?;
+        if !metadata.is_dir() {
+            return Err(PersistenceError::InvalidConfigDir {
+                path: dir.to_path_buf(),
+                reason: "path exists but is not a directory".to_string(),
+            });
+        }
+    } else {
+        // 2. Create the directory (and parents) if missing.
+        fs::create_dir_all(dir).map_err(|e| PersistenceError::InvalidConfigDir {
+            path: dir.to_path_buf(),
+            reason: format!("could not create directory: {e}"),
+        })?;
+    }
+
+    // 3. Validate the actual persistence targets. `resolve_paths_from_dir`
+    //    mirrors exactly how `build_persistence` roots the files, so this
+    //    proves the real atomic_write targets are usable rather than only the
+    //    sibling probe paths.
+    let targets = resolve_paths_from_dir(dir);
+    validate_persistence_target(dir, &targets.settings_path)?;
+    validate_persistence_target(dir, &targets.state_path)?;
+    validate_atomic_temp_target(dir, &targets.settings_path.with_extension("tmp"))?;
+    validate_atomic_temp_target(dir, &targets.state_path.with_extension("tmp"))?;
+
+    // 4. Probe write capability for both persistence files.
+    for file_name in ["settings.toml", "state.json"] {
+        probe_write(dir, file_name)?;
+    }
+
+    Ok(())
+}
+
+/// Validate that a single persistence target path can receive an
+/// [`FilePersistenceManager`] atomic write.
+///
+/// `atomic_write` creates a temp sibling (e.g. `settings.tmp`) and renames it
+/// over `target`. That rename can only succeed when `target` either does not
+/// exist or is a regular file; if `target` already exists as a directory (or
+/// any non-regular file) the rename fails at runtime. Such targets are
+/// rejected here, fail-fast, without modifying or removing the user's path.
+///
+/// `config_dir` is the directory supplied to `--config`; it is used as the
+/// `InvalidConfigDir` path so callers always see the config directory they
+/// passed, while `reason` names the specific target file that is unusable.
+///
+/// A missing target is allowed (the file will be created on first save), and a
+/// pre-existing regular file is allowed (atomic_write will overwrite it).
+///
+/// # Errors
+///
+/// Returns [`PersistenceError::InvalidConfigDir`] when the target exists as a
+/// directory or non-regular file, or when its metadata cannot be read.
+fn validate_persistence_target(
+    config_dir: &std::path::Path,
+    target: &std::path::Path,
+) -> Result<(), PersistenceError> {
+    use std::fs;
+
+    // Only inspect targets that already exist. Missing targets are fine: they
+    // will be created on the first atomic_write.
+    let metadata = match fs::symlink_metadata(target) {
+        Ok(metadata) => metadata,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => {
+            return Err(PersistenceError::InvalidConfigDir {
+                path: config_dir.to_path_buf(),
+                reason: format!("could not read target metadata: {e}"),
+            });
+        }
+    };
+
+    if metadata.is_file() {
+        // A regular file can be overwritten by atomic_write's rename; allow it
+        // without touching it.
+        return Ok(());
+    }
+
+    // Anything else (directory, symlink to a dir, device, fifo, socket, etc.)
+    // blocks atomic_write. Surface a clear, target-specific reason including
+    // the file name so the user knows exactly which target is unusable.
+    let file_name = target
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or("persistence file");
+    Err(PersistenceError::InvalidConfigDir {
+        path: config_dir.to_path_buf(),
+        reason: format!("{file_name} exists but is not a regular file (likely a directory)"),
+    })
+}
+
+fn validate_atomic_temp_target(
+    config_dir: &std::path::Path,
+    target: &std::path::Path,
+) -> Result<(), PersistenceError> {
+    validate_persistence_target(config_dir, target)?;
+
+    match std::fs::OpenOptions::new().write(true).open(target) {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => {
+            let file_name = target
+                .file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .unwrap_or("temporary persistence file");
+            Err(PersistenceError::InvalidConfigDir {
+                path: config_dir.to_path_buf(),
+                reason: format!("{file_name} exists but cannot be opened for atomic writes: {e}"),
+            })
+        }
+    }
+}
+
+/// Write and remove a temporary probe file under `dir` to confirm writes to
+/// `file_name` will succeed during the session.
+///
+/// # Data-loss safety
+///
+/// The probe uses a process-unique filename and `create_new(true)` so that it:
+/// - Never truncates or overwrites an existing file (the open fails instead).
+/// - Never removes a file it did not just create (cleanup only runs on the
+///   exact probe path this call created).
+fn probe_write(dir: &std::path::Path, file_name: &str) -> Result<(), PersistenceError> {
+    use std::fs;
+    use std::io::Write;
+
+    // Unique probe filename: avoids colliding with any user file and makes it
+    // safe to remove only the file this validation created.
+    let probe_name = format!(
+        ".{file_name}.jefe-probe-{}-{}",
+        std::process::id(),
+        probe_counter()
+    );
+    let probe_path = dir.join(&probe_name);
+
+    let mut file = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe_path)
+    {
+        Ok(file) => file,
+        Err(e) => {
+            return Err(PersistenceError::InvalidConfigDir {
+                path: dir.to_path_buf(),
+                reason: format!("cannot create {file_name}: {e}"),
+            });
+        }
+    };
+    if let Err(e) = file.write_all(b"jefe probe") {
+        let _ = fs::remove_file(&probe_path);
+        return Err(PersistenceError::InvalidConfigDir {
+            path: dir.to_path_buf(),
+            reason: format!("cannot write {file_name}: {e}"),
+        });
+    }
+    if let Err(e) = file.sync_all() {
+        let _ = fs::remove_file(&probe_path);
+        return Err(PersistenceError::InvalidConfigDir {
+            path: dir.to_path_buf(),
+            reason: format!("cannot sync {file_name}: {e}"),
+        });
+    }
+    drop(file);
+
+    if let Err(e) = fs::remove_file(&probe_path) {
+        return Err(PersistenceError::InvalidConfigDir {
+            path: dir.to_path_buf(),
+            reason: format!("cannot remove probe for {file_name}: {e}"),
+        });
+    }
+
+    Ok(())
+}
+
+/// Monotonic counter for generating unique probe filenames within a process.
+fn probe_counter() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
 fn resolve_settings_path() -> PathBuf {
@@ -268,6 +502,12 @@ impl FilePersistenceManager {
         Self { paths }
     }
 
+    /// Borrow the resolved persistence paths (for inspection/diagnostics).
+    #[must_use]
+    pub fn paths_ref(&self) -> &PersistencePaths {
+        &self.paths
+    }
+
     /// Atomic write: write to temp file, then rename.
     fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), PersistenceError> {
         use std::fs;
@@ -358,237 +598,4 @@ impl PersistenceManager for FilePersistenceManager {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    trait TestResultExt<T> {
-        fn value_or_panic(self, context: &str) -> T;
-    }
-
-    impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
-        fn value_or_panic(self, context: &str) -> T {
-            match self {
-                Ok(value) => value,
-                Err(error) => panic!("{context}: {error:?}"),
-            }
-        }
-    }
-
-    fn cleanup_root(path: &std::path::Path) -> Option<&std::path::Path> {
-        path.parent().and_then(std::path::Path::parent)
-    }
-    #[test]
-    fn settings_default_has_green_screen_theme() {
-        let settings = Settings::default_with_version();
-        assert_eq!(settings.theme, "green-screen");
-        assert_eq!(settings.schema_version, SETTINGS_SCHEMA_VERSION);
-    }
-
-    #[test]
-    fn state_default_has_version() {
-        let state = State::default_with_version();
-        assert_eq!(state.schema_version, STATE_SCHEMA_VERSION);
-    }
-
-    #[test]
-    fn resolve_paths_returns_valid_paths() {
-        let paths = resolve_paths();
-        assert!(paths.settings_path.ends_with("settings.toml"));
-        assert!(paths.state_path.ends_with("state.json"));
-    }
-
-    #[test]
-    fn resolve_paths_from_dir_roots_both_files_under_dir() {
-        let dir = std::path::Path::new("/tmp/jefe-dev-instance");
-        let paths = resolve_paths_from_dir(dir);
-        assert_eq!(paths.settings_path, dir.join("settings.toml"));
-        assert_eq!(paths.state_path, dir.join("state.json"));
-    }
-
-    #[test]
-    fn stub_persistence_returns_defaults() {
-        let mgr = StubPersistenceManager::new();
-        let settings = mgr.load_settings().value_or_panic("should load settings");
-        assert_eq!(settings.theme, "green-screen");
-    }
-
-    #[test]
-    fn file_persistence_returns_defaults_when_missing() {
-        let temp = std::env::temp_dir().join("jefe_test_missing");
-        let paths = PersistencePaths {
-            settings_path: temp.join("settings.toml"),
-            state_path: temp.join("state.json"),
-        };
-        let mgr = FilePersistenceManager::with_paths(paths);
-
-        let settings = mgr.load_settings().value_or_panic("should load defaults");
-        assert_eq!(settings.theme, "green-screen");
-
-        let state = mgr.load_state().value_or_panic("should load defaults");
-        assert!(state.repositories.is_empty());
-    }
-
-    #[test]
-    fn file_persistence_roundtrip_settings() {
-        let temp = std::env::temp_dir().join("jefe_test_roundtrip_settings");
-        let _ = std::fs::remove_dir_all(&temp);
-        let paths = PersistencePaths {
-            settings_path: temp.join("settings.toml"),
-            state_path: temp.join("state.json"),
-        };
-        let mgr = FilePersistenceManager::with_paths(paths);
-
-        let settings = Settings {
-            schema_version: SETTINGS_SCHEMA_VERSION,
-            theme: "dracula".into(),
-        };
-
-        mgr.save_settings(&settings).value_or_panic("should save");
-        let loaded = mgr.load_settings().value_or_panic("should load");
-
-        assert_eq!(loaded.theme, "dracula");
-        assert_eq!(loaded.schema_version, SETTINGS_SCHEMA_VERSION);
-
-        // Cleanup
-        let _ = std::fs::remove_dir_all(&temp);
-    }
-
-    #[test]
-    fn file_persistence_roundtrip_state() {
-        let temp = std::env::temp_dir().join("jefe_test_roundtrip_state");
-        let _ = std::fs::remove_dir_all(&temp);
-        let paths = PersistencePaths {
-            settings_path: temp.join("settings.toml"),
-            state_path: temp.join("state.json"),
-        };
-        let mgr = FilePersistenceManager::with_paths(paths);
-
-        let state = State {
-            schema_version: STATE_SCHEMA_VERSION,
-            repositories: vec![],
-            agents: vec![],
-            selected_repository_index: Some(2),
-            selected_agent_index: None,
-            hide_idle_repositories: true,
-            last_selected_agent_by_repo: vec![],
-        };
-
-        mgr.save_state(&state).value_or_panic("should save");
-        let loaded = mgr.load_state().value_or_panic("should load");
-
-        assert_eq!(loaded.selected_repository_index, Some(2));
-        assert!(loaded.hide_idle_repositories);
-
-        // Cleanup
-        let _ = std::fs::remove_dir_all(&temp);
-    }
-
-    #[test]
-    fn file_persistence_atomic_write_creates_parent_dirs() {
-        let temp = std::env::temp_dir()
-            .join("jefe_test_atomic")
-            .join("nested")
-            .join("dirs");
-        if let Some(root) = cleanup_root(&temp) {
-            let _ = std::fs::remove_dir_all(root);
-        }
-
-        let paths = PersistencePaths {
-            settings_path: temp.join("settings.toml"),
-            state_path: temp.join("state.json"),
-        };
-        let mgr = FilePersistenceManager::with_paths(paths);
-
-        mgr.save_settings(&Settings::default_with_version())
-            .value_or_panic("should create dirs and save");
-
-        // Cleanup
-        if let Some(root) = cleanup_root(&temp) {
-            let _ = std::fs::remove_dir_all(root);
-        }
-    }
-
-    /// Test P13-1: State with repo having issue_base_prompt round-trips through JSON serialization.
-    ///
-    /// @plan PLAN-20260329-ISSUES-MODE.P13
-    /// @requirement REQ-ISS-012
-    #[test]
-    fn test_issue_base_prompt_state_round_trip() {
-        use crate::domain::{RemoteRepositorySettings, Repository, RepositoryId};
-        use std::path::PathBuf;
-
-        let repo = Repository {
-            id: RepositoryId("repo-issues".to_string()),
-            name: "Issues Repo".to_string(),
-            slug: "issues-repo".to_string(),
-            base_dir: PathBuf::from("/tmp/issues-repo"),
-            default_profile: String::new(),
-            github_repo: String::new(),
-            remote: RemoteRepositorySettings::default(),
-            issue_base_prompt: "Always reproduce the bug first".to_string(),
-            agent_ids: vec![],
-        };
-
-        let state = State {
-            schema_version: STATE_SCHEMA_VERSION,
-            repositories: vec![repo],
-            agents: vec![],
-            selected_repository_index: Some(0),
-            selected_agent_index: None,
-            hide_idle_repositories: false,
-            last_selected_agent_by_repo: vec![],
-        };
-
-        let temp = std::env::temp_dir().join("jefe_test_p13_issue_base_prompt_roundtrip");
-        let _ = std::fs::remove_dir_all(&temp);
-        let paths = PersistencePaths {
-            settings_path: temp.join("settings.toml"),
-            state_path: temp.join("state.json"),
-        };
-        let mgr = FilePersistenceManager::with_paths(paths);
-
-        mgr.save_state(&state).value_or_panic("should save state");
-        let loaded = mgr.load_state().value_or_panic("should load state");
-
-        assert_eq!(loaded.repositories.len(), 1);
-        assert_eq!(
-            loaded.repositories[0].issue_base_prompt,
-            "Always reproduce the bug first"
-        );
-
-        let _ = std::fs::remove_dir_all(&temp);
-    }
-
-    /// Test P13-2: Deserializing legacy JSON without issue_base_prompt defaults to empty string.
-    ///
-    /// @plan PLAN-20260329-ISSUES-MODE.P13
-    /// @requirement REQ-ISS-012
-    #[test]
-    fn test_issue_base_prompt_state_backward_compat() {
-        // Simulate legacy JSON that predates the issue_base_prompt field
-        let legacy_json = serde_json::json!({
-            "schema_version": 1,
-            "repositories": [
-                {
-                    "id": "repo-legacy",
-                    "name": "Legacy Repo",
-                    "slug": "legacy-repo",
-                    "base_dir": "/tmp/legacy-repo",
-                    "default_profile": "",
-                    "agent_ids": []
-                    // Note: no issue_base_prompt field
-                }
-            ],
-            "agents": [],
-            "selected_repository_index": null,
-            "selected_agent_index": null
-        });
-
-        let state: State =
-            serde_json::from_value(legacy_json).value_or_panic("legacy JSON should deserialize");
-
-        assert_eq!(state.repositories.len(), 1);
-        // Must default to empty string, not error
-        assert_eq!(state.repositories[0].issue_base_prompt, "");
-    }
-}
+mod tests;

@@ -69,6 +69,19 @@ fn write_cli_error(error: &jefe::cli::CliError) {
     let _ = writeln!(handle, "{}", jefe::cli::USAGE);
 }
 
+/// Print a startup persistence error (e.g. an unusable explicit `--config`
+/// directory) to stderr with actionable guidance, then let the caller exit
+/// nonzero.
+fn write_startup_error(error: &jefe::persistence::PersistenceError) {
+    let stderr = std::io::stderr();
+    let mut handle = stderr.lock();
+    let _ = writeln!(handle, "error: {error}");
+    let _ = writeln!(
+        handle,
+        "hint: check that the --config directory exists, is a directory, and is writable"
+    );
+}
+
 fn main() {
     let Some(cli_args) = parse_cli_or_exit() else {
         return;
@@ -90,14 +103,22 @@ fn main() {
     // Initialize managers. An explicit `--config <dir>` isolates settings,
     // state, and themes under that directory; otherwise fall back to the
     // default platform paths and environment variable overrides.
+    //
+    // An explicit config directory is validated fail-fast: if it cannot be
+    // created or written to (e.g. an unwritable path from a `--config` typo),
+    // surface a clear error and exit instead of starting a session whose state
+    // will silently fail to persist.
     let mut theme_manager = FileThemeManager::new();
-    let persistence = if let Some(dir) = cli_args.config_dir.as_deref() {
-        let paths = jefe::persistence::resolve_paths_from_dir(dir);
-        theme_manager.load_from_dir(&dir.join("themes"));
-        jefe::persistence::FilePersistenceManager::with_paths(paths)
-    } else {
-        jefe::persistence::FilePersistenceManager::new()
+    let persistence = match jefe::startup::build_persistence(cli_args.config_dir.as_deref()) {
+        Ok(manager) => manager,
+        Err(error) => {
+            write_startup_error(&error);
+            std::process::exit(1);
+        }
     };
+    if let Some(dir) = cli_args.config_dir.as_deref() {
+        theme_manager.load_from_dir(&dir.join("themes"));
+    }
     let runtime = TmuxRuntimeManager::new(pty_rows, pty_cols);
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {

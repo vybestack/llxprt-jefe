@@ -13,6 +13,7 @@ pub mod messages;
 pub mod persistence;
 pub mod runtime;
 pub mod services;
+pub mod startup;
 pub mod state;
 pub mod theme;
 pub mod ui;
