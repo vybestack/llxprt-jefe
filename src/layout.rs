@@ -216,6 +216,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn column_width_constants_hold_expected_values() {
+        // The UI screens reference these constants for their fixed-width panes,
+        // so changing a value silently here would reshape the dashboard/issues
+        // layout. Lock the contract.
+        assert_eq!(LEFT_COL_WIDTH, 22);
+        assert_eq!(RIGHT_COL_WIDTH, 36);
+        assert_eq!(ISSUES_SIDEBAR_WIDTH, LEFT_COL_WIDTH);
+    }
+
+    #[test]
     fn effective_render_size_fullscreen_passthrough() {
         assert_eq!(effective_render_size_inner(120, 40, true), (120, 40));
         assert_eq!(effective_render_size_inner(80, 24, true), (80, 24));

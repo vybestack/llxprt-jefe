@@ -106,6 +106,10 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
     let detail_pane_height = u16::try_from(detail_pane_height).unwrap_or(u16::MAX);
     let list_width = crate::layout::issue_list_content_width(term_cols);
 
+    // Single source of truth for the fixed sidebar width: the layout constant
+    // is u16 but the iocraft width field expects u32.
+    let sidebar_width = u32::from(crate::layout::ISSUES_SIDEBAR_WIDTH);
+
     // Agent chooser overlay
     let agent_chooser = state.and_then(|s| s.issues_state.agent_chooser.clone());
     let chooser_visible = agent_chooser.is_some();
@@ -144,7 +148,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                 width: 100pct,
             ) {
                 // Repos sidebar (fixed 22u, full height)
-                Box(width: 22u32, height: 100pct) {
+                Box(width: sidebar_width, height: 100pct) {
                     Sidebar(
                         repositories: repositories,
                         agent_counts: agent_counts,

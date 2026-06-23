@@ -7,8 +7,10 @@
 //! @pseudocode component-002 lines 01-35
 
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::path::Path;
 
+use lru::LruCache;
 use tracing::{debug, info};
 
 use super::attach::AttachedViewer;
@@ -17,6 +19,18 @@ use super::errors::RuntimeError;
 use super::liveness;
 use super::session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 use crate::domain::{AgentId, LaunchSignature, RemoteRepositorySettings};
+
+/// Maximum number of dead-session launch signatures retained for relaunch.
+///
+/// Repeated kill/recreate cycles of *different* agents would otherwise grow
+/// `dead_signatures` without bound. Bounding it with an LRU cache caps memory
+/// usage while still preserving the most-recently-killed signatures, which are
+/// the ones a user is most likely to relaunch. Constructed via `NonZeroUsize`
+/// so `LruCache::new` never receives a zero capacity.
+const MAX_DEAD_SIGNATURES: NonZeroUsize = match NonZeroUsize::new(100) {
+    Some(n) => n,
+    None => NonZeroUsize::MIN,
+};
 
 /// Lightweight metadata for checking session liveness without holding the runtime lock.
 ///
@@ -262,7 +276,10 @@ pub struct TmuxRuntimeManager {
     /// Agent ID of the currently attached session.
     attached_agent_id: Option<AgentId>,
     /// Dead sessions that can be relaunched (stores signatures).
-    dead_signatures: HashMap<AgentId, LaunchSignature>,
+    ///
+    /// Bounded by [`MAX_DEAD_SIGNATURES`]: once full, the least-recently-used
+    /// dead signature is evicted to make room for newer ones.
+    dead_signatures: LruCache<AgentId, LaunchSignature>,
     /// Terminal dimensions.
     rows: u16,
     cols: u16,
@@ -276,7 +293,7 @@ impl TmuxRuntimeManager {
             sessions: HashMap::new(),
             viewer: None,
             attached_agent_id: None,
-            dead_signatures: HashMap::new(),
+            dead_signatures: LruCache::new(MAX_DEAD_SIGNATURES),
             rows,
             cols,
         }
@@ -334,8 +351,9 @@ impl TmuxRuntimeManager {
             let _ = self.viewer.take();
         }
 
-        self.dead_signatures
-            .insert(agent_id.clone(), session.launch_signature.clone());
+        let _ = self
+            .dead_signatures
+            .put(agent_id.clone(), session.launch_signature.clone());
         true
     }
 
@@ -384,7 +402,7 @@ impl TmuxRuntimeManager {
         self.sessions.insert(agent_id.clone(), session);
 
         // Remove from dead signatures if present.
-        self.dead_signatures.remove(agent_id);
+        let _ = self.dead_signatures.pop(agent_id);
 
         Ok(())
     }
@@ -504,8 +522,9 @@ impl RuntimeManager for TmuxRuntimeManager {
             .ok_or_else(|| RuntimeError::SessionNotFound(agent_id.0.clone()))?;
 
         // Store signature for relaunch
-        self.dead_signatures
-            .insert(agent_id.clone(), session.launch_signature.clone());
+        let _ = self
+            .dead_signatures
+            .put(agent_id.clone(), session.launch_signature.clone());
 
         // If attached, clear attachment and drop viewer.
         if self.attached_agent_id.as_ref() == Some(agent_id) {
@@ -536,7 +555,7 @@ impl RuntimeManager for TmuxRuntimeManager {
         // Get stored signature
         let signature = self
             .dead_signatures
-            .remove(agent_id)
+            .pop(agent_id)
             .ok_or_else(|| RuntimeError::NotRunning(agent_id.clone()))?;
 
         // Spawn with stored signature using force-fresh semantics so runtime
@@ -653,5 +672,55 @@ impl RuntimeManager for TmuxRuntimeManager {
         }
 
         Some(snapshot)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The `dead_signatures` field is private and the real mutating methods
+    // (`mark_session_dead`, `kill`) require a live tmux session to exercise
+    // end-to-end, which is not unit-test friendly. Instead this test targets
+    // the bound directly: it constructs an `LruCache` with the production
+    // capacity constant and proves that exceeding it evicts the oldest entries
+    // while never growing past the cap. This is the property the field relies
+    // on to prevent unbounded memory growth from repeated kill/recreate cycles.
+    #[test]
+    fn dead_signatures_cache_is_bounded_by_max_dead_signatures() {
+        let cap = MAX_DEAD_SIGNATURES.get();
+        let mut cache: LruCache<AgentId, LaunchSignature> = LruCache::new(MAX_DEAD_SIGNATURES);
+
+        // Insert well beyond the capacity.
+        for i in 0..cap + 10 {
+            let id = AgentId(format!("agent-{i}"));
+            let _ = cache.put(
+                id,
+                LaunchSignature {
+                    work_dir: std::path::PathBuf::from("/tmp"),
+                    profile: "default".into(),
+                    mode_flags: vec![],
+                    llxprt_debug: String::new(),
+                    pass_continue: true,
+                    sandbox_enabled: false,
+                    sandbox_engine: crate::domain::SandboxEngine::Podman,
+                    sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
+                    remote: crate::domain::RemoteRepositorySettings::default(),
+                },
+            );
+        }
+
+        // The cache must never exceed the configured bound.
+        assert_eq!(cache.len(), cap);
+
+        // The oldest entries (agent-0 .. agent-9) were evicted; the most recent
+        // entries survive because they are the ones most likely to be relaunched.
+        assert!(cache.peek(&AgentId("agent-0".into())).is_none());
+        assert!(cache.peek(&AgentId("agent-9".into())).is_none());
+        assert!(
+            cache
+                .peek(&AgentId(format!("agent-{}", cap + 10 - 1)))
+                .is_some()
+        );
     }
 }

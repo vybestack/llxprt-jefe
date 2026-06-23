@@ -39,6 +39,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # Directories (for platform-specific paths)
 dirs = "6.0"
 
+# Bounded cache for dead-session signatures (prevents unbounded memory growth
+# from repeated kill/recreate cycles of different agents).
+lru = "0.12"
+
 [patch.crates-io]
 iocraft = { path = "vendor/iocraft" }
 

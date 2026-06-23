@@ -7,7 +7,7 @@
 
 use iocraft::prelude::*;
 
-use crate::layout::dashboard_middle_row_heights;
+use crate::layout::{LEFT_COL_WIDTH, RIGHT_COL_WIDTH, dashboard_middle_row_heights};
 use crate::runtime::TerminalSnapshot;
 use crate::state::{AppState, PaneFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
@@ -89,6 +89,11 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let (agent_rows, terminal_rows) = dashboard_middle_row_heights(term_cols, term_rows);
 
+    // Single source of truth for fixed column widths: the iocraft width field
+    // expects a u32, so convert the u16 layout constants once here.
+    let sidebar_width = u32::from(LEFT_COL_WIDTH);
+    let preview_width = u32::from(RIGHT_COL_WIDTH);
+
     element! {
         Box(
             flex_direction: FlexDirection::Column,
@@ -114,7 +119,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                 width: 100pct,
             ) {
                 // Sidebar (fixed width)
-                Box(width: 22u32, height: 100pct) {
+                Box(width: sidebar_width, height: 100pct) {
                     Sidebar(
                         repositories: repositories,
                         agent_counts: agent_counts,
@@ -148,7 +153,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                 }
 
                 // Preview pane (fixed width)
-                Box(width: 36u32, height: 100pct) {
+                Box(width: preview_width, height: 100pct) {
                     Preview(
                         agent: selected_agent_data,
                         focused: false,
