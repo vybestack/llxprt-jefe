@@ -8,7 +8,9 @@ use jefe::domain::{
     SandboxEngine,
 };
 use jefe::persistence::{PersistenceManager, Settings, State as PersistedState};
-use jefe::runtime::{RuntimeError, RuntimeManager, RuntimeSession, platform_engine_diagnostic};
+use jefe::runtime::{
+    RuntimeError, RuntimeManager, RuntimeSession, TmuxRuntimeManager, platform_engine_diagnostic,
+};
 use jefe::state::AppState;
 use jefe::theme::ThemeManager;
 
@@ -71,7 +73,6 @@ fn normalize_persisted_sandbox_engines(state: &mut AppState) -> bool {
 ///
 /// Reconciles any agents that were persisted as Running against actual live
 /// tmux sessions, marking stale ones Dead.  Also activates the saved theme.
-#[allow(clippy::too_many_lines)]
 pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) {
     let Some(ctx_arc) = ctx else {
         return;
@@ -107,48 +108,8 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     // Normalize any persisted sandbox engines that are unsupported on this platform.
     let normalized_engines = normalize_persisted_sandbox_engines(&mut state);
 
-    // Reconcile persisted Running statuses against actual tmux sessions.
-    // Running agents without a backing repository are stale and must be marked
-    // Dead during startup reconciliation.
-    let mut running_agents: Vec<(AgentId, LaunchSignature)> = Vec::new();
-    let mut dead_ids = Vec::new();
-    for agent in state
-        .agents
-        .iter()
-        .filter(|agent| agent.status == AgentStatus::Running)
-    {
-        let Some(repository) = state.repository_by_id(&agent.repository_id) else {
-            dead_ids.push(agent.id.clone());
-            continue;
-        };
-
-        running_agents.push((
-            agent.id.clone(),
-            launch_signature_for_agent(agent, &repository.remote),
-        ));
-    }
-    for (agent_id, signature) in running_agents {
-        if !ctx_guard
-            .runtime
-            .session_exists_for_signature(&agent_id, &signature)
-        {
-            dead_ids.push(agent_id);
-        }
-    }
-
-    let should_persist = if dead_ids.is_empty() {
-        normalized_engines
-    } else {
-        for agent_id in dead_ids {
-            if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) {
-                agent.status = AgentStatus::Dead;
-                agent.runtime_binding = None;
-            }
-        }
-        state.rebuild_repository_agent_ids();
-        state.normalize_selection_indices();
-        true
-    };
+    let dead_ids = reconcile_running_agents(&state, &ctx_guard.runtime);
+    let should_persist = apply_dead_reconciliations(&mut state, dead_ids, normalized_engines);
     let state_to_persist = should_persist.then(|| to_persisted_state(&state));
 
     // Release state/context guards before reacquiring a mutable context lock
@@ -167,12 +128,63 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     }
 }
 
+/// Find Running agents whose tmux sessions no longer exist.
+///
+/// Agents persisted as Running without a backing repository are also stale.
+/// Returns the collected dead agent IDs; does not mutate `state`.
+fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> Vec<AgentId> {
+    let mut running_agents: Vec<(AgentId, LaunchSignature)> = Vec::new();
+    let mut dead_ids = Vec::new();
+    for agent in state
+        .agents
+        .iter()
+        .filter(|agent| agent.status == AgentStatus::Running)
+    {
+        let Some(repository) = state.repository_by_id(&agent.repository_id) else {
+            dead_ids.push(agent.id.clone());
+            continue;
+        };
+
+        running_agents.push((
+            agent.id.clone(),
+            launch_signature_for_agent(agent, &repository.remote),
+        ));
+    }
+    for (agent_id, signature) in running_agents {
+        if !runtime.session_exists_for_signature(&agent_id, &signature) {
+            dead_ids.push(agent_id);
+        }
+    }
+    dead_ids
+}
+
+/// Mark reconciled dead agents Dead and rebuild indices when needed.
+///
+/// Returns whether state changed and should be persisted.
+fn apply_dead_reconciliations(
+    state: &mut AppState,
+    dead_ids: Vec<AgentId>,
+    normalized_engines: bool,
+) -> bool {
+    if dead_ids.is_empty() {
+        return normalized_engines;
+    }
+    for agent_id in dead_ids {
+        if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) {
+            agent.status = AgentStatus::Dead;
+            agent.runtime_binding = None;
+        }
+    }
+    state.rebuild_repository_agent_ids();
+    state.normalize_selection_indices();
+    true
+}
+
 /// Restore the runtime session map from persisted agent statuses exactly once.
 ///
 /// Running agents prefer reattach to existing live tmux sessions by stable ID;
 /// if missing, a new session is spawned.
 /// Dead/non-running agents are intentionally NOT spawned.
-#[allow(clippy::too_many_lines)]
 pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &SharedContext) {
     let Some(ctx_arc) = ctx else {
         return;
@@ -214,24 +226,14 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
             continue;
         }
 
-        // This call intentionally runs even after session_exists_for_signature:
-        // spawn_session is the registration path into the runtime manager's
-        // in-memory map. AlreadyRunning means the session is already tracked.
-
-        match ctx_guard
-            .runtime
-            .spawn_session(&agent.id, &agent.work_dir, &signature)
-        {
-            Ok(()) | Err(RuntimeError::AlreadyRunning(_)) => {
-                revived_running.push((agent.id.clone(), signature));
-                if runtime_warning.is_none() {
-                    runtime_warning = jefe::runtime::sandbox_ssh_agent_warning();
-                }
-            }
-            Err(e) => {
-                warn!(agent_id = %agent.id.0, error = %e, "could not restore session");
-                newly_dead.push(agent.id.clone());
-            }
+        match revive_agent_session(
+            &agent,
+            &signature,
+            &mut ctx_guard.runtime,
+            &mut runtime_warning,
+        ) {
+            ReviveOutcome::Revived => revived_running.push((agent.id.clone(), signature)),
+            ReviveOutcome::Died => newly_dead.push(agent.id.clone()),
         }
     }
 
@@ -242,6 +244,50 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
     }
 
     let mut state = app_state.write();
+    apply_restored_state(&mut state, revived_running, newly_dead, runtime_warning);
+
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
+}
+
+/// Outcome of attempting to revive a single Running agent's session.
+enum ReviveOutcome {
+    Revived,
+    Died,
+}
+
+/// Attempt to reattach/respawn one agent's session.
+///
+/// `spawn_session` is the registration path into the runtime manager's
+/// in-memory map; `AlreadyRunning` means the session is already tracked.
+fn revive_agent_session(
+    agent: &jefe::domain::Agent,
+    signature: &LaunchSignature,
+    runtime: &mut TmuxRuntimeManager,
+    runtime_warning: &mut Option<String>,
+) -> ReviveOutcome {
+    match runtime.spawn_session(&agent.id, &agent.work_dir, signature) {
+        Ok(()) | Err(RuntimeError::AlreadyRunning(_)) => {
+            if runtime_warning.is_none() {
+                *runtime_warning = jefe::runtime::sandbox_ssh_agent_warning();
+            }
+            ReviveOutcome::Revived
+        }
+        Err(e) => {
+            warn!(agent_id = %agent.id.0, error = %e, "could not restore session");
+            ReviveOutcome::Died
+        }
+    }
+}
+
+/// Apply restored session results to app state and persist.
+fn apply_restored_state(
+    state: &mut AppState,
+    revived_running: Vec<(AgentId, LaunchSignature)>,
+    newly_dead: Vec<AgentId>,
+    runtime_warning: Option<String>,
+) {
     for (agent_id, signature) in revived_running {
         if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) {
             agent.status = AgentStatus::Running;
@@ -264,10 +310,6 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
     if let Some(warning) = runtime_warning {
-        append_warning(&mut state, warning);
+        append_warning(state, warning);
     }
-
-    let persisted = to_persisted_state(&state);
-    drop(state);
-    persist_state(ctx, &persisted);
 }

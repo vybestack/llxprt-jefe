@@ -129,7 +129,6 @@ pub fn categorize_error(exit_code: i32, stderr: &str) -> GhError {
 /// @plan PLAN-20260329-ISSUES-MODE.P08
 /// @requirement REQ-ISS-006
 /// @pseudocode component-002 lines 35-45
-#[allow(clippy::too_many_lines)]
 pub fn parse_issues_json(json_str: &str) -> Result<Vec<Issue>, GhError> {
     let value: Value = serde_json::from_str(json_str)
         .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
@@ -138,96 +137,83 @@ pub fn parse_issues_json(json_str: &str) -> Result<Vec<Issue>, GhError> {
         .as_array()
         .ok_or_else(|| GhError::ParseError("Expected JSON array".to_string()))?;
 
-    let mut issues = Vec::new();
+    array
+        .iter()
+        .map(parse_issue_from_item)
+        .collect::<Result<Vec<Issue>, GhError>>()
+}
 
-    for item in array {
-        let number = item
-            .get("number")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| GhError::ParseError("Missing or invalid number".to_string()))?;
+/// Build a single [`Issue`] from one JSON array element of `gh issue list`.
+fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
+    let number = item
+        .get("number")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| GhError::ParseError("Missing or invalid number".to_string()))?;
 
-        let title = item
-            .get("title")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
+    let title = item
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
 
-        let state =
-            item.get("state")
-                .and_then(Value::as_str)
-                .map_or(IssueState::Open, |s| match s {
-                    "CLOSED" => IssueState::Closed,
-                    _ => IssueState::Open,
-                });
+    let state = parse_issue_state(item);
 
-        let author_login = item
-            .get("author")
-            .and_then(|a| a.get("login"))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
+    let author_login = item
+        .get("author")
+        .and_then(|a| a.get("login"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
 
-        let updated_at = item
-            .get("updatedAt")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
+    let updated_at = item
+        .get("updatedAt")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
 
-        // Parse assignees.nodes[*].login and join with ", "
-        let assignee_summary = item
-            .get("assignees")
-            .and_then(|a| a.get("nodes"))
-            .and_then(Value::as_array)
-            .map(|nodes| {
-                nodes
-                    .iter()
-                    .filter_map(|n| n.get("login").and_then(Value::as_str))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
-            .unwrap_or_default();
+    let assignee_summary = join_nodes_field(item, "assignees");
+    let labels_summary = join_nodes_field(item, "labels");
 
-        // Parse labels.nodes[*].name and join with ", "
-        let labels_summary = item
-            .get("labels")
-            .and_then(|l| l.get("nodes"))
-            .and_then(Value::as_array)
-            .map(|nodes| {
-                nodes
-                    .iter()
-                    .filter_map(|n| n.get("name").and_then(Value::as_str))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
-            .unwrap_or_default();
+    let comment_count = item
+        .get("comments")
+        .and_then(|c| c.get("totalCount"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
 
-        // Parse comments.totalCount
-        let comment_count = item
-            .get("comments")
-            .and_then(|c| c.get("totalCount"))
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
+    let body = item
+        .get("body")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
 
-        let body = item
-            .get("body")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
+    Ok(Issue {
+        number,
+        title,
+        state,
+        author_login,
+        updated_at,
+        assignee_summary,
+        labels_summary,
+        comment_count,
+        body,
+    })
+}
 
-        issues.push(Issue {
-            number,
-            title,
-            state,
-            author_login,
-            updated_at,
-            assignee_summary,
-            labels_summary,
-            comment_count,
-            body,
-        });
-    }
-
-    Ok(issues)
+/// Read `field.nodes[*].<key>` (defaulting to "login"/"name") joined with ", ".
+fn join_nodes_field(item: &Value, field: &str) -> String {
+    item.get(field)
+        .and_then(|f| f.get("nodes"))
+        .and_then(Value::as_array)
+        .map(|nodes| {
+            // `gh issue list` exposes label names under `name`; user-like nodes use `login`.
+            let key = if field == "labels" { "name" } else { "login" };
+            nodes
+                .iter()
+                .filter_map(|n| n.get(key).and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default()
 }
 
 /// Sort issues by updated_at desc, then number asc.
@@ -248,7 +234,6 @@ pub fn sort_issues(issues: &mut [Issue]) {
 /// @plan PLAN-20260329-ISSUES-MODE.P08
 /// @requirement REQ-ISS-009
 /// @pseudocode component-002 lines 55-65
-#[allow(clippy::too_many_lines)]
 pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
     let value: Value = serde_json::from_str(json_str)
         .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
@@ -258,81 +243,16 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         .and_then(Value::as_u64)
         .ok_or_else(|| GhError::ParseError("Missing or invalid number".to_string()))?;
 
-    let title = value
-        .get("title")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let state = value
-        .get("state")
-        .and_then(Value::as_str)
-        .map_or(IssueState::Open, |s| match s {
-            "CLOSED" => IssueState::Closed,
-            _ => IssueState::Open,
-        });
-
-    let author_login = value
-        .get("author")
-        .and_then(|a| a.get("login"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let created_at = value
-        .get("createdAt")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let updated_at = value
-        .get("updatedAt")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    // Parse labels as Vec<String>
-    let labels: Vec<String> = value
-        .get("labels")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|l| l.get("name").and_then(Value::as_str).map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Parse assignees as Vec<String>
-    let assignees: Vec<String> = value
-        .get("assignees")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|a| a.get("login").and_then(Value::as_str).map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Parse milestone
-    let milestone = value.get("milestone").and_then(|m| {
-        if m.is_null() {
-            None
-        } else {
-            m.get("title").and_then(Value::as_str).map(String::from)
-        }
-    });
-
-    let body = value
-        .get("body")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let external_url = value
-        .get("url")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
+    let title = json_string_field(&value, "title");
+    let state = parse_issue_state(&value);
+    let author_login = json_login_field(&value, "author");
+    let created_at = json_string_field(&value, "createdAt");
+    let updated_at = json_string_field(&value, "updatedAt");
+    let labels = json_string_array(&value, "labels", "name");
+    let assignees = json_string_array(&value, "assignees", "login");
+    let milestone = parse_optional_string_field(&value, "milestone", "title");
+    let body = json_string_field(&value, "body");
+    let external_url = json_string_field(&value, "url");
 
     // Extract repo_owner_name from URL (format: https://github.com/owner/repo/issues/NUM)
     let repo_owner_name = external_url
@@ -340,7 +260,6 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         .and_then(|rest| rest.find("/issues/").map(|idx| rest[..idx].to_string()))
         .unwrap_or_default();
 
-    // Parse comments - REST format for issue detail
     let comments: Vec<IssueComment> = value
         .get("comments")
         .and_then(Value::as_array)
@@ -367,6 +286,60 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         comments,
         has_more_comments: false,
         comments_cursor: None,
+    })
+}
+
+/// Read a top-level string field, defaulting to "".
+fn json_string_field(value: &Value, field: &str) -> String {
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Read `<field>.login` as a string, defaulting to "".
+fn json_login_field(value: &Value, field: &str) -> String {
+    value
+        .get(field)
+        .and_then(|a| a.get("login"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Parse the `state` field into an [`IssueState`], defaulting to Open.
+fn parse_issue_state(value: &Value) -> IssueState {
+    value
+        .get("state")
+        .and_then(Value::as_str)
+        .map_or(IssueState::Open, |s| match s {
+            "CLOSED" => IssueState::Closed,
+            _ => IssueState::Open,
+        })
+}
+
+/// Collect `<field>[*].<key>` into `Vec<String>`.
+fn json_string_array(value: &Value, field: &str, key: &str) -> Vec<String> {
+    value
+        .get(field)
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| item.get(key).and_then(Value::as_str).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Read an optional nested string: null or missing yields None.
+fn parse_optional_string_field(value: &Value, field: &str, key: &str) -> Option<String> {
+    value.get(field).and_then(|m| {
+        if m.is_null() {
+            None
+        } else {
+            m.get(key).and_then(Value::as_str).map(String::from)
+        }
     })
 }
 
@@ -427,7 +400,6 @@ fn parse_rest_comment(value: &Value) -> Result<IssueComment, GhError> {
 /// @plan PLAN-20260329-ISSUES-MODE.P08
 /// @requirement REQ-ISS-009
 /// @pseudocode component-002 lines 75-85
-#[allow(clippy::too_many_lines)]
 pub fn parse_comments_json(
     json_str: &str,
 ) -> Result<(Vec<IssueComment>, Option<String>, bool), GhError> {
@@ -450,7 +422,18 @@ pub fn parse_comments_json(
     let page_info = comments_data
         .get("pageInfo")
         .ok_or_else(|| GhError::ParseError("Missing pageInfo".to_string()))?;
+    let (end_cursor, has_next_page) = parse_page_info(page_info);
 
+    let mut comments = Vec::new();
+    for node in nodes {
+        comments.push(parse_rest_comment(node)?);
+    }
+
+    Ok((comments, end_cursor, has_next_page))
+}
+
+/// Extract (endCursor, hasNextPage) from a GraphQL `pageInfo` object.
+fn parse_page_info(page_info: &Value) -> (Option<String>, bool) {
     let has_next_page = page_info
         .get("hasNextPage")
         .and_then(Value::as_bool)
@@ -464,12 +447,7 @@ pub fn parse_comments_json(
         }
     });
 
-    let mut comments = Vec::new();
-    for node in nodes {
-        comments.push(parse_rest_comment(node)?);
-    }
-
-    Ok((comments, end_cursor, has_next_page))
+    (end_cursor, has_next_page)
 }
 
 /// Parse JSON response from `gh api .../comments` POST (REST API format).

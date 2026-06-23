@@ -1,12 +1,3 @@
 # Existing clippy allow attributes pending removal.
 # Columns are tab-separated: path, exact attribute text, owner, removal target.
 # New #[allow(clippy::...)] or #![allow(clippy::...)] entries must not be added without an approved exception.
-src/app_init.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/app_init.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/app_shell.rs	#[allow(clippy::cognitive_complexity)]	core-maintainers	next quality-cycle ratchet
-src/app_shell.rs	#[allow(clippy::cognitive_complexity)]	core-maintainers	next quality-cycle ratchet
-src/github/mod.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/github/mod.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/github/mod.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/messages.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet
-src/messages.rs	#[allow(clippy::too_many_lines)]	core-maintainers	next quality-cycle ratchet

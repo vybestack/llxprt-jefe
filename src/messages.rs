@@ -9,6 +9,8 @@ use crate::domain::{AgentId, AgentStatus, Issue, IssueComment, IssueDetail, Repo
 use crate::state::AppEvent;
 use crate::state::EditorTarget;
 
+mod issues_conversion;
+
 /// Stable domain channel names used for routing, tracing, and policy tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageDomain {
@@ -435,7 +437,6 @@ message_names!(IssuesMessage {
 });
 
 impl From<AppEvent> for AppMessage {
-    #[allow(clippy::too_many_lines)]
     fn from(event: AppEvent) -> Self {
         match event {
             AppEvent::NavigateUp => Self::UiNavigation(UiNavigationMessage::NavigateUp),
@@ -479,6 +480,18 @@ impl From<AppEvent> for AppMessage {
             AppEvent::FormNextField => Self::Modal(ModalMessage::FormNextField),
             AppEvent::FormPrevField => Self::Modal(ModalMessage::FormPrevField),
             AppEvent::FormToggleCheckbox => Self::Modal(ModalMessage::FormToggleCheckbox),
+            other => Self::from_non_ui_nav_event(other),
+        }
+    }
+}
+
+impl AppMessage {
+    /// Convert non-UI-navigation [`AppEvent`] variants into the typed message bus.
+    ///
+    /// Split out from [`AppMessage::from`] so the top-level converter stays
+    /// within the clippy line budget without a complexity suppression.
+    fn from_non_ui_nav_event(event: AppEvent) -> Self {
+        match event {
             AppEvent::OpenNewRepository => {
                 Self::RepositoryAgent(RepositoryAgentMessage::OpenNewRepository)
             }
@@ -518,161 +531,13 @@ impl From<AppEvent> for AppMessage {
             AppEvent::Quit => Self::System(SystemMessage::Quit),
             AppEvent::ClearError => Self::System(SystemMessage::ClearError),
             AppEvent::ClearWarning => Self::System(SystemMessage::ClearWarning),
-            AppEvent::EnterIssuesMode => Self::Issues(IssuesMessage::EnterMode),
-            AppEvent::ExitIssuesMode => Self::Issues(IssuesMessage::ExitMode),
-            AppEvent::RefocusIssueList => Self::Issues(IssuesMessage::RefocusList),
-            AppEvent::IssuesNavigateUp => Self::Issues(IssuesMessage::NavigateUp),
-            AppEvent::IssuesNavigateDown => Self::Issues(IssuesMessage::NavigateDown),
-            AppEvent::IssuesNavigatePageUp => Self::Issues(IssuesMessage::NavigatePageUp),
-            AppEvent::IssuesNavigatePageDown => Self::Issues(IssuesMessage::NavigatePageDown),
-            AppEvent::IssuesNavigateHome => Self::Issues(IssuesMessage::NavigateHome),
-            AppEvent::IssuesNavigateEnd => Self::Issues(IssuesMessage::NavigateEnd),
-            AppEvent::IssuesEnter => Self::Issues(IssuesMessage::Enter),
-            AppEvent::IssuesCycleFocus => Self::Issues(IssuesMessage::CycleFocus),
-            AppEvent::IssuesCycleFocusReverse => Self::Issues(IssuesMessage::CycleFocusReverse),
-            AppEvent::IssuesScrollDetailUp => Self::Issues(IssuesMessage::ScrollDetailUp),
-            AppEvent::IssuesScrollDetailDown => Self::Issues(IssuesMessage::ScrollDetailDown),
-            AppEvent::IssuesScrollDetailPageUp => Self::Issues(IssuesMessage::ScrollDetailPageUp),
-            AppEvent::IssuesScrollDetailPageDown => {
-                Self::Issues(IssuesMessage::ScrollDetailPageDown)
-            }
-            AppEvent::IssueDetailSubfocusNext => Self::Issues(IssuesMessage::DetailSubfocusNext),
-            AppEvent::IssueDetailSubfocusPrev => Self::Issues(IssuesMessage::DetailSubfocusPrev),
-            AppEvent::IssueListLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            } => Self::Issues(IssuesMessage::ListLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            }),
-            AppEvent::IssueListLoadFailed {
-                scope_repo_id,
-                error,
-            } => Self::Issues(IssuesMessage::ListLoadFailed {
-                scope_repo_id,
-                error,
-            }),
-            AppEvent::IssueListPageLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            } => Self::Issues(IssuesMessage::ListPageLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            }),
-            AppEvent::IssueDetailLoaded {
-                scope_repo_id,
-                issue_number,
-                detail,
-            } => Self::Issues(IssuesMessage::DetailLoaded {
-                scope_repo_id,
-                issue_number,
-                detail,
-            }),
-            AppEvent::IssueDetailLoadFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            } => Self::Issues(IssuesMessage::DetailLoadFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            }),
-            AppEvent::IssueCommentsPageLoaded {
-                scope_repo_id,
-                issue_number,
-                comments,
-                cursor,
-                has_more,
-            } => Self::Issues(IssuesMessage::CommentsPageLoaded {
-                scope_repo_id,
-                issue_number,
-                comments,
-                cursor,
-                has_more,
-            }),
-            AppEvent::IssueCommentsPageFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            } => Self::Issues(IssuesMessage::CommentsPageFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            }),
-            AppEvent::OpenFilterControls => Self::Issues(IssuesMessage::OpenFilterControls),
-            AppEvent::CloseFilterControls => Self::Issues(IssuesMessage::CloseFilterControls),
-            AppEvent::ApplyFilter => Self::Issues(IssuesMessage::ApplyFilter),
-            AppEvent::ClearFilter => Self::Issues(IssuesMessage::ClearFilter),
-            AppEvent::FilterNavigateNext => Self::Issues(IssuesMessage::FilterNavigateNext),
-            AppEvent::FilterNavigatePrev => Self::Issues(IssuesMessage::FilterNavigatePrev),
-            AppEvent::CycleFilterState => Self::Issues(IssuesMessage::CycleFilterState),
-            AppEvent::FocusSearchInput => Self::Issues(IssuesMessage::FocusSearchInput),
-            AppEvent::BlurSearchInput => Self::Issues(IssuesMessage::BlurSearchInput),
-            AppEvent::SetSearchQuery { query } => {
-                Self::Issues(IssuesMessage::SetSearchQuery { query })
-            }
-            AppEvent::ApplySearch => Self::Issues(IssuesMessage::ApplySearch),
-            AppEvent::ClearSearch => Self::Issues(IssuesMessage::ClearSearch),
-            AppEvent::UpdateDraftFilter { field, value } => {
-                Self::Issues(IssuesMessage::UpdateDraftFilter { field, value })
-            }
-            AppEvent::OpenNewIssueComposer => Self::Issues(IssuesMessage::OpenNewIssueComposer),
-            AppEvent::OpenNewCommentComposer => Self::Issues(IssuesMessage::OpenNewCommentComposer),
-            AppEvent::OpenReplyComposer { comment_index } => {
-                Self::Issues(IssuesMessage::OpenReplyComposer { comment_index })
-            }
-            AppEvent::OpenInlineEditor { target } => {
-                Self::Issues(IssuesMessage::OpenInlineEditor { target })
-            }
-            AppEvent::InlineChar(c) => Self::Issues(IssuesMessage::InlineChar(c)),
-            AppEvent::InlineNewline => Self::Issues(IssuesMessage::InlineNewline),
-            AppEvent::InlineBackspace => Self::Issues(IssuesMessage::InlineBackspace),
-            AppEvent::InlineDelete => Self::Issues(IssuesMessage::InlineDelete),
-            AppEvent::InlineCursorLeft => Self::Issues(IssuesMessage::InlineCursorLeft),
-            AppEvent::InlineCursorRight => Self::Issues(IssuesMessage::InlineCursorRight),
-            AppEvent::InlineCursorUp => Self::Issues(IssuesMessage::InlineCursorUp),
-            AppEvent::InlineCursorDown => Self::Issues(IssuesMessage::InlineCursorDown),
-            AppEvent::InlineSubmit => Self::Issues(IssuesMessage::InlineSubmit),
-            AppEvent::InlineCancelOrEsc => Self::Issues(IssuesMessage::InlineCancelOrEsc),
-            AppEvent::CommentCreated { comment } => {
-                Self::Issues(IssuesMessage::CommentCreated { comment })
-            }
-            AppEvent::CommentCreateFailed { error } => {
-                Self::Issues(IssuesMessage::CommentCreateFailed { error })
-            }
-            AppEvent::IssueBodyUpdated { body } => {
-                Self::Issues(IssuesMessage::IssueBodyUpdated { body })
-            }
-            AppEvent::CommentUpdated {
-                comment_index,
-                body,
-            } => Self::Issues(IssuesMessage::CommentUpdated {
-                comment_index,
-                body,
-            }),
-            AppEvent::MutationFailed { error } => {
-                Self::Issues(IssuesMessage::MutationFailed { error })
-            }
-            AppEvent::OpenAgentChooser => Self::Issues(IssuesMessage::OpenAgentChooser),
-            AppEvent::AgentChooserNavigateUp => Self::Issues(IssuesMessage::AgentChooserNavigateUp),
-            AppEvent::AgentChooserNavigateDown => {
-                Self::Issues(IssuesMessage::AgentChooserNavigateDown)
-            }
-            AppEvent::AgentChooserConfirm => Self::Issues(IssuesMessage::AgentChooserConfirm),
-            AppEvent::AgentChooserCancel => Self::Issues(IssuesMessage::AgentChooserCancel),
-            AppEvent::SendToAgentCompleted => Self::Issues(IssuesMessage::SendToAgentCompleted),
-            AppEvent::SendToAgentFailed { error } => {
-                Self::Issues(IssuesMessage::SendToAgentFailed { error })
-            }
+            other => Self::from_issues_event(other),
         }
+    }
+
+    /// Convert issues-domain [`AppEvent`] variants into the typed message bus.
+    fn from_issues_event(event: AppEvent) -> Self {
+        Self::Issues(IssuesMessage::from_app_event(event))
     }
 }
 
@@ -784,150 +649,6 @@ impl From<SystemMessage> for AppEvent {
             SystemMessage::Quit => Self::Quit,
             SystemMessage::ClearError => Self::ClearError,
             SystemMessage::ClearWarning => Self::ClearWarning,
-        }
-    }
-}
-
-impl From<IssuesMessage> for AppEvent {
-    #[allow(clippy::too_many_lines)]
-    fn from(message: IssuesMessage) -> Self {
-        match message {
-            IssuesMessage::EnterMode => Self::EnterIssuesMode,
-            IssuesMessage::ExitMode => Self::ExitIssuesMode,
-            IssuesMessage::RefocusList => Self::RefocusIssueList,
-            IssuesMessage::NavigateUp => Self::IssuesNavigateUp,
-            IssuesMessage::NavigateDown => Self::IssuesNavigateDown,
-            IssuesMessage::NavigatePageUp => Self::IssuesNavigatePageUp,
-            IssuesMessage::NavigatePageDown => Self::IssuesNavigatePageDown,
-            IssuesMessage::NavigateHome => Self::IssuesNavigateHome,
-            IssuesMessage::NavigateEnd => Self::IssuesNavigateEnd,
-            IssuesMessage::Enter => Self::IssuesEnter,
-            IssuesMessage::CycleFocus => Self::IssuesCycleFocus,
-            IssuesMessage::CycleFocusReverse => Self::IssuesCycleFocusReverse,
-            IssuesMessage::ScrollDetailUp => Self::IssuesScrollDetailUp,
-            IssuesMessage::ScrollDetailDown => Self::IssuesScrollDetailDown,
-            IssuesMessage::ScrollDetailPageUp => Self::IssuesScrollDetailPageUp,
-            IssuesMessage::ScrollDetailPageDown => Self::IssuesScrollDetailPageDown,
-            IssuesMessage::DetailSubfocusNext => Self::IssueDetailSubfocusNext,
-            IssuesMessage::DetailSubfocusPrev => Self::IssueDetailSubfocusPrev,
-            IssuesMessage::ListLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            } => Self::IssueListLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            },
-            IssuesMessage::ListLoadFailed {
-                scope_repo_id,
-                error,
-            } => Self::IssueListLoadFailed {
-                scope_repo_id,
-                error,
-            },
-            IssuesMessage::ListPageLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            } => Self::IssueListPageLoaded {
-                scope_repo_id,
-                issues,
-                cursor,
-                has_more,
-            },
-            IssuesMessage::DetailLoaded {
-                scope_repo_id,
-                issue_number,
-                detail,
-            } => Self::IssueDetailLoaded {
-                scope_repo_id,
-                issue_number,
-                detail,
-            },
-            IssuesMessage::DetailLoadFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            } => Self::IssueDetailLoadFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            },
-            IssuesMessage::CommentsPageLoaded {
-                scope_repo_id,
-                issue_number,
-                comments,
-                cursor,
-                has_more,
-            } => Self::IssueCommentsPageLoaded {
-                scope_repo_id,
-                issue_number,
-                comments,
-                cursor,
-                has_more,
-            },
-            IssuesMessage::CommentsPageFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            } => Self::IssueCommentsPageFailed {
-                scope_repo_id,
-                issue_number,
-                error,
-            },
-            IssuesMessage::OpenFilterControls => Self::OpenFilterControls,
-            IssuesMessage::CloseFilterControls => Self::CloseFilterControls,
-            IssuesMessage::ApplyFilter => Self::ApplyFilter,
-            IssuesMessage::ClearFilter => Self::ClearFilter,
-            IssuesMessage::FilterNavigateNext => Self::FilterNavigateNext,
-            IssuesMessage::FilterNavigatePrev => Self::FilterNavigatePrev,
-            IssuesMessage::CycleFilterState => Self::CycleFilterState,
-            IssuesMessage::FocusSearchInput => Self::FocusSearchInput,
-            IssuesMessage::BlurSearchInput => Self::BlurSearchInput,
-            IssuesMessage::SetSearchQuery { query } => Self::SetSearchQuery { query },
-            IssuesMessage::ApplySearch => Self::ApplySearch,
-            IssuesMessage::ClearSearch => Self::ClearSearch,
-            IssuesMessage::UpdateDraftFilter { field, value } => {
-                Self::UpdateDraftFilter { field, value }
-            }
-            IssuesMessage::OpenNewIssueComposer => Self::OpenNewIssueComposer,
-            IssuesMessage::OpenNewCommentComposer => Self::OpenNewCommentComposer,
-            IssuesMessage::OpenReplyComposer { comment_index } => {
-                Self::OpenReplyComposer { comment_index }
-            }
-            IssuesMessage::OpenInlineEditor { target } => Self::OpenInlineEditor { target },
-            IssuesMessage::InlineChar(c) => Self::InlineChar(c),
-            IssuesMessage::InlineNewline => Self::InlineNewline,
-            IssuesMessage::InlineBackspace => Self::InlineBackspace,
-            IssuesMessage::InlineDelete => Self::InlineDelete,
-            IssuesMessage::InlineCursorLeft => Self::InlineCursorLeft,
-            IssuesMessage::InlineCursorRight => Self::InlineCursorRight,
-            IssuesMessage::InlineCursorUp => Self::InlineCursorUp,
-            IssuesMessage::InlineCursorDown => Self::InlineCursorDown,
-            IssuesMessage::InlineSubmit => Self::InlineSubmit,
-            IssuesMessage::InlineCancelOrEsc => Self::InlineCancelOrEsc,
-            IssuesMessage::CommentCreated { comment } => Self::CommentCreated { comment },
-            IssuesMessage::CommentCreateFailed { error } => Self::CommentCreateFailed { error },
-            IssuesMessage::IssueBodyUpdated { body } => Self::IssueBodyUpdated { body },
-            IssuesMessage::CommentUpdated {
-                comment_index,
-                body,
-            } => Self::CommentUpdated {
-                comment_index,
-                body,
-            },
-            IssuesMessage::MutationFailed { error } => Self::MutationFailed { error },
-            IssuesMessage::OpenAgentChooser => Self::OpenAgentChooser,
-            IssuesMessage::AgentChooserNavigateUp => Self::AgentChooserNavigateUp,
-            IssuesMessage::AgentChooserNavigateDown => Self::AgentChooserNavigateDown,
-            IssuesMessage::AgentChooserConfirm => Self::AgentChooserConfirm,
-            IssuesMessage::AgentChooserCancel => Self::AgentChooserCancel,
-            IssuesMessage::SendToAgentCompleted => Self::SendToAgentCompleted,
-            IssuesMessage::SendToAgentFailed { error } => Self::SendToAgentFailed { error },
         }
     }
 }
