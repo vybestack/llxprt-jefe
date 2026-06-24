@@ -75,16 +75,16 @@ impl AppLayoutSpec {
 }
 
 /// Computed PTY viewport geometry: terminal cell dimensions plus the
-/// 1-based screen origin (column/row) of the viewport within the render grid.
+/// zero-based render-grid origin (column/row) of the viewport.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PtyLayout {
     /// PTY viewport height in rows (always `>= 2`).
     pub pty_rows: u16,
     /// PTY viewport width in columns (always `>= 2`).
     pub pty_cols: u16,
-    /// 1-based screen column where the PTY viewport's left edge sits (always `> 0`).
+    /// Zero-based render-grid column where the PTY viewport's left edge sits (always `> 0`).
     pub pane_col0: u16,
-    /// 1-based screen row where the PTY viewport's top edge sits (always `> 0`).
+    /// Zero-based render-grid row where the PTY viewport's top edge sits (always `> 0`).
     pub pane_row0: u16,
 }
 
