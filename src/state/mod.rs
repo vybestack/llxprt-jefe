@@ -921,3 +921,7 @@ mod issues_tests_repo_nav;
 #[cfg(test)]
 #[path = "issues_tests_filter.rs"]
 mod issues_tests_filter;
+
+#[cfg(test)]
+#[path = "issues_tests_composer_focus.rs"]
+mod issues_tests_composer_focus;
