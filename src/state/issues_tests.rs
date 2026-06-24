@@ -895,7 +895,7 @@ fn test_inline_exclusivity_blocks_second_control() {
     // Should still be Composer, not changed to Editor
     assert!(
         matches!(
-            new_state.issues_state.inline_state,
+            &new_state.issues_state.inline_state,
             InlineState::Composer {
                 target: ComposerTarget::NewComment,
                 ..

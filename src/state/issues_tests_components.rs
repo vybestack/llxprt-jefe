@@ -240,7 +240,7 @@ fn test_issue_list_new_issue_composer_visible() {
 
     assert!(
         matches!(
-            state.issues_state.inline_state,
+            &state.issues_state.inline_state,
             InlineState::Composer {
                 target: ComposerTarget::NewIssue,
                 ..

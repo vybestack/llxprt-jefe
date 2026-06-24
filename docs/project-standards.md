@@ -112,7 +112,7 @@ Defined in `clippy.toml`:
 ### DON'T
 
 - **DON'T** use `unsafe` code. The lint level is `forbid`. This is non-negotiable.
-- **DON'T** use `.unwrap()` or `.expect()` in production code paths. These are acceptable ONLY in `#[cfg(test)]` blocks and in `const` contexts where the value is provably `Some`/`Ok`.
+- **DON'T** use `.unwrap()` or `.expect()` anywhere in first-party code. The clippy lints `unwrap_used`/`expect_used` are enforced with `-D warnings` in both production and test code; the only `const`-context exception is where the value is provably `Some`/`Ok`. In tests, use assertion macros or `let-else` extraction with clear `panic!` messages (see Testing Standards § Test Assertion Style).
 - **DON'T** use `panic!()`, `unreachable!()`, `todo!()`, or `unimplemented!()` in production code paths. If a code path is genuinely unreachable, refactor the types to make that structurally impossible.
 - **DON'T** disable lints with `#[allow(...)]` without a code-review-approved comment explaining why. Every `allow` must have a justification. Blanket `#![allow(...)]` at the module level requires explicit approval and must be temporary.
 - **DON'T** add `#[allow(clippy::...)]`, `#![allow(clippy::...)]`, or `#[cfg_attr(..., allow(clippy::...))]` attributes in first-party code. The policy is zero-tolerance and there is no exception ledger. The gate `scripts/check-clippy-allows.sh` fails CI on any first-party clippy allow attribute (vendor remains ignored).
