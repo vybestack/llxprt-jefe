@@ -213,13 +213,17 @@ fn test_issue_detail_inline_composer_visible() {
 
     let state = state.apply(AppEvent::OpenNewCommentComposer);
 
-    match state.issues_state.inline_state {
-        InlineState::Composer {
-            target: ComposerTarget::NewComment,
-            ..
-        } => {} // Correct
-        other => panic!("expected Composer(NewComment), got {other:?}"),
-    }
+    assert!(
+        matches!(
+            state.issues_state.inline_state,
+            InlineState::Composer {
+                target: ComposerTarget::NewComment,
+                ..
+            }
+        ),
+        "expected Composer(NewComment), got {:?}",
+        state.issues_state.inline_state
+    );
 }
 
 /// P13 Test 9b: OpenNewIssueComposer transitions inline_state to Composer(NewIssue).
@@ -234,13 +238,17 @@ fn test_issue_list_new_issue_composer_visible() {
 
     let state = state.apply(AppEvent::OpenNewIssueComposer);
 
-    match state.issues_state.inline_state {
-        InlineState::Composer {
-            target: ComposerTarget::NewIssue,
-            ..
-        } => {}
-        other => panic!("expected Composer(NewIssue), got {other:?}"),
-    }
+    assert!(
+        matches!(
+            state.issues_state.inline_state,
+            InlineState::Composer {
+                target: ComposerTarget::NewIssue,
+                ..
+            }
+        ),
+        "expected Composer(NewIssue), got {:?}",
+        state.issues_state.inline_state
+    );
     assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
 }
 

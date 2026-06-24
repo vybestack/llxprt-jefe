@@ -113,6 +113,7 @@ Every meaningful change must include or update tests that verify behavior.
 - Tests must verify externally meaningful behavior.
 - Tests must be deterministic and non-flaky.
 - Avoid over-mocking core logic; prefer realistic data shape coverage.
+- For assertion style (variant checks, unwrap/expect bans, `matches!` idiom), see `docs/project-standards.md` § Test Assertion Style.
 
 ## Required validation commands
 At minimum before merge:

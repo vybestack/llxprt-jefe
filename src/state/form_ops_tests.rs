@@ -44,12 +44,10 @@ fn open_new_agent_initializes_llxprt_debug_blank() {
 
     state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
 
-    match state.modal {
-        ModalState::NewAgent { fields, .. } => {
-            assert!(fields.llxprt_debug.is_empty());
-        }
-        _ => panic!("expected new-agent modal"),
-    }
+    let ModalState::NewAgent { fields, .. } = state.modal else {
+        panic!("expected new-agent modal, got {:?}", state.modal);
+    };
+    assert!(fields.llxprt_debug.is_empty());
 }
 
 #[test]
@@ -60,13 +58,12 @@ fn llxprt_debug_is_trimmed_when_creating_agent() {
     };
 
     state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
-    if let ModalState::NewAgent { fields, .. } = &mut state.modal {
-        fields.name = "Agent One".to_owned();
-        fields.work_dir = "/tmp/agent-one".to_owned();
-        fields.llxprt_debug = "   trace=1   ".to_owned();
-    } else {
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("expected new-agent modal");
-    }
+    };
+    fields.name = "Agent One".to_owned();
+    fields.work_dir = "/tmp/agent-one".to_owned();
+    fields.llxprt_debug = "   trace=1   ".to_owned();
 
     state = state.apply(AppEvent::SubmitForm);
     let Some(created) = state.agents.last() else {
@@ -83,13 +80,12 @@ fn llxprt_debug_is_trimmed_to_empty_when_blank() {
     };
 
     state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
-    if let ModalState::NewAgent { fields, .. } = &mut state.modal {
-        fields.name = "Agent Two".to_owned();
-        fields.work_dir = "/tmp/agent-two".to_owned();
-        fields.llxprt_debug = "   ".to_owned();
-    } else {
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("expected new-agent modal");
-    }
+    };
+    fields.name = "Agent Two".to_owned();
+    fields.work_dir = "/tmp/agent-two".to_owned();
+    fields.llxprt_debug = "   ".to_owned();
 
     state = state.apply(AppEvent::SubmitForm);
     let Some(created) = state.agents.last() else {
@@ -106,20 +102,17 @@ fn new_agent_work_dir_slug_excludes_slashes_from_name() {
     };
 
     state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
-    if let ModalState::NewAgent { fields, .. } = &mut state.modal {
-        fields.name = "API / Worker".to_owned();
-    } else {
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("expected new-agent modal");
-    }
+    };
+    fields.name = "API / Worker".to_owned();
 
     state.update_agent_work_dir_from_name();
 
-    match &state.modal {
-        ModalState::NewAgent { fields, .. } => {
-            assert_eq!(fields.work_dir, "/tmp/repo-1/api--worker");
-        }
-        _ => panic!("expected new-agent modal"),
-    }
+    let ModalState::NewAgent { fields, .. } = &state.modal else {
+        panic!("expected new-agent modal, got {:?}", state.modal);
+    };
+    assert_eq!(fields.work_dir, "/tmp/repo-1/api--worker");
 }
 
 #[test]
@@ -251,24 +244,23 @@ fn repository_checkbox_toggle_updates_remote_fields() {
     state = state.apply(AppEvent::FormNextField);
     state = state.apply(AppEvent::FormToggleCheckbox);
 
-    match state.modal {
-        ModalState::NewRepository {
-            fields,
-            focus,
-            cursor,
-        } => {
-            assert_eq!(focus, RepositoryFormFocus::SetupEnvDefault);
-            assert!(fields.remote_enabled);
-            assert_eq!(fields.login_user, "ub");
-            assert_eq!(fields.host, "1.");
-            assert_eq!(fields.run_as_user, "a");
-            assert!(fields.setup_env_default);
-            assert_eq!(cursor.login_user, 2);
-            assert_eq!(cursor.host, 2);
-            assert_eq!(cursor.run_as_user, 1);
-        }
-        _ => panic!("expected new-repository modal"),
-    }
+    let ModalState::NewRepository {
+        fields,
+        focus,
+        cursor,
+    } = state.modal
+    else {
+        panic!("expected new-repository modal, got {:?}", state.modal);
+    };
+    assert_eq!(focus, RepositoryFormFocus::SetupEnvDefault);
+    assert!(fields.remote_enabled);
+    assert_eq!(fields.login_user, "ub");
+    assert_eq!(fields.host, "1.");
+    assert_eq!(fields.run_as_user, "a");
+    assert!(fields.setup_env_default);
+    assert_eq!(cursor.login_user, 2);
+    assert_eq!(cursor.host, 2);
+    assert_eq!(cursor.run_as_user, 1);
 }
 
 #[test]
@@ -487,11 +479,10 @@ fn submit_edit_repository_keeps_modal_open_when_github_repo_invalid() {
     state = state.apply(AppEvent::OpenEditRepository(RepositoryId(
         "repo-1".to_owned(),
     )));
-    if let ModalState::EditRepository { fields, .. } = &mut state.modal {
-        fields.github_repo = "owner/repo/extra".to_owned();
-    } else {
+    let ModalState::EditRepository { fields, .. } = &mut state.modal else {
         panic!("expected edit-repository modal");
-    }
+    };
+    fields.github_repo = "owner/repo/extra".to_owned();
 
     state = state.apply(AppEvent::SubmitForm);
 
@@ -513,11 +504,10 @@ fn submit_edit_repository_closes_modal_when_github_repo_valid() {
     state = state.apply(AppEvent::OpenEditRepository(RepositoryId(
         "repo-1".to_owned(),
     )));
-    if let ModalState::EditRepository { fields, .. } = &mut state.modal {
-        fields.github_repo = "owner/new".to_owned();
-    } else {
+    let ModalState::EditRepository { fields, .. } = &mut state.modal else {
         panic!("expected edit-repository modal");
-    }
+    };
+    fields.github_repo = "owner/new".to_owned();
 
     state = state.apply(AppEvent::SubmitForm);
 

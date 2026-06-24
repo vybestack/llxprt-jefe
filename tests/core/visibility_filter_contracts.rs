@@ -231,16 +231,14 @@ fn delete_targets_correct_agent_when_idle_hidden() {
     assert_eq!(selected_id, AgentId("target".into()));
 
     let with_modal = hidden.apply(AppEvent::OpenDeleteAgent(selected_id));
-    match &with_modal.modal {
-        ModalState::ConfirmDeleteAgent { id, .. } => {
-            assert_eq!(
-                *id,
-                AgentId("target".into()),
-                "delete must target the highlighted agent, not an adjacent one"
-            );
-        }
-        other => panic!("expected ConfirmDeleteAgent, got {other:?}"),
-    }
+    let ModalState::ConfirmDeleteAgent { id, .. } = &with_modal.modal else {
+        panic!("expected ConfirmDeleteAgent, got {:?}", with_modal.modal);
+    };
+    assert_eq!(
+        *id,
+        AgentId("target".into()),
+        "delete must target the highlighted agent, not an adjacent one"
+    );
 }
 
 #[test]

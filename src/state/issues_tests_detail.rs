@@ -175,13 +175,17 @@ fn test_mode_lifecycle_enter_interact_exit() {
 
     // Open inline composer
     let state = state.apply(AppEvent::OpenNewCommentComposer);
-    match &state.issues_state.inline_state {
-        InlineState::Composer {
-            target: ComposerTarget::NewComment,
-            ..
-        } => {}
-        other => panic!("expected Composer(NewComment), got {other:?}"),
-    }
+    assert!(
+        matches!(
+            &state.issues_state.inline_state,
+            InlineState::Composer {
+                target: ComposerTarget::NewComment,
+                ..
+            }
+        ),
+        "expected Composer(NewComment), got {:?}",
+        state.issues_state.inline_state
+    );
 
     // Type some text
     let state = state

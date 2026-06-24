@@ -229,12 +229,10 @@ fn open_new_agent_form_initializes_llxprt_debug_blank() {
 
     state = state.apply(AppEvent::OpenNewAgent(repo_id));
 
-    match state.modal {
-        ModalState::NewAgent { fields, .. } => {
-            assert!(fields.llxprt_debug.is_empty());
-        }
-        _ => panic!("expected new-agent modal"),
-    }
+    let ModalState::NewAgent { fields, .. } = state.modal else {
+        panic!("expected new-agent modal, got {:?}", state.modal);
+    };
+    assert!(fields.llxprt_debug.is_empty());
 }
 
 #[test]
@@ -246,12 +244,10 @@ fn open_edit_agent_form_copies_llxprt_debug_value() {
 
     state = state.apply(AppEvent::OpenEditAgent(agent_id));
 
-    match state.modal {
-        ModalState::EditAgent { fields, .. } => {
-            assert_eq!(fields.llxprt_debug, "trace=agent");
-        }
-        _ => panic!("expected edit-agent modal"),
-    }
+    let ModalState::EditAgent { fields, .. } = state.modal else {
+        panic!("expected edit-agent modal, got {:?}", state.modal);
+    };
+    assert_eq!(fields.llxprt_debug, "trace=agent");
 }
 
 #[test]
@@ -262,13 +258,12 @@ fn submit_new_agent_form_trims_llxprt_debug() {
 
     state = state.apply(AppEvent::OpenNewAgent(repo_id));
 
-    if let ModalState::NewAgent { fields, .. } = &mut state.modal {
-        fields.name = "Agent With Debug".into();
-        fields.work_dir = "/tmp/agent-with-debug".into();
-        fields.llxprt_debug = "   io=trace   ".into();
-    } else {
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
         panic!("expected new-agent modal");
-    }
+    };
+    fields.name = "Agent With Debug".into();
+    fields.work_dir = "/tmp/agent-with-debug".into();
+    fields.llxprt_debug = "   io=trace   ".into();
 
     state = state.apply(AppEvent::SubmitForm);
     let Some(created) = state
@@ -292,18 +287,17 @@ fn repository_form_cursor_moves_and_inserts_in_place() {
     state = state.apply(AppEvent::FormMoveCursorLeft);
     state = state.apply(AppEvent::FormChar('b'));
 
-    match state.modal {
-        ModalState::NewRepository {
-            fields,
-            focus,
-            cursor,
-        } => {
-            assert_eq!(focus, RepositoryFormFocus::Name);
-            assert_eq!(fields.name, "abc");
-            assert_eq!(cursor.name, 2);
-        }
-        _ => panic!("expected new-repository modal"),
-    }
+    let ModalState::NewRepository {
+        fields,
+        focus,
+        cursor,
+    } = state.modal
+    else {
+        panic!("expected new-repository modal, got {:?}", state.modal);
+    };
+    assert_eq!(focus, RepositoryFormFocus::Name);
+    assert_eq!(fields.name, "abc");
+    assert_eq!(cursor.name, 2);
 }
 
 #[test]
@@ -327,24 +321,23 @@ fn repository_form_toggles_remote_fields() {
     state = state.apply(AppEvent::FormNextField); // SetupEnvDefault
     state = state.apply(AppEvent::FormToggleCheckbox);
 
-    match state.modal {
-        ModalState::NewRepository {
-            fields,
-            focus,
-            cursor,
-        } => {
-            assert_eq!(focus, RepositoryFormFocus::SetupEnvDefault);
-            assert!(fields.remote_enabled);
-            assert_eq!(fields.login_user, "op");
-            assert_eq!(fields.host, "10");
-            assert_eq!(fields.run_as_user, "m");
-            assert!(fields.setup_env_default);
-            assert_eq!(cursor.login_user, 2);
-            assert_eq!(cursor.host, 2);
-            assert_eq!(cursor.run_as_user, 1);
-        }
-        _ => panic!("expected new-repository modal"),
-    }
+    let ModalState::NewRepository {
+        fields,
+        focus,
+        cursor,
+    } = state.modal
+    else {
+        panic!("expected new-repository modal, got {:?}", state.modal);
+    };
+    assert_eq!(focus, RepositoryFormFocus::SetupEnvDefault);
+    assert!(fields.remote_enabled);
+    assert_eq!(fields.login_user, "op");
+    assert_eq!(fields.host, "10");
+    assert_eq!(fields.run_as_user, "m");
+    assert!(fields.setup_env_default);
+    assert_eq!(cursor.login_user, 2);
+    assert_eq!(cursor.host, 2);
+    assert_eq!(cursor.run_as_user, 1);
 }
 
 #[test]
@@ -360,17 +353,16 @@ fn agent_form_cursor_delete_and_backspace_are_caret_based() {
     state = state.apply(AppEvent::FormDelete); // remove c => ab|
     state = state.apply(AppEvent::FormBackspace); // remove b => a|
 
-    match state.modal {
-        ModalState::NewAgent {
-            fields,
-            focus,
-            cursor,
-            ..
-        } => {
-            assert_eq!(focus, AgentFormFocus::Name);
-            assert_eq!(fields.name, "a");
-            assert_eq!(cursor.name, 1);
-        }
-        _ => panic!("expected new-agent modal"),
-    }
+    let ModalState::NewAgent {
+        fields,
+        focus,
+        cursor,
+        ..
+    } = state.modal
+    else {
+        panic!("expected new-agent modal, got {:?}", state.modal);
+    };
+    assert_eq!(focus, AgentFormFocus::Name);
+    assert_eq!(fields.name, "a");
+    assert_eq!(cursor.name, 1);
 }

@@ -893,16 +893,17 @@ fn test_inline_exclusivity_blocks_second_control() {
     });
 
     // Should still be Composer, not changed to Editor
-    match new_state.issues_state.inline_state {
-        InlineState::Composer {
-            target: ComposerTarget::NewComment,
-            ..
-        } => {}
-        _ => panic!(
-            "Expected Composer state to remain, but got {:?}",
-            new_state.issues_state.inline_state
+    assert!(
+        matches!(
+            new_state.issues_state.inline_state,
+            InlineState::Composer {
+                target: ComposerTarget::NewComment,
+                ..
+            }
         ),
-    }
+        "Expected Composer state to remain, but got {:?}",
+        new_state.issues_state.inline_state
+    );
 }
 
 /// Test 24: IssueListLoaded with mismatched scope_repo_id is discarded.

@@ -79,6 +79,7 @@ Do not create parallel architecture variants (`*_v2`, `new_*`) unless explicitly
 - Pure implementation-detail assertions as primary proof
 - "exists/defined" assertions without behavioral value
 - mock-only theater for integration claims
+- Panic-based control flow for simple variant assertions; prefer `assert!(matches!(...))` (see `docs/project-standards.md` § Test Assertion Style)
 
 Regression tests are required for bug fixes.
 

@@ -153,8 +153,16 @@ The embedded terminal view remaps ANSI default/named colors to the active theme'
 - Every module with logic (not just re-exports) must have a `#[cfg(test)] mod tests` block.
 - Tests must cover: happy paths, edge cases, boundary values, and error conditions.
 - Use `pretty_assertions` for struct/collection comparisons where available.
-- Tests may use `.unwrap()` and `.expect()` freely — these are `#[cfg(test)]` contexts.
+- Tests must not use `.unwrap()` or `.expect()` — the project enforces `unwrap_used`/`expect_used` via clippy with `-D warnings`. Use assertion macros, `let-else` extraction with clear `panic!` messages, or small test-only extraction helpers.
 - Test function names must be descriptive: `test_compose_mode_defaults_to_yolo_and_continue_for_empty_input`, not `test1`.
+
+### Test Assertion Style
+
+- Prefer `assert!(matches!(value, Pattern), "expected ..., got {value:?}")` over `match { Pattern => {} _ => panic!() }` for enum-variant discriminant checks.
+- Use `assert_eq!`/`assert!` with descriptive messages for value comparisons.
+- Do NOT use `assert_matches!` — it is nightly-only and not available on the stable toolchain this project uses.
+- Do NOT use `.unwrap()`/`.expect()` in tests; the project bans them via clippy (`unwrap_used`/`expect_used` warn + `-D warnings`). Prefer `let-else` with a clear `panic!` for setup extraction, or assertion macros.
+- Reserve bare `panic!` for unreachable extraction-failure branches in `let-else`/`match` where a value must be destructured.
 
 ### What to Test
 

@@ -489,10 +489,14 @@ fn test_inline_exclusivity_all_combinations() {
     let state = base.clone().apply(AppEvent::OpenInlineEditor {
         target: EditorTarget::IssueBody,
     });
-    match &state.issues_state.inline_state {
-        InlineState::Composer { .. } => {}
-        other => panic!("Composer should block editor open, got {other:?}"),
-    }
+    assert!(
+        matches!(
+            &state.issues_state.inline_state,
+            InlineState::Composer { .. }
+        ),
+        "Composer should block editor open, got {:?}",
+        state.issues_state.inline_state
+    );
 
     // Editor active → OpenNewCommentComposer blocked
     base.issues_state.inline_state = InlineState::Editor {
@@ -501,10 +505,11 @@ fn test_inline_exclusivity_all_combinations() {
         cursor: 4,
     };
     let state = base.clone().apply(AppEvent::OpenNewCommentComposer);
-    match &state.issues_state.inline_state {
-        InlineState::Editor { .. } => {}
-        other => panic!("Editor should block composer open, got {other:?}"),
-    }
+    assert!(
+        matches!(&state.issues_state.inline_state, InlineState::Editor { .. }),
+        "Editor should block composer open, got {:?}",
+        state.issues_state.inline_state
+    );
 
     // Editor active → OpenNewIssueComposer blocked
     base.issues_state.inline_state = InlineState::Editor {
@@ -513,10 +518,11 @@ fn test_inline_exclusivity_all_combinations() {
         cursor: 4,
     };
     let state = base.clone().apply(AppEvent::OpenNewIssueComposer);
-    match &state.issues_state.inline_state {
-        InlineState::Editor { .. } => {}
-        other => panic!("Editor should block new-issue composer open, got {other:?}"),
-    }
+    assert!(
+        matches!(&state.issues_state.inline_state, InlineState::Editor { .. }),
+        "Editor should block new-issue composer open, got {:?}",
+        state.issues_state.inline_state
+    );
 
     // Editor active → OpenReplyComposer blocked
     base.issues_state.inline_state = InlineState::Editor {
@@ -527,10 +533,11 @@ fn test_inline_exclusivity_all_combinations() {
     let state = base
         .clone()
         .apply(AppEvent::OpenReplyComposer { comment_index: 0 });
-    match &state.issues_state.inline_state {
-        InlineState::Editor { .. } => {}
-        other => panic!("Editor should block reply composer open, got {other:?}"),
-    }
+    assert!(
+        matches!(&state.issues_state.inline_state, InlineState::Editor { .. }),
+        "Editor should block reply composer open, got {:?}",
+        state.issues_state.inline_state
+    );
 }
 
 /// P15 Test 16: Build send payload from detail with focused comment — all fields present.
