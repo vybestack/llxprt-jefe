@@ -952,3 +952,192 @@ fn test_matching_mutation_response_does_not_clear_newer_inline_draft() {
         other => panic!("expected newer composer draft to remain, got {other:?}"),
     }
 }
+
+/// Issue #56: Opening the new-comment composer moves detail subfocus to NewComment
+/// so comment creation is consistent with the selected target regardless of where
+/// the user pressed `c`.
+#[test]
+fn test_open_new_comment_composer_sets_subfocus_to_new_comment() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = p15_state_with_loaded_detail(&repo_id, 42);
+    state.issues_state.detail_subfocus = DetailSubfocus::Body;
+
+    let state = state.apply(AppEvent::OpenNewCommentComposer);
+
+    assert_eq!(
+        state.issues_state.detail_subfocus,
+        DetailSubfocus::NewComment
+    );
+    assert!(matches!(
+        state.issues_state.inline_state,
+        InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            ..
+        }
+    ));
+}
+
+/// Issue #56: Opening the new-comment composer scrolls the detail pane to the
+/// bottom so the composer is visible (not rendered below the viewport).
+#[test]
+fn test_open_new_comment_composer_scrolls_to_bottom() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut detail = p15_detail(42);
+    detail.body = (0..30)
+        .map(|line| format!("body line {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let mut state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(detail),
+    });
+    state.issues_state.detail_viewport_rows = 5;
+    state.issues_state.detail_scroll_offset = 0;
+
+    let state = state.apply(AppEvent::OpenNewCommentComposer);
+
+    assert_eq!(
+        state.issues_state.detail_scroll_offset,
+        state.issues_state.max_detail_scroll_offset()
+    );
+    assert!(
+        state.issues_state.detail_scroll_offset > 0,
+        "composer open should scroll down"
+    );
+}
+
+/// Issue #56: When the composer is blocked by exclusivity (an editor is already
+/// active), opening the new-comment composer must NOT change subfocus or scroll.
+#[test]
+fn test_open_new_comment_composer_blocked_does_not_change_subfocus_or_scroll() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = p15_state_with_loaded_detail(&repo_id, 42);
+    state.issues_state.detail_subfocus = DetailSubfocus::Body;
+    state.issues_state.detail_scroll_offset = 0;
+    state.issues_state.inline_state = InlineState::Editor {
+        target: EditorTarget::IssueBody,
+        text: "editing".to_string(),
+        cursor: 7,
+    };
+
+    let state = state.apply(AppEvent::OpenNewCommentComposer);
+
+    assert_eq!(state.issues_state.detail_subfocus, DetailSubfocus::Body);
+    assert_eq!(state.issues_state.detail_scroll_offset, 0);
+    assert!(matches!(
+        state.issues_state.inline_state,
+        InlineState::Editor {
+            target: EditorTarget::IssueBody,
+            ..
+        }
+    ));
+}
+
+/// Issue #56: After a comment is successfully created, the detail viewport
+/// scrolls to the bottom so the new comment is visible.
+#[test]
+fn test_comment_created_scrolls_to_bottom() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut detail = p15_detail(42);
+    detail.body = (0..30)
+        .map(|line| format!("body line {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(detail),
+    });
+    let submitted_target = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "fresh comment".to_string(),
+        cursor: 13,
+    };
+    let state = state.apply(AppEvent::MutationSubmitted {
+        scope_repo_id: repo_id.clone(),
+        mutation_id: 1,
+        target: submitted_target,
+    });
+    let mut state = state;
+    state.issues_state.detail_viewport_rows = 5;
+    state.issues_state.detail_scroll_offset = 0;
+
+    let state = state.apply(AppEvent::CommentCreated {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        mutation_id: 1,
+        comment: p15_comment(99, "bob", "2024-01-05T00:00:00Z", "fresh comment"),
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected detail"));
+    assert_eq!(detail.comments.len(), 1);
+    assert_eq!(detail.comments[0].body, "fresh comment");
+    assert_eq!(state.issues_state.inline_state, InlineState::None);
+    assert_eq!(
+        state.issues_state.detail_scroll_offset,
+        state.issues_state.max_detail_scroll_offset()
+    );
+    assert!(
+        state.issues_state.detail_scroll_offset > 0,
+        "CommentCreated should scroll down to reveal new comment"
+    );
+}
+
+/// Issue #56: A stale CommentCreated (wrong issue_number) must NOT mutate the
+/// detail or scroll the viewport.
+#[test]
+fn test_stale_comment_created_does_not_scroll() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut detail = p15_detail(42);
+    detail.body = (0..30)
+        .map(|line| format!("body line {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(detail),
+    });
+    let submitted_target = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "draft".to_string(),
+        cursor: 5,
+    };
+    let state = state.apply(AppEvent::MutationSubmitted {
+        scope_repo_id: repo_id.clone(),
+        mutation_id: 1,
+        target: submitted_target,
+    });
+    let mut state = state;
+    state.issues_state.detail_viewport_rows = 5;
+    state.issues_state.detail_scroll_offset = 0;
+
+    let state = state.apply(AppEvent::CommentCreated {
+        scope_repo_id: repo_id,
+        issue_number: 99,
+        mutation_id: 1,
+        comment: p15_comment(8, "bob", "2024-01-04T00:00:00Z", "stale"),
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected detail"));
+    assert!(detail.comments.is_empty());
+    assert_eq!(state.issues_state.detail_scroll_offset, 0);
+}

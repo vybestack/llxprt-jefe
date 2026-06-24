@@ -26,6 +26,7 @@ use super::{AppEvent, AppState, InlineState, IssueMutationPending};
 
 impl AppState {
     pub(crate) fn apply_issue_mutation_event(&mut self, event: AppEvent) -> bool {
+        let is_comment_created = matches!(event, AppEvent::CommentCreated { .. });
         let applied = match event {
             AppEvent::MutationSubmitted {
                 scope_repo_id,
@@ -51,6 +52,9 @@ impl AppState {
         };
         if applied {
             self.clear_applied_mutation();
+        }
+        if applied && is_comment_created {
+            self.scroll_detail_to_bottom();
         }
         true
     }

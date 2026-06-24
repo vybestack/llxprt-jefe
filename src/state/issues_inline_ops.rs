@@ -1,11 +1,16 @@
 //! Issues-mode inline composer/editor state operations.
 
 use super::{
-    AppEvent, AppState, ComposerTarget, EditorTarget, InlineState, IssueFocus,
+    AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueFocus,
     inline_cursor_vertical,
 };
 
 impl AppState {
+    /// Scroll the issue detail viewport so the last content line is visible.
+    pub(crate) fn scroll_detail_to_bottom(&mut self) {
+        self.issues_state.detail_scroll_offset = self.issues_state.max_detail_scroll_offset();
+    }
+
     fn active_inline_text(inline_state: &mut InlineState) -> Option<(&mut String, &mut usize)> {
         match inline_state {
             InlineState::Composer { text, cursor, .. }
@@ -187,6 +192,8 @@ impl AppState {
                         text: String::new(),
                         cursor: 0,
                     };
+                    self.issues_state.detail_subfocus = DetailSubfocus::NewComment;
+                    self.scroll_detail_to_bottom();
                 }
             }
             AppEvent::OpenReplyComposer { comment_index } => {
