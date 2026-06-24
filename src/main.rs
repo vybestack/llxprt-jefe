@@ -98,7 +98,9 @@ fn main() {
 
     // Get terminal size and derive PTY viewport size from dashboard geometry.
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let (pty_rows, pty_cols, _, _) = compute_pty_layout(cols, rows);
+    let layout = compute_pty_layout(cols, rows);
+    let pty_rows = layout.pty_rows;
+    let pty_cols = layout.pty_cols;
 
     // Initialize managers. An explicit `--config <dir>` isolates settings,
     // state, and themes under that directory; otherwise fall back to the
