@@ -4,8 +4,9 @@ use iocraft::prelude::*;
 use tracing::{debug, warn};
 
 use jefe::domain::{AgentId, RepositoryId};
+use jefe::input::{InputMode, input_mode_for_state};
 use jefe::runtime::RuntimeManager;
-use jefe::state::{AppEvent, PaneFocus, ScreenMode};
+use jefe::state::{AppEvent, AppState, PaneFocus, ScreenMode};
 use jefe::theme::ThemeManager;
 
 use super::{
@@ -143,6 +144,15 @@ fn normal_key_snapshot(app_state: &AppStateHandle) -> NormalKeySnapshot {
     }
 }
 
+/// Returns true when `q`/`Q` should act as the global quit shortcut while in
+/// Issues Mode. Quit only applies in the plain `IssuesNormal` sub-mode; any
+/// text-capturing or overlay sub-mode (inline editor/composer, search input,
+/// filter controls, agent chooser) must receive the key so the character is
+/// not swallowed by quit.
+fn issues_quit_shortcut_active(state: &AppState) -> bool {
+    matches!(input_mode_for_state(state), InputMode::IssuesNormal)
+}
+
 fn handle_dashboard_issues_key(
     app_state: &AppStateHandle,
     should_quit: &mut QuitHandle,
@@ -154,7 +164,12 @@ fn handle_dashboard_issues_key(
         return KeyHandling::Unhandled;
     }
 
-    if matches!(key_event.code, KeyCode::Char('q' | 'Q')) {
+    let quit_active = {
+        let state = app_state.read();
+        issues_quit_shortcut_active(&state)
+    };
+
+    if quit_active && matches!(key_event.code, KeyCode::Char('q' | 'Q')) {
         should_quit.set(true);
         KeyHandling::Handled(None)
     } else {
@@ -426,9 +441,14 @@ fn handle_theme_key(ctx: &SharedContext, key_event: &KeyEvent) -> KeyHandling {
 
 #[cfg(test)]
 mod tests {
-    use super::relaunch_event_for_selected_agent;
+    use super::{issues_quit_shortcut_active, relaunch_event_for_selected_agent};
     use jefe::domain::AgentId;
-    use jefe::state::AppEvent;
+    use jefe::input::InputMode;
+    use jefe::input::input_mode_for_state;
+    use jefe::state::{
+        AgentChooserState, AppEvent, AppState, ComposerTarget, InlineState, IssueFocus,
+        IssuesState, ScreenMode,
+    };
 
     #[test]
     fn relaunch_event_is_none_for_running_agent() {
@@ -443,5 +463,104 @@ mod tests {
             evt,
             Some(AppEvent::RelaunchAgent(AgentId(id))) if id == "a1"
         ));
+    }
+
+    // ─── State construction helpers (mirror issues.rs patterns) ─────────────
+
+    fn issues_base_state() -> AppState {
+        AppState {
+            screen_mode: ScreenMode::DashboardIssues,
+            issues_state: IssuesState {
+                active: true,
+                issue_focus: IssueFocus::IssueList,
+                ..IssuesState::default()
+            },
+            ..AppState::default()
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // issues_quit_shortcut_active predicate (RED → GREEN)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// `q`/`Q` quits in the plain `IssuesNormal` sub-mode.
+    #[test]
+    fn q_quits_in_issues_normal_submode() {
+        let state = issues_base_state();
+        assert!(matches!(
+            input_mode_for_state(&state),
+            InputMode::IssuesNormal
+        ));
+        assert!(issues_quit_shortcut_active(&state));
+    }
+
+    /// `q`/`Q` must NOT quit when the filter controls overlay is open — it
+    /// types into the filter instead.
+    #[test]
+    fn q_does_not_quit_when_filter_controls_open() {
+        let mut state = issues_base_state();
+        state.issues_state.filter_ui.controls_open = true;
+        assert!(matches!(
+            input_mode_for_state(&state),
+            InputMode::IssuesFilter
+        ));
+        assert!(!issues_quit_shortcut_active(&state));
+    }
+
+    /// `q`/`Q` must NOT quit when the search input is focused — it types
+    /// into the search query instead.
+    #[test]
+    fn q_does_not_quit_when_search_input_focused() {
+        let mut state = issues_base_state();
+        state.issues_state.search_input_focused = true;
+        assert!(matches!(
+            input_mode_for_state(&state),
+            InputMode::IssuesSearch
+        ));
+        assert!(!issues_quit_shortcut_active(&state));
+    }
+
+    /// `q`/`Q` must NOT quit when an inline composer/editor is active — it
+    /// types into the composer body instead.
+    #[test]
+    fn q_does_not_quit_when_inline_composer_active() {
+        let mut state = issues_base_state();
+        state.issues_state.inline_state = InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            text: String::new(),
+            cursor: 0,
+        };
+        assert!(matches!(
+            input_mode_for_state(&state),
+            InputMode::IssuesInline
+        ));
+        assert!(!issues_quit_shortcut_active(&state));
+    }
+
+    /// `q`/`Q` must NOT quit while the agent chooser overlay is open.
+    #[test]
+    fn q_does_not_quit_when_agent_chooser_open() {
+        let mut state = issues_base_state();
+        state.issues_state.agent_chooser = Some(AgentChooserState {
+            selected_index: 0,
+            agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+        });
+        assert!(matches!(
+            input_mode_for_state(&state),
+            InputMode::IssuesChooser
+        ));
+        assert!(!issues_quit_shortcut_active(&state));
+    }
+
+    /// Sanity: for a non-issues `ScreenMode::Dashboard` state the predicate
+    /// returns false, because `input_mode_for_state` would be `Normal`.
+    #[test]
+    fn q_quit_predicate_false_for_non_issues_dashboard_state() {
+        let state = AppState {
+            screen_mode: ScreenMode::Dashboard,
+            ..AppState::default()
+        };
+        assert!(matches!(input_mode_for_state(&state), InputMode::Normal));
+        assert!(!issues_quit_shortcut_active(&state));
     }
 }
