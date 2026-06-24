@@ -320,8 +320,8 @@ fn handle_resize(ctx: Option<&CtxArc>, cols: u16, rows: u16) {
     if let Some(ctx_arc) = ctx
         && let Ok(mut ctx_guard) = ctx_arc.lock()
     {
-        let (pty_rows, pty_cols, _, _) = compute_pty_layout(cols, rows);
-        let _ = ctx_guard.runtime.resize(pty_rows, pty_cols);
+        let layout = compute_pty_layout(cols, rows);
+        let _ = ctx_guard.runtime.resize(layout.pty_rows, layout.pty_cols);
     }
 }
 
@@ -350,25 +350,29 @@ fn handle_fullscreen_mouse(
     }
 
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let (pty_rows, pty_cols, pane_col0, pane_row0) = compute_pty_layout(cols, rows);
+    let layout = compute_pty_layout(cols, rows);
 
-    let row_end = pane_row0.saturating_add(pty_rows.saturating_sub(1));
-    let col_end = pane_col0.saturating_add(pty_cols.saturating_sub(1));
+    let row_end = layout
+        .pane_row0
+        .saturating_add(layout.pty_rows.saturating_sub(1));
+    let col_end = layout
+        .pane_col0
+        .saturating_add(layout.pty_cols.saturating_sub(1));
 
     let screen_row0 = mouse_event.row;
     let screen_col0 = mouse_event.column;
 
-    let in_terminal_bounds = screen_col0 >= pane_col0
+    let in_terminal_bounds = screen_col0 >= layout.pane_col0
         && screen_col0 <= col_end
-        && screen_row0 >= pane_row0
+        && screen_row0 >= layout.pane_row0
         && screen_row0 <= row_end;
 
     if !in_terminal_bounds {
         return;
     }
 
-    let local_row = screen_row0.saturating_sub(pane_row0);
-    let local_col = screen_col0.saturating_sub(pane_col0);
+    let local_row = screen_row0.saturating_sub(layout.pane_row0);
+    let local_col = screen_col0.saturating_sub(layout.pane_col0);
 
     let mut local_event =
         iocraft::FullscreenMouseEvent::new(mouse_event.kind, local_col, local_row);

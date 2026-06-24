@@ -1,6 +1,24 @@
 //! Layout constants and coordinate calculation functions.
 //!
 //! Extracted from main.rs to isolate geometry logic and enable focused unit testing.
+//!
+//! # Layout invariants
+//!
+//! The geometry helpers below guarantee the following invariants for every
+//! input terminal size (including 0×0):
+//!
+//! - **Viewport never collapses**: `pty_rows` is always `>= 2` and `pty_cols`
+//!   is always `>= 2`. Degenerate inputs are clamped so the PTY viewport stays
+//!   usable.
+//! - **Pane origin is strictly positive**: `pane_col0` is always
+//!   `LEFT_COL_WIDTH + 1` (i.e. `> 0`) and `pane_row0` is always `> 0`.
+//! - **Agent/terminal split**: The agent pane prefers 25% of the content rows
+//!   (half-up rounded) but is clamped so the terminal pane always retains at
+//!   least [`TERMINAL_PANE_MIN_ROWS`] rows. Under extreme tightness (very few
+//!   content rows) the terminal pane degrades but never drops below 1 row.
+//! - **Single source of truth**: All fixed geometry derives from the module
+//!   constants (grouped as [`AppLayoutSpec::DEFAULT`]). Change a dimension in
+//!   one place and every screen + PTY layout follows automatically.
 
 /// Left column width (repository list).
 pub const LEFT_COL_WIDTH: u16 = 22;
@@ -16,6 +34,59 @@ pub const TERMINAL_WIDGET_CHROME_COLS: u16 = 2;
 pub const AGENT_PANE_MIN_ROWS: u16 = 3;
 /// Minimum rows reserved for the terminal pane so it keeps its chrome and a usable viewport.
 pub const TERMINAL_PANE_MIN_ROWS: u16 = TERMINAL_WIDGET_CHROME_ROWS + 2;
+
+/// Static layout specification: the fixed geometry contract shared across the
+/// dashboard and issues screens.
+///
+/// Grouping these into one typed value documents their cohesion and makes the
+/// layout contract reviewable in a single place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppLayoutSpec {
+    /// Width of the left repository sidebar column.
+    pub left_col_width: u16,
+    /// Width of the right preview column.
+    pub right_col_width: u16,
+    /// Rows consumed by the outer status bar + keybind bar.
+    pub outer_bars_height: u16,
+    /// Rows consumed by the terminal widget chrome (top border + header + bottom border).
+    pub terminal_widget_chrome_rows: u16,
+    /// Columns consumed by the terminal widget chrome (left + right border).
+    pub terminal_widget_chrome_cols: u16,
+    /// Minimum rows reserved for the agent pane.
+    pub agent_pane_min_rows: u16,
+    /// Minimum rows reserved for the terminal pane.
+    pub terminal_pane_min_rows: u16,
+}
+
+impl AppLayoutSpec {
+    /// The canonical layout spec used by the application.
+    ///
+    /// Every field references the corresponding module constant so there is a
+    /// single source of truth for the layout contract.
+    pub const DEFAULT: Self = Self {
+        left_col_width: LEFT_COL_WIDTH,
+        right_col_width: RIGHT_COL_WIDTH,
+        outer_bars_height: OUTER_BARS_HEIGHT,
+        terminal_widget_chrome_rows: TERMINAL_WIDGET_CHROME_ROWS,
+        terminal_widget_chrome_cols: TERMINAL_WIDGET_CHROME_COLS,
+        agent_pane_min_rows: AGENT_PANE_MIN_ROWS,
+        terminal_pane_min_rows: TERMINAL_PANE_MIN_ROWS,
+    };
+}
+
+/// Computed PTY viewport geometry: terminal cell dimensions plus the
+/// 1-based screen origin (column/row) of the viewport within the render grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PtyLayout {
+    /// PTY viewport height in rows (always `>= 2`).
+    pub pty_rows: u16,
+    /// PTY viewport width in columns (always `>= 2`).
+    pub pty_cols: u16,
+    /// 1-based screen column where the PTY viewport's left edge sits (always `> 0`).
+    pub pane_col0: u16,
+    /// 1-based screen row where the PTY viewport's top edge sits (always `> 0`).
+    pub pane_row0: u16,
+}
 
 /// Check if fullscreen mode is enabled.
 #[must_use]
@@ -73,11 +144,7 @@ pub fn dashboard_middle_row_heights(term_cols: u16, term_rows: u16) -> (u16, u16
 
 /// Compute PTY viewport size and its origin for a given fullscreen flag.
 #[must_use]
-fn compute_pty_layout_inner(
-    term_cols: u16,
-    term_rows: u16,
-    fullscreen: bool,
-) -> (u16, u16, u16, u16) {
+fn compute_pty_layout_inner(term_cols: u16, term_rows: u16, fullscreen: bool) -> PtyLayout {
     let (render_cols, render_rows) = effective_render_size_inner(term_cols, term_rows, fullscreen);
 
     let (agent_rows, terminal_slot_rows) = dashboard_middle_row_heights_inner(render_rows);
@@ -93,7 +160,12 @@ fn compute_pty_layout_inner(
     let pane_col0 = LEFT_COL_WIDTH.saturating_add(1);
     let pane_row0 = 1u16.saturating_add(agent_rows).saturating_add(2);
 
-    (pty_rows, pty_cols, pane_col0, pane_row0)
+    PtyLayout {
+        pty_rows,
+        pty_cols,
+        pane_col0,
+        pane_row0,
+    }
 }
 
 /// Compute PTY viewport size and its origin within the fullscreen render grid.
@@ -105,7 +177,7 @@ fn compute_pty_layout_inner(
 /// - under tight heights, the terminal keeps enough rows for its chrome and viewport
 /// - terminal widget chrome: border + header + border
 #[must_use]
-pub fn compute_pty_layout(term_cols: u16, term_rows: u16) -> (u16, u16, u16, u16) {
+pub fn compute_pty_layout(term_cols: u16, term_rows: u16) -> PtyLayout {
     compute_pty_layout_inner(term_cols, term_rows, is_fullscreen_enabled())
 }
 
@@ -240,8 +312,8 @@ mod tests {
 
     #[test]
     fn compute_pty_layout_pane_origin() {
-        let (_, _, pane_col0, _) = compute_pty_layout_inner(120, 40, true);
-        assert_eq!(pane_col0, LEFT_COL_WIDTH + 1);
+        let layout = compute_pty_layout_inner(120, 40, true);
+        assert_eq!(layout.pane_col0, LEFT_COL_WIDTH + 1);
     }
 
     #[test]
@@ -264,13 +336,13 @@ mod tests {
     fn compute_pty_layout_dimensions_always_at_least_two() {
         for fullscreen in [true, false] {
             for (cols, rows) in [(120, 40), (10, 10), (0, 0), (60, 20)] {
-                let (pty_rows, pty_cols, _, _) = compute_pty_layout_inner(cols, rows, fullscreen);
+                let layout = compute_pty_layout_inner(cols, rows, fullscreen);
                 assert!(
-                    pty_rows >= 2,
+                    layout.pty_rows >= 2,
                     "pty_rows < 2 for ({cols}, {rows}, fullscreen={fullscreen})"
                 );
                 assert!(
-                    pty_cols >= 2,
+                    layout.pty_cols >= 2,
                     "pty_cols < 2 for ({cols}, {rows}, fullscreen={fullscreen})"
                 );
             }
@@ -280,24 +352,24 @@ mod tests {
     #[test]
     fn agent_rows_rounding_half_up_fullscreen() {
         // 40 rows - 2 bars = 38 content rows. 25% = 9.5 → rounds to 10.
-        let (_, _, _, pane_row0) = compute_pty_layout_inner(120, 40, true);
+        let layout = compute_pty_layout_inner(120, 40, true);
         // pane_row0 = 1 (status bar) + agent_rows(10) + 2 (chrome top border + header)
-        assert_eq!(pane_row0, 1 + 10 + 2);
+        assert_eq!(layout.pane_row0, 1 + 10 + 2);
     }
 
     #[test]
     fn agent_rows_rounding_half_up_windowed() {
         // Windowed: 40-2=38 render rows, 38-2=36 content rows. 25% = 9.0 → exactly 9.
-        let (_, _, _, pane_row0) = compute_pty_layout_inner(120, 40, false);
-        assert_eq!(pane_row0, 1 + 9 + 2);
+        let layout = compute_pty_layout_inner(120, 40, false);
+        assert_eq!(layout.pane_row0, 1 + 9 + 2);
     }
 
     #[test]
     fn compute_pty_layout_pane_row0_positive() {
         for fullscreen in [true, false] {
-            let (_, _, _, pane_row0) = compute_pty_layout_inner(120, 40, fullscreen);
+            let layout = compute_pty_layout_inner(120, 40, fullscreen);
             assert!(
-                pane_row0 > 0,
+                layout.pane_row0 > 0,
                 "pane_row0 not positive for fullscreen={fullscreen}"
             );
         }
@@ -371,5 +443,338 @@ mod tests {
     fn issue_list_content_width_excludes_sidebar_and_border() {
         assert_eq!(issue_list_content_width(120), 96);
         assert_eq!(issue_list_content_width(10), 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // AppLayoutSpec: single source of truth for the layout contract.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn app_layout_spec_default_matches_module_constants() {
+        let spec = AppLayoutSpec::DEFAULT;
+        assert_eq!(spec.left_col_width, LEFT_COL_WIDTH);
+        assert_eq!(spec.right_col_width, RIGHT_COL_WIDTH);
+        assert_eq!(spec.outer_bars_height, OUTER_BARS_HEIGHT);
+        assert_eq!(
+            spec.terminal_widget_chrome_rows,
+            TERMINAL_WIDGET_CHROME_ROWS
+        );
+        assert_eq!(
+            spec.terminal_widget_chrome_cols,
+            TERMINAL_WIDGET_CHROME_COLS
+        );
+        assert_eq!(spec.agent_pane_min_rows, AGENT_PANE_MIN_ROWS);
+        assert_eq!(spec.terminal_pane_min_rows, TERMINAL_PANE_MIN_ROWS);
+    }
+
+    // -------------------------------------------------------------------------
+    // Property-style tests: deterministic sweeps over input sizes.
+    //
+    // These replace ad-hoc fuzzing with exhaustive parametric loops (the
+    // project idiom — no external proptest/quickcheck dependency).
+    // -------------------------------------------------------------------------
+
+    /// Representative column samples for sweeps: edge (0/1/2), small, and large.
+    const COL_SAMPLES: [u16; 9] = [0, 1, 2, 10, 20, 60, 80, 120, 200];
+    /// Representative row samples plus a dense 0..=64 range (covered in tests).
+    const ROW_SAMPLES: [u16; 9] = [0, 1, 2, 3, 4, 8, 24, 40, 50];
+
+    #[test]
+    fn prop_pty_dimensions_invariants_hold_across_sizes() {
+        for fullscreen in [true, false] {
+            for &cols in &COL_SAMPLES {
+                for &rows in &ROW_SAMPLES {
+                    let layout = compute_pty_layout_inner(cols, rows, fullscreen);
+                    assert!(
+                        layout.pty_rows >= 2,
+                        "pty_rows < 2 for ({cols}, {rows}, fs={fullscreen})"
+                    );
+                    assert!(
+                        layout.pty_cols >= 2,
+                        "pty_cols < 2 for ({cols}, {rows}, fs={fullscreen})"
+                    );
+                }
+                // Dense row sweep: every value 0..=64, both fullscreen states.
+                for rows in 0..=64u16 {
+                    let layout = compute_pty_layout_inner(cols, rows, fullscreen);
+                    assert!(
+                        layout.pty_rows >= 2,
+                        "pty_rows < 2 for (cols={cols}, rows={rows}, fs={fullscreen})"
+                    );
+                    assert!(
+                        layout.pty_cols >= 2,
+                        "pty_cols < 2 for (cols={cols}, rows={rows}, fs={fullscreen})"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn prop_pane_origin_invariants() {
+        for fullscreen in [true, false] {
+            for &cols in &COL_SAMPLES {
+                for &rows in &ROW_SAMPLES {
+                    let layout = compute_pty_layout_inner(cols, rows, fullscreen);
+                    assert_eq!(
+                        layout.pane_col0,
+                        LEFT_COL_WIDTH + 1,
+                        "pane_col0 must equal LEFT_COL_WIDTH+1 for ({cols}, {rows}, fs={fullscreen})"
+                    );
+                    assert!(
+                        layout.pane_col0 > 0,
+                        "pane_col0 must be positive for ({cols}, {rows}, fs={fullscreen})"
+                    );
+                    assert!(
+                        layout.pane_row0 > 0,
+                        "pane_row0 must be positive for ({cols}, {rows}, fs={fullscreen})"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Independently recompute the half-up rounded agent rows and confirm the
+    /// layout's `pane_row0` matches the derived value (1 + agent_rows + 2).
+    #[test]
+    fn prop_agent_rows_half_up_rounding() {
+        for fullscreen in [true, false] {
+            for term_rows in 0..=300u16 {
+                let cols: u16 = 120; // wide enough that cols don't constrain rows
+                let (_, eff_rows) = effective_render_size_inner(cols, term_rows, fullscreen);
+                let content_rows = eff_rows.saturating_sub(OUTER_BARS_HEIGHT);
+                let agent_rows = expected_agent_rows(content_rows);
+                let layout = compute_pty_layout_inner(cols, term_rows, fullscreen);
+                // pane_row0 = 1 + agent_rows + 2
+                let expected_pane_row0 = 1u16.saturating_add(agent_rows).saturating_add(2);
+                assert_eq!(
+                    layout.pane_row0, expected_pane_row0,
+                    "pane_row0 mismatch for term_rows={term_rows}, fs={fullscreen}"
+                );
+            }
+        }
+    }
+
+    /// For the middle-row split, agent_rows + terminal_rows must equal
+    /// content_rows when there is enough space, and terminal_rows is always >= 1.
+    #[test]
+    fn prop_dashboard_split_sums_to_content_rows() {
+        for render_rows in 0..=300u16 {
+            let content_rows = render_rows.saturating_sub(OUTER_BARS_HEIGHT);
+            let (agent_rows, terminal_rows) = dashboard_middle_row_heights_inner(render_rows);
+            assert!(
+                terminal_rows >= 1,
+                "terminal_rows must be >= 1 for render_rows={render_rows}"
+            );
+            // When content_rows is large enough to avoid the degenerate floor,
+            // the split must partition content_rows exactly.
+            if content_rows > AGENT_PANE_MIN_ROWS + TERMINAL_PANE_MIN_ROWS {
+                assert_eq!(
+                    agent_rows + terminal_rows,
+                    content_rows,
+                    "split must sum to content_rows for render_rows={render_rows}"
+                );
+            }
+        }
+    }
+
+    /// Replicate the agent-pane rounding logic independently to cross-check.
+    fn expected_agent_rows(content_rows: u16) -> u16 {
+        if content_rows <= AGENT_PANE_MIN_ROWS + TERMINAL_PANE_MIN_ROWS {
+            let terminal_rows = content_rows.saturating_sub(AGENT_PANE_MIN_ROWS).max(1);
+            return content_rows.saturating_sub(terminal_rows);
+        }
+        let preferred = content_rows
+            .saturating_mul(25)
+            .saturating_add(50)
+            .saturating_div(100);
+        let max_agent = content_rows.saturating_sub(TERMINAL_PANE_MIN_ROWS);
+        preferred
+            .clamp(AGENT_PANE_MIN_ROWS, max_agent)
+            .min(content_rows)
+    }
+
+    // -------------------------------------------------------------------------
+    // Golden / snapshot tests: lock the exact PtyLayout for representative sizes.
+    //
+    // These act as snapshot tests (without the insta crate) — they pin the full
+    // computed geometry so any unintended change to the layout algorithm is
+    // caught. Values are derived from the established algorithm; if you
+    // intentionally change the layout, update these in lockstep.
+    // -------------------------------------------------------------------------
+
+    /// Representative `(cols, rows, fullscreen, expected)` golden cases.
+    ///
+    /// These pin the full computed geometry for representative terminal sizes.
+    /// Values are derived from the established algorithm; if the layout is
+    /// intentionally changed, update these in lockstep.
+    const GOLDEN_CASES: &[(u16, u16, bool, PtyLayout)] = &[
+        // fullscreen = true
+        (
+            80,
+            24,
+            true,
+            PtyLayout {
+                pty_rows: 13,
+                pty_cols: 20,
+                pane_col0: 23,
+                pane_row0: 9,
+            },
+        ),
+        (
+            120,
+            40,
+            true,
+            PtyLayout {
+                pty_rows: 25,
+                pty_cols: 60,
+                pane_col0: 23,
+                pane_row0: 13,
+            },
+        ),
+        (
+            200,
+            50,
+            true,
+            PtyLayout {
+                pty_rows: 33,
+                pty_cols: 140,
+                pane_col0: 23,
+                pane_row0: 15,
+            },
+        ),
+        (
+            60,
+            20,
+            true,
+            PtyLayout {
+                pty_rows: 10,
+                pty_cols: 2,
+                pane_col0: 23,
+                pane_row0: 8,
+            },
+        ),
+        (
+            100,
+            30,
+            true,
+            PtyLayout {
+                pty_rows: 18,
+                pty_cols: 40,
+                pane_col0: 23,
+                pane_row0: 10,
+            },
+        ),
+        (
+            10,
+            10,
+            true,
+            PtyLayout {
+                pty_rows: 2,
+                pty_cols: 2,
+                pane_col0: 23,
+                pane_row0: 6,
+            },
+        ),
+        (
+            20,
+            8,
+            true,
+            PtyLayout {
+                pty_rows: 2,
+                pty_cols: 2,
+                pane_col0: 23,
+                pane_row0: 6,
+            },
+        ),
+        // fullscreen = false (windowed: each dim shrinks by 2)
+        (
+            80,
+            24,
+            false,
+            PtyLayout {
+                pty_rows: 12,
+                pty_cols: 18,
+                pane_col0: 23,
+                pane_row0: 8,
+            },
+        ),
+        (
+            120,
+            40,
+            false,
+            PtyLayout {
+                pty_rows: 24,
+                pty_cols: 58,
+                pane_col0: 23,
+                pane_row0: 12,
+            },
+        ),
+        (
+            200,
+            50,
+            false,
+            PtyLayout {
+                pty_rows: 31,
+                pty_cols: 138,
+                pane_col0: 23,
+                pane_row0: 15,
+            },
+        ),
+        (
+            60,
+            20,
+            false,
+            PtyLayout {
+                pty_rows: 9,
+                pty_cols: 2,
+                pane_col0: 23,
+                pane_row0: 7,
+            },
+        ),
+        (
+            100,
+            30,
+            false,
+            PtyLayout {
+                pty_rows: 16,
+                pty_cols: 38,
+                pane_col0: 23,
+                pane_row0: 10,
+            },
+        ),
+        (
+            10,
+            10,
+            false,
+            PtyLayout {
+                pty_rows: 2,
+                pty_cols: 2,
+                pane_col0: 23,
+                pane_row0: 6,
+            },
+        ),
+        (
+            20,
+            8,
+            false,
+            PtyLayout {
+                pty_rows: 2,
+                pty_cols: 2,
+                pane_col0: 23,
+                pane_row0: 6,
+            },
+        ),
+    ];
+
+    #[test]
+    fn golden_pty_layout_representative_sizes() {
+        for &(cols, rows, fullscreen, expected) in GOLDEN_CASES {
+            let actual = compute_pty_layout_inner(cols, rows, fullscreen);
+            assert_eq!(
+                actual, expected,
+                "golden mismatch for ({cols}x{rows}, fullscreen={fullscreen})"
+            );
+        }
     }
 }
