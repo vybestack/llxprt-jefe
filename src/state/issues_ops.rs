@@ -117,32 +117,28 @@ impl AppState {
 
     /// Navigate to the previous repository in issues mode.
     ///
-    /// Unlike `handle_navigate_up` (which checks `pane_focus`), this always
-    /// navigates the repo list and resets issues state for the new scope.
+    /// Thin wrapper over the shared `move_repo_selection` helper (Finding 5);
+    /// independent of `pane_focus` (#47).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-003
+    /// @pseudocode component-001 lines 152-153
     fn navigate_repo_up_in_issues_mode(&mut self) {
-        let visible_repo_indices = self.visible_repository_indices();
-        let selected_visible_idx = self.selected_repository_visible_index();
-        if let Some(visible_idx) = selected_visible_idx.filter(|&idx| idx > 0) {
-            self.remember_selected_agent_for_current_repo();
-            self.selected_repository_index = Some(visible_repo_indices[visible_idx - 1]);
-            self.restore_selected_agent_for_current_repo();
+        if self.move_repo_selection(crate::messages::NavDir::Up) {
             self.reset_issues_for_repo_change();
         }
     }
 
     /// Navigate to the next repository in issues mode.
     ///
-    /// Unlike `handle_navigate_down` (which checks `pane_focus`), this always
-    /// navigates the repo list and resets issues state for the new scope.
+    /// Thin wrapper over the shared `move_repo_selection` helper (Finding 5);
+    /// independent of `pane_focus` (#47).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-003
+    /// @pseudocode component-001 lines 152-153
     fn navigate_repo_down_in_issues_mode(&mut self) {
-        let visible_repo_indices = self.visible_repository_indices();
-        let selected_visible_idx = self.selected_repository_visible_index();
-        if let Some(visible_idx) = selected_visible_idx
-            && visible_idx + 1 < visible_repo_indices.len()
-        {
-            self.remember_selected_agent_for_current_repo();
-            self.selected_repository_index = Some(visible_repo_indices[visible_idx + 1]);
-            self.restore_selected_agent_for_current_repo();
+        if self.move_repo_selection(crate::messages::NavDir::Down) {
             self.reset_issues_for_repo_change();
         }
     }

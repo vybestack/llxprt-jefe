@@ -1,12 +1,276 @@
-//! Pull Requests mode inline composer state operations — TOTAL STUB.
+//! Pull Requests mode inline composer state operations.
 //!
-//! @plan PLAN-20260624-PR-MODE.P03
+//! @plan PLAN-20260624-PR-MODE.P05
 //! @requirement REQ-PR-010
 //! @pseudocode component-001 lines 292-330
-//!
-//! P03 stub: empty module. The inline composer/editor reducers are implemented
-//! in P05.
 
-use super::AppState;
+use super::{
+    AppEvent, AppState, ComposerTarget, InlineState, PrDetailSubfocus, PrFocus, ReadOnlyHintKind,
+};
+use crate::messages::PrInlineMsg;
 
-impl AppState {}
+impl AppState {
+    /// Scroll the PR detail viewport so the last content line is visible.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 169-176
+    fn scroll_pr_detail_to_bottom(&mut self) {
+        self.prs_state.detail_scroll_offset = self.pr_max_detail_scroll_offset();
+    }
+
+    /// Compute the maximum detail scroll offset from rendered length + viewport prop.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-001 lines 169-176
+    fn pr_max_detail_scroll_offset(&self) -> usize {
+        let rendered_lines = self.pr_rendered_detail_lines();
+        rendered_lines.saturating_sub(self.prs_state.detail_viewport_rows)
+    }
+
+    /// Estimate the rendered detail content lines (body + comments).
+    ///
+    /// This is a pure heuristic derived from stored content; no crossterm I/O.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 169-176
+    fn pr_rendered_detail_lines(&self) -> usize {
+        let Some(detail) = &self.prs_state.pr_detail else {
+            return 0;
+        };
+        let body_lines = detail.body.lines().count().max(1);
+        let comment_lines: usize = detail
+            .comments
+            .iter()
+            .map(|c| c.body.lines().count().max(1) + 2)
+            .sum();
+        let header_lines = 5;
+        header_lines + body_lines + comment_lines
+    }
+
+    /// Borrow the active (text, cursor) pair from the inline composer/editor.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 308-330
+    fn pr_active_inline_text(inline_state: &mut InlineState) -> Option<(&mut String, &mut usize)> {
+        match inline_state {
+            InlineState::Composer { text, cursor, .. }
+            | InlineState::Editor { text, cursor, .. } => Some((text, cursor)),
+            InlineState::None => None,
+        }
+    }
+
+    /// Insert a character at the cursor position and advance the cursor.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 44-50
+    fn pr_insert_inline_char(inline_state: &mut InlineState, c: char) {
+        if let Some((text, cursor)) = Self::pr_active_inline_text(inline_state) {
+            text.insert(*cursor, c);
+            *cursor += c.len_utf8();
+        }
+    }
+
+    /// Delete the character before the cursor (backspace) and retreat the cursor.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 44-50
+    fn pr_delete_inline_previous_char(inline_state: &mut InlineState) {
+        if let Some((text, cursor)) = Self::pr_active_inline_text(inline_state)
+            && *cursor > 0
+        {
+            let prev = text[..*cursor].chars().last().map_or(0, char::len_utf8);
+            text.drain((*cursor - prev)..*cursor);
+            *cursor -= prev;
+        }
+    }
+
+    /// Move the cursor one character to the left.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 44-50
+    fn pr_move_inline_cursor_left(inline_state: &mut InlineState) {
+        if let Some((text, cursor)) = Self::pr_active_inline_text(inline_state)
+            && *cursor > 0
+        {
+            let prev = text[..*cursor].chars().last().map_or(0, char::len_utf8);
+            *cursor -= prev;
+        }
+    }
+
+    /// Move the cursor one character to the right.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 44-50
+    fn pr_move_inline_cursor_right(inline_state: &mut InlineState) {
+        if let Some((text, cursor)) = Self::pr_active_inline_text(inline_state)
+            && *cursor < text.len()
+        {
+            let next = text[*cursor..].chars().next().map_or(0, char::len_utf8);
+            *cursor += next;
+        }
+    }
+
+    /// Open the new-comment composer (sets subfocus to NewComment + follow viewport).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 292-298
+    fn pr_open_new_comment_composer(&mut self) {
+        if self.prs_state.pr_focus != PrFocus::PrDetail {
+            return;
+        }
+        if self.prs_state.inline_state != InlineState::None {
+            return;
+        }
+        self.prs_state.inline_state = InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            text: String::new(),
+            cursor: 0,
+        };
+        self.prs_state.detail_subfocus = PrDetailSubfocus::NewComment;
+        self.scroll_pr_detail_to_bottom();
+    }
+
+    /// Open the reply composer (prefill with @author).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 299-307
+    fn pr_open_reply_composer(&mut self, comment_index: usize) {
+        if self.prs_state.pr_focus != PrFocus::PrDetail {
+            return;
+        }
+        if !matches!(self.prs_state.detail_subfocus, PrDetailSubfocus::Comment(_)) {
+            self.apply_pr_show_notice(ReadOnlyHintKind::ReadOnlyReplyOnComment);
+            return;
+        }
+        if self.prs_state.inline_state != InlineState::None {
+            return;
+        }
+        let author = self
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .and_then(|d| d.comments.get(comment_index))
+            .map(|c| format!("@{} ", c.author_login))
+            .unwrap_or_default();
+        let cursor = author.len();
+        self.prs_state.inline_state = InlineState::Composer {
+            target: ComposerTarget::Reply {
+                comment_index,
+                author: author.clone(),
+            },
+            text: author,
+            cursor,
+        };
+        self.scroll_pr_detail_to_bottom();
+    }
+
+    /// Apply inline-open events (OpenNewCommentComposer, OpenReplyComposer).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 292-307
+    pub(super) fn apply_pr_inline_open_event(&mut self, event: AppEvent) -> bool {
+        if self.prs_state.mutation_pending.is_some() {
+            return matches!(
+                event,
+                AppEvent::PrOpenNewCommentComposer | AppEvent::PrOpenReplyComposer { .. }
+            );
+        }
+        match event {
+            AppEvent::PrOpenNewCommentComposer => self.pr_open_new_comment_composer(),
+            AppEvent::PrOpenReplyComposer { comment_index } => {
+                self.pr_open_reply_composer(comment_index);
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// Apply inline editor events (char/newline/backspace/cursor/cancel).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 308-330
+    pub(super) fn apply_pr_inline_event(&mut self, msg: PrInlineMsg) -> bool {
+        if self.prs_state.mutation_pending.is_some() {
+            return matches!(
+                msg,
+                PrInlineMsg::Char(_)
+                    | PrInlineMsg::Newline
+                    | PrInlineMsg::Backspace
+                    | PrInlineMsg::Delete
+                    | PrInlineMsg::CursorLeft
+                    | PrInlineMsg::CursorRight
+                    | PrInlineMsg::CursorUp
+                    | PrInlineMsg::CursorDown
+                    | PrInlineMsg::CancelOrEsc
+            );
+        }
+        match msg {
+            PrInlineMsg::Char(c) => {
+                Self::pr_insert_inline_char(&mut self.prs_state.inline_state, c);
+            }
+            PrInlineMsg::Newline => {
+                Self::pr_insert_inline_char(&mut self.prs_state.inline_state, char::from(0x0Au8));
+            }
+            PrInlineMsg::Backspace => {
+                Self::pr_delete_inline_previous_char(&mut self.prs_state.inline_state);
+            }
+            PrInlineMsg::Delete | PrInlineMsg::CursorUp | PrInlineMsg::CursorDown => {}
+            PrInlineMsg::CursorLeft => {
+                Self::pr_move_inline_cursor_left(&mut self.prs_state.inline_state);
+            }
+            PrInlineMsg::CursorRight => {
+                Self::pr_move_inline_cursor_right(&mut self.prs_state.inline_state);
+            }
+            PrInlineMsg::Submit => {
+                self.pr_inline_submit();
+            }
+            PrInlineMsg::CancelOrEsc => {
+                self.prs_state.inline_state = InlineState::None;
+            }
+        }
+        true
+    }
+
+    /// Apply inline submit (blank text cancels; non-blank sets mutation pending).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 308-315
+    fn pr_inline_submit(&mut self) {
+        let text = match &self.prs_state.inline_state {
+            InlineState::Composer { text, .. } | InlineState::Editor { text, .. } => text.clone(),
+            InlineState::None => return,
+        };
+        if text.trim().is_empty() {
+            self.prs_state.inline_state = InlineState::None;
+            return;
+        }
+        // Set mutation pending — the dispatch layer spawns the actual create.
+        let scope_repo_id = self.selected_repository_id().cloned();
+        let target = match &self.prs_state.inline_state {
+            InlineState::Composer { target, .. } => target.clone(),
+            _ => ComposerTarget::NewComment,
+        };
+        if let Some(scope) = scope_repo_id {
+            let mutation_id = self.prs_state.next_mutation_id.saturating_add(1);
+            self.prs_state.next_mutation_id = mutation_id;
+            self.prs_state.mutation_pending = Some(crate::state::types::PrMutationPending {
+                scope_repo_id: scope,
+                mutation_id,
+                target,
+            });
+        }
+    }
+}

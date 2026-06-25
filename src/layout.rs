@@ -300,34 +300,42 @@ pub fn issue_list_content_width(term_cols: u16) -> u16 {
 
 /// Compute the first-visible row index for a selection-following list viewport.
 ///
-/// @plan PLAN-20260624-PR-MODE.P03
+/// @plan PLAN-20260624-PR-MODE.P05
 /// @requirement REQ-PR-006
 /// @pseudocode component-001 lines 182-189
 ///
-/// P03 STUB: returns a constant `0` (ignores selection-follow). Total,
-/// panic-free, clippy-clean. P05 implements the real algorithm.
+/// Returns the first visible row index that keeps `selected` on screen,
+/// clamped to `0..=len.saturating_sub(viewport_rows)`.
 #[must_use]
-pub fn list_first_visible_index(
-    _selected_index: usize,
-    _len: usize,
-    _viewport_rows: usize,
-) -> usize {
-    // Intentional wrong-but-total stub — P05 implements selection-follow.
-    0
+pub fn list_first_visible_index(selected_index: usize, len: usize, viewport_rows: usize) -> usize {
+    if len == 0 || viewport_rows == 0 {
+        return 0;
+    }
+    // Clamp defensively (selected may briefly exceed len during async updates).
+    let sel = selected_index.min(len - 1);
+    if sel < viewport_rows {
+        // Top of list: no scroll needed.
+        return 0;
+    }
+    // Keep selected row as the LAST visible row when scrolling down past the
+    // viewport bottom; never scroll past the last full page.
+    let max_first = len.saturating_sub(viewport_rows);
+    (sel - viewport_rows + 1).min(max_first)
 }
 
 /// Compute the visible window of rows for a selection-following list viewport.
 ///
-/// @plan PLAN-20260624-PR-MODE.P03
+/// @plan PLAN-20260624-PR-MODE.P05
 /// @requirement REQ-PR-006
 /// @pseudocode component-001 lines 190-196
 ///
-/// P03 STUB: returns an EMPTY slice (`&rows[0..0]`). Total, panic-free,
-/// clippy-clean. P05 implements the real algorithm.
+/// Returns exactly `min(viewport_rows, rows.len())` rows starting at
+/// `list_first_visible_index(...)`, always including `rows[selected_index]`.
 #[must_use]
-pub fn list_visible_window<T>(rows: &[T], _selected_index: usize, _viewport_rows: usize) -> &[T] {
-    // Intentional wrong-but-total stub — P05 implements the real window.
-    &rows[0..0]
+pub fn list_visible_window<T>(rows: &[T], selected_index: usize, viewport_rows: usize) -> &[T] {
+    let first = list_first_visible_index(selected_index, rows.len(), viewport_rows);
+    let last = (first + viewport_rows).min(rows.len());
+    &rows[first..last]
 }
 
 #[cfg(test)]

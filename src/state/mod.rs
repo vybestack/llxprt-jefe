@@ -17,6 +17,7 @@ mod issues_ops;
 mod prs_inline_ops;
 mod prs_load_ops;
 mod prs_mutation_ops;
+mod prs_nav_ops;
 mod prs_ops;
 pub mod state_ops;
 mod types;
@@ -377,13 +378,13 @@ impl AppState {
                 let handled = self.apply_issues_message(message);
                 debug_assert!(handled, "unhandled issues message in apply_message()");
             }
-            // @plan PLAN-20260624-PR-MODE.P03
+            // @plan PLAN-20260624-PR-MODE.P05
             // @requirement REQ-PR-001
             // @pseudocode component-004 lines 86-94
-            // P03 stub: apply_prs_message returns true from a no-op match; no
-            // handled-assertion (deferred to P05 once the reducer handles variants).
             AppMessage::PullRequests(message) => {
-                let _handled = self.apply_prs_message(message);
+                let msg_debug = format!("{message:?}");
+                let handled = self.apply_prs_message(message);
+                debug_assert!(handled, "unhandled PullRequestsMessage: {msg_debug}");
             }
         }
 
@@ -510,7 +511,51 @@ impl AppState {
             if self.issues_state.active {
                 self.reset_issues_for_repo_change();
             }
+            // @plan PLAN-20260624-PR-MODE.P05
+            // @requirement REQ-PR-003
+            if self.prs_state.active {
+                self.reset_prs_for_repo_change();
+            }
         }
+    }
+
+    /// Move the repository selection up or down within the visible set.
+    ///
+    /// Shared by Issues and PR mode repo navigation (independent of pane_focus, #47).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-003
+    /// @pseudocode component-001 lines 134-145
+    fn move_repo_selection(&mut self, direction: crate::messages::NavDir) -> bool {
+        let indices = self.visible_repository_indices();
+        if indices.is_empty() {
+            return false;
+        }
+        let current = self.selected_repository_visible_index().unwrap_or(0);
+        let target = match direction {
+            crate::messages::NavDir::Up => {
+                if current > 0 {
+                    current - 1
+                } else {
+                    current
+                }
+            }
+            crate::messages::NavDir::Down => {
+                if current + 1 < indices.len() {
+                    current + 1
+                } else {
+                    current
+                }
+            }
+            _ => return false,
+        };
+        if target == current {
+            return false;
+        }
+        self.remember_selected_agent_for_current_repo();
+        self.selected_repository_index = Some(indices[target]);
+        self.restore_selected_agent_for_current_repo();
+        true
     }
 
     fn select_agent_by_local_index(&mut self, idx: usize) {

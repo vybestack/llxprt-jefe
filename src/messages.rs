@@ -421,6 +421,10 @@ pub enum NavDir {
     PageDown,
     Home,
     End,
+    /// Forward navigation for filter/chooser field stepping (Next/Prev semantics).
+    Next,
+    /// Reverse navigation for filter/chooser field stepping.
+    Prev,
 }
 
 /// Scroll direction for the PR detail pane.
@@ -446,6 +450,40 @@ pub enum PrFilterField {
     Assignee,
     Reviewer,
     Labels,
+}
+
+impl PrFilterField {
+    /// Parse a filter field name string into the enum.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-002
+    /// @pseudocode component-004 lines 45-85
+    #[must_use]
+    pub fn from_string(s: &str) -> Self {
+        match s {
+            "author" => Self::Author,
+            "assignee" => Self::Assignee,
+            "reviewer" => Self::Reviewer,
+            "labels" => Self::Labels,
+            _ => Self::Query,
+        }
+    }
+
+    /// Return the canonical string name for this filter field.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-002
+    /// @pseudocode component-004 lines 45-85
+    #[must_use]
+    pub fn as_string(&self) -> String {
+        match self {
+            Self::Query => "query".to_string(),
+            Self::Author => "author".to_string(),
+            Self::Assignee => "assignee".to_string(),
+            Self::Reviewer => "reviewer".to_string(),
+            Self::Labels => "labels".to_string(),
+        }
+    }
 }
 
 /// Inline composer message for PR mode.
