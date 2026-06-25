@@ -939,3 +939,31 @@ mod issues_tests_filter;
 #[cfg(test)]
 #[path = "issues_tests_composer_focus.rs"]
 mod issues_tests_composer_focus;
+
+#[cfg(test)]
+#[path = "prs_tests.rs"]
+mod prs_tests;
+
+#[cfg(test)]
+#[path = "prs_tests_detail.rs"]
+mod prs_tests_detail;
+
+#[cfg(test)]
+#[path = "prs_tests_filter.rs"]
+mod prs_tests_filter;
+
+#[cfg(test)]
+#[path = "prs_tests_repo_nav.rs"]
+mod prs_tests_repo_nav;
+
+#[cfg(test)]
+#[path = "prs_tests_composer_focus.rs"]
+mod prs_tests_composer_focus;
+
+#[cfg(test)]
+#[path = "prs_tests_detail_flow.rs"]
+mod prs_tests_detail_flow;
+
+#[cfg(test)]
+#[path = "prs_tests_components.rs"]
+mod prs_tests_components;

@@ -6,6 +6,19 @@ use jefe::domain::{
     RepositoryId, RuntimeBinding, SandboxEngine,
 };
 
+trait TestResultExt<T> {
+    fn value_or_panic(self, context: &str) -> T;
+}
+
+impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
+    fn value_or_panic(self, context: &str) -> T {
+        match self {
+            Ok(value) => value,
+            Err(error) => panic!("{context}: {error:?}"),
+        }
+    }
+}
+
 fn sample_signature() -> LaunchSignature {
     LaunchSignature {
         work_dir: PathBuf::from("/tmp/agent"),
@@ -174,4 +187,116 @@ fn to_persisted_state_carries_hide_idle_toggle() {
 
     let persisted = to_persisted_state(&state);
     assert!(persisted.hide_idle_repositories);
+}
+
+/// to_persisted_state must EXCLUDE all prs_state data — no PR key appears in
+/// the serialized JSON.
+///
+/// Build a PullRequest populated with non-default data.
+fn test_pr(number: u64) -> jefe::domain::PullRequest {
+    use jefe::domain::{PrCheckStatus, PrState};
+    jefe::domain::PullRequest {
+        number,
+        title: format!("PR #{number}"),
+        state: PrState::Open,
+        author_login: "testuser".to_string(),
+        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        head_ref: "feature".to_string(),
+        base_ref: "main".to_string(),
+        is_draft: false,
+        review_decision: None,
+        checks_status: PrCheckStatus::None,
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
+        comment_count: 0,
+    }
+}
+
+/// Build a PullRequestDetail populated with non-default data.
+fn test_pr_detail(number: u64) -> jefe::domain::PullRequestDetail {
+    use jefe::domain::{PrCheckStatus, PrState};
+    jefe::domain::PullRequestDetail {
+        repo_owner_name: "owner/repo".to_string(),
+        number,
+        title: format!("PR #{number}"),
+        state: PrState::Open,
+        is_draft: false,
+        author_login: "octocat".to_string(),
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-02T00:00:00Z".to_string(),
+        head_ref: "feature".to_string(),
+        base_ref: "main".to_string(),
+        labels: vec![],
+        assignees: vec![],
+        milestone: None,
+        body: "PR body".to_string(),
+        external_url: format!("https://github.com/owner/repo/pull/{number}"),
+        review_decision: None,
+        checks_status: PrCheckStatus::None,
+        reviews: vec![],
+        checks: vec![],
+        comments: vec![],
+        has_more_comments: false,
+        comments_cursor: None,
+    }
+}
+
+/// Build an AppState populated with non-default PR data.
+fn state_with_active_prs() -> jefe::state::AppState {
+    use jefe::domain::{Repository, RepositoryId};
+    use jefe::state::ScreenMode;
+    use std::path::PathBuf;
+
+    let prs_state = jefe::state::PullRequestsState {
+        active: true,
+        pull_requests: vec![test_pr(1)],
+        selected_pr_index: Some(0),
+        pr_detail: Some(test_pr_detail(1)),
+        ..jefe::state::PullRequestsState::default()
+    };
+    let mut state = jefe::state::AppState {
+        screen_mode: ScreenMode::DashboardPullRequests,
+        prs_state,
+        ..AppState::default()
+    };
+    state.repositories.push(Repository::new(
+        RepositoryId("repo-1".to_string()),
+        "Repo 1".to_string(),
+        "repo-1".to_string(),
+        PathBuf::from("/tmp/repo1"),
+    ));
+    state.selected_repository_index = Some(0);
+    state
+}
+
+/// @plan PLAN-20260624-PR-MODE.P04
+/// @requirement REQ-PR-NFR-002
+/// @pseudocode component-001 lines 66-76
+/// NOTE: this test lives in src/app_input/app_input_tests.rs (alongside the
+/// to_persisted_state_carries_hide_idle_toggle precedent) because
+/// to_persisted_state is module-private to app_input (declared in main.rs as
+/// `mod app_input`, NOT `pub mod app_input` in lib.rs), so it is NOT reachable
+/// from a test in the src/state module without changing production visibility.
+#[test]
+fn test_to_persisted_state_excludes_prs_state() {
+    let state = state_with_active_prs();
+
+    let persisted = to_persisted_state(&state);
+    let json = serde_json::to_value(&persisted).value_or_panic("persisted should serialize");
+
+    let json_str = serde_json::to_string(&json).value_or_panic("json should stringify");
+    let lower = json_str.to_lowercase();
+    assert!(
+        !lower.contains("prs_state")
+            && !lower.contains("pull_request")
+            && !lower.contains("pr_detail"),
+        "persisted state must not carry any PR data, got: {json_str}"
+    );
+
+    assert!(json.get("repositories").is_some());
+    assert!(json.get("agents").is_some());
+    assert!(json.get("selected_repository_index").is_some());
+    assert!(json.get("selected_agent_index").is_some());
+    assert!(json.get("hide_idle_repositories").is_some());
+    assert!(json.get("last_selected_agent_by_repo").is_some());
 }
