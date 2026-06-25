@@ -38,6 +38,76 @@ fires on their mere PRESENCE regardless of reachability. Since this stub phase r
   stub returns `None`).
 - **Why it matters:** Establishes the key→event→dispatch path for TDD to target.
 
+## P09 Stub Scope — Normative (authoritative ruling)
+
+This subsection is the BINDING contract for exactly how thick the P09 key-routing stub must be. It
+resolves prior ambiguity. Mirror the already-SHIPPED Issues precedent (`resolve_issues_key_event` in
+`src/app_input/issues.rs`, the Issues `09-key-routing-stub.md`) and obey strict stub→RED→GREEN TDD:
+the P10 RED tests must be able to FAIL, so any real key→event mapping P10 asserts MUST NOT be
+pre-implemented here. The ONE exception is the REQ-PR-012 `o` thread, which is fully wired this phase.
+
+### S1. Precedence STRUCTURE (REQUIRED — must exist and compile)
+`resolve_prs_key_event` (the resolver named `handle_prs_mode_key` in this plan) MUST exist with the
+full 8-tier precedence structure, mirroring `resolve_issues_key_event` (c003 L10-48):
+- **P1 inline** — `if inline_state != InlineState::None { return handle_pr_inline_key(...) }`
+- **P2 chooser** — `if agent_chooser.is_some() { return handle_pr_agent_chooser_key(...) }`
+- **P3 search** — `if search_input_focused { return handle_pr_search_input_key(...) }`
+- **P4 filter** — `if filter_ui.controls_open { return handle_pr_filter_controls_key(...) }`
+  (P1–P4 are EARLY RETURNS, before the global/focus/pane chain)
+- **P5 global → P6 focus → P7 pane-cycle**, expressed as the same `.or_else` chain as Issues:
+  `resolve_pr_global_key(...).or_else(|| <P6 focus-domain dispatch>).or_else(|| resolve_pr_pane_cycle_key(...))`
+- **P8 suppression** — applied AFTER P7 (see S2).
+The sub-handler signatures (`handle_pr_list_key`, `handle_pr_detail_key`, `handle_pr_repo_key`,
+`handle_pr_inline_key`, `handle_pr_agent_chooser_key`, `handle_pr_search_input_key`,
+`handle_pr_filter_controls_key`, `handle_esc_in_prs_mode`, each `-> Option<AppEvent>`) MUST exist so
+the structure compiles.
+
+### S2. P8 suppression tier (REQUIRED structure — NOT deferred)
+An explicit suppression resolver MUST be PRESENT at stub (mirroring the Issues precedent's reserved
+keys `s`/`Ctrl-d`/`Ctrl-k`/`l`). Provide a named resolver (e.g. `resolve_pr_suppressed_key`) that
+matches the reserved keys `s`, `Ctrl-d`, `Ctrl-k`, `l` and returns `None` (consumed-no-op: consumed,
+silently ignored, never leaks to the dashboard), wired AFTER P7 in `handle_prs_mode_key`. This is
+REQUIRED STRUCTURE this phase, NOT deferred. (Note: in the shipped Issues code the same observable
+no-op also arises from the chain's terminal `None`; for PR mode the plan REQUIRES the suppression
+step be an explicit, named, citable resolver so the P8 tier is unambiguously present — c003 L43-48.)
+
+### S3. REQ-PR-012 `o` open-in-browser (FULLY IMPLEMENTED this phase — the one wired thread)
+The `o` path MUST be IMPLEMENTED at stub and MUST live in the P6 focus-domain handlers
+`handle_pr_list_key` AND `handle_pr_detail_key` — NOT in the P5 global resolver:
+- `handle_pr_list_key`: `'o' IF selected_pr present -> Some(PrOpenInBrowser)` else
+  `Some(PrShowNotice{ kind: NoSelectionToOpen })` (c003 L68-69).
+- `handle_pr_detail_key`: `'o' IF pr_detail present -> Some(PrOpenInBrowser)` else
+  `Some(PrShowNotice{ kind: NoSelectionToOpen })` (c003 L88-89).
+- `o` MUST NOT appear in `resolve_pr_global_key` (it is focus-domain, not global).
+- The dispatch side is also wired: the `AppMessage::PullRequests(OpenInBrowser)` arm routes to
+  `prs_dispatch::dispatch_pr_open_in_browser`, and `dispatch_pr_open_in_browser` /
+  `pr_open_in_browser_info` exist as BENIGN NO-OP / safe-default bodies (never `todo!()`).
+
+### S4. Esc delegation decision (RULING: PRESENT/structural, inert)
+The `Esc` arm in P5 `resolve_pr_global_key` `delegates` to `handle_esc_in_prs_mode(state)` and this
+delegation wiring IS PRESENT at stub (structural, inert), consistent with the precedence diagram
+(c003 L27). It is inert because `handle_esc_in_prs_mode` is itself a `None`-returning stub this phase
+(its real precedence-unwind, c003 L92-98, is filled in at P10 RED → P11 GREEN). This is the single,
+explicit choice: Esc delegation present (not deferred). Because the delegate returns `None`, no Esc
+behavior is asserted yet, so TDD is not violated. Therefore `resolve_pr_global_key` at stub matches
+ONLY `Esc` (delegating to `handle_esc_in_prs_mode`) and returns `None` for every other key.
+
+### S5. DEFERRED to P10 RED → P11 GREEN (ENUMERATED — a stub-phase verifier MUST NOT flag these)
+The following real mappings MUST NOT be implemented in the P09 stub; the relevant `AppEvent`
+variants already exist (from P05) so the code compiles, but the stub handlers return `None` (or, for
+focus-domain handlers, the bare `_ => None` fall-through) for ALL of them. A verifier MUST treat
+their ABSENCE at stub as EXPECTED, not a blocker:
+- **P5 global (DEFERRED, return `None` at stub):** `p`|`P` → `RefocusPrList`; `a` → `ExitPrsMode`;
+  help `?`|`h`|`F1` → open help; `/` → `PrFocusSearchInput`; `f` (when `pr_focus == PrList`) →
+  `PrOpenFilterControls`. (Only `Esc` delegation is present per S4.)
+- **P6 focus-domain (DEFERRED, return `None`/fall-through at stub):** `Up`/`Down`/`PageUp`/
+  `PageDown`/`Home`/`End`/`Enter` navigation; `Left`/`Right` arrow pane-cycle; `j`/`k` detail
+  subfocus; `r`/`c`/`e` read-only `PrShowNotice` branches; `S` open-agent-chooser. (The `o` path is
+  the SOLE exception — implemented per S3.)
+- **P7 pane-cycle (DEFERRED, return `None` at stub):** `Tab` → `PrCycleFocus`; `Shift+Tab` →
+  `PrCycleFocusReverse`.
+NOTE the asymmetry: S2 P8 suppression and S3 `o` ARE implemented this phase; everything in S5 is NOT.
+
 ## Implementation Tasks
 
 ### Files to modify
@@ -63,6 +133,12 @@ fires on their mere PRESENCE regardless of reachability. Since this stub phase r
   - add stub fns: `dispatch_prs_navigation`, `refresh_prs_navigation`,
     `refresh_repo_scope_if_changed_prs`, `update_pr_detail_viewport_rows`,
     `dispatch_pr_agent_chooser_confirm`, `pr_send_info`, `write_pr_prompt`, `launch_pr_agent`.
+    **CANONICAL SYMBOL-NAME RULING:** the navigation-refresh dispatch helper is named
+    `refresh_prs_navigation` (the `_prs` suffix, matching the sibling helpers
+    `dispatch_prs_navigation` and `refresh_repo_scope_if_changed_prs` and P11 L103). This is
+    authoritative: do NOT use `refresh_pr_navigation` (singular) even though the pseudocode source
+    `component-004.md` L154/157 reads `refresh_pr_navigation` — that pseudocode citation has drifted
+    (finding #6) and the canonical plan name `refresh_prs_navigation` wins.
     All of these `src/app_input/mod.rs` dispatch/loader stub bodies are TOTAL NO-OPS / safe defaults
     (return without I/O), NEVER `todo!()`/`unimplemented!()` (findings #1 & #4 — clippy denies both),
     because every one is reachable from a dispatched PR message or from startup wiring.
@@ -83,7 +159,10 @@ fires on their mere PRESENCE regardless of reachability. Since this stub phase r
   `Some(PrShowNotice{ kind: NoSelectionToOpen })`) — c003 L68-69,88-89, REQ-PR-012.
   `handle_pr_detail_key` must also include the read-only no-op signature paths for `r`/`c`/`e`:
   instead of returning bare `None`, the implemented form (P11) returns `Some(PrShowNotice{ kind })`.
-  Stub leaves bodies returning `None`; the variants must exist so it compiles.
+  Stub leaves bodies returning `None`; the variants must exist so it compiles. **Build this file to
+  the binding "P09 Stub Scope — Normative" subsection above:** S1 precedence structure + S2 explicit
+  P8 suppression resolver + S3 `o` implemented in list/detail (NOT global) + S4 Esc delegation
+  present/inert; everything in S5 returns `None` at stub.
 - `src/app_input/prs_dispatch.rs` — `load_pr_detail_for_selection`, `load_more_pr_comments`,
   `preview_pr_from_list`, `format_pr_prompt`, `dispatch_pr_open_in_browser`, `pr_open_in_browser_info`
   — c004 L138-175; c003 L176-187,190-228.
@@ -115,11 +194,26 @@ All gates above MUST pass. Stub bodies compile; no command is permitted to fail 
 - [ ] Build green; routing/dispatch signatures present.
 - [ ] `i`/`s` arms in `resolve_mode_key` unchanged.
 - [ ] `dispatch_app_message` PR arms compile (exhaustive).
+- [ ] 8-tier precedence STRUCTURE present in `handle_prs_mode_key` (S1): P1–P4 early returns, then
+  P5 global `.or_else` P6 focus `.or_else` P7 pane-cycle, then P8 suppression (cite).
+- [ ] P8 suppression tier PRESENT as an explicit named resolver matching `s`/`Ctrl-d`/`Ctrl-k`/`l`
+  → `None`, wired after P7 (S2 — required structure, NOT deferred) (cite).
+- [ ] `o` path implemented in `handle_pr_list_key` AND `handle_pr_detail_key` with both the
+  `Some(PrOpenInBrowser)` (present) and `Some(PrShowNotice{ kind: NoSelectionToOpen })` (absent)
+  branches (S3) (cite).
+- [ ] `o` ABSENT from `resolve_pr_global_key` (S3) (cite).
+- [ ] Canonical helper name `refresh_prs_navigation` used (NOT `refresh_pr_navigation`) (cite).
 - [ ] Markers present.
 
 ## Semantic Verification Checklist (Mandatory)
 - [ ] `p`/`P` entry only when `screen == Dashboard` (cite).
 - [ ] `DashboardPullRequests` delegates to `handle_prs_mode_key` (cite).
+- [ ] Esc delegation to `handle_esc_in_prs_mode` PRESENT (structural/inert) in `resolve_pr_global_key`
+  (S4); `resolve_pr_global_key` matches ONLY `Esc` at stub (cite).
+- [ ] **DEFERRED-OK (S5) — a verifier MUST NOT flag these as missing at stub:** P5 `p`/`P`/`a`/help
+  `?`|`h`|`F1`/`/`/`f` mappings; P6 nav (`Up`/`Down`/`PageUp`/`PageDown`/`Home`/`End`/`Enter`),
+  `Left`/`Right`, `j`/`k` subfocus, `r`/`c`/`e` read-only notices, `S` chooser; P7 `Tab`/`Shift+Tab`.
+  All return `None` at stub (the `o` path is the SOLE implemented focus-domain mapping).
 - [ ] Handlers return `Option<AppEvent>`; no direct `app_state.write()` in handlers.
 - [ ] No `todo!()`/`unimplemented!()` in ANY `src/app_input/prs*.rs` file (findings #1 & #4 — clippy
   denies both macros): key resolvers return `Option<AppEvent>` (`Some`/`None`) safe values and the

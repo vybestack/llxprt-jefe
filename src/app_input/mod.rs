@@ -9,6 +9,16 @@ mod modal_handlers;
 mod normal;
 mod preflight;
 
+// PR-mode key-routing + dispatch surface (P09 stubs).
+// @plan PLAN-20260624-PR-MODE.P09
+// @requirement REQ-PR-001
+// @requirement REQ-PR-002
+mod prs;
+mod prs_dispatch;
+mod prs_filter;
+mod prs_list_dispatch;
+mod prs_mutation;
+
 mod gh_async;
 
 pub use modal_handlers::{handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key};
@@ -35,7 +45,9 @@ const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
     ('ª', 9),
 ];
 use jefe::input::{SearchKeyRoute, route_search_key};
-use jefe::messages::{AppMessage, IssuesMessage, RuntimeMessage, UiNavigationMessage};
+use jefe::messages::{
+    AppMessage, IssuesMessage, PullRequestsMessage, RuntimeMessage, UiNavigationMessage,
+};
 use jefe::persistence::{PersistenceManager, State as PersistedState};
 const REMOTE_ATTACH_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
@@ -468,6 +480,17 @@ pub fn dispatch_app_message(
         AppMessage::Issues(IssuesMessage::InlineSubmit) => {
             issues_mutation::handle_inline_submit(app_state, ctx);
         }
+        // ── PR-mode dispatch arms (P09 stubs) ──────────────────────────────
+        // @plan PLAN-20260624-PR-MODE.P09
+        // @requirement REQ-PR-001
+        // @requirement REQ-PR-003
+        // @requirement REQ-PR-010
+        // @requirement REQ-PR-011
+        // @requirement REQ-PR-012
+        // @pseudocode component-004 lines 97-118
+        AppMessage::PullRequests(message) => {
+            dispatch_prs_message(app_state, ctx, message);
+        }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
 }
@@ -482,6 +505,177 @@ fn update_detail_viewport_rows(app_state: &mut AppStateHandle) {
     );
 }
 
+// ── PR-mode dispatch routing + stub loader helpers (P09) ───────────────────
+//
+// @plan PLAN-20260624-PR-MODE.P09
+// @requirement REQ-PR-001
+// @requirement REQ-PR-003
+// @requirement REQ-PR-009
+// @requirement REQ-PR-010
+// @requirement REQ-PR-011
+// @requirement REQ-PR-012
+// @pseudocode component-004 lines 97-175
+
+/// Route a `PullRequestsMessage` to the appropriate dispatch helper.
+///
+/// Mirrors the `AppMessage::Issues` arm structure. Side-effecting arms route
+/// to the PR dispatch/loader stubs; all other variants fall through to
+/// `apply_and_persist` via the catch-all.
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-001
+/// @requirement REQ-PR-003
+/// @requirement REQ-PR-010
+/// @requirement REQ-PR-011
+/// @requirement REQ-PR-012
+/// @pseudocode component-004 lines 97-118
+fn dispatch_prs_message(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: PullRequestsMessage,
+) {
+    use jefe::messages::{PrInlineMsg, ScrollDir};
+
+    match message {
+        m @ (PullRequestsMessage::Navigate(_)
+        | PullRequestsMessage::CycleFocus
+        | PullRequestsMessage::CycleFocusReverse) => {
+            dispatch_prs_navigation(app_state, ctx, m);
+        }
+        m @ (PullRequestsMessage::EnterMode
+        | PullRequestsMessage::RefocusList
+        | PullRequestsMessage::ApplyFilter
+        | PullRequestsMessage::ClearFilter
+        | PullRequestsMessage::ApplySearch) => {
+            prs_list_dispatch::dispatch_pr_list_reload(app_state, ctx, m);
+        }
+        PullRequestsMessage::Enter => {
+            apply_and_persist(app_state, ctx, AppEvent::PrListEnter);
+            prs_dispatch::load_pr_detail_for_selection(app_state, ctx);
+        }
+        m @ PullRequestsMessage::ScrollDetail(ScrollDir::Down | ScrollDir::PageDown) => {
+            update_pr_detail_viewport_rows(app_state);
+            apply_and_persist(app_state, ctx, AppEvent::from(m));
+            prs_dispatch::load_more_pr_comments(app_state, ctx);
+        }
+        PullRequestsMessage::AgentChooserConfirm => {
+            dispatch_pr_agent_chooser_confirm(app_state, ctx);
+        }
+        PullRequestsMessage::Inline(PrInlineMsg::Submit) => {
+            prs_mutation::handle_pr_inline_submit(app_state, ctx);
+        }
+        PullRequestsMessage::OpenInBrowser => {
+            apply_and_persist(
+                app_state,
+                ctx,
+                AppEvent::from(AppMessage::PullRequests(PullRequestsMessage::OpenInBrowser)),
+            );
+            prs_dispatch::dispatch_pr_open_in_browser(app_state, ctx);
+        }
+        // All other PullRequests variants (data-load results, notices, etc.)
+        // route through the reducer only.
+        message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+    }
+}
+
+/// PR navigation dispatch (stub — reducer-only, no preview/reload yet).
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-003
+/// @pseudocode component-004 lines 119-126
+fn dispatch_prs_navigation(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: PullRequestsMessage,
+) {
+    apply_and_persist(app_state, ctx, AppEvent::from(message));
+    refresh_prs_navigation(app_state, ctx);
+}
+
+/// Refresh PR detail preview + repo scope after a navigation event (stub).
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-003
+/// @pseudocode component-004 lines 123-126
+fn refresh_prs_navigation(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    // P11 adds preview + repo-scope refresh; stub delegates to the no-op helpers
+    // so the symbols are reachable (no dead code).
+    refresh_repo_scope_if_changed_prs(app_state, ctx);
+    prs_dispatch::preview_pr_from_list(app_state);
+}
+
+/// Reset + reload the PR list when the selected repository changes (stub).
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-007
+/// @pseudocode component-004 lines 123-125
+fn refresh_repo_scope_if_changed_prs(_app_state: &mut AppStateHandle, _ctx: &SharedContext) {
+    // P11 resets the list + reloads on repo change; stub is a no-op.
+}
+
+/// Update the PR detail viewport row count from the layout module (stub).
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-009
+/// @pseudocode component-004 lines 156-159
+fn update_pr_detail_viewport_rows(_app_state: &mut AppStateHandle) {
+    // No `prs_detail_viewport_rows` layout helper exists yet; stub is a no-op
+    // (do NOT invent layout fns this phase). P11 wires the layout prop.
+}
+
+/// Dispatch the PR agent-chooser confirm (send-to-agent) side effects (stub).
+///
+/// Mirrors `dispatch_agent_chooser_confirm`: resolve send info, apply the
+/// chooser-confirm reducer, write the PR prompt, then launch the agent.
+/// `launch_pr_agent` is an inert stub until P11, so no runtime agent spawns
+/// this phase.
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-011
+/// @pseudocode component-003 lines 147-155
+fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let send_info = pr_send_info(app_state);
+    apply_and_persist(app_state, ctx, AppEvent::PrAgentChooserConfirm);
+
+    let Some(send_info) = send_info else {
+        return;
+    };
+    if let Err(error) = write_pr_prompt(&send_info.work_dir, &send_info.payload) {
+        apply_and_persist(app_state, ctx, AppEvent::PrSendToAgentFailed { error });
+        return;
+    }
+    launch_pr_agent(
+        app_state,
+        ctx,
+        send_info.agent_id,
+        send_info.work_dir,
+        send_info.signature,
+    );
+}
+
+/// Write the PR agent prompt to disk.
+///
+/// Mirrors `write_issue_prompt`: creates `{work_dir}/.jefe`, renders the
+/// prompt via `prs_dispatch::format_pr_prompt`, and writes
+/// `.jefe/pr-prompt.md`. This is prompt-file I/O (like the issues path),
+/// NOT a runtime agent spawn.
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-011
+/// @pseudocode component-003 lines 157-163
+fn write_pr_prompt(
+    work_dir: &std::path::Path,
+    payload: &jefe::github::PrSendPayload,
+) -> Result<(), String> {
+    let prompt_dir = work_dir.join(".jefe");
+    std::fs::create_dir_all(&prompt_dir)
+        .map_err(|error| format!("Failed to create .jefe dir: {error}"))?;
+    let prompt_path = prompt_dir.join("pr-prompt.md");
+    let prompt_content = prs_dispatch::format_pr_prompt(payload);
+    std::fs::write(&prompt_path, &prompt_content)
+        .map_err(|error| format!("Failed to write PR prompt: {error}"))
+}
+
 fn log_dispatch(message: &AppMessage) {
     let route = message.route();
     debug!(
@@ -489,6 +683,108 @@ fn log_dispatch(message: &AppMessage) {
         message = route.name,
         "dispatching app message"
     );
+}
+
+/// Resolved context needed to send a PR to an agent (mirrors `IssueSendInfo`).
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-011
+/// @pseudocode component-003 lines 164-175
+struct PrSendInfo {
+    agent_id: AgentId,
+    work_dir: std::path::PathBuf,
+    signature: LaunchSignature,
+    payload: jefe::github::PrSendPayload,
+}
+
+/// Resolve the agent, repo, focused comment, work dir, signature, and payload
+/// for sending the selected PR to an agent (mirrors `issue_send_info`).
+///
+/// Sources from `state.prs_state.agent_chooser` + `state.prs_state.pr_detail`.
+/// Returns `None` (via `?`) when chooser/detail/agent/repo are absent.
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-011
+/// @pseudocode component-003 lines 164-175
+fn pr_send_info(app_state: &AppStateHandle) -> Option<PrSendInfo> {
+    let state = app_state.read();
+    let chooser = state.prs_state.agent_chooser.as_ref()?;
+    let detail = state.prs_state.pr_detail.as_ref()?;
+    let (agent_id, _) = chooser.agents.get(chooser.selected_index)?.clone();
+    let agent = state
+        .agents
+        .iter()
+        .find(|agent| agent.id == agent_id)?
+        .clone();
+    let repo = state.repository_by_id(&agent.repository_id)?;
+    let focused_comment = focused_pr_comment(&state, detail);
+    let work_dir = agent.work_dir.clone();
+    let signature = launch_signature_for_agent(&agent, repo);
+    let payload = jefe::github::GhClient::build_pr_send_payload(
+        &repo.slug,
+        detail,
+        focused_comment.as_ref(),
+        pr_base_prompt(repo),
+    );
+    drop(state);
+
+    Some(PrSendInfo {
+        agent_id,
+        work_dir,
+        signature,
+        payload,
+    })
+}
+
+/// Resolve the focused PR comment when `detail_subfocus` targets a comment
+/// (mirrors `focused_issue_comment`).
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-011
+/// @pseudocode component-003 lines 164-175
+fn focused_pr_comment(
+    state: &AppState,
+    detail: &jefe::domain::PullRequestDetail,
+) -> Option<jefe::domain::IssueComment> {
+    match state.prs_state.detail_subfocus {
+        jefe::state::PrDetailSubfocus::Comment(idx) => detail.comments.get(idx).cloned(),
+        _ => None,
+    }
+}
+
+/// Resolve the base prompt for a PR send (stub).
+///
+/// `Repository` does not yet carry a dedicated `pr_base_prompt` field; the
+/// stub reuses the issue base prompt as a stand-in. P11 adds a dedicated
+/// PR-specific field on `Repository`.
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-011
+/// @pseudocode component-003 lines 164-175
+fn pr_base_prompt(repo: &Repository) -> &str {
+    &repo.issue_base_prompt
+}
+
+/// Launch the runtime agent for a PR send (INERT stub — no spawn this phase).
+///
+/// Reads all params (via `apply_and_persist` of the completed event) so there
+/// are no unused-variable/dead-code warnings, but does NOT spawn a runtime
+/// agent. P11 wires the real `spawn_and_attach_fresh_for_pr` here.
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-011
+/// @pseudocode component-003 lines 155-163
+fn launch_pr_agent(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    _agent_id: AgentId,
+    _work_dir: std::path::PathBuf,
+    _launch_sig: LaunchSignature,
+) {
+    // P11 spawns and attaches the runtime session for the PR agent; stub
+    // applies the send-completed reducer + persist so params are read and the
+    // reducer chain is exercised (no runtime spawn this phase).
+    apply_and_persist(app_state, ctx, AppEvent::PrSendToAgentCompleted);
 }
 
 fn dispatch_kill_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {

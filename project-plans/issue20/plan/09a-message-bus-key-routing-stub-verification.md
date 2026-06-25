@@ -40,6 +40,32 @@ This verifier MUST produce ALL FIVE items of the `00-overview.md` "Verifier Outp
   Behavior is verified later (P10 RED → P11 GREEN); P09A only proves the surface compiles, is wired,
   and is panic-free.
 
+### P09 Stub Scope — Normative acceptance (mirrors `09-stub` "P09 Stub Scope — Normative")
+This verifier MUST accept EXACTLY the stub thickness ruled in `09-message-bus-key-routing-stub.md`
+("P09 Stub Scope — Normative"). Concretely, the verifier MUST:
+- **S1 (structure present):** confirm `handle_prs_mode_key` has the 8-tier precedence STRUCTURE —
+  P1–P4 early returns, P5 global `.or_else` P6 focus `.or_else` P7 pane-cycle, then P8 suppression —
+  mirroring `resolve_issues_key_event`.
+- **S2 (suppression present):** confirm an explicit named suppression resolver matches
+  `s`/`Ctrl-d`/`Ctrl-k`/`l` and returns `None`, wired after P7. PRESENCE is required; absence is a
+  FAIL.
+- **S3 (`o` implemented + located):** confirm the `o` path is implemented in `handle_pr_list_key`
+  AND `handle_pr_detail_key` with BOTH the `Some(PrOpenInBrowser)` and
+  `Some(PrShowNotice{ kind: NoSelectionToOpen })` branches, and confirm `o` is ABSENT from the P5
+  global resolver (`resolve_pr_global_key`).
+- **S4 (Esc present/inert):** confirm `Esc` delegation to `handle_esc_in_prs_mode` is PRESENT
+  (structural/inert) in `resolve_pr_global_key`, and that `resolve_pr_global_key` matches ONLY `Esc`
+  at stub.
+- **S5 (DEFERRED-OK — do NOT flag as missing):** the verifier MUST NOT treat the ABSENCE of these
+  real mappings as a blocker, because they are deferred to P10 RED → P11 GREEN: P5 `p`|`P` →
+  `RefocusPrList`, `a` → `ExitPrsMode`, help `?`|`h`|`F1`, `/` → `PrFocusSearchInput`, `f` →
+  `PrOpenFilterControls`; P6 `Up`/`Down`/`PageUp`/`PageDown`/`Home`/`End`/`Enter` nav, `Left`/`Right`
+  pane-cycle, `j`/`k` subfocus, `r`/`c`/`e` read-only notices, `S` chooser; P7 `Tab`/`Shift+Tab`.
+  These return `None` at stub (the `o` path is the SOLE implemented focus-domain mapping). Flagging
+  any of them as a missing-mapping blocker at stub is itself a verifier error.
+- **Canonical name:** confirm the dispatch helper is named `refresh_prs_navigation` (NOT
+  `refresh_pr_navigation`).
+
 ## Implementation Tasks
 - **Files to create:** `.completed/P09A.md`.
 - **Files to modify:** `plan/00-overview.md` tracker.
@@ -123,12 +149,41 @@ rg -n "PrOpenInBrowser|NoSelectionToOpen" src/app_input/prs.rs
 if ! rg -q "PullRequests\(.*OpenInBrowser.*\)" src/app_input/mod.rs ; then
   echo "FAIL: REQ-PR-012 dispatch arm for OpenInBrowser missing"; exit 1
 fi
+
+# S2 — P8 suppression tier PRESENT (named resolver matching s/Ctrl-d/Ctrl-k/l → None), wired after
+# P7. PRESENCE gate (absence is a FAIL). Locate the resolver by name first (finding #6); the grep
+# below is a guide for the reserved-key set it must match:
+if ! rg -q "Char\('s'\)" src/app_input/prs.rs ; then
+  echo "FAIL: S2 P8 suppression tier missing reserved key 's' in prs.rs"; exit 1
+fi
+# S3 — `o` MUST be ABSENT from the P5 global resolver. Inverted gate: a match here is a FAIL.
+# (Confirm by reading resolve_pr_global_key; the canonical check is that the only key it matches at
+#  stub is Esc — see S4.) Guard grep (best-effort; verifier must also read the function body):
+if rg -n "Char\('o'\)" src/app_input/prs.rs | rg -qi "global"; then
+  echo "FAIL: S3 'o' appears in the global resolver; it must live in the focus-domain handlers"; exit 1
+fi
+# Canonical name — `refresh_prs_navigation` present; `refresh_pr_navigation` (singular) absent:
+if ! rg -q "refresh_prs_navigation" src/app_input/mod.rs ; then
+  echo "FAIL: canonical helper refresh_prs_navigation missing"; exit 1
+fi
+if rg -n "\brefresh_pr_navigation\b" src/app_input/ ; then
+  echo "FAIL: non-canonical refresh_pr_navigation (singular) present; use refresh_prs_navigation"; exit 1
+fi
 ```
 
 ## Structural Verification Checklist
 - [ ] Build green; entry + delegation present (cite).
 - [ ] Existing `i`/`s`/Esc/grab arms unchanged (cite).
 - [ ] Dispatch PR arms exhaustive/compiling.
+- [ ] S1 — 8-tier precedence STRUCTURE present in `handle_prs_mode_key`: P1–P4 early returns, P5
+  global `.or_else` P6 focus `.or_else` P7 pane-cycle, then P8 suppression (cite).
+- [ ] S2 — P8 suppression tier PRESENT: explicit named resolver matching `s`/`Ctrl-d`/`Ctrl-k`/`l`
+  → `None`, wired after P7 (required structure, NOT deferred) (cite).
+- [ ] S3 — `o` path implemented in `handle_pr_list_key` AND `handle_pr_detail_key` with BOTH
+  `Some(PrOpenInBrowser)` and the `Some(PrShowNotice{ kind: NoSelectionToOpen })` branch (cite).
+- [ ] S3 — `o` ABSENT from `resolve_pr_global_key` (cite).
+- [ ] Canonical helper name `refresh_prs_navigation` present; `refresh_pr_navigation` (singular)
+  absent (cite).
 - [ ] REQ-PR-012 stub surface present (cite): `PrOpenInBrowser` + `NoSelectionToOpen` paths in
   `prs.rs` key handlers, the `PullRequests(OpenInBrowser)` dispatch arm in `mod.rs`, and the
   `dispatch_pr_open_in_browser`/`pr_open_in_browser_info` signatures with BENIGN NO-OP bodies
@@ -138,6 +193,14 @@ fi
 ## Semantic Verification Checklist (Mandatory)
 - [ ] `p`/`P` gated on `screen == Dashboard` (cite).
 - [ ] Delegation to `handle_prs_mode_key` only when `DashboardPullRequests` (cite).
+- [ ] S4 — Esc delegation to `handle_esc_in_prs_mode` PRESENT (structural/inert) in
+  `resolve_pr_global_key`; `resolve_pr_global_key` matches ONLY `Esc` at stub (cite).
+- [ ] **S5 DEFERRED-OK — the verifier MUST NOT flag these as missing at stub** (they are deferred to
+  P10 RED → P11 GREEN, returning `None` here): P5 `p`/`P`/`a`/help `?`|`h`|`F1`/`/`/`f`; P6 nav
+  (`Up`/`Down`/`PageUp`/`PageDown`/`Home`/`End`/`Enter`), `Left`/`Right`, `j`/`k` subfocus,
+  `r`/`c`/`e` read-only notices, `S` chooser; P7 `Tab`/`Shift+Tab`. The `o` path is the SOLE
+  implemented focus-domain mapping. Flagging any S5 item as a missing-mapping blocker is a verifier
+  error.
 - [ ] No handler mutates AppState directly (cite return types).
 - [ ] No `todo!()`/`unimplemented!()` ANYWHERE in `src/app_input/prs*.rs` (findings #1 & #4 — clippy
   denies both macros; consistent with P09). Key handlers return safe
@@ -164,6 +227,11 @@ fi
 ## Contradiction Scan
 - [ ] No existing routing arm altered.
 - [ ] No duplicate handler for the same key/precedence level.
+- [ ] No S5-deferred mapping was pre-implemented (e.g. `p`/`a`/`/`/`f`/nav/`Tab`/`j`/`k`/`r`/`c`/`e`
+  must NOT emit their real `AppEvent` at stub — pre-implementing them would break the P10 RED tests
+  and is a TDD violation; flag as FAIL if present).
+- [ ] `o` is NOT duplicated into `resolve_pr_global_key` (it lives ONLY in the P6 list/detail
+  handlers per S3).
 
 ## Deferred Implementation Detection
 Stub phase: `todo!()`/`unimplemented!()` are FORBIDDEN in ALL `src/app_input/prs*.rs` (clippy denies
