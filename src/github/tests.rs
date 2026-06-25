@@ -1061,6 +1061,19 @@ fn test_parse_pr_list_maps_all_fields() {
     assert_eq!(first.labels_summary, "enhancement, ui");
     assert_eq!(first.assignee_summary, "acoliver, bob");
     assert_eq!(first.comment_count, 5);
+}
+
+/// Companion assertions for the second PR node in `PR_LIST_SEARCH_JSON`
+/// (split from `test_parse_pr_list_maps_all_fields` to keep cognitive
+/// complexity under the clippy gate — all original assertions preserved).
+///
+/// @plan PLAN-20260624-PR-MODE.P07
+/// @requirement REQ-PR-006
+/// @pseudocode component-002 lines 138-156
+#[test]
+fn test_parse_pr_list_maps_second_pr_merged_and_failure() {
+    let response =
+        parse_pull_requests_json(PR_LIST_SEARCH_JSON).value_or_panic("should parse PR search");
 
     let second = &response.pull_requests[1];
     assert_eq!(second.number, 17);

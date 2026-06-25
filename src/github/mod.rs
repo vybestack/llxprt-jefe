@@ -10,7 +10,8 @@
 //! It depends only on `crate::domain` types for data transfer.
 
 use crate::domain::{
-    Issue, IssueComment, IssueDetail, IssueFilter, IssueState, PrFilter, PullRequestDetail,
+    Issue, IssueComment, IssueDetail, IssueFilter, IssueState, PrCheck, PrFilter, PrReview,
+    PrReviewState, PrState, PullRequestDetail,
 };
 use std::process::Command;
 
@@ -94,6 +95,12 @@ pub struct CommentsResponse {
 }
 
 const ISSUE_DETAIL_COMMENT_PAGE_SIZE: u32 = 30;
+
+/// Default page size for the PR list GraphQL search query.
+///
+/// @plan PLAN-20260624-PR-MODE.P08
+/// @requirement REQ-PR-006
+const PR_LIST_PAGE_SIZE: u32 = 30;
 
 /// Payload for sending issue context to an agent.
 ///
@@ -505,121 +512,202 @@ impl GhClient {
 
     /// List pull requests for a repository with filtering and pagination.
     ///
-    /// TOTAL STUB: returns `Ok(PrListResponse::default())`. The real GraphQL
-    /// `search(type: ISSUE, query, first, after)` transport arrives in P08.
+    /// Builds the GraphQL search args, runs `gh`, parses the response, sorts
+    /// by `updated_at` DESC, and returns the paginated response with the REAL
+    /// `endCursor`/`hasNextPage`.
     ///
-    /// @plan PLAN-20260624-PR-MODE.P06
+    /// @plan PLAN-20260624-PR-MODE.P08
     /// @requirement REQ-PR-006
     /// @pseudocode component-002 lines 22-34
     pub fn list_pull_requests(
         &self,
-        _owner: &str,
-        _name: &str,
-        _filter: &PrFilter,
-        _cursor: Option<&str>,
+        owner: &str,
+        name: &str,
+        filter: &PrFilter,
+        cursor: Option<&str>,
     ) -> Result<PrListResponse, GhError> {
-        Ok(PrListResponse::default())
+        let args = build_pr_search_args(owner, name, filter, cursor, PR_LIST_PAGE_SIZE);
+        let stdout = Self::run_gh(&args)?;
+        let mut response = parse_pull_requests_json(&stdout)?;
+        sort_pull_requests(&mut response.pull_requests);
+        Ok(response)
     }
 
     /// Get full pull-request detail.
     ///
-    /// TOTAL STUB: `PullRequestDetail` does not derive `Default`, so this
-    /// returns a deterministic `Err` rather than fabricating a struct or
-    /// panicking. The real `gh pr view --json` transport + separate
-    /// `list_pr_comments` fetch arrive in P08.
+    /// Fetches metadata via `gh pr view --json` (the `--json` set OMITS
+    /// `comments`), then sources the first comment page via a SEPARATE
+    /// `list_pr_comments` call (mirroring `get_issue_detail`'s
+    /// comments-sourcing, but via `repository.pullRequest` not
+    /// `repository.issue`).
     ///
-    /// @plan PLAN-20260624-PR-MODE.P06
+    /// @plan PLAN-20260624-PR-MODE.P08
     /// @requirement REQ-PR-009
     /// @pseudocode component-002 lines 74-101
     pub fn get_pull_request_detail(
         &self,
-        _owner: &str,
-        _name: &str,
-        _number: u64,
+        owner: &str,
+        name: &str,
+        number: u64,
     ) -> Result<PullRequestDetail, GhError> {
-        Err(GhError::ParseError("stub".to_string()))
+        let args = vec![
+            "pr".to_string(),
+            "view".to_string(),
+            number.to_string(),
+            "--repo".to_string(),
+            format!("{owner}/{name}"),
+            "--json".to_string(),
+            "number,title,state,mergedAt,author,createdAt,updatedAt,headRefName,baseRefName,isDraft,labels,assignees,milestone,body,url,reviewDecision,statusCheckRollup,reviews".to_string(),
+        ];
+        let stdout = Self::run_gh(&args)?;
+        let mut detail = parse_pull_request_detail_json(&stdout, &format!("{owner}/{name}"))?;
+        let comments_response =
+            self.list_pr_comments(owner, name, number, None, ISSUE_DETAIL_COMMENT_PAGE_SIZE)?;
+        detail.comments = comments_response.comments;
+        detail.comments_cursor = comments_response.cursor;
+        detail.has_more_comments = comments_response.has_more;
+        Ok(detail)
     }
 
     /// List comments for a pull request with pagination (PR-specific GraphQL
-    /// path querying `repository.pullRequest(number:).comments`).
+    /// path querying `repository.pullRequest(number:).comments` — NOT
+    /// `repository.issue`, which is NULL for a PR number; P00A §2d). Reuses
+    /// `parse_comments_json` for nodes and the page-info helper for the cursor.
     ///
-    /// TOTAL STUB: returns an empty `CommentsResponse`. The real GraphQL
-    /// transport reusing `parse_comments_json`/`parse_page_info` arrives in
-    /// P08.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P06
+    /// @plan PLAN-20260624-PR-MODE.P08
     /// @requirement REQ-PR-010
     /// @pseudocode component-002 lines 102-107
     pub fn list_pr_comments(
         &self,
-        _owner: &str,
-        _name: &str,
-        _number: u64,
-        _cursor: Option<&str>,
-        _page_size: u32,
+        owner: &str,
+        name: &str,
+        number: u64,
+        cursor: Option<&str>,
+        page_size: u32,
     ) -> Result<CommentsResponse, GhError> {
+        let mut args = vec![
+            "api".to_string(),
+            "graphql".to_string(),
+            "-f".to_string(),
+            format!("query={}", build_pr_comments_query(cursor.is_some())),
+            "-F".to_string(),
+            format!("owner={owner}"),
+            "-F".to_string(),
+            format!("repo={name}"),
+            "-F".to_string(),
+            format!("number={number}"),
+            "-F".to_string(),
+            format!("first={page_size}"),
+        ];
+        if let Some(c) = cursor {
+            args.push("-F".to_string());
+            args.push(format!("after={c}"));
+        }
+        let stdout = Self::run_gh(&args)?;
+        let (comments, end_cursor, has_more) = parse_comments_json(&stdout)?;
         Ok(CommentsResponse {
-            comments: Vec::new(),
-            cursor: None,
-            has_more: false,
+            comments,
+            cursor: end_cursor,
+            has_more,
         })
     }
 
     /// Create a new comment on a pull request (uses the issue comment REST
-    /// endpoint, which accepts a PR number).
+    /// endpoint `/repos/{owner}/{repo}/issues/{number}/comments`, which
+    /// accepts a PR number). Reuses `parse_created_comment_json`.
     ///
-    /// TOTAL STUB: `IssueComment` does not derive `Default`, so this returns a
-    /// deterministic `Err` rather than fabricating a struct or panicking. The
-    /// real `gh api --method POST .../issues/{number}/comments` transport
-    /// arrives in P08.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P06
+    /// @plan PLAN-20260624-PR-MODE.P08
     /// @requirement REQ-PR-010
     /// @pseudocode component-002 lines 108-114
     pub fn create_pr_comment(
         &self,
-        _owner: &str,
-        _name: &str,
-        _number: u64,
-        _body: &str,
+        owner: &str,
+        name: &str,
+        number: u64,
+        body: &str,
     ) -> Result<IssueComment, GhError> {
-        Err(GhError::ParseError("stub".to_string()))
+        let args = vec![
+            "api".to_string(),
+            "--method".to_string(),
+            "POST".to_string(),
+            format!("/repos/{owner}/{name}/issues/{number}/comments"),
+            "-f".to_string(),
+            format!("body={body}"),
+        ];
+        let stdout = Self::run_gh(&args)?;
+        parse_created_comment_json(&stdout)
     }
 
     /// Open a pull request in the default browser via `gh pr view --web`.
     ///
-    /// TOTAL STUB: returns `Ok(())`. The real `gh pr view --web` transport
-    /// arrives in P08.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P06
+    /// @plan PLAN-20260624-PR-MODE.P08
     /// @requirement REQ-PR-012
     /// @pseudocode component-002 lines 115-122
     pub fn open_pull_request_in_browser(
         &self,
-        _owner: &str,
-        _name: &str,
-        _number: u64,
+        owner: &str,
+        name: &str,
+        number: u64,
     ) -> Result<(), GhError> {
+        let args = vec![
+            "pr".to_string(),
+            "view".to_string(),
+            number.to_string(),
+            "--repo".to_string(),
+            format!("{owner}/{name}"),
+            "--web".to_string(),
+        ];
+        Self::run_gh(&args)?;
         Ok(())
     }
 
     /// Build a send-to-agent payload from PR context (mirrors
-    /// [`build_send_payload`]). Pure assembly; no I/O.
+    /// [`build_send_payload`]). Pure assembly; no I/O. Carries NO
+    /// `prompt_markdown`/`work_dir`/`signature` — those come from the agent.
     ///
-    /// TOTAL STUB: returns `PrSendPayload::default()`. The real field assembly
-    /// (state mapping, review/check summaries, focused comment) arrives in P08.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P06
+    /// @plan PLAN-20260624-PR-MODE.P08
     /// @requirement REQ-PR-011
     /// @pseudocode component-002 lines 123-136
     #[must_use]
     pub fn build_pr_send_payload(
-        _repo_slug: &str,
-        _pr_detail: &PullRequestDetail,
-        _focused_comment: Option<&IssueComment>,
-        _pr_base_prompt: &str,
+        repo_slug: &str,
+        pr_detail: &PullRequestDetail,
+        focused_comment: Option<&IssueComment>,
+        pr_base_prompt: &str,
     ) -> PrSendPayload {
-        PrSendPayload::default()
+        PrSendPayload {
+            repository: repo_slug.to_string(),
+            pr_number: pr_detail.number,
+            pr_title: pr_detail.title.clone(),
+            pr_body: pr_detail.body.clone(),
+            pr_state: pr_state_str(pr_detail.state).to_string(),
+            head_ref: pr_detail.head_ref.clone(),
+            base_ref: pr_detail.base_ref.clone(),
+            external_url: pr_detail.external_url.clone(),
+            review_summary: summarize_pr_reviews(&pr_detail.reviews),
+            check_summary: summarize_pr_checks(&pr_detail.checks),
+            focused_comment: focused_comment.map(|c| c.body.clone()),
+            focused_comment_author: focused_comment.map(|c| c.author_login.clone()),
+            pr_base_prompt: pr_base_prompt.to_string(),
+        }
+    }
+
+    /// Run `gh` with the given args, returning stdout on success. Encapsulates
+    /// the established error idiom: `NotFound→NotInstalled` else
+    /// `NetworkError`; non-zero exit → `categorize_error`.
+    fn run_gh(args: &[String]) -> Result<String, GhError> {
+        let output = Command::new("gh").args(args).output().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                GhError::NotInstalled
+            } else {
+                GhError::NetworkError(e.to_string())
+            }
+        })?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(categorize_error(output.status.code().unwrap_or(1), &stderr));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 }
 
@@ -627,4 +715,54 @@ impl Default for GhClient {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Map a [`PrState`] to its lowercase send-payload string.
+///
+/// @plan PLAN-20260624-PR-MODE.P08
+/// @requirement REQ-PR-011
+/// @pseudocode component-002 lines 130-136
+fn pr_state_str(state: PrState) -> &'static str {
+    match state {
+        PrState::Open => "open",
+        PrState::Closed => "closed",
+        PrState::Merged => "merged",
+    }
+}
+
+/// Build the display-only review-summary strings for the send payload.
+///
+/// @plan PLAN-20260624-PR-MODE.P08
+/// @requirement REQ-PR-011
+/// @pseudocode component-002 lines 130-136
+fn summarize_pr_reviews(reviews: &[PrReview]) -> Vec<String> {
+    reviews
+        .iter()
+        .map(|r| format!("{}: {}", r.author_login, review_state_str(r.state)))
+        .collect()
+}
+
+/// Map a [`PrReviewState`] to a display label.
+fn review_state_str(state: PrReviewState) -> &'static str {
+    match state {
+        PrReviewState::Approved => "approved",
+        PrReviewState::ChangesRequested => "changes_requested",
+        PrReviewState::Commented => "commented",
+        PrReviewState::Pending => "pending",
+        PrReviewState::Dismissed => "dismissed",
+        PrReviewState::ReviewRequired => "review_required",
+        PrReviewState::None => "none",
+    }
+}
+
+/// Build the display-only check-summary strings for the send payload.
+///
+/// @plan PLAN-20260624-PR-MODE.P08
+/// @requirement REQ-PR-011
+/// @pseudocode component-002 lines 130-136
+fn summarize_pr_checks(checks: &[PrCheck]) -> Vec<String> {
+    checks
+        .iter()
+        .map(|c| format!("{}: {}", c.name, c.conclusion))
+        .collect()
 }

@@ -395,12 +395,18 @@ pub fn parse_comments_json(
     let value: Value = serde_json::from_str(json_str)
         .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
 
-    // Navigate to data.repository.issue.comments
+    // Navigate to data.repository.<issue|pullRequest>.comments. PR comments
+    // are served under `repository.pullRequest(number:).comments` (the issue
+    // object is NULL for a PR number — P00A §2d), so both object paths are
+    // accepted here to keep the node/pageInfo parser reusable.
     let comments_data = value
         .get("data")
         .and_then(|d| d.get("repository"))
-        .and_then(|r| r.get("issue"))
-        .and_then(|i| i.get("comments"))
+        .and_then(|r| {
+            r.get("issue")
+                .and_then(|i| i.get("comments"))
+                .or_else(|| r.get("pullRequest").and_then(|p| p.get("comments")))
+        })
         .ok_or_else(|| GhError::ParseError("Missing comments data".to_string()))?;
 
     let nodes = comments_data
@@ -422,7 +428,11 @@ pub fn parse_comments_json(
 }
 
 /// Extract (endCursor, hasNextPage) from a GraphQL `pageInfo` object.
-fn parse_page_info(page_info: &Value) -> (Option<String>, bool) {
+///
+/// `pub(super)` so `parse_pr` can reuse it verbatim (the PR search and
+/// `gh pr view` paths read the SAME `pageInfo { hasNextPage endCursor }`
+/// shape). Kept in `parse.rs` to avoid duplicating page-info logic.
+pub(super) fn parse_page_info(page_info: &Value) -> (Option<String>, bool) {
     let has_next_page = page_info
         .get("hasNextPage")
         .and_then(Value::as_bool)
