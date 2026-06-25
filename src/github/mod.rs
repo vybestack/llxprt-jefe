@@ -9,7 +9,9 @@
 //! This module is intentionally isolated from `crate::ui` and `crate::state`.
 //! It depends only on `crate::domain` types for data transfer.
 
-use crate::domain::{Issue, IssueComment, IssueDetail, IssueFilter, IssueState};
+use crate::domain::{
+    Issue, IssueComment, IssueDetail, IssueFilter, IssueState, PrFilter, PullRequestDetail,
+};
 use std::process::Command;
 
 mod create_issue;
@@ -20,6 +22,13 @@ use parse::build_issue_search_args;
 pub use parse::{
     build_list_issues_args, categorize_error, parse_comments_json, parse_created_comment_json,
     parse_issue_detail_json, parse_issue_search_json, parse_issues_json, sort_issues,
+};
+
+mod parse_pr;
+pub use parse_pr::{
+    build_pr_search_args, build_pr_search_query, parse_check_status, parse_checks_rollup,
+    parse_pr_check, parse_pr_review, parse_pr_state, parse_pull_request_detail_json,
+    parse_pull_requests_json, parse_review_decision, sort_pull_requests,
 };
 
 /// Error types for GitHub CLI operations.
@@ -61,6 +70,21 @@ pub struct IssueListResponse {
     pub has_more: bool,
 }
 
+/// Response from listing pull requests (mirrors [`IssueListResponse`]).
+///
+/// `#[derive(Default)]` is sound because `Vec`, `Option`, and `bool` all
+/// implement `Default`; the empty-vec default needs no `PullRequest: Default`.
+///
+/// @plan PLAN-20260624-PR-MODE.P06
+/// @requirement REQ-PR-006
+/// @pseudocode component-002 lines 05-06
+#[derive(Default)]
+pub struct PrListResponse {
+    pub pull_requests: Vec<crate::domain::PullRequest>,
+    pub cursor: Option<String>,
+    pub has_more: bool,
+}
+
 /// Response from listing comments.
 pub struct CommentsResponse {
     pub comments: Vec<IssueComment>,
@@ -86,6 +110,30 @@ pub struct SendPayload {
     pub focused_comment: Option<String>,
     pub focused_comment_author: Option<String>,
     pub issue_base_prompt: String,
+}
+
+/// Payload for sending PR context to an agent (mirrors [`SendPayload`]'s
+/// structured, owned-field design). Carries NO `prompt_markdown`/`work_dir`/
+/// `signature` — those are not payload concerns.
+///
+/// @plan PLAN-20260624-PR-MODE.P06
+/// @requirement REQ-PR-011
+/// @pseudocode component-002 lines 123-129
+#[derive(Default)]
+pub struct PrSendPayload {
+    pub repository: String,
+    pub pr_number: u64,
+    pub pr_title: String,
+    pub pr_body: String,
+    pub pr_state: String,
+    pub head_ref: String,
+    pub base_ref: String,
+    pub external_url: String,
+    pub review_summary: Vec<String>,
+    pub check_summary: Vec<String>,
+    pub focused_comment: Option<String>,
+    pub focused_comment_author: Option<String>,
+    pub pr_base_prompt: String,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P08
@@ -452,6 +500,125 @@ impl GhClient {
             focused_comment_author: focused_comment.map(|c| c.author_login.clone()),
             issue_base_prompt: issue_base_prompt.to_string(),
         }
+    }
+
+    /// List pull requests for a repository with filtering and pagination.
+    ///
+    /// TOTAL STUB: returns `Ok(PrListResponse::default())`. The real GraphQL
+    /// `search(type: ISSUE, query, first, after)` transport arrives in P08.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P06
+    /// @requirement REQ-PR-006
+    /// @pseudocode component-002 lines 22-34
+    pub fn list_pull_requests(
+        &self,
+        _owner: &str,
+        _name: &str,
+        _filter: &PrFilter,
+        _cursor: Option<&str>,
+    ) -> Result<PrListResponse, GhError> {
+        Ok(PrListResponse::default())
+    }
+
+    /// Get full pull-request detail.
+    ///
+    /// TOTAL STUB: `PullRequestDetail` does not derive `Default`, so this
+    /// returns a deterministic `Err` rather than fabricating a struct or
+    /// panicking. The real `gh pr view --json` transport + separate
+    /// `list_pr_comments` fetch arrive in P08.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P06
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-002 lines 74-101
+    pub fn get_pull_request_detail(
+        &self,
+        _owner: &str,
+        _name: &str,
+        _number: u64,
+    ) -> Result<PullRequestDetail, GhError> {
+        Err(GhError::ParseError("stub".to_string()))
+    }
+
+    /// List comments for a pull request with pagination (PR-specific GraphQL
+    /// path querying `repository.pullRequest(number:).comments`).
+    ///
+    /// TOTAL STUB: returns an empty `CommentsResponse`. The real GraphQL
+    /// transport reusing `parse_comments_json`/`parse_page_info` arrives in
+    /// P08.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P06
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-002 lines 102-107
+    pub fn list_pr_comments(
+        &self,
+        _owner: &str,
+        _name: &str,
+        _number: u64,
+        _cursor: Option<&str>,
+        _page_size: u32,
+    ) -> Result<CommentsResponse, GhError> {
+        Ok(CommentsResponse {
+            comments: Vec::new(),
+            cursor: None,
+            has_more: false,
+        })
+    }
+
+    /// Create a new comment on a pull request (uses the issue comment REST
+    /// endpoint, which accepts a PR number).
+    ///
+    /// TOTAL STUB: `IssueComment` does not derive `Default`, so this returns a
+    /// deterministic `Err` rather than fabricating a struct or panicking. The
+    /// real `gh api --method POST .../issues/{number}/comments` transport
+    /// arrives in P08.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P06
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-002 lines 108-114
+    pub fn create_pr_comment(
+        &self,
+        _owner: &str,
+        _name: &str,
+        _number: u64,
+        _body: &str,
+    ) -> Result<IssueComment, GhError> {
+        Err(GhError::ParseError("stub".to_string()))
+    }
+
+    /// Open a pull request in the default browser via `gh pr view --web`.
+    ///
+    /// TOTAL STUB: returns `Ok(())`. The real `gh pr view --web` transport
+    /// arrives in P08.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P06
+    /// @requirement REQ-PR-012
+    /// @pseudocode component-002 lines 115-122
+    pub fn open_pull_request_in_browser(
+        &self,
+        _owner: &str,
+        _name: &str,
+        _number: u64,
+    ) -> Result<(), GhError> {
+        Ok(())
+    }
+
+    /// Build a send-to-agent payload from PR context (mirrors
+    /// [`build_send_payload`]). Pure assembly; no I/O.
+    ///
+    /// TOTAL STUB: returns `PrSendPayload::default()`. The real field assembly
+    /// (state mapping, review/check summaries, focused comment) arrives in P08.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P06
+    /// @requirement REQ-PR-011
+    /// @pseudocode component-002 lines 123-136
+    #[must_use]
+    pub fn build_pr_send_payload(
+        _repo_slug: &str,
+        _pr_detail: &PullRequestDetail,
+        _focused_comment: Option<&IssueComment>,
+        _pr_base_prompt: &str,
+    ) -> PrSendPayload {
+        PrSendPayload::default()
     }
 }
 
