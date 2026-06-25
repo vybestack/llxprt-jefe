@@ -294,6 +294,192 @@ pub struct IssueFilter {
     pub updated_after: String,
 }
 
+// =============================================================================
+// Pull Requests Mode domain entities
+//
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-006
+// @requirement REQ-PR-008
+// @requirement REQ-PR-009
+// Non-serde transient types mirroring Issue/IssueDetail. Reuses IssueComment
+// for PR comments (GitHub PRs are issues for the conversation-comment API).
+// =============================================================================
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-006
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 74-101
+/// PR lifecycle state (derived from `gh pr` JSON `state` + `mergedAt`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrState {
+    Open,
+    Closed,
+    Merged,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 74-101
+/// Per-review and aggregate review-decision state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrReviewState {
+    Approved,
+    ChangesRequested,
+    Commented,
+    Pending,
+    Dismissed,
+    ReviewRequired,
+    None,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 74-101
+/// Per-check and aggregate CI rollup status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrCheckStatus {
+    Pending,
+    Success,
+    Failure,
+    Neutral,
+    None,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-006
+/// @pseudocode component-002 lines 22-34
+/// PR list-row entity.
+#[derive(Debug, Clone)]
+pub struct PullRequest {
+    pub number: u64,
+    pub title: String,
+    pub state: PrState,
+    pub author_login: String,
+    pub updated_at: String,
+    pub head_ref: String,
+    pub base_ref: String,
+    pub is_draft: bool,
+    pub review_decision: Option<PrReviewState>,
+    pub checks_status: PrCheckStatus,
+    pub assignee_summary: String,
+    pub labels_summary: String,
+    pub comment_count: u64,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 157-165
+/// Review summary item (read-only).
+#[derive(Debug, Clone)]
+pub struct PrReview {
+    pub author_login: String,
+    pub state: PrReviewState,
+    pub submitted_at: String,
+    pub body: Option<String>,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 174-193
+/// CI/check summary item (read-only; `url` is display-only).
+#[derive(Debug, Clone)]
+pub struct PrCheck {
+    pub name: String,
+    pub status: PrCheckStatus,
+    pub conclusion: String,
+    pub url: Option<String>,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 74-101
+/// PR detail entity. Reuses [`IssueComment`] for comments.
+#[derive(Debug, Clone)]
+pub struct PullRequestDetail {
+    pub repo_owner_name: String,
+    pub number: u64,
+    pub title: String,
+    pub state: PrState,
+    pub is_draft: bool,
+    pub author_login: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub head_ref: String,
+    pub base_ref: String,
+    pub labels: Vec<String>,
+    pub assignees: Vec<String>,
+    pub milestone: Option<String>,
+    pub body: String,
+    pub external_url: String,
+    pub review_decision: Option<PrReviewState>,
+    pub checks_status: PrCheckStatus,
+    pub reviews: Vec<PrReview>,
+    pub checks: Vec<PrCheck>,
+    pub comments: Vec<IssueComment>,
+    pub has_more_comments: bool,
+    pub comments_cursor: Option<String>,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 259-263
+/// PR filter-state choice (Space cycles this on the state field).
+/// Default is `Open`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PrFilterState {
+    #[default]
+    Open,
+    Closed,
+    Merged,
+    All,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 264a-264d
+/// Review-decision filter choice (issue #20 review signal). `Any` emits no
+/// qualifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReviewDecisionFilter {
+    #[default]
+    Any,
+    Approved,
+    ChangesRequested,
+    ReviewRequired,
+    None,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 264e-264g
+/// CI/check-rollup filter choice (issue #20 workflow signal). `Any` emits no
+/// qualifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ChecksFilter {
+    #[default]
+    Any,
+    Success,
+    Failing,
+    Pending,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 249-258
+/// PR filter criteria. Structured fields are AND-composed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PrFilter {
+    pub query_text: String,
+    pub state: Option<PrFilterState>,
+    pub author: String,
+    pub assignee: String,
+    pub reviewer: String,
+    pub is_draft: Option<bool>,
+    pub labels: Vec<String>,
+    pub review_decision: ReviewDecisionFilter,
+    pub checks_status: ChecksFilter,
+}
+
 /// Agent lifecycle status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum AgentStatus {

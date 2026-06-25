@@ -283,6 +283,53 @@ pub fn issue_list_content_width(term_cols: u16) -> u16 {
     term_cols.saturating_sub(ISSUES_SIDEBAR_WIDTH + ISSUE_LIST_CHROME_COLS)
 }
 
+// -----------------------------------------------------------------------------
+// Shared list-viewport / selection-follow helpers (REQ-PR-006, #54/#55)
+//
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-006
+// @pseudocode component-001 lines 177-196
+//
+// These pure helpers compute the first-visible row index from
+// (selected_index, loaded_len, viewport_rows) so the selected row is always
+// within [first_visible, first_visible + viewport_rows). They are consumed by
+// BOTH the state reducers and the PR list UI, so they live HERE (the shared
+// leaf module importable by both) — NOT in any src/ui file.
+// There is NO src/ui/components/list_viewport.rs.
+// -----------------------------------------------------------------------------
+
+/// Compute the first-visible row index for a selection-following list viewport.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-006
+/// @pseudocode component-001 lines 182-189
+///
+/// P03 STUB: returns a constant `0` (ignores selection-follow). Total,
+/// panic-free, clippy-clean. P05 implements the real algorithm.
+#[must_use]
+pub fn list_first_visible_index(
+    _selected_index: usize,
+    _len: usize,
+    _viewport_rows: usize,
+) -> usize {
+    // Intentional wrong-but-total stub — P05 implements selection-follow.
+    0
+}
+
+/// Compute the visible window of rows for a selection-following list viewport.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-006
+/// @pseudocode component-001 lines 190-196
+///
+/// P03 STUB: returns an EMPTY slice (`&rows[0..0]`). Total, panic-free,
+/// clippy-clean. P05 implements the real algorithm.
+#[must_use]
+pub fn list_visible_window<T>(rows: &[T], _selected_index: usize, _viewport_rows: usize) -> &[T] {
+    // Intentional wrong-but-total stub — P05 implements the real window.
+    &rows[0..0]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

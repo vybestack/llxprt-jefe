@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "repositories": [
+    {
+      "id": "repo-18b9a255b5ec8f68",
+      "name": "test",
+      "slug": "test",
+      "base_dir": "/tmp/test",
+      "default_profile": "glm",
+      "github_repo": "",
+      "remote": {
+        "enabled": false,
+        "login_user": "",
+        "host": "",
+        "run_as_user": "",
+        "setup_env_default": false
+      },
+      "issue_base_prompt": "",
+      "agent_ids": [
+        "agent-18b9a2578b02c9a0"
+      ]
+    }
+  ],
+  "agents": [
+    {
+      "id": "agent-18b9a2578b02c9a0",
+      "display_id": "#1",
+      "repository_id": "repo-18b9a255b5ec8f68",
+      "shortcut_slot": 1,
+      "name": "main",
+      "description": "",
+      "work_dir": "/tmp/test/main",
+      "profile": "glm",
+      "mode_flags": [
+        "--yolo"
+      ],
+      "llxprt_debug": "",
+      "pass_continue": true,
+      "sandbox_enabled": false,
+      "sandbox_engine": "podman",
+      "sandbox_flags": "--cpus=2 --memory=12288m --pids-limit=256",
+      "status": "Running",
+      "runtime_binding": {
+        "session_name": "jefe-agent-18b9a2578b02c9a0",
+        "launch_signature": {
+          "work_dir": "/tmp/test/main",
+          "profile": "glm",
+          "mode_flags": [
+            "--yolo"
+          ],
+          "llxprt_debug": "",
+          "pass_continue": true,
+          "sandbox_enabled": false,
+          "sandbox_engine": "podman",
+          "sandbox_flags": "--cpus=2 --memory=12288m --pids-limit=256",
+          "remote": {
+            "enabled": false,
+            "login_user": "",
+            "host": "",
+            "run_as_user": "",
+            "setup_env_default": false
+          }
+        },
+        "attached": true,
+        "last_seen": null
+      }
+    }
+  ],
+  "selected_repository_index": 0,
+  "selected_agent_index": 0,
+  "hide_idle_repositories": false,
+  "last_selected_agent_by_repo": [
+    [
+      "repo-18b9a255b5ec8f68",
+      "agent-18b9a2578b02c9a0"
+    ]
+  ]
+}

@@ -104,6 +104,10 @@ pub fn build_screen_element(
             )
         }
         .into_any(),
+        // @plan PLAN-20260624-PR-MODE.P03
+        // @requirement REQ-PR-001
+        // P03 placeholder — P12 replaces this with the real PullRequestsScreen.
+        ScreenMode::DashboardPullRequests => element! { Box {} }.into_any(),
     }
 }
 

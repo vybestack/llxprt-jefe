@@ -650,7 +650,15 @@ fn dispatch_mode_specific_key(
         | InputMode::IssuesInline
         | InputMode::IssuesSearch
         | InputMode::IssuesFilter
-        | InputMode::IssuesChooser => false,
+        | InputMode::IssuesChooser
+        // @plan PLAN-20260624-PR-MODE.P03
+        // @requirement REQ-PR-002
+        // P03: PR input modes not yet routed (P09 handles key routing).
+        | InputMode::PrsNormal
+        | InputMode::PrsInline
+        | InputMode::PrsSearch
+        | InputMode::PrsFilter
+        | InputMode::PrsChooser => false,
     }
 }
 

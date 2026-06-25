@@ -6,12 +6,16 @@
 //! app-shell-specific branching.
 
 use crate::domain::{
-    AgentId, AgentStatus, Issue, IssueComment, IssueDetail, IssueFilter, RepositoryId,
+    AgentId, AgentStatus, Issue, IssueComment, IssueDetail, IssueFilter, PrFilter, PullRequest,
+    PullRequestDetail, RepositoryId,
 };
 use crate::state::AppEvent;
-use crate::state::{EditorTarget, InlineState};
+use crate::state::{EditorTarget, InlineState, ReadOnlyHintKind};
 
 mod issues_conversion;
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-002
+mod prs_conversion;
 
 /// Stable domain channel names used for routing, tracing, and policy tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +27,9 @@ pub enum MessageDomain {
     Persistence,
     Theme,
     Issues,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-001
+    PullRequests,
     System,
 }
 
@@ -270,6 +277,195 @@ pub enum IssuesMessage {
     },
 }
 
+/// Pull Requests mode messages — mirrors `IssuesMessage` shape.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-001
+/// @requirement REQ-PR-002
+/// @requirement REQ-PR-006
+/// @requirement REQ-PR-008
+/// @requirement REQ-PR-010
+/// @requirement REQ-PR-012
+/// @pseudocode component-004 lines 02-35
+#[derive(Debug, Clone)]
+pub enum PullRequestsMessage {
+    EnterMode,
+    ExitMode,
+    RefocusList,
+    Navigate(NavDir),
+    Enter,
+    CycleFocus,
+    CycleFocusReverse,
+    ScrollDetail(ScrollDir),
+    DetailSubfocusNext,
+    DetailSubfocusPrev,
+    ListLoaded {
+        scope_repo_id: RepositoryId,
+        filter: Box<PrFilter>,
+        request_id: u64,
+        pull_requests: Vec<PullRequest>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    ListLoadFailed {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+        error: String,
+    },
+    ListPageLoaded {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+        pull_requests: Vec<PullRequest>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    DetailLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        detail: Box<PullRequestDetail>,
+    },
+    DetailLoadFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        error: String,
+    },
+    CommentsPageLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        comments: Vec<IssueComment>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    CommentsPageFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        error: String,
+    },
+    OpenFilterControls,
+    CloseFilterControls,
+    ApplyFilter,
+    ClearFilter,
+    FilterNavigate(NavDir),
+    CycleFilterState,
+    CycleDraftFilter,
+    CycleReviewFilter,
+    CycleChecksFilter,
+    UpdateDraftFilter {
+        field: PrFilterField,
+        value: String,
+    },
+    FocusSearchInput,
+    BlurSearchInput,
+    SetSearchQuery {
+        query: String,
+    },
+    ApplySearch,
+    ClearSearch,
+    OpenNewCommentComposer,
+    OpenReplyComposer {
+        comment_index: usize,
+    },
+    Inline(PrInlineMsg),
+    CommentCreated {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        comment: IssueComment,
+    },
+    CommentCreateFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        error: String,
+    },
+    MutationFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        error: String,
+    },
+    ShowNotice(ReadOnlyHintKind),
+    OpenAgentChooser,
+    AgentChooserNavigate(NavDir),
+    AgentChooserConfirm,
+    AgentChooserCancel,
+    SendToAgentCompleted,
+    SendToAgentFailed {
+        error: String,
+    },
+    OpenInBrowser,
+    OpenedInBrowser {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+    },
+    OpenInBrowserFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        error: String,
+    },
+}
+
+/// Navigation direction for PR list and filter controls.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-003
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NavDir {
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Home,
+    End,
+}
+
+/// Scroll direction for the PR detail pane.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollDir {
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+}
+
+/// Filter field identifier for `UpdateDraftFilter`.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-008
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrFilterField {
+    Query,
+    Author,
+    Assignee,
+    Reviewer,
+    Labels,
+}
+
+/// Inline composer message for PR mode.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-010
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrInlineMsg {
+    Char(char),
+    Newline,
+    Backspace,
+    Delete,
+    CursorLeft,
+    CursorRight,
+    CursorUp,
+    CursorDown,
+    Submit,
+    CancelOrEsc,
+}
+
 /// System-level messages that do not mutate a domain reducer directly.
 #[derive(Debug, Clone)]
 pub enum SystemMessage {
@@ -288,6 +484,9 @@ pub enum AppMessage {
     Persistence(PersistenceMessage),
     Theme(ThemeMessage),
     Issues(IssuesMessage),
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-001
+    PullRequests(PullRequestsMessage),
     System(SystemMessage),
 }
 
@@ -302,6 +501,9 @@ impl AppMessage {
             Self::Persistence(_) => MessageDomain::Persistence,
             Self::Theme(_) => MessageDomain::Theme,
             Self::Issues(_) => MessageDomain::Issues,
+            // @plan PLAN-20260624-PR-MODE.P03
+            // @requirement REQ-PR-001
+            Self::PullRequests(_) => MessageDomain::PullRequests,
             Self::System(_) => MessageDomain::System,
         }
     }
@@ -324,6 +526,9 @@ impl AppMessage {
             Self::Persistence(message) => message.name(),
             Self::Theme(message) => message.name(),
             Self::Issues(message) => message.name(),
+            // @plan PLAN-20260624-PR-MODE.P03
+            // @requirement REQ-PR-002
+            Self::PullRequests(message) => message.name(),
             Self::System(message) => message.name(),
         }
     }
@@ -480,6 +685,60 @@ message_names!(IssuesMessage {
     Self::SendToAgentFailed { .. } => "SendToAgentFailed",
 });
 
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-002
+// @pseudocode component-004 lines 43-44
+message_names!(PullRequestsMessage {
+    Self::EnterMode => "EnterPrsMode",
+    Self::ExitMode => "ExitPrsMode",
+    Self::RefocusList => "RefocusPrList",
+    Self::Navigate(_) => "PrNavigate",
+    Self::Enter => "PrListEnter",
+    Self::CycleFocus => "PrCycleFocus",
+    Self::CycleFocusReverse => "PrCycleFocusReverse",
+    Self::ScrollDetail(_) => "PrScrollDetail",
+    Self::DetailSubfocusNext => "PrDetailSubfocusNext",
+    Self::DetailSubfocusPrev => "PrDetailSubfocusPrev",
+    Self::ListLoaded { .. } => "PrListLoaded",
+    Self::ListLoadFailed { .. } => "PrListLoadFailed",
+    Self::ListPageLoaded { .. } => "PrListPageLoaded",
+    Self::DetailLoaded { .. } => "PrDetailLoaded",
+    Self::DetailLoadFailed { .. } => "PrDetailLoadFailed",
+    Self::CommentsPageLoaded { .. } => "PrCommentsPageLoaded",
+    Self::CommentsPageFailed { .. } => "PrCommentsPageFailed",
+    Self::OpenFilterControls => "PrOpenFilterControls",
+    Self::CloseFilterControls => "PrCloseFilterControls",
+    Self::ApplyFilter => "PrApplyFilter",
+    Self::ClearFilter => "PrClearFilter",
+    Self::FilterNavigate(_) => "PrFilterNavigate",
+    Self::CycleFilterState => "PrCycleFilterState",
+    Self::CycleDraftFilter => "PrCycleDraftFilter",
+    Self::CycleReviewFilter => "PrCycleReviewFilter",
+    Self::CycleChecksFilter => "PrCycleChecksFilter",
+    Self::UpdateDraftFilter { .. } => "PrUpdateDraftFilter",
+    Self::FocusSearchInput => "PrFocusSearchInput",
+    Self::BlurSearchInput => "PrBlurSearchInput",
+    Self::SetSearchQuery { .. } => "PrSetSearchQuery",
+    Self::ApplySearch => "PrApplySearch",
+    Self::ClearSearch => "PrClearSearch",
+    Self::OpenNewCommentComposer => "PrOpenNewCommentComposer",
+    Self::OpenReplyComposer { .. } => "PrOpenReplyComposer",
+    Self::Inline(_) => "PrInline",
+    Self::CommentCreated { .. } => "PrCommentCreated",
+    Self::CommentCreateFailed { .. } => "PrCommentCreateFailed",
+    Self::MutationFailed { .. } => "PrMutationFailed",
+    Self::ShowNotice(_) => "PrShowNotice",
+    Self::OpenAgentChooser => "PrOpenAgentChooser",
+    Self::AgentChooserNavigate(_) => "PrAgentChooserNavigate",
+    Self::AgentChooserConfirm => "PrAgentChooserConfirm",
+    Self::AgentChooserCancel => "PrAgentChooserCancel",
+    Self::SendToAgentCompleted => "PrSendToAgentCompleted",
+    Self::SendToAgentFailed { .. } => "PrSendToAgentFailed",
+    Self::OpenInBrowser => "PrOpenInBrowser",
+    Self::OpenedInBrowser { .. } => "PrOpenedInBrowser",
+    Self::OpenInBrowserFailed { .. } => "PrOpenInBrowserFailed",
+});
+
 impl From<AppEvent> for AppMessage {
     fn from(event: AppEvent) -> Self {
         match event {
@@ -581,7 +840,105 @@ impl AppMessage {
 
     /// Convert issues-domain [`AppEvent`] variants into the typed message bus.
     fn from_issues_event(event: AppEvent) -> Self {
-        Self::Issues(IssuesMessage::from_app_event(event))
+        if Self::is_issues_event(&event) {
+            Self::Issues(IssuesMessage::from_app_event(event))
+        } else {
+            // @plan PLAN-20260624-PR-MODE.P03
+            // @requirement REQ-PR-002
+            Self::from_prs_event(event)
+        }
+    }
+
+    /// Whether the event belongs to the issues domain.
+    fn is_issues_event(event: &AppEvent) -> bool {
+        Self::is_issues_nav_event(event) || Self::is_issues_data_event(event)
+    }
+
+    /// Whether the event is an issues navigation/lifecycle event.
+    fn is_issues_nav_event(event: &AppEvent) -> bool {
+        matches!(
+            event,
+            AppEvent::EnterIssuesMode
+                | AppEvent::ExitIssuesMode
+                | AppEvent::RefocusIssueList
+                | AppEvent::IssuesNavigateUp
+                | AppEvent::IssuesNavigateDown
+                | AppEvent::IssuesNavigatePageUp
+                | AppEvent::IssuesNavigatePageDown
+                | AppEvent::IssuesNavigateHome
+                | AppEvent::IssuesNavigateEnd
+                | AppEvent::IssuesEnter
+                | AppEvent::IssuesCycleFocus
+                | AppEvent::IssuesCycleFocusReverse
+                | AppEvent::IssuesScrollDetailUp
+                | AppEvent::IssuesScrollDetailDown
+                | AppEvent::IssuesScrollDetailPageUp
+                | AppEvent::IssuesScrollDetailPageDown
+                | AppEvent::IssueDetailSubfocusNext
+                | AppEvent::IssueDetailSubfocusPrev
+                | AppEvent::OpenFilterControls
+                | AppEvent::CloseFilterControls
+                | AppEvent::ApplyFilter
+                | AppEvent::ClearFilter
+                | AppEvent::FilterNavigateNext
+                | AppEvent::FilterNavigatePrev
+                | AppEvent::CycleFilterState
+                | AppEvent::FocusSearchInput
+                | AppEvent::BlurSearchInput
+                | AppEvent::SetSearchQuery { .. }
+                | AppEvent::ApplySearch
+                | AppEvent::ClearSearch
+                | AppEvent::UpdateDraftFilter { .. }
+        )
+    }
+
+    /// Whether the event is an issues data/mutation/agent event.
+    fn is_issues_data_event(event: &AppEvent) -> bool {
+        matches!(
+            event,
+            AppEvent::IssueListLoaded { .. }
+                | AppEvent::IssueListLoadFailed { .. }
+                | AppEvent::IssueListPageLoaded { .. }
+                | AppEvent::IssueDetailLoaded { .. }
+                | AppEvent::IssueDetailLoadFailed { .. }
+                | AppEvent::IssueCommentsPageLoaded { .. }
+                | AppEvent::IssueCommentsPageFailed { .. }
+                | AppEvent::OpenNewIssueComposer
+                | AppEvent::OpenNewCommentComposer
+                | AppEvent::OpenReplyComposer { .. }
+                | AppEvent::OpenInlineEditor { .. }
+                | AppEvent::InlineChar(_)
+                | AppEvent::InlineNewline
+                | AppEvent::InlineBackspace
+                | AppEvent::InlineDelete
+                | AppEvent::InlineCursorLeft
+                | AppEvent::InlineCursorRight
+                | AppEvent::InlineCursorUp
+                | AppEvent::InlineCursorDown
+                | AppEvent::InlineSubmit
+                | AppEvent::InlineCancelOrEsc
+                | AppEvent::MutationSubmitted { .. }
+                | AppEvent::IssueCreated { .. }
+                | AppEvent::CommentCreated { .. }
+                | AppEvent::CommentCreateFailed { .. }
+                | AppEvent::IssueBodyUpdated { .. }
+                | AppEvent::CommentUpdated { .. }
+                | AppEvent::MutationFailed { .. }
+                | AppEvent::OpenAgentChooser
+                | AppEvent::AgentChooserNavigateUp
+                | AppEvent::AgentChooserNavigateDown
+                | AppEvent::AgentChooserConfirm
+                | AppEvent::AgentChooserCancel
+                | AppEvent::SendToAgentCompleted
+                | AppEvent::SendToAgentFailed { .. }
+        )
+    }
+
+    /// Convert PR-domain [`AppEvent`] variants into the typed message bus.
+    ///
+    /// @pseudocode component-004 lines 46-50
+    fn from_prs_event(event: AppEvent) -> Self {
+        Self::PullRequests(PullRequestsMessage::from_app_event(event))
     }
 }
 
@@ -595,6 +952,9 @@ impl From<AppMessage> for AppEvent {
             AppMessage::Persistence(message) => message.into(),
             AppMessage::Theme(message) => message.into(),
             AppMessage::Issues(message) => message.into(),
+            // @plan PLAN-20260624-PR-MODE.P03
+            // @requirement REQ-PR-002
+            AppMessage::PullRequests(message) => message.into(),
             AppMessage::System(message) => message.into(),
         }
     }

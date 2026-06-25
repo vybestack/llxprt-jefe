@@ -12,6 +12,12 @@ mod issues_inline_ops;
 mod issues_load_ops;
 mod issues_mutation_ops;
 mod issues_ops;
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-001
+mod prs_inline_ops;
+mod prs_load_ops;
+mod prs_mutation_ops;
+mod prs_ops;
 pub mod state_ops;
 mod types;
 mod util;
@@ -370,6 +376,14 @@ impl AppState {
             AppMessage::Issues(message) => {
                 let handled = self.apply_issues_message(message);
                 debug_assert!(handled, "unhandled issues message in apply_message()");
+            }
+            // @plan PLAN-20260624-PR-MODE.P03
+            // @requirement REQ-PR-001
+            // @pseudocode component-004 lines 86-94
+            // P03 stub: apply_prs_message returns true from a no-op match; no
+            // handled-assertion (deferred to P05 once the reducer handles variants).
+            AppMessage::PullRequests(message) => {
+                let _handled = self.apply_prs_message(message);
             }
         }
 

@@ -28,6 +28,21 @@ pub enum InputMode {
     /// @plan PLAN-20260329-ISSUES-MODE.P03
     /// @requirement REQ-ISS-002
     IssuesChooser,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-002
+    PrsNormal,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-002
+    PrsInline,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-002
+    PrsSearch,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-002
+    PrsFilter,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-002
+    PrsChooser,
 }
 
 /// Search-mode key routing result.
@@ -75,6 +90,16 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
             return InputMode::IssuesFilter;
         }
         return InputMode::IssuesNormal;
+    }
+
+    // PR mode detection — compile-only stub (finding #3).
+    // @plan PLAN-20260624-PR-MODE.P03
+    // @requirement REQ-PR-002
+    // @pseudocode component-003 lines 01-02
+    // P03: returns a fixed PrsNormal; the real precedence routing
+    // (Inline > Chooser > Search > Filter > Normal) is P11.
+    if state.screen_mode == ScreenMode::DashboardPullRequests {
+        return InputMode::PrsNormal;
     }
 
     if state.terminal_focused && state.pane_focus == PaneFocus::Terminal {
