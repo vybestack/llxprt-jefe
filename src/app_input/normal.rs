@@ -22,7 +22,7 @@ struct NormalKeySnapshot {
     selected_agent_id: Option<AgentId>,
 }
 
-enum KeyHandling {
+pub(super) enum KeyHandling {
     Unhandled,
     Handled(Option<AppEvent>),
 }
@@ -352,7 +352,7 @@ fn delete_event(snapshot: &NormalKeySnapshot) -> Option<AppEvent> {
     }
 }
 
-fn resolve_mode_key(key_event: &KeyEvent, screen_mode: ScreenMode) -> KeyHandling {
+pub(super) fn resolve_mode_key(key_event: &KeyEvent, screen_mode: ScreenMode) -> KeyHandling {
     match key_event.code {
         KeyCode::Char('i' | 'I') if screen_mode == ScreenMode::Dashboard => {
             KeyHandling::Handled(Some(AppEvent::EnterIssuesMode))
