@@ -18,6 +18,23 @@ use serde_json::Value;
 
 use super::{GhError, PrListResponse};
 
+/// Build the GraphQL query string for the PR comments fetch
+/// (`repository.pullRequest(number:).comments`), so the query object path can
+/// be tested in isolation from the I/O transport.
+///
+/// TOTAL STUB: returns an empty string. The real query (with/without `$after`
+/// cursor clauses, selecting `pullRequest(number:).comments(first:)` with
+/// `pageInfo { hasNextPage endCursor }`) arrives in P08; `list_pr_comments`
+/// will consume this helper then.
+///
+/// @plan PLAN-20260624-PR-MODE.P07
+/// @requirement REQ-PR-010
+/// @pseudocode component-002 lines 102-107
+#[must_use]
+pub fn build_pr_comments_query(_with_cursor: bool) -> String {
+    String::new()
+}
+
 /// Build the `gh api graphql` argument vector for the PR search query.
 ///
 /// TOTAL STUB: returns an empty vector. The real GraphQL `search(type: ISSUE,

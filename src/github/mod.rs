@@ -26,9 +26,10 @@ pub use parse::{
 
 mod parse_pr;
 pub use parse_pr::{
-    build_pr_search_args, build_pr_search_query, parse_check_status, parse_checks_rollup,
-    parse_pr_check, parse_pr_review, parse_pr_state, parse_pull_request_detail_json,
-    parse_pull_requests_json, parse_review_decision, sort_pull_requests,
+    build_pr_comments_query, build_pr_search_args, build_pr_search_query, parse_check_status,
+    parse_checks_rollup, parse_pr_check, parse_pr_review, parse_pr_state,
+    parse_pull_request_detail_json, parse_pull_requests_json, parse_review_decision,
+    sort_pull_requests,
 };
 
 /// Error types for GitHub CLI operations.
