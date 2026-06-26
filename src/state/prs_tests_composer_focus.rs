@@ -176,6 +176,78 @@ fn test_comment_created_appends_and_marks_follow_viewport() {
     );
 }
 
+/// After a comment is created, the detail must scroll to the REAL rendered
+/// bottom (including reviews, checks, section headers, and separators) so the
+/// newly-posted comment is on-screen, and a later page-down does not jump.
+///
+/// Regression (#56): the post-create scroll used a stale heuristic that counted
+/// only header+body+comments, so with reviews/checks present it under-scrolled
+/// and the new comment rendered below the viewport (off-screen).
+///
+/// @plan PLAN-20260624-PR-MODE.P04
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 316-322
+#[test]
+fn test_comment_created_scrolls_to_real_rendered_bottom_with_reviews_and_checks() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    // Small viewport so the bottom is below the fold.
+    state.prs_state.detail_viewport_rows = 6;
+    // Populate the sections the stale heuristic ignored: reviews + checks.
+    populate_full_detail_sections(&mut state);
+    // Simulate an active composer with a pending mutation.
+    state.prs_state.inline_state = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "ship it".to_string(),
+        cursor: 7,
+    };
+    state.prs_state.mutation_pending = Some(crate::state::types::PrMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 1,
+        target: ComposerTarget::NewComment,
+    });
+    state.prs_state.next_mutation_id = 2;
+
+    let new_state = state.apply(AppEvent::PrCommentCreated {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
+        mutation_id: 1,
+        comment: make_comment(101, "bob"),
+    });
+
+    let detail = new_state
+        .prs_state
+        .pr_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("detail should remain after comment create"));
+    // The REAL rendered bottom, derived the same way the scroll clamp does
+    // (composer is closed after create, so subfocus + inline_state reflect that).
+    let rendered_lines = crate::pr_detail_content::pr_detail_content_line_count(
+        detail,
+        new_state.prs_state.detail_subfocus,
+        &new_state.prs_state.inline_state,
+        new_state.prs_state.loading.detail,
+        new_state.prs_state.loading.comments,
+    );
+    let expected_bottom = rendered_lines.saturating_sub(new_state.prs_state.detail_viewport_rows);
+
+    assert_eq!(
+        new_state.prs_state.detail_scroll_offset,
+        expected_bottom,
+        "PrCommentCreated must scroll to the REAL rendered bottom \
+         (offset={}, expected={}, rendered_lines={}, viewport={})",
+        new_state.prs_state.detail_scroll_offset,
+        expected_bottom,
+        rendered_lines,
+        new_state.prs_state.detail_viewport_rows
+    );
+    // The new comment's last line must be within the viewport after create.
+    assert!(
+        new_state.prs_state.detail_scroll_offset + new_state.prs_state.detail_viewport_rows
+            >= rendered_lines,
+        "newly-created comment must be within the viewport (not off-screen)"
+    );
+}
+
 /// PrOpenAgentChooser must open the chooser (when agents available).
 ///
 /// @plan PLAN-20260624-PR-MODE.P04
@@ -320,6 +392,7 @@ fn test_open_composer_scrolls_to_real_rendered_bottom_so_composer_visible() {
         detail,
         new_state.prs_state.detail_subfocus,
         &new_state.prs_state.inline_state,
+        new_state.prs_state.loading.detail,
         new_state.prs_state.loading.comments,
     );
     let expected_bottom = rendered_lines.saturating_sub(new_state.prs_state.detail_viewport_rows);

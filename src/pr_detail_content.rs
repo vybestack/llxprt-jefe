@@ -28,12 +28,19 @@ pub fn pr_detail_content_line_count(
     detail: &PullRequestDetail,
     subfocus: PrDetailSubfocus,
     inline_state: &InlineState,
+    detail_loading: bool,
     comments_loading: bool,
 ) -> usize {
-    build_pr_detail_content(detail, subfocus, inline_state, comments_loading)
-        .text
-        .lines()
-        .count()
+    build_pr_detail_content(
+        detail,
+        subfocus,
+        inline_state,
+        detail_loading,
+        comments_loading,
+    )
+    .text
+    .lines()
+    .count()
 }
 
 /// Build the scrollable content string for the unified PR detail view.
@@ -52,11 +59,12 @@ pub fn build_pr_detail_content(
     detail: &PullRequestDetail,
     subfocus: PrDetailSubfocus,
     inline_state: &InlineState,
+    detail_loading: bool,
     comments_loading: bool,
 ) -> DetailContent {
     let mut lines: Vec<String> = Vec::new();
 
-    build_body_section(detail, &mut lines);
+    build_body_section(detail, detail_loading, &mut lines);
     lines.push(separator());
     build_reviews_section(detail, subfocus, &mut lines);
     lines.push(separator());
@@ -116,9 +124,11 @@ pub fn build_new_pr_comment_content(inline_state: &InlineState) -> DetailContent
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 1-12
-fn build_body_section(detail: &PullRequestDetail, lines: &mut Vec<String>) {
+fn build_body_section(detail: &PullRequestDetail, detail_loading: bool, lines: &mut Vec<String>) {
     lines.push("Description".to_string());
-    if detail.body.is_empty() {
+    if detail_loading {
+        lines.push("  Loading pull request...".to_string());
+    } else if detail.body.is_empty() {
         lines.push("  (no description)".to_string());
     } else {
         for body_line in detail.body.lines() {
@@ -440,8 +450,13 @@ mod tests {
     #[test]
     fn build_pr_detail_content_includes_all_section_labels() {
         let detail = sample_detail();
-        let content =
-            build_pr_detail_content(&detail, PrDetailSubfocus::Body, &InlineState::None, false);
+        let content = build_pr_detail_content(
+            &detail,
+            PrDetailSubfocus::Body,
+            &InlineState::None,
+            false,
+            false,
+        );
         assert!(content.text.contains("Description"), "missing Description");
         assert!(content.text.contains("Reviews"), "missing Reviews");
         assert!(content.text.contains("Checks"), "missing Checks");
@@ -457,11 +472,71 @@ mod tests {
     #[test]
     fn build_pr_detail_content_renders_loading_state() {
         let detail = sample_detail();
-        let content =
-            build_pr_detail_content(&detail, PrDetailSubfocus::Body, &InlineState::None, true);
+        let content = build_pr_detail_content(
+            &detail,
+            PrDetailSubfocus::Body,
+            &InlineState::None,
+            false,
+            true,
+        );
         assert!(
             content.text.contains("Loading comments..."),
             "missing loading indicator"
+        );
+    }
+
+    /// A loading PR detail surfaces a body-level loading indicator so the pane
+    /// is never silently empty while the full detail is being fetched.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P12
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-001 lines 1-12
+    #[test]
+    fn build_pr_detail_content_renders_detail_loading_indicator() {
+        let mut detail = sample_detail();
+        detail.body = String::new();
+        let content = build_pr_detail_content(
+            &detail,
+            PrDetailSubfocus::Body,
+            &InlineState::None,
+            true,
+            false,
+        );
+        assert!(
+            content.text.contains("Loading pull request..."),
+            "missing detail loading indicator"
+        );
+    }
+
+    /// `pr_detail_content_line_count` must remain in lockstep with the rendered
+    /// content when the detail-loading indicator is shown, so the scroll clamp
+    /// never drifts from what is actually rendered.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P12
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-001 lines 169-176
+    #[test]
+    fn pr_detail_content_line_count_matches_render_when_detail_loading() {
+        let mut detail = sample_detail();
+        detail.body = String::new();
+        let rendered = build_pr_detail_content(
+            &detail,
+            PrDetailSubfocus::Body,
+            &InlineState::None,
+            true,
+            false,
+        );
+        let count = pr_detail_content_line_count(
+            &detail,
+            PrDetailSubfocus::Body,
+            &InlineState::None,
+            true,
+            false,
+        );
+        assert_eq!(
+            count,
+            rendered.text.lines().count(),
+            "line count must match rendered content while detail loading"
         );
     }
 

@@ -50,3 +50,7 @@ pub use terminal_view::{TerminalView, TerminalViewProps};
 #[cfg(test)]
 #[path = "pr_render_tests.rs"]
 mod pr_render_tests;
+
+#[cfg(test)]
+#[path = "pr_render_screen_tests.rs"]
+mod pr_render_screen_tests;

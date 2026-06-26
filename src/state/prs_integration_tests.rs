@@ -240,6 +240,7 @@ fn it_select_pr_loads_detail_with_reviews_and_checks() {
         loaded,
         PrDetailSubfocus::Body,
         &state.prs_state.inline_state,
+        state.prs_state.loading.detail,
         state.prs_state.loading.comments,
     );
     assert!(
@@ -258,6 +259,7 @@ fn it_select_pr_loads_detail_with_reviews_and_checks() {
         loaded,
         PrDetailSubfocus::Body,
         &state.prs_state.inline_state,
+        state.prs_state.loading.detail,
         state.prs_state.loading.comments,
     );
     assert!(
@@ -401,6 +403,7 @@ fn pr_expected_detail_bottom_scroll(state: &AppState) -> usize {
         detail,
         state.prs_state.detail_subfocus,
         &state.prs_state.inline_state,
+        state.prs_state.loading.detail,
         state.prs_state.loading.comments,
     )
     .saturating_sub(state.prs_state.detail_viewport_rows)

@@ -100,6 +100,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
     let detail_subfocus = state.map_or_else(Default::default, |s| s.prs_state.detail_subfocus);
     let inline_state = state.map_or_else(Default::default, |s| s.prs_state.inline_state.clone());
     let comments_loading = state.is_some_and(|s| s.prs_state.loading.comments);
+    let detail_loading = state.is_some_and(|s| s.prs_state.loading.detail);
     let detail_scroll_offset = state.map_or(0, |s| s.prs_state.detail_scroll_offset);
     let detail_focused = pr_focus == PrFocus::PrDetail;
 
@@ -226,6 +227,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                             detail: pr_detail.clone(),
                             subfocus: detail_subfocus,
                             inline_state: inline_state.clone(),
+                            detail_loading: detail_loading,
                             comments_loading: comments_loading,
                             focused: detail_focused,
                             scroll_offset: detail_scroll_offset,

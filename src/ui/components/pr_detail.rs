@@ -90,6 +90,8 @@ pub struct PrDetailViewProps {
     /// @requirement REQ-PR-009
     /// @pseudocode component-001 lines 1-12
     pub viewport_rows: Option<u16>,
+    /// Whether the full PR detail is loading (after instant list preview).
+    pub detail_loading: bool,
     /// Whether comments are loading.
     pub comments_loading: bool,
     /// Whether this pane is focused.
@@ -143,6 +145,7 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
                     detail,
                     props.subfocus,
                     &props.inline_state,
+                    props.detail_loading,
                     props.comments_loading,
                 ),
                 sc,

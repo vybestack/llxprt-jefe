@@ -12,10 +12,15 @@ use crate::messages::PrInlineMsg;
 impl AppState {
     /// Scroll the PR detail viewport so the last content line is visible.
     ///
+    /// Shared by the inline composer-open path and the post-comment-create path
+    /// so both land on the SAME offset the scroll clamp uses (the real rendered
+    /// bottom), keeping the new content on-screen and preventing a later
+    /// page-down jump (#56).
+    ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-010
     /// @pseudocode component-001 lines 169-176
-    fn scroll_pr_detail_to_bottom(&mut self) {
+    pub(super) fn scroll_pr_detail_to_bottom(&mut self) {
         self.prs_state.detail_scroll_offset = self.pr_max_detail_scroll_offset();
     }
 
@@ -39,6 +44,7 @@ impl AppState {
             detail,
             self.prs_state.detail_subfocus,
             &self.prs_state.inline_state,
+            self.prs_state.loading.detail,
             self.prs_state.loading.comments,
         )
         .saturating_sub(self.prs_state.detail_viewport_rows)

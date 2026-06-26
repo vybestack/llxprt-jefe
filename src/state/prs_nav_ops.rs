@@ -394,6 +394,7 @@ impl AppState {
             detail,
             super::PrDetailSubfocus::Body,
             &self.prs_state.inline_state,
+            self.prs_state.loading.detail,
             self.prs_state.loading.comments,
         )
         .saturating_sub(self.prs_state.detail_viewport_rows)

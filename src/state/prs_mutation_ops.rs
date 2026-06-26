@@ -64,7 +64,7 @@ impl AppState {
         self.prs_state.mutation_pending = None;
         self.prs_state.inline_state = InlineState::None;
         self.prs_state.error = None;
-        self.scroll_pr_detail_to_bottom_internal();
+        self.scroll_pr_detail_to_bottom();
         true
     }
 
@@ -120,30 +120,6 @@ impl AppState {
             .is_some_and(|pending| {
                 pending.mutation_id == mutation_id && pending.scope_repo_id == *scope_repo_id
             })
-    }
-
-    /// Scroll the PR detail viewport to reveal the latest content (#56).
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-010
-    /// @pseudocode component-001 lines 316-321
-    fn scroll_pr_detail_to_bottom_internal(&mut self) {
-        let rendered = self.pr_rendered_detail_lines_for_scroll();
-        self.prs_state.detail_scroll_offset =
-            rendered.saturating_sub(self.prs_state.detail_viewport_rows);
-    }
-
-    fn pr_rendered_detail_lines_for_scroll(&self) -> usize {
-        let Some(detail) = &self.prs_state.pr_detail else {
-            return 0;
-        };
-        let body_lines = detail.body.lines().count().max(1);
-        let comment_lines: usize = detail
-            .comments
-            .iter()
-            .map(|c| c.body.lines().count().max(1) + 2)
-            .sum();
-        5 + body_lines + comment_lines
     }
 
     /// Handle PR error events (SendToAgentFailed).
