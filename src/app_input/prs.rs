@@ -1,30 +1,33 @@
-//! PR-mode key event dispatch (stub surface).
+//! PR-mode key event dispatch.
 //!
-//! Compiling, panic-free stubs that establish the key-routing surface for
-//! PR Mode. Every sub-handler returns `Option<AppEvent>` (`None` here); real
-//! behavior is filled in by the P10 RED -> P11 GREEN cycle. The public entry
-//! point `handle_prs_mode_key` mirrors `issues::handle_issues_mode_key`.
+//! Pure key-routing logic for PR Mode. Implements the 8-level precedence
+//! skeleton from pseudocode component-003. Every sub-handler returns
+//! `Option<AppEvent>`; `None` means the key is suppressed/consumed.
+//! The public entry point `handle_prs_mode_key` mirrors
+//! `issues::handle_issues_mode_key`.
 //!
-//! @plan PLAN-20260624-PR-MODE.P09
+//! @plan PLAN-20260624-PR-MODE.P11
 //! @requirement REQ-PR-001
 //! @requirement REQ-PR-002
 //! @requirement REQ-PR-003
 //! @requirement REQ-PR-004
+//! @requirement REQ-PR-010
+//! @requirement REQ-PR-011
 //! @requirement REQ-PR-012
+//! @requirement REQ-PR-013
 //! @pseudocode component-003 lines 01-14
 
 use iocraft::prelude::*;
 
-use jefe::state::{AppEvent, AppState, InlineState, PrFocus, ReadOnlyHintKind};
+use jefe::state::{AppEvent, AppState, InlineState, PrDetailSubfocus, PrFocus, ReadOnlyHintKind};
 
 use super::{AppStateHandle, SharedContext};
 
-/// Pure key-routing logic for PR Mode (stub).
+/// Pure key-routing logic for PR Mode.
 ///
-/// Implements the 8-level precedence skeleton from pseudocode component-003.
-/// Returns `None` for every key until P11 fills in the real arms.
+/// Implements the 8-level precedence chain from pseudocode component-003.
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-001
 /// @requirement REQ-PR-002
 /// @requirement REQ-PR-004
@@ -56,10 +59,9 @@ pub(super) fn resolve_prs_key_event(state: &AppState, key_event: &KeyEvent) -> O
 /// P8 suppression tier for PR Mode: reserved dashboard keys (`s`, `Ctrl-d`,
 /// `Ctrl-k`, `l`) are CONSUMED as no-ops so they never leak to the dashboard.
 ///
-/// Returns `None` (consumed-no-op) for the reserved keys. This tier is required
-/// structure even at stub (mirrors the Issues reserved-key precedent).
+/// Returns `None` (consumed-no-op) for the reserved keys.
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-002
 /// @pseudocode component-003 lines 43-48
 fn resolve_pr_suppressed_key(key_event: &KeyEvent) -> Option<AppEvent> {
@@ -74,7 +76,7 @@ fn resolve_pr_suppressed_key(key_event: &KeyEvent) -> Option<AppEvent> {
 /// Whether `key_event` is a reserved dashboard key suppressed in PR Mode
 /// (`s`, `Ctrl-d`, `Ctrl-k`, `l`).
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-002
 /// @pseudocode component-003 lines 43-48
 fn is_pr_suppressed_key(key_event: &KeyEvent) -> bool {
@@ -88,7 +90,7 @@ fn is_pr_suppressed_key(key_event: &KeyEvent) -> bool {
 
 /// Route key events when in PR Mode.
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-001
 /// @requirement REQ-PR-002
 /// @pseudocode component-003 lines 10-14
@@ -103,26 +105,29 @@ pub fn handle_prs_mode_key(
     result
 }
 
-/// P5 global-key resolver for PR Mode (stub).
+/// P5 global-key resolver for PR Mode.
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// Handles mode-level keys that apply regardless of pane focus: `a`/`Esc`
+/// exit the mode, `p`/`P` refocus the PR list (NOT a re-entry — the mode is
+/// already active). `o` lives in the P6 list/detail handlers, NOT here.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-001
 /// @requirement REQ-PR-002
+/// @requirement REQ-PR-004
 /// @pseudocode component-003 lines 23-30
 fn resolve_pr_global_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     match key_event.code {
-        // Esc delegates to the unwind helper within the P5 tier (pseudocode L27),
-        // before focus-domain and pane-cycle handlers in P6/P7. All other P5
-        // global mappings (p|P, a, ?/h/F1, /, f) are deferred to P10 RED -> P11
-        // GREEN; `o` lives in the P6 list/detail handlers, NOT here.
-        KeyCode::Esc => handle_esc_in_prs_mode(state, key_event),
+        KeyCode::Esc => Some(handle_esc_in_prs_mode(state, key_event)),
+        KeyCode::Char('a') => Some(AppEvent::ExitPrsMode),
+        KeyCode::Char('p' | 'P') => Some(AppEvent::RefocusPrList),
         _ => None,
     }
 }
 
-/// P6 focus-domain resolver for PR Mode (stub).
+/// P6 focus-domain resolver for PR Mode.
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-003
 /// @pseudocode component-003 lines 31-36
 fn resolve_pr_focus_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
@@ -133,62 +138,148 @@ fn resolve_pr_focus_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEve
     }
 }
 
-/// P7 pane-cycle resolver for PR Mode (stub).
+/// P7 pane-cycle resolver for PR Mode.
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// Tab cycles focus forward, Shift+Tab cycles reverse (issue #46). These are
+/// in a dedicated tier (after focus-domain handlers) so detail-subfocus `j`/`k`
+/// and list/detail navigation take priority within their pane, while Tab still
+/// cycles panes from every pane.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-003
 /// @pseudocode component-003 lines 37-42
 fn resolve_pr_pane_cycle_key(key_event: &KeyEvent) -> Option<AppEvent> {
-    // Tab / Shift+Tab pane-cycling is identified here so the P7 tier exists in
-    // the precedence chain, but mapping to PrCycleFocus / PrCycleFocusReverse is
-    // deferred to P11 (stub returns None so the P10 RED test stays red).
-    let _is_pane_cycle = matches!(key_event.code, KeyCode::Tab | KeyCode::BackTab);
-    None
+    match key_event.code {
+        KeyCode::Tab => Some(AppEvent::PrCycleFocus),
+        KeyCode::BackTab => Some(AppEvent::PrCycleFocusReverse),
+        _ => None,
+    }
 }
 
-/// Handle keys while the RepoList pane is focused (stub).
+/// Handle keys while the RepoList pane is focused.
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// Up/Down navigate the repository selection (repo nav is independent of
+/// pane_focus — issue #47; it reuses the shared `PrNavigateUp`/`Down` events
+/// that the issues repo handler also emits). Right cycles panes forward
+/// (mirror `resolve_repo_list_key_event` arrow handling). Left is unbound.
+/// Tab/BackTab fall through to the P7 pane-cycle tier.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-003
 /// @pseudocode component-003 lines 49-56
-fn handle_pr_repo_key(_state: &AppState, _key_event: &KeyEvent) -> Option<AppEvent> {
-    None
+fn handle_pr_repo_key(_state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Up => Some(AppEvent::PrNavigateUp),
+        KeyCode::Down => Some(AppEvent::PrNavigateDown),
+        KeyCode::Right => Some(AppEvent::PrCycleFocus),
+        _ => None,
+    }
 }
 
-/// Handle keys while the PrList pane is focused (stub).
+/// Handle keys while the PrList pane is focused.
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// Up/Down/PageUp/PageDown/Home/End navigate the list; Left/Right cycle panes
+/// (mirror `resolve_issue_list_key_event` arrow handling); Enter opens detail;
+/// `o` opens the selected PR in the browser (or a no-selection notice).
+/// Tab/BackTab are NOT handled here — they fall through to the P7 pane-cycle
+/// tier.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-003
 /// @requirement REQ-PR-012
 /// @pseudocode component-003 lines 57-70
 fn handle_pr_list_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     match key_event.code {
-        // REQ-PR-012: open the selected PR in the browser, else surface a hint.
+        KeyCode::Up => Some(AppEvent::PrNavigateUp),
+        KeyCode::Down => Some(AppEvent::PrNavigateDown),
+        KeyCode::Left => Some(AppEvent::PrCycleFocusReverse),
+        KeyCode::Right => Some(AppEvent::PrCycleFocus),
+        KeyCode::PageUp => Some(AppEvent::PrNavigatePageUp),
+        KeyCode::PageDown => Some(AppEvent::PrNavigatePageDown),
+        KeyCode::Home => Some(AppEvent::PrNavigateHome),
+        KeyCode::End => Some(AppEvent::PrNavigateEnd),
+        KeyCode::Enter => Some(AppEvent::PrListEnter),
         KeyCode::Char('o') => Some(pr_open_in_browser_or_notice(selected_pr_present(state))),
         _ => None,
     }
 }
 
-/// Handle keys while the PrDetail pane is focused (stub).
+/// Handle keys while the PrDetail pane is focused.
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// Scroll Up/Down/PageUp/PageDown scroll the detail viewport; `j`/`k` move
+/// detail subfocus; `c` opens the comment composer from comment-eligible
+/// subfocus (Body/Comment/NewComment) and surfaces a read-only notice on
+/// Review/Check; `r` replies on Comment subfocus and surfaces a notice
+/// elsewhere; `e` is read-only everywhere; `S` opens the agent chooser;
+/// `o` opens the loaded PR in the browser. Tab/BackTab fall through to
+/// pane-cycle; Left is an optional reverse pane-cycle.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-003
+/// @requirement REQ-PR-010
+/// @requirement REQ-PR-011
 /// @requirement REQ-PR-012
+/// @requirement REQ-PR-013
 /// @pseudocode component-003 lines 72-91
 fn handle_pr_detail_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
-    // P11 reads `state.prs_state.detail_subfocus` for r/c/e notice routing.
     match key_event.code {
-        // REQ-PR-012: open the selected PR in the browser, else surface a hint.
+        KeyCode::Up => Some(AppEvent::PrScrollDetailUp),
+        KeyCode::Down => Some(AppEvent::PrScrollDetailDown),
+        KeyCode::PageUp => Some(AppEvent::PrScrollDetailPageUp),
+        KeyCode::PageDown => Some(AppEvent::PrScrollDetailPageDown),
+        KeyCode::Left => Some(AppEvent::PrCycleFocusReverse),
+        KeyCode::Char('j') => Some(AppEvent::PrDetailSubfocusNext),
+        KeyCode::Char('k') => Some(AppEvent::PrDetailSubfocusPrev),
+        KeyCode::Char('c') => Some(comment_event_for_subfocus(state.prs_state.detail_subfocus)),
+        KeyCode::Char('r') => Some(reply_event_for_subfocus(state.prs_state.detail_subfocus)),
+        KeyCode::Char('e') => Some(AppEvent::PrShowNotice(
+            ReadOnlyHintKind::ReadOnlyNotEditable,
+        )),
+        KeyCode::Char('S') => Some(AppEvent::PrOpenAgentChooser),
         KeyCode::Char('o') => Some(pr_open_in_browser_or_notice(pr_detail_present(state))),
         _ => None,
+    }
+}
+
+/// Map `c` to the composer-open event for comment-eligible subfocus, or to a
+/// read-only notice on Review/Check subfocus (reviews and checks are
+/// read-only).
+///
+/// @plan PLAN-20260624-PR-MODE.P11
+/// @requirement REQ-PR-010
+/// @requirement REQ-PR-013
+/// @pseudocode component-003 lines 83-89
+fn comment_event_for_subfocus(subfocus: PrDetailSubfocus) -> AppEvent {
+    match subfocus {
+        PrDetailSubfocus::Body | PrDetailSubfocus::Comment(_) | PrDetailSubfocus::NewComment => {
+            AppEvent::PrOpenNewCommentComposer
+        }
+        PrDetailSubfocus::Review(_) | PrDetailSubfocus::Check(_) => {
+            AppEvent::PrShowNotice(ReadOnlyHintKind::ReadOnlyNoComment)
+        }
+    }
+}
+
+/// Map `r` to the reply-composer event on Comment subfocus, or to a read-only
+/// notice elsewhere (reply is only valid on a comment).
+///
+/// @plan PLAN-20260624-PR-MODE.P11
+/// @requirement REQ-PR-010
+/// @requirement REQ-PR-013
+/// @pseudocode component-003 lines 86-87
+fn reply_event_for_subfocus(subfocus: PrDetailSubfocus) -> AppEvent {
+    match subfocus {
+        PrDetailSubfocus::Comment(idx) => AppEvent::PrOpenReplyComposer { comment_index: idx },
+        _ => AppEvent::PrShowNotice(ReadOnlyHintKind::ReadOnlyReplyOnComment),
     }
 }
 
 /// Map `o` to the open-in-browser event when a PR target is present, else to a
 /// non-blocking `NoSelectionToOpen` notice (consume + hint, never a silent drop).
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-012
+/// @requirement REQ-PR-013
 /// @pseudocode component-003 lines 68-69
 fn pr_open_in_browser_or_notice(target_present: bool) -> AppEvent {
     if target_present {
@@ -200,7 +291,7 @@ fn pr_open_in_browser_or_notice(target_present: bool) -> AppEvent {
 
 /// Whether a PR is currently selected in the list (REQ-PR-012 presence check).
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-012
 /// @pseudocode component-003 lines 68-69
 fn selected_pr_present(state: &AppState) -> bool {
@@ -209,47 +300,110 @@ fn selected_pr_present(state: &AppState) -> bool {
 
 /// Whether a loaded PR detail is present (REQ-PR-012 presence check).
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-012
 /// @pseudocode component-003 lines 88-89
 fn pr_detail_present(state: &AppState) -> bool {
     state.prs_state.pr_detail.is_some()
 }
 
-/// Handle the Esc key in PR Mode (stub).
+/// Handle the Esc key in PR Mode by unwinding the active overlay.
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// Precedence: inline composer → agent chooser → search (clear query if
+/// nonempty, else blur) → filter controls → exit mode.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-004
 /// @pseudocode component-003 lines 92-98
-fn handle_esc_in_prs_mode(_state: &AppState, _key_event: &KeyEvent) -> Option<AppEvent> {
-    None
+fn handle_esc_in_prs_mode(state: &AppState, _key_event: &KeyEvent) -> AppEvent {
+    if state.prs_state.inline_state != InlineState::None {
+        return AppEvent::PrInlineCancelOrEsc;
+    }
+    if state.prs_state.agent_chooser.is_some() {
+        return AppEvent::PrAgentChooserCancel;
+    }
+    if state.prs_state.search_input_focused {
+        if state.prs_state.search_query.is_empty() {
+            return AppEvent::PrBlurSearchInput;
+        }
+        return AppEvent::PrClearSearch;
+    }
+    if state.prs_state.filter_ui.controls_open {
+        return AppEvent::PrCloseFilterControls;
+    }
+    AppEvent::ExitPrsMode
 }
 
-/// Handle keys while an inline composer/editor is active (stub).
+/// Handle keys while an inline composer/editor is active.
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// Mirrors the issues inline key router: Esc cancels, Ctrl+Enter submits,
+/// Enter inserts a newline, chars/backspace/delete/cursor keys edit.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-010
 /// @pseudocode component-003 lines 99-108
-fn handle_pr_inline_key(_state: &AppState, _key_event: &KeyEvent) -> Option<AppEvent> {
-    None
+fn handle_pr_inline_key(_state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Esc => Some(AppEvent::PrInlineCancelOrEsc),
+        KeyCode::Enter if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(AppEvent::PrInlineSubmit)
+        }
+        KeyCode::Enter => Some(AppEvent::PrInlineNewline),
+        KeyCode::Char(c) => Some(AppEvent::PrInlineChar(c)),
+        KeyCode::Backspace => Some(AppEvent::PrInlineBackspace),
+        KeyCode::Delete => Some(AppEvent::PrInlineDelete),
+        KeyCode::Left => Some(AppEvent::PrInlineCursorLeft),
+        KeyCode::Right => Some(AppEvent::PrInlineCursorRight),
+        KeyCode::Up => Some(AppEvent::PrInlineCursorUp),
+        KeyCode::Down => Some(AppEvent::PrInlineCursorDown),
+        _ => None,
+    }
 }
 
-/// Handle keys while the agent chooser is open (stub).
+/// Handle keys while the agent chooser is open.
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-011
 /// @pseudocode component-003 lines 120-126
-fn handle_pr_agent_chooser_key(_state: &AppState, _key_event: &KeyEvent) -> Option<AppEvent> {
-    None
+fn handle_pr_agent_chooser_key(_state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Up => Some(AppEvent::PrAgentChooserNavigateUp),
+        KeyCode::Down => Some(AppEvent::PrAgentChooserNavigateDown),
+        KeyCode::Enter => Some(AppEvent::PrAgentChooserConfirm),
+        KeyCode::Esc => Some(AppEvent::PrAgentChooserCancel),
+        _ => None,
+    }
 }
 
-/// Handle keys while the search input is focused (stub).
+/// Handle keys while the search input is focused.
 ///
-/// @plan PLAN-20260624-PR-MODE.P09
+/// Routes chars to the query (PrSetSearchQuery), Enter to apply, Esc to
+/// clear/blur, and Backspace to pop the last char — mirroring the issues
+/// search-input router.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-002
+/// @requirement REQ-PR-008
 /// @pseudocode component-003 lines 127-133
-fn handle_pr_search_input_key(_state: &AppState, _key_event: &KeyEvent) -> Option<AppEvent> {
-    None
+fn handle_pr_search_input_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Enter => Some(AppEvent::PrApplySearch),
+        KeyCode::Esc if state.prs_state.search_query.is_empty() => {
+            Some(AppEvent::PrBlurSearchInput)
+        }
+        KeyCode::Esc => Some(AppEvent::PrClearSearch),
+        KeyCode::Char(c) => {
+            let mut query = state.prs_state.search_query.clone();
+            query.push(c);
+            Some(AppEvent::PrSetSearchQuery { query })
+        }
+        KeyCode::Backspace => {
+            let mut query = state.prs_state.search_query.clone();
+            query.pop();
+            Some(AppEvent::PrSetSearchQuery { query })
+        }
+        _ => None,
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -532,6 +686,49 @@ mod tests {
         assert!(matches!(down, Some(AppEvent::PrNavigateDown)));
     }
 
+    /// Arrow pane-cycle matrix per pane (component-003 L324-328):
+    /// RepoList Right→PrCycleFocus (Left unbound); PrList Left→Reverse /
+    /// Right→forward; PrDetail Left→Reverse (Right unbound).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P11
+    /// @requirement REQ-PR-003
+    /// @pseudocode component-003 lines 49-62,72-78a,324-328
+    #[test]
+    fn test_arrow_pane_cycle_matrix_per_pane() {
+        // RepoList: Right => PrCycleFocus (Left unbound => None).
+        let repo = prs_state_with_focus(PrFocus::RepoList);
+        assert!(matches!(
+            resolve_prs_key_event(&repo, &key(KeyCode::Right)),
+            Some(AppEvent::PrCycleFocus)
+        ));
+        assert!(
+            resolve_prs_key_event(&repo, &key(KeyCode::Left)).is_none(),
+            "Left must be unbound in RepoList"
+        );
+
+        // PrList: Left => PrCycleFocusReverse, Right => PrCycleFocus.
+        let list = prs_state_with_focus(PrFocus::PrList);
+        assert!(matches!(
+            resolve_prs_key_event(&list, &key(KeyCode::Left)),
+            Some(AppEvent::PrCycleFocusReverse)
+        ));
+        assert!(matches!(
+            resolve_prs_key_event(&list, &key(KeyCode::Right)),
+            Some(AppEvent::PrCycleFocus)
+        ));
+
+        // PrDetail: Left => PrCycleFocusReverse (optional parity), Right unbound.
+        let detail = prs_state_with_detail_subfocus(PrDetailSubfocus::Body);
+        assert!(matches!(
+            resolve_prs_key_event(&detail, &key(KeyCode::Left)),
+            Some(AppEvent::PrCycleFocusReverse)
+        ));
+        assert!(
+            resolve_prs_key_event(&detail, &key(KeyCode::Right)).is_none(),
+            "Right must be unbound in PrDetail"
+        );
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // Precedence: Inline / Chooser / Search (tests 11-13)
     // ═══════════════════════════════════════════════════════════════════════
@@ -723,7 +920,7 @@ mod tests {
         assert_ne!(
             state.prs_state.committed_filter.review_decision,
             state.prs_state.draft_filter.review_decision,
-            "pre-apply committed must differ from draft (RED: stub emits no apply)"
+            "pre-apply committed must differ from draft"
         );
         let draft_review = state.prs_state.draft_filter.review_decision;
         let after = state.apply(AppEvent::PrApplyFilter);

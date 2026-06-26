@@ -92,13 +92,25 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
         return InputMode::IssuesNormal;
     }
 
-    // PR mode detection — compile-only stub (finding #3).
-    // @plan PLAN-20260624-PR-MODE.P03
+    // PR mode detection — real precedence routing (Inline > Chooser > Search >
+    // Filter > Normal), mirroring the DashboardIssues block above.
+    // @plan PLAN-20260624-PR-MODE.P11
     // @requirement REQ-PR-002
-    // @pseudocode component-003 lines 01-02
-    // P03: returns a fixed PrsNormal; the real precedence routing
-    // (Inline > Chooser > Search > Filter > Normal) is P11.
+    // @requirement REQ-PR-004
+    // @pseudocode component-003 lines 07,51
     if state.screen_mode == ScreenMode::DashboardPullRequests {
+        if state.prs_state.inline_state != InlineState::None {
+            return InputMode::PrsInline;
+        }
+        if state.prs_state.agent_chooser.is_some() {
+            return InputMode::PrsChooser;
+        }
+        if state.prs_state.search_input_focused {
+            return InputMode::PrsSearch;
+        }
+        if state.prs_state.filter_ui.controls_open {
+            return InputMode::PrsFilter;
+        }
         return InputMode::PrsNormal;
     }
 

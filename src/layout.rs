@@ -277,6 +277,26 @@ pub fn detail_viewport_rows(term_rows: usize) -> usize {
     issues_detail_viewport_rows(term_rows, false, false)
 }
 
+/// Compute the number of rows available for the PR-mode detail scroll viewport.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
+/// @requirement REQ-PR-009
+/// @pseudocode component-004 lines 156-159
+///
+/// PR mode reuses the same conditional bands as Issues mode (an optional error
+/// banner and the filter-controls band), so the geometry is identical. This
+/// thin named wrapper exists so PR-mode scroll math depends on a PR-named
+/// layout prop (regression guard #37/#39: viewport height is supplied as a
+/// prop, never recomputed independently inside scroll math).
+#[must_use]
+pub fn prs_detail_viewport_rows(
+    term_rows: usize,
+    error_visible: bool,
+    filter_controls_open: bool,
+) -> usize {
+    issues_detail_viewport_rows(term_rows, error_visible, filter_controls_open)
+}
+
 /// Compute inner content width for issue-list title lines.
 #[must_use]
 pub fn issue_list_content_width(term_cols: u16) -> u16 {
@@ -492,6 +512,26 @@ mod tests {
         assert_eq!(issues_detail_viewport_rows(40, true, false), 19);
         assert_eq!(issues_detail_viewport_rows(40, false, true), 17);
         assert_eq!(issues_detail_viewport_rows(40, true, true), 17);
+    }
+
+    /// @plan PLAN-20260624-PR-MODE.P11
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-004 lines 156-159
+    #[test]
+    fn prs_detail_viewport_rows_match_issues_band_geometry() {
+        for (rows, error_visible, filter_open) in [
+            (40, false, false),
+            (40, true, false),
+            (40, false, true),
+            (40, true, true),
+            (8, true, true),
+        ] {
+            assert_eq!(
+                prs_detail_viewport_rows(rows, error_visible, filter_open),
+                issues_detail_viewport_rows(rows, error_visible, filter_open),
+                "PR detail viewport must reuse the shared band geometry"
+            );
+        }
     }
 
     #[test]
