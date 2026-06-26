@@ -76,7 +76,7 @@ fn make_test_pr(number: u64) -> PullRequest {
 /// @pseudocode component-001 lines 66-76
 fn dashboard_prs_state() -> AppState {
     let mut state = AppState::default();
-    for (idx, slug) in ["repo-1", "repo-2"].iter().enumerate() {
+    for (idx, slug) in ["repo-1", "repo-2"].into_iter().enumerate() {
         let mut repo = Repository::new(
             RepositoryId(slug.to_string()),
             format!("Repo {idx}"),
