@@ -19,35 +19,29 @@ impl AppState {
         self.prs_state.detail_scroll_offset = self.pr_max_detail_scroll_offset();
     }
 
-    /// Compute the maximum detail scroll offset from rendered length + viewport prop.
+    /// Compute the maximum detail scroll offset from the REAL rendered content
+    /// length (the exact text `build_pr_detail_content` emits for the current
+    /// subfocus and inline composer state) minus the viewport prop.
+    ///
+    /// Using the shared `pr_detail_content_line_count` parity function — rather
+    /// than a heuristic — guarantees that scrolling to the bottom on composer
+    /// open lands on the same offset the scroll clamp uses, so the composer
+    /// stays on-screen and a later page-down does not jump (#56).
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-009
     /// @pseudocode component-001 lines 169-176
     fn pr_max_detail_scroll_offset(&self) -> usize {
-        let rendered_lines = self.pr_rendered_detail_lines();
-        rendered_lines.saturating_sub(self.prs_state.detail_viewport_rows)
-    }
-
-    /// Estimate the rendered detail content lines (body + comments).
-    ///
-    /// This is a pure heuristic derived from stored content; no crossterm I/O.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-010
-    /// @pseudocode component-001 lines 169-176
-    fn pr_rendered_detail_lines(&self) -> usize {
         let Some(detail) = &self.prs_state.pr_detail else {
             return 0;
         };
-        let body_lines = detail.body.lines().count().max(1);
-        let comment_lines: usize = detail
-            .comments
-            .iter()
-            .map(|c| c.body.lines().count().max(1) + 2)
-            .sum();
-        let header_lines = 5;
-        header_lines + body_lines + comment_lines
+        crate::pr_detail_content::pr_detail_content_line_count(
+            detail,
+            self.prs_state.detail_subfocus,
+            &self.prs_state.inline_state,
+            self.prs_state.loading.comments,
+        )
+        .saturating_sub(self.prs_state.detail_viewport_rows)
     }
 
     /// Borrow the active (text, cursor) pair from the inline composer/editor.

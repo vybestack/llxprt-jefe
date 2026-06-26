@@ -7,7 +7,8 @@
 //! @requirement REQ-PR-011
 
 use crate::domain::{
-    IssueComment, PrCheckStatus, PrState, PullRequest, PullRequestDetail, Repository, RepositoryId,
+    IssueComment, PrCheck, PrCheckStatus, PrReview, PrReviewState, PrState, PullRequest,
+    PullRequestDetail, Repository, RepositoryId,
 };
 use crate::state::AppState;
 use crate::state::types::{
@@ -236,5 +237,107 @@ fn test_agent_chooser_open_navigate_confirm_cancel() {
     assert!(
         state.prs_state.agent_chooser.is_none(),
         "agent_chooser must close on cancel"
+    );
+}
+
+/// Helper: populate body + reviews + checks + comments on the selected PR
+/// detail so the rendered content overflows a small viewport. Exercises the
+/// sections the old heuristic ignored (reviews, checks, separators, headers).
+///
+/// @plan PLAN-20260624-PR-MODE.P04
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+fn populate_full_detail_sections(state: &mut AppState) {
+    let detail = state
+        .prs_state
+        .pr_detail
+        .as_mut()
+        .unwrap_or_else(|| panic!("detail should exist"));
+    detail.body = "Line A
+Line B
+Line C"
+        .to_string();
+    detail.reviews = vec![
+        PrReview {
+            author_login: "rev1".to_string(),
+            state: PrReviewState::Approved,
+            submitted_at: "2024-01-02T00:00:00Z".to_string(),
+            body: Some("looks good".to_string()),
+        },
+        PrReview {
+            author_login: "rev2".to_string(),
+            state: PrReviewState::ChangesRequested,
+            submitted_at: "2024-01-02T01:00:00Z".to_string(),
+            body: None,
+        },
+    ];
+    detail.checks = vec![
+        PrCheck {
+            name: "build".to_string(),
+            status: PrCheckStatus::Success,
+            conclusion: "passed".to_string(),
+            url: None,
+        },
+        PrCheck {
+            name: "test".to_string(),
+            status: PrCheckStatus::Failure,
+            conclusion: "failed".to_string(),
+            url: None,
+        },
+    ];
+    detail.comments = vec![make_comment(100, "alice"), make_comment(101, "bob")];
+}
+
+/// Opening the new-comment composer must scroll the detail viewport to the
+/// REAL rendered bottom (including reviews, checks, section headers,
+/// separators, and the composer block) so the composer is on-screen.
+///
+/// Regression: a stale heuristic that counted only header+body+comments left
+/// the composer rendered below the viewport (off-screen), and a later
+/// page-down — which clamps to the real, larger max — made the screen jump.
+///
+/// @plan PLAN-20260624-PR-MODE.P04
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn test_open_composer_scrolls_to_real_rendered_bottom_so_composer_visible() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    // Small viewport so the bottom is below the fold.
+    state.prs_state.detail_viewport_rows = 6;
+    // Populate the sections the stale heuristic ignored: reviews + checks.
+    populate_full_detail_sections(&mut state);
+
+    let new_state = state.apply(AppEvent::PrOpenNewCommentComposer);
+
+    let detail = new_state
+        .prs_state
+        .pr_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("detail should exist"));
+    // The REAL rendered bottom, derived the same way the scroll clamp does.
+    let rendered_lines = crate::pr_detail_content::pr_detail_content_line_count(
+        detail,
+        new_state.prs_state.detail_subfocus,
+        &new_state.prs_state.inline_state,
+        new_state.prs_state.loading.comments,
+    );
+    let expected_bottom = rendered_lines.saturating_sub(new_state.prs_state.detail_viewport_rows);
+
+    assert_eq!(
+        new_state.prs_state.detail_scroll_offset,
+        expected_bottom,
+        "opening the composer must scroll to the REAL rendered bottom \
+         (offset={}, expected={}, rendered_lines={}, viewport={})",
+        new_state.prs_state.detail_scroll_offset,
+        expected_bottom,
+        rendered_lines,
+        new_state.prs_state.detail_viewport_rows
+    );
+    // And that bottom must reveal the composer's final line (within viewport).
+    assert!(
+        new_state.prs_state.detail_scroll_offset + new_state.prs_state.detail_viewport_rows
+            >= rendered_lines,
+        "composer's last line must be within the viewport after open"
     );
 }
