@@ -270,6 +270,57 @@ fn test_build_pr_search_args_uses_graphql_search_with_after_cursor() {
     );
 }
 
+/// Regression: `gh api graphql` reserves the literal field name `query` for the
+/// GraphQL document itself (`-f query=<doc>`). Binding the search string to a
+/// GraphQL variable ALSO named `query` (`-F query=<string>`) makes `gh` reject
+/// the request with "unexpected override existing field under \"query\"". The
+/// search-string variable must therefore use a distinct name (`searchQuery`),
+/// and the document must declare/reference that same `$searchQuery` variable.
+///
+/// @plan PLAN-20260624-PR-MODE.P07
+/// @requirement REQ-PR-007
+/// @pseudocode component-002 lines 35-58
+#[test]
+fn test_build_pr_search_args_avoids_query_field_name_collision() {
+    let filter = PrFilter {
+        state: Some(PrFilterState::Open),
+        ..PrFilter::default()
+    };
+
+    for cursor in [None, Some("CUR123")] {
+        let args = build_pr_search_args("owner", "repo", &filter, cursor, 30);
+
+        // Exactly one argument is the literal GraphQL document field `query=`
+        // (the `-f query=<doc>`); the search string must NOT also be bound to a
+        // `query` variable, or gh rejects the request.
+        let query_field_count = args.iter().filter(|a| a.starts_with("query=")).count();
+        assert_eq!(
+            query_field_count, 1,
+            "exactly one `query=` field (the GraphQL document) is allowed; got args: {args:?}"
+        );
+
+        // The search string is bound to the distinct `searchQuery` variable.
+        assert!(
+            args.iter().any(|a| a.starts_with("searchQuery=")),
+            "search string must be bound to the `searchQuery` variable; got args: {args:?}"
+        );
+
+        // The document declares and uses `$searchQuery`, never a bare `$query`.
+        let doc = args
+            .iter()
+            .find(|a| a.starts_with("query="))
+            .unwrap_or_else(|| panic!("missing GraphQL document field in args: {args:?}"));
+        assert!(
+            doc.contains("$searchQuery"),
+            "GraphQL document must declare and reference `$searchQuery`; got: {doc}"
+        );
+        assert!(
+            !doc.contains("$query"),
+            "GraphQL document must not reference a bare `$query` variable; got: {doc}"
+        );
+    }
+}
+
 /// @plan PLAN-20260624-PR-MODE.P07
 /// @requirement REQ-PR-008
 /// @pseudocode component-002 lines 59-73

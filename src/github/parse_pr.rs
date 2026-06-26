@@ -71,7 +71,7 @@ pub fn build_pr_search_args(
         "-f".to_string(),
         format!("query={query}"),
         "-F".to_string(),
-        format!("query={}", build_pr_search_query(owner, name, filter)),
+        format!("searchQuery={}", build_pr_search_query(owner, name, filter)),
         "-F".to_string(),
         format!("first={page_size}"),
     ];
@@ -84,12 +84,12 @@ pub fn build_pr_search_args(
 
 /// GraphQL search query WITH the `$after` cursor variable (PR fields inlined).
 fn pr_search_query_with_after() -> &'static str {
-    "query($query: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $query, first: $first, after: $after) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName baseRefName isDraft reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+    "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName baseRefName isDraft reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
 }
 
 /// GraphQL search query WITHOUT the `$after` cursor variable (first page).
 fn pr_search_query_first_page() -> &'static str {
-    "query($query: String!, $first: Int!) { search(type: ISSUE, query: $query, first: $first) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName baseRefName isDraft reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+    "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on PullRequest { number title state mergedAt author { login } updatedAt headRefName baseRefName isDraft reviewDecision statusCheckRollup { contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
 }
 
 /// Build the GitHub search-qualifier string (incl. `is:pr`) for the PR query.

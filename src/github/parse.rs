@@ -609,9 +609,9 @@ pub(super) fn build_issue_search_args(
     page_size: u32,
 ) -> Vec<String> {
     let query = if cursor.is_some() {
-        "query($query: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $query, first: $first, after: $after) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+        "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
     } else {
-        "query($query: String!, $first: Int!) { search(type: ISSUE, query: $query, first: $first) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+        "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
     };
     let mut args = vec![
         "api".to_string(),
@@ -619,7 +619,7 @@ pub(super) fn build_issue_search_args(
         "-f".to_string(),
         format!("query={query}"),
         "-F".to_string(),
-        format!("query={}", issue_search_query(owner, repo, filter)),
+        format!("searchQuery={}", issue_search_query(owner, repo, filter)),
         "-F".to_string(),
         format!("first={page_size}"),
     ];
