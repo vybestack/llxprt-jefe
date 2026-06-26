@@ -1012,3 +1012,10 @@ mod prs_tests_detail_flow;
 #[cfg(test)]
 #[path = "prs_tests_components.rs"]
 mod prs_tests_components;
+
+// @plan PLAN-20260624-PR-MODE.P15
+// @requirement REQ-PR-001
+// @pseudocode component-001 lines 66-291
+#[cfg(test)]
+#[path = "prs_integration_tests.rs"]
+mod prs_integration_tests;

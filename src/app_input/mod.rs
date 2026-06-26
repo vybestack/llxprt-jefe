@@ -1409,3 +1409,10 @@ fn apply_send_to_agent_failed(app_state: &mut AppStateHandle, error: String) {
 #[cfg(test)]
 #[path = "app_input_tests.rs"]
 mod tests;
+
+// @plan PLAN-20260624-PR-MODE.P15
+// @requirement REQ-PR-001
+// @pseudocode component-001 lines 66-291
+#[cfg(test)]
+#[path = "prs_integration_tests.rs"]
+mod prs_integration_tests;
