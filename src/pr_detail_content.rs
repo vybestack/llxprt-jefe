@@ -14,6 +14,28 @@ use crate::domain::{IssueComment, PrCheckStatus, PrReviewState, PrState, PullReq
 use crate::issue_detail_content::DetailContent;
 use crate::state::{ComposerTarget, InlineState, PrDetailSubfocus};
 
+/// Count the rendered scrollable lines for a PR detail.
+///
+/// Mirrors `issue_detail_content::detail_content_line_count` so the PR scroll
+/// bounds derive from the REAL rendered length and cannot drift from what
+/// `build_pr_detail_content` emits.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+#[must_use]
+pub fn pr_detail_content_line_count(
+    detail: &PullRequestDetail,
+    subfocus: PrDetailSubfocus,
+    inline_state: &InlineState,
+    comments_loading: bool,
+) -> usize {
+    build_pr_detail_content(detail, subfocus, inline_state, comments_loading)
+        .text
+        .lines()
+        .count()
+}
+
 /// Build the scrollable content string for the unified PR detail view.
 ///
 /// @plan PLAN-20260624-PR-MODE.P12

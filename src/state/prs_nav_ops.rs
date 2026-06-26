@@ -379,26 +379,24 @@ impl AppState {
         true
     }
 
-    /// Estimate the rendered content length for the PR detail pane.
+    /// Maximum detail scroll offset derived from the REAL rendered content
+    /// length (mirrors `IssuesState::max_detail_scroll_offset_for_viewport`),
+    /// so the clamp cannot drift from `build_pr_detail_content`.
     ///
-    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @plan PLAN-20260624-PR-MODE.P14
     /// @requirement REQ-PR-009
-    /// @pseudocode component-001 lines 173-176
+    /// @pseudocode component-001 lines 169-176
     fn pr_detail_max_scroll_offset(&self) -> usize {
         let Some(detail) = &self.prs_state.pr_detail else {
             return 0;
         };
-        let body_lines: usize = detail.body.lines().count().max(1);
-        let review_lines: usize = detail.reviews.len();
-        let check_lines: usize = detail.checks.len();
-        let comment_lines: usize = detail
-            .comments
-            .iter()
-            .map(|c| c.body.lines().count().max(1))
-            .sum::<usize>();
-        // Header + metadata approx 5 rows + body + reviews + checks + comments + composer line
-        let total = 5 + body_lines + review_lines + check_lines + comment_lines + 1;
-        total.saturating_sub(self.prs_state.detail_viewport_rows)
+        crate::pr_detail_content::pr_detail_content_line_count(
+            detail,
+            super::PrDetailSubfocus::Body,
+            &self.prs_state.inline_state,
+            self.prs_state.loading.comments,
+        )
+        .saturating_sub(self.prs_state.detail_viewport_rows)
     }
 
     // ---- Navigation dispatch ----
