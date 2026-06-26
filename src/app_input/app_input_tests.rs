@@ -1,3 +1,4 @@
+use super::prs_orchestration::{pr_send_info_from_state, write_pr_prompt};
 use super::*;
 use std::path::PathBuf;
 
@@ -504,8 +505,7 @@ fn test_pr_agent_chooser_confirm_applies_reducer_before_side_effects() {
         "jefe-pr-agent-test-{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
+            .map_or(0, |d| d.as_nanos())
     ));
     let prompt_path = temp_work_dir.join(".jefe").join("pr-prompt.md");
 

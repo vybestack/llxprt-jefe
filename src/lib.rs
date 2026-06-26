@@ -29,5 +29,13 @@ pub mod github;
 #[path = "github/tests.rs"]
 mod github_tests;
 
+#[cfg(test)]
+#[path = "github/tests_pr.rs"]
+mod github_tests_pr;
+
+#[cfg(test)]
+#[path = "github/tests_pr_detail.rs"]
+mod github_tests_pr_detail;
+
 /// Current application version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
