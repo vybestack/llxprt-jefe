@@ -118,6 +118,10 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
     let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
     let detail_pane_height = u16::try_from(detail_pane_height).unwrap_or(u16::MAX);
     let list_width = crate::layout::pr_list_content_width(term_cols);
+    // Compute the detail content width from the SAME terminal size read the
+    // screen already performs — single source of truth for wrapping so the
+    // renderer and the reducer scroll clamp agree.
+    let detail_content_width = crate::layout::prs_detail_content_width(term_cols) as usize;
 
     let sidebar_width = u32::from(crate::layout::prs_main_columns(term_cols).sidebar_width);
 
@@ -231,6 +235,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                             comments_loading: comments_loading,
                             focused: detail_focused,
                             scroll_offset: detail_scroll_offset,
+                            detail_content_width: detail_content_width,
                             colors: colors.clone(),
                             viewport_rows: Some(detail_pane_height),
                         )

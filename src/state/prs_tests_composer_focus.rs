@@ -227,6 +227,7 @@ fn test_comment_created_scrolls_to_real_rendered_bottom_with_reviews_and_checks(
         &new_state.prs_state.inline_state,
         new_state.prs_state.loading.detail,
         new_state.prs_state.loading.comments,
+        None,
     );
     let expected_bottom = rendered_lines.saturating_sub(new_state.prs_state.detail_viewport_rows);
 
@@ -394,6 +395,7 @@ fn test_open_composer_scrolls_to_real_rendered_bottom_so_composer_visible() {
         &new_state.prs_state.inline_state,
         new_state.prs_state.loading.detail,
         new_state.prs_state.loading.comments,
+        None,
     );
     let expected_bottom = rendered_lines.saturating_sub(new_state.prs_state.detail_viewport_rows);
 
@@ -412,5 +414,161 @@ fn test_open_composer_scrolls_to_real_rendered_bottom_so_composer_visible() {
         new_state.prs_state.detail_scroll_offset + new_state.prs_state.detail_viewport_rows
             >= rendered_lines,
         "composer's last line must be within the viewport after open"
+    );
+}
+
+/// HIGH-2: While a mutation is pending, pressing Esc/Cancel MUST close the
+/// composer (inline_state → None) and clear mutation_pending — it must NOT be
+/// swallowed by the early-return guard and leave the composer frozen.
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 308-330
+#[test]
+fn test_esc_closes_composer_while_mutation_pending() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    state.prs_state.inline_state = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "draft text".to_string(),
+        cursor: 10,
+    };
+    state.prs_state.mutation_pending = Some(crate::state::types::PrMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 1,
+        target: ComposerTarget::NewComment,
+    });
+
+    let new_state = state.apply(AppEvent::PrInlineCancelOrEsc);
+
+    assert_eq!(
+        new_state.prs_state.inline_state,
+        InlineState::None,
+        "Esc MUST close the composer even while a mutation is pending"
+    );
+    assert!(
+        new_state.prs_state.mutation_pending.is_none(),
+        "Esc MUST clear mutation_pending (cancel the in-flight intent)"
+    );
+}
+
+/// HIGH-2: a late-arriving PrCommentCreated AFTER the user cancelled (which
+/// cleared mutation_pending) MUST no-op — the completion handler guards on
+/// mutation_pending matching and tolerates the dropped mutation.
+///
+/// We drive this through `apply_prs_event` (the reducer entry point) rather
+/// than `apply` because an unhandled event trips `apply_message`'s routing
+/// debug_assert; the observable behavior we care about is that NO comment is
+/// appended and mutation_pending stays None.
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 316-327
+#[test]
+fn test_comment_created_noops_after_cancel_cleared_mutation_pending() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    // The user cancelled: composer is closed and mutation_pending is None.
+    state.prs_state.inline_state = InlineState::None;
+    state.prs_state.mutation_pending = None;
+    let before = state.clone();
+
+    let handled = state.apply_prs_event(AppEvent::PrCommentCreated {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
+        mutation_id: 1,
+        comment: make_comment(101, "bob"),
+    });
+
+    // No comment appended (the cancelled mutation's result is dropped): the
+    // detail comments list is unchanged.
+    assert!(
+        state
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .is_some_and(|d| d.comments.is_empty()),
+        "late comment from a cancelled mutation MUST NOT be appended"
+    );
+    assert!(
+        state.prs_state.mutation_pending.is_none(),
+        "mutation_pending stays None after a cancelled-mutation result"
+    );
+    // The handler reports whether it mutated state; the key invariant is the
+    // observable state is unchanged for comments (no append).
+    let _ = handled;
+    let _ = before;
+}
+
+/// MED-1: Submitting with NO repo selected MUST surface a visible error and
+/// close the composer — it must NOT silently freeze the composer open with no
+/// feedback.
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-013
+/// @pseudocode component-001 lines 308-315
+#[test]
+fn test_submit_no_repo_selected_surfaces_error_and_closes_composer() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    // Remove the selected repo so there is no scope.
+    state.selected_repository_index = None;
+    state.prs_state.inline_state = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "draft text".to_string(),
+        cursor: 10,
+    };
+    state.prs_state.mutation_pending = None;
+
+    let new_state = state.apply(AppEvent::PrInlineSubmit);
+
+    assert_eq!(
+        new_state.prs_state.inline_state,
+        InlineState::None,
+        "composer MUST close when no repo is selected"
+    );
+    assert!(
+        new_state.prs_state.mutation_pending.is_none(),
+        "no mutation MUST be pending when no repo is selected"
+    );
+    assert!(
+        new_state.prs_state.error.is_some(),
+        "a visible error MUST be surfaced when no repo is selected"
+    );
+}
+
+/// MED-2: An `InlineState::Editor` (unreachable in PR mode — no PR path sets
+/// it) MUST NOT be silently misrouted to a NewComment mutation. Submitting
+/// from an Editor state must surface an error and create NO mutation, rather
+/// than fabricate a bogus NewComment target.
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-010
+/// @requirement REQ-PR-013
+/// @pseudocode component-001 lines 308-315
+#[test]
+fn test_submit_from_editor_does_not_create_newcomment_mutation() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    state.prs_state.inline_state = InlineState::Editor {
+        target: crate::state::types::EditorTarget::Comment { comment_index: 0 },
+        text: "edited".to_string(),
+        cursor: 6,
+    };
+    state.prs_state.mutation_pending = None;
+
+    let new_state = state.apply(AppEvent::PrInlineSubmit);
+
+    assert!(
+        new_state
+            .prs_state
+            .mutation_pending
+            .as_ref()
+            .is_none_or(|p| !matches!(p.target, ComposerTarget::NewComment)),
+        "Editor submit MUST NOT fabricate a NewComment mutation"
+    );
+    assert!(
+        new_state.prs_state.mutation_pending.is_none(),
+        "Editor submit MUST create no mutation in PR mode"
+    );
+    assert!(
+        new_state.prs_state.error.is_some(),
+        "Editor submit MUST surface a visible error (unreachable-but-guarded)"
     );
 }

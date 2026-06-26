@@ -391,6 +391,33 @@ pub fn pr_list_content_width(term_cols: u16) -> u16 {
     term_cols.saturating_sub(PRS_SIDEBAR_WIDTH + PR_LIST_CHROME_COLS)
 }
 
+/// Columns of chrome the PR detail pane subtracts from the workspace width
+/// before text is rendered: left+right border (2), left padding (1),
+/// scrollbar (1), and a 2-col safety margin matching `ScrollableText`'s own
+/// `term_cols - 28` fallback.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+const PR_DETAIL_CONTENT_CHROME_COLS: u16 = 6;
+
+/// Compute the inner content width available for PR-detail text lines.
+///
+/// Subtracts the sidebar, the detail-pane border, left padding, the scrollbar
+/// column, and a small safety margin so wrapped lines fit exactly where
+/// `ScrollableText` renders them. Returns 0 on degenerate (very narrow)
+/// terminals.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[must_use]
+pub fn prs_detail_content_width(term_cols: u16) -> u16 {
+    term_cols
+        .saturating_sub(PRS_SIDEBAR_WIDTH)
+        .saturating_sub(PR_DETAIL_CONTENT_CHROME_COLS)
+}
+
 // -----------------------------------------------------------------------------
 // PR-mode pure display seams (REQ-PR-001, REQ-PR-012, REQ-PR-013)
 //

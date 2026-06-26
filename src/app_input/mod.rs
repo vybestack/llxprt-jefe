@@ -951,3 +951,9 @@ mod prs_integration_tests;
 #[cfg(test)]
 #[path = "prs_integration_tests_lifecycle.rs"]
 mod prs_integration_tests_lifecycle;
+
+// Extracted from `prs_dispatch.rs` to keep that handler module under the
+// per-file line limit.
+#[cfg(test)]
+#[path = "prs_dispatch_tests.rs"]
+mod prs_dispatch_tests;

@@ -382,14 +382,19 @@ impl PullRequestsMessage {
             Self::EnterMode => AppEvent::EnterPrsMode,
             Self::ExitMode => AppEvent::ExitPrsMode,
             Self::RefocusList => AppEvent::RefocusPrList,
-            Self::Navigate(NavDir::Up) => AppEvent::PrNavigateUp,
-            Self::Navigate(NavDir::Down) => AppEvent::PrNavigateDown,
+            // `Navigate` carries LIST-navigation semantics and is only ever
+            // constructed with Up/Down/PageUp/PageDown/Home/End (see the
+            // forward map). Next/Prev are filter/chooser field-stepping
+            // directions that never reach a list `Navigate`; fold them onto
+            // the closest list-nav equivalent (Next=forward=Down, Prev=back=Up)
+            // so this stays within the list-nav domain rather than leaking into
+            // unrelated filter events.
+            Self::Navigate(NavDir::Up | NavDir::Prev) => AppEvent::PrNavigateUp,
+            Self::Navigate(NavDir::Down | NavDir::Next) => AppEvent::PrNavigateDown,
             Self::Navigate(NavDir::PageUp) => AppEvent::PrNavigatePageUp,
             Self::Navigate(NavDir::PageDown) => AppEvent::PrNavigatePageDown,
             Self::Navigate(NavDir::Home) => AppEvent::PrNavigateHome,
             Self::Navigate(NavDir::End) => AppEvent::PrNavigateEnd,
-            Self::Navigate(NavDir::Next) => AppEvent::PrFilterNavigateNext,
-            Self::Navigate(NavDir::Prev) => AppEvent::PrFilterNavigatePrev,
             Self::Enter => AppEvent::PrListEnter,
             Self::CycleFocus => AppEvent::PrCycleFocus,
             Self::CycleFocusReverse => AppEvent::PrCycleFocusReverse,

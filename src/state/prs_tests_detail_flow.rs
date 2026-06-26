@@ -330,3 +330,162 @@ fn test_comments_page_loaded_appends_older_stable_order() {
     );
     assert_eq!(loaded.comments[1].comment_id, 60, "new comment appended");
 }
+
+/// HIGH-1: When the staleness guard passes (the comments-page request is for
+/// the CURRENT scope/pr/request_id) but `pr_detail` is `None` (the detail was
+/// swapped out / never arrived), the reducer MUST still clear
+/// `loading.comments` and `comments_page_pending` so the spinner does not
+/// spin forever.
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 236-241
+#[test]
+fn test_comments_page_loaded_clears_loading_when_detail_is_none() {
+    let mut state = prs_mode_state("repo-1");
+    // No detail at all — but the request is for THIS repo/pr (guard passes).
+    state.prs_state.pr_detail = None;
+    state.prs_state.loading.comments = true;
+    state.prs_state.comments_page_pending = Some(crate::state::types::PrCommentsPagePending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
+        cursor: Some("cursor-1".to_string()),
+        request_id: 0,
+    });
+
+    let new_state = state.apply(AppEvent::PrCommentsPageLoaded {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
+        request_id: 0,
+        comments: vec![IssueComment {
+            comment_id: 60,
+            author_login: "bob".to_string(),
+            created_at: "2024-01-06T00:00:00Z".to_string(),
+            edited_at: None,
+            body: "appended".to_string(),
+        }],
+        cursor: None,
+        has_more: false,
+    });
+
+    assert!(
+        !new_state.prs_state.loading.comments,
+        "loading.comments MUST clear even when pr_detail is None (no infinite spinner)"
+    );
+    assert!(
+        new_state.prs_state.comments_page_pending.is_none(),
+        "comments_page_pending MUST clear even when pr_detail is None"
+    );
+    assert!(
+        new_state.prs_state.pr_detail.is_none(),
+        "no detail to mutate — pr_detail stays None"
+    );
+}
+
+/// HIGH-1 (sibling positive): when the detail matches the loaded page, comments
+/// are appended AND loading clears (the happy path is unaffected by the fix).
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 236-241
+#[test]
+fn test_comments_page_loaded_appends_and_clears_when_detail_matches() {
+    let existing = IssueComment {
+        comment_id: 50,
+        author_login: "alice".to_string(),
+        created_at: "2024-01-05T00:00:00Z".to_string(),
+        edited_at: None,
+        body: "existing".to_string(),
+    };
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.pr_detail = Some(make_test_pr_detail(1, vec![existing]));
+    state.prs_state.loading.comments = true;
+    state.prs_state.comments_page_pending = Some(crate::state::types::PrCommentsPagePending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
+        cursor: Some("cursor-1".to_string()),
+        request_id: 0,
+    });
+
+    let new_state = state.apply(AppEvent::PrCommentsPageLoaded {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
+        request_id: 0,
+        comments: vec![IssueComment {
+            comment_id: 60,
+            author_login: "bob".to_string(),
+            created_at: "2024-01-06T00:00:00Z".to_string(),
+            edited_at: None,
+            body: "appended".to_string(),
+        }],
+        cursor: None,
+        has_more: false,
+    });
+
+    let loaded = new_state
+        .prs_state
+        .pr_detail
+        .clone()
+        .unwrap_or_else(|| panic!("detail should remain"));
+    assert_eq!(loaded.comments.len(), 2, "comments must append");
+    assert!(
+        !new_state.prs_state.loading.comments,
+        "loading.comments must clear on success"
+    );
+    assert!(
+        new_state.prs_state.comments_page_pending.is_none(),
+        "comments_page_pending must clear on success"
+    );
+}
+
+/// HIGH-3: When a non-empty PR list reload arrives, the previously-shown
+/// `pr_detail` for a DIFFERENT PR must be cleared so the detail pane does not
+/// show stale content until the fresh detail load completes. The empty branch
+/// already does this; the non-empty branch must too.
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-006
+/// @requirement REQ-PR-014
+/// @pseudocode component-001 lines 209-223
+#[test]
+fn test_list_loaded_non_empty_clears_stale_pr_detail() {
+    let mut state = prs_mode_state("repo-1");
+    // Seed a STALE detail for PR #99 (not in the incoming list).
+    state.prs_state.pr_detail = Some(make_test_pr_detail(99, vec![]));
+    state.prs_state.detail_scroll_offset = 5;
+    state.prs_state.detail_subfocus = crate::state::types::PrDetailSubfocus::Comment(0);
+    state.prs_state.loading.list = true;
+    state.prs_state.pull_requests = vec![make_test_pr(99)];
+    state.prs_state.selected_pr_index = Some(0);
+    // Use request_id 0 so the reload guard passes (matches scope + filter).
+    state.prs_state.committed_filter = PrFilter::default();
+
+    let new_state = state.apply(AppEvent::PrListLoaded {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(PrFilter::default()),
+        request_id: 0,
+        // Non-empty list that does NOT contain #99.
+        pull_requests: vec![make_test_pr(1), make_test_pr(2)],
+        cursor: None,
+        has_more: false,
+    });
+
+    assert!(
+        new_state.prs_state.pr_detail.is_none(),
+        "stale pr_detail MUST be cleared when a new non-empty list arrives"
+    );
+    assert_eq!(
+        new_state.prs_state.selected_pr_index,
+        Some(0),
+        "first PR must be selected"
+    );
+    assert_eq!(
+        new_state.prs_state.detail_scroll_offset, 0,
+        "detail_scroll_offset MUST reset to 0"
+    );
+    assert_eq!(
+        new_state.prs_state.detail_subfocus,
+        crate::state::types::PrDetailSubfocus::Body,
+        "detail_subfocus MUST reset to Body"
+    );
+}

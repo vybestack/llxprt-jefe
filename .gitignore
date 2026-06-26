@@ -8,6 +8,8 @@ research/
 /target/
 /tmp/
 /.llxprt/
+# Local dev runtime state (jefe-dev scratch persistence)
+/.config/
 
 # macOS
 .DS_Store

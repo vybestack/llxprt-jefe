@@ -392,10 +392,11 @@ impl AppState {
         };
         crate::pr_detail_content::pr_detail_content_line_count(
             detail,
-            super::PrDetailSubfocus::Body,
+            self.prs_state.detail_subfocus,
             &self.prs_state.inline_state,
             self.prs_state.loading.detail,
             self.prs_state.loading.comments,
+            super::prs_inline_ops::wrap_width_from_state(self.prs_state.detail_content_width),
         )
         .saturating_sub(self.prs_state.detail_viewport_rows)
     }

@@ -471,7 +471,19 @@ impl AppState {
         if indices.is_empty() {
             return false;
         }
-        let current = self.selected_repository_visible_index().unwrap_or(0);
+        // Handle "no selection" explicitly: Down selects the FIRST visible repo
+        // (indices[0]); Up is a no-op. This avoids the old `unwrap_or(0)` which
+        // treated None as visible-index 0 and then Down computed target=1,
+        // skipping the first repo entirely.
+        let Some(current) = self.selected_repository_visible_index() else {
+            if direction == crate::messages::NavDir::Down {
+                self.remember_selected_agent_for_current_repo();
+                self.selected_repository_index = Some(indices[0]);
+                self.restore_selected_agent_for_current_repo();
+                return true;
+            }
+            return false;
+        };
         let target = match direction {
             crate::messages::NavDir::Up => {
                 if current > 0 {

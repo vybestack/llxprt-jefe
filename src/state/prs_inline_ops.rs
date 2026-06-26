@@ -9,6 +9,17 @@ use super::{
 };
 use crate::messages::PrInlineMsg;
 
+/// Convert the stored `detail_content_width` into the `Option<usize>` the
+/// builder expects: 0 (the default before the dispatch boundary sets it) means
+/// "no wrapping" so reducers stay deterministic and crossterm-free.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+pub(super) fn wrap_width_from_state(detail_content_width: usize) -> Option<usize> {
+    (detail_content_width > 0).then_some(detail_content_width)
+}
+
 impl AppState {
     /// Scroll the PR detail viewport so the last content line is visible.
     ///
@@ -46,6 +57,7 @@ impl AppState {
             &self.prs_state.inline_state,
             self.prs_state.loading.detail,
             self.prs_state.loading.comments,
+            wrap_width_from_state(self.prs_state.detail_content_width),
         )
         .saturating_sub(self.prs_state.detail_viewport_rows)
     }
@@ -203,6 +215,19 @@ impl AppState {
     /// @pseudocode component-001 lines 308-330
     pub(super) fn apply_pr_inline_event(&mut self, msg: PrInlineMsg) -> bool {
         if self.prs_state.mutation_pending.is_some() {
+            // While a mutation is in flight, text-edit keys are consumed but
+            // ignored so the in-flight draft is not mutated. CancelOrEsc,
+            // however, MUST still work: it closes the composer AND clears the
+            // pending mutation (cancel the intent at the state level). The
+            // dispatch layer tolerates a dropped mutation result: the
+            // completion handlers (apply_pr_comment_created /
+            // apply_pr_comment_create_failed) guard on mutation_pending
+            // matching (scope + mutation_id) and no-op when it is None.
+            if msg == PrInlineMsg::CancelOrEsc {
+                self.prs_state.inline_state = InlineState::None;
+                self.prs_state.mutation_pending = None;
+                return true;
+            }
             return matches!(
                 msg,
                 PrInlineMsg::Char(_)
@@ -213,7 +238,6 @@ impl AppState {
                     | PrInlineMsg::CursorRight
                     | PrInlineMsg::CursorUp
                     | PrInlineMsg::CursorDown
-                    | PrInlineMsg::CancelOrEsc
             );
         }
         match msg {
@@ -247,10 +271,22 @@ impl AppState {
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-010
+    /// @requirement REQ-PR-013
     /// @pseudocode component-001 lines 308-315
     fn pr_inline_submit(&mut self) {
-        let text = match &self.prs_state.inline_state {
-            InlineState::Composer { text, .. } | InlineState::Editor { text, .. } => text.clone(),
+        let (text, target) = match &self.prs_state.inline_state {
+            InlineState::Composer { text, target, .. } => (text.clone(), target.clone()),
+            // An Editor is never reachable in PR mode (no PR path sets
+            // InlineState::Editor — only issues_inline_ops does). Rather than
+            // silently fabricate a NewComment mutation, reject it explicitly
+            // with a visible error so the misroute cannot produce a bogus
+            // comment create.
+            InlineState::Editor { .. } => {
+                self.prs_state.error =
+                    Some("Editor submit is not available in PR mode".to_string());
+                self.prs_state.inline_state = InlineState::None;
+                return;
+            }
             InlineState::None => return,
         };
         if text.trim().is_empty() {
@@ -259,10 +295,6 @@ impl AppState {
         }
         // Set mutation pending — the dispatch layer spawns the actual create.
         let scope_repo_id = self.selected_repository_id().cloned();
-        let target = match &self.prs_state.inline_state {
-            InlineState::Composer { target, .. } => target.clone(),
-            _ => ComposerTarget::NewComment,
-        };
         if let Some(scope) = scope_repo_id {
             let mutation_id = self.prs_state.next_mutation_id.saturating_add(1);
             self.prs_state.next_mutation_id = mutation_id;
@@ -271,6 +303,11 @@ impl AppState {
                 mutation_id,
                 target,
             });
+        } else {
+            // No repository selected: surface a visible error and close the
+            // composer rather than silently freezing it open.
+            self.prs_state.error = Some("No repository selected".to_string());
+            self.prs_state.inline_state = InlineState::None;
         }
     }
 }

@@ -49,43 +49,16 @@ pub(super) fn resolve_prs_key_event(state: &AppState, key_event: &KeyEvent) -> O
     if state.prs_state.filter_ui.controls_open {
         return super::prs_filter::handle_pr_filter_controls_key(state, key_event);
     }
-    // P5-P8: global keys, focus-domain handlers, pane cycle, suppression
+    // P5-P7: global keys, focus-domain handlers, pane cycle.
+    //
+    // Reserved dashboard keys (`s`, `Ctrl-d`, `Ctrl-k`, `l`) are consumed as
+    // no-ops simply by NOT matching any handler here: they resolve to `None`,
+    // and the outer `handle_dashboard_prs_key` wrapper marks every PR-mode key
+    // `Handled`, so the `None` is a terminal consume that never leaks to the
+    // dashboard. No explicit suppression tier is required.
     resolve_pr_global_key(state, key_event)
         .or_else(|| resolve_pr_focus_key(state, key_event))
         .or_else(|| resolve_pr_pane_cycle_key(key_event))
-        .or_else(|| resolve_pr_suppressed_key(key_event))
-}
-
-/// P8 suppression tier for PR Mode: reserved dashboard keys (`s`, `Ctrl-d`,
-/// `Ctrl-k`, `l`) are CONSUMED as no-ops so they never leak to the dashboard.
-///
-/// Returns `None` (consumed-no-op) for the reserved keys.
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-002
-/// @pseudocode component-003 lines 43-48
-fn resolve_pr_suppressed_key(key_event: &KeyEvent) -> Option<AppEvent> {
-    // s / Ctrl-d / Ctrl-k / l are reserved dashboard keys: identified explicitly
-    // via `is_pr_suppressed_key` and consumed (None) so they never leak to the
-    // dashboard. The consume itself is the terminal `None` (the outer
-    // `handle_dashboard_prs_key` wrapper marks the key `Handled`).
-    let _consumed = is_pr_suppressed_key(key_event);
-    None
-}
-
-/// Whether `key_event` is a reserved dashboard key suppressed in PR Mode
-/// (`s`, `Ctrl-d`, `Ctrl-k`, `l`).
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-002
-/// @pseudocode component-003 lines 43-48
-fn is_pr_suppressed_key(key_event: &KeyEvent) -> bool {
-    let ctrl = key_event.modifiers.contains(KeyModifiers::CONTROL);
-    match key_event.code {
-        KeyCode::Char('s' | 'l') => true,
-        KeyCode::Char('d' | 'k') => ctrl,
-        _ => false,
-    }
 }
 
 /// Route key events when in PR Mode.

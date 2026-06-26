@@ -1,4 +1,4 @@
-//! Phase P13 (UI TDD — RED) behavioral tests for PR-mode rendering.
+//! Phase P13 behavioral tests for PR-mode rendering.
 //!
 //! @plan PLAN-20260624-PR-MODE.P13
 //! @requirement REQ-PR-006
@@ -9,12 +9,11 @@
 //! @requirement REQ-PR-013
 //! @requirement REQ-PR-014
 //!
-//! TDD(RED): these tests lock the rendering/scroll contract for PR mode.
-//! The starred tests (8, 9, 10) are EXPECTED-RED — they assert the detail
-//! scroll clamp derives from the REAL rendered line count produced by
-//! `build_pr_detail_content`, NOT the heuristic in
-//! `AppState::pr_detail_max_scroll_offset`. P14 introduces a
-//! `pr_detail_content_line_count` parity fn and routes the clamp through it.
+//! These tests lock the rendering/scroll contract for PR mode.
+//! Tests 8, 9, 10 assert the detail scroll clamp derives from the REAL
+//! rendered line count produced by `build_pr_detail_content` (via the
+//! `pr_detail_content_line_count` parity fn introduced in P14), NOT a
+//! heuristic. They are GREEN now that the clamp routes through that fn.
 //!
 //! REQ-PR-012 keybind label note: the "o open in browser" label is exposed
 //! through the `keybind_hints_for` projection seam in `keybind_bar.rs` and is
@@ -156,7 +155,7 @@ fn detail_with_reviews_and_checks(number: u64) -> PullRequestDetail {
 
 /// A rich detail (short body but MANY reviews+checks+comments) so the rendered
 /// section headers + separators materially change the line count versus the
-/// flat heuristic. Used by the cornerstone scroll-clamp RED test.
+/// flat heuristic. Used by the cornerstone scroll-clamp test.
 /// Three reviews so the Reviews section renders a header + multiple rows.
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
@@ -239,7 +238,7 @@ fn rich_comments() -> Vec<IssueComment> {
 
 /// A rich detail (short body but MANY reviews+checks+comments) so the rendered
 /// section headers + separators materially change the line count versus the
-/// flat heuristic. Used by the cornerstone scroll-clamp RED test.
+/// flat heuristic. Used by the cornerstone scroll-clamp test.
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-009
@@ -379,6 +378,7 @@ fn test_pr_detail_renders_metadata_body_review_summary_check_summary() {
         &InlineState::None,
         false,
         false,
+        None,
     );
     assert!(
         content.text.contains("Description"),
@@ -495,6 +495,7 @@ fn test_pr_detail_composer_visible_within_viewport_when_active() {
         &composer,
         false,
         false,
+        None,
     );
     assert!(
         content.text.contains("draft reply text"),
@@ -514,7 +515,7 @@ fn test_pr_detail_composer_visible_within_viewport_when_active() {
 }
 
 // ===========================================================================
-// Test 8 * (RED) — #37f: scroll clamp must derive from the REAL rendered
+// Test 8 — #37f: scroll clamp must derive from the REAL rendered
 // line count, not the heuristic.
 // ===========================================================================
 
@@ -545,9 +546,8 @@ fn test_pr_detail_composer_visible_within_viewport_when_active() {
 ///   comment body lines(2) + 1 = 15.  With viewport=8 -> heuristic max = 7.
 ///
 /// 15 (real) != 7 (heuristic) -> the settled offset after many
-/// PrScrollDetailDown events MUST be 15, but the heuristic clamps at 7.
-/// This assertion FAILS now (RED); P14 routes the clamp through the real
-/// rendered count and it passes.
+/// PrScrollDetailDown events MUST be 15. The clamp routes through the real
+/// rendered count (P14), so the settled offset is 15, not the heuristic 7.
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-009
@@ -563,6 +563,7 @@ fn test_pr_detail_overflow_derived_from_rendered_length_not_heuristic() {
         &InlineState::None,
         false,
         false,
+        None,
     )
     .text
     .lines()
@@ -588,7 +589,7 @@ fn test_pr_detail_overflow_derived_from_rendered_length_not_heuristic() {
 }
 
 // ===========================================================================
-// Test 9 * (RED) — #37f: empty detail still renders headers/separators the
+// Test 9 — #37f: empty detail still renders headers/separators the
 // heuristic undercounts.
 // ===========================================================================
 
@@ -608,7 +609,8 @@ fn test_pr_detail_overflow_derived_from_rendered_length_not_heuristic() {
 /// HEURISTIC: 5 + 1(empty body -> max(1)) + 0 + 0 + 0 + 1 = 7.  viewport=4
 ///   -> heuristic max = 3.
 ///
-/// 10 (real) != 3 (heuristic) -> RED.
+/// 10 (real) != 3 (heuristic) -> the clamp uses the real count (10), not the
+/// heuristic (3).
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-009
@@ -628,6 +630,7 @@ fn test_pr_detail_overflow_counts_section_headers_and_separators() {
         &InlineState::None,
         false,
         false,
+        None,
     )
     .text
     .lines()
@@ -653,7 +656,7 @@ fn test_pr_detail_overflow_counts_section_headers_and_separators() {
 }
 
 // ===========================================================================
-// Test 10 * (RED) — #37g/#39: clamp tracks the detail_viewport_rows prop,
+// Test 10 — #37g/#39: clamp tracks the detail_viewport_rows prop,
 // and the two maxima differ by exactly the viewport delta.
 // ===========================================================================
 
@@ -663,9 +666,8 @@ fn test_pr_detail_overflow_counts_section_headers_and_separators() {
 /// that the clamp tracks the REAL rendered line count. The two maxima differ
 /// by exactly (15 - 5) = 10 when content is tall enough.
 ///
-/// This compiles on the existing public API but FAILS now because the
-/// heuristic's "real_lines" differs from build_pr_detail_content's line count
-/// (the settled offsets do not equal the real-derived maxima). RED.
+/// The settled offsets equal the real-derived maxima because the clamp uses
+/// `build_pr_detail_content`'s line count (P14), not a heuristic.
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-009
@@ -679,6 +681,7 @@ fn test_pr_detail_viewport_uses_prop_height_not_terminal_size() {
         &InlineState::None,
         false,
         false,
+        None,
     )
     .text
     .lines()

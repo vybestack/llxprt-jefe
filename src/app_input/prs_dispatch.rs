@@ -229,6 +229,81 @@ fn pr_detail_load_panic_event(params: &PrDetailLoadParams, message: String) -> A
 
 // ── PR preview from list (zero I/O) ───────────────────────────────────────
 
+/// Check whether the currently-selected PR still matches `pr_number`.
+///
+/// Used by `preview_pr_from_list` to close the read-then-write TOCTOU window:
+/// after building a preview under a read lock and dropping it, the write lock
+/// re-validates that the selection has not changed before applying the
+/// (potentially stale) preview.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
+/// @requirement REQ-PR-003
+/// @pseudocode component-004 lines 119-126
+pub(super) fn selected_pr_still_matches(state: &jefe::state::AppState, pr_number: u64) -> bool {
+    state
+        .prs_state
+        .selected_pr_index
+        .and_then(|idx| state.prs_state.pull_requests.get(idx))
+        .is_some_and(|pr| pr.number == pr_number)
+}
+
+/// Build a `(pr_number, PullRequestDetail)` preview from the selected list PR
+/// (zero I/O). Used for instant preview while arrowing through the PR list;
+/// extracted so `preview_pr_from_list` stays under the per-function line limit.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
+/// @requirement REQ-PR-003
+/// @pseudocode component-004 lines 119-126
+fn build_pr_preview_for_selection(
+    state: &jefe::state::AppState,
+) -> Option<(u64, jefe::domain::PullRequestDetail)> {
+    let pr = state
+        .prs_state
+        .selected_pr_index
+        .and_then(|idx| state.prs_state.pull_requests.get(idx))?;
+    let (owner, repo) = resolve_pr_gh_repo(state);
+    let repo_owner_name = if owner.is_empty() || repo.is_empty() {
+        String::new()
+    } else {
+        format!("{owner}/{repo}")
+    };
+    let detail = jefe::domain::PullRequestDetail {
+        repo_owner_name,
+        number: pr.number,
+        title: pr.title.clone(),
+        state: pr.state,
+        is_draft: pr.is_draft,
+        author_login: pr.author_login.clone(),
+        created_at: String::new(),
+        updated_at: pr.updated_at.clone(),
+        head_ref: pr.head_ref.clone(),
+        base_ref: pr.base_ref.clone(),
+        labels: pr
+            .labels_summary
+            .split(", ")
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect(),
+        assignees: pr
+            .assignee_summary
+            .split(", ")
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect(),
+        milestone: None,
+        body: String::new(),
+        external_url: String::new(),
+        review_decision: pr.review_decision,
+        checks_status: pr.checks_status,
+        reviews: Vec::new(),
+        checks: Vec::new(),
+        comments: Vec::new(),
+        has_more_comments: false,
+        comments_cursor: None,
+    };
+    Some((pr.number, detail))
+}
+
 /// Build a lightweight PR detail preview from list data (no I/O).
 /// Used for instant preview while arrowing through the PR list.
 ///
@@ -236,58 +311,20 @@ fn pr_detail_load_panic_event(params: &PrDetailLoadParams, message: String) -> A
 /// @requirement REQ-PR-003
 /// @pseudocode component-004 lines 119-126
 pub(super) fn preview_pr_from_list(app_state: &mut AppStateHandle) {
+    // Capture (pr_number, preview) under the READ lock, then drop it.
     let preview = {
         let state = app_state.read();
-        state
-            .prs_state
-            .selected_pr_index
-            .and_then(|idx| state.prs_state.pull_requests.get(idx))
-            .map(|pr| {
-                let (owner, repo) = resolve_pr_gh_repo(&state);
-                let repo_owner_name = if owner.is_empty() || repo.is_empty() {
-                    String::new()
-                } else {
-                    format!("{owner}/{repo}")
-                };
-                jefe::domain::PullRequestDetail {
-                    repo_owner_name,
-                    number: pr.number,
-                    title: pr.title.clone(),
-                    state: pr.state,
-                    is_draft: pr.is_draft,
-                    author_login: pr.author_login.clone(),
-                    created_at: String::new(),
-                    updated_at: pr.updated_at.clone(),
-                    head_ref: pr.head_ref.clone(),
-                    base_ref: pr.base_ref.clone(),
-                    labels: pr
-                        .labels_summary
-                        .split(", ")
-                        .filter(|s| !s.is_empty())
-                        .map(String::from)
-                        .collect(),
-                    assignees: pr
-                        .assignee_summary
-                        .split(", ")
-                        .filter(|s| !s.is_empty())
-                        .map(String::from)
-                        .collect(),
-                    milestone: None,
-                    body: String::new(),
-                    external_url: String::new(),
-                    review_decision: pr.review_decision,
-                    checks_status: pr.checks_status,
-                    reviews: Vec::new(),
-                    checks: Vec::new(),
-                    comments: Vec::new(),
-                    has_more_comments: false,
-                    comments_cursor: None,
-                }
-            })
+        build_pr_preview_for_selection(&state)
     };
 
-    if let Some(detail) = preview {
+    if let Some((preview_pr_number, detail)) = preview {
         let mut state = app_state.write();
+        // TOCTOU re-validation: between the read lock above and this write lock,
+        // the selection could have changed. Only apply the preview if the
+        // selection STILL points at the same PR number the preview was built for.
+        if !selected_pr_still_matches(&state, preview_pr_number) {
+            return;
+        }
         state.prs_state.pr_detail = Some(detail);
         state.prs_state.loading.detail = false;
         state.prs_state.loading.comments = false;
@@ -330,9 +367,15 @@ pub(super) fn format_pr_prompt(payload: &PrSendPayload) -> String {
         let _ = writeln!(out, "**Checks:** {}", payload.check_summary.join(", "));
     }
     let _ = writeln!(out);
+    // The PR body is UNTRUSTED (authored by an arbitrary GitHub user). Wrap it
+    // in clear BEGIN/END delimiters so a malicious body containing fake
+    // `## Instructions` headings or code fences cannot escape into the real
+    // Instructions section or impersonate prompt directives (MED-7).
     let _ = writeln!(out, "## Body");
     let _ = writeln!(out);
+    let _ = writeln!(out, "----- BEGIN UNTRUSTED PR BODY -----");
     let _ = writeln!(out, "{}", payload.pr_body);
+    let _ = writeln!(out, "----- END UNTRUSTED PR BODY -----");
 
     if let Some(comment) = &payload.focused_comment {
         let _ = writeln!(out);
@@ -342,7 +385,11 @@ pub(super) fn format_pr_prompt(payload: &PrSendPayload) -> String {
             let _ = writeln!(out, "## Focused Comment");
         }
         let _ = writeln!(out);
+        // The focused comment is also UNTRUSTED user content — fence it so it
+        // cannot inject prompt instructions (MED-7).
+        let _ = writeln!(out, "----- BEGIN UNTRUSTED COMMENT -----");
         let _ = writeln!(out, "{comment}");
+        let _ = writeln!(out, "----- END UNTRUSTED COMMENT -----");
     }
 
     if !payload.pr_base_prompt.is_empty() {
@@ -541,158 +588,4 @@ pub(super) fn pr_open_in_browser_failure_context_from_state(
         .and_then(|idx| state.prs_state.pull_requests.get(idx))
         .map_or(0, |pr| pr.number);
     (scope, pr_number)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use jefe::domain::{Repository, RepositoryId};
-    use jefe::state::{AppEvent, AppState, PullRequestsState, ScreenMode};
-    use std::path::PathBuf;
-
-    /// @plan PLAN-20260624-PR-MODE.P11
-    /// @requirement REQ-PR-012
-    /// @pseudocode component-004 lines 160-175
-    fn test_pr(number: u64) -> jefe::domain::PullRequest {
-        use jefe::domain::{PrCheckStatus, PrState};
-        jefe::domain::PullRequest {
-            number,
-            title: format!("PR #{number}"),
-            state: PrState::Open,
-            author_login: "octocat".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
-            head_ref: "feature".to_string(),
-            base_ref: "main".to_string(),
-            is_draft: false,
-            review_decision: None,
-            checks_status: PrCheckStatus::None,
-            assignee_summary: String::new(),
-            labels_summary: String::new(),
-            comment_count: 0,
-        }
-    }
-
-    /// Build an AppState with a selected PR and a repository whose `github_repo`
-    /// slug is malformed (empty) — triggering the InvalidSlug path.
-    /// @plan PLAN-20260624-PR-MODE.P11
-    /// @requirement REQ-PR-012
-    /// @pseudocode component-004 lines 160-175
-    fn state_with_invalid_slug() -> AppState {
-        let prs_state = PullRequestsState {
-            active: true,
-            pull_requests: vec![test_pr(42)],
-            selected_pr_index: Some(0),
-            ..PullRequestsState::default()
-        };
-        let mut state = AppState {
-            screen_mode: ScreenMode::DashboardPullRequests,
-            prs_state,
-            ..AppState::default()
-        };
-        // Repository with an EMPTY github_repo slug → InvalidSlug.
-        state.repositories.push(Repository::new(
-            RepositoryId("repo-1".to_string()),
-            "Repo 1".to_string(),
-            "repo-1".to_string(),
-            PathBuf::from("/tmp/repo1"),
-        ));
-        state.selected_repository_index = Some(0);
-        state
-    }
-
-    /// Build an AppState with a selected PR and a valid `owner/repo` slug.
-    /// @plan PLAN-20260624-PR-MODE.P11
-    /// @requirement REQ-PR-012
-    /// @pseudocode component-004 lines 160-175
-    fn state_with_valid_slug() -> AppState {
-        let mut state = state_with_invalid_slug();
-        state.repositories[0].github_repo = "owner/repo".to_string();
-        state
-    }
-
-    /// Build an AppState with NO selected PR → NoSelection.
-    /// @plan PLAN-20260624-PR-MODE.P11
-    /// @requirement REQ-PR-012
-    /// @pseudocode component-004 lines 160-175
-    fn state_with_no_selection() -> AppState {
-        let mut state = state_with_invalid_slug();
-        state.prs_state.selected_pr_index = None;
-        state
-    }
-
-    /// `pr_open_in_browser_info_from_state` returns `InvalidSlug` for a
-    /// malformed repo slug, and the failure context carries the scope +
-    /// pr_number for a categorized `PrOpenInBrowserFailed` event (never silent).
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P11
-    /// @requirement REQ-PR-012
-    /// @requirement REQ-PR-013
-    /// @pseudocode component-003 lines 217-228
-    /// @pseudocode component-004 lines 166-168
-    #[test]
-    fn test_open_in_browser_invalid_slug_surfaces_error_not_silent() {
-        let state = state_with_invalid_slug();
-
-        // The info path returns InvalidSlug (NOT Ok, NOT NoSelection).
-        let result = pr_open_in_browser_info_from_state(&state);
-        assert!(
-            matches!(result, Err(RepoContextError::InvalidSlug)),
-            "malformed slug must yield InvalidSlug (got {result:?})"
-        );
-
-        // The failure context resolves scope + pr_number for the categorized event.
-        let (scope, pr_number) = pr_open_in_browser_failure_context_from_state(&state);
-        assert_eq!(scope, RepositoryId("repo-1".to_string()));
-        assert_eq!(pr_number, 42);
-
-        // Build the event the dispatch WOULD deliver (mirrors dispatch arm).
-        let event = AppEvent::PrOpenInBrowserFailed {
-            scope_repo_id: scope,
-            pr_number,
-            error: "Configure repository (owner/name) before opening in browser".to_string(),
-        };
-
-        // The reducer surfaces a visible error from PrOpenInBrowserFailed
-        // (observable state, NOT a silent no-op).
-        let after = state.apply(event);
-        assert!(
-            after.prs_state.error.is_some() || after.prs_state.draft_notice.is_some(),
-            "PrOpenInBrowserFailed must surface a visible error/notice (got error={:?}, notice={:?})",
-            after.prs_state.error,
-            after.prs_state.draft_notice
-        );
-    }
-
-    /// A valid slug yields `Ok(info)` — the happy path is unaffected.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P11
-    /// @requirement REQ-PR-012
-    /// @pseudocode component-003 lines 217-228
-    #[test]
-    fn test_open_in_browser_valid_slug_yields_ok() {
-        let state = state_with_valid_slug();
-        let result = pr_open_in_browser_info_from_state(&state);
-        assert!(result.is_ok(), "valid slug must yield Ok");
-        if let Ok(info) = result {
-            assert_eq!(info.owner, "owner");
-            assert_eq!(info.name, "repo");
-            assert_eq!(info.number, 42);
-        }
-    }
-
-    /// No selection yields `NoSelection` (not InvalidSlug, not Ok).
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P11
-    /// @requirement REQ-PR-012
-    /// @requirement REQ-PR-013
-    /// @pseudocode component-003 lines 217-228
-    #[test]
-    fn test_open_in_browser_no_selection_yields_no_selection() {
-        let state = state_with_no_selection();
-        let result = pr_open_in_browser_info_from_state(&state);
-        assert!(
-            matches!(result, Err(RepoContextError::NoSelection)),
-            "no selection must yield NoSelection (got {result:?})"
-        );
-    }
 }

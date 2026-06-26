@@ -44,7 +44,7 @@ pub(super) fn handle_pr_filter_controls_key(
         KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(AppEvent::PrClearFilter)
         }
-        KeyCode::Char(' ') => Some(space_event_for_field(field_idx)),
+        KeyCode::Char(' ') if !is_text_field(field_idx) => Some(space_event_for_field(field_idx)),
         KeyCode::Char(c) if is_text_field(field_idx) => Some(text_char_event(state, field_idx, c)),
         KeyCode::Backspace if is_text_field(field_idx) => {
             Some(text_backspace_event(state, field_idx))

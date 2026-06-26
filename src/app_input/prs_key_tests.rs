@@ -506,6 +506,52 @@ fn test_space_cycles_checks_status_filter_draft_state() {
     assert_eq!(s.prs_state.draft_filter.checks_status, ChecksFilter::Any);
 }
 
+/// HIGH-4: Space on a TEXT field (author, index 4) MUST insert a space char
+/// (PrUpdateDraftFilter with value ending in a space), NOT cycle a filter.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
+/// @requirement REQ-PR-008
+/// @pseudocode component-003 lines 134-146
+#[test]
+fn test_space_on_author_text_field_inserts_space_not_cycle() {
+    let mut state = prs_state_with_filter_open(4); // AUTHOR_FIELD
+    state.prs_state.draft_filter.author = "octo".to_string();
+
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Char(' ')));
+
+    match event {
+        Some(AppEvent::PrUpdateDraftFilter { field, value }) => {
+            assert_eq!(
+                field, "author",
+                "Space on author must update the author field"
+            );
+            assert!(
+                value.ends_with(' '),
+                "Space on a text field must append a space (got {value:?})"
+            );
+        }
+        other => {
+            panic!("Space on author (text field) must yield PrUpdateDraftFilter, got {other:?}")
+        }
+    }
+}
+
+/// HIGH-4 (complement): Space on a CYCLE field (state, index 0) MUST still
+/// cycle the filter (the fix must not break cycle-field Space behavior).
+///
+/// @plan PLAN-20260624-PR-MODE.P11
+/// @requirement REQ-PR-008
+/// @pseudocode component-003 lines 134-146
+#[test]
+fn test_space_on_state_cycle_field_still_cycles() {
+    let state = prs_state_with_filter_open(0); // STATE_FIELD
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Char(' ')));
+    assert!(
+        matches!(event, Some(AppEvent::PrCycleFilterState)),
+        "Space on the state (cycle) field must yield PrCycleFilterState, got {event:?}"
+    );
+}
+
 /// Apply commits draft_filter to committed_filter and triggers a reload.
 ///
 /// @plan PLAN-20260624-PR-MODE.P10

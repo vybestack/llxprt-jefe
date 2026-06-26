@@ -95,19 +95,32 @@ enum PrCommentPageRequest {
     Skip,
 }
 
-/// Estimate rendered detail content lines (mirrors `prs_inline_ops` heuristic).
+/// Compute the max detail scroll offset using the CANONICAL parity function
+/// `pr_detail_content_line_count` (the exact text the renderer emits for the
+/// current subfocus, inline composer state, loading flags, and wrap width)
+/// minus the viewport rows. Using the parity function — rather than a local
+/// heuristic — guarantees the comments-dispatch "scrolled near bottom" check
+/// uses the SAME line count the renderer and scroll clamp do (MED-8).
+///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
 /// @pseudocode component-004 lines 146-155
-fn pr_rendered_detail_lines(detail: &jefe::domain::PullRequestDetail) -> usize {
-    let body_lines = detail.body.lines().count().max(1);
-    let comment_lines: usize = detail
-        .comments
-        .iter()
-        .map(|c| c.body.lines().count().max(1) + 2)
-        .sum();
-    let header_lines = 5;
-    header_lines + body_lines + comment_lines
+pub(super) fn pr_detail_max_scroll_offset(state: &jefe::state::AppState) -> usize {
+    let Some(detail) = state.prs_state.pr_detail.as_ref() else {
+        return 0;
+    };
+    let wrap_width =
+        (state.prs_state.detail_content_width > 0).then_some(state.prs_state.detail_content_width);
+    jefe::pr_detail_content::pr_detail_content_line_count(
+        detail,
+        state.prs_state.detail_subfocus,
+        &state.prs_state.inline_state,
+        state.prs_state.loading.detail,
+        state.prs_state.loading.comments,
+        wrap_width,
+    )
+    .saturating_sub(state.prs_state.detail_viewport_rows)
 }
 
 /// Resolve comment-page params or a Skip/Fail outcome from state.
@@ -122,10 +135,9 @@ fn pr_comment_page_params(app_state: &AppStateHandle) -> PrCommentPageRequest {
     if !detail.has_more_comments || state.prs_state.loading.comments {
         return PrCommentPageRequest::Skip;
     }
-    // Only load more comments if scrolled near the bottom. We approximate the
-    // max scroll offset from the stored viewport rows and rendered line count.
-    let rendered_lines = pr_rendered_detail_lines(detail);
-    let max_offset = rendered_lines.saturating_sub(state.prs_state.detail_viewport_rows);
+    // Only load more comments if scrolled near the bottom, using the CANONICAL
+    // rendered line count (MED-8) so the threshold matches the real viewport.
+    let max_offset = pr_detail_max_scroll_offset(&state);
     if state.prs_state.detail_scroll_offset < max_offset {
         return PrCommentPageRequest::Skip;
     }
@@ -209,5 +221,100 @@ fn pr_comment_page_event(ctx: &SharedContext, params: &PrCommentPageParams) -> A
             request_id: params.request_id,
             error: "Application context unavailable".to_string(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jefe::domain::{IssueComment, PrCheckStatus, PrState, PullRequestDetail, Repository};
+    use jefe::state::{AppState, InlineState, PrDetailSubfocus, PullRequestsState, ScreenMode};
+    use std::path::PathBuf;
+
+    /// Build a seeded PR detail for the max-offset test.
+    fn seeded_pr_detail() -> PullRequestDetail {
+        PullRequestDetail {
+            repo_owner_name: "owner/repo".to_string(),
+            number: 1,
+            title: "PR #1".to_string(),
+            state: PrState::Open,
+            is_draft: false,
+            author_login: "octocat".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            updated_at: "2024-01-02T00:00:00Z".to_string(),
+            head_ref: "feature".to_string(),
+            base_ref: "main".to_string(),
+            labels: vec![],
+            assignees: vec![],
+            milestone: None,
+            body: "line one\nline two\nline three".to_string(),
+            external_url: "https://github.com/owner/repo/pull/1".to_string(),
+            review_decision: None,
+            checks_status: PrCheckStatus::None,
+            reviews: vec![],
+            checks: vec![],
+            comments: vec![IssueComment {
+                comment_id: 1,
+                author_login: "alice".to_string(),
+                created_at: "2024-01-03T00:00:00Z".to_string(),
+                edited_at: None,
+                body: "comment body".to_string(),
+            }],
+            has_more_comments: true,
+            comments_cursor: Some("cursor".to_string()),
+        }
+    }
+
+    /// MED-8: `pr_detail_max_scroll_offset` MUST use the canonical
+    /// `pr_detail_content_line_count` parity function (not a divergent
+    /// heuristic), so the comments-dispatch "near bottom" check matches the
+    /// real rendered length. We assert the helper returns exactly
+    /// `line_count.saturating_sub(viewport_rows)` for a seeded detail with
+    /// reviews + comments (which the old heuristic miscounted).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P11
+    /// @requirement REQ-PR-009
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-004 lines 146-155
+    #[test]
+    fn test_comments_dispatch_max_offset_uses_parity_line_count() {
+        let detail = seeded_pr_detail();
+        let prs_state = PullRequestsState {
+            active: true,
+            pr_detail: Some(detail.clone()),
+            detail_viewport_rows: 6,
+            detail_content_width: 0,
+            detail_subfocus: PrDetailSubfocus::Body,
+            inline_state: InlineState::None,
+            ..PullRequestsState::default()
+        };
+        let mut state = AppState {
+            screen_mode: ScreenMode::DashboardPullRequests,
+            prs_state,
+            ..AppState::default()
+        };
+        state.repositories.push(Repository::new(
+            jefe::domain::RepositoryId("repo-1".to_string()),
+            "Repo 1".to_string(),
+            "repo-1".to_string(),
+            PathBuf::from("/tmp/repo1"),
+        ));
+        state.selected_repository_index = Some(0);
+
+        let actual = pr_detail_max_scroll_offset(&state);
+        let expected = jefe::pr_detail_content::pr_detail_content_line_count(
+            &detail,
+            state.prs_state.detail_subfocus,
+            &state.prs_state.inline_state,
+            state.prs_state.loading.detail,
+            state.prs_state.loading.comments,
+            None,
+        )
+        .saturating_sub(state.prs_state.detail_viewport_rows);
+
+        assert_eq!(
+            actual, expected,
+            "comments-dispatch max offset MUST equal pr_detail_content_line_count().saturating_sub(viewport)"
+        );
     }
 }

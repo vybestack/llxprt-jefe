@@ -195,3 +195,52 @@ fn test_select_repository_resets_pr_scope() {
         "select_repository must clear selected_pr_index when prs_state is active"
     );
 }
+
+/// MED-3: Pressing Down when NO repository is selected must select the FIRST
+/// visible repo (index 0), NOT skip to index 1. The old
+/// `unwrap_or(0)`+Down logic computed target=1 and skipped the first repo.
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-003
+/// @pseudocode component-001 lines 134-145
+#[test]
+fn test_navigate_repo_down_from_none_selects_first_visible() {
+    let mut state = prs_mode_state();
+    state.prs_state.pr_focus = PrFocus::RepoList;
+    // No repo selected.
+    state.selected_repository_index = None;
+
+    let new_state = state.apply(AppEvent::PrNavigateDown);
+
+    assert_eq!(
+        new_state.selected_repository_index,
+        Some(0),
+        "Down from no selection MUST select the FIRST visible repo (indices[0]), not skip it"
+    );
+}
+
+/// MED-3: Pressing Up when NO repository is selected is a no-op: the shared
+/// helper returns false and leaves the selection as-is (None). We test the
+/// helper directly because the public `apply` path runs
+/// `normalize_selection_indices` afterwards, which auto-selects the first
+/// visible repo whenever the selection is None — so the no-op is only
+/// observable at the `move_repo_selection` boundary (the unit under test).
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-003
+/// @pseudocode component-001 lines 134-145
+#[test]
+fn test_navigate_repo_up_from_none_is_noop() {
+    use crate::messages::NavDir;
+    let mut state = prs_mode_state();
+    state.prs_state.pr_focus = PrFocus::RepoList;
+    state.selected_repository_index = None;
+
+    let moved = state.move_repo_selection(NavDir::Up);
+
+    assert!(!moved, "Up from no selection MUST return false (no-op)");
+    assert!(
+        state.selected_repository_index.is_none(),
+        "Up from no selection MUST leave the selection as-is (None)"
+    );
+}

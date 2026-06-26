@@ -63,7 +63,14 @@ impl AppState {
             self.prs_state.selected_pr_index = None;
             self.prs_state.pr_detail = None;
         } else {
+            // The previous pr_detail is STALE (it is for a PR from the prior
+            // list). Clear it so the detail pane does not show old content
+            // until the fresh detail/preview load repopulates it — mirroring
+            // the empty branch and reset_prs_for_repo_change.
             self.prs_state.selected_pr_index = Some(0);
+            self.prs_state.pr_detail = None;
+            self.prs_state.detail_subfocus = PrDetailSubfocus::Body;
+            self.prs_state.detail_scroll_offset = 0;
         }
         self.prs_state.list_scroll_offset = 0;
     }
@@ -120,15 +127,20 @@ impl AppState {
         ) {
             return;
         }
+        // The staleness guard passed, so this response is for the current
+        // scope/pr. ALWAYS clear the loading flag and pending marker so the
+        // spinner never sticks — even if `pr_detail` was swapped out or never
+        // arrived (the `detail.*` mutations below are the only part that
+        // require a matching live detail).
+        self.prs_state.error = None;
+        self.prs_state.loading.comments = false;
+        self.prs_state.comments_page_pending = None;
         if let Some(detail) = &mut self.prs_state.pr_detail
             && detail.number == page.pr_number
         {
             detail.comments.extend(page.comments);
             detail.comments_cursor = page.cursor;
             detail.has_more_comments = page.has_more;
-            self.prs_state.error = None;
-            self.prs_state.loading.comments = false;
-            self.prs_state.comments_page_pending = None;
         }
     }
 

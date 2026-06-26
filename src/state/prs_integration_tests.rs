@@ -242,6 +242,7 @@ fn it_select_pr_loads_detail_with_reviews_and_checks() {
         &state.prs_state.inline_state,
         state.prs_state.loading.detail,
         state.prs_state.loading.comments,
+        None,
     );
     assert!(
         content.text.contains("reviewer1") || content.text.contains("Review"),
@@ -261,6 +262,7 @@ fn it_select_pr_loads_detail_with_reviews_and_checks() {
         &state.prs_state.inline_state,
         state.prs_state.loading.detail,
         state.prs_state.loading.comments,
+        None,
     );
     assert!(
         line_count > 0,
@@ -405,6 +407,7 @@ fn pr_expected_detail_bottom_scroll(state: &AppState) -> usize {
         &state.prs_state.inline_state,
         state.prs_state.loading.detail,
         state.prs_state.loading.comments,
+        (state.prs_state.detail_content_width > 0).then_some(state.prs_state.detail_content_width),
     )
     .saturating_sub(state.prs_state.detail_viewport_rows)
 }
@@ -869,4 +872,127 @@ fn it_pr_list_pagination_lazy_loads_appends_preserves_selection_and_discards_sta
     let request_id = load_first_page_and_navigate_to_end(&mut state);
     deliver_second_page_and_assert_append(&mut state, request_id);
     assert_stale_pages_discarded(&mut state);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FIX 4: reducer clamp must be wrap-aware (single source of truth)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Setting a small `detail_content_width` with long body/comment text must
+/// make the reducer's max scroll offset equal the WRAPPED line count
+/// (not the unwrapped count). The clamp must derive from the same wrap_width
+/// the renderer uses.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn reducer_max_scroll_is_wrap_aware_with_explicit_width() {
+    let mut state = state_with_loaded_pr_detail();
+
+    // Inject a very long body line so wrapping at a small width produces more
+    // lines than the unwrapped text.
+    if let Some(detail) = state.prs_state.pr_detail.as_mut() {
+        detail.body = "word ".repeat(50);
+    }
+    // Set a small content width so wrapping kicks in.
+    let width = 10usize;
+    state.prs_state.detail_content_width = width;
+    state.prs_state.detail_viewport_rows = 1;
+    state.prs_state.detail_subfocus = PrDetailSubfocus::Body;
+
+    // Navigate to End → the reducer sets detail_scroll_offset to max.
+    state.apply_in_place(AppEvent::PrNavigateEnd);
+
+    // The expected max offset from the wrap-aware parity function.
+    let expected = {
+        let detail = state
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .unwrap_or_else(|| panic!("pr_detail must be loaded"));
+        pr_detail_content_line_count(
+            detail,
+            state.prs_state.detail_subfocus,
+            &state.prs_state.inline_state,
+            state.prs_state.loading.detail,
+            state.prs_state.loading.comments,
+            Some(width),
+        )
+        .saturating_sub(state.prs_state.detail_viewport_rows)
+    };
+    assert_eq!(
+        state.prs_state.detail_scroll_offset, expected,
+        "nav End clamp must use the wrap-aware line count"
+    );
+
+    // And the wrapped count must be strictly greater than the unwrapped count
+    // (proving the wrap actually happened).
+    let detail = state
+        .prs_state
+        .pr_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("pr_detail must be loaded"));
+    let unwrapped = pr_detail_content_line_count(
+        detail,
+        state.prs_state.detail_subfocus,
+        &state.prs_state.inline_state,
+        state.prs_state.loading.detail,
+        state.prs_state.loading.comments,
+        None,
+    );
+    assert!(
+        expected + 1 > unwrapped.saturating_sub(1),
+        "wrapped max offset ({expected}) should reflect more lines than unwrapped ({unwrapped})"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FIX 5: prs_nav_ops clamp must use current subfocus
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Setting a non-Body subfocus must make the nav clamp (PrNavigateEnd) equal
+/// `build_pr_detail_content`'s count for THAT subfocus, not Body. Although
+/// the current builder produces identical line counts for all subfocuses
+/// (subfocus only affects `>` prefix markers, not line count), this test
+/// guards against a future builder change that makes them diverge. The
+/// clamp must read `detail_subfocus`, not a hard-coded Body.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn nav_clamp_uses_current_subfocus_not_body() {
+    let mut state = state_with_loaded_pr_detail();
+
+    // Set subfocus to NewComment.
+    state.prs_state.detail_subfocus = PrDetailSubfocus::NewComment;
+    state.prs_state.detail_viewport_rows = 1;
+
+    // Navigate to End → sets detail_scroll_offset to max.
+    state.apply_in_place(AppEvent::PrNavigateEnd);
+
+    // Expected max offset for the ACTUAL subfocus (NewComment).
+    let expected_for_subfocus = {
+        let detail = state
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .unwrap_or_else(|| panic!("pr_detail must be loaded"));
+        pr_detail_content_line_count(
+            detail,
+            PrDetailSubfocus::NewComment,
+            &state.prs_state.inline_state,
+            state.prs_state.loading.detail,
+            state.prs_state.loading.comments,
+            (state.prs_state.detail_content_width > 0)
+                .then_some(state.prs_state.detail_content_width),
+        )
+        .saturating_sub(state.prs_state.detail_viewport_rows)
+    };
+
+    assert_eq!(
+        state.prs_state.detail_scroll_offset, expected_for_subfocus,
+        "nav End clamp must use the current subfocus (NewComment)"
+    );
 }

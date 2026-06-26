@@ -13,12 +13,14 @@
 use crate::domain::{IssueComment, PrCheckStatus, PrReviewState, PrState, PullRequestDetail};
 use crate::issue_detail_content::DetailContent;
 use crate::state::{ComposerTarget, InlineState, PrDetailSubfocus};
+use unicode_width::UnicodeWidthChar;
 
 /// Count the rendered scrollable lines for a PR detail.
 ///
 /// Mirrors `issue_detail_content::detail_content_line_count` so the PR scroll
 /// bounds derive from the REAL rendered length and cannot drift from what
-/// `build_pr_detail_content` emits.
+/// `build_pr_detail_content` emits. `wrap_width` must match the width the
+/// renderer passes so wrapped line counts agree (parity invariant).
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
@@ -30,6 +32,7 @@ pub fn pr_detail_content_line_count(
     inline_state: &InlineState,
     detail_loading: bool,
     comments_loading: bool,
+    wrap_width: Option<usize>,
 ) -> usize {
     build_pr_detail_content(
         detail,
@@ -37,6 +40,7 @@ pub fn pr_detail_content_line_count(
         inline_state,
         detail_loading,
         comments_loading,
+        wrap_width,
     )
     .text
     .lines()
@@ -51,9 +55,11 @@ pub fn pr_detail_content_line_count(
 ///
 /// Section order (metadata is already rendered in the fixed header, so the
 /// scroll region STARTS at the body): Description (body), Reviews, Checks,
-/// Comments, New comment. `cursor` is `None` for this stub (inline composer
-/// wiring lands in P14); the function returns a faithful but minimal textual
-/// rendering with no deferred-macro sentinels (clippy denies both).
+/// Comments, New comment. When a Composer is active the returned `cursor`
+/// points at the composer line within the joined (and optionally wrapped)
+/// content so the renderer can draw a caret. `wrap_width`, when `Some(w)` with
+/// `w > 0`, reflows every line to at most `w` display chars and remaps the
+/// cursor to the wrapped coordinates.
 #[must_use]
 pub fn build_pr_detail_content(
     detail: &PullRequestDetail,
@@ -61,23 +67,25 @@ pub fn build_pr_detail_content(
     inline_state: &InlineState,
     detail_loading: bool,
     comments_loading: bool,
+    wrap_width: Option<usize>,
 ) -> DetailContent {
-    let mut lines: Vec<String> = Vec::new();
-
-    build_body_section(detail, detail_loading, &mut lines);
-    lines.push(separator());
-    build_reviews_section(detail, subfocus, &mut lines);
-    lines.push(separator());
-    build_checks_section(detail, subfocus, &mut lines);
-    lines.push(separator());
-    build_comments_section(detail, subfocus, inline_state, comments_loading, &mut lines);
-    lines.push(separator());
-    build_new_comment_section(subfocus, inline_state, &mut lines);
-
-    DetailContent {
-        text: lines.join("\n"),
-        cursor: None,
-    }
+    let mut builder = ContentBuilder::new();
+    build_body_section(detail, detail_loading, &mut builder);
+    builder.lines.push(separator());
+    build_reviews_section(detail, subfocus, &mut builder);
+    builder.lines.push(separator());
+    build_checks_section(detail, subfocus, &mut builder);
+    builder.lines.push(separator());
+    build_comments_section(
+        detail,
+        subfocus,
+        inline_state,
+        comments_loading,
+        &mut builder,
+    );
+    builder.lines.push(separator());
+    build_new_comment_section(subfocus, inline_state, &mut builder);
+    builder.finish(wrap_width)
 }
 
 /// Build a full-screen content block for creating a new PR comment.
@@ -86,53 +94,133 @@ pub fn build_pr_detail_content(
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 1-12
 ///
-/// Mirrors `build_new_issue_content` but for a PR comment composer. Safe
-/// default text; cursor positioned at the end of the composer text when there
-/// is composer text (otherwise `None`).
+/// Mirrors `build_new_issue_content` but for a PR comment composer. The cursor
+/// points at the composer line when composer text is present.
 #[must_use]
 pub fn build_new_pr_comment_content(inline_state: &InlineState) -> DetailContent {
-    let mut lines: Vec<String> = Vec::new();
-    lines.push("New comment".to_string());
-    lines.push("Title: first line | Body: remaining lines".to_string());
-    lines.push(String::new());
+    let mut builder = ContentBuilder::new();
+    builder.lines.push("New comment".to_string());
+    builder
+        .lines
+        .push("Title: first line | Body: remaining lines".to_string());
+    builder.lines.push(String::new());
 
-    let cursor = if let InlineState::Composer {
+    if let InlineState::Composer {
         target: ComposerTarget::NewComment,
         text,
         cursor: byte_cursor,
     } = inline_state
     {
-        for line in text.lines() {
-            lines.push(format!("  │ {line}"));
-        }
-        if text.ends_with('\n') {
-            lines.push("  │ ".to_string());
-        }
-        composer_end_cursor(text, *byte_cursor)
-    } else {
-        None
-    };
+        builder.push_composer_lines(text.as_str(), *byte_cursor, "  │ ");
+    }
 
-    lines.push("Ctrl+Enter submit | Esc cancel".to_string());
+    builder
+        .lines
+        .push("Ctrl+Enter submit | Esc cancel".to_string());
+    builder.finish(None)
+}
 
-    DetailContent {
-        text: lines.join("\n"),
-        cursor,
+/// Accumulator for joined content lines plus the optional inline cursor.
+///
+/// Mirrors `issue_detail_content::ContentBuilder`: plain section builders push
+/// lines without touching the cursor; the composer sub-builders call
+/// `push_composer_lines` which records the cursor position relative to the
+/// WHOLE joined content (absolute line index + char column).
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+struct ContentBuilder {
+    lines: Vec<String>,
+    cursor_pos: Option<(usize, usize)>,
+}
+
+impl ContentBuilder {
+    /// @plan PLAN-20260624-PR-MODE.P14
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-001 lines 1-12
+    fn new() -> Self {
+        Self {
+            lines: Vec::new(),
+            cursor_pos: None,
+        }
+    }
+
+    /// Push the `format!("{prefix}{line}")` lines for a composer/editor block
+    /// and record the cursor at `(content_start + line_idx, prefix_chars + col)`.
+    ///
+    /// Preserves the existing prefix conventions (NewComment `"  │ "`, Reply
+    /// `"    │ "`) and the trailing-empty-line behaviour when `text` ends with
+    /// a newline. The byte cursor is clamped to a UTF-8 char boundary before
+    /// slicing to prevent a panic on multibyte input.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P14
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-001 lines 1-12
+    fn push_composer_lines(&mut self, text: &str, byte_cursor: usize, prefix: &str) {
+        let prefix_chars = prefix.chars().count();
+        let content_start = self.lines.len();
+        if text.is_empty() {
+            // An empty composer still needs exactly one blank input row so the
+            // caret lands on it (not the following help/controls line) and the
+            // line count includes the expected input row. Mirror the
+            // no-trailing-space form used for the ends_with('\n') case.
+            self.lines.push(prefix.to_string());
+        } else {
+            for line in text.lines() {
+                self.lines.push(format!("{prefix}{line}"));
+            }
+            if text.ends_with('\n') {
+                self.lines.push(prefix.to_string());
+            }
+        }
+        self.cursor_pos = Some(byte_cursor_to_line_col(
+            text,
+            byte_cursor,
+            content_start,
+            prefix_chars,
+        ));
+    }
+
+    /// Join the accumulated lines and apply optional wrapping, remapping the
+    /// cursor to the wrapped coordinates.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P14
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-001 lines 1-12
+    fn finish(self, wrap_width: Option<usize>) -> DetailContent {
+        match wrap_width {
+            Some(w) if w > 0 => {
+                let (wrapped, mapped) = wrap_lines(&self.lines, self.cursor_pos, w);
+                DetailContent {
+                    text: wrapped.join("\n"),
+                    cursor: mapped,
+                }
+            }
+            _ => DetailContent {
+                text: self.lines.join("\n"),
+                cursor: self.cursor_pos,
+            },
+        }
     }
 }
 
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 1-12
-fn build_body_section(detail: &PullRequestDetail, detail_loading: bool, lines: &mut Vec<String>) {
-    lines.push("Description".to_string());
+fn build_body_section(
+    detail: &PullRequestDetail,
+    detail_loading: bool,
+    builder: &mut ContentBuilder,
+) {
+    builder.lines.push("Description".to_string());
     if detail_loading {
-        lines.push("  Loading pull request...".to_string());
+        builder.lines.push("  Loading pull request...".to_string());
     } else if detail.body.is_empty() {
-        lines.push("  (no description)".to_string());
+        builder.lines.push("  (no description)".to_string());
     } else {
         for body_line in detail.body.lines() {
-            lines.push(format!("  {body_line}"));
+            builder.lines.push(format!("  {body_line}"));
         }
     }
 }
@@ -143,15 +231,17 @@ fn build_body_section(detail: &PullRequestDetail, detail_loading: bool, lines: &
 fn build_reviews_section(
     detail: &PullRequestDetail,
     subfocus: PrDetailSubfocus,
-    lines: &mut Vec<String>,
+    builder: &mut ContentBuilder,
 ) {
     let decision = match detail.review_decision {
         Some(state) => review_decision_label(state),
         None => "NONE",
     };
-    lines.push(format!("Reviews  (decision: {decision})"));
+    builder
+        .lines
+        .push(format!("Reviews  (decision: {decision})"));
     if detail.reviews.is_empty() {
-        lines.push("  No reviews yet.".to_string());
+        builder.lines.push("  No reviews yet.".to_string());
     } else {
         for (idx, review) in detail.reviews.iter().enumerate() {
             let prefix = if subfocus == PrDetailSubfocus::Review(idx) {
@@ -165,7 +255,7 @@ fn build_reviews_section(
                 .as_deref()
                 .filter(|b| !b.is_empty())
                 .map_or_else(String::new, |b| format!("  \"{b}\""));
-            lines.push(format!(
+            builder.lines.push(format!(
                 "{prefix}{:<8} {:<18} {}{}",
                 review.author_login, state_label, review.submitted_at, body_excerpt
             ));
@@ -179,12 +269,12 @@ fn build_reviews_section(
 fn build_checks_section(
     detail: &PullRequestDetail,
     subfocus: PrDetailSubfocus,
-    lines: &mut Vec<String>,
+    builder: &mut ContentBuilder,
 ) {
     let rollup = checks_rollup_label(detail.checks_status);
-    lines.push(format!("Checks  (rollup: {rollup})"));
+    builder.lines.push(format!("Checks  (rollup: {rollup})"));
     if detail.checks.is_empty() {
-        lines.push("  No checks reported.".to_string());
+        builder.lines.push("  No checks reported.".to_string());
     } else {
         for (idx, check) in detail.checks.iter().enumerate() {
             let prefix = if subfocus == PrDetailSubfocus::Check(idx) {
@@ -193,7 +283,7 @@ fn build_checks_section(
                 "- "
             };
             let status_label = check_status_label(check.status);
-            lines.push(format!(
+            builder.lines.push(format!(
                 "{prefix}{:<14} {:<10} {}",
                 check.name, status_label, check.conclusion
             ));
@@ -209,20 +299,22 @@ fn build_comments_section(
     subfocus: PrDetailSubfocus,
     inline_state: &InlineState,
     comments_loading: bool,
-    lines: &mut Vec<String>,
+    builder: &mut ContentBuilder,
 ) {
-    lines.push("Comments".to_string());
+    builder.lines.push("Comments".to_string());
     if comments_loading {
-        lines.push("  Loading comments...".to_string());
+        builder.lines.push("  Loading comments...".to_string());
     } else if detail.comments.is_empty() {
-        lines.push("  No comments yet.".to_string());
+        builder.lines.push("  No comments yet.".to_string());
     } else {
         for (idx, comment) in detail.comments.iter().enumerate() {
-            build_single_comment(idx, comment, subfocus, inline_state, lines);
+            build_single_comment(idx, comment, subfocus, inline_state, builder);
         }
     }
     if detail.has_more_comments {
-        lines.push("  (more comments available)".to_string());
+        builder
+            .lines
+            .push("  (more comments available)".to_string());
     }
 }
 
@@ -234,19 +326,19 @@ fn build_single_comment(
     comment: &IssueComment,
     subfocus: PrDetailSubfocus,
     inline_state: &InlineState,
-    lines: &mut Vec<String>,
+    builder: &mut ContentBuilder,
 ) {
     let prefix = if subfocus == PrDetailSubfocus::Comment(idx) {
         "> "
     } else {
         "- "
     };
-    lines.push(format!(
+    builder.lines.push(format!(
         "{}{}  {}",
         prefix, comment.author_login, comment.created_at
     ));
     for body_line in comment.body.lines() {
-        lines.push(format!("    {body_line}"));
+        builder.lines.push(format!("    {body_line}"));
     }
 
     if let InlineState::Composer {
@@ -256,18 +348,14 @@ fn build_single_comment(
     } = inline_state
         && *comment_index == idx
     {
-        lines.push("    [Reply]".to_string());
-        for reply_line in text.lines() {
-            lines.push(format!("    │ {reply_line}"));
-        }
-        if text.ends_with('\n') {
-            lines.push("    │ ".to_string());
-        }
-        let _ = composer_end_cursor(text, *byte_cursor);
-        lines.push("    Ctrl+Enter save | Esc cancel".to_string());
+        builder.lines.push("    [Reply]".to_string());
+        builder.push_composer_lines(text.as_str(), *byte_cursor, "    │ ");
+        builder
+            .lines
+            .push("    Ctrl+Enter save | Esc cancel".to_string());
     }
 
-    lines.push(String::new());
+    builder.lines.push(String::new());
 }
 
 /// @plan PLAN-20260624-PR-MODE.P12
@@ -276,14 +364,14 @@ fn build_single_comment(
 fn build_new_comment_section(
     subfocus: PrDetailSubfocus,
     inline_state: &InlineState,
-    lines: &mut Vec<String>,
+    builder: &mut ContentBuilder,
 ) {
     let label = if subfocus == PrDetailSubfocus::NewComment {
         "> New comment"
     } else {
         "  New comment"
     };
-    lines.push(label.to_string());
+    builder.lines.push(label.to_string());
 
     if let InlineState::Composer {
         target: ComposerTarget::NewComment,
@@ -291,41 +379,183 @@ fn build_new_comment_section(
         cursor: byte_cursor,
     } = inline_state
     {
-        for composer_line in text.lines() {
-            lines.push(format!("  │ {composer_line}"));
-        }
-        if text.ends_with('\n') {
-            lines.push("  │ ".to_string());
-        }
-        let _ = composer_end_cursor(text, *byte_cursor);
-        lines.push("  Ctrl+Enter submit | Esc cancel".to_string());
+        builder.push_composer_lines(text.as_str(), *byte_cursor, "  │ ");
+        builder
+            .lines
+            .push("  Ctrl+Enter submit | Esc cancel".to_string());
     } else {
-        lines.push("  Press c to add a comment".to_string());
+        builder.lines.push("  Press c to add a comment".to_string());
     }
 }
 
-/// Position the cursor at the end of the composer text (line, column).
+/// Map a byte cursor within `text` to an absolute `(line, char_col)` position.
 ///
-/// For the stub the cursor is a best-effort end-of-text position; full inline
-/// composer wiring lands in P14.
+/// Mirrors `issue_detail_content::byte_cursor_to_line_col`: clamp the byte
+/// cursor to `text.len()`, walk it DOWN to the nearest UTF-8 char boundary
+/// (so multibyte input cannot panic the slice), count newlines before it for
+/// the line index, and char-count the remainder for the column.
 ///
-/// @plan PLAN-20260624-PR-MODE.P12
+/// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 1-12
-fn composer_end_cursor(text: &str, byte_cursor: usize) -> Option<(usize, usize)> {
-    if text.is_empty() {
-        return None;
-    }
+fn byte_cursor_to_line_col(
+    text: &str,
+    byte_cursor: usize,
+    content_line_start: usize,
+    prefix_len: usize,
+) -> (usize, usize) {
     let clamped = byte_cursor.min(text.len());
-    let before = &text[..clamped];
+    let boundary = floor_char_boundary(text, clamped);
+    let before = &text[..boundary];
     let line_idx = before.matches('\n').count();
     let last_nl = before.rfind('\n').map_or(0, |p| p + 1);
     let col = before[last_nl..].chars().count();
-    Some((line_idx, col))
+    (content_line_start + line_idx, prefix_len + col)
 }
 
-/// @plan PLAN-20260624-PR-MODE.P12
+/// Walk `idx` down to the nearest UTF-8 char boundary at or before `idx`.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+fn floor_char_boundary(text: &str, idx: usize) -> usize {
+    let mut i = idx.min(text.len());
+    while i > 0 && !text.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// Greedily wrap each line to at most `width` display columns and remap the
+/// cursor `(line, col)` from the unwrapped char coordinates to the wrapped
+/// display-column coordinates.
+///
+/// Wrapping uses DISPLAY width (via `unicode_width`) so CJK/full-width/emoji
+/// lines do not overflow the pane. The cursor column is converted from a
+/// char index to a display column consistent with this segmentation, and an
+/// end-of-line cursor maps to the END of the final segment (not one past).
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+fn wrap_lines(
+    lines: &[String],
+    cursor: Option<(usize, usize)>,
+    width: usize,
+) -> (Vec<String>, Option<(usize, usize)>) {
+    if width == 0 {
+        return (lines.to_vec(), cursor);
+    }
+    let mut out: Vec<String> = Vec::new();
+    // Start index (in `out`) of each original line's wrapped block.
+    let mut wrapped_starts: Vec<usize> = Vec::with_capacity(lines.len());
+    // Per-line segment table for cursor remapping.
+    let mut all_segments: Vec<Vec<(usize, usize)>> = Vec::with_capacity(lines.len());
+    for line in lines {
+        wrapped_starts.push(out.len());
+        let chars: Vec<char> = line.chars().collect();
+        if chars.is_empty() {
+            out.push(String::new());
+            all_segments.push(vec![(0, 0)]);
+            continue;
+        }
+        let segments = display_wrap_segments(&chars, width);
+        for &(s, e) in &segments {
+            out.push(chars[s..e].iter().collect());
+        }
+        all_segments.push(segments);
+    }
+    let mapped = cursor.map(|(line_idx, col)| {
+        let block_start = *wrapped_starts.get(line_idx).unwrap_or(&0);
+        let segments = all_segments.get(line_idx);
+        let chars: Vec<char> = lines
+            .get(line_idx)
+            .map_or_else(Vec::new, |l| l.chars().collect());
+        let display_col = char_index_to_display_col(&chars, col);
+        map_display_col_to_segment(segments, block_start, display_col, width)
+    });
+    (out, mapped)
+}
+
+/// Segment `chars` into `(start_idx, end_idx)` ranges, each occupying at most
+/// `width` display columns. Never splits a single wide char across rows; if a
+/// char's own width exceeds the remaining space it starts a new segment.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+fn display_wrap_segments(chars: &[char], width: usize) -> Vec<(usize, usize)> {
+    let mut segments: Vec<(usize, usize)> = Vec::new();
+    let mut start = 0usize;
+    let mut acc = 0usize;
+    for (i, &ch) in chars.iter().enumerate() {
+        let cw = display_width_of(ch);
+        if acc + cw > width && acc > 0 {
+            segments.push((start, i));
+            start = i;
+            acc = 0;
+        }
+        acc += cw;
+    }
+    segments.push((start, chars.len()));
+    segments
+}
+
+/// Convert a char index within a logical line to a DISPLAY column position by
+/// accumulating the display width of each char before the index.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+fn char_index_to_display_col(chars: &[char], char_idx: usize) -> usize {
+    let idx = char_idx.min(chars.len());
+    chars[..idx].iter().map(|&ch| display_width_of(ch)).sum()
+}
+
+/// Display width of a single char, treating control/zero-width as 0.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+fn display_width_of(ch: char) -> usize {
+    UnicodeWidthChar::width(ch).unwrap_or(0)
+}
+
+/// Map a display column to a `(wrapped_row, wrapped_col)` within a segment
+/// table, using the end-of-line-at-final-segment rule.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+fn map_display_col_to_segment(
+    segments: Option<&Vec<(usize, usize)>>,
+    block_start: usize,
+    display_col: usize,
+    width: usize,
+) -> (usize, usize) {
+    let segs = match segments {
+        Some(s) if !s.is_empty() => s,
+        _ => {
+            let row = if display_col == 0 {
+                0
+            } else {
+                (display_col - 1) / width
+            };
+            let col = display_col - row * width;
+            return (block_start + row, col);
+        }
+    };
+    let logical_col = display_col;
+    let row = if logical_col == 0 {
+        0
+    } else {
+        (logical_col - 1) / width
+    };
+    let row = row.min(segs.len().saturating_sub(1));
+    let col = logical_col - row * width;
+    (block_start + row, col)
+}
+
 /// @pseudocode component-001 lines 1-12
 fn separator() -> String {
     "─────────────────────────────────────────".to_string()
@@ -391,163 +621,5 @@ pub fn pr_state_tag(state: PrState) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::{
-        IssueComment, PrCheck, PrCheckStatus, PrReview, PrReviewState, PrState, PullRequestDetail,
-    };
-    use crate::state::InlineState;
-
-    /// @plan PLAN-20260624-PR-MODE.P12
-    /// @requirement REQ-PR-009
-    /// @pseudocode component-001 lines 1-12
-    fn sample_detail() -> PullRequestDetail {
-        PullRequestDetail {
-            repo_owner_name: "owner/repo".to_string(),
-            number: 84,
-            title: "Add PR mode".to_string(),
-            state: PrState::Open,
-            is_draft: false,
-            author_login: "pat".to_string(),
-            created_at: "2026-06-20".to_string(),
-            updated_at: "2026-06-24".to_string(),
-            head_ref: "issue20".to_string(),
-            base_ref: "main".to_string(),
-            labels: vec!["feat".to_string()],
-            assignees: vec![],
-            milestone: None,
-            body: "Implements the PR mode UI surface.".to_string(),
-            external_url: "https://github.com/owner/repo/pull/84".to_string(),
-            review_decision: Some(PrReviewState::ReviewRequired),
-            checks_status: PrCheckStatus::Success,
-            reviews: vec![PrReview {
-                author_login: "ada".to_string(),
-                state: PrReviewState::ChangesRequested,
-                submitted_at: "2026-06-23".to_string(),
-                body: Some("please split handler".to_string()),
-            }],
-            checks: vec![PrCheck {
-                name: "ci/fmt".to_string(),
-                status: PrCheckStatus::Success,
-                conclusion: "passed".to_string(),
-                url: None,
-            }],
-            comments: vec![IssueComment {
-                comment_id: 1,
-                author_login: "pat".to_string(),
-                created_at: "2026-06-22".to_string(),
-                edited_at: None,
-                body: "ready for review".to_string(),
-            }],
-            has_more_comments: false,
-            comments_cursor: None,
-        }
-    }
-
-    /// @plan PLAN-20260624-PR-MODE.P12
-    /// @requirement REQ-PR-009
-    /// @pseudocode component-001 lines 1-12
-    #[test]
-    fn build_pr_detail_content_includes_all_section_labels() {
-        let detail = sample_detail();
-        let content = build_pr_detail_content(
-            &detail,
-            PrDetailSubfocus::Body,
-            &InlineState::None,
-            false,
-            false,
-        );
-        assert!(content.text.contains("Description"), "missing Description");
-        assert!(content.text.contains("Reviews"), "missing Reviews");
-        assert!(content.text.contains("Checks"), "missing Checks");
-        assert!(content.text.contains("Comments"), "missing Comments");
-        assert!(content.text.contains("New comment"), "missing New comment");
-        // Cursor is None for the stub.
-        assert!(content.cursor.is_none());
-    }
-
-    /// @plan PLAN-20260624-PR-MODE.P12
-    /// @requirement REQ-PR-009
-    /// @pseudocode component-001 lines 1-12
-    #[test]
-    fn build_pr_detail_content_renders_loading_state() {
-        let detail = sample_detail();
-        let content = build_pr_detail_content(
-            &detail,
-            PrDetailSubfocus::Body,
-            &InlineState::None,
-            false,
-            true,
-        );
-        assert!(
-            content.text.contains("Loading comments..."),
-            "missing loading indicator"
-        );
-    }
-
-    /// A loading PR detail surfaces a body-level loading indicator so the pane
-    /// is never silently empty while the full detail is being fetched.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P12
-    /// @requirement REQ-PR-009
-    /// @pseudocode component-001 lines 1-12
-    #[test]
-    fn build_pr_detail_content_renders_detail_loading_indicator() {
-        let mut detail = sample_detail();
-        detail.body = String::new();
-        let content = build_pr_detail_content(
-            &detail,
-            PrDetailSubfocus::Body,
-            &InlineState::None,
-            true,
-            false,
-        );
-        assert!(
-            content.text.contains("Loading pull request..."),
-            "missing detail loading indicator"
-        );
-    }
-
-    /// `pr_detail_content_line_count` must remain in lockstep with the rendered
-    /// content when the detail-loading indicator is shown, so the scroll clamp
-    /// never drifts from what is actually rendered.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P12
-    /// @requirement REQ-PR-009
-    /// @pseudocode component-001 lines 169-176
-    #[test]
-    fn pr_detail_content_line_count_matches_render_when_detail_loading() {
-        let mut detail = sample_detail();
-        detail.body = String::new();
-        let rendered = build_pr_detail_content(
-            &detail,
-            PrDetailSubfocus::Body,
-            &InlineState::None,
-            true,
-            false,
-        );
-        let count = pr_detail_content_line_count(
-            &detail,
-            PrDetailSubfocus::Body,
-            &InlineState::None,
-            true,
-            false,
-        );
-        assert_eq!(
-            count,
-            rendered.text.lines().count(),
-            "line count must match rendered content while detail loading"
-        );
-    }
-
-    /// @plan PLAN-20260624-PR-MODE.P12
-    /// @requirement REQ-PR-009
-    /// @pseudocode component-001 lines 1-12
-    #[test]
-    fn build_new_pr_comment_content_renders_composer_prompt() {
-        let inline = InlineState::None;
-        let content = build_new_pr_comment_content(&inline);
-        assert!(content.text.contains("New comment"));
-        assert!(content.text.contains("Ctrl+Enter submit | Esc cancel"));
-    }
-}
+#[path = "pr_detail_content_tests.rs"]
+mod tests;

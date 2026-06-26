@@ -268,6 +268,44 @@ fn test_parse_pr_detail_checks_summary_from_status_rollup() {
     }
 }
 
+/// MED-4: `checks_status` MUST be derived from the SAME rollup nodes as the
+/// parsed `checks` vec (no double-compute drift). We assert the parity
+/// invariant: applying `parse_checks_rollup` to the rollup nodes yields the
+/// same status the detail carries, and that status is consistent with the
+/// individual parsed checks. This guards against the two computations
+/// diverging if the rollup source ever changes between the two calls.
+///
+/// @plan PLAN-20260624-PR-MODE.P08
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 157-166
+#[test]
+fn test_parse_pr_detail_checks_status_consistent_with_parsed_checks() {
+    let result = parse_pull_request_detail_json(PR_DETAIL_JSON, "owner/repo");
+    let detail = result.value_or_panic("should parse PR detail");
+
+    // Re-extract the rollup nodes from the SAME fixture and compute the
+    // canonical status from them.
+    let value: serde_json::Value =
+        serde_json::from_str(PR_DETAIL_JSON).value_or_panic("fixture is valid JSON");
+    let nodes: Vec<serde_json::Value> = value
+        .get("statusCheckRollup")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let expected_status = parse_checks_rollup(&nodes);
+
+    assert_eq!(
+        detail.checks_status, expected_status,
+        "checks_status MUST match parse_checks_rollup over the same rollup nodes (no drift)"
+    );
+    // The number of parsed checks MUST equal the number of rollup nodes.
+    assert_eq!(
+        detail.checks.len(),
+        nodes.len(),
+        "checks vec and rollup nodes must have the same length"
+    );
+}
+
 /// @plan PLAN-20260624-PR-MODE.P07
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-013

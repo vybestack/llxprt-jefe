@@ -42,7 +42,6 @@ pub fn build_pr_comments_query(with_cursor: bool) -> String {
 }
 
 /// Build the `gh api graphql` argument vector for the PR search query.
-////// Build the `gh api graphql` argument vector for the PR search query.
 ///
 /// Mirrors `build_issue_search_args` but with a PR `... on PullRequest`
 /// field selection and the PR search-qualifier string. The `search(type:
@@ -358,7 +357,11 @@ pub fn parse_pull_request_detail_json(
         body: str_field(&value, "body"),
         external_url: str_field(&value, "url"),
         review_decision: value.get("reviewDecision").and_then(parse_review_decision),
-        checks_status: parse_checks_rollup(&rollup_nodes(value.get("statusCheckRollup"))),
+        // Reuse the already-extracted `rollup` nodes (computed once above) for
+        // the aggregate status, instead of recomputing `rollup_nodes` a second
+        // time — keeping `checks` and `checks_status` over the SAME source so
+        // they can never drift apart (MED-4).
+        checks_status: parse_checks_rollup(&rollup),
         reviews,
         checks,
         comments: Vec::new(),
