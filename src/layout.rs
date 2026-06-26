@@ -392,6 +392,74 @@ pub fn pr_list_content_width(term_cols: u16) -> u16 {
 }
 
 // -----------------------------------------------------------------------------
+// PR-mode pure display seams (REQ-PR-001, REQ-PR-012, REQ-PR-013)
+//
+// @plan PLAN-20260624-PR-MODE.P13
+// @requirement REQ-PR-001
+// @requirement REQ-PR-012
+// @requirement REQ-PR-013
+// @pseudocode component-001 lines 1-12
+//
+// Pure, iocraft-free projections of the PR-mode screen layout. The screen
+// components delegate to these so the rendered contract (sidebar width, two-
+// column split, error-banner text) is assertable without a render harness.
+// -----------------------------------------------------------------------------
+
+/// Format an error message as the banner line rendered in PR mode.
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-013
+/// @pseudocode component-001 lines 1-12
+#[must_use]
+pub fn pr_error_banner_text(msg: &str) -> String {
+    format!("Error: {msg}")
+}
+
+/// Error-banner line as rendered in PR mode (`None` when there is no error).
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-013
+/// @pseudocode component-001 lines 1-12
+#[must_use]
+pub fn pr_error_banner_line(error: Option<&str>) -> Option<String> {
+    error.map(pr_error_banner_text)
+}
+
+/// PR-mode main-row column geometry: fixed sidebar width + remaining workspace width.
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-001
+/// @pseudocode component-001 lines 1-12
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrsColumns {
+    /// Fixed sidebar width in columns (== [`PRS_SIDEBAR_WIDTH`]).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P13
+    /// @requirement REQ-PR-001
+    /// @pseudocode component-001 lines 1-12
+    pub sidebar_width: u16,
+    /// Remaining workspace width after the fixed sidebar (flex-grow column).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P13
+    /// @requirement REQ-PR-001
+    /// @pseudocode component-001 lines 1-12
+    pub workspace_width: u16,
+}
+
+/// PR-mode main-row column geometry: fixed sidebar + remaining workspace.
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-001
+/// @pseudocode component-001 lines 1-12
+#[must_use]
+pub fn prs_main_columns(term_cols: u16) -> PrsColumns {
+    PrsColumns {
+        sidebar_width: PRS_SIDEBAR_WIDTH,
+        workspace_width: term_cols.saturating_sub(PRS_SIDEBAR_WIDTH),
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Shared list-viewport / selection-follow helpers (REQ-PR-006, #54/#55)
 //
 // @plan PLAN-20260624-PR-MODE.P03

@@ -7,6 +7,150 @@ use iocraft::prelude::*;
 use crate::domain::{ChecksFilter, PrFilter, PrFilterState, ReviewDecisionFilter};
 use crate::theme::{ResolvedColors, ThemeColors};
 
+/// Projected PR filter field exactly as the component renders it (label,
+/// display value, and active highlight state). The `#[component]` delegates
+/// to a list of these so tests assert the SAME fields the component renders
+/// (REQ-PR-008).
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 1-12
+pub struct PrFilterFieldView {
+    /// Field label ("state", "draft", ...).
+    pub label: &'static str,
+    /// Display value WITHOUT brackets (e.g. "open", "any", "approved").
+    pub value: String,
+    /// Whether this field is the active (highlighted) field.
+    pub active: bool,
+}
+
+/// The display value for the state filter field (without brackets).
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 1-12
+fn state_filter_value(state: Option<PrFilterState>) -> &'static str {
+    match state {
+        None | Some(PrFilterState::Open) => "open",
+        Some(PrFilterState::Closed) => "closed",
+        Some(PrFilterState::Merged) => "merged",
+        Some(PrFilterState::All) => "all",
+    }
+}
+
+/// The display value for the draft filter field (without brackets).
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 1-12
+fn draft_filter_value(is_draft: Option<bool>) -> &'static str {
+    match is_draft {
+        None => "any",
+        Some(true) => "drafts-only",
+        Some(false) => "ready-only",
+    }
+}
+
+/// The display value for the review-decision filter field (without brackets).
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 1-12
+fn review_filter_value(review: ReviewDecisionFilter) -> &'static str {
+    match review {
+        ReviewDecisionFilter::Any => "any",
+        ReviewDecisionFilter::Approved => "approved",
+        ReviewDecisionFilter::ChangesRequested => "changes-requested",
+        ReviewDecisionFilter::ReviewRequired => "review-required",
+        ReviewDecisionFilter::None => "none",
+    }
+}
+
+/// The display value for the checks filter field (without brackets).
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 1-12
+fn checks_filter_value(checks: ChecksFilter) -> &'static str {
+    match checks {
+        ChecksFilter::Any => "any",
+        ChecksFilter::Success => "success",
+        ChecksFilter::Failing => "failing",
+        ChecksFilter::Pending => "pending",
+    }
+}
+
+/// Render `value` if non-empty, otherwise "any" (used for the text fields:
+/// author, assignee, reviewer, labels).
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 1-12
+fn text_or_any(value: &str) -> String {
+    if value.is_empty() {
+        "any".to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+/// Pure projection of the eight PR filter fields exactly as the component
+/// renders them (labels + display values + active highlighting). Returns
+/// exactly 8 entries in field order: state, draft, review, checks, author,
+/// assignee, reviewer, labels.
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 1-12
+pub fn pr_filter_field_views(
+    filter: &PrFilter,
+    draft_labels_text: &str,
+    active_index: usize,
+) -> Vec<PrFilterFieldView> {
+    vec![
+        PrFilterFieldView {
+            label: "state",
+            value: state_filter_value(filter.state).to_string(),
+            active: active_index == 0,
+        },
+        PrFilterFieldView {
+            label: "draft",
+            value: draft_filter_value(filter.is_draft).to_string(),
+            active: active_index == 1,
+        },
+        PrFilterFieldView {
+            label: "review",
+            value: review_filter_value(filter.review_decision).to_string(),
+            active: active_index == 2,
+        },
+        PrFilterFieldView {
+            label: "checks",
+            value: checks_filter_value(filter.checks_status).to_string(),
+            active: active_index == 3,
+        },
+        PrFilterFieldView {
+            label: "author",
+            value: text_or_any(&filter.author),
+            active: active_index == 4,
+        },
+        PrFilterFieldView {
+            label: "assignee",
+            value: text_or_any(&filter.assignee),
+            active: active_index == 5,
+        },
+        PrFilterFieldView {
+            label: "reviewer",
+            value: text_or_any(&filter.reviewer),
+            active: active_index == 6,
+        },
+        PrFilterFieldView {
+            label: "labels",
+            value: text_or_any(draft_labels_text),
+            active: active_index == 7,
+        },
+    ]
+}
+
 /// Props for the PR filter controls pane.
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
@@ -40,59 +184,12 @@ pub fn PrFilterControls(props: &PrFilterControlsProps) -> impl Into<AnyElement<'
     }
 
     let rc = ResolvedColors::from_theme(Some(&props.colors));
-    let idx = props.active_field_index;
 
-    let state_label = match props.draft_filter.state {
-        None | Some(PrFilterState::Open) => "open",
-        Some(PrFilterState::Closed) => "closed",
-        Some(PrFilterState::Merged) => "merged",
-        Some(PrFilterState::All) => "all",
-    };
-
-    let draft_label = match props.draft_filter.is_draft {
-        None => "any",
-        Some(true) => "drafts-only",
-        Some(false) => "ready-only",
-    };
-
-    let review_label = match props.draft_filter.review_decision {
-        ReviewDecisionFilter::Any => "any",
-        ReviewDecisionFilter::Approved => "approved",
-        ReviewDecisionFilter::ChangesRequested => "changes-requested",
-        ReviewDecisionFilter::ReviewRequired => "review-required",
-        ReviewDecisionFilter::None => "none",
-    };
-
-    let checks_label = match props.draft_filter.checks_status {
-        ChecksFilter::Any => "any",
-        ChecksFilter::Success => "success",
-        ChecksFilter::Failing => "failing",
-        ChecksFilter::Pending => "pending",
-    };
-
-    let author_val = if props.draft_filter.author.is_empty() {
-        "any".to_string()
-    } else {
-        props.draft_filter.author.clone()
-    };
-
-    let assignee_val = if props.draft_filter.assignee.is_empty() {
-        "any".to_string()
-    } else {
-        props.draft_filter.assignee.clone()
-    };
-
-    let reviewer_val = if props.draft_filter.reviewer.is_empty() {
-        "any".to_string()
-    } else {
-        props.draft_filter.reviewer.clone()
-    };
-
-    let labels_val = if props.draft_labels_text.is_empty() {
-        "any".to_string()
-    } else {
-        props.draft_labels_text.clone()
-    };
+    let fields = pr_filter_field_views(
+        &props.draft_filter,
+        &props.draft_labels_text,
+        props.active_field_index,
+    );
 
     // Active field: inverted colors (bright bg, dark fg). Inactive: normal.
     let val_color = |active: bool| if active { rc.bg } else { rc.fg };
@@ -112,41 +209,41 @@ pub fn PrFilterControls(props: &PrFilterControlsProps) -> impl Into<AnyElement<'
             // Filter values row 1: state, draft, review, checks
             Box(height: 1u32) {
                 Text(content: "Filter: ", color: rc.dim)
-                Text(content: "state:", color: label_color(idx == 0))
-                Box(background_color: val_bg(idx == 0)) {
-                    Text(content: format!("[{state_label}]"), color: val_color(idx == 0))
+                Text(content: format!("{}:", fields[0].label), color: label_color(fields[0].active))
+                Box(background_color: val_bg(fields[0].active)) {
+                    Text(content: format!("[{}]", fields[0].value), color: val_color(fields[0].active))
                 }
-                Text(content: "  draft:", color: label_color(idx == 1))
-                Box(background_color: val_bg(idx == 1)) {
-                    Text(content: format!("[{draft_label}]"), color: val_color(idx == 1))
+                Text(content: format!("  {}:", fields[1].label), color: label_color(fields[1].active))
+                Box(background_color: val_bg(fields[1].active)) {
+                    Text(content: format!("[{}]", fields[1].value), color: val_color(fields[1].active))
                 }
-                Text(content: "  review:", color: label_color(idx == 2))
-                Box(background_color: val_bg(idx == 2)) {
-                    Text(content: format!("[{review_label}]"), color: val_color(idx == 2))
+                Text(content: format!("  {}:", fields[2].label), color: label_color(fields[2].active))
+                Box(background_color: val_bg(fields[2].active)) {
+                    Text(content: format!("[{}]", fields[2].value), color: val_color(fields[2].active))
                 }
-                Text(content: "  checks:", color: label_color(idx == 3))
-                Box(background_color: val_bg(idx == 3)) {
-                    Text(content: format!("[{checks_label}]"), color: val_color(idx == 3))
+                Text(content: format!("  {}:", fields[3].label), color: label_color(fields[3].active))
+                Box(background_color: val_bg(fields[3].active)) {
+                    Text(content: format!("[{}]", fields[3].value), color: val_color(fields[3].active))
                 }
             }
             // Filter values row 2: author, assignee, reviewer, labels
             Box(height: 1u32) {
                 Text(content: "       ", color: rc.dim)
-                Text(content: "author:", color: label_color(idx == 4))
-                Box(background_color: val_bg(idx == 4)) {
-                    Text(content: format!("[{author_val}]"), color: val_color(idx == 4))
+                Text(content: format!("{}:", fields[4].label), color: label_color(fields[4].active))
+                Box(background_color: val_bg(fields[4].active)) {
+                    Text(content: format!("[{}]", fields[4].value), color: val_color(fields[4].active))
                 }
-                Text(content: "  assignee:", color: label_color(idx == 5))
-                Box(background_color: val_bg(idx == 5)) {
-                    Text(content: format!("[{assignee_val}]"), color: val_color(idx == 5))
+                Text(content: format!("  {}:", fields[5].label), color: label_color(fields[5].active))
+                Box(background_color: val_bg(fields[5].active)) {
+                    Text(content: format!("[{}]", fields[5].value), color: val_color(fields[5].active))
                 }
-                Text(content: "  reviewer:", color: label_color(idx == 6))
-                Box(background_color: val_bg(idx == 6)) {
-                    Text(content: format!("[{reviewer_val}]"), color: val_color(idx == 6))
+                Text(content: format!("  {}:", fields[6].label), color: label_color(fields[6].active))
+                Box(background_color: val_bg(fields[6].active)) {
+                    Text(content: format!("[{}]", fields[6].value), color: val_color(fields[6].active))
                 }
-                Text(content: "  labels:", color: label_color(idx == 7))
-                Box(background_color: val_bg(idx == 7)) {
-                    Text(content: format!("[{labels_val}]"), color: val_color(idx == 7))
+                Text(content: format!("  {}:", fields[7].label), color: label_color(fields[7].active))
+                Box(background_color: val_bg(fields[7].active)) {
+                    Text(content: format!("[{}]", fields[7].value), color: val_color(fields[7].active))
                 }
             }
             // Actions hint row

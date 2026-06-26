@@ -118,7 +118,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
     let detail_pane_height = u16::try_from(detail_pane_height).unwrap_or(u16::MAX);
     let list_width = crate::layout::pr_list_content_width(term_cols);
 
-    let sidebar_width = u32::from(crate::layout::PRS_SIDEBAR_WIDTH);
+    let sidebar_width = u32::from(crate::layout::prs_main_columns(term_cols).sidebar_width);
 
     // Agent chooser overlay
     let agent_chooser = state.and_then(|s| s.prs_state.agent_chooser.clone());
@@ -174,11 +174,11 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                     height: 100pct,
                 ) {
                     // Error banner (when present)
-                    #(if let Some(ref err) = error_message {
+                    #(if let Some(line) = crate::layout::pr_error_banner_line(error_message.as_deref()) {
                         vec![element! {
                             Box(height: 1u32, width: 100pct, padding_left: 1u32) {
                                 Text(
-                                    content: format!("Error: {}", err),
+                                    content: line,
                                     color: rc.bright,
                                     weight: Weight::Bold,
                                 )

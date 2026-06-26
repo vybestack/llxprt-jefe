@@ -8,16 +8,18 @@ mod agent_list;
 mod filter_controls;
 mod issue_detail;
 mod issue_list;
-mod keybind_bar;
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-012
+pub(crate) mod keybind_bar;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-006
-mod pr_detail;
+pub(crate) mod pr_detail;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-008
-mod pr_filter_controls;
+pub(crate) mod pr_filter_controls;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-006
-mod pr_list;
+pub(crate) mod pr_list;
 mod preview;
 mod scrollable_text;
 mod sidebar;
@@ -44,3 +46,7 @@ pub use scrollable_text::{ScrollableText, ScrollableTextProps};
 pub use sidebar::{Sidebar, SidebarProps};
 pub use status_bar::{StatusBar, StatusBarProps};
 pub use terminal_view::{TerminalView, TerminalViewProps};
+
+#[cfg(test)]
+#[path = "pr_render_tests.rs"]
+mod pr_render_tests;

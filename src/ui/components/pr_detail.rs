@@ -17,6 +17,60 @@ use super::scrollable_text::ScrollableText;
 /// `40`-row default the screen uses for its own terminal-size fallback.
 const DEFAULT_PR_DETAIL_TERM_ROWS: usize = 40;
 
+/// Projected PR detail header exactly as the component renders it (the four
+/// fixed metadata rows). The `#[component]` delegates to this so tests assert
+/// the SAME header the component renders (REQ-PR-009 / REQ-PR-012).
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-012
+/// @pseudocode component-001 lines 1-12
+pub struct PrDetailHeaderView {
+    /// "#number title[DRAFT]" row.
+    pub title: String,
+    /// State tag + author/created/updated row.
+    pub state: String,
+    /// "{head} -> {base}  labels: ...  assignees: ...  milestone: ..." row.
+    pub branches: String,
+    /// Display-only external URL row.
+    pub url: String,
+}
+
+/// Pure projection of the PR detail's four fixed header rows exactly as the
+/// component renders them.
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-012
+/// @pseudocode component-001 lines 1-12
+pub fn pr_detail_header_view(detail: &PullRequestDetail) -> PrDetailHeaderView {
+    let state_tag = pr_state_tag(detail.state);
+    let draft_marker = if detail.is_draft { " [DRAFT]" } else { "" };
+    let labels_str = if detail.labels.is_empty() {
+        "-".to_string()
+    } else {
+        detail.labels.join(", ")
+    };
+    let assignees_str = if detail.assignees.is_empty() {
+        "-".to_string()
+    } else {
+        detail.assignees.join(", ")
+    };
+    let milestone_str = detail.milestone.as_deref().unwrap_or("-").to_string();
+    PrDetailHeaderView {
+        title: format!("#{} {}{}", detail.number, detail.title, draft_marker),
+        state: format!(
+            "{}  author: {}  created: {}  updated: {}",
+            state_tag, detail.author_login, detail.created_at, detail.updated_at
+        ),
+        branches: format!(
+            "{} -> {}  labels: {}  assignees: {}  milestone: {}",
+            detail.head_ref, detail.base_ref, labels_str, assignees_str, milestone_str
+        ),
+        url: detail.external_url.clone(),
+    }
+}
+
 /// Props for the PR detail view.
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
@@ -75,35 +129,16 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
 
     let (h_title, h_state, h_branches, h_url, detail_content, state_color) =
         if let Some(detail) = props.detail.as_ref() {
-            let state_tag = pr_state_tag(detail.state);
             let sc = match detail.state {
                 crate::domain::PrState::Open => rc.bright,
                 crate::domain::PrState::Closed | crate::domain::PrState::Merged => rc.dim,
             };
-            let draft_marker = if detail.is_draft { " [DRAFT]" } else { "" };
-            let labels_str = if detail.labels.is_empty() {
-                "-".to_string()
-            } else {
-                detail.labels.join(", ")
-            };
-            let assignees_str = if detail.assignees.is_empty() {
-                "-".to_string()
-            } else {
-                detail.assignees.join(", ")
-            };
-            let milestone_str = detail.milestone.as_deref().unwrap_or("-").to_string();
-
+            let header = pr_detail_header_view(detail);
             (
-                format!("#{} {}{}", detail.number, detail.title, draft_marker),
-                format!(
-                    "{}  author: {}  created: {}  updated: {}",
-                    state_tag, detail.author_login, detail.created_at, detail.updated_at
-                ),
-                format!(
-                    "{} -> {}  labels: {}  assignees: {}  milestone: {}",
-                    detail.head_ref, detail.base_ref, labels_str, assignees_str, milestone_str
-                ),
-                detail.external_url.clone(),
+                header.title,
+                header.state,
+                header.branches,
+                header.url,
                 build_pr_detail_content(
                     detail,
                     props.subfocus,
