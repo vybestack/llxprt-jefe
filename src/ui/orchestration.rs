@@ -7,7 +7,7 @@ use iocraft::prelude::*;
 
 use crate::state::{AppState, ModalState, ScreenMode};
 use crate::theme::ThemeColors;
-use crate::ui::screens::IssuesScreen;
+use crate::ui::screens::{IssuesScreen, PullRequestsScreen};
 use crate::ui::{ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen};
 
 /// Data needed to render a confirmation modal.
@@ -104,10 +104,16 @@ pub fn build_screen_element(
             )
         }
         .into_any(),
-        // @plan PLAN-20260624-PR-MODE.P03
+        // @plan PLAN-20260624-PR-MODE.P12
         // @requirement REQ-PR-001
-        // P03 placeholder — P12 replaces this with the real PullRequestsScreen.
-        ScreenMode::DashboardPullRequests => element! { Box {} }.into_any(),
+        ScreenMode::DashboardPullRequests => element! {
+            PullRequestsScreen(
+                state: Some(snapshot.clone()),
+                colors: Some(colors.clone()),
+                theme_name: theme_name.to_owned(),
+            )
+        }
+        .into_any(),
     }
 }
 

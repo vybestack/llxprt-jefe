@@ -36,10 +36,11 @@ pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
             ScreenMode::DashboardIssues => {
                 "^/v navigate | Enter open detail | n new issue | f filter | / search | Tab cycle focus | i issue list | r reply | S send-to-agent | e edit | c comment | a exit issues | Esc back/exit"
             }
-            // @plan PLAN-20260624-PR-MODE.P03
+            // @plan PLAN-20260624-PR-MODE.P12
             // @requirement REQ-PR-001
-            // P03 placeholder hint — P14 renders the real keybinds.
-            ScreenMode::DashboardPullRequests => "p PR mode | Esc back/exit",
+            ScreenMode::DashboardPullRequests => {
+                "^/v navigate | Enter open detail | f filter | / search | Tab cycle focus | p PR list | r reply | S send-to-agent | e edit | c comment | o open in browser | a exit | Esc back/exit"
+            }
         }
     };
 

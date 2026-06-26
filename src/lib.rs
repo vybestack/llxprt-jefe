@@ -12,6 +12,9 @@ pub mod layout;
 pub mod logging;
 pub mod messages;
 pub mod persistence;
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-009
+pub mod pr_detail_content;
 pub mod runtime;
 pub mod services;
 pub mod startup;

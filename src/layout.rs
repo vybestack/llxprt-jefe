@@ -304,6 +304,94 @@ pub fn issue_list_content_width(term_cols: u16) -> u16 {
 }
 
 // -----------------------------------------------------------------------------
+// PR-mode pane layout (REQ-PR-006, REQ-PR-009)
+//
+// @plan PLAN-20260624-PR-MODE.P12
+// @requirement REQ-PR-006
+// @requirement REQ-PR-009
+// @pseudocode component-001 lines 1-12
+//
+// PR mode mirrors Issues mode geometry (same 30/70 band math, same sidebar
+// width, same header-row count). The PR-named wrappers exist so the PR render
+// path depends on PR-named layout props (regression guard #37/#39: viewport
+// height and pane rows are props, never recomputed independently inside
+// components).
+// -----------------------------------------------------------------------------
+
+/// Fixed width of the repository sidebar in PR mode (mirrors Issues mode).
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-006
+/// @pseudocode component-001 lines 1-12
+pub const PRS_SIDEBAR_WIDTH: u16 = LEFT_COL_WIDTH;
+
+/// Number of fixed rows the PR detail metadata header occupies.
+///
+/// The header renders exactly five rows (mirroring the issue detail header so
+/// the geometry matches `prs_detail_viewport_rows`):
+/// 1. title (`#<number> <title>`),
+/// 2. state/author/timestamps,
+/// 3. branch refs + labels/assignees/milestone,
+/// 4. external URL,
+/// 5. a horizontal rule separator.
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+pub const PR_DETAIL_HEADER_ROWS: usize = DETAIL_HEADER_ROWS;
+
+/// Horizontal chrome consumed by the PR list pane border (mirrors issue list).
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-006
+/// @pseudocode component-001 lines 1-12
+pub const PR_LIST_CHROME_COLS: u16 = ISSUE_LIST_CHROME_COLS;
+
+/// Compute the rows allocated to the PR-mode list and detail panes.
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-006
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+///
+/// PR mode reuses the same conditional bands as Issues mode (an optional error
+/// banner and the filter-controls band), so the geometry is identical. This
+/// thin named wrapper exists so PR-mode pane sizing depends on a PR-named
+/// layout prop (regression guard #37/#39).
+#[must_use]
+pub fn prs_pane_rows(
+    term_rows: usize,
+    error_visible: bool,
+    filter_controls_open: bool,
+) -> (usize, usize) {
+    issues_pane_rows(term_rows, error_visible, filter_controls_open)
+}
+
+/// Compute the rows allocated to the PR-mode detail pane.
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[must_use]
+pub fn prs_detail_pane_rows(
+    term_rows: usize,
+    error_visible: bool,
+    filter_controls_open: bool,
+) -> usize {
+    prs_pane_rows(term_rows, error_visible, filter_controls_open).1
+}
+
+/// Compute inner content width for PR-list title lines.
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-006
+/// @pseudocode component-001 lines 1-12
+#[must_use]
+pub fn pr_list_content_width(term_cols: u16) -> u16 {
+    term_cols.saturating_sub(PRS_SIDEBAR_WIDTH + PR_LIST_CHROME_COLS)
+}
+
+// -----------------------------------------------------------------------------
 // Shared list-viewport / selection-follow helpers (REQ-PR-006, #54/#55)
 //
 // @plan PLAN-20260624-PR-MODE.P03
@@ -538,6 +626,44 @@ mod tests {
     fn issue_list_content_width_excludes_sidebar_and_border() {
         assert_eq!(issue_list_content_width(120), 96);
         assert_eq!(issue_list_content_width(10), 0);
+    }
+
+    /// @plan PLAN-20260624-PR-MODE.P12
+    /// @requirement REQ-PR-006
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-001 lines 1-12
+    #[test]
+    fn prs_pane_rows_match_issues_band_geometry() {
+        for (rows, error_visible, filter_open) in [
+            (40, false, false),
+            (40, true, false),
+            (40, false, true),
+            (40, true, true),
+            (8, true, true),
+        ] {
+            assert_eq!(
+                prs_pane_rows(rows, error_visible, filter_open),
+                issues_pane_rows(rows, error_visible, filter_open),
+                "PR pane rows must reuse the shared band geometry"
+            );
+            assert_eq!(
+                prs_detail_pane_rows(rows, error_visible, filter_open),
+                prs_pane_rows(rows, error_visible, filter_open).1,
+                "PR detail pane rows must equal the detail half of prs_pane_rows"
+            );
+        }
+    }
+
+    /// @plan PLAN-20260624-PR-MODE.P12
+    /// @requirement REQ-PR-006
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-001 lines 1-12
+    #[test]
+    fn pr_layout_constants_match_issues_geometry() {
+        assert_eq!(PRS_SIDEBAR_WIDTH, LEFT_COL_WIDTH);
+        assert_eq!(PR_DETAIL_HEADER_ROWS, DETAIL_HEADER_ROWS);
+        assert_eq!(pr_list_content_width(120), issue_list_content_width(120));
+        assert_eq!(pr_list_content_width(10), 0);
     }
 
     // -------------------------------------------------------------------------
