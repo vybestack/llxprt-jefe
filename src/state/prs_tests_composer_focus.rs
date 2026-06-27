@@ -85,6 +85,55 @@ fn make_comment(id: u64, author: &str) -> IssueComment {
     }
 }
 
+/// Compute the caret's absolute rendered line the SAME way the renderer and the
+/// scroll-follow logic do (same `build_pr_detail_content` + `wrap_width` source),
+/// so tests can assert the caret stays inside the visible window.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+fn composer_caret_line(state: &AppState) -> usize {
+    let detail = state
+        .prs_state
+        .pr_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("detail should exist"));
+    let content = crate::pr_detail_content::build_pr_detail_content(
+        detail,
+        state.prs_state.detail_subfocus,
+        &state.prs_state.inline_state,
+        state.prs_state.loading.detail,
+        state.prs_state.loading.comments,
+        crate::state::prs_inline_ops::wrap_width_from_state(state.prs_state.detail_content_width),
+    );
+    content
+        .cursor
+        .unwrap_or_else(|| panic!("composer must expose a caret while moving"))
+        .0
+}
+
+/// Apply `event` `steps` times, asserting after each step that the caret is
+/// still within the visible viewport `[offset, offset + viewport_rows)`.
+/// Returns the final scroll offset so callers can assert directional movement.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+fn walk_caret_asserting_visible(mut state: AppState, event: AppEvent, steps: usize) -> AppState {
+    for _ in 0..steps {
+        state = state.apply(event.clone());
+        let cursor_line = composer_caret_line(&state);
+        let offset = state.prs_state.detail_scroll_offset;
+        let viewport = state.prs_state.detail_viewport_rows;
+        assert!(
+            cursor_line >= offset && cursor_line < offset + viewport,
+            "caret line {cursor_line} must stay within viewport [{offset}, {})",
+            offset + viewport
+        );
+    }
+    state
+}
+
 /// PrOpenNewCommentComposer must set inline_state to Composer(NewComment) AND
 /// move detail_subfocus to NewComment (#56).
 ///
@@ -613,7 +662,7 @@ fn test_composer_typing_follows_caret_below_viewport() {
         &state.prs_state.inline_state,
         state.prs_state.loading.detail,
         state.prs_state.loading.comments,
-        None,
+        crate::state::prs_inline_ops::wrap_width_from_state(state.prs_state.detail_content_width),
     );
     let (cursor_line, _col) = content
         .cursor
@@ -669,7 +718,9 @@ fn test_composer_backspace_keeps_caret_visible() {
             &state.prs_state.inline_state,
             state.prs_state.loading.detail,
             state.prs_state.loading.comments,
-            None,
+            crate::state::prs_inline_ops::wrap_width_from_state(
+                state.prs_state.detail_content_width,
+            ),
         );
         let (cursor_line, _col) = content
             .cursor
@@ -732,5 +783,55 @@ fn test_composer_typing_follows_caret_across_wrapped_lines() {
         "wrapped caret line {cursor_line} must stay within viewport \
          [{offset}, {})",
         offset + viewport
+    );
+}
+
+/// Moving the caret with CursorLeft / CursorRight (not just inserting text)
+/// must also trigger viewport follow. After typing a tall composer the caret
+/// sits at the bottom with a non-zero scroll offset; walking it back to the
+/// top with CursorLeft must pull the viewport up so the caret stays visible,
+/// and walking back down with CursorRight must push it down again.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn test_composer_cursor_left_right_follows_caret() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    state.prs_state.detail_viewport_rows = 4;
+    let mut state = state.apply(AppEvent::PrOpenNewCommentComposer);
+
+    // Build a tall composer so the caret ends at the bottom (offset > 0).
+    for line in 0..10 {
+        for ch in format!("row {line}").chars() {
+            state = state.apply(AppEvent::PrInlineChar(ch));
+        }
+        state = state.apply(AppEvent::PrInlineNewline);
+    }
+    let bottom_offset = state.prs_state.detail_scroll_offset;
+    assert!(
+        bottom_offset > 0,
+        "precondition: a tall composer should have scrolled the viewport down"
+    );
+
+    // Walk the caret back toward the start of the composer with CursorLeft; the
+    // caret must remain inside the viewport on every step (forcing the offset
+    // up toward the composer's first rendered line).
+    state = walk_caret_asserting_visible(state, AppEvent::PrInlineCursorLeft, 120);
+    let top_offset = state.prs_state.detail_scroll_offset;
+    assert!(
+        top_offset < bottom_offset,
+        "walking the caret to the composer start must pull the viewport up \
+         (offset {top_offset} should be below the bottom offset {bottom_offset})"
+    );
+
+    // Walk it forward again with CursorRight; the offset must grow back so the
+    // caret stays visible as it descends past the viewport bottom.
+    state = walk_caret_asserting_visible(state, AppEvent::PrInlineCursorRight, 120);
+    assert!(
+        state.prs_state.detail_scroll_offset > top_offset,
+        "walking the caret back to the bottom must scroll the viewport down again \
+         (offset {} should exceed the top offset {top_offset})",
+        state.prs_state.detail_scroll_offset
     );
 }
