@@ -186,6 +186,51 @@ impl AppState {
         }
     }
 
+    /// Move the cursor to the previous logical line, preserving the character
+    /// column where possible. On the first logical line the caret moves to
+    /// byte 0. Column clamps to the target line's char length. All math is
+    /// saturating and respects UTF-8 char boundaries.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P14
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 44-50
+    fn pr_move_inline_cursor_up(inline_state: &mut InlineState) {
+        let Some((text, cursor)) = Self::pr_active_inline_text(inline_state) else {
+            return;
+        };
+        *cursor = prev_line_byte_offset(text, *cursor);
+    }
+
+    /// Move the cursor to the next logical line, preserving the character
+    /// column where possible. On the last logical line the caret moves to
+    /// `text.len()`. Column clamps to the target line's char length.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P14
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 44-50
+    fn pr_move_inline_cursor_down(inline_state: &mut InlineState) {
+        let Some((text, cursor)) = Self::pr_active_inline_text(inline_state) else {
+            return;
+        };
+        *cursor = next_line_byte_offset(text, *cursor);
+    }
+
+    /// Delete the character AT the cursor (forward delete). The cursor stays
+    /// in place. No-op when the cursor is at end of text. Respects UTF-8
+    /// boundaries via the next char's `len_utf8`.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P14
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 44-50
+    fn pr_delete_inline_next_char(inline_state: &mut InlineState) {
+        if let Some((text, cursor)) = Self::pr_active_inline_text(inline_state)
+            && *cursor < text.len()
+        {
+            let next = text[*cursor..].chars().next().map_or(0, char::len_utf8);
+            text.drain(*cursor..(*cursor + next));
+        }
+    }
+
     /// Open the new-comment composer (sets subfocus to NewComment + follow viewport).
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
@@ -309,7 +354,18 @@ impl AppState {
                 Self::pr_delete_inline_previous_char(&mut self.prs_state.inline_state);
                 self.scroll_pr_detail_to_cursor();
             }
-            PrInlineMsg::Delete | PrInlineMsg::CursorUp | PrInlineMsg::CursorDown => {}
+            PrInlineMsg::Delete => {
+                Self::pr_delete_inline_next_char(&mut self.prs_state.inline_state);
+                self.scroll_pr_detail_to_cursor();
+            }
+            PrInlineMsg::CursorUp => {
+                Self::pr_move_inline_cursor_up(&mut self.prs_state.inline_state);
+                self.scroll_pr_detail_to_cursor();
+            }
+            PrInlineMsg::CursorDown => {
+                Self::pr_move_inline_cursor_down(&mut self.prs_state.inline_state);
+                self.scroll_pr_detail_to_cursor();
+            }
             PrInlineMsg::CursorLeft => {
                 Self::pr_move_inline_cursor_left(&mut self.prs_state.inline_state);
                 self.scroll_pr_detail_to_cursor();
@@ -371,4 +427,101 @@ impl AppState {
             self.prs_state.inline_state = InlineState::None;
         }
     }
+}
+
+/// Split `text` into logical lines by '\n' and return `(line_index, byte_start
+/// of line, char column within the line)` for the byte cursor, clamped to a
+/// UTF-8 char boundary.
+///
+/// `byte_cursor` is clamped to `text.len()` then walked down to the nearest
+/// char boundary so a mid-codepoint offset cannot panic the slice.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 44-50
+fn cursor_line_info(text: &str, byte_cursor: usize) -> (usize, usize, usize) {
+    let clamped = byte_cursor.min(text.len());
+    let mut boundary = clamped;
+    while boundary > 0 && !text.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    let before = &text[..boundary];
+    let line_idx = before.matches('\n').count();
+    let line_start = before.rfind('\n').map_or(0, |p| p + 1);
+    let col = before[line_start..].chars().count();
+    (line_idx, line_start, col)
+}
+
+/// Byte offset of the start of a given logical line index (0-based), counting
+/// '\n' separators. Returns `text.len()` for a line index past the end.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 44-50
+fn line_start_byte(text: &str, line_index: usize) -> usize {
+    if line_index == 0 {
+        return 0;
+    }
+    let mut start = 0usize;
+    let mut current = 0usize;
+    for (i, ch) in text.char_indices() {
+        if current == line_index {
+            return start;
+        }
+        if ch == '\n' {
+            start = i + 1;
+            current += 1;
+        }
+    }
+    start.max(text.len())
+}
+
+/// Walk `target_col` chars into the line starting at `line_start` and return
+/// the resulting byte offset (clamped to the line's end / next '\n').
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 44-50
+fn col_byte_within_line(text: &str, line_start: usize, target_col: usize) -> usize {
+    let mut byte = line_start;
+    for (col, (i, ch)) in text[line_start..].char_indices().enumerate() {
+        if col >= target_col || ch == '\n' {
+            return line_start + i;
+        }
+        byte = line_start + i + ch.len_utf8();
+    }
+    byte.min(text.len())
+}
+
+/// Compute the target byte offset when moving the cursor UP one logical line,
+/// preserving the character column (clamped to the previous line's length).
+/// On the first logical line, returns 0.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 44-50
+fn prev_line_byte_offset(text: &str, byte_cursor: usize) -> usize {
+    let (line_idx, _line_start, col) = cursor_line_info(text, byte_cursor);
+    if line_idx == 0 {
+        return 0;
+    }
+    let prev_start = line_start_byte(text, line_idx - 1);
+    col_byte_within_line(text, prev_start, col)
+}
+
+/// Compute the target byte offset when moving the cursor DOWN one logical line,
+/// preserving the character column (clamped to the next line's length).
+/// On the last logical line, returns `text.len()`.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 44-50
+fn next_line_byte_offset(text: &str, byte_cursor: usize) -> usize {
+    let (line_idx, _line_start, col) = cursor_line_info(text, byte_cursor);
+    let next_start = line_start_byte(text, line_idx + 1);
+    // If next_start is at/past end-of-text there is no next line -> go to end.
+    if next_start >= text.len() {
+        return text.len();
+    }
+    col_byte_within_line(text, next_start, col)
 }

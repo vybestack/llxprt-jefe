@@ -616,3 +616,219 @@ fn wrapped_lines_never_exceed_display_width() {
         assert!(dw <= 5, "segment {i} display width {dw} exceeds 5: {seg:?}");
     }
 }
+
+// ── DEFECT 3: hanging indent on wrapped continuation lines (#20) ──────
+
+/// A comment-body line (4-space indent) that wraps must give continuation
+/// rows a HANGING INDENT equal to the leading prefix, NOT start at column 0.
+/// Regression: "comments don't wrap and just go off the screen".
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[test]
+fn wrapped_comment_body_continuation_has_hanging_indent() {
+    // "    abcdefghij" — 4-space indent + 10 chars. At width 8 the body wraps.
+    let lines = vec!["    abcdefghij".to_string()];
+    let (wrapped, _mapped) = wrap_lines(&lines, None, 8);
+    assert!(
+        wrapped.len() >= 2,
+        "line must wrap into at least 2 rows at width 8"
+    );
+    // Continuation row must START with the 4-space hanging indent.
+    assert!(
+        wrapped[1].starts_with("    "),
+        "continuation row must start with the 4-space hanging indent, got: {:?}",
+        wrapped[1]
+    );
+}
+
+/// A composer-gutter line (`"  │ "`) that wraps must align continuation rows
+/// under the text (plain spaces of equal width), NOT lose the indent and NOT
+/// re-render the bar.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[test]
+fn wrapped_composer_gutter_continuation_aligned_without_bar() {
+    // "  │ abcdefghij" — gutter "  │ " (4 display cols) + 10 chars.
+    let lines = vec!["  │ abcdefghij".to_string()];
+    let (wrapped, _mapped) = wrap_lines(&lines, None, 8);
+    assert!(
+        wrapped.len() >= 2,
+        "composer line must wrap into at least 2 rows at width 8"
+    );
+    // First row keeps the original gutter.
+    assert!(
+        wrapped[0].starts_with("  │ "),
+        "first row must keep the original gutter, got: {:?}",
+        wrapped[0]
+    );
+    // Continuation row must be 4 plain spaces (no bar), aligned under the text.
+    let cont = &wrapped[1];
+    assert!(
+        cont.starts_with("    ") && !cont.contains('│'),
+        "continuation row must be 4 plain spaces (no bar), got: {cont:?}"
+    );
+}
+
+/// A reply-composer gutter (`"    │ "`, 6 display cols) must align
+/// continuation rows under the text with 6 plain spaces.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[test]
+fn wrapped_reply_gutter_continuation_aligned_without_bar() {
+    // "    │ abcdefghij" — gutter "    │ " (6 display cols) + 10 chars.
+    let lines = vec!["    │ abcdefghij".to_string()];
+    let (wrapped, _mapped) = wrap_lines(&lines, None, 10);
+    assert!(
+        wrapped.len() >= 2,
+        "reply line must wrap into at least 2 rows at width 10"
+    );
+    let cont = &wrapped[1];
+    assert!(
+        cont.starts_with("      ") && !cont.contains('│'),
+        "continuation row must be 6 plain spaces (no bar), got: {cont:?}"
+    );
+}
+
+/// Hanging-indent cursor remap: the caret column already INCLUDES the prefix.
+/// A caret at the end of a wrapped composer line must land on the correct
+/// (row, col) accounting for the prefix on row 0 and the continuation indent
+/// on later rows.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[test]
+fn hanging_indent_cursor_remap_accounts_for_prefix() {
+    // "  │ abcdefgh" — gutter "  │ " (4 cols) + "abcdefgh" (8). width=8.
+    // The content "abcdefgh" wraps: row0 = "  │ abcd", row1 = "    efgh".
+    // Caret at col 12 (end of text) -> row1, col 8 (4 indent + 4 content).
+    let lines = vec!["  │ abcdefgh".to_string()];
+    let cursor = Some((0usize, 12usize));
+    let (wrapped, mapped) = wrap_lines(&lines, cursor, 8);
+    assert_eq!(wrapped.len(), 2, "must wrap into 2 rows");
+    assert_eq!(wrapped[0], "  │ abcd");
+    assert_eq!(wrapped[1], "    efgh");
+    assert_eq!(
+        mapped,
+        Some((1, 8)),
+        "caret at col 12 must map to (row 1, col 8): 4 indent + 4 content"
+    );
+}
+
+/// A caret mid-content on a wrapped row must map correctly.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[test]
+fn hanging_indent_cursor_mid_content_maps_correctly() {
+    // "  │ abcdefgh" — width=8. row0 = "  │ abcd", row1 = "    efgh".
+    // Caret at col 6 (between 'b' and 'c' in content) -> row0, col 6.
+    let lines = vec!["  │ abcdefgh".to_string()];
+    let cursor = Some((0usize, 6usize));
+    let (_wrapped, mapped) = wrap_lines(&lines, cursor, 8);
+    assert_eq!(
+        mapped,
+        Some((0, 6)),
+        "caret at col 6 on row 0 must map to (row 0, col 6)"
+    );
+}
+
+/// A line with no indent (plain text) still wraps with no hanging indent
+/// (regression: don't add indent where there is none).
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[test]
+fn wrapped_plain_line_has_no_hanging_indent() {
+    let lines = vec!["abcdefghij".to_string()];
+    let (wrapped, _mapped) = wrap_lines(&lines, None, 4);
+    assert_eq!(wrapped.len(), 3, "10 chars at width 4 -> 3 rows");
+    assert_eq!(wrapped[0], "abcd");
+    assert_eq!(wrapped[1], "efgh");
+    assert_eq!(wrapped[2], "ij");
+}
+
+/// Hanging-indent lines must not exceed the wrap width in DISPLAY width.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[test]
+fn hanging_indent_lines_never_exceed_display_width() {
+    use unicode_width::UnicodeWidthStr;
+    let lines = vec!["    │ abcdefghijklmnopqrstuvwxyz".to_string()];
+    let (wrapped, _mapped) = wrap_lines(&lines, None, 12);
+    for (i, seg) in wrapped.iter().enumerate() {
+        let dw = UnicodeWidthStr::width(seg.as_str());
+        assert!(
+            dw <= 12,
+            "hanging-indent segment {i} display width {dw} exceeds 12: {seg:?}"
+        );
+    }
+}
+
+/// A caret at the very start of a hanging-indent line (col 0, before the
+/// prefix) must map to (row 0, col 0) — NOT be snapped to the end of the
+/// prefix. Guards the `display_col <= prefix_dw` early-return in `remap_cursor`.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[test]
+fn hanging_indent_cursor_at_line_start_maps_to_col_zero() {
+    // "  │ abcdefgh" — gutter "  │ " (4 cols). width=8 wraps content into 2 rows.
+    let lines = vec!["  │ abcdefgh".to_string()];
+    let cursor = Some((0usize, 0usize));
+    let (_wrapped, mapped) = wrap_lines(&lines, cursor, 8);
+    assert_eq!(
+        mapped,
+        Some((0, 0)),
+        "caret at col 0 must stay at (row 0, col 0), not snap to prefix end"
+    );
+}
+
+/// A caret INSIDE the hanging prefix (e.g. col 2, between the leading spaces
+/// and the gutter bar) must map to its literal column on row 0, not be clamped
+/// to the prefix end.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[test]
+fn hanging_indent_cursor_inside_prefix_maps_to_literal_col() {
+    let lines = vec!["  │ abcdefgh".to_string()];
+    let cursor = Some((0usize, 2usize));
+    let (_wrapped, mapped) = wrap_lines(&lines, cursor, 8);
+    assert_eq!(
+        mapped,
+        Some((0, 2)),
+        "caret inside the prefix must map to its literal (row 0, col 2)"
+    );
+}
+
+/// A caret exactly at the end of the hanging prefix (col == prefix display
+/// width) must map to (row 0, prefix_dw) — the first content column on row 0.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[test]
+fn hanging_indent_cursor_at_prefix_end_maps_to_first_content_col() {
+    // Prefix "  │ " has display width 4.
+    let lines = vec!["  │ abcdefgh".to_string()];
+    let cursor = Some((0usize, 4usize));
+    let (_wrapped, mapped) = wrap_lines(&lines, cursor, 8);
+    assert_eq!(
+        mapped,
+        Some((0, 4)),
+        "caret at the prefix end must map to (row 0, col 4)"
+    );
+}

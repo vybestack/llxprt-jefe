@@ -51,6 +51,14 @@ pub use terminal_view::{TerminalView, TerminalViewProps};
 #[path = "pr_render_tests.rs"]
 mod pr_render_tests;
 
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 1-12
+#[cfg(test)]
+#[path = "pr_detail_render_tests.rs"]
+mod pr_detail_render_tests;
+
 #[cfg(test)]
 #[path = "pr_render_screen_tests.rs"]
 mod pr_render_screen_tests;

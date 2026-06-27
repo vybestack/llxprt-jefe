@@ -216,6 +216,7 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
                     content: detail_content.text,
                     scroll_offset: props.scroll_offset,
                     viewport_rows: scroll_rows,
+                    max_line_width: props.detail_content_width,
                     cursor_line: detail_content.cursor.map(|(l, _)| l),
                     cursor_col: detail_content.cursor.map(|(_, c)| c),
                     color: rc.fg,

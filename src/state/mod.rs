@@ -940,6 +940,13 @@ mod prs_tests_repo_nav;
 #[path = "prs_tests_composer_focus.rs"]
 mod prs_tests_composer_focus;
 
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 44-50
+#[cfg(test)]
+#[path = "prs_tests_cursor_arrows.rs"]
+mod prs_tests_cursor_arrows;
+
 #[cfg(test)]
 #[path = "prs_tests_detail_flow.rs"]
 mod prs_tests_detail_flow;
