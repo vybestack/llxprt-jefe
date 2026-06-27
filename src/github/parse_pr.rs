@@ -243,7 +243,7 @@ fn parse_pr_from_node(node: &Value) -> PullRequest {
 /// accepting BOTH transports:
 /// - `gh pr view --json`: a flat array of CheckRun/StatusContext entries.
 /// - `gh api graphql`: a `contexts.nodes` connection.
-fn rollup_nodes(rollup: Option<&Value>) -> Vec<Value> {
+pub fn rollup_nodes(rollup: Option<&Value>) -> Vec<Value> {
     let Some(value) = rollup else {
         return Vec::new();
     };

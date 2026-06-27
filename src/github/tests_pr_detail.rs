@@ -17,7 +17,7 @@ use crate::github::{
     GhClient, GhError, PrSendPayload, build_pr_comments_query, categorize_error,
     parse_check_status, parse_checks_rollup, parse_comments_json, parse_created_comment_json,
     parse_pr_check, parse_pr_review, parse_pr_state, parse_pull_request_detail_json,
-    parse_pull_requests_json, parse_review_decision, sort_pull_requests,
+    parse_pull_requests_json, parse_review_decision, rollup_nodes, sort_pull_requests,
 };
 use serde_json::json;
 
@@ -287,11 +287,10 @@ fn test_parse_pr_detail_checks_status_consistent_with_parsed_checks() {
     // canonical status from them.
     let value: serde_json::Value =
         serde_json::from_str(PR_DETAIL_JSON).value_or_panic("fixture is valid JSON");
-    let nodes: Vec<serde_json::Value> = value
-        .get("statusCheckRollup")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    // Normalize via the SAME helper production uses (`rollup_nodes`) so this
+    // no-drift guard exercises the connection-shape normalization the MED-4
+    // fix relies on, not just the flat-array fixture coincidence.
+    let nodes = rollup_nodes(value.get("statusCheckRollup"));
     let expected_status = parse_checks_rollup(&nodes);
 
     assert_eq!(

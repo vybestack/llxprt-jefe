@@ -239,7 +239,14 @@ fn pr_detail_load_panic_event(params: &PrDetailLoadParams, message: String) -> A
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-003
 /// @pseudocode component-004 lines 119-126
-pub(super) fn selected_pr_still_matches(state: &jefe::state::AppState, pr_number: u64) -> bool {
+pub(super) fn selected_pr_still_matches(
+    state: &jefe::state::AppState,
+    scope_repo_id: &RepositoryId,
+    pr_number: u64,
+) -> bool {
+    if &current_pr_scope_repo_id(state) != scope_repo_id {
+        return false;
+    }
     state
         .prs_state
         .selected_pr_index
@@ -256,7 +263,8 @@ pub(super) fn selected_pr_still_matches(state: &jefe::state::AppState, pr_number
 /// @pseudocode component-004 lines 119-126
 fn build_pr_preview_for_selection(
     state: &jefe::state::AppState,
-) -> Option<(u64, jefe::domain::PullRequestDetail)> {
+) -> Option<(RepositoryId, u64, jefe::domain::PullRequestDetail)> {
+    let scope_repo_id = current_pr_scope_repo_id(state);
     let pr = state
         .prs_state
         .selected_pr_index
@@ -301,7 +309,7 @@ fn build_pr_preview_for_selection(
         has_more_comments: false,
         comments_cursor: None,
     };
-    Some((pr.number, detail))
+    Some((scope_repo_id, pr.number, detail))
 }
 
 /// Build a lightweight PR detail preview from list data (no I/O).
@@ -317,12 +325,14 @@ pub(super) fn preview_pr_from_list(app_state: &mut AppStateHandle) {
         build_pr_preview_for_selection(&state)
     };
 
-    if let Some((preview_pr_number, detail)) = preview {
+    if let Some((preview_scope_repo_id, preview_pr_number, detail)) = preview {
         let mut state = app_state.write();
         // TOCTOU re-validation: between the read lock above and this write lock,
         // the selection could have changed. Only apply the preview if the
-        // selection STILL points at the same PR number the preview was built for.
-        if !selected_pr_still_matches(&state, preview_pr_number) {
+        // selection STILL points at the same repository AND PR number the
+        // preview was built for — a different repo with the same PR number must
+        // not receive another repo's stale preview.
+        if !selected_pr_still_matches(&state, &preview_scope_repo_id, preview_pr_number) {
             return;
         }
         state.prs_state.pr_detail = Some(detail);
@@ -336,6 +346,22 @@ pub(super) fn preview_pr_from_list(app_state: &mut AppStateHandle) {
 }
 
 // ── PR send-to-agent prompt formatting ────────────────────────────────────
+
+/// Write an UNTRUSTED content block between BEGIN/END markers, prefixing every
+/// line with `> ` so the content cannot emit a literal closing-delimiter line
+/// and escape the block to impersonate prompt instructions (MED-7).
+///
+/// @plan PLAN-20260624-PR-MODE.P11
+/// @requirement REQ-PR-011
+/// @pseudocode component-003 lines 176-187
+fn write_untrusted_block(out: &mut String, label: &str, content: &str) {
+    use std::fmt::Write;
+    let _ = writeln!(out, "----- BEGIN UNTRUSTED {label} -----");
+    for line in content.lines() {
+        let _ = writeln!(out, "> {line}");
+    }
+    let _ = writeln!(out, "----- END UNTRUSTED {label} -----");
+}
 
 /// Format a `PrSendPayload` into a markdown PR prompt for the agent.
 /// Mirrors `format_issue_prompt`.
@@ -373,9 +399,7 @@ pub(super) fn format_pr_prompt(payload: &PrSendPayload) -> String {
     // Instructions section or impersonate prompt directives (MED-7).
     let _ = writeln!(out, "## Body");
     let _ = writeln!(out);
-    let _ = writeln!(out, "----- BEGIN UNTRUSTED PR BODY -----");
-    let _ = writeln!(out, "{}", payload.pr_body);
-    let _ = writeln!(out, "----- END UNTRUSTED PR BODY -----");
+    write_untrusted_block(&mut out, "PR BODY", &payload.pr_body);
 
     if let Some(comment) = &payload.focused_comment {
         let _ = writeln!(out);
@@ -387,9 +411,7 @@ pub(super) fn format_pr_prompt(payload: &PrSendPayload) -> String {
         let _ = writeln!(out);
         // The focused comment is also UNTRUSTED user content — fence it so it
         // cannot inject prompt instructions (MED-7).
-        let _ = writeln!(out, "----- BEGIN UNTRUSTED COMMENT -----");
-        let _ = writeln!(out, "{comment}");
-        let _ = writeln!(out, "----- END UNTRUSTED COMMENT -----");
+        write_untrusted_block(&mut out, "COMMENT", comment);
     }
 
     if !payload.pr_base_prompt.is_empty() {
