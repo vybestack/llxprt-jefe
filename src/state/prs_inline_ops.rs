@@ -35,6 +35,62 @@ impl AppState {
         self.prs_state.detail_scroll_offset = self.pr_max_detail_scroll_offset();
     }
 
+    /// Scroll the PR detail viewport the minimum amount needed to keep the
+    /// composer caret visible while typing.
+    ///
+    /// On open/create the view jumps to the rendered bottom, but as the user
+    /// keeps typing (new lines, wrapped lines) the caret can drift past the
+    /// viewport bottom (or, after deletes/up-arrow, above the top). This
+    /// recomputes the caret's absolute rendered line from the SAME builder the
+    /// renderer and scroll clamp use (so the wrapped-line math is identical),
+    /// then nudges `detail_scroll_offset` just enough to bring the caret back
+    /// inside `[offset, offset + viewport_rows)`. When the cursor is already
+    /// visible the offset is unchanged.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P14
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 169-176
+    pub(super) fn scroll_pr_detail_to_cursor(&mut self) {
+        let Some(detail) = &self.prs_state.pr_detail else {
+            return;
+        };
+        let content = crate::pr_detail_content::build_pr_detail_content(
+            detail,
+            self.prs_state.detail_subfocus,
+            &self.prs_state.inline_state,
+            self.prs_state.loading.detail,
+            self.prs_state.loading.comments,
+            wrap_width_from_state(self.prs_state.detail_content_width),
+        );
+        let Some((cursor_line, _col)) = content.cursor else {
+            return;
+        };
+        let viewport_rows = self.prs_state.detail_viewport_rows;
+        if viewport_rows == 0 {
+            return;
+        }
+        // Clamp against the REAL rendered length (same content the cursor was
+        // derived from) so the result never leaves `detail_scroll_offset`
+        // outside its canonical bounds — e.g. when the prior offset is stale
+        // after a viewport grow/content shrink. All arithmetic is saturating
+        // because this is reducer state math.
+        let total_lines = content.text.lines().count();
+        let max_offset = total_lines.saturating_sub(viewport_rows);
+        let offset = self.prs_state.detail_scroll_offset.min(max_offset);
+        let visible_end = offset.saturating_add(viewport_rows);
+        let next = if cursor_line < offset {
+            // Caret scrolled above the viewport top: pull the view up to it.
+            cursor_line
+        } else if cursor_line >= visible_end {
+            // Caret dropped below the viewport bottom: pull the view down so the
+            // caret sits on the last visible row.
+            cursor_line.saturating_add(1).saturating_sub(viewport_rows)
+        } else {
+            offset
+        };
+        self.prs_state.detail_scroll_offset = next.min(max_offset);
+    }
+
     /// Compute the maximum detail scroll offset from the REAL rendered content
     /// length (the exact text `build_pr_detail_content` emits for the current
     /// subfocus and inline composer state) minus the viewport prop.
@@ -243,19 +299,24 @@ impl AppState {
         match msg {
             PrInlineMsg::Char(c) => {
                 Self::pr_insert_inline_char(&mut self.prs_state.inline_state, c);
+                self.scroll_pr_detail_to_cursor();
             }
             PrInlineMsg::Newline => {
                 Self::pr_insert_inline_char(&mut self.prs_state.inline_state, char::from(0x0Au8));
+                self.scroll_pr_detail_to_cursor();
             }
             PrInlineMsg::Backspace => {
                 Self::pr_delete_inline_previous_char(&mut self.prs_state.inline_state);
+                self.scroll_pr_detail_to_cursor();
             }
             PrInlineMsg::Delete | PrInlineMsg::CursorUp | PrInlineMsg::CursorDown => {}
             PrInlineMsg::CursorLeft => {
                 Self::pr_move_inline_cursor_left(&mut self.prs_state.inline_state);
+                self.scroll_pr_detail_to_cursor();
             }
             PrInlineMsg::CursorRight => {
                 Self::pr_move_inline_cursor_right(&mut self.prs_state.inline_state);
+                self.scroll_pr_detail_to_cursor();
             }
             PrInlineMsg::Submit => {
                 self.pr_inline_submit();

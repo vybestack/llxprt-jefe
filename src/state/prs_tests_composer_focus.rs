@@ -572,3 +572,165 @@ fn test_submit_from_editor_does_not_create_newcomment_mutation() {
         "Editor submit MUST surface a visible error (unreachable-but-guarded)"
     );
 }
+
+/// While typing in the composer, the detail viewport MUST follow the caret:
+/// once the cursor drops below the viewport bottom (e.g. after several
+/// newlines), `detail_scroll_offset` must advance so the caret line stays
+/// within `[offset, offset + viewport_rows)` and the user can see what they
+/// are typing. This reproduces the user report: "by the third line it didn't
+/// scroll so I can't see what I'm typing."
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn test_composer_typing_follows_caret_below_viewport() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    // Small viewport so a few typed lines push the caret past the bottom.
+    state.prs_state.detail_viewport_rows = 4;
+
+    // Open the composer (jumps to the rendered bottom).
+    let mut state = state.apply(AppEvent::PrOpenNewCommentComposer);
+
+    // Type several lines: each Newline grows the composer by one rendered row.
+    for line in 0..8 {
+        for ch in format!("line {line}").chars() {
+            state = state.apply(AppEvent::PrInlineChar(ch));
+        }
+        state = state.apply(AppEvent::PrInlineNewline);
+    }
+
+    // Recompute the caret's absolute rendered line the SAME way the renderer
+    // does, then assert it is within the visible window.
+    let detail = state
+        .prs_state
+        .pr_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("detail should exist"));
+    let content = crate::pr_detail_content::build_pr_detail_content(
+        detail,
+        state.prs_state.detail_subfocus,
+        &state.prs_state.inline_state,
+        state.prs_state.loading.detail,
+        state.prs_state.loading.comments,
+        None,
+    );
+    let (cursor_line, _col) = content
+        .cursor
+        .unwrap_or_else(|| panic!("composer must expose a caret while typing"));
+    let offset = state.prs_state.detail_scroll_offset;
+    let viewport = state.prs_state.detail_viewport_rows;
+
+    assert!(
+        cursor_line >= offset,
+        "caret line {cursor_line} must not be above the viewport top {offset}"
+    );
+    assert!(
+        cursor_line < offset + viewport,
+        "caret line {cursor_line} must stay within the viewport \
+         [{offset}, {})",
+        offset + viewport
+    );
+}
+
+/// After scrolling the caret to the bottom, deleting back up (Backspace) MUST
+/// pull the viewport up so the caret remains visible above the old bottom.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn test_composer_backspace_keeps_caret_visible() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    state.prs_state.detail_viewport_rows = 4;
+    let mut state = state.apply(AppEvent::PrOpenNewCommentComposer);
+
+    // Type many lines so the caret is at the bottom of a tall composer.
+    for line in 0..10 {
+        for ch in format!("row {line}").chars() {
+            state = state.apply(AppEvent::PrInlineChar(ch));
+        }
+        state = state.apply(AppEvent::PrInlineNewline);
+    }
+
+    // Delete a large chunk of text (shrinks the composer) and confirm the
+    // caret never falls outside the viewport.
+    for _ in 0..40 {
+        state = state.apply(AppEvent::PrInlineBackspace);
+
+        let detail = state
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .unwrap_or_else(|| panic!("detail should exist"));
+        let content = crate::pr_detail_content::build_pr_detail_content(
+            detail,
+            state.prs_state.detail_subfocus,
+            &state.prs_state.inline_state,
+            state.prs_state.loading.detail,
+            state.prs_state.loading.comments,
+            None,
+        );
+        let (cursor_line, _col) = content
+            .cursor
+            .unwrap_or_else(|| panic!("composer must expose a caret while backspacing"));
+        let offset = state.prs_state.detail_scroll_offset;
+        let viewport = state.prs_state.detail_viewport_rows;
+        assert!(
+            cursor_line >= offset && cursor_line < offset + viewport,
+            "caret line {cursor_line} must stay within viewport \
+             [{offset}, {}) after backspace",
+            offset + viewport
+        );
+    }
+}
+
+/// Caret-follow must also work for WRAPPED rendered lines: typing one long
+/// unbroken line with a small wrap width pushes the caret down several rendered
+/// rows (no newlines), and the viewport must still follow it. Uses the same
+/// `detail_content_width` the renderer/scroll-clamp use so the wrapped-line math
+/// is identical.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn test_composer_typing_follows_caret_across_wrapped_lines() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    state.prs_state.detail_viewport_rows = 4;
+    // Small wrap width so a single long line wraps into many rendered rows.
+    state.prs_state.detail_content_width = 8;
+
+    let mut state = state.apply(AppEvent::PrOpenNewCommentComposer);
+
+    // Type one long unbroken line (no newlines) — wrapping alone advances the
+    // caret down multiple rendered rows.
+    for ch in "abcdefghijklmnopqrstuvwxyz0123456789".chars() {
+        state = state.apply(AppEvent::PrInlineChar(ch));
+    }
+
+    let detail = state
+        .prs_state
+        .pr_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("detail should exist"));
+    let content = crate::pr_detail_content::build_pr_detail_content(
+        detail,
+        state.prs_state.detail_subfocus,
+        &state.prs_state.inline_state,
+        state.prs_state.loading.detail,
+        state.prs_state.loading.comments,
+        crate::state::prs_inline_ops::wrap_width_from_state(state.prs_state.detail_content_width),
+    );
+    let (cursor_line, _col) = content
+        .cursor
+        .unwrap_or_else(|| panic!("composer must expose a caret across wrapped lines"));
+    let offset = state.prs_state.detail_scroll_offset;
+    let viewport = state.prs_state.detail_viewport_rows;
+    assert!(
+        cursor_line >= offset && cursor_line < offset + viewport,
+        "wrapped caret line {cursor_line} must stay within viewport \
+         [{offset}, {})",
+        offset + viewport
+    );
+}
