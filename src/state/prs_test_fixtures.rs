@@ -14,7 +14,7 @@ use crate::domain::{
 use crate::state::AppState;
 use crate::state::types::{AppEvent, InlineState, PrFocus, ScreenMode};
 
-/// PR-mode state with a single selected PR and a loaded (empty-body) detail.
+/// PR-mode state with a single selected PR and a loaded detail (non-empty body).
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-010
@@ -121,6 +121,10 @@ pub fn walk_caret_asserting_visible(
         let cursor_line = composer_caret_line(&state);
         let offset = state.prs_state.detail_scroll_offset;
         let viewport = state.prs_state.detail_viewport_rows;
+        assert!(
+            viewport > 0,
+            "detail_viewport_rows must be set (> 0) before walking the caret"
+        );
         assert!(
             cursor_line >= offset && cursor_line < offset + viewport,
             "caret line {cursor_line} must stay within viewport [{offset}, {})",
