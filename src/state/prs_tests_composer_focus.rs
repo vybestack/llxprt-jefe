@@ -509,14 +509,15 @@ fn test_submit_from_editor_does_not_create_newcomment_mutation() {
 }
 
 /// Regression (#20): typing in the PR new-comment composer must NOT yank the
-/// detail viewport back to the top (the old per-keystroke scroll-follow did).
-/// Mirrors the Issues open-scroll contract: the viewport scrolls ONLY on
-/// composer open (to the rendered bottom) and stays put while typing. After
-/// opening the composer on a detail taller than the viewport and typing several
-/// characters, (1) `detail_scroll_offset` must NOT reset to 0 (it stays at the
-/// bottom region where the composer is), and (2) the built content's cursor
-/// line must fall within `[offset, offset + viewport_rows)` — i.e. the caret is
-/// inside the visible window on the composer line, NOT the header boundary.
+/// detail viewport back to the top (the old wrap-width scroll-follow did).
+/// Opening scrolls to the rendered bottom; typing on the SAME (bottom) line
+/// keeps the caret where it is, so the width-free follow is a no-op and the
+/// offset stays put. After opening the composer on a detail taller than the
+/// viewport and typing several characters, (1) `detail_scroll_offset` must NOT
+/// reset to 0 (it stays at the bottom region where the composer is), and (2)
+/// the built content's cursor line must fall within
+/// `[offset, offset + viewport_rows)` — i.e. the caret is inside the visible
+/// window on the composer line, NOT the header boundary.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-010
@@ -547,7 +548,8 @@ fn test_composer_typing_does_not_reset_scroll_and_caret_stays_visible() {
         "opening the composer must scroll down to the rendered bottom (offset > 0)"
     );
 
-    // Type several characters — the per-keystroke scroll-follow is GONE, so the
+    // Type several characters on the same (bottom) line — the caret does not
+    // leave the visible window, so the width-free follow is a no-op and the
     // offset must NOT change (the view stays where open left it).
     for ch in "hello world".chars() {
         state = state.apply(AppEvent::PrInlineChar(ch));
@@ -555,7 +557,7 @@ fn test_composer_typing_does_not_reset_scroll_and_caret_stays_visible() {
 
     assert_eq!(
         state.prs_state.detail_scroll_offset, offset_after_open,
-        "typing must NOT reset the scroll offset (no per-keystroke scroll-follow); \
+        "typing on the bottom line must NOT move the scroll offset; \
          expected {offset_after_open}, got {}",
         state.prs_state.detail_scroll_offset
     );

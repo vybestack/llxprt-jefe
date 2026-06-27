@@ -1,10 +1,14 @@
 //! Pull Requests mode inline composer state operations.
 //!
-//! Mirrors `issues_inline_ops.rs`: the reducer ONLY mutates text/cursor on
-//! edit/cursor keys — it NEVER scrolls per-keystroke and NEVER wraps. Scrolling
-//! happens ONLY on composer open (`scroll_pr_detail_to_bottom`) and on
-//! `PrCommentCreated`, exactly like Issues mode. The renderer (ScrollableText)
-//! truncates long lines, so reducer line/cursor coordinates can never drift.
+//! Mirrors `issues_inline_ops.rs` for text/cursor mutation and NEVER wraps —
+//! the renderer (ScrollableText) truncates long lines, so reducer line/cursor
+//! coordinates can never drift. On top of that shared base, PR mode keeps the
+//! composer caret visible while typing/arrowing via a width-free cursor-follow
+//! (`pr_follow_caret`): after each edit/cursor key the viewport is scrolled the
+//! minimum amount to bring the caret back inside the window, reading the caret
+//! line from the SAME `build_pr_detail_content` the renderer uses. Scroll also
+//! lands on the rendered bottom on composer open (`scroll_pr_detail_to_bottom`)
+//! and on `PrCommentCreated`.
 //!
 //! @plan PLAN-20260624-PR-MODE.P05
 //! @requirement REQ-PR-010
@@ -57,6 +61,57 @@ impl AppState {
             self.prs_state.loading.comments,
         )
         .saturating_sub(self.prs_state.detail_viewport_rows)
+    }
+
+    /// Scroll the detail viewport the MINIMUM amount needed to keep the
+    /// composer caret inside the visible window `[offset, offset + viewport)`.
+    ///
+    /// This is the width-free successor to the removed per-keystroke follow.
+    /// The caret's content line is read from the SAME `build_pr_detail_content`
+    /// the renderer consumes (and which `ScrollableText` uses to decide whether
+    /// to DRAW the caret), so the reducer's notion of "visible" can never
+    /// desync from what is actually rendered — the exact failure mode of the
+    /// old wrap-width follow, which computed the caret line in a wrapped
+    /// coordinate space and yanked the view to the top.
+    ///
+    /// Only ever scrolls toward the caret (up when above the window, down when
+    /// below it); a caret already inside the window leaves the offset
+    /// untouched, so simple left/right edits do not jitter the view.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P14
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-001 lines 169-176
+    fn pr_follow_caret(&mut self) {
+        let viewport = self.prs_state.detail_viewport_rows;
+        if viewport == 0 {
+            return;
+        }
+        let Some(detail) = &self.prs_state.pr_detail else {
+            return;
+        };
+        let content = crate::pr_detail_content::build_pr_detail_content(
+            detail,
+            self.prs_state.detail_subfocus,
+            &self.prs_state.inline_state,
+            self.prs_state.loading.detail,
+            self.prs_state.loading.comments,
+        );
+        let Some((cursor_line, _col)) = content.cursor else {
+            return;
+        };
+        let offset = self.prs_state.detail_scroll_offset;
+        let new_offset = if cursor_line < offset {
+            cursor_line
+        } else if cursor_line >= offset + viewport {
+            cursor_line + 1 - viewport
+        } else {
+            return;
+        };
+        // Never scroll past the real rendered bottom. Because `cursor_line` is
+        // a line WITHIN the content, `cursor_line + 1 - viewport` is always
+        // <= max, so this clamp cannot push the caret back out of view.
+        let max = self.pr_max_detail_scroll_offset();
+        self.prs_state.detail_scroll_offset = new_offset.min(max);
     }
 
     /// Borrow the active (text, cursor) pair from the inline composer/editor.
@@ -223,39 +278,19 @@ impl AppState {
 
     /// Apply inline editor events (char/newline/backspace/cursor/cancel).
     ///
-    /// Mirrors `issues_inline_ops::apply_inline_event`: each edit/cursor arm
-    /// ONLY mutates text/cursor — there is NO per-keystroke scroll-follow.
-    /// Scrolling happens ONLY on composer open and on `PrCommentCreated`.
+    /// Each edit/cursor arm mutates text/cursor, then a width-free
+    /// `pr_follow_caret` scrolls the viewport the minimum amount needed to keep
+    /// the caret visible. Submit/CancelOrEsc close the composer and do not
+    /// follow. The follow reads the caret line from the same builder the
+    /// renderer uses, so it can never desync the view (the failure of the old
+    /// wrap-width follow).
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-010
     /// @pseudocode component-001 lines 308-330
     pub(super) fn apply_pr_inline_event(&mut self, msg: PrInlineMsg) -> bool {
         if self.prs_state.mutation_pending.is_some() {
-            // While a mutation is in flight, text-edit keys are consumed but
-            // ignored so the in-flight draft is not mutated. CancelOrEsc,
-            // however, MUST still work: it closes the composer AND clears the
-            // pending mutation (cancel the intent at the state level). The
-            // dispatch layer tolerates a dropped mutation result: the
-            // completion handlers (apply_pr_comment_created /
-            // apply_pr_comment_create_failed) guard on mutation_pending
-            // matching (scope + mutation_id) and no-op when it is None.
-            if msg == PrInlineMsg::CancelOrEsc {
-                self.prs_state.inline_state = InlineState::None;
-                self.prs_state.mutation_pending = None;
-                return true;
-            }
-            return matches!(
-                msg,
-                PrInlineMsg::Char(_)
-                    | PrInlineMsg::Newline
-                    | PrInlineMsg::Backspace
-                    | PrInlineMsg::Delete
-                    | PrInlineMsg::CursorLeft
-                    | PrInlineMsg::CursorRight
-                    | PrInlineMsg::CursorUp
-                    | PrInlineMsg::CursorDown
-            );
+            return self.apply_pr_inline_event_while_pending(msg);
         }
         match msg {
             PrInlineMsg::Char(c) => {
@@ -297,7 +332,56 @@ impl AppState {
                 self.prs_state.inline_state = InlineState::None;
             }
         }
+        // After any text/cursor change, keep the caret inside the visible
+        // window. Submit/CancelOrEsc close the composer (cursor None) so the
+        // follow is a no-op for them; every edit/cursor arm above benefits.
+        if Self::is_pr_inline_edit_msg(msg) {
+            self.pr_follow_caret();
+        }
         true
+    }
+
+    /// Handle an inline event while a comment-create mutation is in flight.
+    ///
+    /// Text-edit keys are consumed but ignored so the in-flight draft is not
+    /// mutated. `CancelOrEsc`, however, MUST still work: it closes the composer
+    /// AND clears the pending mutation (cancel the intent at the state level).
+    /// The dispatch layer tolerates a dropped mutation result: the completion
+    /// handlers (`apply_pr_comment_created` / `apply_pr_comment_create_failed`)
+    /// guard on `mutation_pending` matching (scope + mutation_id) and no-op
+    /// when it is `None`.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P14
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 308-330
+    fn apply_pr_inline_event_while_pending(&mut self, msg: PrInlineMsg) -> bool {
+        if msg == PrInlineMsg::CancelOrEsc {
+            self.prs_state.inline_state = InlineState::None;
+            self.prs_state.mutation_pending = None;
+            return true;
+        }
+        Self::is_pr_inline_edit_msg(msg)
+    }
+
+    /// True for the text/cursor edit messages that mutate composer text or move
+    /// the caret (i.e. the messages the caret-follow must react to). Submit and
+    /// CancelOrEsc are excluded: they close the composer.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P14
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-001 lines 308-330
+    fn is_pr_inline_edit_msg(msg: PrInlineMsg) -> bool {
+        matches!(
+            msg,
+            PrInlineMsg::Char(_)
+                | PrInlineMsg::Newline
+                | PrInlineMsg::Backspace
+                | PrInlineMsg::Delete
+                | PrInlineMsg::CursorLeft
+                | PrInlineMsg::CursorRight
+                | PrInlineMsg::CursorUp
+                | PrInlineMsg::CursorDown
+        )
     }
 
     /// Apply inline submit (blank text cancels; non-blank sets mutation pending).
