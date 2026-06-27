@@ -77,7 +77,7 @@ struct RenderParams<'a> {
 fn render_detail_canvas(p: RenderParams) -> iocraft::Canvas {
     let rows: u16 = p.pane_height + 10;
     let mut elem = element! {
-        Box(width: p.cols as u32, height: rows as u32) {
+        Box(width: u32::from(p.cols), height: u32::from(rows)) {
             PrDetailView(
                 detail: Some(p.detail.clone()),
                 subfocus: p.subfocus,
@@ -92,7 +92,7 @@ fn render_detail_canvas(p: RenderParams) -> iocraft::Canvas {
             )
         }
     };
-    elem.render(Some(p.cols as usize))
+    elem.render(Some(usize::from(p.cols)))
 }
 
 /// Render PrDetailView inside a fixed-size Box and return the plain-text
@@ -118,7 +118,7 @@ fn rendered_lines_never_exceed_term_cols() {
     let detail = detail_with_long_comment();
     let cols: u16 = 60;
     // content width smaller than cols to exercise truncation guard.
-    let content_width = crate::layout::prs_detail_content_width(cols) as usize;
+    let content_width = usize::from(crate::layout::prs_detail_content_width(cols));
     let rendered = render_detail(RenderParams {
         detail: &detail,
         subfocus: PrDetailSubfocus::Body,
@@ -130,7 +130,7 @@ fn rendered_lines_never_exceed_term_cols() {
     });
     for (i, line) in rendered.lines().enumerate() {
         assert!(
-            line.chars().count() <= cols as usize,
+            line.chars().count() <= usize::from(cols),
             "rendered line {i} exceeds term_cols {cols}: {} ({} chars)",
             line,
             line.chars().count()
@@ -149,7 +149,7 @@ fn rendered_lines_never_exceed_term_cols() {
 fn long_comment_wraps_instead_of_truncating() {
     let detail = detail_with_long_comment();
     let cols: u16 = 50;
-    let content_width = crate::layout::prs_detail_content_width(cols) as usize;
+    let content_width = usize::from(crate::layout::prs_detail_content_width(cols));
     let rendered = render_detail(RenderParams {
         detail: &detail,
         subfocus: PrDetailSubfocus::Body,
@@ -176,6 +176,11 @@ fn long_comment_wraps_instead_of_truncating() {
         body_fragments >= 2,
         "long comment body must wrap into multiple rows, found {body_fragments} matching lines"
     );
+    // The TAIL of the comment must survive wrapping (not be dropped/truncated).
+    assert!(
+        rendered.contains("is narrow"),
+        "tail of the wrapped comment body must be present, not truncated"
+    );
     // And no body content line should end with the truncation ellipsis.
     let has_spurious_ellipsis = rendered
         .lines()
@@ -186,9 +191,27 @@ fn long_comment_wraps_instead_of_truncating() {
     );
 }
 
-/// The reverse-video caret cell must render: the ANSI output must contain an
-/// SGR background sequence (`48;2;`) beyond the box background. This confirms
-/// the caret is actually drawn in the component layer.
+/// Count the background-color SGR sequences (`48;2;` truecolor or `48;5;`
+/// indexed) in a component's ANSI output. Used to prove the caret's
+/// reverse-video cell adds background fills beyond the baseline chrome.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+fn background_sgr_count(p: RenderParams) -> usize {
+    let canvas = render_detail_canvas(p);
+    let mut buf = Vec::new();
+    canvas
+        .write_ansi(&mut buf)
+        .unwrap_or_else(|e| panic!("write_ansi failed: {e}"));
+    let ansi = String::from_utf8_lossy(&buf);
+    ansi.matches("\u{1b}[48;2;").count() + ansi.matches("\u{1b}[48;5;").count()
+}
+
+/// The reverse-video caret cell must render as ADDITIONAL background SGR
+/// sequences beyond the baseline (same component with no composer/caret).
+/// Comparing against a caret-free baseline avoids a vacuous assertion that
+/// would also pass on the box's own background fills.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
@@ -196,15 +219,28 @@ fn long_comment_wraps_instead_of_truncating() {
 #[test]
 fn caret_renders_as_reverse_video_sgr() {
     let detail = detail_with_long_comment();
+    let cols: u16 = 60;
+    let content_width = usize::from(crate::layout::prs_detail_content_width(cols));
+
+    // Baseline: no composer, so no caret cell is drawn.
+    let baseline = background_sgr_count(RenderParams {
+        detail: &detail,
+        subfocus: PrDetailSubfocus::NewComment,
+        inline_state: &InlineState::None,
+        scroll_offset: 0,
+        detail_content_width: content_width,
+        pane_height: 40,
+        cols,
+    });
+
+    // With an open composer the caret reverse-video cell must add background
+    // SGR sequences on top of the baseline chrome.
     let inline = InlineState::Composer {
         target: ComposerTarget::NewComment,
         text: "hello".to_string(),
         cursor: 5,
     };
-    let cols: u16 = 60;
-    let content_width = crate::layout::prs_detail_content_width(cols) as usize;
-
-    let canvas = render_detail_canvas(RenderParams {
+    let with_caret = background_sgr_count(RenderParams {
         detail: &detail,
         subfocus: PrDetailSubfocus::NewComment,
         inline_state: &inline,
@@ -213,17 +249,11 @@ fn caret_renders_as_reverse_video_sgr() {
         pane_height: 40,
         cols,
     });
-    let mut buf = Vec::new();
-    let _ = canvas.write_ansi(&mut buf);
-    let ansi = String::from_utf8_lossy(&buf);
 
-    // There must be at least one 48;2 (truecolor background) SGR sequence
-    // (the caret's reverse-video cell). The box background is also a 48;2
-    // sequence, so we just assert the sequence EXISTS — the caret cell adds
-    // an additional one on top of the box background fills.
     assert!(
-        ansi.contains("\u{1b}[48;2;") || ansi.contains("\u{1b}[48;5;"),
-        "caret must render a background SGR sequence in the ANSI output"
+        with_caret > baseline,
+        "caret must add background SGR sequences ({with_caret}) beyond the \
+         caret-free baseline ({baseline})"
     );
 }
 
@@ -271,7 +301,7 @@ fn rendered_composer_wraps_with_hanging_indent() {
         cursor: 30,
     };
     let cols: u16 = 80;
-    let content_width = crate::layout::prs_detail_content_width(cols) as usize;
+    let content_width = usize::from(crate::layout::prs_detail_content_width(cols));
     let rendered = render_detail(RenderParams {
         detail: &detail,
         subfocus: PrDetailSubfocus::NewComment,

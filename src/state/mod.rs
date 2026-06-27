@@ -936,6 +936,15 @@ mod prs_tests_filter;
 #[path = "prs_tests_repo_nav.rs"]
 mod prs_tests_repo_nav;
 
+/// Shared `#[cfg(test)]` fixtures used by the PR-mode reducer test modules.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 44-50
+#[cfg(test)]
+#[path = "prs_test_fixtures.rs"]
+mod prs_test_fixtures;
+
 #[cfg(test)]
 #[path = "prs_tests_composer_focus.rs"]
 mod prs_tests_composer_focus;

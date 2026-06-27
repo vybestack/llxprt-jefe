@@ -473,7 +473,10 @@ fn line_start_byte(text: &str, line_index: usize) -> usize {
             current += 1;
         }
     }
-    start.max(text.len())
+    // A line index past the end maps to the end of the text. `start` is only
+    // ever set to `i + 1` for a single-byte '\n', so `start <= text.len()`
+    // always holds and the end position is simply `text.len()`.
+    text.len()
 }
 
 /// Walk `target_col` chars into the line starting at `line_start` and return

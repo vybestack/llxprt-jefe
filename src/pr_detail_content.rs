@@ -605,6 +605,13 @@ fn remap_cursor(
     // When there is no hanging indent (degenerate fallback), remap against the
     // whole line at `content_width` (== width) with prefix_dw 0.
     let content_display_col = display_col.saturating_sub(plan.prefix_dw);
+    // Guard against a degenerate plan where `content_width` is 0 (e.g. a caller
+    // passing `width == 0` to `wrap_lines`). The production caller guards with
+    // `Some(w) if w > 0`, but tests call `wrap_lines` directly; without this the
+    // division below would panic and crash the app.
+    if plan.content_width == 0 {
+        return (block_start, display_col);
+    }
     let row = if content_display_col == 0 {
         0
     } else {

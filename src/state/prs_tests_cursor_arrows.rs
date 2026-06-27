@@ -6,75 +6,9 @@
 //! @plan PLAN-20260624-PR-MODE.P14
 //! @requirement REQ-PR-010
 
-use crate::domain::{
-    PrCheckStatus, PrState, PullRequest, PullRequestDetail, Repository, RepositoryId,
-};
+use super::prs_test_fixtures::{prs_state_with_detail, walk_caret_asserting_visible};
 use crate::state::AppState;
-use crate::state::types::{AppEvent, InlineState, PrFocus, ScreenMode};
-
-/// Helper: PR-mode state with a loaded detail (mirrors the one in
-/// `prs_tests_composer_focus`).
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 44-50
-fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
-    let mut state = AppState {
-        screen_mode: ScreenMode::DashboardPullRequests,
-        ..AppState::default()
-    };
-    state.repositories.push(Repository::new(
-        RepositoryId(repo_id.to_string()),
-        "Test Repo".to_string(),
-        repo_id.to_string(),
-        std::path::PathBuf::from("/tmp/test"),
-    ));
-    state.selected_repository_index = Some(0);
-    state.prs_state.active = true;
-    state.prs_state.pr_focus = PrFocus::PrDetail;
-    state.prs_state.pull_requests = vec![PullRequest {
-        number: pr_number,
-        title: format!("PR #{pr_number}"),
-        state: PrState::Open,
-        author_login: "testuser".to_string(),
-        updated_at: "2024-01-01T00:00:00Z".to_string(),
-        head_ref: "feature".to_string(),
-        base_ref: "main".to_string(),
-        is_draft: false,
-        review_decision: None,
-        checks_status: PrCheckStatus::None,
-        assignee_summary: String::new(),
-        labels_summary: String::new(),
-        comment_count: 0,
-    }];
-    state.prs_state.selected_pr_index = Some(0);
-    state.prs_state.pr_detail = Some(PullRequestDetail {
-        repo_owner_name: "owner/repo".to_string(),
-        number: pr_number,
-        title: format!("PR #{pr_number}"),
-        state: PrState::Open,
-        is_draft: false,
-        author_login: "octocat".to_string(),
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-02T00:00:00Z".to_string(),
-        head_ref: "feature".to_string(),
-        base_ref: "main".to_string(),
-        labels: vec![],
-        assignees: vec![],
-        milestone: None,
-        body: "PR body".to_string(),
-        external_url: format!("https://github.com/owner/repo/pull/{pr_number}"),
-        review_decision: None,
-        checks_status: PrCheckStatus::None,
-        reviews: vec![],
-        checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
-    });
-    state.prs_state.inline_state = InlineState::None;
-    state
-}
+use crate::state::types::{AppEvent, InlineState};
 
 /// Extract the active (text, cursor) pair from the inline composer/editor so
 /// cursor-movement tests can assert on byte offsets without rebuilding content.
@@ -101,53 +35,6 @@ fn composer_text_cursor(state: &AppState) -> (String, usize) {
 fn type_into_composer(mut state: AppState, text: &str) -> AppState {
     for ch in text.chars() {
         state = state.apply(AppEvent::PrInlineChar(ch));
-    }
-    state
-}
-
-/// Compute the caret's absolute rendered line (same way the renderer does) for
-/// viewport-follow assertions.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 169-176
-fn composer_caret_line(state: &AppState) -> usize {
-    let detail = state
-        .prs_state
-        .pr_detail
-        .as_ref()
-        .unwrap_or_else(|| panic!("detail should exist"));
-    let content = crate::pr_detail_content::build_pr_detail_content(
-        detail,
-        state.prs_state.detail_subfocus,
-        &state.prs_state.inline_state,
-        state.prs_state.loading.detail,
-        state.prs_state.loading.comments,
-        crate::state::prs_inline_ops::wrap_width_from_state(state.prs_state.detail_content_width),
-    );
-    content
-        .cursor
-        .unwrap_or_else(|| panic!("composer must expose a caret while moving"))
-        .0
-}
-
-/// Apply `event` `steps` times, asserting after each step that the caret is
-/// still within the visible viewport.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 169-176
-fn walk_caret_asserting_visible(mut state: AppState, event: AppEvent, steps: usize) -> AppState {
-    for _ in 0..steps {
-        state = state.apply(event.clone());
-        let cursor_line = composer_caret_line(&state);
-        let offset = state.prs_state.detail_scroll_offset;
-        let viewport = state.prs_state.detail_viewport_rows;
-        assert!(
-            cursor_line >= offset && cursor_line < offset + viewport,
-            "caret line {cursor_line} must stay within viewport [{offset}, {})",
-            offset + viewport
-        );
     }
     state
 }
@@ -327,9 +214,28 @@ fn cursor_up_down_keep_caret_within_viewport() {
     // Build a tall multi-line composer.
     state = type_into_composer(state, "aaaa\nbbbb\ncccc\ndddd\neeee\nffff");
 
-    // Walk up: caret must stay visible at each step.
+    // Opening + typing a tall composer must scroll the viewport down to keep
+    // the caret (now on the last line) visible.
+    let bottom_offset = state.prs_state.detail_scroll_offset;
+    assert!(
+        bottom_offset > 0,
+        "precondition: typing past the viewport must scroll to the bottom"
+    );
+
+    // Walk up: caret must stay visible at each step, and the viewport must
+    // follow the caret upward (offset strictly decreases).
     state = walk_caret_asserting_visible(state, AppEvent::PrInlineCursorUp, 30);
-    // Walk back down: caret must stay visible at each step.
+    let top_offset = state.prs_state.detail_scroll_offset;
+    assert!(
+        top_offset < bottom_offset,
+        "walking up must pull the viewport up: top {top_offset} < bottom {bottom_offset}"
+    );
+
+    // Walk back down: caret must stay visible at each step, and the viewport
+    // must follow the caret back down (offset strictly increases).
     state = walk_caret_asserting_visible(state, AppEvent::PrInlineCursorDown, 30);
-    let _ = state;
+    assert!(
+        state.prs_state.detail_scroll_offset > top_offset,
+        "walking down must scroll the viewport back down past top {top_offset}"
+    );
 }
