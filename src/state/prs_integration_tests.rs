@@ -888,37 +888,50 @@ fn it_pr_list_pagination_lazy_loads_appends_preserves_selection_and_discards_sta
 fn reducer_max_scroll_matches_real_rendered_line_count() {
     let mut state = state_with_loaded_pr_detail();
 
-    // Inject a multi-line body so the rendered count is deterministic.
-    if let Some(detail) = state.prs_state.pr_detail.as_mut() {
-        detail.body = (0..20)
-            .map(|i| format!("body line {i}"))
-            .collect::<Vec<_>>()
-            .join(
-                "
-",
-            );
-    }
     state.prs_state.detail_viewport_rows = 1;
     state.prs_state.detail_subfocus = PrDetailSubfocus::Body;
 
-    // Navigate to End → the reducer sets detail_scroll_offset to max.
-    state.apply_in_place(AppEvent::PrNavigateEnd);
-
-    let expected = {
-        let detail = state
+    // Render the body for a given last line and return the real line count.
+    let count_for_last_line = |last: &str| {
+        let mut s = state.clone();
+        let mut lines: Vec<String> = (0..20).map(|i| format!("body line {i}")).collect();
+        lines.push(last.to_string());
+        if let Some(detail) = s.prs_state.pr_detail.as_mut() {
+            detail.body = lines.join("\n");
+        }
+        let detail = s
             .prs_state
             .pr_detail
             .as_ref()
             .unwrap_or_else(|| panic!("pr_detail must be loaded"));
         pr_detail_content_line_count(
             detail,
-            state.prs_state.detail_subfocus,
-            &state.prs_state.inline_state,
-            state.prs_state.loading.detail,
-            state.prs_state.loading.comments,
+            s.prs_state.detail_subfocus,
+            &s.prs_state.inline_state,
+            s.prs_state.loading.detail,
+            s.prs_state.loading.comments,
         )
-        .saturating_sub(state.prs_state.detail_viewport_rows)
     };
+
+    // Non-circular proof of "no wrapping": a body whose last line is far wider
+    // than any plausible viewport (200 chars) must yield the SAME line count as
+    // a short last line. A wrapping reducer would emit extra rows and diverge —
+    // exactly the desync that caused the original "jump to top" regression.
+    let count_with_long_line = count_for_last_line(&"x".repeat(200));
+    assert_eq!(
+        count_with_long_line,
+        count_for_last_line("short"),
+        "reducer must NOT wrap a long body line into extra rows"
+    );
+
+    // The reducer's nav-End clamp must derive from that real rendered count.
+    if let Some(detail) = state.prs_state.pr_detail.as_mut() {
+        let mut lines: Vec<String> = (0..20).map(|i| format!("body line {i}")).collect();
+        lines.push("x".repeat(200));
+        detail.body = lines.join("\n");
+    }
+    state.apply_in_place(AppEvent::PrNavigateEnd);
+    let expected = count_with_long_line.saturating_sub(state.prs_state.detail_viewport_rows);
     assert_eq!(
         state.prs_state.detail_scroll_offset, expected,
         "nav End clamp must use the real rendered line count"
