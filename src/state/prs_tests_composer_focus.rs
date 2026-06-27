@@ -6,7 +6,7 @@
 //! @requirement REQ-PR-010
 //! @requirement REQ-PR-011
 
-use super::prs_test_fixtures::{prs_state_with_detail, walk_caret_asserting_visible};
+use super::prs_test_fixtures::prs_state_with_detail;
 use crate::domain::{IssueComment, PrCheck, PrCheckStatus, PrReview, PrReviewState, RepositoryId};
 use crate::state::AppState;
 use crate::state::types::{AppEvent, ComposerTarget, InlineState, PrDetailSubfocus};
@@ -164,7 +164,6 @@ fn test_comment_created_scrolls_to_real_rendered_bottom_with_reviews_and_checks(
         &new_state.prs_state.inline_state,
         new_state.prs_state.loading.detail,
         new_state.prs_state.loading.comments,
-        None,
     );
     let expected_bottom = rendered_lines.saturating_sub(new_state.prs_state.detail_viewport_rows);
 
@@ -332,7 +331,6 @@ fn test_open_composer_scrolls_to_real_rendered_bottom_so_composer_visible() {
         &new_state.prs_state.inline_state,
         new_state.prs_state.loading.detail,
         new_state.prs_state.loading.comments,
-        None,
     );
     let expected_bottom = rendered_lines.saturating_sub(new_state.prs_state.detail_viewport_rows);
 
@@ -510,35 +508,64 @@ fn test_submit_from_editor_does_not_create_newcomment_mutation() {
     );
 }
 
-/// While typing in the composer, the detail viewport MUST follow the caret:
-/// once the cursor drops below the viewport bottom (e.g. after several
-/// newlines), `detail_scroll_offset` must advance so the caret line stays
-/// within `[offset, offset + viewport_rows)` and the user can see what they
-/// are typing. This reproduces the user report: "by the third line it didn't
-/// scroll so I can't see what I'm typing."
+/// Regression (#20): typing in the PR new-comment composer must NOT yank the
+/// detail viewport back to the top (the old per-keystroke scroll-follow did).
+/// Mirrors the Issues open-scroll contract: the viewport scrolls ONLY on
+/// composer open (to the rendered bottom) and stays put while typing. After
+/// opening the composer on a detail taller than the viewport and typing several
+/// characters, (1) `detail_scroll_offset` must NOT reset to 0 (it stays at the
+/// bottom region where the composer is), and (2) the built content's cursor
+/// line must fall within `[offset, offset + viewport_rows)` — i.e. the caret is
+/// inside the visible window on the composer line, NOT the header boundary.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 169-176
 #[test]
-fn test_composer_typing_follows_caret_below_viewport() {
+fn test_composer_typing_does_not_reset_scroll_and_caret_stays_visible() {
     let mut state = prs_state_with_detail("repo-1", 1);
-    // Small viewport so a few typed lines push the caret past the bottom.
-    state.prs_state.detail_viewport_rows = 4;
+    // Make the detail content taller than the viewport by adding body lines.
+    {
+        let detail = state
+            .prs_state
+            .pr_detail
+            .as_mut()
+            .unwrap_or_else(|| panic!("detail should exist"));
+        detail.body = (0..30)
+            .map(|i| format!("body line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    // Small viewport so the rendered bottom is well below the top.
+    state.prs_state.detail_viewport_rows = 5;
 
-    // Open the composer (jumps to the rendered bottom).
+    // Open the composer — this scrolls to the rendered bottom (#56).
     let mut state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let offset_after_open = state.prs_state.detail_scroll_offset;
+    assert!(
+        offset_after_open > 0,
+        "opening the composer must scroll down to the rendered bottom (offset > 0)"
+    );
 
-    // Type several lines: each Newline grows the composer by one rendered row.
-    for line in 0..8 {
-        for ch in format!("line {line}").chars() {
-            state = state.apply(AppEvent::PrInlineChar(ch));
-        }
-        state = state.apply(AppEvent::PrInlineNewline);
+    // Type several characters — the per-keystroke scroll-follow is GONE, so the
+    // offset must NOT change (the view stays where open left it).
+    for ch in "hello world".chars() {
+        state = state.apply(AppEvent::PrInlineChar(ch));
     }
 
-    // Recompute the caret's absolute rendered line the SAME way the renderer
-    // does, then assert it is within the visible window.
+    assert_eq!(
+        state.prs_state.detail_scroll_offset, offset_after_open,
+        "typing must NOT reset the scroll offset (no per-keystroke scroll-follow); \
+         expected {offset_after_open}, got {}",
+        state.prs_state.detail_scroll_offset
+    );
+    assert_ne!(
+        state.prs_state.detail_scroll_offset, 0,
+        "scroll offset must NOT have been yanked to the top (the regression)"
+    );
+
+    // The caret must be inside the visible window — on the composer line, not
+    // the header boundary.
     let detail = state
         .prs_state
         .pr_detail
@@ -550,176 +577,16 @@ fn test_composer_typing_follows_caret_below_viewport() {
         &state.prs_state.inline_state,
         state.prs_state.loading.detail,
         state.prs_state.loading.comments,
-        crate::state::prs_inline_ops::wrap_width_from_state(state.prs_state.detail_content_width),
     );
     let (cursor_line, _col) = content
         .cursor
         .unwrap_or_else(|| panic!("composer must expose a caret while typing"));
     let offset = state.prs_state.detail_scroll_offset;
     let viewport = state.prs_state.detail_viewport_rows;
-
-    assert!(
-        cursor_line >= offset,
-        "caret line {cursor_line} must not be above the viewport top {offset}"
-    );
-    assert!(
-        cursor_line < offset + viewport,
-        "caret line {cursor_line} must stay within the viewport \
-         [{offset}, {})",
-        offset + viewport
-    );
-}
-
-/// After scrolling the caret to the bottom, deleting back up (Backspace) MUST
-/// pull the viewport up so the caret remains visible above the old bottom.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 169-176
-#[test]
-fn test_composer_backspace_keeps_caret_visible() {
-    let mut state = prs_state_with_detail("repo-1", 1);
-    state.prs_state.detail_viewport_rows = 4;
-    let mut state = state.apply(AppEvent::PrOpenNewCommentComposer);
-
-    // Type many lines so the caret is at the bottom of a tall composer.
-    for line in 0..10 {
-        for ch in format!("row {line}").chars() {
-            state = state.apply(AppEvent::PrInlineChar(ch));
-        }
-        state = state.apply(AppEvent::PrInlineNewline);
-    }
-
-    // Delete a large chunk of text (shrinks the composer) and confirm the
-    // caret never falls outside the viewport.
-    for _ in 0..40 {
-        state = state.apply(AppEvent::PrInlineBackspace);
-
-        let detail = state
-            .prs_state
-            .pr_detail
-            .as_ref()
-            .unwrap_or_else(|| panic!("detail should exist"));
-        let content = crate::pr_detail_content::build_pr_detail_content(
-            detail,
-            state.prs_state.detail_subfocus,
-            &state.prs_state.inline_state,
-            state.prs_state.loading.detail,
-            state.prs_state.loading.comments,
-            crate::state::prs_inline_ops::wrap_width_from_state(
-                state.prs_state.detail_content_width,
-            ),
-        );
-        let (cursor_line, _col) = content
-            .cursor
-            .unwrap_or_else(|| panic!("composer must expose a caret while backspacing"));
-        let offset = state.prs_state.detail_scroll_offset;
-        let viewport = state.prs_state.detail_viewport_rows;
-        assert!(
-            cursor_line >= offset && cursor_line < offset + viewport,
-            "caret line {cursor_line} must stay within viewport \
-             [{offset}, {}) after backspace",
-            offset + viewport
-        );
-    }
-}
-
-/// Caret-follow must also work for WRAPPED rendered lines: typing one long
-/// unbroken line with a small wrap width pushes the caret down several rendered
-/// rows (no newlines), and the viewport must still follow it. Uses the same
-/// `detail_content_width` the renderer/scroll-clamp use so the wrapped-line math
-/// is identical.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 169-176
-#[test]
-fn test_composer_typing_follows_caret_across_wrapped_lines() {
-    let mut state = prs_state_with_detail("repo-1", 1);
-    state.prs_state.detail_viewport_rows = 4;
-    // Small wrap width so a single long line wraps into many rendered rows.
-    state.prs_state.detail_content_width = 8;
-
-    let mut state = state.apply(AppEvent::PrOpenNewCommentComposer);
-
-    // Type one long unbroken line (no newlines) — wrapping alone advances the
-    // caret down multiple rendered rows.
-    for ch in "abcdefghijklmnopqrstuvwxyz0123456789".chars() {
-        state = state.apply(AppEvent::PrInlineChar(ch));
-    }
-
-    let detail = state
-        .prs_state
-        .pr_detail
-        .as_ref()
-        .unwrap_or_else(|| panic!("detail should exist"));
-    let content = crate::pr_detail_content::build_pr_detail_content(
-        detail,
-        state.prs_state.detail_subfocus,
-        &state.prs_state.inline_state,
-        state.prs_state.loading.detail,
-        state.prs_state.loading.comments,
-        crate::state::prs_inline_ops::wrap_width_from_state(state.prs_state.detail_content_width),
-    );
-    let (cursor_line, _col) = content
-        .cursor
-        .unwrap_or_else(|| panic!("composer must expose a caret across wrapped lines"));
-    let offset = state.prs_state.detail_scroll_offset;
-    let viewport = state.prs_state.detail_viewport_rows;
     assert!(
         cursor_line >= offset && cursor_line < offset + viewport,
-        "wrapped caret line {cursor_line} must stay within viewport \
-         [{offset}, {})",
+        "caret line {cursor_line} must be inside the visible window \
+         [{offset}, {}) (on the composer line, not the header)",
         offset + viewport
-    );
-}
-
-/// Moving the caret with CursorLeft / CursorRight (not just inserting text)
-/// must also trigger viewport follow. After typing a tall composer the caret
-/// sits at the bottom with a non-zero scroll offset; walking it back to the
-/// top with CursorLeft must pull the viewport up so the caret stays visible,
-/// and walking back down with CursorRight must push it down again.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 169-176
-#[test]
-fn test_composer_cursor_left_right_follows_caret() {
-    let mut state = prs_state_with_detail("repo-1", 1);
-    state.prs_state.detail_viewport_rows = 4;
-    let mut state = state.apply(AppEvent::PrOpenNewCommentComposer);
-
-    // Build a tall composer so the caret ends at the bottom (offset > 0).
-    for line in 0..10 {
-        for ch in format!("row {line}").chars() {
-            state = state.apply(AppEvent::PrInlineChar(ch));
-        }
-        state = state.apply(AppEvent::PrInlineNewline);
-    }
-    let bottom_offset = state.prs_state.detail_scroll_offset;
-    assert!(
-        bottom_offset > 0,
-        "precondition: a tall composer should have scrolled the viewport down"
-    );
-
-    // Walk the caret back toward the start of the composer with CursorLeft; the
-    // caret must remain inside the viewport on every step (forcing the offset
-    // up toward the composer's first rendered line).
-    state = walk_caret_asserting_visible(state, AppEvent::PrInlineCursorLeft, 120);
-    let top_offset = state.prs_state.detail_scroll_offset;
-    assert!(
-        top_offset < bottom_offset,
-        "walking the caret to the composer start must pull the viewport up \
-         (offset {top_offset} should be below the bottom offset {bottom_offset})"
-    );
-
-    // Walk it forward again with CursorRight; the offset must grow back so the
-    // caret stays visible as it descends past the viewport bottom.
-    state = walk_caret_asserting_visible(state, AppEvent::PrInlineCursorRight, 120);
-    assert!(
-        state.prs_state.detail_scroll_offset > top_offset,
-        "walking the caret back to the bottom must scroll the viewport down again \
-         (offset {} should exceed the top offset {top_offset})",
-        state.prs_state.detail_scroll_offset
     );
 }

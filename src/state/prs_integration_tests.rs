@@ -242,7 +242,6 @@ fn it_select_pr_loads_detail_with_reviews_and_checks() {
         &state.prs_state.inline_state,
         state.prs_state.loading.detail,
         state.prs_state.loading.comments,
-        None,
     );
     assert!(
         content.text.contains("reviewer1") || content.text.contains("Review"),
@@ -262,7 +261,6 @@ fn it_select_pr_loads_detail_with_reviews_and_checks() {
         &state.prs_state.inline_state,
         state.prs_state.loading.detail,
         state.prs_state.loading.comments,
-        None,
     );
     assert!(
         line_count > 0,
@@ -407,7 +405,6 @@ fn pr_expected_detail_bottom_scroll(state: &AppState) -> usize {
         &state.prs_state.inline_state,
         state.prs_state.loading.detail,
         state.prs_state.loading.comments,
-        (state.prs_state.detail_content_width > 0).then_some(state.prs_state.detail_content_width),
     )
     .saturating_sub(state.prs_state.detail_viewport_rows)
 }
@@ -875,36 +872,38 @@ fn it_pr_list_pagination_lazy_loads_appends_preserves_selection_and_discards_sta
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FIX 4: reducer clamp must be wrap-aware (single source of truth)
+// FIX 4: reducer clamp derives from the REAL rendered line count
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Setting a small `detail_content_width` with long body/comment text must
-/// make the reducer's max scroll offset equal the WRAPPED line count
-/// (not the unwrapped count). The clamp must derive from the same wrap_width
-/// the renderer uses.
+/// The reducer's max scroll offset must equal the REAL rendered line count
+/// produced by `pr_detail_content_line_count` (the exact text the renderer
+/// emits). Mirrors Issues mode: the reducer NEVER wraps, so long body lines
+/// are a SINGLE line each (the renderer truncates them); the clamp must still
+/// derive from that real count, not a heuristic.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 169-176
 #[test]
-fn reducer_max_scroll_is_wrap_aware_with_explicit_width() {
+fn reducer_max_scroll_matches_real_rendered_line_count() {
     let mut state = state_with_loaded_pr_detail();
 
-    // Inject a very long body line so wrapping at a small width produces more
-    // lines than the unwrapped text.
+    // Inject a multi-line body so the rendered count is deterministic.
     if let Some(detail) = state.prs_state.pr_detail.as_mut() {
-        detail.body = "word ".repeat(50);
+        detail.body = (0..20)
+            .map(|i| format!("body line {i}"))
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            );
     }
-    // Set a small content width so wrapping kicks in.
-    let width = 10usize;
-    state.prs_state.detail_content_width = width;
     state.prs_state.detail_viewport_rows = 1;
     state.prs_state.detail_subfocus = PrDetailSubfocus::Body;
 
     // Navigate to End → the reducer sets detail_scroll_offset to max.
     state.apply_in_place(AppEvent::PrNavigateEnd);
 
-    // The expected max offset from the wrap-aware parity function.
     let expected = {
         let detail = state
             .prs_state
@@ -917,33 +916,12 @@ fn reducer_max_scroll_is_wrap_aware_with_explicit_width() {
             &state.prs_state.inline_state,
             state.prs_state.loading.detail,
             state.prs_state.loading.comments,
-            Some(width),
         )
         .saturating_sub(state.prs_state.detail_viewport_rows)
     };
     assert_eq!(
         state.prs_state.detail_scroll_offset, expected,
-        "nav End clamp must use the wrap-aware line count"
-    );
-
-    // And the wrapped count must be strictly greater than the unwrapped count
-    // (proving the wrap actually happened).
-    let detail = state
-        .prs_state
-        .pr_detail
-        .as_ref()
-        .unwrap_or_else(|| panic!("pr_detail must be loaded"));
-    let unwrapped = pr_detail_content_line_count(
-        detail,
-        state.prs_state.detail_subfocus,
-        &state.prs_state.inline_state,
-        state.prs_state.loading.detail,
-        state.prs_state.loading.comments,
-        None,
-    );
-    assert!(
-        expected + 1 > unwrapped.saturating_sub(1),
-        "wrapped max offset ({expected}) should reflect more lines than unwrapped ({unwrapped})"
+        "nav End clamp must use the real rendered line count"
     );
 }
 
@@ -985,8 +963,6 @@ fn nav_clamp_uses_current_subfocus_not_body() {
             &state.prs_state.inline_state,
             state.prs_state.loading.detail,
             state.prs_state.loading.comments,
-            (state.prs_state.detail_content_width > 0)
-                .then_some(state.prs_state.detail_content_width),
         )
         .saturating_sub(state.prs_state.detail_viewport_rows)
     };

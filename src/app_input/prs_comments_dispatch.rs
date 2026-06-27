@@ -97,10 +97,10 @@ enum PrCommentPageRequest {
 
 /// Compute the max detail scroll offset using the CANONICAL parity function
 /// `pr_detail_content_line_count` (the exact text the renderer emits for the
-/// current subfocus, inline composer state, loading flags, and wrap width)
-/// minus the viewport rows. Using the parity function — rather than a local
-/// heuristic — guarantees the comments-dispatch "scrolled near bottom" check
-/// uses the SAME line count the renderer and scroll clamp do (MED-8).
+/// current subfocus, inline composer state, and loading flags) minus the
+/// viewport rows. Using the parity function — rather than a local heuristic —
+/// guarantees the comments-dispatch "scrolled near bottom" check uses the SAME
+/// line count the renderer and scroll clamp do (MED-8).
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-009
@@ -110,15 +110,12 @@ pub(super) fn pr_detail_max_scroll_offset(state: &jefe::state::AppState) -> usiz
     let Some(detail) = state.prs_state.pr_detail.as_ref() else {
         return 0;
     };
-    let wrap_width =
-        (state.prs_state.detail_content_width > 0).then_some(state.prs_state.detail_content_width);
     jefe::pr_detail_content::pr_detail_content_line_count(
         detail,
         state.prs_state.detail_subfocus,
         &state.prs_state.inline_state,
         state.prs_state.loading.detail,
         state.prs_state.loading.comments,
-        wrap_width,
     )
     .saturating_sub(state.prs_state.detail_viewport_rows)
 }
@@ -283,7 +280,6 @@ mod tests {
             active: true,
             pr_detail: Some(detail.clone()),
             detail_viewport_rows: 6,
-            detail_content_width: 0,
             detail_subfocus: PrDetailSubfocus::Body,
             inline_state: InlineState::None,
             ..PullRequestsState::default()
@@ -308,7 +304,6 @@ mod tests {
             &state.prs_state.inline_state,
             state.prs_state.loading.detail,
             state.prs_state.loading.comments,
-            None,
         )
         .saturating_sub(state.prs_state.detail_viewport_rows);
 

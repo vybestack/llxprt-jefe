@@ -101,13 +101,6 @@ pub struct PullRequestsState {
     pub detail_scroll_offset: usize,
     /// Last rendered detail viewport height in rows.
     pub detail_viewport_rows: usize,
-    /// Content width (cols) for wrapping PR-detail text, read ONCE at the
-    /// dispatch boundary (mirrors `detail_viewport_rows`). 0 means "no wrap".
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P14
-    /// @requirement REQ-PR-009
-    /// @pseudocode component-001 lines 1-12
-    pub detail_content_width: usize,
     pub inline_state: InlineState,
     pub agent_chooser: Option<AgentChooserState>,
     pub filter_ui: PrFilterUiState,

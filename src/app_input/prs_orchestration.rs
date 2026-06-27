@@ -53,11 +53,11 @@ pub(super) fn dispatch_prs_message(
 ) {
     use jefe::messages::{PrInlineMsg, ScrollDir};
 
-    // Refresh BOTH detail_viewport_rows AND detail_content_width ONCE at the
-    // dispatch boundary (before any reducer runs a scroll clamp or detail
-    // line-count) so every clamp path uses the current terminal dimensions,
-    // not a stale width from a previous ScrollDetail(Down|PageDown).
-    // Reducers stay crossterm-free; this is the only crossterm read here.
+    // Refresh detail_viewport_rows ONCE at the dispatch boundary (before any
+    // reducer runs a scroll clamp or detail line-count) so every clamp path
+    // uses the current terminal dimensions, not a stale height from a
+    // previous ScrollDetail(Down|PageDown). Reducers stay crossterm-free;
+    // this is the only crossterm read here.
     update_pr_detail_viewport_rows(app_state);
 
     match message {
@@ -209,28 +209,25 @@ fn refresh_pr_preview_if_changed(app_state: &mut AppStateHandle, prev_pr_idx: Op
     }
 }
 
-/// Update the PR detail viewport row count and content width from the layout
-/// module.
+/// Update the PR detail viewport row count from the layout module.
 ///
 /// Reads `crossterm::size()` ONCE at the dispatch boundary and writes the
-/// computed viewport rows into `prs_state.detail_viewport_rows` and the
-/// computed content width into `prs_state.detail_content_width` so the
-/// reducers never touch crossterm (#37/#39/#55) and scroll bounds stay in
-/// lockstep with the wrapped content the renderer emits.
+/// computed viewport rows into `prs_state.detail_viewport_rows` so the
+/// reducers never touch crossterm (#37/#39/#55). The content width for
+/// truncation is computed independently by the screen renderer (it does not
+/// live in reducer state — the reducer never wraps).
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-009
 /// @pseudocode component-004 lines 156-159
 fn update_pr_detail_viewport_rows(app_state: &mut AppStateHandle) {
-    let (term_rows, term_cols) = crossterm::terminal::size().map_or((40, 120), |(c, r)| (r, c));
+    let (term_rows, _term_cols) = crossterm::terminal::size().map_or((40, 120), |(c, r)| (r, c));
     let mut state = app_state.write();
     state.prs_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
         term_rows as usize,
         state.prs_state.error.is_some(),
         state.prs_state.filter_ui.controls_open,
     );
-    state.prs_state.detail_content_width =
-        jefe::layout::prs_detail_content_width(term_cols) as usize;
 }
 
 /// Dispatch the PR agent-chooser confirm (send-to-agent) side effects.

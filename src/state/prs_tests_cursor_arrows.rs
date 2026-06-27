@@ -3,10 +3,15 @@
 //! Split out of `prs_tests_composer_focus.rs` to keep each test module within
 //! the repository's per-file length budget.
 //!
+//! These tests assert the cursor-movement LOGIC (byte offsets, column
+//! preservation, clamping). They do NOT assert per-keystroke scroll-follow,
+//! which was removed: PR mode now mirrors Issues mode — scrolling happens ONLY
+//! on composer open and on CommentCreated.
+//!
 //! @plan PLAN-20260624-PR-MODE.P14
 //! @requirement REQ-PR-010
 
-use super::prs_test_fixtures::{prs_state_with_detail, walk_caret_asserting_visible};
+use super::prs_test_fixtures::prs_state_with_detail;
 use crate::state::AppState;
 use crate::state::types::{AppEvent, InlineState};
 
@@ -50,7 +55,6 @@ fn type_into_composer(mut state: AppState, text: &str) -> AppState {
 fn cursor_up_moves_to_previous_line_preserving_column() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    state.prs_state.detail_content_width = 80;
     let state = state.apply(AppEvent::PrOpenNewCommentComposer);
     // "abcd\nefgh" — cursor lands after 'h' (byte 9).
     let state = type_into_composer(state, "abcd\nefgh");
@@ -76,7 +80,6 @@ fn cursor_up_moves_to_previous_line_preserving_column() {
 fn cursor_down_moves_to_next_line_preserving_column() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    state.prs_state.detail_content_width = 80;
     let state = state.apply(AppEvent::PrOpenNewCommentComposer);
     let state = type_into_composer(state, "abcd\nefgh");
     // Move up first, then down.
@@ -89,23 +92,29 @@ fn cursor_down_moves_to_next_line_preserving_column() {
     );
 }
 
-/// CursorUp on the first logical line moves to byte 0 (start of text).
+/// CursorUp on the first logical line is a no-op (the caret stays at its
+/// current column), matching the shared `inline_cursor_vertical` helper used by
+/// Issues mode. (The old PR-specific helper moved to byte 0, but Issues mode —
+/// which PR mode now mirrors — does not.)
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 44-50
 #[test]
-fn cursor_up_on_first_line_goes_to_start() {
+fn cursor_up_on_first_line_is_noop() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    state.prs_state.detail_content_width = 80;
     let state = state.apply(AppEvent::PrOpenNewCommentComposer);
     let state = type_into_composer(state, "abcd\nefgh");
-    // Walk to the end, then Up twice: first to line 1, then to start.
+    // Walk to the end, then Up twice: first to line 1 (byte 4), then Up again
+    // on the first line — a no-op (caret stays at byte 4).
     let state = state.apply(AppEvent::PrInlineCursorUp);
     let state = state.apply(AppEvent::PrInlineCursorUp);
     let (_text, cursor) = composer_text_cursor(&state);
-    assert_eq!(cursor, 0, "CursorUp on the first line must move to byte 0");
+    assert_eq!(
+        cursor, 4,
+        "CursorUp on the first line must be a no-op (caret stays at byte 4)"
+    );
 }
 
 /// CursorDown on the last logical line moves to text.len() (end of text).
@@ -117,7 +126,6 @@ fn cursor_up_on_first_line_goes_to_start() {
 fn cursor_down_on_last_line_goes_to_end() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    state.prs_state.detail_content_width = 80;
     let state = state.apply(AppEvent::PrOpenNewCommentComposer);
     let state = type_into_composer(state, "abcd\nefgh");
     // Move up to line 1, then down twice: back to line 2, then to end.
@@ -142,7 +150,6 @@ fn cursor_down_on_last_line_goes_to_end() {
 fn cursor_up_clamps_column_on_shorter_previous_line() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    state.prs_state.detail_content_width = 80;
     let state = state.apply(AppEvent::PrOpenNewCommentComposer);
     // Line 1 = "ab", line 2 = "cdefgh" — caret at col 6 on line 2.
     let state = type_into_composer(state, "ab\ncdefgh");
@@ -166,7 +173,6 @@ fn cursor_up_clamps_column_on_shorter_previous_line() {
 fn forward_delete_removes_char_at_cursor() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    state.prs_state.detail_content_width = 80;
     let state = state.apply(AppEvent::PrOpenNewCommentComposer);
     let state = type_into_composer(state, "abc");
     // Cursor is at end (byte 3). Move left once -> byte 2 (on 'c').
@@ -189,7 +195,6 @@ fn forward_delete_removes_char_at_cursor() {
 fn forward_delete_at_end_is_noop() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 20;
-    state.prs_state.detail_content_width = 80;
     let state = state.apply(AppEvent::PrOpenNewCommentComposer);
     let state = type_into_composer(state, "abc");
     // Cursor is at end (byte 3); Delete must not change anything.
@@ -199,43 +204,41 @@ fn forward_delete_at_end_is_noop() {
     assert_eq!(cursor, 3);
 }
 
-/// CursorUp/Down keep the caret within the visible viewport after the move
-/// (drives through the real reducer so the scroll-follow runs).
+/// CursorUp/Down movement logic (column preservation across lines) still works
+/// on a tall multi-line composer now that up/down route through the shared
+/// `inline_cursor_vertical` helper (the same one Issues mode uses). This does
+/// NOT assert per-keystroke scroll-follow (removed: PR mode scrolls ONLY on
+/// open and on CommentCreated, mirroring Issues).
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 169-176
+/// @pseudocode component-001 lines 44-50
 #[test]
-fn cursor_up_down_keep_caret_within_viewport() {
+fn cursor_up_down_preserve_column_on_tall_composer() {
     let mut state = prs_state_with_detail("repo-1", 1);
-    state.prs_state.detail_viewport_rows = 4;
-    state.prs_state.detail_content_width = 80;
-    let mut state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    state.prs_state.detail_viewport_rows = 20;
+    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
     // Build a tall multi-line composer.
-    state = type_into_composer(state, "aaaa\nbbbb\ncccc\ndddd\neeee\nffff");
+    let state = type_into_composer(state, "aaaa\nbbbb\ncccc\ndddd\neeee\nffff");
+    // Caret sits at the end of the last line ("ffff", byte 24).
+    let (_text, cursor) = composer_text_cursor(&state);
+    assert_eq!(cursor, "aaaa\nbbbb\ncccc\ndddd\neeee\nffff".len());
 
-    // Opening + typing a tall composer must scroll the viewport down to keep
-    // the caret (now on the last line) visible.
-    let bottom_offset = state.prs_state.detail_scroll_offset;
-    assert!(
-        bottom_offset > 0,
-        "precondition: typing past the viewport must scroll to the bottom"
+    // CursorUp from col 4 on the last line -> col 4 on the previous line.
+    let state = state.apply(AppEvent::PrInlineCursorUp);
+    let (_text, cursor) = composer_text_cursor(&state);
+    assert_eq!(
+        cursor,
+        "aaaa\nbbbb\ncccc\ndddd\neeee".len(),
+        "CursorUp must move up one line preserving column 4"
     );
 
-    // Walk up: caret must stay visible at each step, and the viewport must
-    // follow the caret upward (offset strictly decreases).
-    state = walk_caret_asserting_visible(state, AppEvent::PrInlineCursorUp, 30);
-    let top_offset = state.prs_state.detail_scroll_offset;
-    assert!(
-        top_offset < bottom_offset,
-        "walking up must pull the viewport up: top {top_offset} < bottom {bottom_offset}"
-    );
-
-    // Walk back down: caret must stay visible at each step, and the viewport
-    // must follow the caret back down (offset strictly increases).
-    state = walk_caret_asserting_visible(state, AppEvent::PrInlineCursorDown, 30);
-    assert!(
-        state.prs_state.detail_scroll_offset > top_offset,
-        "walking down must scroll the viewport back down past top {top_offset}"
+    // CursorDown returns to the last line at col 4 (end of "ffff").
+    let state = state.apply(AppEvent::PrInlineCursorDown);
+    let (_text, cursor) = composer_text_cursor(&state);
+    assert_eq!(
+        cursor,
+        "aaaa\nbbbb\ncccc\ndddd\neeee\nffff".len(),
+        "CursorDown must return to the last line preserving column 4"
     );
 }

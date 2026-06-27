@@ -1,24 +1,20 @@
 //! Pull Requests mode inline composer state operations.
 //!
+//! Mirrors `issues_inline_ops.rs`: the reducer ONLY mutates text/cursor on
+//! edit/cursor keys — it NEVER scrolls per-keystroke and NEVER wraps. Scrolling
+//! happens ONLY on composer open (`scroll_pr_detail_to_bottom`) and on
+//! `PrCommentCreated`, exactly like Issues mode. The renderer (ScrollableText)
+//! truncates long lines, so reducer line/cursor coordinates can never drift.
+//!
 //! @plan PLAN-20260624-PR-MODE.P05
 //! @requirement REQ-PR-010
 //! @pseudocode component-001 lines 292-330
 
 use super::{
     AppEvent, AppState, ComposerTarget, InlineState, PrDetailSubfocus, PrFocus, ReadOnlyHintKind,
+    inline_cursor_vertical,
 };
 use crate::messages::PrInlineMsg;
-
-/// Convert the stored `detail_content_width` into the `Option<usize>` the
-/// builder expects: 0 (the default before the dispatch boundary sets it) means
-/// "no wrapping" so reducers stay deterministic and crossterm-free.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-009
-/// @pseudocode component-001 lines 1-12
-pub(super) fn wrap_width_from_state(detail_content_width: usize) -> Option<usize> {
-    (detail_content_width > 0).then_some(detail_content_width)
-}
 
 impl AppState {
     /// Scroll the PR detail viewport so the last content line is visible.
@@ -26,69 +22,13 @@ impl AppState {
     /// Shared by the inline composer-open path and the post-comment-create path
     /// so both land on the SAME offset the scroll clamp uses (the real rendered
     /// bottom), keeping the new content on-screen and preventing a later
-    /// page-down jump (#56).
+    /// page-down jump (#56). Mirrors `issues_inline_ops::scroll_detail_to_bottom`.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-010
     /// @pseudocode component-001 lines 169-176
     pub(super) fn scroll_pr_detail_to_bottom(&mut self) {
         self.prs_state.detail_scroll_offset = self.pr_max_detail_scroll_offset();
-    }
-
-    /// Scroll the PR detail viewport the minimum amount needed to keep the
-    /// composer caret visible while typing.
-    ///
-    /// On open/create the view jumps to the rendered bottom, but as the user
-    /// keeps typing (new lines, wrapped lines) the caret can drift past the
-    /// viewport bottom (or, after deletes/up-arrow, above the top). This
-    /// recomputes the caret's absolute rendered line from the SAME builder the
-    /// renderer and scroll clamp use (so the wrapped-line math is identical),
-    /// then nudges `detail_scroll_offset` just enough to bring the caret back
-    /// inside `[offset, offset + viewport_rows)`. When the cursor is already
-    /// visible the offset is unchanged.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P14
-    /// @requirement REQ-PR-010
-    /// @pseudocode component-001 lines 169-176
-    pub(super) fn scroll_pr_detail_to_cursor(&mut self) {
-        let Some(detail) = &self.prs_state.pr_detail else {
-            return;
-        };
-        let content = crate::pr_detail_content::build_pr_detail_content(
-            detail,
-            self.prs_state.detail_subfocus,
-            &self.prs_state.inline_state,
-            self.prs_state.loading.detail,
-            self.prs_state.loading.comments,
-            wrap_width_from_state(self.prs_state.detail_content_width),
-        );
-        let Some((cursor_line, _col)) = content.cursor else {
-            return;
-        };
-        let viewport_rows = self.prs_state.detail_viewport_rows;
-        if viewport_rows == 0 {
-            return;
-        }
-        // Clamp against the REAL rendered length (same content the cursor was
-        // derived from) so the result never leaves `detail_scroll_offset`
-        // outside its canonical bounds — e.g. when the prior offset is stale
-        // after a viewport grow/content shrink. All arithmetic is saturating
-        // because this is reducer state math.
-        let total_lines = content.text.lines().count();
-        let max_offset = total_lines.saturating_sub(viewport_rows);
-        let offset = self.prs_state.detail_scroll_offset.min(max_offset);
-        let visible_end = offset.saturating_add(viewport_rows);
-        let next = if cursor_line < offset {
-            // Caret scrolled above the viewport top: pull the view up to it.
-            cursor_line
-        } else if cursor_line >= visible_end {
-            // Caret dropped below the viewport bottom: pull the view down so the
-            // caret sits on the last visible row.
-            cursor_line.saturating_add(1).saturating_sub(viewport_rows)
-        } else {
-            offset
-        };
-        self.prs_state.detail_scroll_offset = next.min(max_offset);
     }
 
     /// Compute the maximum detail scroll offset from the REAL rendered content
@@ -98,7 +38,9 @@ impl AppState {
     /// Using the shared `pr_detail_content_line_count` parity function — rather
     /// than a heuristic — guarantees that scrolling to the bottom on composer
     /// open lands on the same offset the scroll clamp uses, so the composer
-    /// stays on-screen and a later page-down does not jump (#56).
+    /// stays on-screen and a later page-down does not jump (#56). Like Issues
+    /// mode, the reducer NEVER wraps, so the count is the unwrapped line count
+    /// the renderer also sees (truncation does not change line counts).
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-009
@@ -113,7 +55,6 @@ impl AppState {
             &self.prs_state.inline_state,
             self.prs_state.loading.detail,
             self.prs_state.loading.comments,
-            wrap_width_from_state(self.prs_state.detail_content_width),
         )
         .saturating_sub(self.prs_state.detail_viewport_rows)
     }
@@ -184,35 +125,6 @@ impl AppState {
             let next = text[*cursor..].chars().next().map_or(0, char::len_utf8);
             *cursor += next;
         }
-    }
-
-    /// Move the cursor to the previous logical line, preserving the character
-    /// column where possible. On the first logical line the caret moves to
-    /// byte 0. Column clamps to the target line's char length. All math is
-    /// saturating and respects UTF-8 char boundaries.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P14
-    /// @requirement REQ-PR-010
-    /// @pseudocode component-001 lines 44-50
-    fn pr_move_inline_cursor_up(inline_state: &mut InlineState) {
-        let Some((text, cursor)) = Self::pr_active_inline_text(inline_state) else {
-            return;
-        };
-        *cursor = prev_line_byte_offset(text, *cursor);
-    }
-
-    /// Move the cursor to the next logical line, preserving the character
-    /// column where possible. On the last logical line the caret moves to
-    /// `text.len()`. Column clamps to the target line's char length.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P14
-    /// @requirement REQ-PR-010
-    /// @pseudocode component-001 lines 44-50
-    fn pr_move_inline_cursor_down(inline_state: &mut InlineState) {
-        let Some((text, cursor)) = Self::pr_active_inline_text(inline_state) else {
-            return;
-        };
-        *cursor = next_line_byte_offset(text, *cursor);
     }
 
     /// Delete the character AT the cursor (forward delete). The cursor stays
@@ -311,6 +223,10 @@ impl AppState {
 
     /// Apply inline editor events (char/newline/backspace/cursor/cancel).
     ///
+    /// Mirrors `issues_inline_ops::apply_inline_event`: each edit/cursor arm
+    /// ONLY mutates text/cursor — there is NO per-keystroke scroll-follow.
+    /// Scrolling happens ONLY on composer open and on `PrCommentCreated`.
+    ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-010
     /// @pseudocode component-001 lines 308-330
@@ -344,35 +260,35 @@ impl AppState {
         match msg {
             PrInlineMsg::Char(c) => {
                 Self::pr_insert_inline_char(&mut self.prs_state.inline_state, c);
-                self.scroll_pr_detail_to_cursor();
             }
             PrInlineMsg::Newline => {
                 Self::pr_insert_inline_char(&mut self.prs_state.inline_state, char::from(0x0Au8));
-                self.scroll_pr_detail_to_cursor();
             }
             PrInlineMsg::Backspace => {
                 Self::pr_delete_inline_previous_char(&mut self.prs_state.inline_state);
-                self.scroll_pr_detail_to_cursor();
             }
             PrInlineMsg::Delete => {
                 Self::pr_delete_inline_next_char(&mut self.prs_state.inline_state);
-                self.scroll_pr_detail_to_cursor();
             }
             PrInlineMsg::CursorUp => {
-                Self::pr_move_inline_cursor_up(&mut self.prs_state.inline_state);
-                self.scroll_pr_detail_to_cursor();
+                if let Some((text, cursor)) =
+                    Self::pr_active_inline_text(&mut self.prs_state.inline_state)
+                {
+                    inline_cursor_vertical(text, cursor, -1);
+                }
             }
             PrInlineMsg::CursorDown => {
-                Self::pr_move_inline_cursor_down(&mut self.prs_state.inline_state);
-                self.scroll_pr_detail_to_cursor();
+                if let Some((text, cursor)) =
+                    Self::pr_active_inline_text(&mut self.prs_state.inline_state)
+                {
+                    inline_cursor_vertical(text, cursor, 1);
+                }
             }
             PrInlineMsg::CursorLeft => {
                 Self::pr_move_inline_cursor_left(&mut self.prs_state.inline_state);
-                self.scroll_pr_detail_to_cursor();
             }
             PrInlineMsg::CursorRight => {
                 Self::pr_move_inline_cursor_right(&mut self.prs_state.inline_state);
-                self.scroll_pr_detail_to_cursor();
             }
             PrInlineMsg::Submit => {
                 self.pr_inline_submit();
@@ -427,104 +343,4 @@ impl AppState {
             self.prs_state.inline_state = InlineState::None;
         }
     }
-}
-
-/// Split `text` into logical lines by '\n' and return `(line_index, byte_start
-/// of line, char column within the line)` for the byte cursor, clamped to a
-/// UTF-8 char boundary.
-///
-/// `byte_cursor` is clamped to `text.len()` then walked down to the nearest
-/// char boundary so a mid-codepoint offset cannot panic the slice.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 44-50
-fn cursor_line_info(text: &str, byte_cursor: usize) -> (usize, usize, usize) {
-    let clamped = byte_cursor.min(text.len());
-    let mut boundary = clamped;
-    while boundary > 0 && !text.is_char_boundary(boundary) {
-        boundary -= 1;
-    }
-    let before = &text[..boundary];
-    let line_idx = before.matches('\n').count();
-    let line_start = before.rfind('\n').map_or(0, |p| p + 1);
-    let col = before[line_start..].chars().count();
-    (line_idx, line_start, col)
-}
-
-/// Byte offset of the start of a given logical line index (0-based), counting
-/// '\n' separators. Returns `text.len()` for a line index past the end.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 44-50
-fn line_start_byte(text: &str, line_index: usize) -> usize {
-    if line_index == 0 {
-        return 0;
-    }
-    let mut start = 0usize;
-    let mut current = 0usize;
-    for (i, ch) in text.char_indices() {
-        if current == line_index {
-            return start;
-        }
-        if ch == '\n' {
-            start = i + 1;
-            current += 1;
-        }
-    }
-    // A line index past the end maps to the end of the text. `start` is only
-    // ever set to `i + 1` for a single-byte '\n', so `start <= text.len()`
-    // always holds and the end position is simply `text.len()`.
-    text.len()
-}
-
-/// Walk `target_col` chars into the line starting at `line_start` and return
-/// the resulting byte offset (clamped to the line's end / next '\n').
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 44-50
-fn col_byte_within_line(text: &str, line_start: usize, target_col: usize) -> usize {
-    let mut byte = line_start;
-    for (col, (i, ch)) in text[line_start..].char_indices().enumerate() {
-        if col >= target_col || ch == '\n' {
-            return line_start + i;
-        }
-        byte = line_start + i + ch.len_utf8();
-    }
-    byte.min(text.len())
-}
-
-/// Compute the target byte offset when moving the cursor UP one logical line,
-/// preserving the character column (clamped to the previous line's length).
-/// On the first logical line, returns 0.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 44-50
-fn prev_line_byte_offset(text: &str, byte_cursor: usize) -> usize {
-    let (line_idx, _line_start, col) = cursor_line_info(text, byte_cursor);
-    if line_idx == 0 {
-        return 0;
-    }
-    let prev_start = line_start_byte(text, line_idx - 1);
-    col_byte_within_line(text, prev_start, col)
-}
-
-/// Compute the target byte offset when moving the cursor DOWN one logical line,
-/// preserving the character column (clamped to the next line's length).
-/// On the last logical line, returns `text.len()`.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 44-50
-fn next_line_byte_offset(text: &str, byte_cursor: usize) -> usize {
-    let (line_idx, _line_start, col) = cursor_line_info(text, byte_cursor);
-    let next_start = line_start_byte(text, line_idx + 1);
-    // If next_start is at/past end-of-text there is no next line -> go to end.
-    if next_start >= text.len() {
-        return text.len();
-    }
-    col_byte_within_line(text, next_start, col)
 }

@@ -1,9 +1,9 @@
 //! Shared `#[cfg(test)]` fixtures for Pull Requests Mode reducer tests.
 //!
 //! Extracted so `prs_tests_composer_focus.rs` and `prs_tests_cursor_arrows.rs`
-//! (and any future PR-mode test module) share ONE copy of the state fixture and
-//! caret/viewport helpers instead of drifting copies that must be updated in
-//! lockstep when `PullRequest`/`PullRequestDetail` fields change.
+//! (and any future PR-mode test module) share ONE copy of the state fixture
+//! instead of drifting copies that must be updated in lockstep when
+//! `PullRequest`/`PullRequestDetail` fields change.
 //!
 //! @plan PLAN-20260624-PR-MODE.P14
 //! @requirement REQ-PR-010
@@ -12,7 +12,7 @@ use crate::domain::{
     PrCheckStatus, PrState, PullRequest, PullRequestDetail, Repository, RepositoryId,
 };
 use crate::state::AppState;
-use crate::state::types::{AppEvent, InlineState, PrFocus, ScreenMode};
+use crate::state::types::{InlineState, PrFocus, ScreenMode};
 
 /// PR-mode state with a single selected PR and a loaded detail (non-empty body).
 ///
@@ -74,62 +74,5 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
         comments_cursor: None,
     });
     state.prs_state.inline_state = InlineState::None;
-    state
-}
-
-/// Compute the caret's absolute rendered line the SAME way the renderer and the
-/// scroll-follow logic do (same `build_pr_detail_content` + `wrap_width` source),
-/// so tests can assert the caret stays inside the visible window.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 169-176
-pub fn composer_caret_line(state: &AppState) -> usize {
-    let detail = state
-        .prs_state
-        .pr_detail
-        .as_ref()
-        .unwrap_or_else(|| panic!("detail should exist"));
-    let content = crate::pr_detail_content::build_pr_detail_content(
-        detail,
-        state.prs_state.detail_subfocus,
-        &state.prs_state.inline_state,
-        state.prs_state.loading.detail,
-        state.prs_state.loading.comments,
-        crate::state::prs_inline_ops::wrap_width_from_state(state.prs_state.detail_content_width),
-    );
-    content
-        .cursor
-        .unwrap_or_else(|| panic!("composer must expose a caret while moving"))
-        .0
-}
-
-/// Apply `event` `steps` times, asserting after each step that the caret is
-/// still within the visible viewport `[offset, offset + viewport_rows)`.
-/// Returns the final state so callers can assert directional scroll movement.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 169-176
-pub fn walk_caret_asserting_visible(
-    mut state: AppState,
-    event: AppEvent,
-    steps: usize,
-) -> AppState {
-    for _ in 0..steps {
-        state = state.apply(event.clone());
-        let cursor_line = composer_caret_line(&state);
-        let offset = state.prs_state.detail_scroll_offset;
-        let viewport = state.prs_state.detail_viewport_rows;
-        assert!(
-            viewport > 0,
-            "detail_viewport_rows must be set (> 0) before walking the caret"
-        );
-        assert!(
-            cursor_line >= offset && cursor_line < offset + viewport,
-            "caret line {cursor_line} must stay within viewport [{offset}, {})",
-            offset + viewport
-        );
-    }
     state
 }

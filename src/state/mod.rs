@@ -50,8 +50,14 @@ fn inline_cursor_vertical(text: &str, cursor: &mut usize, direction: i32) {
         }
     }
 
-    // Clamp the cursor to a valid char boundary within the text.
-    let clamped_cursor = (*cursor).min(text.len());
+    // Clamp the cursor to a valid char boundary within the text. As the shared
+    // single source of truth for vertical movement in both Issues and PR modes,
+    // this defensively walks a mid-codepoint offset DOWN to the nearest UTF-8
+    // boundary so slicing cannot panic on malformed input.
+    let mut clamped_cursor = (*cursor).min(text.len());
+    while clamped_cursor > 0 && !text.is_char_boundary(clamped_cursor) {
+        clamped_cursor -= 1;
+    }
     let before_cursor = &text[..clamped_cursor];
 
     // Find which line the cursor is on (by byte offset).

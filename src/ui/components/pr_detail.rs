@@ -98,9 +98,11 @@ pub struct PrDetailViewProps {
     pub focused: bool,
     /// Active inline editor/composer state.
     pub inline_state: InlineState,
-    /// Content width (terminal cols) for wrapping PR-detail text, supplied by
-    /// the screen from the same `crossterm::terminal::size()` read the screen
-    /// already performs. 0 means "no wrapping".
+    /// Content width (terminal cols) for truncating PR-detail text via the
+    /// ScrollableText `max_line_width`, supplied by the screen from the same
+    /// `crossterm::terminal::size()` read the screen already performs. The
+    /// reducer NEVER wraps — truncation is safe (it clips columns only, never
+    /// changing line counts or cursor line), mirroring Issues mode.
     ///
     /// @plan PLAN-20260624-PR-MODE.P14
     /// @requirement REQ-PR-009
@@ -137,12 +139,6 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
         crate::layout::prs_detail_viewport_rows(DEFAULT_PR_DETAIL_TERM_ROWS, false, false)
     };
 
-    // Compute the content wrap width from the props-supplied content width
-    // (single source of truth: the screen reads crossterm ONCE and passes it
-    // down, the same width the dispatch boundary stores in state for the
-    // reducer scroll clamp). The component never reads the terminal itself.
-    let wrap_width = (props.detail_content_width > 0).then_some(props.detail_content_width);
-
     let (h_title, h_state, h_branches, h_url, detail_content, state_color) =
         if let Some(detail) = props.detail.as_ref() {
             let sc = match detail.state {
@@ -161,7 +157,6 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
                     &props.inline_state,
                     props.detail_loading,
                     props.comments_loading,
-                    wrap_width,
                 ),
                 sc,
             )

@@ -14,7 +14,7 @@ use crate::ui::components::PrDetailView;
 
 use iocraft::prelude::*;
 
-/// Build a PR detail with a long comment body so wrapping is exercised.
+/// Build a PR detail with a long comment body so truncation is exercised.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
@@ -138,15 +138,16 @@ fn rendered_lines_never_exceed_term_cols() {
     }
 }
 
-/// A long comment body must WRAP (produce more than one row of its content)
-/// rather than end in "…" when `detail_content_width` is passed — confirming
-/// the content builder wraps and the component does NOT double-truncate.
+/// A long comment body must be TRUNCATED (clipped to the content width) rather
+/// than overflow the pane — mirroring Issues mode, where the reducer never wraps
+/// and the renderer (ScrollableText) truncates long lines via `max_line_width`.
+/// This confirms the component does NOT overflow when a line exceeds the width.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 1-12
 #[test]
-fn long_comment_wraps_instead_of_truncating() {
+fn long_comment_truncated_to_content_width() {
     let detail = detail_with_long_comment();
     let cols: u16 = 50;
     let content_width = usize::from(crate::layout::prs_detail_content_width(cols));
@@ -159,35 +160,22 @@ fn long_comment_wraps_instead_of_truncating() {
         pane_height: 40,
         cols,
     });
-    // The long comment body must appear wrapped (more than one row of it).
-    // Count lines containing recognizable fragments of the body text.
-    let body_fragments = rendered
-        .lines()
-        .filter(|l| {
-            l.contains("this is a very")
-                || l.contains("comment body")
-                || l.contains("should wrap")
-                || l.contains("rendered rows")
-                || l.contains("content widt")
-                || l.contains("is narrow")
-        })
-        .count();
+    // No rendered line may exceed the terminal column width (the ScrollableText
+    // truncation clips long lines so nothing overflows the pane).
+    for (i, line) in rendered.lines().enumerate() {
+        assert!(
+            line.chars().count() <= usize::from(cols),
+            "rendered line {i} exceeds term_cols {cols}: {} ({} chars) — \
+             long lines must be truncated, not overflow",
+            line,
+            line.chars().count()
+        );
+    }
+    // The long comment body is a single (unwrapped) line; the start of it must
+    // still be visible (truncated, not dropped entirely).
     assert!(
-        body_fragments >= 2,
-        "long comment body must wrap into multiple rows, found {body_fragments} matching lines"
-    );
-    // The TAIL of the comment must survive wrapping (not be dropped/truncated).
-    assert!(
-        rendered.contains("is narrow"),
-        "tail of the wrapped comment body must be present, not truncated"
-    );
-    // And no body content line should end with the truncation ellipsis.
-    let has_spurious_ellipsis = rendered
-        .lines()
-        .any(|l| l.contains("comment body") && l.ends_with('…'));
-    assert!(
-        !has_spurious_ellipsis,
-        "wrapped comment body must not be truncated with '…'"
+        rendered.contains("this is a very"),
+        "the start of a long comment body must still be visible (truncated, not dropped)"
     );
 }
 
@@ -257,9 +245,10 @@ fn caret_renders_as_reverse_video_sgr() {
     );
 }
 
-/// A wrapped composer line must indent its continuation row with the gutter
-/// width (plain spaces), NOT start at column 0. This confirms the hanging
-/// indent reaches the rendered output.
+/// A long composer line must be TRUNCATED (clipped to the content width) rather
+/// than overflow the pane — mirroring Issues mode, where the reducer never wraps
+/// and the renderer truncates long lines via `max_line_width`. The composer
+/// content stays on a SINGLE row (no wrapping, no continuation indent).
 ///
 /// Uses a detail with NO comments/reviews/checks so the composer is near the
 /// top of the content (visible without scrolling).
@@ -268,7 +257,7 @@ fn caret_renders_as_reverse_video_sgr() {
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 1-12
 #[test]
-fn rendered_composer_wraps_with_hanging_indent() {
+fn rendered_long_composer_line_truncated_to_content_width() {
     let detail = PullRequestDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 20,
@@ -311,24 +300,21 @@ fn rendered_composer_wraps_with_hanging_indent() {
         pane_height: 40,
         cols,
     });
-    // The composer content (after the "│ " gutter) wraps. Continuation rows
-    // must start with spaces (no bar) matching the gutter display width.
-    // Strip the leading border ("║ ") + padding to inspect the content indent.
-    let has_continuation_indent = rendered.lines().any(|l| {
-        // Composer rows live inside the border: "║   │ ..." (first row) or
-        // "║     ..." (continuation). Strip everything up to and including the
-        // padding after the border to inspect the content-level indent.
-        let after_border = l.strip_prefix("║   ").unwrap_or(l);
-        // Continuation rows start with spaces (the gutter width), have no bar,
-        // and contain non-whitespace content aligned under the first row.
-        after_border.starts_with("    ")
-            && !after_border.contains('│')
-            && !after_border.trim().is_empty()
-    });
+    // No rendered line may exceed the terminal column width: a long composer
+    // line must be truncated (clipped), not wrapped or overflowed.
+    for (i, line) in rendered.lines().enumerate() {
+        assert!(
+            line.chars().count() <= usize::from(cols),
+            "rendered line {i} exceeds term_cols {cols}: {} ({} chars) — \
+             a long composer line must be truncated, not overflow",
+            line,
+            line.chars().count()
+        );
+    }
+    // The composer line starts with the gutter "│ " then the (truncated) text;
+    // the start of the typed content must still be visible.
     assert!(
-        has_continuation_indent,
-        "a wrapped composer continuation row must start with the hanging indent \
-         (plain spaces, no bar), rendered output was:
-{rendered}"
+        rendered.contains("│ abcdef"),
+        "the start of a long composer line must be visible (truncated, not dropped): {rendered}"
     );
 }

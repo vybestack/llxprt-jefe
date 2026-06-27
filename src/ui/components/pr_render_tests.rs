@@ -378,7 +378,6 @@ fn test_pr_detail_renders_metadata_body_review_summary_check_summary() {
         &InlineState::None,
         false,
         false,
-        None,
     );
     assert!(
         content.text.contains("Description"),
@@ -495,7 +494,6 @@ fn test_pr_detail_composer_visible_within_viewport_when_active() {
         &composer,
         false,
         false,
-        None,
     );
     assert!(
         content.text.contains("draft reply text"),
@@ -563,7 +561,6 @@ fn test_pr_detail_overflow_derived_from_rendered_length_not_heuristic() {
         &InlineState::None,
         false,
         false,
-        None,
     )
     .text
     .lines()
@@ -630,7 +627,6 @@ fn test_pr_detail_overflow_counts_section_headers_and_separators() {
         &InlineState::None,
         false,
         false,
-        None,
     )
     .text
     .lines()
@@ -681,7 +677,6 @@ fn test_pr_detail_viewport_uses_prop_height_not_terminal_size() {
         &InlineState::None,
         false,
         false,
-        None,
     )
     .text
     .lines()
