@@ -22,7 +22,7 @@ struct NormalKeySnapshot {
     selected_agent_id: Option<AgentId>,
 }
 
-enum KeyHandling {
+pub(super) enum KeyHandling {
     Unhandled,
     Handled(Option<AppEvent>),
 }
@@ -93,6 +93,19 @@ pub fn handle_normal_key_event(
 
     if let KeyHandling::Handled(event) =
         handle_dashboard_issues_key(app_state, should_quit, ctx, key_event, screen_mode)
+    {
+        return event;
+    }
+    // PR-mode delegation: must run BEFORE resolve_mode_key so that while
+    // screen_mode == DashboardPullRequests, p/P is intercepted here
+    // (-> handle_prs_mode_key) and never reaches resolve_mode_key (whose p/P
+    // arm only fires for screen == Dashboard).
+    // @plan PLAN-20260624-PR-MODE.P09
+    // @requirement REQ-PR-001
+    // @requirement REQ-PR-002
+    // @pseudocode component-003 lines 10-14
+    if let KeyHandling::Handled(event) =
+        handle_dashboard_prs_key(app_state, should_quit, ctx, key_event, screen_mode)
     {
         return event;
     }
@@ -176,6 +189,52 @@ fn handle_dashboard_issues_key(
         KeyHandling::Handled(super::issues::handle_issues_mode_key(
             app_state, ctx, key_event,
         ))
+    }
+}
+
+/// Returns true when `q`/`Q` should act as the global quit shortcut while in
+/// PR Mode. Quit only applies in the plain `PrsNormal` sub-mode; any
+/// text-capturing or overlay sub-mode must receive the key.
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-002
+/// @pseudocode component-003 lines 05-09
+fn prs_quit_shortcut_active(state: &AppState) -> bool {
+    matches!(input_mode_for_state(state), InputMode::PrsNormal)
+}
+
+/// Route key events when `screen_mode == DashboardPullRequests`.
+///
+/// Mirrors `handle_dashboard_issues_key`: if the quit shortcut is active and
+/// the key is `q`/`Q`, quit; otherwise delegate to `prs::handle_prs_mode_key`.
+/// The entire result is wrapped in `KeyHandling::Handled(...)` so every key is
+/// consumed while in PR Mode (never leaks to dashboard/destructive handlers).
+///
+/// @plan PLAN-20260624-PR-MODE.P09
+/// @requirement REQ-PR-001
+/// @requirement REQ-PR-002
+/// @pseudocode component-003 lines 05-14
+fn handle_dashboard_prs_key(
+    app_state: &AppStateHandle,
+    should_quit: &mut QuitHandle,
+    ctx: &SharedContext,
+    key_event: &KeyEvent,
+    screen_mode: ScreenMode,
+) -> KeyHandling {
+    if screen_mode != ScreenMode::DashboardPullRequests {
+        return KeyHandling::Unhandled;
+    }
+
+    let quit_active = {
+        let state = app_state.read();
+        prs_quit_shortcut_active(&state)
+    };
+
+    if quit_active && matches!(key_event.code, KeyCode::Char('q' | 'Q')) {
+        should_quit.set(true);
+        KeyHandling::Handled(None)
+    } else {
+        KeyHandling::Handled(super::prs::handle_prs_mode_key(app_state, ctx, key_event))
     }
 }
 
@@ -293,10 +352,17 @@ fn delete_event(snapshot: &NormalKeySnapshot) -> Option<AppEvent> {
     }
 }
 
-fn resolve_mode_key(key_event: &KeyEvent, screen_mode: ScreenMode) -> KeyHandling {
+pub(super) fn resolve_mode_key(key_event: &KeyEvent, screen_mode: ScreenMode) -> KeyHandling {
     match key_event.code {
         KeyCode::Char('i' | 'I') if screen_mode == ScreenMode::Dashboard => {
             KeyHandling::Handled(Some(AppEvent::EnterIssuesMode))
+        }
+        // PR-mode entry: 'p'/'P' from Dashboard enters PR Mode.
+        // @plan PLAN-20260624-PR-MODE.P09
+        // @requirement REQ-PR-001
+        // @pseudocode component-003 lines 01-09
+        KeyCode::Char('p' | 'P') if screen_mode == ScreenMode::Dashboard => {
+            KeyHandling::Handled(Some(AppEvent::EnterPrsMode))
         }
         KeyCode::Char('s' | 'S') if screen_mode == ScreenMode::Dashboard => {
             KeyHandling::Handled(Some(AppEvent::EnterSplitMode))

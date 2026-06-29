@@ -224,6 +224,39 @@ pub const DETAIL_CHROME_ROWS: usize = OUTER_BARS_HEIGHT as usize;
 /// zero rows.
 pub const DETAIL_MIN_VIEWPORT_ROWS: usize = 5;
 
+/// Fixed local viewport height for the embedded PR NewComment text box.
+///
+/// Kept in layout (rather than UI) because state scroll bounds must reserve
+/// the same rows the component renders when it reveals the composer anchor.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+pub const PR_COMPOSER_VIEWPORT_ROWS: usize = 5;
+
+/// Compute rows available to the read-only PR detail document after embedded
+/// local editors reserve rows inside the detail pane.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+#[must_use]
+pub fn pr_detail_document_viewport_rows(
+    detail_viewport_rows: usize,
+    pr_composer_text_box_active: bool,
+) -> usize {
+    if detail_viewport_rows == 0 {
+        return 0;
+    }
+    let reserved = if pr_composer_text_box_active {
+        PR_COMPOSER_VIEWPORT_ROWS.min(detail_viewport_rows.saturating_sub(1))
+    } else {
+        0
+    };
+    detail_viewport_rows - reserved
+}
+
 /// Compute the rows allocated to the Issues-mode list and detail panes.
 ///
 /// Subtracts fixed outer bars and conditional bands, then gives 30% of the
@@ -277,504 +310,270 @@ pub fn detail_viewport_rows(term_rows: usize) -> usize {
     issues_detail_viewport_rows(term_rows, false, false)
 }
 
+/// Compute the number of rows available for the PR-mode detail scroll viewport.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
+/// @requirement REQ-PR-009
+/// @pseudocode component-004 lines 156-159
+///
+/// PR mode reuses the same conditional bands as Issues mode (an optional error
+/// banner and the filter-controls band), so the geometry is identical. This
+/// thin named wrapper exists so PR-mode scroll math depends on a PR-named
+/// layout prop (regression guard #37/#39: viewport height is supplied as a
+/// prop, never recomputed independently inside scroll math).
+#[must_use]
+pub fn prs_detail_viewport_rows(
+    term_rows: usize,
+    error_visible: bool,
+    filter_controls_open: bool,
+) -> usize {
+    issues_detail_viewport_rows(term_rows, error_visible, filter_controls_open)
+}
+
 /// Compute inner content width for issue-list title lines.
 #[must_use]
 pub fn issue_list_content_width(term_cols: u16) -> u16 {
     term_cols.saturating_sub(ISSUES_SIDEBAR_WIDTH + ISSUE_LIST_CHROME_COLS)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// -----------------------------------------------------------------------------
+// PR-mode pane layout (REQ-PR-006, REQ-PR-009)
+//
+// @plan PLAN-20260624-PR-MODE.P12
+// @requirement REQ-PR-006
+// @requirement REQ-PR-009
+// @pseudocode component-001 lines 1-12
+//
+// PR mode mirrors Issues mode geometry (same 30/70 band math, same sidebar
+// width, same header-row count). The PR-named wrappers exist so the PR render
+// path depends on PR-named layout props (regression guard #37/#39: viewport
+// height and pane rows are props, never recomputed independently inside
+// components).
+// -----------------------------------------------------------------------------
 
-    #[test]
-    fn column_width_constants_hold_expected_values() {
-        // The UI screens reference these constants for their fixed-width panes,
-        // so changing a value silently here would reshape the dashboard/issues
-        // layout. Lock the contract.
-        assert_eq!(LEFT_COL_WIDTH, 22);
-        assert_eq!(RIGHT_COL_WIDTH, 36);
-        assert_eq!(ISSUES_SIDEBAR_WIDTH, LEFT_COL_WIDTH);
-    }
+/// Fixed width of the repository sidebar in PR mode (mirrors Issues mode).
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-006
+/// @pseudocode component-001 lines 1-12
+pub const PRS_SIDEBAR_WIDTH: u16 = LEFT_COL_WIDTH;
 
-    #[test]
-    fn effective_render_size_fullscreen_passthrough() {
-        assert_eq!(effective_render_size_inner(120, 40, true), (120, 40));
-        assert_eq!(effective_render_size_inner(80, 24, true), (80, 24));
-    }
+/// Number of fixed rows the PR detail metadata header occupies.
+///
+/// The header renders exactly five rows (mirroring the issue detail header so
+/// the geometry matches `prs_detail_viewport_rows`):
+/// 1. title (`#<number> <title>`),
+/// 2. state/author/timestamps,
+/// 3. branch refs + labels/assignees/milestone,
+/// 4. external URL,
+/// 5. a horizontal rule separator.
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+pub const PR_DETAIL_HEADER_ROWS: usize = DETAIL_HEADER_ROWS;
 
-    #[test]
-    fn effective_render_size_windowed_subtraction() {
-        assert_eq!(effective_render_size_inner(120, 40, false), (118, 38));
-        assert_eq!(effective_render_size_inner(2, 2, false), (1, 1));
-        assert_eq!(effective_render_size_inner(1, 1, false), (1, 1));
-    }
+/// Horizontal chrome consumed by the PR list pane border (mirrors issue list).
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-006
+/// @pseudocode component-001 lines 1-12
+pub const PR_LIST_CHROME_COLS: u16 = ISSUE_LIST_CHROME_COLS;
 
-    #[test]
-    fn compute_pty_layout_pane_origin() {
-        let layout = compute_pty_layout_inner(120, 40, true);
-        assert_eq!(layout.pane_col0, LEFT_COL_WIDTH + 1);
-    }
+/// Compute the rows allocated to the PR-mode list and detail panes.
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-006
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+///
+/// PR mode reuses the same conditional bands as Issues mode (an optional error
+/// banner and the filter-controls band), so the geometry is identical. This
+/// thin named wrapper exists so PR-mode pane sizing depends on a PR-named
+/// layout prop (regression guard #37/#39).
+#[must_use]
+pub fn prs_pane_rows(
+    term_rows: usize,
+    error_visible: bool,
+    filter_controls_open: bool,
+) -> (usize, usize) {
+    issues_pane_rows(term_rows, error_visible, filter_controls_open)
+}
 
-    #[test]
-    fn dashboard_middle_row_heights_preserve_default_split_when_space_allows() {
-        assert_eq!(dashboard_middle_row_heights_inner(40), (10, 28));
-    }
+/// Compute the rows allocated to the PR-mode detail pane.
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[must_use]
+pub fn prs_detail_pane_rows(
+    term_rows: usize,
+    error_visible: bool,
+    filter_controls_open: bool,
+) -> usize {
+    prs_pane_rows(term_rows, error_visible, filter_controls_open).1
+}
 
-    #[test]
-    fn dashboard_middle_row_heights_protect_terminal_space_when_rows_are_tight() {
-        assert_eq!(dashboard_middle_row_heights_inner(10), (3, 5));
-    }
+/// Compute inner content width for PR-list title lines.
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-006
+/// @pseudocode component-001 lines 1-12
+#[must_use]
+pub fn pr_list_content_width(term_cols: u16) -> u16 {
+    term_cols.saturating_sub(PRS_SIDEBAR_WIDTH + PR_LIST_CHROME_COLS)
+}
 
-    #[test]
-    fn dashboard_middle_row_heights_degrade_gracefully_when_extremely_small() {
-        assert_eq!(dashboard_middle_row_heights_inner(4), (1, 1));
-        assert_eq!(dashboard_middle_row_heights_inner(3), (0, 1));
-    }
+/// Columns of chrome the PR detail pane subtracts from the workspace width
+/// before text is rendered: left+right border (2), left padding (1),
+/// scrollbar (1), and a 2-col safety margin matching `ScrollableText`'s own
+/// `term_cols - 28` fallback.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+const PR_DETAIL_CONTENT_CHROME_COLS: u16 = 6;
 
-    #[test]
-    fn compute_pty_layout_dimensions_always_at_least_two() {
-        for fullscreen in [true, false] {
-            for (cols, rows) in [(120, 40), (10, 10), (0, 0), (60, 20)] {
-                let layout = compute_pty_layout_inner(cols, rows, fullscreen);
-                assert!(
-                    layout.pty_rows >= 2,
-                    "pty_rows < 2 for ({cols}, {rows}, fullscreen={fullscreen})"
-                );
-                assert!(
-                    layout.pty_cols >= 2,
-                    "pty_cols < 2 for ({cols}, {rows}, fullscreen={fullscreen})"
-                );
-            }
-        }
-    }
+/// Compute the inner content width available for PR-detail text lines.
+///
+/// Subtracts the sidebar, the detail-pane border, left padding, the scrollbar
+/// column, and a small safety margin so wrapped lines fit exactly where
+/// `ScrollableText` renders them. Returns 0 on degenerate (very narrow)
+/// terminals.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 1-12
+#[must_use]
+pub fn prs_detail_content_width(term_cols: u16) -> u16 {
+    term_cols
+        .saturating_sub(PRS_SIDEBAR_WIDTH)
+        .saturating_sub(PR_DETAIL_CONTENT_CHROME_COLS)
+}
 
-    #[test]
-    fn agent_rows_rounding_half_up_fullscreen() {
-        // 40 rows - 2 bars = 38 content rows. 25% = 9.5 → rounds to 10.
-        let layout = compute_pty_layout_inner(120, 40, true);
-        // pane_row0 = 1 (status bar) + agent_rows(10) + 2 (chrome top border + header)
-        assert_eq!(layout.pane_row0, 1 + 10 + 2);
-    }
+// -----------------------------------------------------------------------------
+// PR-mode pure display seams (REQ-PR-001, REQ-PR-012, REQ-PR-013)
+//
+// @plan PLAN-20260624-PR-MODE.P13
+// @requirement REQ-PR-001
+// @requirement REQ-PR-012
+// @requirement REQ-PR-013
+// @pseudocode component-001 lines 1-12
+//
+// Pure, iocraft-free projections of the PR-mode screen layout. The screen
+// components delegate to these so the rendered contract (sidebar width, two-
+// column split, error-banner text) is assertable without a render harness.
+// -----------------------------------------------------------------------------
 
-    #[test]
-    fn agent_rows_rounding_half_up_windowed() {
-        // Windowed: 40-2=38 render rows, 38-2=36 content rows. 25% = 9.0 → exactly 9.
-        let layout = compute_pty_layout_inner(120, 40, false);
-        assert_eq!(layout.pane_row0, 1 + 9 + 2);
-    }
+/// Format an error message as the banner line rendered in PR mode.
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-013
+/// @pseudocode component-001 lines 1-12
+#[must_use]
+pub fn pr_error_banner_text(msg: &str) -> String {
+    format!("Error: {msg}")
+}
 
-    #[test]
-    fn compute_pty_layout_pane_row0_positive() {
-        for fullscreen in [true, false] {
-            let layout = compute_pty_layout_inner(120, 40, fullscreen);
-            assert!(
-                layout.pane_row0 > 0,
-                "pane_row0 not positive for fullscreen={fullscreen}"
-            );
-        }
-    }
+/// Error-banner line as rendered in PR mode (`None` when there is no error).
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-013
+/// @pseudocode component-001 lines 1-12
+#[must_use]
+pub fn pr_error_banner_line(error: Option<&str>) -> Option<String> {
+    error.map(pr_error_banner_text)
+}
 
-    #[test]
-    fn detail_viewport_never_drops_below_minimum() {
-        assert_eq!(
-            detail_viewport_rows(0),
-            DETAIL_MIN_VIEWPORT_ROWS,
-            "zero-height terminal should still reserve the minimum viewport"
-        );
-        assert_eq!(
-            detail_viewport_rows(1),
-            DETAIL_MIN_VIEWPORT_ROWS,
-            "one-row terminal should still reserve the minimum viewport"
-        );
-    }
-
-    #[test]
-    fn detail_viewport_grows_with_terminal_height() {
-        let small = detail_viewport_rows(24);
-        let large = detail_viewport_rows(80);
-        assert!(
-            large > small,
-            "larger terminal should yield more viewport rows ({large} > {small})"
-        );
-        assert!(large > DETAIL_MIN_VIEWPORT_ROWS);
-    }
-
-    #[test]
-    fn detail_viewport_for_typical_height_matches_expected_formula() {
-        // term_rows=40: workspace=38, list=11, detail_pane=27, viewport=27-(5+2)=20
-        assert_eq!(detail_viewport_rows(40), 20);
-    }
-
-    #[test]
-    fn issues_pane_rows_account_for_dynamic_bands() {
-        assert_eq!(issues_pane_rows(40, false, false), (11, 27));
-        assert_eq!(issues_pane_rows(40, true, false), (11, 26));
-        assert_eq!(issues_pane_rows(40, false, true), (10, 24));
-        assert_eq!(issues_pane_rows(40, true, true), (9, 24));
-    }
-
-    #[test]
-    fn issues_detail_pane_rows_match_shared_pane_allocation() {
-        for (rows, error_visible, filter_open) in [
-            (40, false, false),
-            (40, true, false),
-            (40, false, true),
-            (40, true, true),
-            (8, true, true),
-        ] {
-            let (_, detail_rows) = issues_pane_rows(rows, error_visible, filter_open);
-            assert_eq!(
-                issues_detail_pane_rows(rows, error_visible, filter_open),
-                detail_rows
-            );
-        }
-    }
-
-    #[test]
-    fn issues_detail_viewport_rows_account_for_dynamic_bands() {
-        assert_eq!(issues_detail_viewport_rows(40, false, false), 20);
-        assert_eq!(issues_detail_viewport_rows(40, true, false), 19);
-        assert_eq!(issues_detail_viewport_rows(40, false, true), 17);
-        assert_eq!(issues_detail_viewport_rows(40, true, true), 17);
-    }
-
-    #[test]
-    fn issue_list_content_width_excludes_sidebar_and_border() {
-        assert_eq!(issue_list_content_width(120), 96);
-        assert_eq!(issue_list_content_width(10), 0);
-    }
-
-    // -------------------------------------------------------------------------
-    // AppLayoutSpec: single source of truth for the layout contract.
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn app_layout_spec_default_matches_module_constants() {
-        let spec = AppLayoutSpec::DEFAULT;
-        assert_eq!(spec.left_col_width, LEFT_COL_WIDTH);
-        assert_eq!(spec.right_col_width, RIGHT_COL_WIDTH);
-        assert_eq!(spec.outer_bars_height, OUTER_BARS_HEIGHT);
-        assert_eq!(
-            spec.terminal_widget_chrome_rows,
-            TERMINAL_WIDGET_CHROME_ROWS
-        );
-        assert_eq!(
-            spec.terminal_widget_chrome_cols,
-            TERMINAL_WIDGET_CHROME_COLS
-        );
-        assert_eq!(spec.agent_pane_min_rows, AGENT_PANE_MIN_ROWS);
-        assert_eq!(spec.terminal_pane_min_rows, TERMINAL_PANE_MIN_ROWS);
-    }
-
-    // -------------------------------------------------------------------------
-    // Property-style tests: deterministic sweeps over input sizes.
-    //
-    // These replace ad-hoc fuzzing with exhaustive parametric loops (the
-    // project idiom — no external proptest/quickcheck dependency).
-    // -------------------------------------------------------------------------
-
-    /// Representative column samples for sweeps: edge (0/1/2), small, and large.
-    const COL_SAMPLES: [u16; 9] = [0, 1, 2, 10, 20, 60, 80, 120, 200];
-    /// Representative row samples plus a dense 0..=64 range (covered in tests).
-    const ROW_SAMPLES: [u16; 9] = [0, 1, 2, 3, 4, 8, 24, 40, 50];
-
-    #[test]
-    fn prop_pty_dimensions_invariants_hold_across_sizes() {
-        for fullscreen in [true, false] {
-            for &cols in &COL_SAMPLES {
-                for &rows in &ROW_SAMPLES {
-                    let layout = compute_pty_layout_inner(cols, rows, fullscreen);
-                    assert!(
-                        layout.pty_rows >= 2,
-                        "pty_rows < 2 for ({cols}, {rows}, fs={fullscreen})"
-                    );
-                    assert!(
-                        layout.pty_cols >= 2,
-                        "pty_cols < 2 for ({cols}, {rows}, fs={fullscreen})"
-                    );
-                }
-                // Dense row sweep: every value 0..=64, both fullscreen states.
-                for rows in 0..=64u16 {
-                    let layout = compute_pty_layout_inner(cols, rows, fullscreen);
-                    assert!(
-                        layout.pty_rows >= 2,
-                        "pty_rows < 2 for (cols={cols}, rows={rows}, fs={fullscreen})"
-                    );
-                    assert!(
-                        layout.pty_cols >= 2,
-                        "pty_cols < 2 for (cols={cols}, rows={rows}, fs={fullscreen})"
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn prop_pane_origin_invariants() {
-        for fullscreen in [true, false] {
-            for &cols in &COL_SAMPLES {
-                for &rows in &ROW_SAMPLES {
-                    let layout = compute_pty_layout_inner(cols, rows, fullscreen);
-                    assert_eq!(
-                        layout.pane_col0,
-                        LEFT_COL_WIDTH + 1,
-                        "pane_col0 must equal LEFT_COL_WIDTH+1 for ({cols}, {rows}, fs={fullscreen})"
-                    );
-                    assert!(
-                        layout.pane_col0 > 0,
-                        "pane_col0 must be positive for ({cols}, {rows}, fs={fullscreen})"
-                    );
-                    assert!(
-                        layout.pane_row0 > 0,
-                        "pane_row0 must be positive for ({cols}, {rows}, fs={fullscreen})"
-                    );
-                }
-            }
-        }
-    }
-
-    /// Independently recompute the half-up rounded agent rows and confirm the
-    /// layout's `pane_row0` matches the derived value (1 + agent_rows + 2).
-    #[test]
-    fn prop_agent_rows_half_up_rounding() {
-        for fullscreen in [true, false] {
-            for term_rows in 0..=300u16 {
-                let cols: u16 = 120; // wide enough that cols don't constrain rows
-                let (_, eff_rows) = effective_render_size_inner(cols, term_rows, fullscreen);
-                let content_rows = eff_rows.saturating_sub(OUTER_BARS_HEIGHT);
-                let agent_rows = expected_agent_rows(content_rows);
-                let layout = compute_pty_layout_inner(cols, term_rows, fullscreen);
-                // pane_row0 = 1 + agent_rows + 2
-                let expected_pane_row0 = 1u16.saturating_add(agent_rows).saturating_add(2);
-                assert_eq!(
-                    layout.pane_row0, expected_pane_row0,
-                    "pane_row0 mismatch for term_rows={term_rows}, fs={fullscreen}"
-                );
-            }
-        }
-    }
-
-    /// For the middle-row split, agent_rows + terminal_rows must equal
-    /// content_rows when there is enough space, and terminal_rows is always >= 1.
-    #[test]
-    fn prop_dashboard_split_sums_to_content_rows() {
-        for render_rows in 0..=300u16 {
-            let content_rows = render_rows.saturating_sub(OUTER_BARS_HEIGHT);
-            let (agent_rows, terminal_rows) = dashboard_middle_row_heights_inner(render_rows);
-            assert!(
-                terminal_rows >= 1,
-                "terminal_rows must be >= 1 for render_rows={render_rows}"
-            );
-            // When content_rows is large enough to avoid the degenerate floor,
-            // the split must partition content_rows exactly.
-            if content_rows > AGENT_PANE_MIN_ROWS + TERMINAL_PANE_MIN_ROWS {
-                assert_eq!(
-                    agent_rows + terminal_rows,
-                    content_rows,
-                    "split must sum to content_rows for render_rows={render_rows}"
-                );
-            }
-        }
-    }
-
-    /// Replicate the agent-pane rounding logic independently to cross-check.
-    fn expected_agent_rows(content_rows: u16) -> u16 {
-        if content_rows <= AGENT_PANE_MIN_ROWS + TERMINAL_PANE_MIN_ROWS {
-            let terminal_rows = content_rows.saturating_sub(AGENT_PANE_MIN_ROWS).max(1);
-            return content_rows.saturating_sub(terminal_rows);
-        }
-        let preferred = content_rows
-            .saturating_mul(25)
-            .saturating_add(50)
-            .saturating_div(100);
-        let max_agent = content_rows.saturating_sub(TERMINAL_PANE_MIN_ROWS);
-        preferred
-            .clamp(AGENT_PANE_MIN_ROWS, max_agent)
-            .min(content_rows)
-    }
-
-    // -------------------------------------------------------------------------
-    // Golden / snapshot tests: lock the exact PtyLayout for representative sizes.
-    //
-    // These act as snapshot tests (without the insta crate) — they pin the full
-    // computed geometry so any unintended change to the layout algorithm is
-    // caught. Values are derived from the established algorithm; if you
-    // intentionally change the layout, update these in lockstep.
-    // -------------------------------------------------------------------------
-
-    /// Representative `(cols, rows, fullscreen, expected)` golden cases.
+/// PR-mode main-row column geometry: fixed sidebar width + remaining workspace width.
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-001
+/// @pseudocode component-001 lines 1-12
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrsColumns {
+    /// Fixed sidebar width in columns (== [`PRS_SIDEBAR_WIDTH`]).
     ///
-    /// These pin the full computed geometry for representative terminal sizes.
-    /// Values are derived from the established algorithm; if the layout is
-    /// intentionally changed, update these in lockstep.
-    const GOLDEN_CASES: &[(u16, u16, bool, PtyLayout)] = &[
-        // fullscreen = true
-        (
-            80,
-            24,
-            true,
-            PtyLayout {
-                pty_rows: 13,
-                pty_cols: 20,
-                pane_col0: 23,
-                pane_row0: 9,
-            },
-        ),
-        (
-            120,
-            40,
-            true,
-            PtyLayout {
-                pty_rows: 25,
-                pty_cols: 60,
-                pane_col0: 23,
-                pane_row0: 13,
-            },
-        ),
-        (
-            200,
-            50,
-            true,
-            PtyLayout {
-                pty_rows: 33,
-                pty_cols: 140,
-                pane_col0: 23,
-                pane_row0: 15,
-            },
-        ),
-        (
-            60,
-            20,
-            true,
-            PtyLayout {
-                pty_rows: 10,
-                pty_cols: 2,
-                pane_col0: 23,
-                pane_row0: 8,
-            },
-        ),
-        (
-            100,
-            30,
-            true,
-            PtyLayout {
-                pty_rows: 18,
-                pty_cols: 40,
-                pane_col0: 23,
-                pane_row0: 10,
-            },
-        ),
-        (
-            10,
-            10,
-            true,
-            PtyLayout {
-                pty_rows: 2,
-                pty_cols: 2,
-                pane_col0: 23,
-                pane_row0: 6,
-            },
-        ),
-        (
-            20,
-            8,
-            true,
-            PtyLayout {
-                pty_rows: 2,
-                pty_cols: 2,
-                pane_col0: 23,
-                pane_row0: 6,
-            },
-        ),
-        // fullscreen = false (windowed: each dim shrinks by 2)
-        (
-            80,
-            24,
-            false,
-            PtyLayout {
-                pty_rows: 12,
-                pty_cols: 18,
-                pane_col0: 23,
-                pane_row0: 8,
-            },
-        ),
-        (
-            120,
-            40,
-            false,
-            PtyLayout {
-                pty_rows: 24,
-                pty_cols: 58,
-                pane_col0: 23,
-                pane_row0: 12,
-            },
-        ),
-        (
-            200,
-            50,
-            false,
-            PtyLayout {
-                pty_rows: 31,
-                pty_cols: 138,
-                pane_col0: 23,
-                pane_row0: 15,
-            },
-        ),
-        (
-            60,
-            20,
-            false,
-            PtyLayout {
-                pty_rows: 9,
-                pty_cols: 2,
-                pane_col0: 23,
-                pane_row0: 7,
-            },
-        ),
-        (
-            100,
-            30,
-            false,
-            PtyLayout {
-                pty_rows: 16,
-                pty_cols: 38,
-                pane_col0: 23,
-                pane_row0: 10,
-            },
-        ),
-        (
-            10,
-            10,
-            false,
-            PtyLayout {
-                pty_rows: 2,
-                pty_cols: 2,
-                pane_col0: 23,
-                pane_row0: 6,
-            },
-        ),
-        (
-            20,
-            8,
-            false,
-            PtyLayout {
-                pty_rows: 2,
-                pty_cols: 2,
-                pane_col0: 23,
-                pane_row0: 6,
-            },
-        ),
-    ];
+    /// @plan PLAN-20260624-PR-MODE.P13
+    /// @requirement REQ-PR-001
+    /// @pseudocode component-001 lines 1-12
+    pub sidebar_width: u16,
+    /// Remaining workspace width after the fixed sidebar (flex-grow column).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P13
+    /// @requirement REQ-PR-001
+    /// @pseudocode component-001 lines 1-12
+    pub workspace_width: u16,
+}
 
-    #[test]
-    fn golden_pty_layout_representative_sizes() {
-        for &(cols, rows, fullscreen, expected) in GOLDEN_CASES {
-            let actual = compute_pty_layout_inner(cols, rows, fullscreen);
-            assert_eq!(
-                actual, expected,
-                "golden mismatch for ({cols}x{rows}, fullscreen={fullscreen})"
-            );
-        }
+/// PR-mode main-row column geometry: fixed sidebar + remaining workspace.
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-001
+/// @pseudocode component-001 lines 1-12
+#[must_use]
+pub fn prs_main_columns(term_cols: u16) -> PrsColumns {
+    PrsColumns {
+        sidebar_width: PRS_SIDEBAR_WIDTH,
+        workspace_width: term_cols.saturating_sub(PRS_SIDEBAR_WIDTH),
     }
 }
+
+// -----------------------------------------------------------------------------
+// Shared list-viewport / selection-follow helpers (REQ-PR-006, #54/#55)
+//
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-006
+// @pseudocode component-001 lines 177-196
+//
+// These pure helpers compute the first-visible row index from
+// (selected_index, loaded_len, viewport_rows) so the selected row is always
+// within [first_visible, first_visible + viewport_rows). They are consumed by
+// BOTH the state reducers and the PR list UI, so they live HERE (the shared
+// leaf module importable by both) — NOT in any src/ui file.
+// There is NO src/ui/components/list_viewport.rs.
+// -----------------------------------------------------------------------------
+
+/// Compute the first-visible row index for a selection-following list viewport.
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-006
+/// @pseudocode component-001 lines 182-189
+///
+/// Returns the first visible row index that keeps `selected` on screen,
+/// clamped to `0..=len.saturating_sub(viewport_rows)`.
+#[must_use]
+pub fn list_first_visible_index(selected_index: usize, len: usize, viewport_rows: usize) -> usize {
+    if len == 0 || viewport_rows == 0 {
+        return 0;
+    }
+    // Clamp defensively (selected may briefly exceed len during async updates).
+    let sel = selected_index.min(len - 1);
+    if sel < viewport_rows {
+        // Top of list: no scroll needed.
+        return 0;
+    }
+    // Keep selected row as the LAST visible row when scrolling down past the
+    // viewport bottom; never scroll past the last full page.
+    let max_first = len.saturating_sub(viewport_rows);
+    (sel - viewport_rows + 1).min(max_first)
+}
+
+/// Compute the visible window of rows for a selection-following list viewport.
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-006
+/// @pseudocode component-001 lines 190-196
+///
+/// Returns exactly `min(viewport_rows, rows.len())` rows starting at
+/// `list_first_visible_index(...)`, always including `rows[selected_index]`.
+#[must_use]
+pub fn list_visible_window<T>(rows: &[T], selected_index: usize, viewport_rows: usize) -> &[T] {
+    let first = list_first_visible_index(selected_index, rows.len(), viewport_rows);
+    let last = (first + viewport_rows).min(rows.len());
+    &rows[first..last]
+}
+
+#[cfg(test)]
+#[path = "layout_tests.rs"]
+mod tests;

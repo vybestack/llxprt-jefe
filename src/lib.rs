@@ -12,10 +12,19 @@ pub mod layout;
 pub mod logging;
 pub mod messages;
 pub mod persistence;
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-009
+pub mod pr_detail_content;
 pub mod runtime;
 pub mod services;
 pub mod startup;
 pub mod state;
+/// Pure multiline text-box viewport projection (iocraft-free).
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+pub mod text_box_view;
 pub mod theme;
 pub mod ui;
 
@@ -25,6 +34,14 @@ pub mod github;
 #[cfg(test)]
 #[path = "github/tests.rs"]
 mod github_tests;
+
+#[cfg(test)]
+#[path = "github/tests_pr.rs"]
+mod github_tests_pr;
+
+#[cfg(test)]
+#[path = "github/tests_pr_detail.rs"]
+mod github_tests_pr_detail;
 
 /// Current application version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

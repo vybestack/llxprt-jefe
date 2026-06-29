@@ -3,6 +3,11 @@
 use crate::domain::{AgentId, AgentStatus, LaunchSignature, RepositoryId};
 use crate::runtime::PreflightIssue;
 
+// @plan PLAN-20260624-PR-MODE.P03
+#[path = "pr_types.rs"]
+mod pr_types;
+pub use pr_types::*;
+
 /// Form fields for creating/editing an agent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentFormFields {
@@ -231,6 +236,10 @@ pub enum ScreenMode {
     /// @plan PLAN-20260329-ISSUES-MODE.P03
     /// @requirement REQ-ISS-001
     DashboardIssues,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-001
+    /// @pseudocode component-001 lines 66-76
+    DashboardPullRequests,
 }
 
 /// Pane focus within a view.
@@ -275,6 +284,11 @@ pub struct AppState {
     /// @plan PLAN-20260329-ISSUES-MODE.P03
     /// @requirement REQ-ISS-001
     pub issues_state: IssuesState,
+
+    // PR mode state (runtime-only — omitted from persisted DTO, same as issues_state)
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-001
+    pub prs_state: PullRequestsState,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -747,6 +761,171 @@ pub enum AppEvent {
     AgentChooserCancel,
     SendToAgentCompleted,
     SendToAgentFailed {
+        error: String,
+    },
+
+    // ---- Pull Requests Mode events (additive) ----
+    // @plan PLAN-20260624-PR-MODE.P03
+    // @requirement REQ-PR-001
+
+    // PR Lifecycle
+    /// @pseudocode component-001 lines 66-87
+    EnterPrsMode,
+    ExitPrsMode,
+    RefocusPrList,
+
+    // PR Navigation / Focus
+    /// @pseudocode component-001 lines 99-162
+    PrNavigateUp,
+    PrNavigateDown,
+    PrNavigatePageUp,
+    PrNavigatePageDown,
+    PrNavigateHome,
+    PrNavigateEnd,
+    PrListEnter,
+    PrCycleFocus,
+    PrCycleFocusReverse,
+    PrScrollDetailUp,
+    PrScrollDetailDown,
+    PrScrollDetailPageUp,
+    PrScrollDetailPageDown,
+    PrDetailSubfocusNext,
+    PrDetailSubfocusPrev,
+
+    // PR Data Loading
+    /// @pseudocode component-001 lines 209-247
+    PrListLoaded {
+        scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::PrFilter>,
+        request_id: u64,
+        pull_requests: Vec<crate::domain::PullRequest>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    PrListLoadFailed {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+        error: String,
+    },
+    PrListPageLoaded {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+        pull_requests: Vec<crate::domain::PullRequest>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    PrDetailLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        detail: Box<crate::domain::PullRequestDetail>,
+    },
+    PrDetailLoadFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        error: String,
+    },
+    PrCommentsPageLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        comments: Vec<crate::domain::IssueComment>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    PrCommentsPageFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        error: String,
+    },
+
+    // PR Filter / Search
+    /// @pseudocode component-001 lines 249-291
+    PrOpenFilterControls,
+    PrCloseFilterControls,
+    PrApplyFilter,
+    PrClearFilter,
+    PrFilterNavigateNext,
+    PrFilterNavigatePrev,
+    PrCycleFilterState,
+    PrCycleDraftFilter,
+    PrCycleReviewFilter,
+    PrCycleChecksFilter,
+    PrUpdateDraftFilter {
+        field: String,
+        value: String,
+    },
+    PrFocusSearchInput,
+    PrBlurSearchInput,
+    PrSetSearchQuery {
+        query: String,
+    },
+    PrApplySearch,
+    PrClearSearch,
+
+    // PR Inline Mutation
+    /// @pseudocode component-001 lines 292-330
+    PrOpenNewCommentComposer,
+    PrOpenReplyComposer {
+        comment_index: usize,
+    },
+    PrInlineChar(char),
+    PrInlineNewline,
+    PrInlineBackspace,
+    PrInlineDelete,
+    PrInlineCursorLeft,
+    PrInlineCursorRight,
+    PrInlineCursorUp,
+    PrInlineCursorDown,
+    PrInlineSubmit,
+    PrInlineCancelOrEsc,
+    PrCommentCreated {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        comment: crate::domain::IssueComment,
+    },
+    PrCommentCreateFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        error: String,
+    },
+    PrMutationFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        error: String,
+    },
+
+    // PR Read-Only Notice (REQ-PR-010/012/013)
+    /// @pseudocode component-003 lines 83-89
+    PrShowNotice(ReadOnlyHintKind),
+
+    // PR Open-in-Browser (REQ-PR-012)
+    /// @pseudocode component-001 lines 349-365
+    PrOpenInBrowser,
+    PrOpenedInBrowser {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+    },
+    PrOpenInBrowserFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        error: String,
+    },
+
+    // PR Send-to-Agent
+    /// @pseudocode component-001 lines 331-343
+    PrOpenAgentChooser,
+    PrAgentChooserNavigateUp,
+    PrAgentChooserNavigateDown,
+    PrAgentChooserConfirm,
+    PrAgentChooserCancel,
+    PrSendToAgentCompleted,
+    PrSendToAgentFailed {
         error: String,
     },
 }

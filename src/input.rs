@@ -28,6 +28,21 @@ pub enum InputMode {
     /// @plan PLAN-20260329-ISSUES-MODE.P03
     /// @requirement REQ-ISS-002
     IssuesChooser,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-002
+    PrsNormal,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-002
+    PrsInline,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-002
+    PrsSearch,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-002
+    PrsFilter,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-002
+    PrsChooser,
 }
 
 /// Search-mode key routing result.
@@ -75,6 +90,28 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
             return InputMode::IssuesFilter;
         }
         return InputMode::IssuesNormal;
+    }
+
+    // PR mode detection — real precedence routing (Inline > Chooser > Search >
+    // Filter > Normal), mirroring the DashboardIssues block above.
+    // @plan PLAN-20260624-PR-MODE.P11
+    // @requirement REQ-PR-002
+    // @requirement REQ-PR-004
+    // @pseudocode component-003 lines 07,51
+    if state.screen_mode == ScreenMode::DashboardPullRequests {
+        if state.prs_state.inline_state != InlineState::None {
+            return InputMode::PrsInline;
+        }
+        if state.prs_state.agent_chooser.is_some() {
+            return InputMode::PrsChooser;
+        }
+        if state.prs_state.search_input_focused {
+            return InputMode::PrsSearch;
+        }
+        if state.prs_state.filter_ui.controls_open {
+            return InputMode::PrsFilter;
+        }
+        return InputMode::PrsNormal;
     }
 
     if state.terminal_focused && state.pane_focus == PaneFocus::Terminal {

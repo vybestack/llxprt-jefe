@@ -8,12 +8,30 @@ mod agent_list;
 mod filter_controls;
 mod issue_detail;
 mod issue_list;
-mod keybind_bar;
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-012
+pub(crate) mod keybind_bar;
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-006
+pub(crate) mod pr_detail;
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-008
+pub(crate) mod pr_filter_controls;
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-006
+pub(crate) mod pr_list;
 mod preview;
 mod scrollable_text;
 mod sidebar;
 mod status_bar;
 mod terminal_view;
+/// Fixed-size multiline text-box component with an inline caret.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+mod text_box;
 
 pub use agent_chooser::{AgentChooser, AgentChooserProps};
 pub use agent_list::{AgentList, AgentListProps};
@@ -21,8 +39,38 @@ pub use filter_controls::{FilterControls, FilterControlsProps};
 pub use issue_detail::{IssueDetailView, IssueDetailViewProps};
 pub use issue_list::{IssueList, IssueListLayout, IssueListProps};
 pub use keybind_bar::{KeybindBar, KeybindBarProps};
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-009
+pub use pr_detail::{PrDetailView, PrDetailViewProps};
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-008
+pub use pr_filter_controls::{PrFilterControls, PrFilterControlsProps};
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-006
+pub use pr_list::{PrList, PrListLayout, PrListProps};
 pub use preview::{Preview, PreviewProps};
 pub use scrollable_text::{ScrollableText, ScrollableTextProps};
 pub use sidebar::{Sidebar, SidebarProps};
 pub use status_bar::{StatusBar, StatusBarProps};
 pub use terminal_view::{TerminalView, TerminalViewProps};
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+pub use text_box::{TextBox, TextBoxProps};
+
+#[cfg(test)]
+#[path = "pr_render_tests.rs"]
+mod pr_render_tests;
+
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 1-12
+#[cfg(test)]
+#[path = "pr_detail_render_tests.rs"]
+mod pr_detail_render_tests;
+
+#[cfg(test)]
+#[path = "pr_render_screen_tests.rs"]
+mod pr_render_screen_tests;

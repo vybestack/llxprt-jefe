@@ -6,12 +6,20 @@
 //! app-shell-specific branching.
 
 use crate::domain::{
-    AgentId, AgentStatus, Issue, IssueComment, IssueDetail, IssueFilter, RepositoryId,
+    AgentId, AgentStatus, Issue, IssueComment, IssueDetail, IssueFilter, PrFilter, PullRequest,
+    PullRequestDetail, RepositoryId,
 };
-use crate::state::AppEvent;
-use crate::state::{EditorTarget, InlineState};
+use crate::state::{EditorTarget, InlineState, ReadOnlyHintKind};
 
 mod issues_conversion;
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-002
+mod prs_conversion;
+
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-002
+// @pseudocode component-004 lines 46-50
+mod event_conversion;
 
 /// Stable domain channel names used for routing, tracing, and policy tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +31,9 @@ pub enum MessageDomain {
     Persistence,
     Theme,
     Issues,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-001
+    PullRequests,
     System,
 }
 
@@ -270,6 +281,233 @@ pub enum IssuesMessage {
     },
 }
 
+/// Pull Requests mode messages — mirrors `IssuesMessage` shape.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-001
+/// @requirement REQ-PR-002
+/// @requirement REQ-PR-006
+/// @requirement REQ-PR-008
+/// @requirement REQ-PR-010
+/// @requirement REQ-PR-012
+/// @pseudocode component-004 lines 02-35
+#[derive(Debug, Clone)]
+pub enum PullRequestsMessage {
+    EnterMode,
+    ExitMode,
+    RefocusList,
+    Navigate(NavDir),
+    Enter,
+    CycleFocus,
+    CycleFocusReverse,
+    ScrollDetail(ScrollDir),
+    DetailSubfocusNext,
+    DetailSubfocusPrev,
+    ListLoaded {
+        scope_repo_id: RepositoryId,
+        filter: Box<PrFilter>,
+        request_id: u64,
+        pull_requests: Vec<PullRequest>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    ListLoadFailed {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+        error: String,
+    },
+    ListPageLoaded {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+        pull_requests: Vec<PullRequest>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    DetailLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        detail: Box<PullRequestDetail>,
+    },
+    DetailLoadFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        error: String,
+    },
+    CommentsPageLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        comments: Vec<IssueComment>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    CommentsPageFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        error: String,
+    },
+    OpenFilterControls,
+    CloseFilterControls,
+    ApplyFilter,
+    ClearFilter,
+    FilterNavigate(NavDir),
+    CycleFilterState,
+    CycleDraftFilter,
+    CycleReviewFilter,
+    CycleChecksFilter,
+    UpdateDraftFilter {
+        field: PrFilterField,
+        value: String,
+    },
+    FocusSearchInput,
+    BlurSearchInput,
+    SetSearchQuery {
+        query: String,
+    },
+    ApplySearch,
+    ClearSearch,
+    OpenNewCommentComposer,
+    OpenReplyComposer {
+        comment_index: usize,
+    },
+    Inline(PrInlineMsg),
+    CommentCreated {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        comment: IssueComment,
+    },
+    CommentCreateFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        error: String,
+    },
+    MutationFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        error: String,
+    },
+    ShowNotice(ReadOnlyHintKind),
+    OpenAgentChooser,
+    AgentChooserNavigate(NavDir),
+    AgentChooserConfirm,
+    AgentChooserCancel,
+    SendToAgentCompleted,
+    SendToAgentFailed {
+        error: String,
+    },
+    OpenInBrowser,
+    OpenedInBrowser {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+    },
+    OpenInBrowserFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        error: String,
+    },
+}
+
+/// Navigation direction for PR list and filter controls.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-003
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NavDir {
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Home,
+    End,
+    /// Forward navigation for filter/chooser field stepping (Next/Prev semantics).
+    Next,
+    /// Reverse navigation for filter/chooser field stepping.
+    Prev,
+}
+
+/// Scroll direction for the PR detail pane.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollDir {
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+}
+
+/// Filter field identifier for `UpdateDraftFilter`.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-008
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrFilterField {
+    Query,
+    Author,
+    Assignee,
+    Reviewer,
+    Labels,
+}
+
+impl PrFilterField {
+    /// Parse a filter field name string into the enum.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-002
+    /// @pseudocode component-004 lines 45-85
+    #[must_use]
+    pub fn from_string(s: &str) -> Self {
+        match s {
+            "author" => Self::Author,
+            "assignee" => Self::Assignee,
+            "reviewer" => Self::Reviewer,
+            "labels" => Self::Labels,
+            _ => Self::Query,
+        }
+    }
+
+    /// Return the canonical string name for this filter field.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-002
+    /// @pseudocode component-004 lines 45-85
+    #[must_use]
+    pub fn as_string(&self) -> String {
+        match self {
+            Self::Query => "query".to_string(),
+            Self::Author => "author".to_string(),
+            Self::Assignee => "assignee".to_string(),
+            Self::Reviewer => "reviewer".to_string(),
+            Self::Labels => "labels".to_string(),
+        }
+    }
+}
+
+/// Inline composer message for PR mode.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-010
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrInlineMsg {
+    Char(char),
+    Newline,
+    Backspace,
+    Delete,
+    CursorLeft,
+    CursorRight,
+    CursorUp,
+    CursorDown,
+    Submit,
+    CancelOrEsc,
+}
+
 /// System-level messages that do not mutate a domain reducer directly.
 #[derive(Debug, Clone)]
 pub enum SystemMessage {
@@ -288,6 +526,9 @@ pub enum AppMessage {
     Persistence(PersistenceMessage),
     Theme(ThemeMessage),
     Issues(IssuesMessage),
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-001
+    PullRequests(PullRequestsMessage),
     System(SystemMessage),
 }
 
@@ -302,6 +543,9 @@ impl AppMessage {
             Self::Persistence(_) => MessageDomain::Persistence,
             Self::Theme(_) => MessageDomain::Theme,
             Self::Issues(_) => MessageDomain::Issues,
+            // @plan PLAN-20260624-PR-MODE.P03
+            // @requirement REQ-PR-001
+            Self::PullRequests(_) => MessageDomain::PullRequests,
             Self::System(_) => MessageDomain::System,
         }
     }
@@ -324,6 +568,9 @@ impl AppMessage {
             Self::Persistence(message) => message.name(),
             Self::Theme(message) => message.name(),
             Self::Issues(message) => message.name(),
+            // @plan PLAN-20260624-PR-MODE.P03
+            // @requirement REQ-PR-002
+            Self::PullRequests(message) => message.name(),
             Self::System(message) => message.name(),
         }
     }
@@ -480,219 +727,56 @@ message_names!(IssuesMessage {
     Self::SendToAgentFailed { .. } => "SendToAgentFailed",
 });
 
-impl From<AppEvent> for AppMessage {
-    fn from(event: AppEvent) -> Self {
-        match event {
-            AppEvent::NavigateUp => Self::UiNavigation(UiNavigationMessage::NavigateUp),
-            AppEvent::NavigateDown => Self::UiNavigation(UiNavigationMessage::NavigateDown),
-            AppEvent::NavigateLeft => Self::UiNavigation(UiNavigationMessage::NavigateLeft),
-            AppEvent::NavigateRight => Self::UiNavigation(UiNavigationMessage::NavigateRight),
-            AppEvent::SelectRepository(index) => {
-                Self::UiNavigation(UiNavigationMessage::SelectRepository(index))
-            }
-            AppEvent::SelectAgent(index) => {
-                Self::UiNavigation(UiNavigationMessage::SelectAgent(index))
-            }
-            AppEvent::JumpToAgentByShortcut(slot) => {
-                Self::UiNavigation(UiNavigationMessage::JumpToAgentByShortcut(slot))
-            }
-            AppEvent::CyclePaneFocus => Self::UiNavigation(UiNavigationMessage::CyclePaneFocus),
-            AppEvent::ToggleTerminalFocus => {
-                Self::UiNavigation(UiNavigationMessage::ToggleTerminalFocus)
-            }
-            AppEvent::ToggleHideIdleRepositories => {
-                Self::UiNavigation(UiNavigationMessage::ToggleHideIdleRepositories)
-            }
-            AppEvent::EnterSplitMode => Self::UiNavigation(UiNavigationMessage::EnterSplitMode),
-            AppEvent::ExitSplitMode => Self::UiNavigation(UiNavigationMessage::ExitSplitMode),
-            AppEvent::EnterGrabMode => Self::UiNavigation(UiNavigationMessage::EnterGrabMode),
-            AppEvent::ExitGrabMode => Self::UiNavigation(UiNavigationMessage::ExitGrabMode),
-            AppEvent::GrabMoveUp => Self::UiNavigation(UiNavigationMessage::GrabMoveUp),
-            AppEvent::GrabMoveDown => Self::UiNavigation(UiNavigationMessage::GrabMoveDown),
-            AppEvent::SetSplitFilter(filter) => {
-                Self::UiNavigation(UiNavigationMessage::SetSplitFilter(filter))
-            }
-            AppEvent::OpenHelp => Self::Modal(ModalMessage::OpenHelp),
-            AppEvent::OpenSearch => Self::Modal(ModalMessage::OpenSearch),
-            AppEvent::CloseModal => Self::Modal(ModalMessage::CloseModal),
-            AppEvent::SubmitForm => Self::Modal(ModalMessage::SubmitForm),
-            AppEvent::FormChar(c) => Self::Modal(ModalMessage::FormChar(c)),
-            AppEvent::FormBackspace => Self::Modal(ModalMessage::FormBackspace),
-            AppEvent::FormDelete => Self::Modal(ModalMessage::FormDelete),
-            AppEvent::FormMoveCursorLeft => Self::Modal(ModalMessage::FormMoveCursorLeft),
-            AppEvent::FormMoveCursorRight => Self::Modal(ModalMessage::FormMoveCursorRight),
-            AppEvent::FormNextField => Self::Modal(ModalMessage::FormNextField),
-            AppEvent::FormPrevField => Self::Modal(ModalMessage::FormPrevField),
-            AppEvent::FormToggleCheckbox => Self::Modal(ModalMessage::FormToggleCheckbox),
-            other => Self::from_non_ui_nav_event(other),
-        }
-    }
-}
-
-impl AppMessage {
-    /// Convert non-UI-navigation [`AppEvent`] variants into the typed message bus.
-    ///
-    /// Split out from [`AppMessage::from`] so the top-level converter stays
-    /// within the clippy line budget without a complexity suppression.
-    fn from_non_ui_nav_event(event: AppEvent) -> Self {
-        match event {
-            AppEvent::OpenNewRepository => {
-                Self::RepositoryAgent(RepositoryAgentMessage::OpenNewRepository)
-            }
-            AppEvent::OpenEditRepository(id) => {
-                Self::RepositoryAgent(RepositoryAgentMessage::OpenEditRepository(id))
-            }
-            AppEvent::OpenDeleteRepository(id) => {
-                Self::RepositoryAgent(RepositoryAgentMessage::OpenDeleteRepository(id))
-            }
-            AppEvent::OpenNewAgent(id) => {
-                Self::RepositoryAgent(RepositoryAgentMessage::OpenNewAgent(id))
-            }
-            AppEvent::OpenEditAgent(id) => {
-                Self::RepositoryAgent(RepositoryAgentMessage::OpenEditAgent(id))
-            }
-            AppEvent::OpenDeleteAgent(id) => {
-                Self::RepositoryAgent(RepositoryAgentMessage::OpenDeleteAgent(id))
-            }
-            AppEvent::ToggleDeleteWorkDir => {
-                Self::RepositoryAgent(RepositoryAgentMessage::ToggleDeleteWorkDir)
-            }
-            AppEvent::KillAgent(id) => Self::Runtime(RuntimeMessage::KillAgent(id)),
-            AppEvent::RelaunchAgent(id) => Self::Runtime(RuntimeMessage::RelaunchAgent(id)),
-            AppEvent::AgentStatusChanged(id, status) => {
-                Self::Runtime(RuntimeMessage::AgentStatusChanged(id, status))
-            }
-            AppEvent::PersistenceLoadSuccess => Self::Persistence(PersistenceMessage::LoadSuccess),
-            AppEvent::PersistenceLoadFailed(error) => {
-                Self::Persistence(PersistenceMessage::LoadFailed(error))
-            }
-            AppEvent::PersistenceSaveSuccess => Self::Persistence(PersistenceMessage::SaveSuccess),
-            AppEvent::PersistenceSaveFailed(error) => {
-                Self::Persistence(PersistenceMessage::SaveFailed(error))
-            }
-            AppEvent::SetTheme(theme) => Self::Theme(ThemeMessage::SetTheme(theme)),
-            AppEvent::ThemeResolveFailed(error) => Self::Theme(ThemeMessage::ResolveFailed(error)),
-            AppEvent::Quit => Self::System(SystemMessage::Quit),
-            AppEvent::ClearError => Self::System(SystemMessage::ClearError),
-            AppEvent::ClearWarning => Self::System(SystemMessage::ClearWarning),
-            other => Self::from_issues_event(other),
-        }
-    }
-
-    /// Convert issues-domain [`AppEvent`] variants into the typed message bus.
-    fn from_issues_event(event: AppEvent) -> Self {
-        Self::Issues(IssuesMessage::from_app_event(event))
-    }
-}
-
-impl From<AppMessage> for AppEvent {
-    fn from(message: AppMessage) -> Self {
-        match message {
-            AppMessage::UiNavigation(message) => message.into(),
-            AppMessage::Modal(message) => message.into(),
-            AppMessage::RepositoryAgent(message) => message.into(),
-            AppMessage::Runtime(message) => message.into(),
-            AppMessage::Persistence(message) => message.into(),
-            AppMessage::Theme(message) => message.into(),
-            AppMessage::Issues(message) => message.into(),
-            AppMessage::System(message) => message.into(),
-        }
-    }
-}
-
-impl From<UiNavigationMessage> for AppEvent {
-    fn from(message: UiNavigationMessage) -> Self {
-        match message {
-            UiNavigationMessage::NavigateUp => Self::NavigateUp,
-            UiNavigationMessage::NavigateDown => Self::NavigateDown,
-            UiNavigationMessage::NavigateLeft => Self::NavigateLeft,
-            UiNavigationMessage::NavigateRight => Self::NavigateRight,
-            UiNavigationMessage::SelectRepository(index) => Self::SelectRepository(index),
-            UiNavigationMessage::SelectAgent(index) => Self::SelectAgent(index),
-            UiNavigationMessage::JumpToAgentByShortcut(slot) => Self::JumpToAgentByShortcut(slot),
-            UiNavigationMessage::CyclePaneFocus => Self::CyclePaneFocus,
-            UiNavigationMessage::ToggleTerminalFocus => Self::ToggleTerminalFocus,
-            UiNavigationMessage::ToggleHideIdleRepositories => Self::ToggleHideIdleRepositories,
-            UiNavigationMessage::EnterSplitMode => Self::EnterSplitMode,
-            UiNavigationMessage::ExitSplitMode => Self::ExitSplitMode,
-            UiNavigationMessage::EnterGrabMode => Self::EnterGrabMode,
-            UiNavigationMessage::ExitGrabMode => Self::ExitGrabMode,
-            UiNavigationMessage::GrabMoveUp => Self::GrabMoveUp,
-            UiNavigationMessage::GrabMoveDown => Self::GrabMoveDown,
-            UiNavigationMessage::SetSplitFilter(filter) => Self::SetSplitFilter(filter),
-        }
-    }
-}
-
-impl From<ModalMessage> for AppEvent {
-    fn from(message: ModalMessage) -> Self {
-        match message {
-            ModalMessage::OpenHelp => Self::OpenHelp,
-            ModalMessage::OpenSearch => Self::OpenSearch,
-            ModalMessage::CloseModal => Self::CloseModal,
-            ModalMessage::SubmitForm => Self::SubmitForm,
-            ModalMessage::FormChar(c) => Self::FormChar(c),
-            ModalMessage::FormBackspace => Self::FormBackspace,
-            ModalMessage::FormDelete => Self::FormDelete,
-            ModalMessage::FormMoveCursorLeft => Self::FormMoveCursorLeft,
-            ModalMessage::FormMoveCursorRight => Self::FormMoveCursorRight,
-            ModalMessage::FormNextField => Self::FormNextField,
-            ModalMessage::FormPrevField => Self::FormPrevField,
-            ModalMessage::FormToggleCheckbox => Self::FormToggleCheckbox,
-        }
-    }
-}
-
-impl From<RepositoryAgentMessage> for AppEvent {
-    fn from(message: RepositoryAgentMessage) -> Self {
-        match message {
-            RepositoryAgentMessage::OpenNewRepository => Self::OpenNewRepository,
-            RepositoryAgentMessage::OpenEditRepository(id) => Self::OpenEditRepository(id),
-            RepositoryAgentMessage::OpenDeleteRepository(id) => Self::OpenDeleteRepository(id),
-            RepositoryAgentMessage::OpenNewAgent(id) => Self::OpenNewAgent(id),
-            RepositoryAgentMessage::OpenEditAgent(id) => Self::OpenEditAgent(id),
-            RepositoryAgentMessage::OpenDeleteAgent(id) => Self::OpenDeleteAgent(id),
-            RepositoryAgentMessage::ToggleDeleteWorkDir => Self::ToggleDeleteWorkDir,
-        }
-    }
-}
-
-impl From<RuntimeMessage> for AppEvent {
-    fn from(message: RuntimeMessage) -> Self {
-        match message {
-            RuntimeMessage::KillAgent(id) => Self::KillAgent(id),
-            RuntimeMessage::RelaunchAgent(id) => Self::RelaunchAgent(id),
-            RuntimeMessage::AgentStatusChanged(id, status) => Self::AgentStatusChanged(id, status),
-        }
-    }
-}
-
-impl From<PersistenceMessage> for AppEvent {
-    fn from(message: PersistenceMessage) -> Self {
-        match message {
-            PersistenceMessage::LoadSuccess => Self::PersistenceLoadSuccess,
-            PersistenceMessage::LoadFailed(error) => Self::PersistenceLoadFailed(error),
-            PersistenceMessage::SaveSuccess => Self::PersistenceSaveSuccess,
-            PersistenceMessage::SaveFailed(error) => Self::PersistenceSaveFailed(error),
-        }
-    }
-}
-
-impl From<ThemeMessage> for AppEvent {
-    fn from(message: ThemeMessage) -> Self {
-        match message {
-            ThemeMessage::SetTheme(theme) => Self::SetTheme(theme),
-            ThemeMessage::ResolveFailed(error) => Self::ThemeResolveFailed(error),
-        }
-    }
-}
-
-impl From<SystemMessage> for AppEvent {
-    fn from(message: SystemMessage) -> Self {
-        match message {
-            SystemMessage::Quit => Self::Quit,
-            SystemMessage::ClearError => Self::ClearError,
-            SystemMessage::ClearWarning => Self::ClearWarning,
-        }
-    }
-}
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-002
+// @pseudocode component-004 lines 43-44
+message_names!(PullRequestsMessage {
+    Self::EnterMode => "EnterPrsMode",
+    Self::ExitMode => "ExitPrsMode",
+    Self::RefocusList => "RefocusPrList",
+    Self::Navigate(_) => "PrNavigate",
+    Self::Enter => "PrListEnter",
+    Self::CycleFocus => "PrCycleFocus",
+    Self::CycleFocusReverse => "PrCycleFocusReverse",
+    Self::ScrollDetail(_) => "PrScrollDetail",
+    Self::DetailSubfocusNext => "PrDetailSubfocusNext",
+    Self::DetailSubfocusPrev => "PrDetailSubfocusPrev",
+    Self::ListLoaded { .. } => "PrListLoaded",
+    Self::ListLoadFailed { .. } => "PrListLoadFailed",
+    Self::ListPageLoaded { .. } => "PrListPageLoaded",
+    Self::DetailLoaded { .. } => "PrDetailLoaded",
+    Self::DetailLoadFailed { .. } => "PrDetailLoadFailed",
+    Self::CommentsPageLoaded { .. } => "PrCommentsPageLoaded",
+    Self::CommentsPageFailed { .. } => "PrCommentsPageFailed",
+    Self::OpenFilterControls => "PrOpenFilterControls",
+    Self::CloseFilterControls => "PrCloseFilterControls",
+    Self::ApplyFilter => "PrApplyFilter",
+    Self::ClearFilter => "PrClearFilter",
+    Self::FilterNavigate(_) => "PrFilterNavigate",
+    Self::CycleFilterState => "PrCycleFilterState",
+    Self::CycleDraftFilter => "PrCycleDraftFilter",
+    Self::CycleReviewFilter => "PrCycleReviewFilter",
+    Self::CycleChecksFilter => "PrCycleChecksFilter",
+    Self::UpdateDraftFilter { .. } => "PrUpdateDraftFilter",
+    Self::FocusSearchInput => "PrFocusSearchInput",
+    Self::BlurSearchInput => "PrBlurSearchInput",
+    Self::SetSearchQuery { .. } => "PrSetSearchQuery",
+    Self::ApplySearch => "PrApplySearch",
+    Self::ClearSearch => "PrClearSearch",
+    Self::OpenNewCommentComposer => "PrOpenNewCommentComposer",
+    Self::OpenReplyComposer { .. } => "PrOpenReplyComposer",
+    Self::Inline(_) => "PrInline",
+    Self::CommentCreated { .. } => "PrCommentCreated",
+    Self::CommentCreateFailed { .. } => "PrCommentCreateFailed",
+    Self::MutationFailed { .. } => "PrMutationFailed",
+    Self::ShowNotice(_) => "PrShowNotice",
+    Self::OpenAgentChooser => "PrOpenAgentChooser",
+    Self::AgentChooserNavigate(_) => "PrAgentChooserNavigate",
+    Self::AgentChooserConfirm => "PrAgentChooserConfirm",
+    Self::AgentChooserCancel => "PrAgentChooserCancel",
+    Self::SendToAgentCompleted => "PrSendToAgentCompleted",
+    Self::SendToAgentFailed { .. } => "PrSendToAgentFailed",
+    Self::OpenInBrowser => "PrOpenInBrowser",
+    Self::OpenedInBrowser { .. } => "PrOpenedInBrowser",
+    Self::OpenInBrowserFailed { .. } => "PrOpenInBrowserFailed",
+});

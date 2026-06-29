@@ -9,6 +9,19 @@ mod modal_handlers;
 mod normal;
 mod preflight;
 
+// PR-mode key-routing + dispatch surface.
+// @plan PLAN-20260624-PR-MODE.P11
+// @requirement REQ-PR-001
+// @requirement REQ-PR-002
+mod prs;
+mod prs_comments_dispatch;
+mod prs_dispatch;
+mod prs_filter;
+mod prs_list_dispatch;
+mod prs_mutation;
+// @plan PLAN-20260624-PR-MODE.P11
+mod prs_orchestration;
+
 mod gh_async;
 
 pub use modal_handlers::{handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key};
@@ -468,6 +481,17 @@ pub fn dispatch_app_message(
         AppMessage::Issues(IssuesMessage::InlineSubmit) => {
             issues_mutation::handle_inline_submit(app_state, ctx);
         }
+        // ── PR-mode dispatch arms ───────────────────────────────────────────
+        // @plan PLAN-20260624-PR-MODE.P11
+        // @requirement REQ-PR-001
+        // @requirement REQ-PR-003
+        // @requirement REQ-PR-010
+        // @requirement REQ-PR-011
+        // @requirement REQ-PR-012
+        // @pseudocode component-004 lines 97-118
+        AppMessage::PullRequests(message) => {
+            prs_orchestration::dispatch_prs_message(app_state, ctx, message);
+        }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
 }
@@ -913,3 +937,23 @@ fn apply_send_to_agent_failed(app_state: &mut AppStateHandle, error: String) {
 #[cfg(test)]
 #[path = "app_input_tests.rs"]
 mod tests;
+
+// @plan PLAN-20260624-PR-MODE.P15
+// @requirement REQ-PR-001
+// @pseudocode component-001 lines 66-291
+#[cfg(test)]
+#[path = "prs_integration_tests.rs"]
+mod prs_integration_tests;
+
+// @plan PLAN-20260624-PR-MODE.P15
+// @requirement REQ-PR-004
+// @requirement REQ-PR-NFR-003
+#[cfg(test)]
+#[path = "prs_integration_tests_lifecycle.rs"]
+mod prs_integration_tests_lifecycle;
+
+// Extracted from `prs_dispatch.rs` to keep that handler module under the
+// per-file line limit.
+#[cfg(test)]
+#[path = "prs_dispatch_tests.rs"]
+mod prs_dispatch_tests;

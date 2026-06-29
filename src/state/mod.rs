@@ -12,6 +12,14 @@ mod issues_inline_ops;
 mod issues_load_ops;
 mod issues_mutation_ops;
 mod issues_ops;
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-001
+mod prs_inline_ops;
+mod prs_load_ops;
+mod prs_mutation_ops;
+mod prs_nav_ops;
+mod prs_ops;
+mod selectors;
 pub mod state_ops;
 mod types;
 mod util;
@@ -42,8 +50,14 @@ fn inline_cursor_vertical(text: &str, cursor: &mut usize, direction: i32) {
         }
     }
 
-    // Clamp the cursor to a valid char boundary within the text.
-    let clamped_cursor = (*cursor).min(text.len());
+    // Clamp the cursor to a valid char boundary within the text. As the shared
+    // single source of truth for vertical movement in both Issues and PR modes,
+    // this defensively walks a mid-codepoint offset DOWN to the nearest UTF-8
+    // boundary so slicing cannot panic on malformed input.
+    let mut clamped_cursor = (*cursor).min(text.len());
+    while clamped_cursor > 0 && !text.is_char_boundary(clamped_cursor) {
+        clamped_cursor -= 1;
+    }
     let before_cursor = &text[..clamped_cursor];
 
     // Find which line the cursor is on (by byte offset).
@@ -190,67 +204,6 @@ impl AppState {
         !self.hide_idle_repositories || agent.is_running()
     }
 
-    #[must_use]
-    pub fn visible_repository_indices(&self) -> Vec<usize> {
-        self.repositories
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, repository)| {
-                (!self.hide_idle_repositories
-                    || self.has_running_agent_in_repository(&repository.id))
-                .then_some(idx)
-            })
-            .collect()
-    }
-
-    #[must_use]
-    pub fn selected_repository_visible_index(&self) -> Option<usize> {
-        let selected = self.selected_repository_index?;
-        self.visible_repository_indices()
-            .iter()
-            .position(|idx| *idx == selected)
-    }
-
-    #[must_use]
-    pub fn agent_indices_for_repository(&self, repository_id: &RepositoryId) -> Vec<usize> {
-        self.agents
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, agent)| {
-                (&agent.repository_id == repository_id
-                    && self.is_agent_visible_with_idle_filter(agent))
-                .then_some(idx)
-            })
-            .collect()
-    }
-
-    /// Return the visible agents for a repository, respecting the idle filter.
-    ///
-    /// This uses `agent_indices_for_repository` internally so the returned
-    /// list is always consistent with `selected_agent_local_index`.
-    #[must_use]
-    pub fn visible_agents_for_repository(&self, repository_id: &RepositoryId) -> Vec<Agent> {
-        self.agent_indices_for_repository(repository_id)
-            .iter()
-            .filter_map(|idx| self.agents.get(*idx).cloned())
-            .collect()
-    }
-
-    /// Count of visible agents for a repository, respecting the idle filter.
-    #[must_use]
-    pub fn visible_agent_count_for_repository(&self, repository_id: &RepositoryId) -> usize {
-        self.agent_indices_for_repository(repository_id).len()
-    }
-
-    /// Total count of visible agents across all repositories.
-    #[must_use]
-    pub fn visible_agent_count(&self) -> usize {
-        self.agents
-            .iter()
-            .filter(|agent| self.is_agent_visible_with_idle_filter(agent))
-            .count()
-    }
-
     pub fn rebuild_repository_agent_ids(&mut self) {
         for repository in &mut self.repositories {
             repository.agent_ids.clear();
@@ -370,6 +323,14 @@ impl AppState {
             AppMessage::Issues(message) => {
                 let handled = self.apply_issues_message(message);
                 debug_assert!(handled, "unhandled issues message in apply_message()");
+            }
+            // @plan PLAN-20260624-PR-MODE.P05
+            // @requirement REQ-PR-001
+            // @pseudocode component-004 lines 86-94
+            AppMessage::PullRequests(message) => {
+                let msg_debug = format!("{message:?}");
+                let handled = self.apply_prs_message(message);
+                debug_assert!(handled, "unhandled PullRequestsMessage: {msg_debug}");
             }
         }
 
@@ -496,7 +457,63 @@ impl AppState {
             if self.issues_state.active {
                 self.reset_issues_for_repo_change();
             }
+            // @plan PLAN-20260624-PR-MODE.P05
+            // @requirement REQ-PR-003
+            if self.prs_state.active {
+                self.reset_prs_for_repo_change();
+            }
         }
+    }
+
+    /// Move the repository selection up or down within the visible set.
+    ///
+    /// Shared by Issues and PR mode repo navigation (independent of pane_focus, #47).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-003
+    /// @pseudocode component-001 lines 134-145
+    fn move_repo_selection(&mut self, direction: crate::messages::NavDir) -> bool {
+        let indices = self.visible_repository_indices();
+        if indices.is_empty() {
+            return false;
+        }
+        // Handle "no selection" explicitly: Down selects the FIRST visible repo
+        // (indices[0]); Up is a no-op. This avoids the old `unwrap_or(0)` which
+        // treated None as visible-index 0 and then Down computed target=1,
+        // skipping the first repo entirely.
+        let Some(current) = self.selected_repository_visible_index() else {
+            if direction == crate::messages::NavDir::Down {
+                self.remember_selected_agent_for_current_repo();
+                self.selected_repository_index = Some(indices[0]);
+                self.restore_selected_agent_for_current_repo();
+                return true;
+            }
+            return false;
+        };
+        let target = match direction {
+            crate::messages::NavDir::Up => {
+                if current > 0 {
+                    current - 1
+                } else {
+                    current
+                }
+            }
+            crate::messages::NavDir::Down => {
+                if current + 1 < indices.len() {
+                    current + 1
+                } else {
+                    current
+                }
+            }
+            _ => return false,
+        };
+        if target == current {
+            return false;
+        }
+        self.remember_selected_agent_for_current_repo();
+        self.selected_repository_index = Some(indices[target]);
+        self.restore_selected_agent_for_current_repo();
+        true
     }
 
     fn select_agent_by_local_index(&mut self, idx: usize) {
@@ -879,23 +896,6 @@ impl AppState {
             PaneFocus::Terminal => {}
         }
     }
-
-    /// Get the currently selected repository, if any.
-    #[must_use]
-    pub fn selected_repository(&self) -> Option<&Repository> {
-        self.selected_repository_index
-            .and_then(|i| self.repositories.get(i))
-    }
-
-    /// Get the currently selected agent, if any.
-    #[must_use]
-    pub fn selected_agent(&self) -> Option<&Agent> {
-        let repository_id = self.selected_repository_id()?;
-        let selected_idx = self.selected_agent_index?;
-        let agent = self.agents.get(selected_idx)?;
-        (&agent.repository_id == repository_id && self.is_agent_visible_with_idle_filter(agent))
-            .then_some(agent)
-    }
 }
 
 #[cfg(test)]
@@ -925,3 +925,54 @@ mod issues_tests_filter;
 #[cfg(test)]
 #[path = "issues_tests_composer_focus.rs"]
 mod issues_tests_composer_focus;
+
+#[cfg(test)]
+#[path = "prs_tests.rs"]
+mod prs_tests;
+
+#[cfg(test)]
+#[path = "prs_tests_detail.rs"]
+mod prs_tests_detail;
+
+#[cfg(test)]
+#[path = "prs_tests_filter.rs"]
+mod prs_tests_filter;
+
+#[cfg(test)]
+#[path = "prs_tests_repo_nav.rs"]
+mod prs_tests_repo_nav;
+
+/// Shared `#[cfg(test)]` fixtures used by the PR-mode reducer test modules.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 44-50
+#[cfg(test)]
+#[path = "prs_test_fixtures.rs"]
+mod prs_test_fixtures;
+
+#[cfg(test)]
+#[path = "prs_tests_composer_focus.rs"]
+mod prs_tests_composer_focus;
+
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 44-50
+#[cfg(test)]
+#[path = "prs_tests_cursor_arrows.rs"]
+mod prs_tests_cursor_arrows;
+
+#[cfg(test)]
+#[path = "prs_tests_detail_flow.rs"]
+mod prs_tests_detail_flow;
+
+#[cfg(test)]
+#[path = "prs_tests_components.rs"]
+mod prs_tests_components;
+
+// @plan PLAN-20260624-PR-MODE.P15
+// @requirement REQ-PR-001
+// @pseudocode component-001 lines 66-291
+#[cfg(test)]
+#[path = "prs_integration_tests.rs"]
+mod prs_integration_tests;
