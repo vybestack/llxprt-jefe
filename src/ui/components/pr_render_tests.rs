@@ -23,7 +23,7 @@ use crate::domain::{
     IssueComment, PrCheck, PrCheckStatus, PrReview, PrReviewState, PrState, PullRequest,
     PullRequestDetail, Repository, RepositoryId,
 };
-use crate::pr_detail_content::{build_new_pr_comment_content, build_pr_detail_content};
+use crate::pr_detail_content::build_pr_detail_content;
 use crate::state::{AppEvent, AppState, ComposerTarget, InlineState, PrDetailSubfocus, ScreenMode};
 use crate::ui::components::pr_detail::pr_detail_header_view;
 use crate::ui::components::pr_list::{pr_list_status_message, pr_list_visible_rows};
@@ -474,12 +474,15 @@ fn test_pr_detail_shows_branches_and_external_url() {
 // ===========================================================================
 
 /// With an active new-comment composer (`ComposerTarget::NewComment`), the
-/// rendered detail content (subfocus NewComment) contains the composer prompt
-/// text, so the composer is within the scrollable region (#56).
+/// rendered detail content (subfocus NewComment) emits the stable
+/// anchor/help section but does NOT flatten the composer text into the
+/// read-only document — the composer is rendered by the embedded TextBox
+/// component (#56, #20 Phase 1).
 ///
-/// @plan PLAN-20260624-PR-MODE.P13
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
 /// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 1-12
+/// @pseudocode component-001 lines 169-176
 #[test]
 fn test_pr_detail_composer_visible_within_viewport_when_active() {
     let detail = detail_with_reviews_and_checks(9);
@@ -495,20 +498,25 @@ fn test_pr_detail_composer_visible_within_viewport_when_active() {
         false,
         false,
     );
+    // The composer text must NOT be flattened into the read-only document.
     assert!(
-        content.text.contains("draft reply text"),
-        "composer text must appear in the rendered detail content (within the scroll region)"
+        !content.text.contains("draft reply text"),
+        "composer text must NOT appear in the read-only document (rendered by TextBox)"
     );
     // The new-comment composer section header must render.
     assert!(
         content.text.contains("New comment"),
         "the New comment section must render when the composer is active"
     );
-    // build_new_pr_comment_content also surfaces the composer prompt.
-    let composer_block = build_new_pr_comment_content(&composer);
+    // The anchor/help line must be present.
     assert!(
-        composer_block.text.contains("draft reply text"),
-        "build_new_pr_comment_content must surface the composer text"
+        content.text.contains("Ctrl+Enter submit | Esc cancel"),
+        "the composer anchor/help line must render when the composer is active"
+    );
+    // The document cursor must be None (composer not flattened).
+    assert!(
+        content.cursor.is_none(),
+        "document cursor must be None for an active NewComment composer"
     );
 }
 

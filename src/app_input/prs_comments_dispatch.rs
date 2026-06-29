@@ -9,7 +9,7 @@
 //! @pseudocode component-004 lines 146-155
 
 use jefe::domain::RepositoryId;
-use jefe::state::AppEvent;
+use jefe::state::{AppEvent, ComposerTarget, InlineState};
 
 use super::prs_dispatch::{current_pr_scope_repo_id, resolve_pr_gh_repo};
 use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client};
@@ -95,12 +95,28 @@ enum PrCommentPageRequest {
     Skip,
 }
 
+/// Whether the embedded PR composer TextBox is active for the current state.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+fn pr_text_box_active(inline_state: &InlineState) -> bool {
+    matches!(
+        inline_state,
+        InlineState::Composer {
+            target: ComposerTarget::NewComment | ComposerTarget::Reply { .. },
+            ..
+        }
+    )
+}
+
 /// Compute the max detail scroll offset using the CANONICAL parity function
 /// `pr_detail_content_line_count` (the exact text the renderer emits for the
 /// current subfocus, inline composer state, and loading flags) minus the
-/// viewport rows. Using the parity function — rather than a local heuristic —
-/// guarantees the comments-dispatch "scrolled near bottom" check uses the SAME
-/// line count the renderer and scroll clamp do (MED-8).
+/// effective read-only document viewport rows. Using the parity function —
+/// rather than a local heuristic — guarantees the comments-dispatch "scrolled
+/// near bottom" check uses the SAME line count and viewport the renderer and
+/// scroll clamp do (MED-8).
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-009
@@ -110,6 +126,10 @@ pub(super) fn pr_detail_max_scroll_offset(state: &jefe::state::AppState) -> usiz
     let Some(detail) = state.prs_state.pr_detail.as_ref() else {
         return 0;
     };
+    let document_viewport = jefe::layout::pr_detail_document_viewport_rows(
+        state.prs_state.detail_viewport_rows,
+        pr_text_box_active(&state.prs_state.inline_state),
+    );
     jefe::pr_detail_content::pr_detail_content_line_count(
         detail,
         state.prs_state.detail_subfocus,
@@ -117,7 +137,7 @@ pub(super) fn pr_detail_max_scroll_offset(state: &jefe::state::AppState) -> usiz
         state.prs_state.loading.detail,
         state.prs_state.loading.comments,
     )
-    .saturating_sub(state.prs_state.detail_viewport_rows)
+    .saturating_sub(document_viewport)
 }
 
 /// Resolve comment-page params or a Skip/Fail outcome from state.
@@ -225,7 +245,9 @@ fn pr_comment_page_event(ctx: &SharedContext, params: &PrCommentPageParams) -> A
 mod tests {
     use super::*;
     use jefe::domain::{IssueComment, PrCheckStatus, PrState, PullRequestDetail, Repository};
-    use jefe::state::{AppState, InlineState, PrDetailSubfocus, PullRequestsState, ScreenMode};
+    use jefe::state::{
+        AppState, ComposerTarget, InlineState, PrDetailSubfocus, PullRequestsState, ScreenMode,
+    };
     use std::path::PathBuf;
 
     /// Build a seeded PR detail for the max-offset test.
@@ -266,8 +288,9 @@ mod tests {
     /// `pr_detail_content_line_count` parity function (not a divergent
     /// heuristic), so the comments-dispatch "near bottom" check matches the
     /// real rendered length. We assert the helper returns exactly
-    /// `line_count.saturating_sub(viewport_rows)` for a seeded detail with
-    /// reviews + comments (which the old heuristic miscounted).
+    /// `line_count.saturating_sub(effective_document_viewport_rows)` for a
+    /// seeded detail with reviews + comments (which the old heuristic
+    /// miscounted).
     ///
     /// @plan PLAN-20260624-PR-MODE.P11
     /// @requirement REQ-PR-009
@@ -298,6 +321,10 @@ mod tests {
         state.selected_repository_index = Some(0);
 
         let actual = pr_detail_max_scroll_offset(&state);
+        let document_viewport = jefe::layout::pr_detail_document_viewport_rows(
+            state.prs_state.detail_viewport_rows,
+            false,
+        );
         let expected = jefe::pr_detail_content::pr_detail_content_line_count(
             &detail,
             state.prs_state.detail_subfocus,
@@ -305,11 +332,59 @@ mod tests {
             state.prs_state.loading.detail,
             state.prs_state.loading.comments,
         )
-        .saturating_sub(state.prs_state.detail_viewport_rows);
+        .saturating_sub(document_viewport);
 
         assert_eq!(
             actual, expected,
-            "comments-dispatch max offset MUST equal pr_detail_content_line_count().saturating_sub(viewport)"
+            "comments-dispatch max offset MUST equal pr_detail_content_line_count().saturating_sub(effective_viewport)"
+        );
+    }
+
+    /// The pagination helper must reserve the embedded NewComment TextBox rows,
+    /// matching the reducer and UI scroll viewport when the composer is active.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P14
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-001 lines 169-176
+    #[test]
+    fn test_comments_dispatch_max_offset_reserves_new_comment_text_box_rows() {
+        let detail = seeded_pr_detail();
+        let inline_state = InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            text: "draft".to_string(),
+            cursor: 5,
+        };
+        let prs_state = PullRequestsState {
+            active: true,
+            pr_detail: Some(detail.clone()),
+            detail_viewport_rows: 9,
+            detail_subfocus: PrDetailSubfocus::NewComment,
+            inline_state,
+            ..PullRequestsState::default()
+        };
+        let state = AppState {
+            screen_mode: ScreenMode::DashboardPullRequests,
+            prs_state,
+            ..AppState::default()
+        };
+
+        let document_viewport = jefe::layout::pr_detail_document_viewport_rows(
+            state.prs_state.detail_viewport_rows,
+            true,
+        );
+        let expected = jefe::pr_detail_content::pr_detail_content_line_count(
+            &detail,
+            state.prs_state.detail_subfocus,
+            &state.prs_state.inline_state,
+            state.prs_state.loading.detail,
+            state.prs_state.loading.comments,
+        )
+        .saturating_sub(document_viewport);
+
+        assert_eq!(
+            pr_detail_max_scroll_offset(&state),
+            expected,
+            "comments pagination max offset must reserve embedded TextBox rows"
         );
     }
 }

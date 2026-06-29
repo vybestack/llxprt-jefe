@@ -7,10 +7,11 @@ use iocraft::prelude::*;
 use crate::domain::PullRequestDetail;
 use crate::layout::PR_DETAIL_HEADER_ROWS as HEADER_ROWS;
 use crate::pr_detail_content::{build_pr_detail_content, pr_state_tag};
-use crate::state::{InlineState, PrDetailSubfocus};
+use crate::state::{ComposerTarget, InlineState, PrDetailSubfocus};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::scrollable_text::ScrollableText;
+use super::text_box::TextBox;
 
 /// Pure fallback term-rows constant used when no viewport height is supplied
 /// by the screen (the component never reads the terminal itself). Mirrors the
@@ -112,15 +113,47 @@ pub struct PrDetailViewProps {
     pub colors: ThemeColors,
 }
 
+/// Extract the active PR composer `(text, byte_cursor, prefix)`.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+fn active_pr_composer(inline_state: &InlineState) -> Option<(String, usize, &'static str)> {
+    match inline_state {
+        InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            text,
+            cursor,
+        } => Some((text.clone(), *cursor, "  │ ")),
+        InlineState::Composer {
+            target: ComposerTarget::Reply { .. },
+            text,
+            cursor,
+        } => Some((text.clone(), *cursor, "    │ ")),
+        InlineState::Composer {
+            target: ComposerTarget::NewIssue,
+            ..
+        }
+        | InlineState::Editor { .. }
+        | InlineState::None => None,
+    }
+}
+
 /// PR detail view — fixed structure that NEVER changes layout.
 ///
 /// ALWAYS renders: border box → `HEADER_ROWS` header rows → fixed-row scrollable viewport.
 /// When no PR is selected, header rows are blank and viewport shows a message.
-/// This ensures layout is identical regardless of whether a PR is loaded.
+/// When a NewComment composer is active, an embedded `TextBox` is rendered
+/// below the scroll viewport (the read-only document no longer flattens the
+/// composer text/cursor, so the document scroll offset stays stable while
+/// typing and the TextBox owns its own local caret viewport).
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
+/// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
-/// @pseudocode component-001 lines 1-12
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
 #[component]
 pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
@@ -130,14 +163,24 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
         BorderStyle::Round
     };
 
-    // Compute viewport rows. Prefer the actual viewport height passed from
-    // the parent layout; otherwise fall back to a pure constant default that
-    // does NOT read the terminal (the component must never query the terminal).
-    let scroll_rows = if let Some(height) = props.viewport_rows {
+    // Detect an active PR composer so we can reserve space for the embedded
+    // TextBox and reduce the scroll viewport accordingly.
+    let composer = active_pr_composer(&props.inline_state);
+    let text_box_active = composer.is_some();
+
+    // Compute viewport rows. Production screens pass the actual pane height;
+    // the fallback is a pure test/default path and intentionally avoids reading
+    // terminal size inside this component. Use the shared helper so the state
+    // scroll bounds and ScrollableText row count stay in the same coordinate
+    // system, including tiny panes where one read-only row is preserved.
+    let detail_viewport_rows = if let Some(height) = props.viewport_rows {
         (height as usize).saturating_sub(HEADER_ROWS + 2)
     } else {
         crate::layout::prs_detail_viewport_rows(DEFAULT_PR_DETAIL_TERM_ROWS, false, false)
     };
+    let scroll_rows =
+        crate::layout::pr_detail_document_viewport_rows(detail_viewport_rows, text_box_active);
+    let composer_rows = detail_viewport_rows.saturating_sub(scroll_rows);
 
     let (h_title, h_state, h_branches, h_url, detail_content, state_color) =
         if let Some(detail) = props.detail.as_ref() {
@@ -173,6 +216,28 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
                 rc.dim,
             )
         };
+
+    // Compute the TextBox props for the active PR composer (if any). The
+    // composer content width mirrors the detail content width so gutter-aligned
+    // text lines up with the read-only document.
+    let composer_element: Option<AnyElement<'static>> =
+        composer.map(|(text, byte_cursor, prefix)| {
+            element! {
+                Box(width: 100pct, padding_left: 1u32) {
+                    TextBox(
+                        text: text,
+                        byte_cursor: byte_cursor,
+                        viewport_rows: composer_rows,
+                        content_width: props.detail_content_width,
+                        prefix: prefix.to_string(),
+                        color: rc.fg,
+                        caret_color: rc.bg,
+                        caret_bg: rc.bright,
+                    )
+                }
+            }
+            .into()
+        });
 
     element! {
         Box(
@@ -221,6 +286,9 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
                     thumb_color: rc.bright,
                 )
             }
+
+            // ── Embedded NewComment TextBox composer (when active) ────────
+            #(composer_element)
         }
     }
 }

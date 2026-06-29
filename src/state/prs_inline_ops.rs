@@ -1,18 +1,18 @@
 //! Pull Requests mode inline composer state operations.
 //!
 //! Mirrors `issues_inline_ops.rs` for text/cursor mutation and NEVER wraps —
-//! the renderer (ScrollableText) truncates long lines, so reducer line/cursor
-//! coordinates can never drift. On top of that shared base, PR mode keeps the
-//! composer caret visible while typing/arrowing via a width-free cursor-follow
-//! (`pr_follow_caret`): after each edit/cursor key the viewport is scrolled the
-//! minimum amount to bring the caret back inside the window, reading the caret
-//! line from the SAME `build_pr_detail_content` the renderer uses. Scroll also
-//! lands on the rendered bottom on composer open (`scroll_pr_detail_to_bottom`)
-//! and on `PrCommentCreated`.
+//! the renderer truncates long lines, so reducer line/cursor coordinates can
+//! never drift. The NewComment composer text is rendered by a dedicated
+//! `TextBox` component that owns its own local viewport/caret invariant, so
+//! the reducer NO LONGER follows the caret per keystroke: it scrolls to the
+//! rendered bottom on composer open (`scroll_pr_detail_to_bottom`) and on
+//! `PrCommentCreated`, and leaves `detail_scroll_offset` untouched while the
+//! user types or arrows within the composer.
 //!
-//! @plan PLAN-20260624-PR-MODE.P05
+//! @plan PLAN-20260624-PR-MODE.P14
+//! @requirement REQ-PR-009
 //! @requirement REQ-PR-010
-//! @pseudocode component-001 lines 292-330
+//! @pseudocode component-001 lines 169-176
 
 use super::{
     AppEvent, AppState, ComposerTarget, InlineState, PrDetailSubfocus, PrFocus, ReadOnlyHintKind,
@@ -33,6 +33,40 @@ impl AppState {
     /// @pseudocode component-001 lines 169-176
     pub(super) fn scroll_pr_detail_to_bottom(&mut self) {
         self.prs_state.detail_scroll_offset = self.pr_max_detail_scroll_offset();
+    }
+
+    /// Scroll to the stable read-only Reply anchor rendered for the active
+    /// reply composer. The anchor is placed on the last read-only document row,
+    /// directly above the embedded TextBox, so the fixed editor feels attached
+    /// to the selected comment instead of the NewComment bottom section.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P14
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-001 lines 169-176
+    fn scroll_pr_detail_to_reply_anchor(&mut self) {
+        let Some(detail) = &self.prs_state.pr_detail else {
+            return;
+        };
+        let content = crate::pr_detail_content::build_pr_detail_content(
+            detail,
+            self.prs_state.detail_subfocus,
+            &self.prs_state.inline_state,
+            self.prs_state.loading.detail,
+            self.prs_state.loading.comments,
+        );
+        let viewport = self.pr_detail_scroll_viewport_rows();
+        if viewport == 0 {
+            return;
+        }
+        let max_offset = content.text.lines().count().saturating_sub(viewport);
+        if let Some(line_idx) = content
+            .text
+            .lines()
+            .position(|line| line == crate::pr_detail_content::PR_REPLY_ANCHOR)
+        {
+            let desired = line_idx.saturating_sub(viewport.saturating_sub(1));
+            self.prs_state.detail_scroll_offset = desired.min(max_offset);
+        }
     }
 
     /// Compute the maximum detail scroll offset from the REAL rendered content
@@ -60,58 +94,7 @@ impl AppState {
             self.prs_state.loading.detail,
             self.prs_state.loading.comments,
         )
-        .saturating_sub(self.prs_state.detail_viewport_rows)
-    }
-
-    /// Scroll the detail viewport the MINIMUM amount needed to keep the
-    /// composer caret inside the visible window `[offset, offset + viewport)`.
-    ///
-    /// This is the width-free successor to the removed per-keystroke follow.
-    /// The caret's content line is read from the SAME `build_pr_detail_content`
-    /// the renderer consumes (and which `ScrollableText` uses to decide whether
-    /// to DRAW the caret), so the reducer's notion of "visible" can never
-    /// desync from what is actually rendered — the exact failure mode of the
-    /// old wrap-width follow, which computed the caret line in a wrapped
-    /// coordinate space and yanked the view to the top.
-    ///
-    /// Only ever scrolls toward the caret (up when above the window, down when
-    /// below it); a caret already inside the window leaves the offset
-    /// untouched, so simple left/right edits do not jitter the view.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P14
-    /// @requirement REQ-PR-009
-    /// @pseudocode component-001 lines 169-176
-    fn pr_follow_caret(&mut self) {
-        let viewport = self.prs_state.detail_viewport_rows;
-        if viewport == 0 {
-            return;
-        }
-        let Some(detail) = &self.prs_state.pr_detail else {
-            return;
-        };
-        let content = crate::pr_detail_content::build_pr_detail_content(
-            detail,
-            self.prs_state.detail_subfocus,
-            &self.prs_state.inline_state,
-            self.prs_state.loading.detail,
-            self.prs_state.loading.comments,
-        );
-        let Some((cursor_line, _col)) = content.cursor else {
-            return;
-        };
-        let offset = self.prs_state.detail_scroll_offset;
-        let new_offset = if cursor_line < offset {
-            cursor_line
-        } else if cursor_line >= offset + viewport {
-            cursor_line + 1 - viewport
-        } else {
-            return;
-        };
-        // Never scroll past the real rendered bottom. Because `cursor_line` is
-        // a line WITHIN the content, `cursor_line + 1 - viewport` is always
-        // <= max, so this clamp cannot push the caret back out of view.
-        let max = self.pr_max_detail_scroll_offset();
-        self.prs_state.detail_scroll_offset = new_offset.min(max);
+        .saturating_sub(self.pr_detail_scroll_viewport_rows())
     }
 
     /// Borrow the active (text, cursor) pair from the inline composer/editor.
@@ -251,7 +234,8 @@ impl AppState {
             text: author,
             cursor,
         };
-        self.scroll_pr_detail_to_bottom();
+        self.prs_state.detail_subfocus = PrDetailSubfocus::Comment(comment_index);
+        self.scroll_pr_detail_to_reply_anchor();
     }
 
     /// Apply inline-open events (OpenNewCommentComposer, OpenReplyComposer).
@@ -278,16 +262,15 @@ impl AppState {
 
     /// Apply inline editor events (char/newline/backspace/cursor/cancel).
     ///
-    /// Each edit/cursor arm mutates text/cursor, then a width-free
-    /// `pr_follow_caret` scrolls the viewport the minimum amount needed to keep
-    /// the caret visible. Submit/CancelOrEsc close the composer and do not
-    /// follow. The follow reads the caret line from the same builder the
-    /// renderer uses, so it can never desync the view (the failure of the old
-    /// wrap-width follow).
+    /// Each edit/cursor arm mutates text/cursor ONLY — it does NOT touch
+    /// `detail_scroll_offset`. The NewComment composer's caret visibility is
+    /// owned by the `TextBox` component's local viewport projection, so the
+    /// reducer stays pure and the document scroll offset remains stable while
+    /// typing. Submit/CancelOrEsc close the composer.
     ///
-    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @plan PLAN-20260624-PR-MODE.P14
     /// @requirement REQ-PR-010
-    /// @pseudocode component-001 lines 308-330
+    /// @pseudocode component-001 lines 169-176
     pub(super) fn apply_pr_inline_event(&mut self, msg: PrInlineMsg) -> bool {
         if self.prs_state.mutation_pending.is_some() {
             return self.apply_pr_inline_event_while_pending(msg);
@@ -332,12 +315,6 @@ impl AppState {
                 self.prs_state.inline_state = InlineState::None;
             }
         }
-        // After any text/cursor change, keep the caret inside the visible
-        // window. Submit/CancelOrEsc close the composer (cursor None) so the
-        // follow is a no-op for them; every edit/cursor arm above benefits.
-        if Self::is_pr_inline_edit_msg(msg) {
-            self.pr_follow_caret();
-        }
         true
     }
 
@@ -364,12 +341,11 @@ impl AppState {
     }
 
     /// True for the text/cursor edit messages that mutate composer text or move
-    /// the caret (i.e. the messages the caret-follow must react to). Submit and
-    /// CancelOrEsc are excluded: they close the composer.
+    /// the caret. Submit and CancelOrEsc are excluded: they close the composer.
     ///
     /// @plan PLAN-20260624-PR-MODE.P14
     /// @requirement REQ-PR-010
-    /// @pseudocode component-001 lines 308-330
+    /// @pseudocode component-001 lines 169-176
     fn is_pr_inline_edit_msg(msg: PrInlineMsg) -> bool {
         matches!(
             msg,

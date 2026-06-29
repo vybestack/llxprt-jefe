@@ -224,6 +224,39 @@ pub const DETAIL_CHROME_ROWS: usize = OUTER_BARS_HEIGHT as usize;
 /// zero rows.
 pub const DETAIL_MIN_VIEWPORT_ROWS: usize = 5;
 
+/// Fixed local viewport height for the embedded PR NewComment text box.
+///
+/// Kept in layout (rather than UI) because state scroll bounds must reserve
+/// the same rows the component renders when it reveals the composer anchor.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+pub const PR_COMPOSER_VIEWPORT_ROWS: usize = 5;
+
+/// Compute rows available to the read-only PR detail document after embedded
+/// local editors reserve rows inside the detail pane.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+#[must_use]
+pub fn pr_detail_document_viewport_rows(
+    detail_viewport_rows: usize,
+    pr_composer_text_box_active: bool,
+) -> usize {
+    if detail_viewport_rows == 0 {
+        return 0;
+    }
+    let reserved = if pr_composer_text_box_active {
+        PR_COMPOSER_VIEWPORT_ROWS.min(detail_viewport_rows.saturating_sub(1))
+    } else {
+        0
+    };
+    detail_viewport_rows - reserved
+}
+
 /// Compute the rows allocated to the Issues-mode list and detail panes.
 ///
 /// Subtracts fixed outer bars and conditional bands, then gives 30% of the

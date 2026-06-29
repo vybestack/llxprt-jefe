@@ -145,27 +145,19 @@ fn pr_detail_content_line_count_matches_render_when_detail_loading() {
     );
 }
 
-/// @plan PLAN-20260624-PR-MODE.P12
-/// @requirement REQ-PR-009
-/// @pseudocode component-001 lines 1-12
-#[test]
-fn build_new_pr_comment_content_renders_composer_prompt() {
-    let inline = InlineState::None;
-    let content = build_new_pr_comment_content(&inline);
-    assert!(content.text.contains("New comment"));
-    assert!(content.text.contains("Ctrl+Enter submit | Esc cancel"));
-}
-
 // ── Bug A: cursor propagation ──────────────────────────────────────────
 
-/// Opening a NewComment composer must surface a cursor pointing at the
-/// composer line within the joined content (NOT `None`).
+/// Opening a NewComment composer must NOT flatten the composer text/cursor
+/// into the read-only document — the composer is rendered by the dedicated
+/// TextBox component, so `build_pr_detail_content` returns `cursor: None`
+/// and emits only a stable anchor/help line.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
-/// @pseudocode component-001 lines 1-12
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
 #[test]
-fn new_comment_composer_surfaces_cursor_at_composer_line() {
+fn new_comment_composer_not_flattened_into_document() {
     let detail = sample_detail();
     let inline = InlineState::Composer {
         target: ComposerTarget::NewComment,
@@ -174,35 +166,30 @@ fn new_comment_composer_surfaces_cursor_at_composer_line() {
     };
     let content =
         build_pr_detail_content(&detail, PrDetailSubfocus::NewComment, &inline, false, false);
-    let cursor = content
-        .cursor
-        .unwrap_or_else(|| panic!("NewComment composer must surface a cursor"));
-    let lines: Vec<&str> = content.text.lines().collect();
-    let (line_idx, col) = cursor;
     assert!(
-        line_idx < lines.len(),
-        "cursor line {line_idx} out of range ({} lines)",
-        lines.len()
+        content.cursor.is_none(),
+        "NewComment composer must NOT flatten a cursor into the read-only document"
     );
+    // The anchor/help line must still be present so the section is visible.
     assert!(
-        lines[line_idx].contains("abc"),
-        "cursor line must be the composer line, got: {:?}",
-        lines[line_idx]
+        content.text.contains("Ctrl+Enter submit | Esc cancel"),
+        "NewComment composer anchor/help line must be present"
     );
-    assert_eq!(
-        col, 7,
-        "cursor col must be end-of-text within composer line"
+    // The composer text must NOT be flattened into the document.
+    assert!(
+        !content.text.contains("abc"),
+        "NewComment composer text must NOT be flattened into the read-only document"
     );
 }
 
-/// A Reply composer must surface a cursor pointing at the reply composer
-/// line within the joined content.
+/// A Reply composer must emit only a stable anchor/help section in the
+/// read-only document; the editable text/cursor is rendered by `TextBox`.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 1-12
 #[test]
-fn reply_composer_surfaces_cursor_at_reply_line() {
+fn reply_composer_not_flattened_into_document() {
     let detail = sample_detail();
     let reply_text = "@pat hi".to_string();
     let inline = InlineState::Composer {
@@ -215,57 +202,62 @@ fn reply_composer_surfaces_cursor_at_reply_line() {
     };
     let content =
         build_pr_detail_content(&detail, PrDetailSubfocus::Comment(0), &inline, false, false);
-    let cursor = content
-        .cursor
-        .unwrap_or_else(|| panic!("Reply composer must surface a cursor"));
-    let lines: Vec<&str> = content.text.lines().collect();
-    let (line_idx, _col) = cursor;
     assert!(
-        line_idx < lines.len(),
-        "cursor line {line_idx} out of range"
+        content.cursor.is_none(),
+        "Reply composer cursor belongs to TextBox"
     );
+    assert!(content.text.contains(PR_REPLY_ANCHOR));
+    assert!(content.text.contains("    Ctrl+Enter save | Esc cancel"));
     assert!(
-        lines[line_idx].contains("@pat hi"),
-        "cursor line must be the reply composer line, got: {:?}",
-        lines[line_idx]
+        !content.text.contains("@pat hi"),
+        "Reply composer text must NOT be flattened into the read-only document"
     );
 }
 
-/// A composer with a multibyte string and a byte_cursor landing mid-
-/// codepoint must NOT panic and must yield a correct char-column cursor.
+/// A NewComment composer with a multibyte string must NOT flatten the text
+/// or cursor into the read-only document (no panic, cursor stays `None`).
+/// The multibyte caret projection is exercised by the `text_box_view` module
+/// tests.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
-/// @pseudocode component-001 lines 1-12
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
 #[test]
-fn multibyte_composer_cursor_does_not_panic_and_yields_char_col() {
+fn multibyte_new_comment_composer_not_flattened_into_document() {
     let detail = sample_detail();
     let text = "héllo".to_string();
-    let mid_codepoint_cursor = 7;
+    let byte_cursor = 1;
     let inline = InlineState::Composer {
         target: ComposerTarget::NewComment,
         text: text.clone(),
-        cursor: mid_codepoint_cursor,
+        cursor: byte_cursor,
     };
     let content =
         build_pr_detail_content(&detail, PrDetailSubfocus::NewComment, &inline, false, false);
-    let (_line, col) = content
-        .cursor
-        .unwrap_or_else(|| panic!("multibyte composer must still surface a cursor"));
-    assert_eq!(col, 9, "cursor col must reflect char boundary after prefix");
+    assert!(
+        content.cursor.is_none(),
+        "NewComment composer must NOT flatten a cursor (multibyte or otherwise)"
+    );
+    // And the text must not appear in the document.
+    assert!(
+        !content.text.contains("héllo"),
+        "NewComment composer text must NOT be flattened into the document"
+    );
 }
 
 // ── FIX 1: empty composer input row ────────────────────────────────────
 
-/// Opening a NewComment composer with empty text must push a blank input
-/// row and record the cursor on THAT row — NOT the following help/controls
-/// line.
+/// Opening a NewComment composer with empty text must NOT flatten a blank
+/// input row or cursor into the read-only document — the composer is rendered
+/// by the TextBox. The document emits only the anchor + help line.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
-/// @pseudocode component-001 lines 1-12
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
 #[test]
-fn empty_new_comment_composer_pushes_blank_input_row_with_cursor() {
+fn empty_new_comment_composer_emits_only_anchor_no_flattened_row() {
     let detail = sample_detail();
     let inline = InlineState::Composer {
         target: ComposerTarget::NewComment,
@@ -274,35 +266,29 @@ fn empty_new_comment_composer_pushes_blank_input_row_with_cursor() {
     };
     let content =
         build_pr_detail_content(&detail, PrDetailSubfocus::NewComment, &inline, false, false);
-    let lines: Vec<&str> = content.text.lines().collect();
-    let cursor = content
-        .cursor
-        .unwrap_or_else(|| panic!("empty NewComment composer must surface a cursor"));
-    let (line_idx, _col) = cursor;
     assert!(
-        line_idx < lines.len(),
-        "cursor line {line_idx} out of range ({} lines)",
-        lines.len()
-    );
-    let cursor_row = lines[line_idx];
-    assert!(
-        !cursor_row.contains("Ctrl+Enter"),
-        "cursor must NOT be on the controls/help line, got: {cursor_row:?}"
+        content.cursor.is_none(),
+        "empty NewComment composer must NOT flatten a cursor into the document"
     );
     assert!(
-        cursor_row == "  │ " || cursor_row.is_empty(),
-        "cursor row must be the blank composer prefix, got: {cursor_row:?}"
+        content.text.contains("Ctrl+Enter submit | Esc cancel"),
+        "NewComment composer anchor/help line must be present"
+    );
+    // The composer gutter prefix must NOT appear in the document (no flattened row).
+    assert!(
+        !content.text.lines().any(|l| l == "  │ " || l == "  │"),
+        "document must NOT contain a flattened composer prefix row"
     );
 }
 
-/// Opening a Reply composer with empty text must push a blank input row
-/// and record the cursor on THAT row.
+/// Opening an empty Reply composer must emit only the stable reply anchor/help
+/// section in the read-only document.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 1-12
 #[test]
-fn empty_reply_composer_pushes_blank_input_row_with_cursor() {
+fn empty_reply_composer_emits_only_anchor_no_flattened_row() {
     let detail = sample_detail();
     let inline = InlineState::Composer {
         target: ComposerTarget::Reply {
@@ -314,18 +300,14 @@ fn empty_reply_composer_pushes_blank_input_row_with_cursor() {
     };
     let content =
         build_pr_detail_content(&detail, PrDetailSubfocus::Comment(0), &inline, false, false);
-    let lines: Vec<&str> = content.text.lines().collect();
-    let cursor = content
-        .cursor
-        .unwrap_or_else(|| panic!("empty Reply composer must surface a cursor"));
-    let (line_idx, _col) = cursor;
     assert!(
-        line_idx < lines.len(),
-        "cursor line {line_idx} out of range"
+        content.cursor.is_none(),
+        "Reply composer cursor belongs to TextBox"
     );
-    let cursor_row = lines[line_idx];
+    assert!(content.text.contains(PR_REPLY_ANCHOR));
+    assert!(content.text.contains("    Ctrl+Enter save | Esc cancel"));
     assert!(
-        !cursor_row.contains("Ctrl+Enter"),
-        "cursor must NOT be on the controls/help line, got: {cursor_row:?}"
+        !content.text.lines().any(|l| l == "    │ " || l == "    │"),
+        "document must NOT contain a flattened reply composer prefix row"
     );
 }

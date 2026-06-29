@@ -11,7 +11,7 @@
 //! @requirement REQ-PR-NFR-002
 //! @pseudocode component-001 lines 99-124,134-208
 
-use super::{AppEvent, AppState, PrFocus};
+use super::{AppEvent, AppState, ComposerTarget, InlineState, PrFocus};
 use crate::messages::ScrollDir;
 
 impl AppState {
@@ -356,6 +356,31 @@ impl AppState {
 
     // ---- Detail scroll ----
 
+    /// Rows available to the read-only PR detail document after any embedded
+    /// editor/composer reserves local rows inside the detail pane.
+    ///
+    /// The UI subtracts the same `PR_COMPOSER_VIEWPORT_ROWS` from the
+    /// ScrollableText viewport when the NewComment TextBox is active. State uses
+    /// this helper for open-reveal and scroll bounds so the document anchor is
+    /// revealed above the embedded TextBox instead of under-scrolling.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P14
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-001 lines 169-176
+    pub(super) fn pr_detail_scroll_viewport_rows(&self) -> usize {
+        let text_box_active = matches!(
+            &self.prs_state.inline_state,
+            InlineState::Composer {
+                target: ComposerTarget::NewComment | ComposerTarget::Reply { .. },
+                ..
+            }
+        );
+        crate::layout::pr_detail_document_viewport_rows(
+            self.prs_state.detail_viewport_rows,
+            text_box_active,
+        )
+    }
+
     /// Apply a PR detail scroll event (bounded by rendered length).
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
@@ -364,13 +389,12 @@ impl AppState {
     fn apply_pr_scroll_event(&mut self, dir: ScrollDir) -> bool {
         let max = self.pr_detail_max_scroll_offset();
         let current = self.prs_state.detail_scroll_offset;
+        let page_rows = self.pr_detail_scroll_viewport_rows().max(1);
         let next = match dir {
             ScrollDir::Up => current.saturating_sub(1),
             ScrollDir::Down => (current + 1).min(max),
-            ScrollDir::PageUp => current.saturating_sub(self.prs_state.detail_viewport_rows.max(1)),
-            ScrollDir::PageDown => current
-                .saturating_add(self.prs_state.detail_viewport_rows.max(1))
-                .min(max),
+            ScrollDir::PageUp => current.saturating_sub(page_rows),
+            ScrollDir::PageDown => current.saturating_add(page_rows).min(max),
         };
         if next == current {
             return false;
@@ -397,7 +421,7 @@ impl AppState {
             self.prs_state.loading.detail,
             self.prs_state.loading.comments,
         )
-        .saturating_sub(self.prs_state.detail_viewport_rows)
+        .saturating_sub(self.pr_detail_scroll_viewport_rows())
     }
 
     // ---- Navigation dispatch ----

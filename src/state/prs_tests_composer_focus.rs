@@ -332,23 +332,26 @@ fn test_open_composer_scrolls_to_real_rendered_bottom_so_composer_visible() {
         new_state.prs_state.loading.detail,
         new_state.prs_state.loading.comments,
     );
-    let expected_bottom = rendered_lines.saturating_sub(new_state.prs_state.detail_viewport_rows);
+    let document_viewport = crate::layout::pr_detail_document_viewport_rows(
+        new_state.prs_state.detail_viewport_rows,
+        true,
+    );
+    let expected_bottom = rendered_lines.saturating_sub(document_viewport);
 
     assert_eq!(
         new_state.prs_state.detail_scroll_offset,
         expected_bottom,
-        "opening the composer must scroll to the REAL rendered bottom \
-         (offset={}, expected={}, rendered_lines={}, viewport={})",
+        "opening the composer must scroll the read-only document to the REAL rendered bottom \
+         above the embedded TextBox (offset={}, expected={}, rendered_lines={}, document_viewport={})",
         new_state.prs_state.detail_scroll_offset,
         expected_bottom,
         rendered_lines,
-        new_state.prs_state.detail_viewport_rows
+        document_viewport
     );
-    // And that bottom must reveal the composer's final line (within viewport).
+    // And that bottom must reveal the document anchor above the TextBox.
     assert!(
-        new_state.prs_state.detail_scroll_offset + new_state.prs_state.detail_viewport_rows
-            >= rendered_lines,
-        "composer's last line must be within the viewport after open"
+        new_state.prs_state.detail_scroll_offset + document_viewport >= rendered_lines,
+        "composer anchor must be within the document viewport after open"
     );
 }
 
@@ -508,16 +511,88 @@ fn test_submit_from_editor_does_not_create_newcomment_mutation() {
     );
 }
 
+/// Assert that the active NewComment composer is owned by TextBox, not the
+/// read-only PR detail document, and that TextBox keeps a visible caret.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+fn assert_text_box_owns_visible_composer_caret(state: &AppState) {
+    let (text, byte_cursor) = match &state.prs_state.inline_state {
+        InlineState::Composer { text, cursor, .. } => (text.as_str(), *cursor),
+        other => panic!("expected an active composer, got {other:?}"),
+    };
+    let content_width = usize::from(crate::layout::prs_detail_content_width(120));
+    // The reducer does not store terminal width; use a representative detail
+    // content width from the same layout helper that the real screen uses.
+    let view = crate::text_box_view::build_text_box_view(
+        text,
+        byte_cursor,
+        crate::layout::PR_COMPOSER_VIEWPORT_ROWS,
+        content_width,
+    );
+    assert!(
+        view.rows.iter().any(|r| r.caret_col.is_some()),
+        "TextBox view must keep the caret visible regardless of document scroll offset"
+    );
+}
+
+/// Opening a Reply composer must reveal the reply anchor under the target
+/// comment, not scroll to the NewComment bottom anchor.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn test_open_reply_composer_reveals_target_reply_anchor() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    state.prs_state.detail_viewport_rows = 8;
+    if let Some(detail) = state.prs_state.pr_detail.as_mut() {
+        detail.body = (0..20)
+            .map(|i| format!("body line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        detail.comments = vec![make_comment(1, "alice"), make_comment(2, "bob")];
+    }
+    state.prs_state.detail_subfocus = PrDetailSubfocus::Comment(0);
+
+    let state = state.apply(AppEvent::PrOpenReplyComposer { comment_index: 0 });
+    let detail = state
+        .prs_state
+        .pr_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("detail should exist"));
+    let content = crate::pr_detail_content::build_pr_detail_content(
+        detail,
+        state.prs_state.detail_subfocus,
+        &state.prs_state.inline_state,
+        state.prs_state.loading.detail,
+        state.prs_state.loading.comments,
+    );
+    let reply_line = content
+        .text
+        .lines()
+        .position(|line| line.contains("[Reply]"))
+        .unwrap_or_else(|| panic!("reply anchor should be rendered"));
+    let offset = state.prs_state.detail_scroll_offset;
+    let viewport =
+        crate::layout::pr_detail_document_viewport_rows(state.prs_state.detail_viewport_rows, true);
+    assert_eq!(
+        reply_line,
+        offset + viewport.saturating_sub(1),
+        "reply anchor should land on the last read-only row above the TextBox"
+    );
+}
+
 /// Regression (#20): typing in the PR new-comment composer must NOT yank the
-/// detail viewport back to the top (the old wrap-width scroll-follow did).
-/// Opening scrolls to the rendered bottom; typing on the SAME (bottom) line
-/// keeps the caret where it is, so the width-free follow is a no-op and the
-/// offset stays put. After opening the composer on a detail taller than the
-/// viewport and typing several characters, (1) `detail_scroll_offset` must NOT
-/// reset to 0 (it stays at the bottom region where the composer is), and (2)
-/// the built content's cursor line must fall within
-/// `[offset, offset + viewport_rows)` — i.e. the caret is inside the visible
-/// window on the composer line, NOT the header boundary.
+/// detail viewport back to the top. With the TextBox abstraction the reducer
+/// no longer follows the caret per keystroke at all: opening scrolls to the
+/// rendered bottom and typing leaves `detail_scroll_offset` untouched (the
+/// composer owns its own local viewport). After opening the composer on a
+/// detail taller than the viewport and typing several characters,
+/// (1) `detail_scroll_offset` must NOT reset to 0, and (2) the TextBox view
+/// projection (built from the composer text + byte cursor) must keep the
+/// caret on a visible row regardless of the document scroll offset.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-010
@@ -548,16 +623,14 @@ fn test_composer_typing_does_not_reset_scroll_and_caret_stays_visible() {
         "opening the composer must scroll down to the rendered bottom (offset > 0)"
     );
 
-    // Type several characters on the same (bottom) line — the caret does not
-    // leave the visible window, so the width-free follow is a no-op and the
-    // offset must NOT change (the view stays where open left it).
+    // Type several characters — the reducer must NOT touch detail_scroll_offset.
     for ch in "hello world".chars() {
         state = state.apply(AppEvent::PrInlineChar(ch));
     }
 
     assert_eq!(
         state.prs_state.detail_scroll_offset, offset_after_open,
-        "typing on the bottom line must NOT move the scroll offset; \
+        "typing must NOT move the scroll offset; \
          expected {offset_after_open}, got {}",
         state.prs_state.detail_scroll_offset
     );
@@ -566,29 +639,5 @@ fn test_composer_typing_does_not_reset_scroll_and_caret_stays_visible() {
         "scroll offset must NOT have been yanked to the top (the regression)"
     );
 
-    // The caret must be inside the visible window — on the composer line, not
-    // the header boundary.
-    let detail = state
-        .prs_state
-        .pr_detail
-        .as_ref()
-        .unwrap_or_else(|| panic!("detail should exist"));
-    let content = crate::pr_detail_content::build_pr_detail_content(
-        detail,
-        state.prs_state.detail_subfocus,
-        &state.prs_state.inline_state,
-        state.prs_state.loading.detail,
-        state.prs_state.loading.comments,
-    );
-    let (cursor_line, _col) = content
-        .cursor
-        .unwrap_or_else(|| panic!("composer must expose a caret while typing"));
-    let offset = state.prs_state.detail_scroll_offset;
-    let viewport = state.prs_state.detail_viewport_rows;
-    assert!(
-        cursor_line >= offset && cursor_line < offset + viewport,
-        "caret line {cursor_line} must be inside the visible window \
-         [{offset}, {}) (on the composer line, not the header)",
-        offset + viewport
-    );
+    assert_text_box_owns_visible_composer_caret(&state);
 }

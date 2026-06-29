@@ -19,6 +19,12 @@ pub mod runtime;
 pub mod services;
 pub mod startup;
 pub mod state;
+/// Pure multiline text-box viewport projection (iocraft-free).
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+pub mod text_box_view;
 pub mod theme;
 pub mod ui;
 

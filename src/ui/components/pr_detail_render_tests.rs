@@ -318,3 +318,249 @@ fn rendered_long_composer_line_truncated_to_content_width() {
         "the start of a long composer line must be visible (truncated, not dropped): {rendered}"
     );
 }
+
+/// An active NewComment composer with multi-line text must render the
+/// composer's current text via the embedded TextBox (the text must be visible
+/// in the rendered output), even with an intentionally stale detail scroll
+/// offset. This proves the TextBox owns its own viewport independent of the
+/// document scroll.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn active_new_comment_composer_renders_text_box_text_with_stale_offset() {
+    let detail = detail_with_long_comment();
+    let inline = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "first line\nsecond line\nthird line".to_string(),
+        cursor: "first line\nsecond line\nthird line".len(),
+    };
+    let cols: u16 = 80;
+    let content_width = usize::from(crate::layout::prs_detail_content_width(cols));
+    // Intentionally stale scroll offset (top) — the TextBox must still show
+    // the current (last) line because it owns its own viewport.
+    let rendered = render_detail(RenderParams {
+        detail: &detail,
+        subfocus: PrDetailSubfocus::NewComment,
+        inline_state: &inline,
+        scroll_offset: 0,
+        detail_content_width: content_width,
+        pane_height: 40,
+        cols,
+    });
+    // The current (last) composer line must be visible in the TextBox output.
+    assert!(
+        rendered.contains("third line"),
+        "the TextBox must render the current (last) composer line 'third line' even with a stale document offset: {rendered}"
+    );
+}
+
+/// An active NewComment composer must render the caret as additional
+/// background SGR sequences (reverse-video cell) via the embedded TextBox,
+/// even when the document scroll offset is stale (0 / top). This proves the
+/// caret visibility is independent of the document scroll.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn active_new_comment_composer_renders_caret_with_stale_offset() {
+    let detail = detail_with_long_comment();
+    let cols: u16 = 80;
+    let content_width = usize::from(crate::layout::prs_detail_content_width(cols));
+
+    // Baseline: no composer, so no TextBox caret cell.
+    let baseline = background_sgr_count(RenderParams {
+        detail: &detail,
+        subfocus: PrDetailSubfocus::NewComment,
+        inline_state: &InlineState::None,
+        scroll_offset: 0,
+        detail_content_width: content_width,
+        pane_height: 40,
+        cols,
+    });
+
+    // Active composer with a stale (top) document scroll offset.
+    let inline = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "hello\nworld".to_string(),
+        cursor: "hello\nworld".len(),
+    };
+    let with_caret = background_sgr_count(RenderParams {
+        detail: &detail,
+        subfocus: PrDetailSubfocus::NewComment,
+        inline_state: &inline,
+        scroll_offset: 0,
+        detail_content_width: content_width,
+        pane_height: 40,
+        cols,
+    });
+
+    assert!(
+        with_caret > baseline,
+        "TextBox caret must add background SGR sequences ({with_caret}) beyond the \
+         caret-free baseline ({baseline}) even with a stale document offset"
+    );
+}
+
+/// `build_pr_detail_content` must return `cursor: None` for an active
+/// NewComment composer — the composer text/cursor is rendered by the TextBox,
+/// not flattened into the read-only document. (Render-path assertion of the
+/// pure-content contract.)
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn build_pr_detail_content_cursor_none_for_new_comment_composer() {
+    let detail = detail_with_long_comment();
+    let inline = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "draft".to_string(),
+        cursor: 5,
+    };
+    let content = crate::pr_detail_content::build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::NewComment,
+        &inline,
+        false,
+        false,
+    );
+    assert!(
+        content.cursor.is_none(),
+        "build_pr_detail_content must return cursor None for an active NewComment composer"
+    );
+    // The composer text must NOT appear in the document.
+    assert!(
+        !content.text.contains("draft"),
+        "NewComment composer text must NOT be flattened into the read-only document"
+    );
+}
+
+/// An active Reply composer must render its draft text through the same
+/// embedded TextBox as NewComment, even though the read-only document only
+/// emits a stable reply anchor/help line.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn active_reply_composer_renders_text_box_text() {
+    let detail = detail_with_long_comment();
+    let cols: u16 = 80;
+    let content_width = usize::from(crate::layout::prs_detail_content_width(cols));
+    let inline = InlineState::Composer {
+        target: ComposerTarget::Reply {
+            comment_index: 0,
+            author: "@alice ".to_string(),
+        },
+        text: "@alice first\nreply current".to_string(),
+        cursor: "@alice first\nreply current".len(),
+    };
+    let rendered = render_detail(RenderParams {
+        detail: &detail,
+        subfocus: PrDetailSubfocus::Comment(0),
+        inline_state: &inline,
+        scroll_offset: 0,
+        detail_content_width: content_width,
+        pane_height: 40,
+        cols,
+    });
+    assert!(
+        rendered.contains("reply current"),
+        "Reply TextBox must render the current reply line: {rendered}"
+    );
+    assert!(
+        !crate::pr_detail_content::build_pr_detail_content(
+            &detail,
+            PrDetailSubfocus::Comment(0),
+            &inline,
+            false,
+            false,
+        )
+        .text
+        .contains("reply current"),
+        "Reply text must not be flattened into the read-only document"
+    );
+}
+
+/// Reply composer caret rendering must add a reverse-video caret cell through
+/// TextBox just like NewComment.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn active_reply_composer_renders_caret() {
+    let detail = detail_with_long_comment();
+    let cols: u16 = 80;
+    let content_width = usize::from(crate::layout::prs_detail_content_width(cols));
+    let baseline = background_sgr_count(RenderParams {
+        detail: &detail,
+        subfocus: PrDetailSubfocus::Comment(0),
+        inline_state: &InlineState::None,
+        scroll_offset: 0,
+        detail_content_width: content_width,
+        pane_height: 40,
+        cols,
+    });
+    let inline = InlineState::Composer {
+        target: ComposerTarget::Reply {
+            comment_index: 0,
+            author: "@alice ".to_string(),
+        },
+        text: "@alice reply".to_string(),
+        cursor: "@alice reply".len(),
+    };
+    let with_caret = background_sgr_count(RenderParams {
+        detail: &detail,
+        subfocus: PrDetailSubfocus::Comment(0),
+        inline_state: &inline,
+        scroll_offset: 0,
+        detail_content_width: content_width,
+        pane_height: 40,
+        cols,
+    });
+    assert!(
+        with_caret > baseline,
+        "Reply TextBox caret must add background SGR sequences ({with_caret}) beyond baseline ({baseline})"
+    );
+}
+
+/// Tiny panes preserve one read-only document row and give the remaining rows
+/// to the embedded TextBox; the TextBox must use that derived height, not the
+/// fixed normal composer height, or render/state geometry diverges.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn tiny_pane_composer_uses_reserved_rows_not_fixed_height() {
+    let detail = detail_with_long_comment();
+    let inline = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "hidden-alpha\nvisible-beta\nvisible-gamma\nvisible-delta\nvisible-epsilon"
+            .to_string(),
+        cursor: "hidden-alpha\nvisible-beta\nvisible-gamma\nvisible-delta\nvisible-epsilon".len(),
+    };
+    let rendered = render_detail(RenderParams {
+        detail: &detail,
+        subfocus: PrDetailSubfocus::NewComment,
+        inline_state: &inline,
+        scroll_offset: 0,
+        detail_content_width: 70,
+        pane_height: 12,
+        cols: 100,
+    });
+    assert!(
+        !rendered.contains("hidden-alpha"),
+        "with one read-only row preserved, the four-row TextBox window should hide the first draft line"
+    );
+    assert!(
+        rendered.contains("visible-epsilon"),
+        "TextBox should still show the current caret line in the tiny-pane window"
+    );
+}

@@ -244,22 +244,43 @@ fn cursor_up_down_preserve_column_on_tall_composer() {
     );
 }
 
-/// Compute `(cursor_line, scroll_offset, viewport_rows)` for the active PR
-/// composer using the SAME `build_pr_detail_content` the renderer consumes, so
-/// a test can assert the caret falls inside the rendered scroll window
-/// `[offset, offset + viewport)`. This is exactly the predicate
-/// `ScrollableText` uses to decide whether to DRAW the caret, so a passing
-/// assertion proves the caret is actually visible to the user.
+// =============================================================================
+// NewComment composer: document scroll stability + TextBox caret visibility.
+//
+// The reducer NO LONGER follows the caret per keystroke. The NewComment
+// composer text/cursor is rendered by the dedicated TextBox component, which
+// owns its own local viewport/caret invariant (see `text_box_view`). These
+// tests assert (1) `detail_scroll_offset` stays stable while typing/arrowing,
+// (2) `build_pr_detail_content` returns `cursor: None` for a NewComment
+// composer (the document no longer flattens the composer), and (3) the
+// `TextBox` view projection keeps the caret visible regardless of the
+// (intentionally stale) document scroll offset.
+//
+// @plan PLAN-20260624-PR-MODE.P14
+// @requirement REQ-PR-009
+// @requirement REQ-PR-010
+// @pseudocode component-001 lines 169-176
+// =============================================================================
+
+/// `build_pr_detail_content` must return `cursor: None` when a NewComment
+/// composer is active — the composer text/cursor is rendered by the TextBox,
+/// not flattened into the read-only document.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 169-176
-fn caret_window(state: &AppState) -> (usize, usize, usize) {
+#[test]
+fn new_comment_composer_content_cursor_is_none() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    state.prs_state.detail_viewport_rows = 20;
+    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let state = type_into_composer(state, "hello\nworld");
+
     let detail = state
         .prs_state
         .pr_detail
         .as_ref()
-        .unwrap_or_else(|| panic!("a loaded PR detail should exist"));
+        .unwrap_or_else(|| panic!("detail should exist"));
     let content = crate::pr_detail_content::build_pr_detail_content(
         detail,
         state.prs_state.detail_subfocus,
@@ -267,130 +288,137 @@ fn caret_window(state: &AppState) -> (usize, usize, usize) {
         state.prs_state.loading.detail,
         state.prs_state.loading.comments,
     );
-    let (cursor_line, _col) = content
-        .cursor
-        .unwrap_or_else(|| panic!("an active composer cursor should exist"));
-    (
-        cursor_line,
-        state.prs_state.detail_scroll_offset,
-        state.prs_state.detail_viewport_rows.max(1),
-    )
-}
-
-/// Typing past the bottom of the viewport must scroll the detail pane so the
-/// caret stays inside the visible window. Regression (#20): after the wrapping
-/// rewrite the composer no longer followed the caret, so "line 3 goes off the
-/// screen and I can't see what I'm typing".
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-009
-/// @pseudocode component-001 lines 169-176
-#[test]
-fn typing_below_viewport_keeps_caret_visible() {
-    let mut state = prs_state_with_detail("repo-1", 1);
-    state.prs_state.detail_viewport_rows = 5;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
-    let state = type_into_composer(state, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8");
-    let (cursor_line, offset, viewport) = caret_window(&state);
     assert!(
-        cursor_line >= offset && cursor_line < offset + viewport,
-        "caret line {cursor_line} must stay within the visible window [{offset}, {})",
-        offset + viewport
+        content.cursor.is_none(),
+        "NewComment composer must NOT flatten a cursor into the read-only document"
     );
 }
 
-/// Arrowing the caret back UP above the current scroll window must scroll the
-/// pane up so the caret remains visible. Regression (#20): "no more caret so I
-/// can't see what I'm doing if I go backwards".
+/// Typing into the NewComment composer must NOT mutate the document
+/// `detail_scroll_offset` per keystroke. The composer owns its own local
+/// viewport; the reducer stays pure.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 169-176
 #[test]
-fn arrowing_up_above_window_keeps_caret_visible() {
+fn typing_in_composer_does_not_mutate_detail_scroll_offset() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 5;
     let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let offset_after_open = state.prs_state.detail_scroll_offset;
+
+    // Type many lines — the document scroll offset must stay exactly where
+    // open left it.
+    let state = type_into_composer(state, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8");
+    assert_eq!(
+        state.prs_state.detail_scroll_offset, offset_after_open,
+        "typing must NOT mutate detail_scroll_offset (composer owns its viewport)"
+    );
+}
+
+/// Arrow keys within the composer must NOT mutate the document
+/// `detail_scroll_offset`.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn arrowing_in_composer_does_not_mutate_detail_scroll_offset() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    state.prs_state.detail_viewport_rows = 5;
+    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let offset_after_open = state.prs_state.detail_scroll_offset;
+
     let mut state = type_into_composer(state, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8");
     for _ in 0..7 {
         state = state.apply(AppEvent::PrInlineCursorUp);
     }
-    let (cursor_line, offset, viewport) = caret_window(&state);
-    assert!(
-        cursor_line >= offset && cursor_line < offset + viewport,
-        "caret line {cursor_line} must stay within the visible window [{offset}, {}) after arrowing up",
-        offset + viewport
+    assert_eq!(
+        state.prs_state.detail_scroll_offset, offset_after_open,
+        "arrowing must NOT mutate detail_scroll_offset"
     );
 }
 
-/// The cursor-follow must NEVER jump the view to the very top while the caret
-/// is on a lower line. This is the precise failure the old wrap-width follow
-/// produced ("I start typing it jumps up to the top of the pr"). With the
-/// caret on a lower input line, the window must have scrolled DOWN (non-zero
-/// offset) and the caret must remain visible.
+/// Backspacing the composer must NOT mutate the document scroll offset.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 169-176
 #[test]
-fn typing_does_not_yank_view_to_top_when_caret_is_lower() {
-    let mut state = prs_state_with_detail("repo-1", 1);
-    state.prs_state.detail_viewport_rows = 4;
-    let state = state.apply(AppEvent::PrOpenNewCommentComposer);
-    let state = type_into_composer(state, "l1\nl2\nl3\nl4\nl5\nl6");
-    let (cursor_line, offset, viewport) = caret_window(&state);
-    assert!(
-        offset > 0,
-        "view must scroll down to follow the caret, not sit at the top (offset={offset}, cursor_line={cursor_line})"
-    );
-    assert!(
-        cursor_line >= offset && cursor_line < offset + viewport,
-        "caret line {cursor_line} must be within [{offset}, {})",
-        offset + viewport
-    );
-}
-
-/// Backspacing a multi-line composer back down to a single line must pull the
-/// caret (and viewport) back up so the caret stays visible. Complements the
-/// arrow-up case: here the content itself shrinks while the caret rises.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-009
-/// @pseudocode component-001 lines 169-176
-#[test]
-fn backspacing_multiline_keeps_caret_visible() {
+fn backspacing_in_composer_does_not_mutate_detail_scroll_offset() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.prs_state.detail_viewport_rows = 5;
     let state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    let offset_after_open = state.prs_state.detail_scroll_offset;
+
     let mut state = type_into_composer(state, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8");
-    // Backspace away every char (incl. newlines) back to an empty composer.
     for _ in 0.."l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8".len() {
         state = state.apply(AppEvent::PrInlineBackspace);
     }
-    let (cursor_line, offset, viewport) = caret_window(&state);
-    assert!(
-        cursor_line >= offset && cursor_line < offset + viewport,
-        "caret line {cursor_line} must stay within the visible window [{offset}, {}) after backspacing",
-        offset + viewport
+    assert_eq!(
+        state.prs_state.detail_scroll_offset, offset_after_open,
+        "backspacing must NOT mutate detail_scroll_offset"
     );
 }
 
-/// A zero-height viewport must be a no-op for the cursor-follow (no panic, no
-/// underflow in the `cursor_line + 1 - viewport` computation). Guards the early
-/// return in `pr_follow_caret`.
+/// Even with an intentionally stale / mismatched `detail_scroll_offset`, the
+/// `TextBox` view projection (built from the composer text + byte cursor)
+/// must keep the caret visible. This proves the composer's caret visibility
+/// is independent of the document scroll.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 169-176
 #[test]
-fn cursor_follow_with_zero_viewport_is_noop() {
+fn text_box_view_keeps_caret_visible_with_stale_document_offset() {
+    use crate::text_box_view::build_text_box_view;
+
     let mut state = prs_state_with_detail("repo-1", 1);
-    state.prs_state.detail_viewport_rows = 0;
+    state.prs_state.detail_viewport_rows = 5;
+    let mut state = state.apply(AppEvent::PrOpenNewCommentComposer);
+    // Force an intentionally stale document scroll offset after open, so it
+    // genuinely diverges from where the reducer placed the view.
+    state.prs_state.detail_scroll_offset = 0;
+    let state = type_into_composer(state, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8");
+
+    let (text, byte_cursor) = composer_text_cursor(&state);
+    let view = build_text_box_view(&text, byte_cursor, 5, 40);
+    assert!(!view.rows.is_empty(), "TextBox view must produce rows");
+    let caret_row = view.rows.iter().find(|r| r.caret_col.is_some());
+    assert!(
+        caret_row.is_some(),
+        "TextBox view must keep the caret on a visible row even with a stale document offset"
+    );
+}
+
+/// The TextBox view must show the current composer text (last line) when the
+/// caret is at the end of a tall multi-line draft.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @pseudocode component-001 lines 169-176
+#[test]
+fn text_box_view_shows_current_text_and_caret_for_tall_draft() {
+    use crate::text_box_view::build_text_box_view;
+
+    let mut state = prs_state_with_detail("repo-1", 1);
+    state.prs_state.detail_viewport_rows = 5;
     let state = state.apply(AppEvent::PrOpenNewCommentComposer);
-    let before = state.prs_state.detail_scroll_offset;
-    let state = type_into_composer(state, "a\nb\nc\nd");
-    assert_eq!(
-        state.prs_state.detail_scroll_offset, before,
-        "zero viewport must leave the scroll offset untouched"
+    let state = type_into_composer(state, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8");
+
+    let (text, byte_cursor) = composer_text_cursor(&state);
+    let view = build_text_box_view(&text, byte_cursor, 5, 40);
+    // The last line "l8" must be visible (caret is at end of it).
+    assert!(
+        view.rows.iter().any(|r| r.text == "l8"),
+        "TextBox view must show the current (last) line 'l8', got rows: {:?}",
+        view.rows.iter().map(|r| r.text.clone()).collect::<Vec<_>>()
+    );
+    // And the caret must be on that row.
+    let l8_row = view.rows.iter().find(|r| r.text == "l8");
+    assert!(
+        l8_row.is_some_and(|r| r.caret_col.is_some()),
+        "caret must be visible on the current line 'l8'"
     );
 }

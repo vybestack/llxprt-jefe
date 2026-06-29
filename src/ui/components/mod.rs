@@ -25,6 +25,13 @@ mod scrollable_text;
 mod sidebar;
 mod status_bar;
 mod terminal_view;
+/// Fixed-size multiline text-box component with an inline caret.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+mod text_box;
 
 pub use agent_chooser::{AgentChooser, AgentChooserProps};
 pub use agent_list::{AgentList, AgentListProps};
@@ -46,6 +53,11 @@ pub use scrollable_text::{ScrollableText, ScrollableTextProps};
 pub use sidebar::{Sidebar, SidebarProps};
 pub use status_bar::{StatusBar, StatusBarProps};
 pub use terminal_view::{TerminalView, TerminalViewProps};
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 169-176
+pub use text_box::{TextBox, TextBoxProps};
 
 #[cfg(test)]
 #[path = "pr_render_tests.rs"]
