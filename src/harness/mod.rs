@@ -18,6 +18,7 @@ pub mod expand;
 pub mod macro_def;
 pub mod matchers;
 pub mod parser;
+pub mod runner;
 pub mod scenario;
 pub mod step;
 pub mod tmux_driver;
@@ -33,6 +34,9 @@ pub use matchers::{
     scrollback_count,
 };
 pub use parser::parse_scenario;
+pub use runner::{
+    HarnessDriver, RunSummary, RunnerError, RunnerFailure, run_scenario, run_tmux_scenario,
+};
 pub use scenario::Scenario;
 pub use step::Step;
 pub use tmux_driver::{TmuxDriver, TmuxDriverError, TmuxPaneSize, TmuxSession, TmuxStartRequest};
