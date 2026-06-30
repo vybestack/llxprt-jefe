@@ -23,6 +23,10 @@ This directory contains the working rules for planning and implementation in Jef
   - How coordinators execute phase-by-phase work with subagents.
   - Covers strict sequencing, verification gating, and remediation loops.
 
+- [`tmux-harness.md`](./tmux-harness.md)
+  - How to run deterministic real-TTY TUI scenarios through the tmux-backed harness.
+  - Covers scenario JSON, local execution, artifacts, and optional smoke checks.
+
 ## Recommended Reading Order
 
 1. `RULES.md`

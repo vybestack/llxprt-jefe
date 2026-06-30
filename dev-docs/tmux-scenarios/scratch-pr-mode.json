@@ -1,0 +1,20 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "p" },
+    { "waitFor": "Pull Requests" },
+    { "capture": "pr-mode-screen" },
+    { "key": "a" },
+    { "waitFor": "No terminal attached" },
+    { "capture": "dashboard-after-pr-mode" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}
