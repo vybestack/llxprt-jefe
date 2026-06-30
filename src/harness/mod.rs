@@ -1,14 +1,12 @@
-//! Tmux-backed TUI automation harness — pure scenario layer.
+//! Tmux-backed TUI automation harness.
 //!
-//! This module hosts the future tmux-backed scenario automation harness
-//! (parent issue #97). This first phase (#98) delivers only the pure,
-//! side-effect-free layer: strongly typed scenario models, serde-based JSON
-//! deserialization, validation, and macro expansion.
+//! This module hosts the tmux-backed scenario automation harness (parent issue
+//! #97). Scenario parsing, macro expansion, capture models, and matchers are
+//! pure, side-effect-free layers. The `tmux_driver` module is the explicit
+//! side-effecting boundary that shells out to tmux for real-TTY sessions.
 //!
-//! No tmux interaction, process spawning, terminal I/O, or file I/O occurs
-//! here. Tests may pass JSON strings, but production code is pure. Later
-//! subissues (#99-#102) will add the runtime/execution surface on top of
-//! these typed models.
+//! Runner orchestration and artifacts are added by later subissues on top of
+//! these typed models and the driver seam.
 //!
 //! @plan PLAN-20260629-TMUX-HARNESS.P01
 //! @requirement REQ-TMUX-HARNESS-001
@@ -22,6 +20,7 @@ pub mod matchers;
 pub mod parser;
 pub mod scenario;
 pub mod step;
+pub mod tmux_driver;
 
 pub use capture::{PaneStatus, PaneStatusParseError, ScreenCapture, ScrollbackSample};
 pub use config::{AssertMode, ScenarioConfig};
@@ -36,6 +35,7 @@ pub use matchers::{
 pub use parser::parse_scenario;
 pub use scenario::Scenario;
 pub use step::Step;
+pub use tmux_driver::{TmuxDriver, TmuxDriverError, TmuxPaneSize, TmuxSession, TmuxStartRequest};
 
 #[cfg(test)]
 #[path = "matchers_tests.rs"]
