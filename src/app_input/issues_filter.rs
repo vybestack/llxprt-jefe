@@ -21,17 +21,18 @@ pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -
         KeyCode::Tab => Some(AppEvent::FilterNavigateNext),
         KeyCode::BackTab => Some(AppEvent::FilterNavigatePrev),
         KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(AppEvent::ClearFilter)
+            Some(AppEvent::ExitIssuesMode)
         }
+        KeyCode::Delete => Some(AppEvent::ClearFilter),
         // Field-specific input
         KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') if field_idx == 0 => {
             // State field: cycle through open/closed/all
             Some(AppEvent::CycleFilterState)
         }
-        KeyCode::Right if field_idx == 2 || field_idx == 3 => {
+        KeyCode::Right if is_choice_field(field_idx) => {
             choice_cycle_event(state, field_idx, ChoiceDirection::Next)
         }
-        KeyCode::Left if field_idx == 2 || field_idx == 3 => {
+        KeyCode::Left if is_choice_field(field_idx) => {
             choice_cycle_event(state, field_idx, ChoiceDirection::Previous)
         }
         KeyCode::Char(c) if field_idx > 0 => {
@@ -56,8 +57,8 @@ pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -
     }
 }
 
-/// Build an update event that cycles assignee/label fields through choices
-/// already visible in the loaded issue rows.
+/// Build an update event that cycles author/assignee/label fields through
+/// choices already visible in the loaded issue rows.
 /// @plan PLAN-20260630-ISSUES-REGRESSION.P01
 /// @requirement REQ-ISS-008
 /// @pseudocode component-003 lines 120-127
@@ -65,6 +66,10 @@ pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -
 enum ChoiceDirection {
     Next,
     Previous,
+}
+
+fn is_choice_field(field_idx: usize) -> bool {
+    matches!(field_idx, 1..=3)
 }
 
 fn choice_cycle_event(
@@ -89,7 +94,7 @@ fn choice_cycle_event(
     })
 }
 
-/// Collect unique assignee/label choices from currently loaded issue metadata.
+/// Collect unique author/assignee/label choices from currently loaded issue metadata.
 /// @plan PLAN-20260630-ISSUES-REGRESSION.P01
 /// @requirement REQ-ISS-008
 /// @pseudocode component-003 lines 120-127
@@ -97,6 +102,9 @@ fn issue_filter_choices(state: &AppState, field_name: &str) -> Vec<String> {
     let mut choices = BTreeSet::new();
     for issue in &state.issues_state.issues {
         match field_name {
+            "author" => {
+                choices.insert(issue.author_login.clone());
+            }
             "assignee" => choices.extend(issue.assignees.iter().cloned()),
             "labels" => choices.extend(issue.labels.iter().cloned()),
             _ => {}
@@ -224,6 +232,13 @@ mod tests {
         }
     }
 
+    fn issue_with_author(number: u64, author: &str, assignees: &str, labels: &str) -> Issue {
+        Issue {
+            author_login: author.to_string(),
+            ..issue(number, assignees, labels)
+        }
+    }
+
     fn summary_vec(summary: &str) -> Vec<String> {
         summary
             .split(", ")
@@ -261,10 +276,17 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_ctrl_c_clears() {
+    fn test_filter_delete_clears() {
+        let state = filter_state();
+        let evt = resolve_filter_key_event(&state, &key(KeyCode::Delete));
+        assert!(matches!(evt, Some(AppEvent::ClearFilter)));
+    }
+
+    #[test]
+    fn test_filter_ctrl_c_unwinds_instead_of_clearing() {
         let state = filter_state();
         let evt = resolve_filter_key_event(&state, &ctrl(KeyCode::Char('c')));
-        assert!(matches!(evt, Some(AppEvent::ClearFilter)));
+        assert!(matches!(evt, Some(AppEvent::ExitIssuesMode)));
     }
 
     #[test]
@@ -339,6 +361,25 @@ mod tests {
                 assert_eq!(value, "bug,");
             }
             _ => panic!("expected UpdateDraftFilter"),
+        }
+    }
+
+    #[test]
+    fn test_filter_right_cycles_author_choices_from_loaded_issues() {
+        let mut state = filter_state();
+        state.issues_state.filter_ui.field_index = 1;
+        state.issues_state.issues = vec![
+            issue_with_author(1, "zara", "zara", "bug"),
+            issue_with_author(2, "alice", "alice", "ui"),
+        ];
+
+        let evt = resolve_filter_key_event(&state, &key(KeyCode::Right));
+        match evt {
+            Some(AppEvent::UpdateDraftFilter { field, value }) => {
+                assert_eq!(field, "author");
+                assert_eq!(value, "alice");
+            }
+            _ => panic!("expected choice-backed author update"),
         }
     }
 
