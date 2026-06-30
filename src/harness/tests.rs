@@ -338,6 +338,58 @@ fn duplicate_multi_field_step_keys_are_rejected() {
     );
 }
 
+/// Empty key names are rejected during semantic validation.
+///
+/// @plan PLAN-20260629-TMUX-HARNESS.P01
+/// @requirement REQ-TMUX-HARNESS-001
+#[test]
+fn empty_key_is_rejected() {
+    let json = r#"{
+        "config": { "cols": 80, "rows": 24 },
+        "steps": [ { "key": "" } ]
+    }"#;
+    let err = error_or_panic(parse_scenario(json), "empty key should fail");
+    assert!(matches!(
+        err,
+        ScenarioError::InvalidStep { ref reason } if reason.contains("key")
+    ));
+}
+
+/// Empty key arrays are rejected during semantic validation.
+///
+/// @plan PLAN-20260629-TMUX-HARNESS.P01
+/// @requirement REQ-TMUX-HARNESS-001
+#[test]
+fn empty_keys_array_is_rejected() {
+    let json = r#"{
+        "config": { "cols": 80, "rows": 24 },
+        "steps": [ { "keys": [] } ]
+    }"#;
+    let err = error_or_panic(parse_scenario(json), "empty keys array should fail");
+    assert!(matches!(
+        err,
+        ScenarioError::InvalidStep { ref reason } if reason.contains("keys")
+    ));
+}
+
+/// Duplicate macro names are rejected before a map can overwrite earlier definitions.
+///
+/// @plan PLAN-20260629-TMUX-HARNESS.P01
+/// @requirement REQ-TMUX-HARNESS-001
+#[test]
+fn duplicate_macro_names_are_rejected() {
+    let json = r#"{
+        "config": { "cols": 80, "rows": 24 },
+        "macros": {
+            "dup": { "params": [], "steps": [ { "line": "first" } ] },
+            "dup": { "params": [], "steps": [ { "line": "second" } ] }
+        },
+        "steps": []
+    }"#;
+    let err = error_or_panic(parse_scenario(json), "duplicate macro names should fail");
+    assert!(matches!(err, ScenarioError::Json { .. }), "got {err:?}");
+}
+
 /// A macro definition missing `steps` yields a typed missing-field error.
 ///
 /// @plan PLAN-20260629-TMUX-HARNESS.P01
@@ -398,13 +450,7 @@ fn malformed_json_is_rejected() {
 fn invalid_assert_mode_is_rejected() {
     let json = r#"{ "config": { "cols": 80, "rows": 24, "assert_mode": "loud" }, "steps": [] }"#;
     let err = error_or_panic(parse_scenario(json), "bad assert_mode should fail");
-    assert!(
-        matches!(
-            err,
-            ScenarioError::Json { .. } | ScenarioError::MissingField { .. }
-        ),
-        "got {err:?}"
-    );
+    assert!(matches!(err, ScenarioError::Json { .. }), "got {err:?}");
 }
 
 // ---------------------------------------------------------------------------
@@ -571,6 +617,28 @@ fn macro_substitutes_raw_nonstring_values() {
         Step::Line { text } if text == "count=42"
     ));
 }
+
+/// Macro substitution preserves the visible decimal point for integral floats.
+///
+/// @plan PLAN-20260629-TMUX-HARNESS.P01
+/// @requirement REQ-TMUX-HARNESS-001
+#[test]
+fn macro_substitutes_integral_float_with_decimal_point() {
+    let json = r#"{
+        "config": { "cols": 80, "rows": 24 },
+        "macros": {
+            "say": { "params": ["n"], "steps": [ { "line": "count=$n" } ] }
+        },
+        "steps": [ { "macro": "say", "args": { "n": 1.0 } } ]
+    }"#;
+    let scenario = parse_scenario(json).value_or_panic("should parse");
+    let expanded = expand_macros(&scenario).value_or_panic("should expand");
+
+    assert!(matches!(
+        &expanded.steps[0],
+        Step::Line { text } if text == "count=1.0"
+    ));
+}
 /// Unknown placeholders are preserved rather than partially substituting prefixes.
 ///
 /// @plan PLAN-20260629-TMUX-HARNESS.P01
@@ -664,6 +732,57 @@ fn nested_macro_substitutes_outer_args() {
     ));
 }
 
+/// Macro expansion rejects substituted concrete steps that violate semantic validation.
+///
+/// @plan PLAN-20260629-TMUX-HARNESS.P01
+/// @requirement REQ-TMUX-HARNESS-001
+#[test]
+fn macro_expansion_rejects_semantically_invalid_substituted_step() {
+    let json = r#"{
+        "config": { "cols": 80, "rows": 24 },
+        "macros": {
+            "press": { "params": ["k"], "steps": [ { "key": "$k" } ] }
+        },
+        "steps": [ { "macro": "press", "args": { "k": "" } } ]
+    }"#;
+    let scenario = parse_scenario(json).value_or_panic("should parse before expansion");
+    let err = error_or_panic(expand_macros(&scenario), "invalid expansion should fail");
+
+    assert!(matches!(
+        err,
+        ScenarioError::InvalidStep { ref reason } if reason.contains("key")
+    ));
+}
+/// Programmatically constructed invalid macro invocations cannot bypass expansion validation.
+///
+/// @plan PLAN-20260629-TMUX-HARNESS.P01
+/// @requirement REQ-TMUX-HARNESS-001
+#[test]
+fn expand_macros_validates_macro_invocation_steps() {
+    let scenario = Scenario {
+        config: ScenarioConfig {
+            cols: 80,
+            rows: 24,
+            history_limit: 10_000,
+            initial_wait_ms: 0,
+            out_dir: None,
+            keep_session: false,
+            assert_mode: AssertMode::Strict,
+        },
+        macros: std::collections::BTreeMap::new(),
+        steps: vec![Step::Macro {
+            name: String::new(),
+            args: std::collections::BTreeMap::new(),
+        }],
+    };
+
+    let err = error_or_panic(expand_macros(&scenario), "invalid macro step should fail");
+    assert!(matches!(
+        err,
+        ScenarioError::InvalidStep { ref reason } if reason.contains("macro name")
+    ));
+}
+
 /// Multiple top-level steps, with a macro in the middle, expand in order.
 ///
 /// @plan PLAN-20260629-TMUX-HARNESS.P01
@@ -707,6 +826,13 @@ fn expansion_is_idempotent() {
     let scenario = parse_scenario(json).value_or_panic("should parse");
     let once = expand_macros(&scenario).value_or_panic("first expand");
     let twice = expand_macros(&once).value_or_panic("second expand");
-    assert_eq!(once.steps.len(), 1);
-    assert_eq!(twice.steps.len(), 1);
+    assert_eq!(scenario.steps.len(), 1);
+    assert!(matches!(&scenario.steps[0], Step::Macro { name, .. } if name == "greet"));
+    assert_eq!(
+        once.steps,
+        vec![Step::Line {
+            text: "z".to_string()
+        }]
+    );
+    assert_eq!(twice.steps, once.steps);
 }

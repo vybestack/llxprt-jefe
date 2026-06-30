@@ -53,6 +53,7 @@ fn expand_one(
     chain: &mut Vec<String>,
     out: &mut Vec<Step>,
 ) -> Result<(), ScenarioError> {
+    step.validate()?;
     match step {
         Step::Macro { name, args } => expand_macro_invocation(macros, name, args, chain, out),
         other => {

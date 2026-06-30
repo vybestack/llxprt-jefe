@@ -7,7 +7,7 @@
 //! @plan PLAN-20260629-TMUX-HARNESS.P01
 //! @requirement REQ-TMUX-HARNESS-001
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Deserialize;
 use serde::de::{self, MapAccess, Visitor};
@@ -56,6 +56,32 @@ pub enum Step {
     },
 }
 
+impl Step {
+    /// Validate semantic step arguments after deserialization.
+    ///
+    /// @plan PLAN-20260629-TMUX-HARNESS.P01
+    /// @requirement REQ-TMUX-HARNESS-001
+    pub fn validate(&self) -> Result<(), ScenarioError> {
+        match self {
+            Self::Key { key } => reject_empty("key", key),
+            Self::Keys { keys } => validate_keys(keys),
+            Self::WaitFor { pattern } => reject_empty("waitFor", pattern),
+            Self::WaitForNot { pattern } => reject_empty("waitForNot", pattern),
+            Self::Expect { pattern } | Self::ExpectCount { pattern, .. } => {
+                reject_empty("expect", pattern)
+            }
+            Self::Capture { name }
+            | Self::HistorySample { name }
+            | Self::ExpectHistoryDelta { name } => reject_empty("capture name", name),
+            Self::Macro { name, args } => validate_macro_invocation(name, args),
+            Self::Wait { .. }
+            | Self::Line { .. }
+            | Self::CopyMode { .. }
+            | Self::WaitForExit { .. } => Ok(()),
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for Step {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -65,11 +91,7 @@ impl<'de> Deserialize<'de> for Step {
     }
 }
 
-/// serde visitor that maps a single-key JSON object to a [`Step`] variant.
-///
-/// The object must contain exactly one discriminator key for single-field
-/// steps. `expectCount` additionally requires `count`, and `macro` requires
-/// `args`.
+/// serde visitor that maps a step object directly to typed fields.
 struct StepVisitor;
 
 impl<'de> Visitor<'de> for StepVisitor {
@@ -83,291 +105,335 @@ impl<'de> Visitor<'de> for StepVisitor {
     where
         A: MapAccess<'de>,
     {
-        // Collect into a typed map keyed by field name. serde_json::Value is
-        // used only transiently here as a parse buffer; it never reaches the
-        // domain model (the returned Step is fully typed).
-        let mut entries: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        let mut parts = StepParts::default();
         while let Some(key) = map.next_key::<String>()? {
-            let value = map.next_value::<serde_json::Value>()?;
-            if entries.insert(key.clone(), value).is_some() {
+            parts.reject_duplicate::<A::Error>(&key)?;
+            read_step_field(&mut map, &mut parts, key)?;
+        }
+        parts.finish().map_err(de::Error::custom)
+    }
+}
+
+#[derive(Default)]
+struct StepParts {
+    seen: BTreeSet<String>,
+    core: Option<StepCore>,
+    count: Option<u32>,
+    args: Option<BTreeMap<String, String>>,
+}
+
+enum StepCore {
+    Wait(u64),
+    Line(String),
+    Key(String),
+    Keys(Vec<String>),
+    WaitFor(String),
+    WaitForNot(String),
+    Expect(String),
+    ExpectCount(String),
+    Capture(String),
+    HistorySample(String),
+    ExpectHistoryDelta(String),
+    CopyMode(bool),
+    WaitForExit(u64),
+    Macro(String),
+}
+
+impl StepParts {
+    fn reject_duplicate<E>(&mut self, key: &str) -> Result<(), E>
+    where
+        E: de::Error,
+    {
+        if !self.seen.insert(key.to_string()) {
+            return Err(E::custom(format!(
+                "invalid step: duplicate field '{key}' in step"
+            )));
+        }
+        Ok(())
+    }
+
+    fn set_core(&mut self, key: &str, core: StepCore) -> Result<(), ScenarioError> {
+        if self.core.is_some() {
+            return Err(ScenarioError::InvalidStep {
+                reason: format!("step has multiple kind keys including '{key}'"),
+            });
+        }
+        self.core = Some(core);
+        Ok(())
+    }
+
+    fn finish(self) -> Result<Step, ScenarioError> {
+        let Self {
+            seen: _,
+            core,
+            count,
+            args,
+        } = self;
+        match core.ok_or_else(missing_kind)? {
+            StepCore::Wait(milliseconds) => {
+                no_aux(count, args.as_ref()).map(|()| Step::Wait { milliseconds })
+            }
+            StepCore::Line(text) => no_aux(count, args.as_ref()).map(|()| Step::Line { text }),
+            StepCore::Key(key) => no_aux(count, args.as_ref()).map(|()| Step::Key { key }),
+            StepCore::Keys(keys) => no_aux(count, args.as_ref()).map(|()| Step::Keys { keys }),
+            StepCore::WaitFor(pattern) => {
+                no_aux(count, args.as_ref()).map(|()| Step::WaitFor { pattern })
+            }
+            StepCore::WaitForNot(pattern) => {
+                no_aux(count, args.as_ref()).map(|()| Step::WaitForNot { pattern })
+            }
+            StepCore::Expect(pattern) => {
+                no_aux(count, args.as_ref()).map(|()| Step::Expect { pattern })
+            }
+            StepCore::ExpectCount(pattern) => finish_expect_count(pattern, count, args),
+            StepCore::Capture(name) => {
+                no_aux(count, args.as_ref()).map(|()| Step::Capture { name })
+            }
+            StepCore::HistorySample(name) => {
+                no_aux(count, args.as_ref()).map(|()| Step::HistorySample { name })
+            }
+            StepCore::ExpectHistoryDelta(name) => {
+                no_aux(count, args.as_ref()).map(|()| Step::ExpectHistoryDelta { name })
+            }
+            StepCore::CopyMode(enabled) => {
+                no_aux(count, args.as_ref()).map(|()| Step::CopyMode { enabled })
+            }
+            StepCore::WaitForExit(timeout_ms) => {
+                no_aux(count, args.as_ref()).map(|()| Step::WaitForExit { timeout_ms })
+            }
+            StepCore::Macro(name) => finish_macro(name, args, count),
+        }
+    }
+}
+
+fn read_step_field<'de, A>(map: &mut A, parts: &mut StepParts, key: String) -> Result<(), A::Error>
+where
+    A: MapAccess<'de>,
+{
+    match key.as_str() {
+        "wait" => set_core(map, parts, &key, StepCore::Wait)?,
+        "line" => set_core(map, parts, &key, StepCore::Line)?,
+        "key" => set_core(map, parts, &key, StepCore::Key)?,
+        "keys" => set_core(map, parts, &key, StepCore::Keys)?,
+        "waitFor" => set_core(map, parts, &key, StepCore::WaitFor)?,
+        "waitForNot" => set_core(map, parts, &key, StepCore::WaitForNot)?,
+        "expect" => set_core(map, parts, &key, StepCore::Expect)?,
+        "expectCount" => set_core(map, parts, &key, StepCore::ExpectCount)?,
+        "capture" => set_core(map, parts, &key, StepCore::Capture)?,
+        "historySample" => set_core(map, parts, &key, StepCore::HistorySample)?,
+        "expectHistoryDelta" => set_core(map, parts, &key, StepCore::ExpectHistoryDelta)?,
+        "copyMode" => set_core(map, parts, &key, StepCore::CopyMode)?,
+        "waitForExit" => set_core(map, parts, &key, StepCore::WaitForExit)?,
+        "macro" => set_core(map, parts, &key, StepCore::Macro)?,
+        "count" => parts.count = Some(map.next_value()?),
+        "args" => parts.args = Some(map.next_value::<MacroArgs>()?.into_inner()),
+        other => {
+            return Err(de::Error::custom(ScenarioError::UnknownStepKind {
+                kind: other.to_string(),
+            }));
+        }
+    }
+    Ok(())
+}
+
+fn set_core<'de, A, T, F>(
+    map: &mut A,
+    parts: &mut StepParts,
+    key: &str,
+    make_core: F,
+) -> Result<(), A::Error>
+where
+    A: MapAccess<'de>,
+    T: Deserialize<'de>,
+    F: FnOnce(T) -> StepCore,
+{
+    let value = map.next_value::<T>()?;
+    parts
+        .set_core(key, make_core(value))
+        .map_err(de::Error::custom)
+}
+
+fn finish_expect_count(
+    pattern: String,
+    count: Option<u32>,
+    args: Option<BTreeMap<String, String>>,
+) -> Result<Step, ScenarioError> {
+    if args.is_some() {
+        return Err(unexpected_aux("args"));
+    }
+    let count = count.ok_or_else(|| missing_field("count"))?;
+    Ok(Step::ExpectCount { pattern, count })
+}
+
+fn finish_macro(
+    name: String,
+    args: Option<BTreeMap<String, String>>,
+    count: Option<u32>,
+) -> Result<Step, ScenarioError> {
+    if count.is_some() {
+        return Err(unexpected_aux("count"));
+    }
+    let args = args.ok_or_else(|| missing_field("args"))?;
+    Ok(Step::Macro { name, args })
+}
+
+#[derive(Debug)]
+struct MacroArgs(BTreeMap<String, String>);
+
+impl MacroArgs {
+    fn into_inner(self) -> BTreeMap<String, String> {
+        self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for MacroArgs {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        deserializer.deserialize_map(MacroArgsVisitor)
+    }
+}
+
+struct MacroArgsVisitor;
+
+impl<'de> Visitor<'de> for MacroArgsVisitor {
+    type Value = MacroArgs;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a macro args object with scalar argument values")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        let mut args = BTreeMap::new();
+        while let Some(key) = map.next_key::<String>()? {
+            if args.contains_key(&key) {
                 return Err(de::Error::custom(format!(
-                    "invalid step: duplicate field '{key}' in step"
+                    "invalid step: duplicate macro argument '{key}'"
                 )));
             }
+            args.insert(key, map.next_value::<ScalarArg>()?.into_inner());
         }
-        dispatch_step(&mut entries).map_err(de::Error::custom)
+        Ok(MacroArgs(args))
     }
 }
 
-/// Dispatch a parsed step-object map to the matching [`Step`] variant.
-///
-/// Takes the map by mutable reference so single-field variants can remove
-/// their discriminator and verify that no unexpected keys remain.
-///
-/// @plan PLAN-20260629-TMUX-HARNESS.P01
-/// @requirement REQ-TMUX-HARNESS-001
-fn dispatch_step(entries: &mut BTreeMap<String, serde_json::Value>) -> Result<Step, ScenarioError> {
-    // The discriminator is whichever key names a known primitive or macro.
-    let kind = step_kind(entries)?;
-    match kind.as_str() {
-        "wait" => single_u64(entries, "wait").map(|v| Step::Wait { milliseconds: v }),
-        "line" => single_string(entries, "line").map(|v| Step::Line { text: v }),
-        "key" => single_string(entries, "key").map(|v| Step::Key { key: v }),
-        "keys" => single_string_vec(entries, "keys").map(|v| Step::Keys { keys: v }),
-        "waitFor" => single_string(entries, "waitFor").map(|v| Step::WaitFor { pattern: v }),
-        "waitForNot" => {
-            single_string(entries, "waitForNot").map(|v| Step::WaitForNot { pattern: v })
-        }
-        "expect" => single_string(entries, "expect").map(|v| Step::Expect { pattern: v }),
-        "expectCount" => build_expect_count(entries),
-        "capture" => single_string(entries, "capture").map(|v| Step::Capture { name: v }),
-        "historySample" => {
-            single_string(entries, "historySample").map(|v| Step::HistorySample { name: v })
-        }
-        "expectHistoryDelta" => single_string(entries, "expectHistoryDelta")
-            .map(|v| Step::ExpectHistoryDelta { name: v }),
-        "copyMode" => single_bool(entries, "copyMode").map(|v| Step::CopyMode { enabled: v }),
-        "waitForExit" => {
-            single_u64(entries, "waitForExit").map(|v| Step::WaitForExit { timeout_ms: v })
-        }
-        "macro" => build_macro(entries),
-        other => Err(ScenarioError::UnknownStepKind {
-            kind: other.to_string(),
-        }),
+struct ScalarArg(String);
+
+impl ScalarArg {
+    fn into_inner(self) -> String {
+        self.0
     }
 }
 
-/// Determine the discriminator key, rejecting multi-kind or empty step objects.
-fn step_kind(entries: &BTreeMap<String, serde_json::Value>) -> Result<String, ScenarioError> {
-    let known = [
-        "wait",
-        "line",
-        "key",
-        "keys",
-        "waitFor",
-        "waitForNot",
-        "expect",
-        "expectCount",
-        "capture",
-        "historySample",
-        "expectHistoryDelta",
-        "copyMode",
-        "waitForExit",
-        "macro",
-    ];
-    let matches: Vec<&str> = known
-        .iter()
-        .copied()
-        .filter(|k| entries.contains_key(*k))
-        .collect();
-    match matches.as_slice() {
-        [] => unknown_or_empty(entries),
-        [only] => Ok((*only).to_string()),
-        _ => Err(ScenarioError::InvalidStep {
-            reason: format!("step has multiple kind keys: {matches:?}"),
-        }),
+impl<'de> Deserialize<'de> for ScalarArg {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        deserializer.deserialize_any(ScalarArgVisitor)
     }
 }
 
-/// Produce the error for a step object with no known kind key.
-fn unknown_or_empty(
-    entries: &BTreeMap<String, serde_json::Value>,
-) -> Result<String, ScenarioError> {
-    if let Some(key) = entries.keys().next() {
-        Err(ScenarioError::UnknownStepKind { kind: key.clone() })
-    } else {
-        Err(ScenarioError::InvalidStep {
-            reason: "step object is empty".to_string(),
-        })
+struct ScalarArgVisitor;
+
+impl Visitor<'_> for ScalarArgVisitor {
+    type Value = ScalarArg;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a string, number, or boolean macro argument")
+    }
+
+    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+        Ok(ScalarArg(value.to_string()))
+    }
+
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+        Ok(ScalarArg(value.to_string()))
+    }
+
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+        Ok(ScalarArg(value.to_string()))
+    }
+
+    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E> {
+        let text = if value.is_finite() && value.fract() == 0.0 {
+            format!("{value:.1}")
+        } else {
+            value.to_string()
+        };
+        Ok(ScalarArg(text))
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        Ok(ScalarArg(value.to_string()))
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+        Ok(ScalarArg(value))
     }
 }
 
-/// Extract and remove a single u64 field, rejecting any extra keys.
-fn single_u64(
-    entries: &mut BTreeMap<String, serde_json::Value>,
-    field: &str,
-) -> Result<u64, ScenarioError> {
-    reject_extras(entries, field)?;
-    let value = entries.remove(field);
-    value.ok_or_else(|| missing_field(field)).and_then(json_u64)
-}
-
-/// Extract and remove a single string field, rejecting any extra keys.
-fn single_string(
-    entries: &mut BTreeMap<String, serde_json::Value>,
-    field: &str,
-) -> Result<String, ScenarioError> {
-    reject_extras(entries, field)?;
-    let value = entries.remove(field);
-    value
-        .ok_or_else(|| missing_field(field))
-        .and_then(json_string)
-}
-
-/// Extract and remove a single bool field, rejecting any extra keys.
-fn single_bool(
-    entries: &mut BTreeMap<String, serde_json::Value>,
-    field: &str,
-) -> Result<bool, ScenarioError> {
-    reject_extras(entries, field)?;
-    let value = entries.remove(field);
-    value
-        .ok_or_else(|| missing_field(field))
-        .and_then(json_bool)
-}
-
-/// Extract and remove a single string-array field, rejecting any extra keys.
-fn single_string_vec(
-    entries: &mut BTreeMap<String, serde_json::Value>,
-    field: &str,
-) -> Result<Vec<String>, ScenarioError> {
-    reject_extras(entries, field)?;
-    let value = entries.remove(field);
-    value
-        .ok_or_else(|| missing_field(field))
-        .and_then(json_string_vec)
-}
-
-/// Build the two-field `expectCount` step.
-fn build_expect_count(
-    entries: &mut BTreeMap<String, serde_json::Value>,
-) -> Result<Step, ScenarioError> {
-    reject_extras_multi(entries, &["expectCount", "count"])?;
-    let pattern = entries
-        .remove("expectCount")
-        .ok_or_else(|| missing_field("expectCount"))?;
-    let count = entries
-        .remove("count")
-        .ok_or_else(|| missing_field("count"))?;
-    Ok(Step::ExpectCount {
-        pattern: json_string(pattern)?,
-        count: json_u32(count)?,
-    })
-}
-
-/// Build the two-field `macro` invocation step.
-fn build_macro(entries: &mut BTreeMap<String, serde_json::Value>) -> Result<Step, ScenarioError> {
-    reject_extras_multi(entries, &["macro", "args"])?;
-    let name = entries
-        .remove("macro")
-        .ok_or_else(|| missing_field("macro"))?;
-    let args_val = entries
-        .remove("args")
-        .ok_or_else(|| missing_field("args"))?;
-    Ok(Step::Macro {
-        name: json_string(name)?,
-        args: json_args(args_val)?,
-    })
-}
-
-/// Reject any keys beyond `field`.
-fn reject_extras(
-    entries: &BTreeMap<String, serde_json::Value>,
-    field: &str,
-) -> Result<(), ScenarioError> {
-    if let Some(extra) = entries.keys().find(|k| k.as_str() != field) {
+fn reject_empty(field: &str, value: &str) -> Result<(), ScenarioError> {
+    if value.is_empty() {
         return Err(ScenarioError::InvalidStep {
-            reason: format!("unexpected key '{extra}' in step"),
+            reason: format!("{field} must not be empty"),
         });
     }
     Ok(())
 }
 
-/// Reject any keys beyond the provided allowed set.
-fn reject_extras_multi(
-    entries: &BTreeMap<String, serde_json::Value>,
-    allowed: &[&str],
-) -> Result<(), ScenarioError> {
-    for key in entries.keys() {
-        if !allowed.iter().any(|a| a == key) {
-            return Err(ScenarioError::InvalidStep {
-                reason: format!("unexpected key '{key}' in step"),
-            });
-        }
+fn validate_keys(keys: &[String]) -> Result<(), ScenarioError> {
+    if keys.is_empty() {
+        return Err(ScenarioError::InvalidStep {
+            reason: "keys must contain at least one key".to_string(),
+        });
+    }
+    for key in keys {
+        reject_empty("keys item", key)?;
     }
     Ok(())
 }
 
-/// Coerce a JSON value to `u64` with a typed error.
-fn json_u64(value: serde_json::Value) -> Result<u64, ScenarioError> {
-    value.as_u64().ok_or_else(|| ScenarioError::InvalidStep {
-        reason: format!("expected a non-negative integer, got {value}"),
-    })
-}
-
-/// Coerce a JSON value to `u32` with a typed error, rejecting truncation.
-fn json_u32(value: serde_json::Value) -> Result<u32, ScenarioError> {
-    let raw = json_u64(value)?;
-    u32::try_from(raw).map_err(|_| ScenarioError::InvalidStep {
-        reason: format!("count {raw} exceeds u32 range"),
-    })
-}
-
-/// Coerce a JSON value to `String` with a typed error.
-fn json_string(value: serde_json::Value) -> Result<String, ScenarioError> {
-    value
-        .as_str()
-        .map(std::string::ToString::to_string)
-        .ok_or_else(|| ScenarioError::InvalidStep {
-            reason: format!("expected a string, got {value}"),
-        })
-}
-
-/// Coerce a JSON value to `bool` with a typed error.
-fn json_bool(value: serde_json::Value) -> Result<bool, ScenarioError> {
-    value.as_bool().ok_or_else(|| ScenarioError::InvalidStep {
-        reason: format!("expected a boolean, got {value}"),
-    })
-}
-
-/// Coerce a JSON array to `Vec<String>` with a typed error.
-fn json_string_vec(value: serde_json::Value) -> Result<Vec<String>, ScenarioError> {
-    value
-        .as_array()
-        .ok_or_else(|| ScenarioError::InvalidStep {
-            reason: format!("expected an array, got {value}"),
-        })
-        .and_then(|arr| {
-            arr.iter()
-                .map(|v| {
-                    v.as_str()
-                        .map(std::string::ToString::to_string)
-                        .ok_or_else(|| ScenarioError::InvalidStep {
-                            reason: format!("expected a string in array, got {v}"),
-                        })
-                })
-                .collect()
-        })
-}
-
-/// Coerce a JSON object to a macro-argument map.
-///
-/// Argument values are accepted as strings or non-string scalars and stored
-/// verbatim as their JSON text so raw substitution can splice them exactly.
-fn json_args(value: serde_json::Value) -> Result<BTreeMap<String, String>, ScenarioError> {
-    let obj = value
-        .as_object()
-        .ok_or_else(|| ScenarioError::InvalidStep {
-            reason: format!("expected an object for args, got {value}"),
-        })?;
-    let mut out = BTreeMap::new();
-    for (k, v) in obj {
-        out.insert(k.clone(), arg_to_string(v)?);
+fn no_aux(
+    count: Option<u32>,
+    args: Option<&BTreeMap<String, String>>,
+) -> Result<(), ScenarioError> {
+    if count.is_some() {
+        return Err(unexpected_aux("count"));
     }
-    Ok(out)
+    if args.is_some() {
+        return Err(unexpected_aux("args"));
+    }
+    Ok(())
 }
 
-/// Render a scalar argument to its raw substitution string.
-///
-/// Strings use their text; numbers and booleans use their JSON text so the
-/// splice is exact and unambiguous.
-fn arg_to_string(value: &serde_json::Value) -> Result<String, ScenarioError> {
-    match value {
-        serde_json::Value::String(s) => Ok(s.clone()),
-        serde_json::Value::Number(_) | serde_json::Value::Bool(_) => Ok(value.to_string()),
-        other => Err(ScenarioError::InvalidStep {
-            reason: format!("macro argument must be a scalar, got {other}"),
-        }),
+fn unexpected_aux(field: &str) -> ScenarioError {
+    ScenarioError::InvalidStep {
+        reason: format!("unexpected key '{field}' in step"),
+    }
+}
+
+fn validate_macro_invocation(
+    name: &str,
+    args: &BTreeMap<String, String>,
+) -> Result<(), ScenarioError> {
+    reject_empty("macro name", name)?;
+    for key in args.keys() {
+        reject_empty("macro argument name", key)?;
+    }
+    Ok(())
+}
+
+fn missing_kind() -> ScenarioError {
+    ScenarioError::InvalidStep {
+        reason: "step object is missing a step kind".to_string(),
     }
 }
 
