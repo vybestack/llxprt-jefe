@@ -128,8 +128,10 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         .unwrap_or("")
         .to_string();
 
-    let assignee_summary = join_nodes_field(item, "assignees");
-    let labels_summary = join_nodes_field(item, "labels");
+    let assignees = collect_nodes_field(item, "assignees");
+    let labels = collect_nodes_field(item, "labels");
+    let assignee_summary = assignees.join(", ");
+    let labels_summary = labels.join(", ");
 
     let comment_count = item
         .get("comments")
@@ -151,17 +153,19 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         updated_at,
         assignee_summary,
         labels_summary,
+        assignees,
+        labels,
         comment_count,
         body,
     })
 }
 
-/// Read `field.nodes[*].<key>` (defaulting to "login"/"name") joined with ", ".
+/// Read `field.nodes[*].<key>` (defaulting to "login"/"name").
 ///
 /// Supports two JSON shapes returned by the `gh` CLI:
 /// - GraphQL style: `{"nodes": [{"login": ...}, ...]}`.
 /// - REST/direct array style: `[{"login": ...}, ...]` (a bare array of objects).
-fn join_nodes_field(item: &Value, field: &str) -> String {
+fn collect_nodes_field(item: &Value, field: &str) -> Vec<String> {
     // `gh issue list` exposes label names under `name`; user-like nodes use `login`.
     let key = if field == "labels" { "name" } else { "login" };
 
@@ -179,8 +183,8 @@ fn join_nodes_field(item: &Value, field: &str) -> String {
             nodes
                 .iter()
                 .filter_map(|n| n.get(key).and_then(Value::as_str))
-                .collect::<Vec<_>>()
-                .join(", ")
+                .map(String::from)
+                .collect()
         })
         .unwrap_or_default()
 }
@@ -519,7 +523,7 @@ pub fn build_list_issues_args(
         "--repo".to_string(),
         format!("{owner}/{repo}"),
         "--json".to_string(),
-        "number,title,state,author,updatedAt,assignees,labels,comments,body".to_string(),
+        "number,title,state,author,updatedAt,assignees,labels,comments".to_string(),
         "-L".to_string(),
         page_size.to_string(),
     ];
@@ -609,9 +613,9 @@ pub(super) fn build_issue_search_args(
     page_size: u32,
 ) -> Vec<String> {
     let query = if cursor.is_some() {
-        "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+        "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
     } else {
-        "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } body } } pageInfo { hasNextPage endCursor } } }"
+        "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
     };
     let mut args = vec![
         "api".to_string(),
@@ -628,4 +632,45 @@ pub(super) fn build_issue_search_args(
         args.push(format!("after={c}"));
     }
     args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_issue_search_args;
+    use crate::domain::IssueFilter;
+
+    fn issue_query_fields(query_arg: &str) -> Vec<&str> {
+        let Some(issue_fields) = query_arg.split("... on Issue {").nth(1) else {
+            return Vec::new();
+        };
+        let Some(before_comments) = issue_fields.split("comments").next() else {
+            return Vec::new();
+        };
+        before_comments
+            .split_whitespace()
+            .filter(|token| token.chars().all(char::is_alphanumeric))
+            .collect()
+    }
+
+    #[test]
+    fn issue_search_args_omit_body_for_fast_first_paint() {
+        let args = build_issue_search_args("owner", "repo", &IssueFilter::default(), None, 30);
+        let query_arg = args
+            .iter()
+            .find(|arg| arg.starts_with("query="))
+            .unwrap_or_else(|| panic!("missing GraphQL query arg: {args:?}"));
+
+        let fields = issue_query_fields(query_arg);
+        assert!(fields.contains(&"title"));
+        assert!(!fields.contains(&"body"));
+
+        let paged_args =
+            build_issue_search_args("owner", "repo", &IssueFilter::default(), Some("cursor"), 30);
+        let paged_query_arg = paged_args
+            .iter()
+            .find(|arg| arg.starts_with("query="))
+            .unwrap_or_else(|| panic!("missing paged GraphQL query arg: {paged_args:?}"));
+        let paged_fields = issue_query_fields(paged_query_arg);
+        assert!(!paged_fields.contains(&"body"));
+    }
 }

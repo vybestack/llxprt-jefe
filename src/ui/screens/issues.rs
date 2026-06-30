@@ -202,6 +202,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                         IssueList(
                             issues: issues.clone(),
                             selected_index: selected_issue_idx,
+                            list_pane_rows: list_pane_rows,
                             focused: list_focused,
                             loading: list_loading,
                             has_filters: has_filters,

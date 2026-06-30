@@ -111,6 +111,8 @@ fn test_list_issues_sorts_by_updated_desc() {
             updated_at: "2026-03-25T10:00:00Z".to_string(),
             assignee_summary: String::new(),
             labels_summary: String::new(),
+            assignees: Vec::new(),
+            labels: Vec::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -122,6 +124,8 @@ fn test_list_issues_sorts_by_updated_desc() {
             updated_at: "2026-03-29T10:00:00Z".to_string(),
             assignee_summary: String::new(),
             labels_summary: String::new(),
+            assignees: Vec::new(),
+            labels: Vec::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -133,6 +137,8 @@ fn test_list_issues_sorts_by_updated_desc() {
             updated_at: "2026-03-29T10:00:00Z".to_string(),
             assignee_summary: String::new(),
             labels_summary: String::new(),
+            assignees: Vec::new(),
+            labels: Vec::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -173,6 +179,20 @@ fn test_list_issues_filter_args_construction() {
             .any(|a| a == "--state" && state_arg_is_open(&args))
     );
     assert!(args.iter().any(|a| a.contains("limit") || a == "-L"));
+}
+
+#[test]
+fn test_list_issues_args_omit_body_for_fast_first_paint() {
+    let args = build_list_issues_args("owner", "repo", &IssueFilter::default(), None, 30);
+    let json_fields = args
+        .windows(2)
+        .find_map(|pair| (pair[0] == "--json").then_some(pair[1].as_str()))
+        .unwrap_or_else(|| panic!("missing --json fields in args: {args:?}"));
+
+    assert_eq!(
+        json_fields,
+        "number,title,state,author,updatedAt,assignees,labels,comments"
+    );
 }
 
 #[test]

@@ -64,20 +64,10 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
                     author_login: issue.author_login.clone(),
                     created_at: String::new(),
                     updated_at: issue.updated_at.clone(),
-                    labels: issue
-                        .labels_summary
-                        .split(", ")
-                        .filter(|s| !s.is_empty())
-                        .map(String::from)
-                        .collect(),
-                    assignees: issue
-                        .assignee_summary
-                        .split(", ")
-                        .filter(|s| !s.is_empty())
-                        .map(String::from)
-                        .collect(),
+                    labels: issue.labels.clone(),
+                    assignees: issue.assignees.clone(),
                     milestone: None,
-                    body: issue.body.clone(),
+                    body: preview_body_from_list(&issue.body),
                     external_url: String::new(),
                     comments: Vec::new(),
                     has_more_comments: false,
@@ -95,6 +85,18 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
         state.issues_state.comments_page_pending = None;
         state.issues_state.detail_subfocus = jefe::state::DetailSubfocus::Body;
         state.issues_state.detail_scroll_offset = 0;
+    }
+}
+
+/// Body text for instant issue previews built from lightweight list rows.
+/// @plan PLAN-20260630-ISSUES-REGRESSION.P01
+/// @requirement REQ-ISS-006
+/// @pseudocode component-004 lines 1-5
+fn preview_body_from_list(body: &str) -> String {
+    if body.is_empty() {
+        "Press Enter to load issue body.".to_string()
+    } else {
+        body.to_string()
     }
 }
 
@@ -410,4 +412,22 @@ pub(super) fn format_issue_prompt(payload: &jefe::github::SendPayload) -> String
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::preview_body_from_list;
+
+    #[test]
+    fn empty_list_preview_body_prompts_for_detail_load() {
+        assert_eq!(
+            preview_body_from_list(""),
+            "Press Enter to load issue body."
+        );
+    }
+
+    #[test]
+    fn populated_list_preview_body_is_preserved() {
+        assert_eq!(preview_body_from_list("existing body"), "existing body");
+    }
 }

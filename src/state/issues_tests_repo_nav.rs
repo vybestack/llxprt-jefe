@@ -19,6 +19,8 @@ fn make_test_issue(number: u64) -> Issue {
         updated_at: "2024-01-01T00:00:00Z".to_string(),
         assignee_summary: String::new(),
         labels_summary: String::new(),
+        assignees: Vec::new(),
+        labels: Vec::new(),
         comment_count: 0,
         body: String::new(),
     }

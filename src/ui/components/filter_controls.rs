@@ -109,6 +109,7 @@ pub fn FilterControls(props: &FilterControlsProps) -> impl Into<AnyElement<'stat
             // Actions hint row
             Box(height: 1u32) {
                 Text(content: "Tab next  ", color: rc.dim)
+                Text(content: "←/→ choices  ", color: rc.dim)
                 Text(content: "Enter apply  ", color: rc.dim)
                 Text(content: "Ctrl-c clear  ", color: rc.dim)
                 Text(content: "Esc cancel", color: rc.dim)

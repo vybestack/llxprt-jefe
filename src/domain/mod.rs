@@ -230,7 +230,11 @@ pub struct Issue {
     pub updated_at: String,
     pub assignee_summary: String,
     pub labels_summary: String,
+    pub assignees: Vec<String>,
+    pub labels: Vec<String>,
     pub comment_count: u64,
+    /// Optional lightweight preview body; list/search fetches may leave this empty
+    /// so full body content is loaded through `IssueDetail` instead.
     pub body: String,
 }
 

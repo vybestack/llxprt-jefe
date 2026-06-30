@@ -1,0 +1,24 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "Issues" },
+    { "key": "f" },
+    { "waitFor": "Filter:" },
+    { "capture": "issues-filter-open" },
+    { "key": "Escape" },
+    { "waitForNot": "Filter:" },
+    { "key": "a" },
+    { "waitFor": "No terminal attached" },
+    { "capture": "dashboard-after-issues-mode" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

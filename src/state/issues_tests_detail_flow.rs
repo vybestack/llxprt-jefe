@@ -25,6 +25,8 @@ fn make_test_issue(number: u64) -> Issue {
         updated_at: "2024-01-01T00:00:00Z".to_string(),
         assignee_summary: String::new(),
         labels_summary: String::new(),
+        assignees: Vec::new(),
+        labels: Vec::new(),
         comment_count: 0,
         body: String::new(),
     }
@@ -555,17 +557,7 @@ fn test_send_to_agent_payload_complete() {
             scope_repo_id: RepositoryId("repo-1".to_string()),
             filter: Box::new(IssueFilter::default()),
             request_id: 0,
-            issues: vec![crate::domain::Issue {
-                number: 7,
-                title: "Send payload issue".to_string(),
-                state: crate::domain::IssueState::Open,
-                author_login: "octocat".to_string(),
-                updated_at: "2024-01-01T00:00:00Z".to_string(),
-                labels_summary: String::new(),
-                assignee_summary: String::new(),
-                comment_count: 0,
-                body: String::new(),
-            }],
+            issues: vec![make_test_issue(7)],
             cursor: None,
             has_more: false,
         });
