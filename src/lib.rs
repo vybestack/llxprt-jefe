@@ -36,6 +36,10 @@ pub mod github;
 mod github_tests;
 
 #[cfg(test)]
+#[path = "github/tests_filters.rs"]
+mod github_tests_filters;
+
+#[cfg(test)]
 #[path = "github/tests_pr.rs"]
 mod github_tests_pr;
 
