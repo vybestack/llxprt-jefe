@@ -12,6 +12,7 @@ use crate::state::{ComposerTarget, DetailSubfocus, InlineState};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::scrollable_text::ScrollableText;
+use super::text_box::TextBox;
 
 /// Props for the issue detail view.
 #[derive(Default, Props)]
@@ -37,6 +38,33 @@ pub struct IssueDetailViewProps {
     /// flex allocation in the parent layout. Falls back to the terminal-size
     /// calculation when `None`.
     pub available_height: Option<u16>,
+    /// Actual available width (in terminal columns) for detail/composer text.
+    pub available_width: Option<u16>,
+}
+
+fn active_issue_composer(inline_state: &InlineState) -> Option<(String, usize, &'static str)> {
+    match inline_state {
+        InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            text,
+            cursor,
+        } => Some((
+            text.clone(),
+            *cursor,
+            crate::layout::NEW_COMMENT_COMPOSER_PREFIX,
+        )),
+        InlineState::Composer {
+            target: ComposerTarget::Reply { .. },
+            text,
+            cursor,
+        } => Some((text.clone(), *cursor, crate::layout::REPLY_COMPOSER_PREFIX)),
+        InlineState::Composer {
+            target: ComposerTarget::NewIssue,
+            ..
+        }
+        | InlineState::Editor { .. }
+        | InlineState::None => None,
+    }
 }
 
 /// Issue detail view — fixed structure that NEVER changes layout.
@@ -59,7 +87,7 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
     // Compute viewport rows. Prefer the actual available height passed from the
     // parent layout; fall back to deriving it from the terminal size when the
     // parent did not supply one.
-    let scroll_rows = if let Some(height) = props.available_height {
+    let detail_viewport_rows = if let Some(height) = props.available_height {
         // The available height is the real flex allocation for the detail pane,
         // including its borders and header. Subtract header + border (2) to get
         // the scrollable viewport. Do NOT force the minimum-viewport floor here:
@@ -71,6 +99,17 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
         let term_rows = crossterm::terminal::size().map_or(40, |(_, h)| h as usize);
         crate::layout::detail_viewport_rows(term_rows)
     };
+    let composer = active_issue_composer(&props.inline_state);
+    let scroll_rows = crate::layout::issue_detail_document_viewport_rows(
+        detail_viewport_rows,
+        composer.is_some(),
+    );
+    let composer_rows = detail_viewport_rows.saturating_sub(scroll_rows);
+    let detail_content_width = usize::from(props.available_width.unwrap_or_else(|| {
+        crate::layout::issues_detail_content_width(
+            crossterm::terminal::size().map_or(120, |(w, _)| w),
+        )
+    }));
 
     // Build header and content.
     let showing_new_issue_composer = matches!(
@@ -144,6 +183,25 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
             )
         };
 
+    let composer_element: Option<AnyElement<'static>> =
+        composer.map(|(text, byte_cursor, prefix)| {
+            element! {
+                Box(width: 100pct, padding_left: 1u32) {
+                    TextBox(
+                        text: text,
+                        byte_cursor: byte_cursor,
+                        viewport_rows: composer_rows,
+                        content_width: detail_content_width,
+                        prefix: prefix.to_string(),
+                        color: rc.fg,
+                        caret_color: rc.bg,
+                        caret_bg: rc.bright,
+                    )
+                }
+            }
+            .into()
+        });
+
     element! {
         Box(
             flex_direction: FlexDirection::Column,
@@ -181,6 +239,7 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
                     content: detail_content.text,
                     scroll_offset: props.scroll_offset,
                     viewport_rows: scroll_rows,
+                    max_line_width: detail_content_width,
                     cursor_line: detail_content.cursor.map(|(l, _)| l),
                     cursor_col: detail_content.cursor.map(|(_, c)| c),
                     color: rc.fg,
@@ -190,6 +249,8 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
                     thumb_color: rc.bright,
                 )
             }
+
+            #(composer_element)
         }
     }
 }

@@ -224,7 +224,7 @@ pub const DETAIL_CHROME_ROWS: usize = OUTER_BARS_HEIGHT as usize;
 /// zero rows.
 pub const DETAIL_MIN_VIEWPORT_ROWS: usize = 5;
 
-/// Fixed local viewport height for the embedded PR NewComment text box.
+/// Fixed local viewport height for embedded detail composer text boxes.
 ///
 /// Kept in layout (rather than UI) because state scroll bounds must reserve
 /// the same rows the component renders when it reveals the composer anchor.
@@ -233,7 +233,10 @@ pub const DETAIL_MIN_VIEWPORT_ROWS: usize = 5;
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 169-176
-pub const PR_COMPOSER_VIEWPORT_ROWS: usize = 5;
+pub const DETAIL_COMPOSER_VIEWPORT_ROWS: usize = 5;
+pub const PR_COMPOSER_VIEWPORT_ROWS: usize = DETAIL_COMPOSER_VIEWPORT_ROWS;
+pub const NEW_COMMENT_COMPOSER_PREFIX: &str = "  │ ";
+pub const REPLY_COMPOSER_PREFIX: &str = "    │ ";
 
 /// Compute rows available to the read-only PR detail document after embedded
 /// local editors reserve rows inside the detail pane.
@@ -246,11 +249,28 @@ pub fn pr_detail_document_viewport_rows(
     detail_viewport_rows: usize,
     pr_composer_text_box_active: bool,
 ) -> usize {
+    detail_document_viewport_rows(detail_viewport_rows, pr_composer_text_box_active)
+}
+
+/// Compute rows available to an Issues detail read-only document after an
+/// embedded composer TextBox reserves rows inside the detail pane.
+#[must_use]
+pub fn issue_detail_document_viewport_rows(
+    detail_viewport_rows: usize,
+    issue_composer_text_box_active: bool,
+) -> usize {
+    detail_document_viewport_rows(detail_viewport_rows, issue_composer_text_box_active)
+}
+
+fn detail_document_viewport_rows(
+    detail_viewport_rows: usize,
+    composer_text_box_active: bool,
+) -> usize {
     if detail_viewport_rows == 0 {
         return 0;
     }
-    let reserved = if pr_composer_text_box_active {
-        PR_COMPOSER_VIEWPORT_ROWS.min(detail_viewport_rows.saturating_sub(1))
+    let reserved = if composer_text_box_active {
+        DETAIL_COMPOSER_VIEWPORT_ROWS.min(detail_viewport_rows.saturating_sub(1))
     } else {
         0
     };
@@ -422,6 +442,19 @@ pub fn prs_detail_pane_rows(
 #[must_use]
 pub fn pr_list_content_width(term_cols: u16) -> u16 {
     term_cols.saturating_sub(PRS_SIDEBAR_WIDTH + PR_LIST_CHROME_COLS)
+}
+
+/// Columns of chrome the Issues detail pane subtracts from the workspace width
+/// before text is rendered: left+right border (2), left padding (1),
+/// scrollbar (1), and a 2-col safety margin matching the PR detail pane.
+const ISSUE_DETAIL_CONTENT_CHROME_COLS: u16 = 6;
+
+/// Compute the inner content width available for Issues-detail text lines.
+#[must_use]
+pub fn issues_detail_content_width(term_cols: u16) -> u16 {
+    term_cols
+        .saturating_sub(ISSUES_SIDEBAR_WIDTH)
+        .saturating_sub(ISSUE_DETAIL_CONTENT_CHROME_COLS)
 }
 
 /// Columns of chrome the PR detail pane subtracts from the workspace width

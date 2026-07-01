@@ -64,6 +64,10 @@ pub use text_box::{TextBox, TextBoxProps};
 mod pr_render_tests;
 
 /// @plan PLAN-20260624-PR-MODE.P14
+#[cfg(test)]
+#[path = "issue_detail_render_tests.rs"]
+mod issue_detail_render_tests;
+
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 1-12

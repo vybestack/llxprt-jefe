@@ -1,0 +1,27 @@
+{
+  "config": {
+    "cols": 160,
+    "rows": 40,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "Issues" },
+    { "waitFor": "#" },
+    { "key": "Enter" },
+    { "waitFor": "Body" },
+    { "key": "c" },
+    { "keys": ["f", "i", "r", "s", "t", " ", "l", "i", "n", "e"] },
+    { "key": "Enter" },
+    { "keys": ["s", "e", "c", "o", "n", "d", " ", "l", "i", "n", "e"] },
+    { "key": "Enter" },
+    { "keys": ["c", "u", "r", "r", "e", "n", "t", " ", "l", "i", "n", "e"] },
+    { "waitFor": "current line" },
+    { "key": "Escape" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

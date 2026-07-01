@@ -502,8 +502,16 @@ impl IssuesState {
         if self.issue_detail.is_none() {
             return 0;
         }
-        self.detail_content_line_count()
-            .saturating_sub(viewport_rows)
+        let composer_active = matches!(
+            self.inline_state,
+            InlineState::Composer {
+                target: ComposerTarget::NewComment | ComposerTarget::Reply { .. },
+                ..
+            }
+        );
+        self.detail_content_line_count().saturating_sub(
+            crate::layout::issue_detail_document_viewport_rows(viewport_rows, composer_active),
+        )
     }
 
     /// Maximum detail scroll offset for the Issues-mode layout bands currently
