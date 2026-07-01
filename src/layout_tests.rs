@@ -131,8 +131,8 @@ fn detail_viewport_for_typical_height_matches_expected_formula() {
 fn issues_pane_rows_account_for_dynamic_bands() {
     assert_eq!(issues_pane_rows(40, false, false), (11, 27));
     assert_eq!(issues_pane_rows(40, true, false), (11, 26));
-    assert_eq!(issues_pane_rows(40, false, true), (10, 24));
-    assert_eq!(issues_pane_rows(40, true, true), (9, 24));
+    assert_eq!(issues_pane_rows(40, false, true), (9, 24));
+    assert_eq!(issues_pane_rows(40, true, true), (9, 23));
 }
 
 #[test]
@@ -157,7 +157,7 @@ fn issues_detail_viewport_rows_account_for_dynamic_bands() {
     assert_eq!(issues_detail_viewport_rows(40, false, false), 20);
     assert_eq!(issues_detail_viewport_rows(40, true, false), 19);
     assert_eq!(issues_detail_viewport_rows(40, false, true), 17);
-    assert_eq!(issues_detail_viewport_rows(40, true, true), 17);
+    assert_eq!(issues_detail_viewport_rows(40, true, true), 16);
 }
 
 /// @plan PLAN-20260624-PR-MODE.P11

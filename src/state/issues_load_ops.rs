@@ -4,7 +4,7 @@ use super::{
     AppEvent, AppState, DetailSubfocus, IssueCommentsPagePending, IssueDetailPending,
     IssueListPagePending, IssueListReloadPending,
 };
-use crate::domain::{Issue, IssueComment, IssueFilter, RepositoryId};
+use crate::domain::{Issue, IssueComment, IssueFilter, IssueFilterState, RepositoryId};
 
 struct IssueListPageLoadedData {
     scope_repo_id: RepositoryId,
@@ -312,6 +312,13 @@ impl AppState {
 
     fn update_draft_filter_field(&mut self, field: String, value: String) {
         match field.as_str() {
+            "state" => match value.as_str() {
+                "open" => self.issues_state.draft_filter.state = Some(IssueFilterState::Open),
+                "closed" => self.issues_state.draft_filter.state = Some(IssueFilterState::Closed),
+                "all" => self.issues_state.draft_filter.state = Some(IssueFilterState::All),
+                "" => self.issues_state.draft_filter.state = None,
+                _ => {}
+            },
             "author" => self.issues_state.draft_filter.author = value,
             "assignee" => self.issues_state.draft_filter.assignee = value,
             "mentioned" => self.issues_state.draft_filter.mentioned = value,
@@ -328,6 +335,9 @@ impl AppState {
                     .filter(|s| !s.is_empty())
                     .collect();
             }
+            "issue_type" => self.issues_state.draft_filter.issue_type = value,
+            "milestone" => self.issues_state.draft_filter.milestone = value,
+            "module" => self.issues_state.draft_filter.module = value,
             "updated_before" => self.issues_state.draft_filter.updated_before = value,
             "updated_after" => self.issues_state.draft_filter.updated_after = value,
             _ => {}

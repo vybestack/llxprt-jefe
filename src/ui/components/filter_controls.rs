@@ -5,7 +5,7 @@
 
 use iocraft::prelude::*;
 
-use crate::domain::{IssueFilter, IssueFilterState};
+use crate::domain::{FILTER_CHOICE_ANY, IssueFilter, IssueFilterState};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the filter controls pane.
@@ -21,6 +21,14 @@ pub struct FilterControlsProps {
     pub active_field_index: usize,
     /// Raw labels text for display during editing.
     pub draft_labels_text: String,
+}
+
+fn display_any(value: &str) -> String {
+    if value.is_empty() {
+        FILTER_CHOICE_ANY.to_string()
+    } else {
+        value.to_string()
+    }
 }
 
 /// Filter controls — compact horizontal band showing current filter values and action hints.
@@ -43,29 +51,13 @@ pub fn FilterControls(props: &FilterControlsProps) -> impl Into<AnyElement<'stat
         Some(IssueFilterState::All) => "all",
     };
 
-    let author_val = if props.draft_filter.author.is_empty() {
-        "any".to_string()
-    } else {
-        props.draft_filter.author.clone()
-    };
-
-    let assignee_val = if props.draft_filter.assignee.is_empty() {
-        "any".to_string()
-    } else {
-        props.draft_filter.assignee.clone()
-    };
-
-    let labels_val = if props.draft_labels_text.is_empty() {
-        "any".to_string()
-    } else {
-        props.draft_labels_text.clone()
-    };
-
-    let search_val = if props.draft_filter.query_text.is_empty() {
-        "any".to_string()
-    } else {
-        props.draft_filter.query_text.clone()
-    };
+    let author_val = display_any(&props.draft_filter.author);
+    let assignee_val = display_any(&props.draft_filter.assignee);
+    let labels_val = display_any(&props.draft_labels_text);
+    let type_val = display_any(&props.draft_filter.issue_type);
+    let milestone_val = display_any(&props.draft_filter.milestone);
+    let module_val = display_any(&props.draft_filter.module);
+    let search_val = display_any(&props.draft_filter.query_text);
 
     // Active field: inverted colors (bright bg, dark fg). Inactive: normal.
     let val_color = |active: bool| if active { rc.bg } else { rc.fg };
@@ -82,7 +74,7 @@ pub fn FilterControls(props: &FilterControlsProps) -> impl Into<AnyElement<'stat
             padding_left: 1u32,
             padding_right: 1u32,
         ) {
-            // Filter values row
+            // Filter values rows
             Box(height: 1u32) {
                 Text(content: "Filter: ", color: rc.dim)
                 Text(content: "state:", color: label_color(idx == 0))
@@ -101,9 +93,24 @@ pub fn FilterControls(props: &FilterControlsProps) -> impl Into<AnyElement<'stat
                 Box(background_color: val_bg(idx == 3)) {
                     Text(content: format!("[{labels_val}]"), color: val_color(idx == 3))
                 }
-                Text(content: "  search:", color: label_color(idx == 4))
+            }
+            Box(height: 1u32) {
+                Text(content: "        ", color: rc.dim)
+                Text(content: "type:", color: label_color(idx == 4))
                 Box(background_color: val_bg(idx == 4)) {
-                    Text(content: format!("[{search_val}]"), color: val_color(idx == 4))
+                    Text(content: format!("[{type_val}]"), color: val_color(idx == 4))
+                }
+                Text(content: "  milestone:", color: label_color(idx == 5))
+                Box(background_color: val_bg(idx == 5)) {
+                    Text(content: format!("[{milestone_val}]"), color: val_color(idx == 5))
+                }
+                Text(content: "  module:", color: label_color(idx == 6))
+                Box(background_color: val_bg(idx == 6)) {
+                    Text(content: format!("[{module_val}]"), color: val_color(idx == 6))
+                }
+                Text(content: "  search:", color: label_color(idx == 7))
+                Box(background_color: val_bg(idx == 7)) {
+                    Text(content: format!("[{search_val}]"), color: val_color(idx == 7))
                 }
             }
             // Actions hint row
@@ -111,7 +118,7 @@ pub fn FilterControls(props: &FilterControlsProps) -> impl Into<AnyElement<'stat
                 Text(content: "Tab next  ", color: rc.dim)
                 Text(content: "←/→ choices  ", color: rc.dim)
                 Text(content: "Enter apply  ", color: rc.dim)
-                Text(content: "Delete clear  ", color: rc.dim)
+                Text(content: "Delete field  ", color: rc.dim)
                 Text(content: "Esc cancel", color: rc.dim)
             }
         }

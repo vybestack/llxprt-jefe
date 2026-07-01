@@ -1,6 +1,6 @@
 use crate::domain::{Issue, IssueFilter, IssueFilterState, IssueState, Repository, RepositoryId};
-use crate::state::AppState;
 use crate::state::types::{AppEvent, ScreenMode};
+use crate::state::{AppState, ISSUE_FILTER_FIELD_COUNT};
 
 fn dashboard_issues_state() -> AppState {
     AppState {
@@ -29,6 +29,9 @@ fn make_test_issue(number: u64) -> Issue {
         labels_summary: String::new(),
         assignees: Vec::new(),
         labels: Vec::new(),
+        issue_type: String::new(),
+        milestone: String::new(),
+        module: String::new(),
         comment_count: 0,
         body: String::new(),
     }
@@ -58,41 +61,38 @@ fn test_open_filter_resets_field_index() {
     assert_eq!(state.issues_state.filter_ui.field_index, 0);
 }
 
-/// FilterNavigateNext cycles through fields 0..4.
+/// FilterNavigateNext cycles through every configured filter field.
 #[test]
 fn test_filter_navigate_next_cycles() {
-    let state = filter_open_state();
+    let mut state = filter_open_state();
     assert_eq!(state.issues_state.filter_ui.field_index, 0);
 
-    let state = state.apply(AppEvent::FilterNavigateNext);
-    assert_eq!(state.issues_state.filter_ui.field_index, 1);
+    for expected in 1..ISSUE_FILTER_FIELD_COUNT {
+        state = state.apply(AppEvent::FilterNavigateNext);
+        assert_eq!(state.issues_state.filter_ui.field_index, expected);
+    }
 
-    let state = state.apply(AppEvent::FilterNavigateNext);
-    assert_eq!(state.issues_state.filter_ui.field_index, 2);
-
-    let state = state.apply(AppEvent::FilterNavigateNext);
-    assert_eq!(state.issues_state.filter_ui.field_index, 3);
-
-    let state = state.apply(AppEvent::FilterNavigateNext);
-    assert_eq!(state.issues_state.filter_ui.field_index, 4);
-
-    // Wraps around
     let state = state.apply(AppEvent::FilterNavigateNext);
     assert_eq!(state.issues_state.filter_ui.field_index, 0);
 }
 
-/// FilterNavigatePrev cycles backward through fields.
+/// FilterNavigatePrev cycles backward through every configured filter field.
 #[test]
 fn test_filter_navigate_prev_cycles() {
     let state = filter_open_state();
     assert_eq!(state.issues_state.filter_ui.field_index, 0);
 
-    // Wraps to last field
     let state = state.apply(AppEvent::FilterNavigatePrev);
-    assert_eq!(state.issues_state.filter_ui.field_index, 4);
+    assert_eq!(
+        state.issues_state.filter_ui.field_index,
+        ISSUE_FILTER_FIELD_COUNT - 1
+    );
 
     let state = state.apply(AppEvent::FilterNavigatePrev);
-    assert_eq!(state.issues_state.filter_ui.field_index, 3);
+    assert_eq!(
+        state.issues_state.filter_ui.field_index,
+        ISSUE_FILTER_FIELD_COUNT - 2
+    );
 }
 
 /// CycleFilterState cycles through Open -> Closed -> All -> Open.
@@ -148,11 +148,17 @@ fn test_update_draft_filter_labels() {
 fn test_apply_filter_commits_and_reloads() {
     let mut state = filter_open_state();
     state.issues_state.draft_filter.author = "alice".to_string();
+    state.issues_state.draft_filter.issue_type = "bug".to_string();
+    state.issues_state.draft_filter.milestone = "v1".to_string();
+    state.issues_state.draft_filter.module = "ui".to_string();
     state.issues_state.loading.list = false;
 
     let state = state.apply(AppEvent::ApplyFilter);
     assert!(!state.issues_state.filter_ui.controls_open);
     assert_eq!(state.issues_state.committed_filter.author, "alice");
+    assert_eq!(state.issues_state.committed_filter.issue_type, "bug");
+    assert_eq!(state.issues_state.committed_filter.milestone, "v1");
+    assert_eq!(state.issues_state.committed_filter.module, "ui");
     assert!(state.issues_state.loading.list, "should trigger reload");
     assert!(state.issues_state.issues.is_empty());
 }
@@ -272,6 +278,21 @@ fn test_apply_search_clears_stale_detail_pending() {
     assert!(state.issues_state.issue_detail.is_none());
 }
 
+/// Applying a search preserves literal free-text, including `any`.
+#[test]
+fn test_apply_search_preserves_literal_any_query() {
+    use crate::messages::IssuesMessage;
+
+    let mut state = state_with_repo();
+    state.issues_state.search_query = "ANY".to_string();
+    state.issues_state.committed_filter.query_text = "old".to_string();
+
+    let state = state.apply(AppEvent::from(IssuesMessage::ApplySearch));
+
+    assert_eq!(state.issues_state.committed_filter.query_text, "ANY");
+    assert!(state.issues_state.loading.list);
+}
+
 #[test]
 fn test_update_draft_filter_text_fields() {
     let state = filter_open_state()
@@ -341,5 +362,72 @@ fn test_labels_trailing_comma_preserved() {
     assert_eq!(
         state.issues_state.draft_filter.labels,
         vec!["bug".to_string()]
+    );
+}
+
+/// Updating extended draft filter fields sets each field independently.
+#[test]
+fn test_update_draft_filter_extended_fields() {
+    let state = filter_open_state()
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "issue_type".to_string(),
+            value: "bug".to_string(),
+        })
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "milestone".to_string(),
+            value: "v1".to_string(),
+        })
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "module".to_string(),
+            value: "ui".to_string(),
+        });
+
+    assert_eq!(state.issues_state.draft_filter.issue_type, "bug");
+    assert_eq!(state.issues_state.draft_filter.milestone, "v1");
+    assert_eq!(state.issues_state.draft_filter.module, "ui");
+}
+
+/// Updating the state draft field with an unknown value preserves the current state.
+#[test]
+fn test_update_draft_filter_state_ignores_unknown_value() {
+    let state = filter_open_state()
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "state".to_string(),
+            value: "all".to_string(),
+        })
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "state".to_string(),
+            value: "invalid".to_string(),
+        });
+
+    assert_eq!(
+        state.issues_state.draft_filter.state,
+        Some(IssueFilterState::All)
+    );
+}
+#[test]
+fn test_update_draft_filter_state_clears_to_default() {
+    let state =
+        filter_open_state()
+            .apply(AppEvent::CycleFilterState)
+            .apply(AppEvent::UpdateDraftFilter {
+                field: "state".to_string(),
+                value: String::new(),
+            });
+
+    assert_eq!(state.issues_state.draft_filter.state, None);
+}
+
+/// Updating the state draft field to all preserves the explicit all filter.
+#[test]
+fn test_update_draft_filter_state_all_stays_explicit() {
+    let state = filter_open_state().apply(AppEvent::UpdateDraftFilter {
+        field: "state".to_string(),
+        value: "all".to_string(),
+    });
+
+    assert_eq!(
+        state.issues_state.draft_filter.state,
+        Some(IssueFilterState::All)
     );
 }

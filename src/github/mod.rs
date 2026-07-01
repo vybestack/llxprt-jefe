@@ -19,10 +19,11 @@ mod create_issue;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};
 
 mod parse;
-use parse::build_issue_search_args;
+use parse::{active_issue_type_filter, issue_type_requires_search_filter};
 pub use parse::{
-    build_list_issues_args, categorize_error, parse_comments_json, parse_created_comment_json,
-    parse_issue_detail_json, parse_issue_search_json, parse_issues_json, sort_issues,
+    build_issue_search_args, build_list_issues_args, categorize_error, parse_comments_json,
+    parse_created_comment_json, parse_issue_detail_json, parse_issue_search_json,
+    parse_issues_json, sort_issues,
 };
 
 mod parse_pr;
@@ -95,7 +96,6 @@ pub struct CommentsResponse {
 }
 
 const ISSUE_DETAIL_COMMENT_PAGE_SIZE: u32 = 30;
-
 /// Default page size for the PR list GraphQL search query.
 ///
 /// @plan PLAN-20260624-PR-MODE.P08
@@ -195,23 +195,7 @@ impl GhClient {
         cursor: Option<&str>,
         page_size: u32,
     ) -> Result<IssueListResponse, GhError> {
-        let args = build_issue_search_args(owner, repo, filter, cursor, page_size);
-
-        let output = Command::new("gh").args(&args).output().map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                GhError::NotInstalled
-            } else {
-                GhError::NetworkError(e.to_string())
-            }
-        })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(categorize_error(output.status.code().unwrap_or(1), &stderr));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_issue_search_json(&stdout)
+        fetch_issue_search_page(owner, repo, filter, cursor, page_size)
     }
 
     /// Get full issue detail.
@@ -765,4 +749,91 @@ fn summarize_pr_checks(checks: &[PrCheck]) -> Vec<String> {
         .iter()
         .map(|c| format!("{}: {}", c.name, c.conclusion))
         .collect()
+}
+
+fn fetch_issue_search_page(
+    owner: &str,
+    repo: &str,
+    filter: &IssueFilter,
+    cursor: Option<&str>,
+    page_size: u32,
+) -> Result<IssueListResponse, GhError> {
+    if active_issue_type_filter(filter).is_some() && issue_type_requires_search_filter(filter) {
+        return fetch_issue_search_filtered_pages(owner, repo, filter, cursor, page_size);
+    }
+    fetch_issue_search_raw_page(owner, repo, filter, cursor, page_size)
+}
+
+fn fetch_issue_search_filtered_pages(
+    owner: &str,
+    repo: &str,
+    filter: &IssueFilter,
+    cursor: Option<&str>,
+    page_size: u32,
+) -> Result<IssueListResponse, GhError> {
+    let Some(issue_type) = active_issue_type_filter(filter) else {
+        return fetch_issue_search_raw_page(owner, repo, filter, cursor, page_size);
+    };
+    let mut search_cursor = cursor.map(str::to_string);
+    let mut collected = Vec::new();
+    let mut response_cursor: Option<String>;
+    let mut response_has_more: bool;
+
+    loop {
+        let response =
+            fetch_issue_search_raw_page(owner, repo, filter, search_cursor.as_deref(), page_size)?;
+        response_cursor = response.cursor.clone();
+        response_has_more = response.has_more;
+        collected.extend(
+            response
+                .issues
+                .into_iter()
+                .filter(|issue| issue.issue_type.eq_ignore_ascii_case(issue_type)),
+        );
+        if collected.len() > page_size as usize {
+            response_has_more = true;
+            break;
+        }
+
+        if collected.len() >= page_size as usize || !response_has_more {
+            break;
+        }
+        if response.cursor == search_cursor {
+            response_has_more = false;
+            break;
+        }
+        search_cursor = response.cursor;
+    }
+
+    Ok(IssueListResponse {
+        issues: collected,
+        cursor: response_cursor,
+        has_more: response_has_more,
+    })
+}
+
+fn fetch_issue_search_raw_page(
+    owner: &str,
+    repo: &str,
+    filter: &IssueFilter,
+    cursor: Option<&str>,
+    page_size: u32,
+) -> Result<IssueListResponse, GhError> {
+    let args = build_issue_search_args(owner, repo, filter, cursor, page_size);
+
+    let output = Command::new("gh").args(&args).output().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            GhError::NotInstalled
+        } else {
+            GhError::NetworkError(e.to_string())
+        }
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(categorize_error(output.status.code().unwrap_or(1), &stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_issue_search_json(&stdout)
 }

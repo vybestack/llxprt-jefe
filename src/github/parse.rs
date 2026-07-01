@@ -7,7 +7,10 @@
 //! @plan PLAN-20260329-ISSUES-MODE.P08
 //! @requirement REQ-ISS-013
 
-use crate::domain::{Issue, IssueComment, IssueDetail, IssueFilter, IssueFilterState, IssueState};
+use crate::domain::{
+    FILTER_CHOICE_ANY, FILTER_CHOICE_NONE, Issue, IssueComment, IssueDetail, IssueFilter,
+    IssueFilterState, IssueState,
+};
 use serde_json::Value;
 
 use super::{GhError, IssueListResponse};
@@ -74,10 +77,15 @@ pub fn parse_issues_json(json_str: &str) -> Result<Vec<Issue>, GhError> {
 pub fn parse_issue_search_json(json_str: &str) -> Result<IssueListResponse, GhError> {
     let value: Value = serde_json::from_str(json_str)
         .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
-    let search = value
+    let data = value
         .get("data")
-        .and_then(|data| data.get("search"))
         .ok_or_else(|| GhError::ParseError("Missing issue search data".to_string()))?;
+    let search = data
+        .get("search")
+        .or_else(|| data.get("repository").and_then(|repo| repo.get("issues")))
+        .ok_or_else(|| {
+            GhError::ParseError("Missing issue search or repository issues data".to_string())
+        })?;
     let nodes = search
         .get("nodes")
         .and_then(Value::as_array)
@@ -130,6 +138,9 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
 
     let assignees = collect_nodes_field(item, "assignees");
     let labels = collect_nodes_field(item, "labels");
+    let issue_type = parse_optional_string_field(item, "issueType", "name").unwrap_or_default();
+    let milestone = parse_optional_string_field(item, "milestone", "title").unwrap_or_default();
+    let module = module_from_labels(&labels);
     let assignee_summary = assignees.join(", ");
     let labels_summary = labels.join(", ");
 
@@ -155,9 +166,33 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         labels_summary,
         assignees,
         labels,
+        issue_type,
+        milestone,
+        module,
         comment_count,
         body,
     })
+}
+
+fn module_from_labels(labels: &[String]) -> String {
+    labels
+        .iter()
+        .filter_map(|label| module_label_value(label))
+        .find(|module| !module.is_empty())
+        .map(str::to_string)
+        .unwrap_or_default()
+}
+
+fn module_label_value(label: &str) -> Option<&str> {
+    split_case_insensitive_prefix(label.trim(), "module:").map(str::trim)
+}
+
+fn split_case_insensitive_prefix<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    let prefix_len = prefix.len();
+    let candidate = value.get(..prefix_len)?;
+    candidate
+        .eq_ignore_ascii_case(prefix)
+        .then_some(&value[prefix_len..])
 }
 
 /// Read `field.nodes[*].<key>` (defaulting to "login"/"name").
@@ -503,6 +538,11 @@ pub fn parse_created_comment_json(json_str: &str) -> Result<IssueComment, GhErro
 /// Build the `gh issue list` CLI argument vector for the given repository and
 /// filter.
 ///
+/// This legacy CLI path cannot filter by GitHub Issue Type: GitHub search's
+/// `type:` qualifier means issue vs. pull-request, and `gh issue list --json`
+/// does not expose `issueType`. Callers that need Issue Type filtering or
+/// metadata should use the GraphQL list/search path.
+///
 /// The `cursor` parameter is accepted for API symmetry with
 /// [`super::GhClient::list_issues`] and the analogous comment pagination
 /// helpers, but is intentionally unused: `gh issue list` (the REST-backed CLI
@@ -523,7 +563,7 @@ pub fn build_list_issues_args(
         "--repo".to_string(),
         format!("{owner}/{repo}"),
         "--json".to_string(),
-        "number,title,state,author,updatedAt,assignees,labels,comments".to_string(),
+        "number,title,state,author,updatedAt,assignees,labels,milestone,comments".to_string(),
         "-L".to_string(),
         page_size.to_string(),
     ];
@@ -545,28 +585,32 @@ pub fn build_list_issues_args(
         args.push(label.clone());
     }
 
-    // Add assignee
-    if !filter.assignee.is_empty() {
+    // Add assignee when the legacy CLI flag can represent it directly.
+    let assignee = filter.assignee.trim();
+    if !assignee.is_empty()
+        && !assignee.eq_ignore_ascii_case(FILTER_CHOICE_ANY)
+        && !assignee.eq_ignore_ascii_case(FILTER_CHOICE_NONE)
+    {
         args.push("--assignee".to_string());
-        args.push(filter.assignee.clone());
+        args.push(assignee.to_string());
     }
 
     // Add author
-    if !filter.author.is_empty() {
+    if let Some(author) = non_any_filter_value(&filter.author) {
         args.push("--author".to_string());
-        args.push(filter.author.clone());
+        args.push(author.to_string());
     }
 
     // Add mentioned
-    if !filter.mentioned.is_empty() {
+    if let Some(mentioned) = non_any_filter_value(&filter.mentioned) {
         args.push("--mention".to_string());
-        args.push(filter.mentioned.clone());
+        args.push(mentioned.to_string());
     }
 
-    // Add query text (search)
-    if !filter.query_text.is_empty() {
+    let search_query = legacy_issue_search_query(filter);
+    if !search_query.is_empty() {
         args.push("--search".to_string());
-        args.push(filter.query_text.clone());
+        args.push(search_query);
     }
 
     args
@@ -578,9 +622,16 @@ fn issue_search_query(owner: &str, repo: &str, filter: &IssueFilter) -> String {
         terms.push(state);
     }
 
-    terms.extend(filter.labels.iter().map(|label| format!("label:{label}")));
+    terms.extend(
+        filter
+            .labels
+            .iter()
+            .map(|label| format!("label:{}", search_qualifier_value(label))),
+    );
     push_non_empty_term(&mut terms, "author:", &filter.author);
-    push_non_empty_term(&mut terms, "assignee:", &filter.assignee);
+    push_assignee_term(&mut terms, &filter.assignee);
+    push_milestone_term(&mut terms, &filter.milestone);
+    push_module_term(&mut terms, &filter.module, &filter.labels);
     push_non_empty_term(&mut terms, "mentions:", &filter.mentioned);
     push_non_empty_term(&mut terms, "updated:<", &filter.updated_before);
     push_non_empty_term(&mut terms, "updated:>", &filter.updated_after);
@@ -588,6 +639,17 @@ fn issue_search_query(owner: &str, repo: &str, filter: &IssueFilter) -> String {
         terms.push(filter.query_text.trim().to_string());
     }
 
+    terms.join(" ")
+}
+
+fn legacy_issue_search_query(filter: &IssueFilter) -> String {
+    let mut terms = Vec::new();
+    push_legacy_assignee_term(&mut terms, &filter.assignee);
+    push_milestone_term(&mut terms, &filter.milestone);
+    push_module_term(&mut terms, &filter.module, &filter.labels);
+    if !filter.query_text.trim().is_empty() {
+        terms.push(filter.query_text.trim().to_string());
+    }
     terms.join(" ")
 }
 
@@ -600,22 +662,299 @@ fn issue_filter_state_query(filter: &IssueFilter) -> Option<String> {
 }
 
 fn push_non_empty_term(terms: &mut Vec<String>, prefix: &str, value: &str) {
-    if !value.trim().is_empty() {
-        terms.push(format!("{prefix}{}", value.trim()));
+    if non_any_filter_value(value).is_some() {
+        terms.push(format!("{prefix}{}", search_qualifier_value(value)));
     }
 }
 
-pub(super) fn build_issue_search_args(
+fn non_any_filter_value(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case(FILTER_CHOICE_ANY) {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+fn push_assignee_term(terms: &mut Vec<String>, assignee: &str) {
+    let value = assignee.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case(FILTER_CHOICE_ANY) {
+        return;
+    }
+    if value.eq_ignore_ascii_case(FILTER_CHOICE_NONE) {
+        terms.push("no:assignee".to_string());
+    } else {
+        terms.push(format!("assignee:{}", search_qualifier_value(value)));
+    }
+}
+fn push_legacy_assignee_term(terms: &mut Vec<String>, assignee: &str) {
+    let value = assignee.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case(FILTER_CHOICE_ANY) {
+        return;
+    }
+    if value.eq_ignore_ascii_case(FILTER_CHOICE_NONE) {
+        terms.push("no:assignee".to_string());
+    }
+}
+
+fn push_milestone_term(terms: &mut Vec<String>, milestone: &str) {
+    let value = milestone.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case(FILTER_CHOICE_ANY) {
+        return;
+    }
+    if value.eq_ignore_ascii_case(FILTER_CHOICE_NONE) {
+        terms.push("no:milestone".to_string());
+    } else {
+        terms.push(format!("milestone:{}", search_qualifier_value(value)));
+    }
+}
+
+fn push_module_term(terms: &mut Vec<String>, module: &str, labels: &[String]) {
+    let value = module.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case(FILTER_CHOICE_ANY) {
+        return;
+    }
+    if labels
+        .iter()
+        .any(|label| label_matches_module(label, value))
+    {
+        return;
+    }
+
+    let label = format!("module:{value}");
+    terms.push(format!("label:{}", search_qualifier_value(&label)));
+}
+
+fn label_matches_module(label: &str, module: &str) -> bool {
+    module_label_value(label).is_some_and(|value| value.eq_ignore_ascii_case(module))
+}
+
+fn search_qualifier_value(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed
+        .chars()
+        .any(|ch| ch.is_whitespace() || matches!(ch, '"' | '\\'))
+    {
+        let escaped = trimmed.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("\"{escaped}\"")
+    } else {
+        trimmed.to_string()
+    }
+}
+
+pub(super) fn active_issue_type_filter(filter: &IssueFilter) -> Option<&str> {
+    let issue_type = filter.issue_type.trim();
+    if issue_type.is_empty() || issue_type.eq_ignore_ascii_case(FILTER_CHOICE_ANY) {
+        None
+    } else {
+        Some(issue_type)
+    }
+}
+
+pub(super) fn issue_type_requires_search_filter(filter: &IssueFilter) -> bool {
+    filter
+        .assignee
+        .trim()
+        .eq_ignore_ascii_case(FILTER_CHOICE_NONE)
+        || filter
+            .milestone
+            .trim()
+            .eq_ignore_ascii_case(FILTER_CHOICE_NONE)
+        || !filter.query_text.trim().is_empty()
+        || !filter.updated_before.trim().is_empty()
+        || !filter.updated_after.trim().is_empty()
+}
+
+fn build_repository_issue_type_args(
+    owner: &str,
+    repo: &str,
+    filter: &IssueFilter,
+    issue_type: &str,
+    cursor: Option<&str>,
+    page_size: u32,
+) -> Vec<String> {
+    let mut variable_defs = vec![
+        "$owner: String!".to_string(),
+        "$repo: String!".to_string(),
+        "$issueType: String!".to_string(),
+        "$first: Int!".to_string(),
+    ];
+    let mut filters = vec!["type: $issueType".to_string()];
+    let mut args = base_issue_type_args(owner, repo, issue_type, page_size);
+
+    if let Some(c) = cursor {
+        variable_defs.push("$after: String".to_string());
+        args.push("-F".to_string());
+        args.push(format!("after={c}"));
+    }
+
+    push_repository_issue_filter_fields(filter, &mut variable_defs, &mut filters, &mut args);
+
+    let after_arg = if cursor.is_some() {
+        ", after: $after"
+    } else {
+        ""
+    };
+    let query = format!(
+        "query({}) {{ repository(owner: $owner, name: $repo) {{ issues(first: $first{after_arg}, filterBy: {{ {} }}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ nodes {{ number title state author {{ login }} updatedAt assignees(first: 10) {{ nodes {{ login }} }} labels(first: 20) {{ nodes {{ name }} }} issueType {{ name }} milestone {{ title }} comments {{ totalCount }} }} pageInfo {{ hasNextPage endCursor }} }} }} }}",
+        variable_defs.join(", "),
+        filters.join(", ")
+    );
+
+    args.splice(2..2, ["-f".to_string(), format!("query={query}")]);
+    args
+}
+
+fn base_issue_type_args(owner: &str, repo: &str, issue_type: &str, page_size: u32) -> Vec<String> {
+    vec![
+        "api".to_string(),
+        "graphql".to_string(),
+        "-F".to_string(),
+        format!("owner={owner}"),
+        "-F".to_string(),
+        format!("repo={repo}"),
+        "-F".to_string(),
+        format!("issueType={issue_type}"),
+        "-F".to_string(),
+        format!("first={page_size}"),
+    ]
+}
+
+fn push_repository_issue_filter_fields(
+    filter: &IssueFilter,
+    variable_defs: &mut Vec<String>,
+    filters: &mut Vec<String>,
+    args: &mut Vec<String>,
+) {
+    push_repository_state_filter(filter, filters);
+    push_repository_string_filter(
+        "author",
+        "createdBy",
+        &filter.author,
+        variable_defs,
+        filters,
+        args,
+    );
+    push_repository_nullable_filter(
+        "assignee",
+        "assignee",
+        &filter.assignee,
+        variable_defs,
+        filters,
+        args,
+    );
+    push_repository_nullable_filter(
+        "milestone",
+        "milestone",
+        &filter.milestone,
+        variable_defs,
+        filters,
+        args,
+    );
+    push_repository_string_filter(
+        "mentioned",
+        "mentioned",
+        &filter.mentioned,
+        variable_defs,
+        filters,
+        args,
+    );
+    push_repository_label_filter(filter, filters);
+}
+
+fn push_repository_state_filter(filter: &IssueFilter, filters: &mut Vec<String>) {
+    match filter.state.unwrap_or_default() {
+        IssueFilterState::Open => filters.push("states: [OPEN]".to_string()),
+        IssueFilterState::Closed => filters.push("states: [CLOSED]".to_string()),
+        IssueFilterState::All => {}
+    }
+}
+
+fn push_repository_string_filter(
+    variable_name: &str,
+    filter_name: &str,
+    value: &str,
+    variable_defs: &mut Vec<String>,
+    filters: &mut Vec<String>,
+    args: &mut Vec<String>,
+) {
+    let Some(value) = non_any_filter_value(value) else {
+        return;
+    };
+    variable_defs.push(format!("${variable_name}: String"));
+    filters.push(format!("{filter_name}: ${variable_name}"));
+    args.push("-F".to_string());
+    args.push(format!("{variable_name}={value}"));
+}
+
+fn push_repository_nullable_filter(
+    variable_name: &str,
+    filter_name: &str,
+    value: &str,
+    variable_defs: &mut Vec<String>,
+    filters: &mut Vec<String>,
+    args: &mut Vec<String>,
+) {
+    let Some(value) = non_any_filter_value(value) else {
+        return;
+    };
+    if value.eq_ignore_ascii_case(FILTER_CHOICE_NONE) {
+        filters.push(format!("{filter_name}: null"));
+        return;
+    }
+    variable_defs.push(format!("${variable_name}: String"));
+    filters.push(format!("{filter_name}: ${variable_name}"));
+    args.push("-F".to_string());
+    args.push(format!("{variable_name}={value}"));
+}
+
+fn push_repository_label_filter(filter: &IssueFilter, filters: &mut Vec<String>) {
+    let mut labels = filter.labels.clone();
+    let module = filter.module.trim();
+    if !module.is_empty()
+        && !module.eq_ignore_ascii_case(FILTER_CHOICE_ANY)
+        && !labels
+            .iter()
+            .any(|label| label_matches_module(label, module))
+    {
+        labels.push(format!("module:{module}"));
+    }
+    if labels.is_empty() {
+        return;
+    }
+    let label_literals = labels
+        .iter()
+        .map(|label| graphql_string_literal(label))
+        .collect::<Vec<_>>()
+        .join(", ");
+    filters.push(format!("labels: [{label_literals}]"));
+}
+
+fn graphql_string_literal(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
+#[must_use]
+pub fn build_issue_search_args(
     owner: &str,
     repo: &str,
     filter: &IssueFilter,
     cursor: Option<&str>,
     page_size: u32,
 ) -> Vec<String> {
+    if let Some(issue_type) = active_issue_type_filter(filter)
+        && !issue_type_requires_search_filter(filter)
+    {
+        return build_repository_issue_type_args(
+            owner, repo, filter, issue_type, cursor, page_size,
+        );
+    }
+
     let query = if cursor.is_some() {
-        "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
+        "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
     } else {
-        "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
+        "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
     };
     let mut args = vec![
         "api".to_string(),

@@ -17,6 +17,7 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
         }
     }
 }
+
 // =============================================================================
 
 fn state_arg_is_open(args: &[String]) -> bool {
@@ -113,6 +114,9 @@ fn test_list_issues_sorts_by_updated_desc() {
             labels_summary: String::new(),
             assignees: Vec::new(),
             labels: Vec::new(),
+            issue_type: String::new(),
+            milestone: String::new(),
+            module: String::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -126,6 +130,9 @@ fn test_list_issues_sorts_by_updated_desc() {
             labels_summary: String::new(),
             assignees: Vec::new(),
             labels: Vec::new(),
+            issue_type: String::new(),
+            milestone: String::new(),
+            module: String::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -139,6 +146,9 @@ fn test_list_issues_sorts_by_updated_desc() {
             labels_summary: String::new(),
             assignees: Vec::new(),
             labels: Vec::new(),
+            issue_type: String::new(),
+            milestone: String::new(),
+            module: String::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -164,9 +174,7 @@ fn test_list_issues_filter_args_construction() {
         author: "acoliver".to_string(),
         assignee: String::new(),
         labels: vec!["critical".to_string()],
-        mentioned: String::new(),
-        updated_before: String::new(),
-        updated_after: String::new(),
+        ..IssueFilter::default()
     };
 
     let args = build_list_issues_args("owner", "repo", &filter, None, 30);
@@ -191,8 +199,288 @@ fn test_list_issues_args_omit_body_for_fast_first_paint() {
 
     assert_eq!(
         json_fields,
-        "number,title,state,author,updatedAt,assignees,labels,comments"
+        "number,title,state,author,updatedAt,assignees,labels,milestone,comments"
     );
+}
+
+#[test]
+fn test_issue_search_args_include_supported_extended_filter_terms() {
+    let filter = IssueFilter {
+        assignee: "none".to_string(),
+        issue_type: "bug report".to_string(),
+        milestone: "none".to_string(),
+        module: "ui shell".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let query = args
+        .windows(2)
+        .find_map(|pair| {
+            (pair[0] == "-F" && pair[1].starts_with("searchQuery=")).then_some(&pair[1])
+        })
+        .unwrap_or_else(|| panic!("missing searchQuery in args: {args:?}"));
+
+    assert!(query.contains("no:assignee"));
+    assert!(query.contains("no:milestone"));
+    assert!(query.contains(r#"label:"module:ui shell""#));
+    assert!(!query.contains("type:bug report"));
+}
+
+#[test]
+fn test_issue_type_repository_args_include_concrete_supported_filters() {
+    let filter = IssueFilter {
+        state: Some(IssueFilterState::Closed),
+        author: "alice".to_string(),
+        assignee: "bob".to_string(),
+        issue_type: "Bug".to_string(),
+        milestone: "Sprint 1".to_string(),
+        labels: vec!["priority:high".to_string()],
+        mentioned: "carol".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = crate::github::build_issue_search_args("owner", "repo", &filter, Some("cursor"), 20);
+    let query = args
+        .windows(2)
+        .find_map(|pair| (pair[0] == "-f" && pair[1].starts_with("query=")).then_some(&pair[1]))
+        .unwrap_or_else(|| panic!("missing GraphQL query in args: {args:?}"));
+
+    assert!(query.contains("after: $after"));
+    assert!(query.contains("type: $issueType"));
+    assert!(query.contains("states: [CLOSED]"));
+    assert!(query.contains("createdBy: $author"));
+    assert!(query.contains("assignee: $assignee"));
+    assert!(query.contains("milestone: $milestone"));
+    assert!(query.contains("mentioned: $mentioned"));
+    assert!(query.contains("labels: [\"priority:high\"]"));
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "-F" && pair[1] == "author=alice")
+    );
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "-F" && pair[1] == "assignee=bob")
+    );
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "-F" && pair[1] == "milestone=Sprint 1")
+    );
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "-F" && pair[1] == "mentioned=carol")
+    );
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "-F" && pair[1] == "after=cursor")
+    );
+}
+
+#[test]
+fn test_issue_search_args_handle_case_insensitive_any_none_sentinels() {
+    let filter = IssueFilter {
+        assignee: "None".to_string(),
+        milestone: "ANY".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let query = args
+        .windows(2)
+        .find_map(|pair| {
+            (pair[0] == "-F" && pair[1].starts_with("searchQuery=")).then_some(&pair[1])
+        })
+        .unwrap_or_else(|| panic!("missing searchQuery in args: {args:?}"));
+
+    assert!(query.contains("no:assignee"));
+    assert!(!query.contains("milestone:"));
+}
+
+#[test]
+fn test_issue_search_args_skip_any_for_author_type_and_module() {
+    let filter = IssueFilter {
+        author: "any".to_string(),
+        issue_type: "ANY".to_string(),
+        module: "Any".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let query = args
+        .windows(2)
+        .find_map(|pair| {
+            (pair[0] == "-F" && pair[1].starts_with("searchQuery=")).then_some(&pair[1])
+        })
+        .unwrap_or_else(|| panic!("missing searchQuery in args: {args:?}"));
+
+    assert!(!query.contains("author:any"));
+    assert!(!query.contains("type:ANY"));
+    assert!(!query.contains("label:module:Any"));
+}
+
+#[test]
+fn test_issue_search_args_skip_any_for_mentioned_and_updated() {
+    let filter = IssueFilter {
+        mentioned: "any".to_string(),
+        updated_before: "ANY".to_string(),
+        updated_after: "Any".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let query = args
+        .windows(2)
+        .find_map(|pair| {
+            (pair[0] == "-F" && pair[1].starts_with("searchQuery=")).then_some(&pair[1])
+        })
+        .unwrap_or_else(|| panic!("missing searchQuery in args: {args:?}"));
+
+    assert!(!query.contains("mentions:any"));
+    assert!(!query.contains("updated:<ANY"));
+    assert!(!query.contains("updated:>Any"));
+}
+#[test]
+fn test_issue_search_args_preserve_literal_any_query_text() {
+    let filter = IssueFilter {
+        query_text: "ANY".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let query = args
+        .windows(2)
+        .find_map(|pair| {
+            (pair[0] == "-F" && pair[1].starts_with("searchQuery=")).then_some(&pair[1])
+        })
+        .unwrap_or_else(|| panic!("missing searchQuery in args: {args:?}"));
+
+    assert!(query.contains("ANY"));
+}
+
+#[test]
+fn test_list_issues_args_preserve_literal_any_query_text() {
+    let filter = IssueFilter {
+        query_text: "any".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = build_list_issues_args("owner", "repo", &filter, None, 30);
+
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "--search" && pair[1] == "any")
+    );
+}
+
+#[test]
+fn test_list_issues_args_skip_any_for_author_type_and_module() {
+    let filter = IssueFilter {
+        author: "any".to_string(),
+        issue_type: "ANY".to_string(),
+        module: "Any".to_string(),
+        mentioned: "any".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = build_list_issues_args("owner", "repo", &filter, None, 30);
+    assert!(!args.windows(2).any(|pair| pair[0] == "--mention"));
+    assert!(!args.windows(2).any(|pair| pair[0] == "--author"));
+    assert!(
+        !args
+            .windows(2)
+            .any(|pair| pair[0] == "--search" && pair[1].contains("type:ANY"))
+    );
+    assert!(
+        !args
+            .windows(2)
+            .any(|pair| pair[0] == "--search" && pair[1].contains("label:module:Any"))
+    );
+}
+
+#[test]
+fn test_list_issues_args_do_not_duplicate_concrete_assignee() {
+    let filter = IssueFilter {
+        assignee: "alice".to_string(),
+        issue_type: "Bug".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = build_list_issues_args("owner", "repo", &filter, None, 30);
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "--assignee" && pair[1] == "alice")
+    );
+    let search = args
+        .windows(2)
+        .find_map(|pair| (pair[0] == "--search").then_some(pair[1].as_str()))
+        .unwrap_or("");
+
+    assert!(!search.contains("assignee:alice"));
+    assert!(!search.contains("type:Bug"));
+}
+
+#[test]
+fn test_list_issues_args_bridge_extended_filters_through_search() {
+    let filter = IssueFilter {
+        assignee: "none".to_string(),
+        issue_type: "Bug".to_string(),
+        milestone: "Sprint 1".to_string(),
+        module: "ui shell".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = build_list_issues_args("owner", "repo", &filter, None, 30);
+    let search = args
+        .windows(2)
+        .find_map(|pair| (pair[0] == "--search").then_some(pair[1].as_str()))
+        .unwrap_or_else(|| panic!("missing --search in args: {args:?}"));
+
+    assert!(search.contains("no:assignee"));
+    assert!(!search.contains("type:Bug"));
+    assert!(search.contains(r#"milestone:"Sprint 1""#));
+    assert!(search.contains(r#"label:"module:ui shell""#));
+}
+
+#[test]
+fn test_issue_search_args_do_not_duplicate_module_label_filter() {
+    let filter = IssueFilter {
+        labels: vec!["module:ui".to_string()],
+        module: "ui".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+
+    let query = args
+        .windows(2)
+        .find_map(|pair| {
+            (pair[0] == "-F" && pair[1].starts_with("searchQuery=")).then_some(&pair[1])
+        })
+        .unwrap_or_else(|| panic!("missing searchQuery in args: {args:?}"));
+
+    assert_eq!(query.matches("label:module:ui").count(), 1);
+}
+
+#[test]
+fn test_list_issues_args_do_not_duplicate_module_label_filter() {
+    let filter = IssueFilter {
+        labels: vec!["module:ui".to_string()],
+        module: "ui".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = build_list_issues_args("owner", "repo", &filter, None, 30);
+    let native_label_count = args
+        .windows(2)
+        .filter(|pair| pair[0] == "--label" && pair[1] == "module:ui")
+        .count();
+    let search = args
+        .windows(2)
+        .find_map(|pair| (pair[0] == "--search").then_some(pair[1].as_str()))
+        .unwrap_or("");
+
+    assert_eq!(native_label_count, 1);
+    assert!(!search.contains("label:module:ui"));
 }
 
 #[test]
@@ -207,6 +495,7 @@ fn test_parse_issue_search_json_pagination() {
                         "state": "OPEN",
                         "author": {"login": "acoliver"},
                         "updatedAt": "2026-03-29T10:00:00Z",
+
                         "assignees": {"nodes": [{"login": "acoliver"}]},
                         "labels": {"nodes": [{"name": "enhancement"}]},
                         "comments": {"totalCount": 3},
@@ -226,6 +515,48 @@ fn test_parse_issue_search_json_pagination() {
     assert_eq!(response.issues.len(), 1);
     assert_eq!(response.issues[0].number, 17);
     assert_eq!(response.cursor, Some("cursor-1".to_string()));
+    assert!(response.has_more);
+}
+
+#[test]
+fn test_parse_repository_issues_json_pagination() {
+    let json = r#"{
+        "data": {
+            "repository": {
+                "issues": {
+                    "nodes": [
+                        {
+                            "number": 21,
+                            "title": "Repository filtered issue",
+                            "state": "OPEN",
+                            "author": {"login": "alice"},
+                            "updatedAt": "2026-03-30T10:00:00Z",
+                            "assignees": {"nodes": []},
+                            "labels": {"nodes": [{"name": "module:ui"}]},
+                            "issueType": {"name": "Bug"},
+                            "milestone": {"title": "Sprint 1"},
+                            "comments": {"totalCount": 2}
+                        }
+                    ],
+                    "pageInfo": {
+                        "hasNextPage": true,
+                        "endCursor": "repo-cursor-1"
+                    }
+                }
+            }
+        }
+    }"#;
+
+    let response =
+        parse_issue_search_json(json).value_or_panic("should parse repository issues JSON");
+
+    assert_eq!(response.issues.len(), 1);
+    assert_eq!(response.issues[0].number, 21);
+
+    assert_eq!(response.issues[0].issue_type, "Bug");
+    assert_eq!(response.issues[0].milestone, "Sprint 1");
+    assert_eq!(response.issues[0].module, "ui");
+    assert_eq!(response.cursor.as_deref(), Some("repo-cursor-1"));
     assert!(response.has_more);
 }
 
@@ -263,6 +594,7 @@ fn test_get_issue_detail_parses_json() {
                 "id": "IC_123",
                 "author": {"login": "bob"},
                 "createdAt": "2026-03-29T11:00:00Z",
+
                 "body": "Comment body"
             }
         ]
@@ -321,6 +653,7 @@ fn test_get_issue_detail_optional_milestone() {
         "author": {"login": "alice"},
         "createdAt": "2026-03-28T10:00:00Z",
         "updatedAt": "2026-03-29T10:00:00Z",
+
         "labels": [],
         "assignees": [],
         "milestone": {"title": "v1.0"},
@@ -754,7 +1087,9 @@ fn test_parse_issues_json_graphql_nodes_assignees_labels() {
             "author": {"login": "alice"},
             "updatedAt": "2026-03-29T10:00:00Z",
             "assignees": {"nodes": [{"login": "dave"}]},
-            "labels": {"nodes": [{"name": "enhancement"}, {"name": "ui"}]},
+            "labels": {"nodes": [{"name": "enhancement"}, {"name": "module:ui"}]},
+            "issueType": {"name": "Bug"},
+            "milestone": {"title": "Sprint 1"},
             "comments": {"totalCount": 0}
         }
     ]"#;
@@ -762,7 +1097,65 @@ fn test_parse_issues_json_graphql_nodes_assignees_labels() {
     let issues = parse_issues_json(json).value_or_panic("should parse graphql-nodes JSON");
     assert_eq!(issues.len(), 1);
     assert_eq!(issues[0].assignee_summary, "dave");
-    assert_eq!(issues[0].labels_summary, "enhancement, ui");
+    assert_eq!(issues[0].labels_summary, "enhancement, module:ui");
+    assert_eq!(issues[0].issue_type, "Bug");
+    assert_eq!(issues[0].milestone, "Sprint 1");
+    assert_eq!(issues[0].module, "ui");
+}
+
+#[test]
+fn test_parse_issues_json_module_skips_empty_module_label() {
+    let json = r#"[
+        {
+            "number": 3,
+            "title": "Module",
+            "state": "OPEN",
+            "author": {"login": "alice"},
+            "updatedAt": "2026-03-29T10:00:00Z",
+            "assignees": {"nodes": []},
+            "labels": {"nodes": [{"name": "module:"}, {"name": "module:ui"}]},
+            "comments": {"totalCount": 0}
+        }
+    ]"#;
+
+    let issues = parse_issues_json(json).value_or_panic("should parse module labels");
+
+    assert_eq!(issues[0].module, "ui");
+    assert_eq!(issues[0].labels_summary, "module:, module:ui");
+}
+#[test]
+fn test_issue_search_args_preserve_module_none_as_manual_text() {
+    let filter = IssueFilter {
+        module: "none".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let query = args
+        .windows(2)
+        .find_map(|pair| {
+            (pair[0] == "-F" && pair[1].starts_with("searchQuery=")).then_some(&pair[1])
+        })
+        .unwrap_or_else(|| panic!("missing searchQuery in args: {args:?}"));
+
+    assert!(query.contains("label:module:none"));
+}
+
+#[test]
+fn test_issue_type_repository_args_preserve_module_none_as_manual_text() {
+    let filter = IssueFilter {
+        issue_type: "Bug".to_string(),
+        module: "none".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let query = args
+        .windows(2)
+        .find_map(|pair| (pair[0] == "-f" && pair[1].starts_with("query=")).then_some(&pair[1]))
+        .unwrap_or_else(|| panic!("missing GraphQL query in args: {args:?}"));
+
+    assert!(query.contains("labels: [\"module:none\"]"));
 }
 
 /// Test 21: parse_issue_detail_json propagates comment parse errors instead of

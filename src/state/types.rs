@@ -458,10 +458,12 @@ pub struct IssueLoadingState {
     pub comments: bool,
 }
 
+pub const ISSUE_FILTER_FIELD_COUNT: usize = 8;
+
 #[derive(Debug, Clone, Default)]
 pub struct IssueFilterUiState {
     pub controls_open: bool,
-    /// Index of the currently focused filter field (0=state, 1=author, 2=assignee, 3=labels, 4=query_text).
+    /// Index of the currently focused filter field (0=state, 1=author, 2=assignee, 3=labels, 4=type, 5=milestone, 6=module, 7=query_text).
     pub field_index: usize,
     /// Raw labels text while editing (preserves trailing commas). Parsed into Vec on apply.
     pub draft_labels_text: String,
