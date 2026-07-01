@@ -678,6 +678,7 @@ pub enum AppEvent {
     CloseFilterControls,
     ApplyFilter,
     ClearFilter,
+    ClearDraftFilter,
     FilterNavigateNext,
     FilterNavigatePrev,
     CycleFilterState,

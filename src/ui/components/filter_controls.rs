@@ -119,6 +119,7 @@ pub fn FilterControls(props: &FilterControlsProps) -> impl Into<AnyElement<'stat
                 Text(content: "←/→ choices  ", color: rc.dim)
                 Text(content: "Enter apply  ", color: rc.dim)
                 Text(content: "Delete field  ", color: rc.dim)
+                Text(content: "Ctrl-L clear all  ", color: rc.dim)
                 Text(content: "Esc cancel", color: rc.dim)
             }
         }

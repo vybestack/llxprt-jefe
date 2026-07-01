@@ -178,6 +178,93 @@ fn test_clear_filter_resets_and_reloads() {
     assert!(state.issues_state.loading.list, "should trigger reload");
 }
 
+fn populate_all_draft_filter_fields(state: AppState) -> AppState {
+    state
+        .apply(AppEvent::CycleFilterState)
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "author".to_string(),
+            value: "alice".to_string(),
+        })
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "assignee".to_string(),
+            value: "none".to_string(),
+        })
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "labels".to_string(),
+            value: "bug,module:ui".to_string(),
+        })
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "issue_type".to_string(),
+            value: "Bug".to_string(),
+        })
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "milestone".to_string(),
+            value: "Sprint 1".to_string(),
+        })
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "module".to_string(),
+            value: "ui".to_string(),
+        })
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "query_text".to_string(),
+            value: "panic".to_string(),
+        })
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "mentioned".to_string(),
+            value: "carol".to_string(),
+        })
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "updated_before".to_string(),
+            value: "2026-07-01".to_string(),
+        })
+        .apply(AppEvent::UpdateDraftFilter {
+            field: "updated_after".to_string(),
+            value: "2026-06-01".to_string(),
+        })
+}
+
+fn assert_all_draft_filter_fields_populated(filter: &IssueFilter) {
+    assert_eq!(filter.state, Some(IssueFilterState::Closed));
+    assert_eq!(filter.author, "alice");
+    assert_eq!(filter.assignee, "none");
+    assert_eq!(
+        filter.labels,
+        vec!["bug".to_string(), "module:ui".to_string()]
+    );
+    assert_eq!(filter.issue_type, "Bug");
+    assert_eq!(filter.milestone, "Sprint 1");
+    assert_eq!(filter.module, "ui");
+    assert_eq!(filter.query_text, "panic");
+    assert_eq!(filter.mentioned, "carol");
+    assert_eq!(filter.updated_before, "2026-07-01");
+    assert_eq!(filter.updated_after, "2026-06-01");
+}
+
+/// ClearDraftFilter from filter controls clears the draft form but keeps controls open.
+#[test]
+fn test_clear_draft_filter_keeps_controls_open_and_resets_draft() {
+    let mut initial = filter_open_state();
+    initial.issues_state.committed_filter.author = "committed-author".to_string();
+    initial.issues_state.filter_ui.field_index = 5;
+
+    let populated = populate_all_draft_filter_fields(initial);
+    assert_all_draft_filter_fields_populated(&populated.issues_state.draft_filter);
+
+    let state = populated.apply(AppEvent::ClearDraftFilter);
+
+    assert_eq!(state.issues_state.draft_filter, IssueFilter::default());
+    assert_eq!(
+        state.issues_state.committed_filter.author,
+        "committed-author"
+    );
+    assert_eq!(state.screen_mode, ScreenMode::DashboardIssues);
+    assert!(state.issues_state.active);
+    assert!(state.issues_state.filter_ui.controls_open);
+    assert_eq!(state.issues_state.filter_ui.field_index, 5);
+    assert!(!state.issues_state.loading.list);
+    assert!(state.issues_state.filter_ui.draft_labels_text.is_empty());
+}
+
 /// UpdateDraftFilter for text fields works as expected.
 #[test]
 fn test_apply_filter_fresh_list_loaded_selects_first_issue() {

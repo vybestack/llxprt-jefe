@@ -33,6 +33,9 @@ pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -
         KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(AppEvent::ExitIssuesMode)
         }
+        KeyCode::Char('l') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(AppEvent::ClearDraftFilter)
+        }
         KeyCode::Delete => active_field_clear_event(field_idx),
         // Field-specific input
         KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') if field_idx == 0 => {
@@ -358,6 +361,13 @@ mod tests {
         let state = filter_state();
         let evt = resolve_filter_key_event(&state, &ctrl(KeyCode::Char('c')));
         assert!(matches!(evt, Some(AppEvent::ExitIssuesMode)));
+    }
+
+    #[test]
+    fn test_filter_ctrl_l_clears_entire_filter_form() {
+        let state = filter_state();
+        let evt = resolve_filter_key_event(&state, &ctrl(KeyCode::Char('l')));
+        assert!(matches!(evt, Some(AppEvent::ClearDraftFilter)));
     }
 
     #[test]

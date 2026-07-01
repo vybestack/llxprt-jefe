@@ -390,6 +390,10 @@ impl AppState {
                 self.issues_state.filter_ui.controls_open = false;
                 self.reload_issue_list_for_filter_change();
             }
+            AppEvent::ClearDraftFilter => {
+                self.issues_state.draft_filter = IssueFilter::default();
+                self.issues_state.filter_ui.draft_labels_text.clear();
+            }
             AppEvent::FilterNavigateNext => {
                 let idx = self.issues_state.filter_ui.field_index;
                 self.issues_state.filter_ui.field_index = (idx + 1) % ISSUE_FILTER_FIELD_COUNT;

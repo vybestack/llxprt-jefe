@@ -152,6 +152,7 @@ impl AppMessage {
                 | AppEvent::CloseFilterControls
                 | AppEvent::ApplyFilter
                 | AppEvent::ClearFilter
+                | AppEvent::ClearDraftFilter
                 | AppEvent::FilterNavigateNext
                 | AppEvent::FilterNavigatePrev
                 | AppEvent::CycleFilterState
