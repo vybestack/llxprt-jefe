@@ -75,12 +75,9 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
     });
     let draft_filter = state.map_or_else(Default::default, |s| s.issues_state.draft_filter.clone());
     let has_filters = state.is_some_and(|s| {
-        let f = &s.issues_state.committed_filter;
-        f.state.is_some()
-            || !f.author.is_empty()
-            || !f.assignee.is_empty()
-            || !f.labels.is_empty()
-            || !f.query_text.is_empty()
+        s.issues_state
+            .committed_filter
+            .has_active_non_default_filters()
     });
 
     // Issue detail fields

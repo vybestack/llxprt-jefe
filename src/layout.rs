@@ -210,8 +210,8 @@ pub const ISSUE_LIST_CHROME_COLS: u16 = 2;
 
 /// Rows consumed by the filter controls band when it is visible.
 ///
-/// The component renders a bordered box with two fixed content rows.
-pub const FILTER_CONTROLS_ROWS: usize = 4;
+/// The component renders a bordered box with three fixed content rows.
+pub const FILTER_CONTROLS_ROWS: usize = 5;
 
 /// Fixed rows outside the Issues workspace split.
 ///

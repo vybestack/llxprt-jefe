@@ -2,8 +2,8 @@
 //! @plan PLAN-20260329-ISSUES-MODE.P05
 
 use super::{
-    AgentChooserState, AppEvent, AppState, DetailSubfocus, InlineState, IssueFocus, PaneFocus,
-    PriorAgentFocus, ScreenMode,
+    AgentChooserState, AppEvent, AppState, DetailSubfocus, ISSUE_FILTER_FIELD_COUNT, InlineState,
+    IssueFocus, PaneFocus, PriorAgentFocus, ScreenMode,
 };
 use crate::domain::{IssueFilter, IssueFilterState};
 use crate::messages::IssuesMessage;
@@ -391,15 +391,13 @@ impl AppState {
                 self.reload_issue_list_for_filter_change();
             }
             AppEvent::FilterNavigateNext => {
-                const FILTER_FIELD_COUNT: usize = 5;
                 let idx = self.issues_state.filter_ui.field_index;
-                self.issues_state.filter_ui.field_index = (idx + 1) % FILTER_FIELD_COUNT;
+                self.issues_state.filter_ui.field_index = (idx + 1) % ISSUE_FILTER_FIELD_COUNT;
             }
             AppEvent::FilterNavigatePrev => {
-                const FILTER_FIELD_COUNT: usize = 5;
                 let idx = self.issues_state.filter_ui.field_index;
                 self.issues_state.filter_ui.field_index =
-                    (idx + FILTER_FIELD_COUNT - 1) % FILTER_FIELD_COUNT;
+                    (idx + ISSUE_FILTER_FIELD_COUNT - 1) % ISSUE_FILTER_FIELD_COUNT;
             }
             AppEvent::CycleFilterState => {
                 let current = self.issues_state.draft_filter.state;

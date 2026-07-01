@@ -17,6 +17,7 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
         }
     }
 }
+
 // =============================================================================
 
 fn state_arg_is_open(args: &[String]) -> bool {
@@ -113,6 +114,9 @@ fn test_list_issues_sorts_by_updated_desc() {
             labels_summary: String::new(),
             assignees: Vec::new(),
             labels: Vec::new(),
+            issue_type: String::new(),
+            milestone: String::new(),
+            module: String::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -126,6 +130,9 @@ fn test_list_issues_sorts_by_updated_desc() {
             labels_summary: String::new(),
             assignees: Vec::new(),
             labels: Vec::new(),
+            issue_type: String::new(),
+            milestone: String::new(),
+            module: String::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -139,6 +146,9 @@ fn test_list_issues_sorts_by_updated_desc() {
             labels_summary: String::new(),
             assignees: Vec::new(),
             labels: Vec::new(),
+            issue_type: String::new(),
+            milestone: String::new(),
+            module: String::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -164,9 +174,7 @@ fn test_list_issues_filter_args_construction() {
         author: "acoliver".to_string(),
         assignee: String::new(),
         labels: vec!["critical".to_string()],
-        mentioned: String::new(),
-        updated_before: String::new(),
-        updated_after: String::new(),
+        ..IssueFilter::default()
     };
 
     let args = build_list_issues_args("owner", "repo", &filter, None, 30);
@@ -191,7 +199,7 @@ fn test_list_issues_args_omit_body_for_fast_first_paint() {
 
     assert_eq!(
         json_fields,
-        "number,title,state,author,updatedAt,assignees,labels,comments"
+        "number,title,state,author,updatedAt,assignees,labels,milestone,comments"
     );
 }
 
@@ -207,6 +215,7 @@ fn test_parse_issue_search_json_pagination() {
                         "state": "OPEN",
                         "author": {"login": "acoliver"},
                         "updatedAt": "2026-03-29T10:00:00Z",
+
                         "assignees": {"nodes": [{"login": "acoliver"}]},
                         "labels": {"nodes": [{"name": "enhancement"}]},
                         "comments": {"totalCount": 3},
@@ -226,6 +235,48 @@ fn test_parse_issue_search_json_pagination() {
     assert_eq!(response.issues.len(), 1);
     assert_eq!(response.issues[0].number, 17);
     assert_eq!(response.cursor, Some("cursor-1".to_string()));
+    assert!(response.has_more);
+}
+
+#[test]
+fn test_parse_repository_issues_json_pagination() {
+    let json = r#"{
+        "data": {
+            "repository": {
+                "issues": {
+                    "nodes": [
+                        {
+                            "number": 21,
+                            "title": "Repository filtered issue",
+                            "state": "OPEN",
+                            "author": {"login": "alice"},
+                            "updatedAt": "2026-03-30T10:00:00Z",
+                            "assignees": {"nodes": []},
+                            "labels": {"nodes": [{"name": "module:ui"}]},
+                            "issueType": {"name": "Bug"},
+                            "milestone": {"title": "Sprint 1"},
+                            "comments": {"totalCount": 2}
+                        }
+                    ],
+                    "pageInfo": {
+                        "hasNextPage": true,
+                        "endCursor": "repo-cursor-1"
+                    }
+                }
+            }
+        }
+    }"#;
+
+    let response =
+        parse_issue_search_json(json).value_or_panic("should parse repository issues JSON");
+
+    assert_eq!(response.issues.len(), 1);
+    assert_eq!(response.issues[0].number, 21);
+
+    assert_eq!(response.issues[0].issue_type, "Bug");
+    assert_eq!(response.issues[0].milestone, "Sprint 1");
+    assert_eq!(response.issues[0].module, "ui");
+    assert_eq!(response.cursor.as_deref(), Some("repo-cursor-1"));
     assert!(response.has_more);
 }
 
@@ -263,6 +314,7 @@ fn test_get_issue_detail_parses_json() {
                 "id": "IC_123",
                 "author": {"login": "bob"},
                 "createdAt": "2026-03-29T11:00:00Z",
+
                 "body": "Comment body"
             }
         ]
@@ -321,6 +373,7 @@ fn test_get_issue_detail_optional_milestone() {
         "author": {"login": "alice"},
         "createdAt": "2026-03-28T10:00:00Z",
         "updatedAt": "2026-03-29T10:00:00Z",
+
         "labels": [],
         "assignees": [],
         "milestone": {"title": "v1.0"},
@@ -754,7 +807,9 @@ fn test_parse_issues_json_graphql_nodes_assignees_labels() {
             "author": {"login": "alice"},
             "updatedAt": "2026-03-29T10:00:00Z",
             "assignees": {"nodes": [{"login": "dave"}]},
-            "labels": {"nodes": [{"name": "enhancement"}, {"name": "ui"}]},
+            "labels": {"nodes": [{"name": "enhancement"}, {"name": "module:ui"}]},
+            "issueType": {"name": "Bug"},
+            "milestone": {"title": "Sprint 1"},
             "comments": {"totalCount": 0}
         }
     ]"#;
@@ -762,7 +817,48 @@ fn test_parse_issues_json_graphql_nodes_assignees_labels() {
     let issues = parse_issues_json(json).value_or_panic("should parse graphql-nodes JSON");
     assert_eq!(issues.len(), 1);
     assert_eq!(issues[0].assignee_summary, "dave");
-    assert_eq!(issues[0].labels_summary, "enhancement, ui");
+    assert_eq!(issues[0].labels_summary, "enhancement, module:ui");
+    assert_eq!(issues[0].issue_type, "Bug");
+    assert_eq!(issues[0].milestone, "Sprint 1");
+    assert_eq!(issues[0].module, "ui");
+}
+
+#[test]
+fn test_parse_issues_json_module_skips_empty_module_label() {
+    let json = r#"[
+        {
+            "number": 3,
+            "title": "Module",
+            "state": "OPEN",
+            "author": {"login": "alice"},
+            "updatedAt": "2026-03-29T10:00:00Z",
+            "assignees": {"nodes": []},
+            "labels": {"nodes": [{"name": "module:"}, {"name": "module:ui"}]},
+            "comments": {"totalCount": 0}
+        }
+    ]"#;
+
+    let issues = parse_issues_json(json).value_or_panic("should parse module labels");
+
+    assert_eq!(issues[0].module, "ui");
+    assert_eq!(issues[0].labels_summary, "module:, module:ui");
+}
+
+#[test]
+fn test_issue_type_repository_args_preserve_module_none_as_manual_text() {
+    let filter = IssueFilter {
+        issue_type: "Bug".to_string(),
+        module: "none".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let query = args
+        .windows(2)
+        .find_map(|pair| (pair[0] == "-f" && pair[1].starts_with("query=")).then_some(&pair[1]))
+        .unwrap_or_else(|| panic!("missing GraphQL query in args: {args:?}"));
+
+    assert!(query.contains("labels: [\"module:none\"]"));
 }
 
 /// Test 21: parse_issue_detail_json propagates comment parse errors instead of

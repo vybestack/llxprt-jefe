@@ -322,6 +322,9 @@ mod tests {
             labels_summary: String::new(),
             assignees: Vec::new(),
             labels: Vec::new(),
+            issue_type: String::new(),
+            milestone: String::new(),
+            module: String::new(),
             comment_count: 0,
             body: String::new(),
         }

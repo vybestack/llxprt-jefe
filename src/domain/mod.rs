@@ -232,6 +232,9 @@ pub struct Issue {
     pub labels_summary: String,
     pub assignees: Vec<String>,
     pub labels: Vec<String>,
+    pub issue_type: String,
+    pub milestone: String,
+    pub module: String,
     pub comment_count: u64,
     /// Optional lightweight preview body; list/search fetches may leave this empty
     /// so full body content is loaded through `IssueDetail` instead.
@@ -283,6 +286,9 @@ pub enum IssueFilterState {
     All,
 }
 
+pub const FILTER_CHOICE_ANY: &str = "any";
+pub const FILTER_CHOICE_NONE: &str = "none";
+
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-008
 /// Issue list filter criteria.
@@ -293,9 +299,39 @@ pub struct IssueFilter {
     pub author: String,
     pub assignee: String,
     pub labels: Vec<String>,
+    pub issue_type: String,
+    pub milestone: String,
+    pub module: String,
     pub mentioned: String,
     pub updated_before: String,
     pub updated_after: String,
+}
+
+impl IssueFilter {
+    /// @plan PLAN-20260329-ISSUES-MODE.P03
+    /// @requirement REQ-ISS-008
+    /// @pseudocode component-011 lines 1-9
+    #[must_use]
+    pub fn has_active_non_default_filters(&self) -> bool {
+        matches!(
+            self.state,
+            Some(IssueFilterState::Closed | IssueFilterState::All)
+        ) || !self.query_text.trim().is_empty()
+            || sentinel_filter_is_active(&self.author)
+            || sentinel_filter_is_active(&self.assignee)
+            || !self.labels.is_empty()
+            || sentinel_filter_is_active(&self.issue_type)
+            || sentinel_filter_is_active(&self.milestone)
+            || sentinel_filter_is_active(&self.module)
+            || sentinel_filter_is_active(&self.mentioned)
+            || sentinel_filter_is_active(&self.updated_before)
+            || sentinel_filter_is_active(&self.updated_after)
+    }
+}
+
+fn sentinel_filter_is_active(value: &str) -> bool {
+    let trimmed = value.trim();
+    !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case(FILTER_CHOICE_ANY)
 }
 
 // =============================================================================
@@ -622,6 +658,58 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn issue_filter_default_and_open_state_are_not_active() {
+        let mut filter = IssueFilter::default();
+        assert!(!filter.has_active_non_default_filters());
+
+        filter.state = Some(IssueFilterState::Open);
+        assert!(!filter.has_active_non_default_filters());
+    }
+
+    #[test]
+    fn issue_filter_closed_all_and_extended_fields_are_active() {
+        let mut filter = IssueFilter {
+            state: Some(IssueFilterState::Closed),
+            ..IssueFilter::default()
+        };
+        assert!(filter.has_active_non_default_filters());
+
+        filter.state = Some(IssueFilterState::All);
+        assert!(filter.has_active_non_default_filters());
+
+        filter.state = None;
+        filter.updated_after = "2026-01-01".to_string();
+        assert!(filter.has_active_non_default_filters());
+    }
+
+    #[test]
+    fn issue_filter_any_sentinel_is_not_active_but_none_is_active() {
+        let mut filter = IssueFilter {
+            author: "any".to_string(),
+            assignee: FILTER_CHOICE_ANY.to_string(),
+            issue_type: "ANY".to_string(),
+            milestone: "ANY".to_string(),
+            module: "any".to_string(),
+            mentioned: "any".to_string(),
+            updated_before: "ANY".to_string(),
+            updated_after: "Any".to_string(),
+            ..IssueFilter::default()
+        };
+        assert!(!filter.has_active_non_default_filters());
+
+        filter.query_text = "any".to_string();
+        assert!(filter.has_active_non_default_filters());
+
+        filter.query_text.clear();
+        filter.assignee = FILTER_CHOICE_NONE.to_string();
+        assert!(filter.has_active_non_default_filters());
+
+        filter.assignee.clear();
+        filter.milestone = FILTER_CHOICE_NONE.to_string();
+        assert!(filter.has_active_non_default_filters());
+    }
+
     #[test]
     fn agent_pass_continue_defaults_true() {
         let agent = Agent::new(

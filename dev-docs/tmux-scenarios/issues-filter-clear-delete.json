@@ -1,6 +1,6 @@
 {
   "config": {
-    "cols": 120,
+    "cols": 160,
     "rows": 36,
     "history_limit": 4000,
     "initial_wait_ms": 100,
@@ -12,13 +12,18 @@
     { "waitFor": "Issues" },
     { "key": "f" },
     { "waitFor": "Filter:" },
-    { "waitFor": "Delete clear" },
+    { "waitFor": "Delete field" },
+    { "waitFor": "type:" },
+    { "waitFor": "milestone:" },
+    { "waitFor": "module:" },
     { "waitForNot": "Ctrl-c clear" },
     { "key": "Tab" },
     { "keys": ["a", "l", "i", "c", "e"] },
     { "waitFor": "author:[alice]" },
     { "key": "Delete" },
-    { "waitForNot": "Filter:" },
+    { "waitFor": "author:[any]" },
+    { "waitFor": "Filter:" },
+    { "key": "Escape" },
     { "key": "q" },
     { "waitForExit": 3000 }
   ]
