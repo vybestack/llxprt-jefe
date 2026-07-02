@@ -7,7 +7,9 @@
 
 use crate::domain::{IssueComment, IssueDetail, IssueState, Repository, RepositoryId};
 use crate::state::AppState;
-use crate::state::types::{AppEvent, ComposerTarget, DetailSubfocus, EditorTarget, InlineState};
+use crate::state::types::{
+    AppEvent, ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueMutationPending,
+};
 
 fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
     let mut state = AppState::default();
@@ -227,6 +229,24 @@ fn test_backspacing_in_issue_composer_does_not_mutate_detail_scroll_offset() {
     ));
 
     assert_eq!(state.issues_state.detail_scroll_offset, offset_after_open);
+}
+
+/// Esc/Ctrl-C cancel intent must remain responsive while comment submission is pending.
+#[test]
+fn test_inline_cancel_clears_pending_issue_comment_mutation() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = state_with_long_detail(&repo_id, 42).apply(AppEvent::OpenNewCommentComposer);
+    let pending_target = state.issues_state.inline_state.clone();
+    state.issues_state.mutation_pending = Some(IssueMutationPending {
+        scope_repo_id: repo_id,
+        id: 7,
+        target: pending_target,
+    });
+
+    let state = state.apply(AppEvent::InlineCancelOrEsc);
+
+    assert_eq!(state.issues_state.inline_state, InlineState::None);
+    assert!(state.issues_state.mutation_pending.is_none());
 }
 
 /// Opening a reply composer reveals the stable reply anchor above the TextBox.

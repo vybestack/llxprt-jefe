@@ -41,6 +41,25 @@ impl AppState {
             desired.min(self.issues_state.max_detail_scroll_offset());
     }
 
+    fn apply_inline_event_while_pending(&mut self, event: AppEvent) -> bool {
+        if matches!(event, AppEvent::InlineCancelOrEsc) {
+            self.issues_state.inline_state = InlineState::None;
+            self.issues_state.mutation_pending = None;
+            return true;
+        }
+        matches!(
+            event,
+            AppEvent::InlineChar(_)
+                | AppEvent::InlineNewline
+                | AppEvent::InlineBackspace
+                | AppEvent::InlineDelete
+                | AppEvent::InlineCursorLeft
+                | AppEvent::InlineCursorRight
+                | AppEvent::InlineCursorUp
+                | AppEvent::InlineCursorDown
+        )
+    }
+
     fn active_inline_text(inline_state: &mut InlineState) -> Option<(&mut String, &mut usize)> {
         match inline_state {
             InlineState::Composer { text, cursor, .. }
@@ -95,18 +114,7 @@ impl AppState {
 
     pub(super) fn apply_inline_event(&mut self, event: AppEvent) -> bool {
         if self.issues_state.mutation_pending.is_some() {
-            return matches!(
-                event,
-                AppEvent::InlineChar(_)
-                    | AppEvent::InlineNewline
-                    | AppEvent::InlineBackspace
-                    | AppEvent::InlineDelete
-                    | AppEvent::InlineCursorLeft
-                    | AppEvent::InlineCursorRight
-                    | AppEvent::InlineCursorUp
-                    | AppEvent::InlineCursorDown
-                    | AppEvent::InlineCancelOrEsc
-            );
+            return self.apply_inline_event_while_pending(event);
         }
         match event {
             AppEvent::InlineChar(c) => {

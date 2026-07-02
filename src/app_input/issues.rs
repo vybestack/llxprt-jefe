@@ -50,6 +50,9 @@ pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Optio
 
 fn resolve_inline_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
     match key_event.code {
+        KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(AppEvent::InlineCancelOrEsc)
+        }
         KeyCode::Esc => Some(AppEvent::InlineCancelOrEsc),
         KeyCode::Enter if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(AppEvent::InlineSubmit)
@@ -735,6 +738,20 @@ mod tests {
             &key_with_mods(KeyCode::Enter, KeyModifiers::CONTROL),
         );
         assert!(matches!(event, Some(AppEvent::InlineSubmit)));
+    }
+
+    #[test]
+    fn test_ctrl_c_cancels_inline_instead_of_typing_c() {
+        let state = issues_state_with_inline(InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            text: String::from("hello"),
+            cursor: 5,
+        });
+        let event = resolve_issues_key_event(
+            &state,
+            &key_with_mods(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        );
+        assert!(matches!(event, Some(AppEvent::InlineCancelOrEsc)));
     }
 
     /// Esc when inline editor active dispatches InlineCancelOrEsc.
