@@ -8,6 +8,7 @@
 //! Pseudocode reference: component-002 lines 01-35
 
 mod attach;
+mod attach_scheduler;
 mod commands;
 mod errors;
 mod liveness;
@@ -15,6 +16,7 @@ mod manager;
 mod preflight;
 mod session;
 
+pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use errors::RuntimeError;
 pub use liveness::{check_remote_session_alive, check_session_alive};
 pub use manager::{LivenessCheck, RuntimeManager, StubRuntimeManager, TmuxRuntimeManager};

@@ -6,7 +6,7 @@
 //! @requirement REQ-FUNC-007
 //! @pseudocode component-002 lines 01-35
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::path::Path;
 
@@ -280,9 +280,27 @@ pub struct TmuxRuntimeManager {
     /// Bounded by [`MAX_DEAD_SIGNATURES`]: once full, the least-recently-used
     /// dead signature is evicted to make room for newer ones.
     dead_signatures: LruCache<AgentId, LaunchSignature>,
+    /// Session names for which clipboard passthrough has already been enforced.
+    ///
+    /// Avoids re-running the tmux option commands on every attach. Populated
+    /// during local session creation and the local attach path.
+    clipboard_enforced: HashSet<String>,
     /// Terminal dimensions.
     rows: u16,
     cols: u16,
+}
+
+/// Move the current viewer (if any) out of the manager and drop it on a
+/// background OS thread.
+///
+/// `AttachedViewer::drop` performs deterministic child teardown — killing the
+/// tmux child and waiting up to 300ms for it to exit. Running that inline
+/// blocks the caller (the input/render loop). Dropping on a detached thread
+/// keeps the executor responsive while still guaranteeing eventual cleanup.
+fn drop_viewer_in_background(viewer: &mut Option<AttachedViewer>) {
+    if let Some(old_viewer) = viewer.take() {
+        std::thread::spawn(move || drop(old_viewer));
+    }
 }
 
 impl TmuxRuntimeManager {
@@ -294,6 +312,7 @@ impl TmuxRuntimeManager {
             viewer: None,
             attached_agent_id: None,
             dead_signatures: LruCache::new(MAX_DEAD_SIGNATURES),
+            clipboard_enforced: HashSet::new(),
             rows,
             cols,
         }
@@ -303,6 +322,30 @@ impl TmuxRuntimeManager {
     pub fn set_size(&mut self, rows: u16, cols: u16) {
         self.rows = rows;
         self.cols = cols;
+    }
+
+    /// Enforce clipboard passthrough for `session_name` if not already done.
+    ///
+    /// Memoized per session name so the tmux option commands run at most once
+    /// per session across create + attach cycles.
+    fn ensure_clipboard_passthrough(&mut self, session_name: &str) {
+        if !self.clipboard_enforced.contains(session_name) {
+            commands::enforce_clipboard_passthrough(session_name);
+            self.clipboard_enforced.insert(session_name.to_owned());
+        }
+    }
+
+    /// Test-only accessor: whether clipboard passthrough was already recorded
+    /// for `session_name`.
+    #[cfg(test)]
+    fn clipboard_passthrough_enforced(&self, session: &str) -> bool {
+        self.clipboard_enforced.contains(session)
+    }
+
+    /// Test-only setter for recording clipboard passthrough without invoking tmux.
+    #[cfg(test)]
+    fn record_clipboard_passthrough(&mut self, session: &str) {
+        self.clipboard_enforced.insert(session.to_owned());
     }
 
     /// Collect liveness check metadata for all tracked sessions.
@@ -348,7 +391,7 @@ impl TmuxRuntimeManager {
 
         if self.attached_agent_id.as_ref() == Some(agent_id) {
             self.attached_agent_id = None;
-            let _ = self.viewer.take();
+            drop_viewer_in_background(&mut self.viewer);
         }
 
         let _ = self
@@ -395,6 +438,13 @@ impl TmuxRuntimeManager {
 
             debug!(session_name = %session_name, "creating new tmux session");
             commands::create_session(&session_name, work_dir, signature)?;
+
+            // `finalize_local_session` (inside create_session) already ran
+            // `enforce_clipboard_passthrough` for a freshly created local
+            // session, so record it to avoid repeating on the next attach.
+            if !signature.remote.enabled {
+                self.clipboard_enforced.insert(session_name.clone());
+            }
         }
 
         // Store/refresh session binding.
@@ -455,23 +505,34 @@ impl RuntimeManager for TmuxRuntimeManager {
                 old_session.attached = false;
             }
 
-            // Drop old viewer immediately before creating a new one.
-            // Dropping closes PTY handles and tears down the reader thread.
-            let _ = self.viewer.take();
+            // Drop old viewer on a background thread. AttachedViewer::drop
+            // performs deterministic child teardown (bounded kill/wait up to
+            // 300ms), which would otherwise block the attach call.
+            drop_viewer_in_background(&mut self.viewer);
 
-            // Get session name for spawning
+            // Get session name and remote settings for spawning.
             let Some(session) = self.sessions.get(agent_id) else {
                 return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
             };
             let session_name = session.session_name.clone();
+            let remote_enabled = session.launch_signature.remote.enabled;
+            let remote_settings = if remote_enabled {
+                Some(session.launch_signature.remote.clone())
+            } else {
+                None
+            };
+
+            // Enforce clipboard passthrough (memoized) before spawning the
+            // local viewer — the attach hot path no longer relies on
+            // AttachedViewer::spawn to do this.
+            if !remote_enabled {
+                self.ensure_clipboard_passthrough(&session_name);
+            }
 
             // Spawn new viewer
             debug!(agent_id = %agent_id.0, session_name = %session_name, "attach: spawning AttachedViewer");
-            let viewer = if session.launch_signature.remote.enabled {
-                let ssh_command = commands::build_remote_attach_command(
-                    &session.launch_signature.remote,
-                    &session_name,
-                );
+            let viewer = if let Some(remote) = remote_settings {
+                let ssh_command = commands::build_remote_attach_command(&remote, &session_name);
                 AttachedViewer::spawn_remote(&session_name, self.rows, self.cols, &ssh_command)?
             } else {
                 AttachedViewer::spawn(&session_name, self.rows, self.cols)?
@@ -507,9 +568,9 @@ impl RuntimeManager for TmuxRuntimeManager {
             session.attached = false;
         }
 
-        // Drop the attached viewer. AttachedViewer::drop performs deterministic
-        // child teardown (bounded kill/wait), so no extra mark_dead call needed.
-        let _ = self.viewer.take();
+        // Drop the attached viewer on a background thread. AttachedViewer::drop
+        // performs deterministic child teardown (bounded kill/wait up to 300ms).
+        drop_viewer_in_background(&mut self.viewer);
 
         Ok(())
     }
@@ -530,9 +591,9 @@ impl RuntimeManager for TmuxRuntimeManager {
         if self.attached_agent_id.as_ref() == Some(agent_id) {
             self.attached_agent_id = None;
 
-            // Drop the attached viewer. AttachedViewer::drop performs deterministic
-            // child teardown (bounded kill/wait), so no extra mark_dead call needed.
-            let _ = self.viewer.take();
+            // Drop the attached viewer on a background thread. AttachedViewer::drop
+            // performs deterministic child teardown (bounded kill/wait up to 300ms).
+            drop_viewer_in_background(&mut self.viewer);
         }
 
         // Kill tmux session
@@ -722,5 +783,28 @@ mod tests {
                 .peek(&AgentId(format!("agent-{}", cap + 10 - 1)))
                 .is_some()
         );
+    }
+
+    #[test]
+    fn clipboard_passthrough_tracking_memoizes_per_session() {
+        let mut mgr = TmuxRuntimeManager::new(40, 120);
+
+        // Initially nothing is enforced.
+        assert!(!mgr.clipboard_passthrough_enforced("jefe-agent-a"));
+        assert!(!mgr.clipboard_passthrough_enforced("jefe-agent-b"));
+
+        // Recording a session marks only that session.
+        mgr.record_clipboard_passthrough("jefe-agent-a");
+        assert!(mgr.clipboard_passthrough_enforced("jefe-agent-a"));
+        assert!(!mgr.clipboard_passthrough_enforced("jefe-agent-b"));
+
+        // Recording again is idempotent (HashSet dedup).
+        mgr.record_clipboard_passthrough("jefe-agent-a");
+        assert!(mgr.clipboard_passthrough_enforced("jefe-agent-a"));
+
+        // A second session is tracked independently.
+        mgr.record_clipboard_passthrough("jefe-agent-b");
+        assert!(mgr.clipboard_passthrough_enforced("jefe-agent-a"));
+        assert!(mgr.clipboard_passthrough_enforced("jefe-agent-b"));
     }
 }

@@ -20,7 +20,9 @@ use crate::pty_encoding::{
 use jefe::domain::{AgentId, AgentStatus};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::layout::{compute_pty_layout, effective_render_size};
-use jefe::runtime::{RuntimeError, RuntimeManager, TerminalSnapshot};
+use jefe::runtime::{
+    AttachAction, AttachScheduler, DEFAULT_DEBOUNCE, RuntimeError, RuntimeManager, TerminalSnapshot,
+};
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
 use jefe::theme::{ThemeColors, ThemeManager};
 use jefe::ui::orchestration::{
@@ -44,9 +46,10 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let help_scroll = hooks.use_state(|| 0u32);
     let mut initialized = hooks.use_state(|| false);
     let mut startup_sessions_restored = hooks.use_state(|| false);
-    // Track which agent the render loop last attached to, so we only call
-    // runtime.attach() when the selection actually changes — not every frame.
-    let mut last_attached_key = hooks.use_state(|| Option::<String>::None);
+    // Debounce state machine for background attach/detach. The render body
+    // records the *desired* target here; a background future polls and
+    // performs the actual attach off the render/input hot path.
+    let mut attach_scheduler = hooks.use_state(|| AttachScheduler::new(DEFAULT_DEBOUNCE));
     // Some terminals emit a synthetic Enter key before a Paste event for Cmd/Ctrl+V.
     // Suppress just that one Enter to avoid accidental submits while pasting.
     let mut suppress_next_enter = hooks.use_state(|| false);
@@ -149,6 +152,71 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         }
     });
 
+    // Background attach/detach future. Polls the AttachScheduler every 50ms
+    // and performs the actual runtime.attach()/detach() on a background OS
+    // thread (via smol::unblock) so the render/input path is never blocked.
+    hooks.use_future({
+        let ctx = ctx.clone();
+        let mut attach_scheduler = attach_scheduler;
+        let mut app_state = app_state;
+        async move {
+            loop {
+                smol::Timer::after(std::time::Duration::from_millis(50)).await;
+
+                let action = {
+                    let mut scheduler = attach_scheduler.write();
+                    scheduler.poll(std::time::Instant::now())
+                };
+
+                let target = match action {
+                    AttachAction::Stable | AttachAction::Waiting => continue,
+                    AttachAction::Perform(target) => target,
+                };
+
+                let Some(ctx_arc) = ctx.as_ref() else {
+                    attach_scheduler.write().mark_attached(target);
+                    continue;
+                };
+                let ctx_clone = std::sync::Arc::clone(ctx_arc);
+                let outcome = smol::unblock(move || perform_async_attach(ctx_clone, target)).await;
+
+                match outcome {
+                    AsyncAttachOutcome::Attached(agent_id) => {
+                        {
+                            let mut scheduler = attach_scheduler.write();
+                            scheduler.mark_attached(Some(agent_id.clone()));
+                        }
+                        mark_agent_attached(&mut app_state, &agent_id);
+                    }
+                    AsyncAttachOutcome::Detached => {
+                        {
+                            let mut scheduler = attach_scheduler.write();
+                            scheduler.mark_attached(None);
+                        }
+                        clear_all_attachments(&mut app_state);
+                    }
+                    AsyncAttachOutcome::Failed(agent_id) => {
+                        {
+                            let mut scheduler = attach_scheduler.write();
+                            // Explicitly clear desired so the scheduler does not
+                            // immediately retry the failed agent. The render body
+                            // will update desired on the next frame (the agent is
+                            // now Dead, so desired becomes None).
+                            scheduler.set_desired(None);
+                            scheduler.mark_attached(None);
+                        }
+                        apply_attach_failure(&mut app_state, &agent_id);
+                        let persisted = {
+                            let state = app_state.read();
+                            to_persisted_state(&state)
+                        };
+                        persist_state(&ctx, &persisted);
+                    }
+                }
+            }
+        }
+    });
+
     // Handle terminal events.
     hooks.use_terminal_events({
         let ctx = ctx.clone();
@@ -203,9 +271,11 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         "render cycle"
     );
 
-    // Get theme colors.
+    // Get theme colors. Use try_lock so the render body never blocks waiting
+    // for the ctx mutex — if a background attach holds it, we fall through to
+    // the default theme for this frame and pick up the real theme next frame.
     let (theme_name, colors) = if let Some(ctx_arc) = &ctx {
-        if let Ok(ctx_guard) = ctx_arc.lock() {
+        if let Ok(ctx_guard) = ctx_arc.try_lock() {
             (
                 ctx_guard.theme_manager.active_theme().name.clone(),
                 ctx_guard.theme_manager.active_theme().colors.clone(),
@@ -224,17 +294,15 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         .filter(|agent| agent.status == AgentStatus::Running)
         .map(|agent| agent.id.clone());
 
-    // Attach viewer only for running agents. Keep a running-agent key to avoid
-    // stale cross-agent snapshots when selection changes to a dead/non-running agent.
-    let selected_running_key = selected_running_agent_id.as_ref().map(|id| id.0.clone());
-    let prev_key = last_attached_key.read().clone();
-    if prev_key != selected_running_key {
-        reattach_running_agent(
-            ctx.as_ref(),
-            &mut app_state,
-            selected_running_agent_id.as_ref(),
-        );
-        last_attached_key.set(selected_running_key);
+    // Record desired attach target non-blocking. The background future
+    // performs the actual attach after the debounce window elapses.
+    let desired_changed = {
+        let scheduler = attach_scheduler.read();
+        scheduler.desired() != selected_running_agent_id.as_ref()
+    };
+    if desired_changed {
+        let mut scheduler = attach_scheduler.write();
+        scheduler.set_desired(selected_running_agent_id.clone());
     }
 
     // Render snapshot rules:
@@ -662,38 +730,46 @@ fn dispatch_mode_specific_key(
     }
 }
 
-/// Attach the viewer to the selected running agent, or detach when none is selected.
+/// Outcome of a background attach/detach operation.
+enum AsyncAttachOutcome {
+    Attached(AgentId),
+    Detached,
+    Failed(AgentId),
+}
+
+/// Perform attach/detach on a background thread (via `smol::unblock`).
 ///
-/// On attach failure the session is marked dead and focus returns to the agents pane.
-fn reattach_running_agent(
-    ctx: Option<&CtxArc>,
-    app_state: &mut HookState<AppState>,
-    selected_running_agent_id: Option<&AgentId>,
-) {
-    let Some(ctx_arc) = ctx else {
-        return;
-    };
-    let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return;
+/// This locks the `AppContext` mutex and calls the runtime — but on a separate
+/// OS thread, so the executor's input/render path is not blocked.
+fn perform_async_attach(
+    ctx: Arc<std::sync::Mutex<AppContext>>,
+    target: Option<AgentId>,
+) -> AsyncAttachOutcome {
+    let Ok(mut ctx_guard) = ctx.lock() else {
+        return match target {
+            Some(id) => AsyncAttachOutcome::Failed(id),
+            None => AsyncAttachOutcome::Detached,
+        };
     };
 
-    if let Some(selected_agent_id) = selected_running_agent_id {
-        debug!(agent_id = %selected_agent_id.0, "render-path: attaching to new running selection");
-        match ctx_guard.runtime.attach(selected_agent_id) {
-            Ok(()) => mark_agent_attached(app_state, selected_agent_id),
+    if let Some(agent_id) = target.as_ref() {
+        debug!(agent_id = %agent_id.0, "background: attaching to running selection");
+        match ctx_guard.runtime.attach(agent_id) {
+            Ok(()) => AsyncAttachOutcome::Attached(agent_id.clone()),
             Err(error) => {
                 warn!(
-                    agent_id = %selected_agent_id.0,
+                    agent_id = %agent_id.0,
                     error = %error,
-                    "render-path: attach failed for running selection"
+                    "background: attach failed for running selection"
                 );
-                handle_attach_failure(&mut ctx_guard, app_state, selected_agent_id);
+                let _ = ctx_guard.runtime.mark_session_dead(agent_id);
+                AsyncAttachOutcome::Failed(agent_id.clone())
             }
         }
     } else {
-        debug!("render-path: detaching (no running agent selected)");
+        debug!("background: detaching (no running agent selected)");
         let _ = ctx_guard.runtime.detach();
-        clear_all_attachments(app_state);
+        AsyncAttachOutcome::Detached
     }
 }
 
@@ -706,20 +782,15 @@ fn mark_agent_attached(app_state: &mut HookState<AppState>, selected_agent_id: &
     }
 }
 
-fn handle_attach_failure(
-    ctx_guard: &mut std::sync::MutexGuard<'_, AppContext>,
-    app_state: &mut HookState<AppState>,
-    selected_agent_id: &AgentId,
-) {
-    let _ = ctx_guard.runtime.mark_session_dead(selected_agent_id);
+/// Apply an attach failure to app state only (no runtime side effects).
+///
+/// `mark_session_dead` is called in [`perform_async_attach`] while the mutex
+/// is held; this function only updates the UI/state layer.
+fn apply_attach_failure(app_state: &mut HookState<AppState>, agent_id: &AgentId) {
     let mut state = app_state.write();
     state.terminal_focused = false;
     state.pane_focus = PaneFocus::Agents;
-    if let Some(agent) = state
-        .agents
-        .iter_mut()
-        .find(|agent| agent.id == *selected_agent_id)
-    {
+    if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == *agent_id) {
         agent.status = AgentStatus::Dead;
         agent.runtime_binding = None;
     }
@@ -747,7 +818,7 @@ fn capture_terminal_snapshot(
     selected_running_agent_id: Option<&AgentId>,
 ) -> Option<TerminalSnapshot> {
     let ctx_arc = ctx?;
-    let ctx_guard = ctx_arc.lock().ok()?;
+    let ctx_guard = ctx_arc.try_lock().ok()?;
     let selected_agent = snapshot.selected_agent()?;
     match selected_agent.status {
         AgentStatus::Running => selected_running_agent_id

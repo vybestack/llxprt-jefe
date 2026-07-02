@@ -24,7 +24,6 @@ use portable_pty::{
 };
 use tracing::{debug, warn};
 
-use super::commands;
 use super::errors::RuntimeError;
 use super::session::{TerminalCell, TerminalCellStyle, TerminalSnapshot};
 
@@ -456,10 +455,6 @@ impl AttachedViewer {
         ssh_command: Option<&str>,
     ) -> Result<Self, RuntimeError> {
         debug!(session_name = %session_name, rows, cols, remote = ssh_command.is_some(), "AttachedViewer::spawn start");
-        if ssh_command.is_none() {
-            commands::enforce_clipboard_passthrough(session_name);
-            debug!(session_name = %session_name, "AttachedViewer::spawn clipboard passthrough enforced");
-        }
 
         let pty_pair = open_pty(rows, cols)?;
         let cmd = attach_command(session_name, ssh_command);
