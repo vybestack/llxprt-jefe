@@ -194,9 +194,25 @@ fn pr_detail_document_viewport_reserves_composer_rows_but_preserves_document_row
 }
 
 #[test]
+fn issue_detail_document_viewport_reserves_composer_rows_but_preserves_document_row() {
+    assert_eq!(issue_detail_document_viewport_rows(20, false), 20);
+    assert_eq!(issue_detail_document_viewport_rows(20, true), 15);
+    assert_eq!(issue_detail_document_viewport_rows(5, true), 1);
+    assert_eq!(issue_detail_document_viewport_rows(6, true), 1);
+    assert_eq!(issue_detail_document_viewport_rows(1, true), 1);
+    assert_eq!(issue_detail_document_viewport_rows(0, true), 0);
+}
+
+#[test]
 fn issue_list_content_width_excludes_sidebar_and_border() {
     assert_eq!(issue_list_content_width(120), 96);
     assert_eq!(issue_list_content_width(10), 0);
+}
+
+#[test]
+fn issues_detail_content_width_subtracts_sidebar_and_chrome() {
+    assert_eq!(issues_detail_content_width(120), 92);
+    assert_eq!(issues_detail_content_width(20), 0);
 }
 
 /// @plan PLAN-20260624-PR-MODE.P12

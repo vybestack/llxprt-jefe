@@ -125,12 +125,16 @@ fn active_pr_composer(inline_state: &InlineState) -> Option<(String, usize, &'st
             target: ComposerTarget::NewComment,
             text,
             cursor,
-        } => Some((text.clone(), *cursor, "  │ ")),
+        } => Some((
+            text.clone(),
+            *cursor,
+            crate::layout::NEW_COMMENT_COMPOSER_PREFIX,
+        )),
         InlineState::Composer {
             target: ComposerTarget::Reply { .. },
             text,
             cursor,
-        } => Some((text.clone(), *cursor, "    │ ")),
+        } => Some((text.clone(), *cursor, crate::layout::REPLY_COMPOSER_PREFIX)),
         InlineState::Composer {
             target: ComposerTarget::NewIssue,
             ..

@@ -7,7 +7,9 @@
 
 use crate::domain::{IssueComment, IssueDetail, IssueState, Repository, RepositoryId};
 use crate::state::AppState;
-use crate::state::types::{AppEvent, ComposerTarget, DetailSubfocus, EditorTarget, InlineState};
+use crate::state::types::{
+    AppEvent, ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueMutationPending,
+};
 
 fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
     let mut state = AppState::default();
@@ -148,6 +150,175 @@ fn test_open_new_comment_composer_blocked_does_not_change_subfocus_or_scroll() {
             ..
         }
     ));
+}
+
+fn type_into_composer(mut state: AppState, text: &str) -> AppState {
+    for ch in text.chars() {
+        state = if ch == '\n' {
+            state.apply(AppEvent::InlineNewline)
+        } else {
+            state.apply(AppEvent::InlineChar(ch))
+        };
+    }
+    state
+}
+
+/// Typing into the Issues NewComment composer must not mutate parent document scroll.
+#[test]
+fn test_typing_in_issue_composer_does_not_mutate_detail_scroll_offset() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = state_with_long_detail(&repo_id, 42);
+    state.issues_state.detail_viewport_rows = 5;
+    let state = state.apply(AppEvent::OpenNewCommentComposer);
+    let offset_after_open = state.issues_state.detail_scroll_offset;
+
+    let state = type_into_composer(state, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8");
+
+    assert!(matches!(
+        &state.issues_state.inline_state,
+        InlineState::Composer { text, .. } if text == "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8"
+    ));
+    assert_eq!(state.issues_state.detail_scroll_offset, offset_after_open);
+}
+
+/// Arrowing inside the Issues composer must not mutate parent document scroll.
+#[test]
+fn test_arrowing_in_issue_composer_does_not_mutate_detail_scroll_offset() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = state_with_long_detail(&repo_id, 42);
+    state.issues_state.detail_viewport_rows = 5;
+    let state = state.apply(AppEvent::OpenNewCommentComposer);
+    let offset_after_open = state.issues_state.detail_scroll_offset;
+    let typed = "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8";
+    let mut state = type_into_composer(state, typed);
+
+    for event in [
+        AppEvent::InlineCursorLeft,
+        AppEvent::InlineCursorRight,
+        AppEvent::InlineCursorUp,
+        AppEvent::InlineCursorDown,
+    ] {
+        for _ in 0..typed.chars().count() {
+            state = state.apply(event.clone());
+        }
+        assert_eq!(state.issues_state.detail_scroll_offset, offset_after_open);
+        assert!(matches!(
+            &state.issues_state.inline_state,
+            InlineState::Composer { .. }
+        ));
+    }
+}
+
+/// Backspacing inside the Issues composer must not mutate parent document scroll.
+#[test]
+fn test_backspacing_in_issue_composer_does_not_mutate_detail_scroll_offset() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = state_with_long_detail(&repo_id, 42);
+    state.issues_state.detail_viewport_rows = 5;
+    let state = state.apply(AppEvent::OpenNewCommentComposer);
+    let offset_after_open = state.issues_state.detail_scroll_offset;
+    let typed = "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8";
+    let mut state = type_into_composer(state, typed);
+
+    for _ in 0..typed.chars().count() {
+        state = state.apply(AppEvent::InlineBackspace);
+    }
+    assert!(matches!(
+        &state.issues_state.inline_state,
+        InlineState::Composer { text, .. } if text.is_empty()
+    ));
+
+    assert_eq!(state.issues_state.detail_scroll_offset, offset_after_open);
+}
+
+/// Esc/Ctrl-C cancel intent must remain responsive while comment submission is pending.
+#[test]
+fn test_inline_cancel_clears_pending_issue_comment_mutation() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = state_with_long_detail(&repo_id, 42).apply(AppEvent::OpenNewCommentComposer);
+    let pending_target = state.issues_state.inline_state.clone();
+    state.issues_state.mutation_pending = Some(IssueMutationPending {
+        scope_repo_id: repo_id,
+        id: 7,
+        target: pending_target,
+    });
+
+    let state = state.apply(AppEvent::InlineCancelOrEsc);
+
+    assert_eq!(state.issues_state.inline_state, InlineState::None);
+    assert!(state.issues_state.mutation_pending.is_none());
+}
+
+/// Opening a reply composer reveals the stable reply anchor above the TextBox.
+#[test]
+fn test_open_reply_composer_reveals_reply_anchor() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = state_with_long_detail(&repo_id, 42);
+    state.issues_state.detail_viewport_rows = 8;
+    state.issues_state.detail_scroll_offset = 0;
+    state
+        .issues_state
+        .issue_detail
+        .as_mut()
+        .unwrap_or_else(|| panic!("expected detail"))
+        .comments
+        .push(p15_comment(
+            1,
+            "alice",
+            "2026-07-01T00:00:00Z",
+            "comment body",
+        ));
+
+    let state = state.apply(AppEvent::OpenReplyComposer { comment_index: 0 });
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected detail"));
+    let content = crate::issue_detail_content::build_detail_content(
+        detail,
+        state.issues_state.detail_subfocus,
+        &state.issues_state.inline_state,
+        state.issues_state.loading.comments,
+    );
+    let anchor_line = content
+        .text
+        .lines()
+        .position(|line| line == crate::issue_detail_content::ISSUE_REPLY_ANCHOR)
+        .unwrap_or_else(|| panic!("reply anchor should render"));
+    let document_rows = crate::layout::issue_detail_document_viewport_rows(
+        state.issues_state.detail_viewport_rows,
+        true,
+    );
+
+    assert!(state.issues_state.detail_scroll_offset > 0);
+    assert!(anchor_line >= state.issues_state.detail_scroll_offset);
+    assert!(anchor_line < state.issues_state.detail_scroll_offset + document_rows);
+}
+/// A blocked reply-open attempt must not perform another parent scroll reveal.
+#[test]
+fn test_blocked_reply_composer_open_does_not_mutate_scroll() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = state_with_long_detail(&repo_id, 42);
+    state.issues_state.detail_viewport_rows = 8;
+    state
+        .issues_state
+        .issue_detail
+        .as_mut()
+        .unwrap_or_else(|| panic!("expected detail"))
+        .comments
+        .push(p15_comment(
+            1,
+            "alice",
+            "2026-07-01T00:00:00Z",
+            "comment body",
+        ));
+    let mut state = state.apply(AppEvent::OpenReplyComposer { comment_index: 0 });
+    state.issues_state.detail_scroll_offset = 0;
+
+    let state = state.apply(AppEvent::OpenReplyComposer { comment_index: 0 });
+
+    assert_eq!(state.issues_state.detail_scroll_offset, 0);
 }
 
 /// Issue #56: After a comment is successfully created, the detail viewport

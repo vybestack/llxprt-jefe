@@ -218,6 +218,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                             scroll_offset: detail_scroll_offset,
                             colors: colors.clone(),
                             available_height: Some(detail_pane_height),
+                            available_width: Some(crate::layout::issues_detail_content_width(term_cols)),
                         )
                     }
 

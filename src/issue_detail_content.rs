@@ -7,6 +7,9 @@
 use crate::domain::{IssueComment, IssueDetail};
 use crate::state::{ComposerTarget, DetailSubfocus, EditorTarget, InlineState};
 
+/// Stable anchor rendered where a reply TextBox is logically attached.
+pub(crate) const ISSUE_REPLY_ANCHOR: &str = "    [Reply]";
+
 /// Scrollable issue-detail content and optional inline cursor position.
 pub struct DetailContent {
     pub text: String,
@@ -253,13 +256,11 @@ fn build_single_comment(
 
     if let InlineState::Composer {
         target: ComposerTarget::Reply { comment_index, .. },
-        text,
-        cursor,
+        ..
     } = inline_state
         && *comment_index == idx
     {
-        builder.lines.push("    [Reply]".to_string());
-        builder.push_editor_lines(text.as_str(), *cursor, true, "    │ ", "    │ ");
+        builder.lines.push(ISSUE_REPLY_ANCHOR.to_string());
         builder
             .lines
             .push("    Ctrl+Enter save | Esc cancel".to_string());
@@ -282,11 +283,9 @@ fn build_new_comment_section(
 
     if let InlineState::Composer {
         target: ComposerTarget::NewComment,
-        text,
-        cursor,
+        ..
     } = inline_state
     {
-        builder.push_editor_lines(text.as_str(), *cursor, true, "  │ ", "  │ ");
         builder
             .lines
             .push("  Ctrl+Enter submit | Esc cancel".to_string());
