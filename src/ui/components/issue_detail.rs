@@ -100,11 +100,9 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
         crate::layout::detail_viewport_rows(term_rows)
     };
     let composer = active_issue_composer(&props.inline_state);
-    let scroll_rows = crate::layout::issue_detail_document_viewport_rows(
-        detail_viewport_rows,
-        composer.is_some(),
-    );
-    let composer_rows = detail_viewport_rows.saturating_sub(scroll_rows);
+    let composer_active = composer.is_some();
+    let reserved_document_rows =
+        crate::layout::issue_detail_document_viewport_rows(detail_viewport_rows, composer_active);
     let detail_content_width = usize::from(props.available_width.unwrap_or_else(|| {
         crate::layout::issues_detail_content_width(
             crossterm::terminal::size().map_or(120, |(w, _)| w),
@@ -182,6 +180,19 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
                 rc.dim,
             )
         };
+
+    let document_line_count = detail_content.text.lines().count().max(1);
+    let scroll_rows = if composer_active {
+        reserved_document_rows.min(document_line_count)
+    } else {
+        reserved_document_rows
+    };
+    let composer_rows = if composer_active {
+        crate::layout::DETAIL_COMPOSER_VIEWPORT_ROWS
+            .min(detail_viewport_rows.saturating_sub(scroll_rows))
+    } else {
+        0
+    };
 
     let composer_element: Option<AnyElement<'static>> =
         composer.map(|(text, byte_cursor, prefix)| {

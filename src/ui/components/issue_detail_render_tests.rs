@@ -143,6 +143,50 @@ fn active_issue_new_comment_renders_text_box_text_and_caret_with_stale_offset() 
     assert!(with_caret > baseline);
 }
 
+/// For short issue details, the embedded composer should appear immediately after
+/// the read-only document content instead of being pushed to the pane bottom.
+#[test]
+fn active_issue_new_comment_on_short_detail_starts_after_comments() {
+    let detail = issue_detail_with_comment();
+    let inline = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "short draft".to_string(),
+        cursor: "short draft".len(),
+    };
+
+    let rendered = render_detail(RenderParams {
+        detail: &detail,
+        subfocus: DetailSubfocus::NewComment,
+        inline_state: &inline,
+        scroll_offset: 0,
+        pane_height: 36,
+        cols: 80,
+    });
+    let lines: Vec<&str> = rendered.lines().collect();
+    let comment_line = lines
+        .iter()
+        .position(|line| line.contains("A comment to reply to"))
+        .unwrap_or_else(|| panic!("missing final comment line in: {rendered}"));
+    let help_line = lines
+        .iter()
+        .position(|line| line.contains("Ctrl+Enter submit | Esc cancel"))
+        .unwrap_or_else(|| panic!("missing composer help line in: {rendered}"));
+    let draft_line = lines
+        .iter()
+        .position(|line| line.contains("short draft"))
+        .unwrap_or_else(|| panic!("missing TextBox draft line in: {rendered}"));
+
+    assert!(
+        draft_line <= comment_line + 5,
+        "composer should stay near the final comment instead of the pane bottom: {rendered}"
+    );
+    assert_eq!(
+        draft_line,
+        help_line + 1,
+        "composer should follow the new-comment help line without blank gap: {rendered}"
+    );
+}
+
 /// Long single-line Issues composer drafts must keep the caret-owned tail visible
 /// through TextBox even when the parent detail scroll offset is stale.
 #[test]
