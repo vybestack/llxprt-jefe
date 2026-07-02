@@ -441,9 +441,11 @@ impl TmuxRuntimeManager {
 
             // `finalize_local_session` (inside create_session) already ran
             // `enforce_clipboard_passthrough` for a freshly created local
-            // session, so record it to avoid repeating on the next attach.
+            // session. Use ensure_clipboard_passthrough to record it — this
+            // is a no-op if finalize_local_session already did the work,
+            // but is robust against future refactors of that call chain.
             if !signature.remote.enabled {
-                self.clipboard_enforced.insert(session_name.clone());
+                self.ensure_clipboard_passthrough(&session_name);
             }
         }
 
@@ -586,6 +588,10 @@ impl RuntimeManager for TmuxRuntimeManager {
         let _ = self
             .dead_signatures
             .put(agent_id.clone(), session.launch_signature.clone());
+
+        // Clear clipboard passthrough memoization for this session so a
+        // recreated session with the same name re-enforces on next attach.
+        self.clipboard_enforced.remove(&session.session_name);
 
         // If attached, clear attachment and drop viewer.
         if self.attached_agent_id.as_ref() == Some(agent_id) {

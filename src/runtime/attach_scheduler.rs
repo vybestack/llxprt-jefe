@@ -36,6 +36,10 @@ pub struct AttachScheduler {
     debounce_target: Option<AgentId>,
     debounce_started: Option<Instant>,
     debounce_duration: Duration,
+    /// Guard flag: an attach is in progress (Perform emitted, awaiting
+    /// `mark_attached`). Prevents duplicate attaches if `poll` is called
+    /// before the caller has finished the attach and called `mark_attached`.
+    in_flight: bool,
 }
 
 impl AttachScheduler {
@@ -48,6 +52,7 @@ impl AttachScheduler {
             debounce_target: None,
             debounce_started: None,
             debounce_duration,
+            in_flight: false,
         }
     }
 
@@ -62,15 +67,23 @@ impl AttachScheduler {
         self.desired = desired;
     }
 
-    /// Record a completed attach/detach. Clears debounce state.
+    /// Record a completed attach/detach. Clears debounce state and the
+    /// in-flight guard.
     pub fn mark_attached(&mut self, attached: Option<AgentId>) {
         self.attached = attached;
         self.debounce_target = None;
         self.debounce_started = None;
+        self.in_flight = false;
     }
 
     /// Core debounce logic. See module docs and unit tests for semantics.
     pub fn poll(&mut self, now: Instant) -> AttachAction {
+        // 0. If an attach is already in progress (Perform was emitted but
+        //    mark_attached hasn't been called yet), wait for it to complete.
+        if self.in_flight {
+            return AttachAction::Waiting;
+        }
+
         // 1. Stable: desired matches what is already attached.
         if self.desired == self.attached {
             self.debounce_target = None;
@@ -100,6 +113,7 @@ impl AttachScheduler {
         if now.duration_since(started) >= self.debounce_duration {
             self.debounce_target = None;
             self.debounce_started = None;
+            self.in_flight = true;
             return AttachAction::Perform(self.desired.clone());
         }
 
@@ -251,6 +265,34 @@ mod tests {
         assert_eq!(
             scheduler.poll(t0 + Duration::from_millis(99)),
             AttachAction::Waiting
+        );
+    }
+
+    #[test]
+    fn in_flight_guard_prevents_duplicate_perform() {
+        let mut scheduler = AttachScheduler::new(DEFAULT_DEBOUNCE);
+        let a = agent("A");
+        scheduler.set_desired(Some(a.clone()));
+        let t0 = Instant::now();
+        assert_eq!(scheduler.poll(t0), AttachAction::Waiting);
+        assert_eq!(
+            scheduler.poll(t0 + Duration::from_millis(100)),
+            AttachAction::Perform(Some(a.clone()))
+        );
+        // Poll again before mark_attached — must NOT emit another Perform.
+        assert_eq!(
+            scheduler.poll(t0 + Duration::from_millis(200)),
+            AttachAction::Waiting
+        );
+        assert_eq!(
+            scheduler.poll(t0 + Duration::from_millis(300)),
+            AttachAction::Waiting
+        );
+        // After mark_attached, normal operation resumes.
+        scheduler.mark_attached(Some(a.clone()));
+        assert_eq!(
+            scheduler.poll(t0 + Duration::from_millis(400)),
+            AttachAction::Stable
         );
     }
 }

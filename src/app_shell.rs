@@ -210,7 +210,10 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                             let state = app_state.read();
                             to_persisted_state(&state)
                         };
-                        persist_state(&ctx, &persisted);
+                        // Offload file I/O to a background thread so the
+                        // smol executor is not blocked during attach failure.
+                        let ctx_for_persist = ctx.clone();
+                        smol::unblock(move || persist_state(&ctx_for_persist, &persisted)).await;
                     }
                 }
             }
