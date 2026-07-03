@@ -451,3 +451,170 @@ fn unique_session(label: &str) -> String {
         .map_or(0, |duration| duration.as_nanos());
     format!("jefe-runner-{label}-{pid}-{nanos}")
 }
+
+/// Issue #116: When active-only mode is ON and the user kills an agent, the
+/// dead agent should remain visible (sticky) until the user navigates away.
+///
+/// This scenario pre-creates a tmux session running `sleep 300` so jefe's
+/// runtime kill can actually succeed, seeds a state.json with a Running agent
+/// bound to that session, then drives the real jefe binary through the
+/// kill → still-visible → navigate → filtered → quit flow.
+#[test]
+fn guarded_real_jefe_sticky_kill_scenario() {
+    let tmux = TmuxDriver::new();
+    if !tmux.is_available() {
+        let _ = std::io::Write::write_all(
+            &mut std::io::stderr(),
+            b"skipping sticky kill test: tmux unavailable\n",
+        );
+        return;
+    }
+    let Some(jefe_binary) = jefe_binary_path() else {
+        let _ = std::io::Write::write_all(
+            &mut std::io::stderr(),
+            b"skipping sticky kill test: jefe binary unavailable\n",
+        );
+        return;
+    };
+
+    let unique = unique_session("stickyagent");
+    let agent_session = format!("jefe-stickyagent-{unique}");
+
+    // Pre-create a tmux session running sleep so jefe's kill can target it.
+    let session_ok = std::process::Command::new("tmux")
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            &agent_session,
+            "--",
+            "sleep",
+            "300",
+        ])
+        .output()
+        .is_ok_and(|output| output.status.success());
+
+    if !session_ok {
+        let _ = std::io::Write::write_all(
+            &mut std::io::stderr(),
+            b"skipping sticky kill test: could not pre-create agent tmux session\n",
+        );
+        return;
+    }
+
+    // Guard ensures the pre-created session is cleaned up even on panic.
+    let _cleanup = TmuxSessionCleanup {
+        session_name: agent_session.clone(),
+    };
+
+    let config_dir = tempfile::tempdir().value_or_panic("isolated config tempdir");
+    seed_sticky_agent_state(config_dir.path(), &agent_session);
+
+    let summary = run_sticky_scenario(&jefe_binary, config_dir.path());
+    assert_eq!(summary.steps_run, 13);
+}
+
+/// Seed a config directory with a state.json containing a single Running agent
+/// bound to the given tmux session name (issue #116 scenario fixture).
+fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
+    use crate::domain::{
+        Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
+        RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
+    };
+    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
+
+    let mut agent = Agent::new(
+        AgentId("stickyagent".into()),
+        RepositoryId("testrepo".into()),
+        "StickyAgent".into(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    agent.status = AgentStatus::Running;
+    agent.shortcut_slot = Some(1);
+    agent.runtime_binding = Some(RuntimeBinding {
+        session_name: agent_session.to_string(),
+        launch_signature: LaunchSignature {
+            work_dir: std::path::PathBuf::from("/tmp"),
+            profile: String::new(),
+            mode_flags: vec![],
+            llxprt_debug: String::new(),
+            pass_continue: true,
+            sandbox_enabled: false,
+            sandbox_engine: SandboxEngine::Podman,
+            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+            remote: RemoteRepositorySettings::default(),
+        },
+        attached: false,
+        last_seen: None,
+    });
+
+    let persisted_state = State {
+        schema_version: crate::persistence::STATE_SCHEMA_VERSION,
+        repositories: vec![Repository::new(
+            RepositoryId("testrepo".into()),
+            "TestRepo".into(),
+            "testrepo".into(),
+            std::path::PathBuf::from("/tmp"),
+        )],
+        agents: vec![agent],
+        selected_repository_index: Some(0),
+        selected_agent_index: Some(0),
+        hide_idle_repositories: false,
+        last_selected_agent_by_repo: vec![],
+    };
+
+    let paths = PersistencePaths {
+        settings_path: config_dir.join("settings.toml"),
+        state_path: config_dir.join("state.json"),
+    };
+    let persistence = FilePersistenceManager::with_paths(paths);
+    persistence
+        .save_state(&persisted_state)
+        .unwrap_or_else(|e| panic!("save state: {e:?}"));
+}
+
+/// Run the issue #116 sticky-kill TUI scenario against the real jefe binary.
+fn run_sticky_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Path) -> RunSummary {
+    let scenario = scenario(
+        r#"[
+            { "waitFor": "LLxprt Jefe" },
+            { "key": "v" },
+            { "wait": 300 },
+            { "key": "Tab" },
+            { "wait": 200 },
+            { "key": "C-k" },
+            { "wait": 1000 },
+            { "expect": "StickyAgent" },
+            { "key": "Down" },
+            { "wait": 500 },
+            { "waitForNot": "StickyAgent" },
+            { "key": "q" },
+            { "waitForExit": 3000 }
+        ]"#,
+    );
+    let session_name = unique_session("sticky-jefe");
+    let request = TmuxStartRequest::jefe(
+        session_name,
+        jefe_binary.to_path_buf(),
+        config_dir,
+        std::env::current_dir().value_or_panic("current dir"),
+        TmuxPaneSize::new(100, 30, 2_000),
+    )
+    .value_or_panic("jefe request");
+
+    run_tmux_scenario(&scenario, &request, None).value_or_panic("run sticky scenario")
+}
+
+/// RAII guard that kills a pre-created tmux session on drop, ensuring cleanup
+/// even if the test panics mid-scenario.
+struct TmuxSessionCleanup {
+    session_name: String,
+}
+
+impl Drop for TmuxSessionCleanup {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("tmux")
+            .args(["kill-session", "-t", &self.session_name])
+            .output();
+    }
+}

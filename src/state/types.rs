@@ -269,6 +269,10 @@ pub struct AppState {
     pub terminal_focused: bool,
     pub hide_idle_repositories: bool,
 
+    /// Agent IDs that were just killed and should remain visible in active-only
+    /// mode until the user navigates away. Runtime-only — not persisted.
+    pub sticky_dead_agent_ids: std::collections::HashSet<crate::domain::AgentId>,
+
     // Modal/form state
     pub modal: ModalState,
 

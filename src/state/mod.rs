@@ -12,6 +12,7 @@ mod issues_inline_ops;
 mod issues_load_ops;
 mod issues_mutation_ops;
 mod issues_ops;
+mod modal_ops;
 // @plan PLAN-20260624-PR-MODE.P03
 // @requirement REQ-PR-001
 mod prs_inline_ops;
@@ -29,11 +30,11 @@ pub use types::*;
 
 use tracing::{debug, trace};
 
-use crate::domain::{Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, SandboxEngine};
+use crate::domain::{Agent, AgentId, AgentStatus};
 use crate::domain::{Repository, RepositoryId};
 use crate::messages::{
-    AppMessage, MessageRoute, ModalMessage, PersistenceMessage, RepositoryAgentMessage,
-    RuntimeMessage, SystemMessage, ThemeMessage, UiNavigationMessage,
+    AppMessage, MessageRoute, PersistenceMessage, RuntimeMessage, SystemMessage, ThemeMessage,
+    UiNavigationMessage,
 };
 
 /// Move the inline editor cursor up or down by `direction` lines (-1 = up, 1 = down).
@@ -118,7 +119,7 @@ impl AppState {
         self.repository_by_id(&agent.repository_id)
     }
 
-    fn first_unused_shortcut_slot(&self, ignore_agent: Option<&AgentId>) -> Option<u8> {
+    pub(super) fn first_unused_shortcut_slot(&self, ignore_agent: Option<&AgentId>) -> Option<u8> {
         (1u8..=9u8).find(|slot| {
             self.agents.iter().all(|agent| {
                 if ignore_agent.is_some_and(|id| &agent.id == id) {
@@ -194,14 +195,17 @@ impl AppState {
         self.selected_agent_index = visible_indices.first().copied();
     }
 
-    fn has_running_agent_in_repository(&self, repository_id: &RepositoryId) -> bool {
-        self.agents
-            .iter()
-            .any(|agent| &agent.repository_id == repository_id && agent.is_running())
+    fn has_visible_agent_in_repository(&self, repository_id: &RepositoryId) -> bool {
+        self.agents.iter().any(|agent| {
+            &agent.repository_id == repository_id
+                && (agent.is_running() || self.sticky_dead_agent_ids.contains(&agent.id))
+        })
     }
 
     fn is_agent_visible_with_idle_filter(&self, agent: &Agent) -> bool {
-        !self.hide_idle_repositories || agent.is_running()
+        !self.hide_idle_repositories
+            || agent.is_running()
+            || self.sticky_dead_agent_ids.contains(&agent.id)
     }
 
     pub fn rebuild_repository_agent_ids(&mut self) {
@@ -376,6 +380,25 @@ impl AppState {
     }
 
     fn apply_ui_navigation(&mut self, message: UiNavigationMessage) {
+        // Clear sticky-dead agent visibility on selection-changing navigation.
+        // Once the user moves away, the normal active-only filter applies and
+        // dead agents drop out of the visible set (issue #116).
+        //
+        // Display-only toggles (filter, focus, mode switches) do NOT clear
+        // sticky visibility — only actual selection changes do.
+        match message {
+            UiNavigationMessage::NavigateUp
+            | UiNavigationMessage::NavigateDown
+            | UiNavigationMessage::NavigateLeft
+            | UiNavigationMessage::NavigateRight
+            | UiNavigationMessage::SelectRepository(_)
+            | UiNavigationMessage::SelectAgent(_)
+            | UiNavigationMessage::JumpToAgentByShortcut(_) => {
+                self.sticky_dead_agent_ids.clear();
+            }
+            _ => {}
+        }
+
         match message {
             UiNavigationMessage::NavigateUp => self.handle_navigate_up(),
             UiNavigationMessage::NavigateDown => self.handle_navigate_down(),
@@ -582,191 +605,21 @@ impl AppState {
         }
     }
 
-    fn apply_modal_message(&mut self, message: ModalMessage) {
-        match message {
-            ModalMessage::OpenHelp => self.modal = ModalState::Help,
-            ModalMessage::OpenSearch => {
-                self.modal = ModalState::Search {
-                    query: String::new(),
-                };
-            }
-            ModalMessage::CloseModal => self.modal = ModalState::None,
-            ModalMessage::SubmitForm => self.handle_submit_form(),
-            ModalMessage::FormChar(c) => self.handle_form_char(c),
-            ModalMessage::FormBackspace => self.handle_form_backspace(),
-            ModalMessage::FormDelete => self.handle_form_delete(),
-            ModalMessage::FormMoveCursorLeft => self.handle_form_move_cursor_left(),
-            ModalMessage::FormMoveCursorRight => self.handle_form_move_cursor_right(),
-            ModalMessage::FormNextField => self.handle_form_next_field(),
-            ModalMessage::FormPrevField => self.handle_form_prev_field(),
-            ModalMessage::FormToggleCheckbox => self.handle_form_toggle_checkbox(),
-        }
-    }
-
-    fn apply_repository_agent_message(&mut self, message: RepositoryAgentMessage) {
-        match message {
-            RepositoryAgentMessage::OpenNewRepository => self.open_new_repository_modal(),
-            RepositoryAgentMessage::OpenEditRepository(id) => self.open_edit_repository_modal(id),
-            RepositoryAgentMessage::OpenDeleteRepository(id) => {
-                self.modal = ModalState::ConfirmDeleteRepository { id };
-            }
-            RepositoryAgentMessage::OpenNewAgent(repository_id) => {
-                self.open_new_agent_modal(repository_id);
-            }
-            RepositoryAgentMessage::OpenEditAgent(id) => self.open_edit_agent_modal(id),
-            RepositoryAgentMessage::OpenDeleteAgent(id) => {
-                self.modal = ModalState::ConfirmDeleteAgent {
-                    id,
-                    delete_work_dir: false,
-                };
-            }
-            RepositoryAgentMessage::ToggleDeleteWorkDir => self.toggle_delete_work_dir(),
-        }
-    }
-
-    fn open_new_repository_modal(&mut self) {
-        self.modal = ModalState::NewRepository {
-            fields: RepositoryFormFields::default(),
-            focus: RepositoryFormFocus::default(),
-            cursor: RepositoryFormCursor::default(),
-        };
-    }
-
-    fn open_edit_repository_modal(&mut self, id: RepositoryId) {
-        let fields = self
-            .repositories
-            .iter()
-            .find(|r| r.id == id)
-            .map(|r| RepositoryFormFields {
-                name: r.name.clone(),
-                base_dir: r.base_dir.to_string_lossy().into_owned(),
-                default_profile: r.default_profile.clone(),
-                github_repo: r.github_repo.clone(),
-                remote_enabled: r.remote.enabled,
-                login_user: r.remote.login_user.clone(),
-                host: r.remote.host.clone(),
-                run_as_user: r.remote.run_as_user.clone(),
-                setup_env_default: r.remote.setup_env_default,
-            })
-            .unwrap_or_default();
-        self.modal = ModalState::EditRepository {
-            id,
-            cursor: RepositoryFormCursor {
-                name: fields.name.chars().count(),
-                base_dir: fields.base_dir.chars().count(),
-                default_profile: fields.default_profile.chars().count(),
-                github_repo: fields.github_repo.chars().count(),
-                login_user: fields.login_user.chars().count(),
-                host: fields.host.chars().count(),
-                run_as_user: fields.run_as_user.chars().count(),
-            },
-            fields,
-            focus: RepositoryFormFocus::default(),
-        };
-    }
-
-    fn open_new_agent_modal(&mut self, repository_id: RepositoryId) {
-        let (base_dir, default_profile) = self
-            .repositories
-            .iter()
-            .find(|r| r.id == repository_id)
-            .map(|r| {
-                (
-                    r.base_dir.to_string_lossy().into_owned(),
-                    r.default_profile.clone(),
-                )
-            })
-            .unwrap_or_default();
-
-        let work_dir_len = base_dir.chars().count();
-        let profile_len = default_profile.chars().count();
-
-        self.modal = ModalState::NewAgent {
-            repository_id,
-            fields: AgentFormFields {
-                shortcut_slot: self.first_unused_shortcut_slot(None),
-                name: String::new(),
-                description: String::new(),
-                work_dir: base_dir,
-                profile: default_profile,
-                mode: "--yolo".to_owned(),
-                llxprt_debug: String::new(),
-                pass_continue: true,
-                sandbox_enabled: false,
-                sandbox_engine: SandboxEngine::Podman.label().to_owned(),
-                sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-            },
-            cursor: AgentFormCursor {
-                work_dir: work_dir_len,
-                profile: profile_len,
-                mode: "--yolo".chars().count(),
-                sandbox_flags: DEFAULT_SANDBOX_FLAGS.chars().count(),
-                ..AgentFormCursor::default()
-            },
-            focus: AgentFormFocus::default(),
-            work_dir_manual: false,
-        };
-    }
-
-    fn open_edit_agent_modal(&mut self, id: AgentId) {
-        let fields = self
-            .agents
-            .iter()
-            .find(|a| a.id == id)
-            .map(|a| AgentFormFields {
-                shortcut_slot: a.shortcut_slot,
-                name: a.name.clone(),
-                description: a.description.clone(),
-                work_dir: a.work_dir.to_string_lossy().into_owned(),
-                profile: a.profile.clone(),
-                mode: a.mode_flags.join(" "),
-                llxprt_debug: a.llxprt_debug.clone(),
-                pass_continue: a.pass_continue,
-                sandbox_enabled: a.sandbox_enabled,
-                sandbox_engine: a.sandbox_engine.label().to_owned(),
-                sandbox_flags: a.sandbox_flags.clone(),
-            })
-            .unwrap_or_default();
-        self.modal = ModalState::EditAgent {
-            id,
-            cursor: AgentFormCursor {
-                name: fields.name.chars().count(),
-                description: fields.description.chars().count(),
-                work_dir: fields.work_dir.chars().count(),
-                profile: fields.profile.chars().count(),
-                mode: fields.mode.chars().count(),
-                llxprt_debug: fields.llxprt_debug.chars().count(),
-                sandbox_flags: fields.sandbox_flags.chars().count(),
-            },
-            fields,
-            focus: AgentFormFocus::default(),
-        };
-    }
-
-    fn toggle_delete_work_dir(&mut self) {
-        if let ModalState::ConfirmDeleteAgent {
-            id,
-            delete_work_dir,
-        } = self.modal.clone()
-        {
-            self.modal = ModalState::ConfirmDeleteAgent {
-                id,
-                delete_work_dir: !delete_work_dir,
-            };
-        }
-    }
-
     fn apply_runtime_message(&mut self, message: RuntimeMessage) {
         match message {
             RuntimeMessage::KillAgent(agent_id) => {
                 if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
                     agent.status = AgentStatus::Dead;
                     agent.runtime_binding = None;
+                    self.sticky_dead_agent_ids.insert(agent_id);
                 }
             }
             RuntimeMessage::AgentStatusChanged(agent_id, status) => {
                 if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
                     agent.status = status;
+                    if status == AgentStatus::Running {
+                        self.sticky_dead_agent_ids.remove(&agent_id);
+                    }
                 }
             }
             RuntimeMessage::RelaunchAgent(agent_id) => {
@@ -774,6 +627,7 @@ impl AppState {
                     && agent.runtime_binding.is_some()
                 {
                     agent.status = AgentStatus::Running;
+                    self.sticky_dead_agent_ids.remove(&agent_id);
                 }
             }
         }

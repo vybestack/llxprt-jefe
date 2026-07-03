@@ -13,7 +13,7 @@ impl AppState {
             .enumerate()
             .filter_map(|(idx, repository)| {
                 (!self.hide_idle_repositories
-                    || self.has_running_agent_in_repository(&repository.id))
+                    || self.has_visible_agent_in_repository(&repository.id))
                 .then_some(idx)
             })
             .collect()
