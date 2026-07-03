@@ -590,6 +590,9 @@ pub enum AppEvent {
     // Lifecycle
     KillAgent(AgentId),
     RelaunchAgent(AgentId),
+    /// Kill and relaunch an agent in one action (Ctrl-r). Surfaces an error
+    /// if any step fails rather than silently dropping the agent (issue #117).
+    RestartAgent(AgentId),
     AgentStatusChanged(AgentId, AgentStatus),
 
     // Persistence results

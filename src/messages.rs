@@ -100,6 +100,8 @@ pub enum RepositoryAgentMessage {
 pub enum RuntimeMessage {
     KillAgent(AgentId),
     RelaunchAgent(AgentId),
+    /// Kill then relaunch an agent in one action (issue #117).
+    RestartAgent(AgentId),
     AgentStatusChanged(AgentId, AgentStatus),
 }
 
@@ -638,6 +640,7 @@ message_names!(RepositoryAgentMessage {
 message_names!(RuntimeMessage {
     Self::KillAgent(_) => "KillAgent",
     Self::RelaunchAgent(_) => "RelaunchAgent",
+    Self::RestartAgent(_) => "RestartAgent",
     Self::AgentStatusChanged(_, _) => "AgentStatusChanged",
 });
 

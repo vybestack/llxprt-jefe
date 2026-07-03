@@ -630,6 +630,18 @@ impl AppState {
                     self.sticky_dead_agent_ids.remove(&agent_id);
                 }
             }
+            // RestartAgent handles the edge case where apply_and_persist is
+            // called with RestartAgent directly (not via dispatch). The normal
+            // path goes through dispatch_restart_agent which applies Kill then
+            // Relaunch separately. Here we clear sticky and set Running.
+            RuntimeMessage::RestartAgent(agent_id) => {
+                self.sticky_dead_agent_ids.remove(&agent_id);
+                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id)
+                    && agent.runtime_binding.is_some()
+                {
+                    agent.status = AgentStatus::Running;
+                }
+            }
         }
     }
 

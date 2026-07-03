@@ -90,6 +90,7 @@ impl AppMessage {
             }
             AppEvent::KillAgent(id) => Self::Runtime(RuntimeMessage::KillAgent(id)),
             AppEvent::RelaunchAgent(id) => Self::Runtime(RuntimeMessage::RelaunchAgent(id)),
+            AppEvent::RestartAgent(id) => Self::Runtime(RuntimeMessage::RestartAgent(id)),
             AppEvent::AgentStatusChanged(id, status) => {
                 Self::Runtime(RuntimeMessage::AgentStatusChanged(id, status))
             }
@@ -295,6 +296,7 @@ impl From<RuntimeMessage> for AppEvent {
         match message {
             RuntimeMessage::KillAgent(id) => Self::KillAgent(id),
             RuntimeMessage::RelaunchAgent(id) => Self::RelaunchAgent(id),
+            RuntimeMessage::RestartAgent(id) => Self::RestartAgent(id),
             RuntimeMessage::AgentStatusChanged(id, status) => Self::AgentStatusChanged(id, status),
         }
     }

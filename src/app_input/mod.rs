@@ -447,6 +447,9 @@ pub fn dispatch_app_message(
         AppMessage::Runtime(RuntimeMessage::RelaunchAgent(agent_id)) => {
             dispatch_relaunch_agent(app_state, ctx, agent_id);
         }
+        AppMessage::Runtime(RuntimeMessage::RestartAgent(agent_id)) => {
+            dispatch_restart_agent(app_state, ctx, agent_id);
+        }
         AppMessage::Issues(
             message @ (IssuesMessage::NavigateUp
             | IssuesMessage::NavigateDown
@@ -546,6 +549,43 @@ fn persist_error_message(app_state: &mut AppStateHandle, ctx: &SharedContext, er
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
+}
+
+/// Restart an agent: kill, wait for session teardown, then relaunch with fresh
+/// config/env (issue #117). Surfaces an error if any step fails.
+fn dispatch_restart_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {
+    // Only kill if the agent is currently running; dead agents skip straight
+    // to relaunch (tolerating Ctrl-r on already-dead agents).
+    let agent_is_running = app_state
+        .read()
+        .agents
+        .iter()
+        .find(|a| a.id == agent_id)
+        .is_some_and(jefe::domain::Agent::is_running);
+
+    if agent_is_running {
+        if let Err(error) = kill_runtime_agent(ctx, &agent_id) {
+            warn!(agent_id = %agent_id.0, error = %error, "restart: kill failed");
+            persist_error_message(app_state, ctx, error);
+            return;
+        }
+
+        // Apply kill state transition so the UI reflects the kill immediately.
+        {
+            let mut state = app_state.write();
+            *state = std::mem::take(&mut *state).apply(AppEvent::KillAgent(agent_id.clone()));
+            state.terminal_focused = false;
+            let persisted = to_persisted_state(&state);
+            drop(state);
+            persist_state(ctx, &persisted);
+        }
+
+        // Wait for session teardown before relaunching (issue says 1-2s).
+        std::thread::sleep(Duration::from_millis(1500));
+    }
+
+    // Relaunch with fresh config (reuses existing relaunch plumbing).
+    dispatch_relaunch_agent(app_state, ctx, agent_id);
 }
 
 fn dispatch_relaunch_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {

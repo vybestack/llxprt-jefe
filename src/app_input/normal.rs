@@ -22,6 +22,7 @@ struct NormalKeySnapshot {
     selected_agent_id: Option<AgentId>,
 }
 
+#[derive(Debug)]
 pub(super) enum KeyHandling {
     Unhandled,
     Handled(Option<AppEvent>),
@@ -331,6 +332,17 @@ fn resolve_agent_lifecycle_key(key_event: &KeyEvent, snapshot: &NormalKeySnapsho
         KeyCode::Char('k' | 'K') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
             KeyHandling::Handled(snapshot.selected_agent_id.clone().map(AppEvent::KillAgent))
         }
+        // Ctrl-r: kill + relaunch in one action (issue #117). Placed BEFORE
+        // the plain `l`/`L` arm so the CONTROL modifier is checked first, and
+        // before `handle_direct_pane_focus_key` (which handles plain `r`).
+        KeyCode::Char('r' | 'R') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyHandling::Handled(
+                snapshot
+                    .selected_agent_id
+                    .clone()
+                    .map(AppEvent::RestartAgent),
+            )
+        }
         KeyCode::Char('l' | 'L') => KeyHandling::Handled(relaunch_event_for_selected_agent(
             snapshot.selected_agent_id.clone(),
             snapshot.selected_agent_is_running,
@@ -507,13 +519,17 @@ fn handle_theme_key(ctx: &SharedContext, key_event: &KeyEvent) -> KeyHandling {
 
 #[cfg(test)]
 mod tests {
-    use super::{issues_quit_shortcut_active, relaunch_event_for_selected_agent};
+    use super::{
+        KeyHandling, NormalKeySnapshot, issues_quit_shortcut_active,
+        relaunch_event_for_selected_agent, resolve_agent_lifecycle_key,
+    };
+    use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
     use jefe::domain::AgentId;
     use jefe::input::InputMode;
     use jefe::input::input_mode_for_state;
     use jefe::state::{
         AgentChooserState, AppEvent, AppState, ComposerTarget, InlineState, IssueFocus,
-        IssuesState, ScreenMode,
+        IssuesState, PaneFocus, ScreenMode,
     };
 
     #[test]
@@ -628,5 +644,98 @@ mod tests {
         };
         assert!(matches!(input_mode_for_state(&state), InputMode::Normal));
         assert!(!issues_quit_shortcut_active(&state));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Ctrl-r restart-agent key handler (RED → GREEN)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    fn key_press(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(KeyEventKind::Press, code)
+    }
+
+    fn key_with_mods(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        let mut evt = KeyEvent::new(KeyEventKind::Press, code);
+        evt.modifiers = modifiers;
+        evt
+    }
+
+    fn snapshot_with_agent(agent_id: &str, running: bool) -> NormalKeySnapshot {
+        NormalKeySnapshot {
+            pane_focus: PaneFocus::Agents,
+            selected_agent_is_running: running,
+            selected_repo_id: None,
+            selected_agent_id: Some(AgentId(agent_id.to_string())),
+        }
+    }
+
+    /// Ctrl-r on a running agent should emit `RestartAgent` (issue #117).
+    #[test]
+    fn restart_event_is_emitted_for_running_agent() {
+        let snapshot = snapshot_with_agent("a1", true);
+        let key_event = key_with_mods(KeyCode::Char('r'), KeyModifiers::CONTROL);
+        let handling = resolve_agent_lifecycle_key(&key_event, &snapshot);
+        match handling {
+            KeyHandling::Handled(Some(AppEvent::RestartAgent(AgentId(id)))) => {
+                assert_eq!(id, "a1");
+            }
+            other => panic!("expected Handled(RestartAgent), got {other:?}"),
+        }
+    }
+
+    /// Ctrl-r on a dead agent should also emit `RestartAgent` — restart works
+    /// regardless of status (unlike `l` which only relaunches dead agents).
+    #[test]
+    fn restart_event_is_emitted_for_dead_agent() {
+        let snapshot = snapshot_with_agent("a2", false);
+        let key_event = key_with_mods(KeyCode::Char('r'), KeyModifiers::CONTROL);
+        let handling = resolve_agent_lifecycle_key(&key_event, &snapshot);
+        match handling {
+            KeyHandling::Handled(Some(AppEvent::RestartAgent(AgentId(id)))) => {
+                assert_eq!(id, "a2");
+            }
+            other => panic!("expected Handled(RestartAgent), got {other:?}"),
+        }
+    }
+
+    /// Plain `r` without CONTROL must NOT produce a restart event — it should
+    /// be unhandled by `resolve_agent_lifecycle_key` so it falls through to
+    /// `handle_direct_pane_focus_key` (focus repositories pane).
+    #[test]
+    fn plain_r_does_not_restart() {
+        let snapshot = snapshot_with_agent("a1", true);
+        let key_event = key_press(KeyCode::Char('r'));
+        let handling = resolve_agent_lifecycle_key(&key_event, &snapshot);
+        assert!(
+            matches!(handling, KeyHandling::Unhandled),
+            "plain r should not be handled by lifecycle resolver"
+        );
+    }
+
+    /// Ctrl-R (uppercase / shift) should also restart — be lenient with case.
+    #[test]
+    fn ctrl_shift_r_also_restarts() {
+        let snapshot = snapshot_with_agent("a3", true);
+        let key_event = key_with_mods(KeyCode::Char('R'), KeyModifiers::CONTROL);
+        let handling = resolve_agent_lifecycle_key(&key_event, &snapshot);
+        assert!(matches!(
+            handling,
+            KeyHandling::Handled(Some(AppEvent::RestartAgent(_)))
+        ));
+    }
+
+    /// Ctrl-r with no selected agent should produce `Handled(None)` — the key
+    /// is consumed (handled) but there's nothing to restart.
+    #[test]
+    fn ctrl_r_with_no_selection_is_handled_without_event() {
+        let snapshot = NormalKeySnapshot {
+            pane_focus: PaneFocus::Agents,
+            selected_agent_is_running: false,
+            selected_repo_id: None,
+            selected_agent_id: None,
+        };
+        let key_event = key_with_mods(KeyCode::Char('r'), KeyModifiers::CONTROL);
+        let handling = resolve_agent_lifecycle_key(&key_event, &snapshot);
+        assert!(matches!(handling, KeyHandling::Handled(None)));
     }
 }

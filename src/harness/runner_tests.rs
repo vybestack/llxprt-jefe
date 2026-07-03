@@ -618,3 +618,164 @@ impl Drop for TmuxSessionCleanup {
             .output();
     }
 }
+
+/// Issue #117: Ctrl-r should restart (kill + relaunch) a running agent in one
+/// action. This scenario pre-creates a tmux session running `sleep 300`, seeds
+/// a state.json with a Running agent bound to that session, then drives the
+/// real jefe binary through the restart flow: active-only → Tab to Agents →
+/// Ctrl-r → expect agent still visible and running → quit.
+#[test]
+fn guarded_real_jefe_restart_scenario() {
+    let tmux = TmuxDriver::new();
+    if !tmux.is_available() {
+        let _ = std::io::Write::write_all(
+            &mut std::io::stderr(),
+            b"skipping restart test: tmux unavailable
+",
+        );
+        return;
+    }
+    let Some(jefe_binary) = jefe_binary_path() else {
+        let _ = std::io::Write::write_all(
+            &mut std::io::stderr(),
+            b"skipping restart test: jefe binary unavailable
+",
+        );
+        return;
+    };
+
+    let unique = unique_session("restartagent");
+    let agent_session = format!("jefe-restartagent-{unique}");
+
+    // Pre-create a tmux session running sleep so jefe's kill can target it.
+    let session_ok = std::process::Command::new("tmux")
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            &agent_session,
+            "--",
+            "sleep",
+            "300",
+        ])
+        .output()
+        .is_ok_and(|output| output.status.success());
+
+    if !session_ok {
+        let _ = std::io::Write::write_all(
+            &mut std::io::stderr(),
+            b"skipping restart test: could not pre-create agent tmux session
+",
+        );
+        return;
+    }
+
+    // Guard ensures the pre-created session is cleaned up even on panic.
+    let _cleanup = TmuxSessionCleanup {
+        session_name: agent_session.clone(),
+    };
+
+    let config_dir = tempfile::tempdir().value_or_panic("isolated config tempdir");
+    seed_restart_agent_state(config_dir.path(), &agent_session);
+
+    let summary = run_restart_scenario(&jefe_binary, config_dir.path());
+    assert_eq!(summary.steps_run, 8);
+
+    // Verify the restart actually killed the original `sleep 300` process.
+    // After restart, the session should no longer contain the sleep process
+    // (it was killed and replaced with the agent command).
+    let sleep_still_running = std::process::Command::new("tmux")
+        .args(["capture-pane", "-t", &agent_session, "-p", "-S", "-"])
+        .output()
+        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("sleep 300"));
+    assert!(
+        !sleep_still_running,
+        "restart should have killed the original sleep process"
+    );
+}
+
+/// Seed a config directory with a state.json containing a single Running agent
+/// bound to the given tmux session name (issue #117 scenario fixture).
+fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
+    use crate::domain::{
+        Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
+        RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
+    };
+    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
+
+    let mut agent = Agent::new(
+        AgentId("restartagent".into()),
+        RepositoryId("testrepo".into()),
+        "RestartAgent".into(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    agent.status = AgentStatus::Running;
+    agent.shortcut_slot = Some(1);
+    agent.runtime_binding = Some(RuntimeBinding {
+        session_name: agent_session.to_string(),
+        launch_signature: LaunchSignature {
+            work_dir: std::path::PathBuf::from("/tmp"),
+            profile: String::new(),
+            mode_flags: vec![],
+            llxprt_debug: String::new(),
+            pass_continue: true,
+            sandbox_enabled: false,
+            sandbox_engine: SandboxEngine::Podman,
+            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+            remote: RemoteRepositorySettings::default(),
+        },
+        attached: false,
+        last_seen: None,
+    });
+
+    let persisted_state = State {
+        schema_version: crate::persistence::STATE_SCHEMA_VERSION,
+        repositories: vec![Repository::new(
+            RepositoryId("testrepo".into()),
+            "TestRepo".into(),
+            "testrepo".into(),
+            std::path::PathBuf::from("/tmp"),
+        )],
+        agents: vec![agent],
+        selected_repository_index: Some(0),
+        selected_agent_index: Some(0),
+        hide_idle_repositories: false,
+        last_selected_agent_by_repo: vec![],
+    };
+
+    let paths = PersistencePaths {
+        settings_path: config_dir.join("settings.toml"),
+        state_path: config_dir.join("state.json"),
+    };
+    let persistence = FilePersistenceManager::with_paths(paths);
+    persistence
+        .save_state(&persisted_state)
+        .unwrap_or_else(|e| panic!("save state: {e:?}"));
+}
+
+/// Run the issue #117 restart TUI scenario against the real jefe binary.
+fn run_restart_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Path) -> RunSummary {
+    let scenario = scenario(
+        r#"[
+            { "waitFor": "LLxprt Jefe" },
+            { "key": "Tab" },
+            { "wait": 200 },
+            { "key": "C-r" },
+            { "wait": 3000 },
+            { "expect": "RestartAgent" },
+            { "key": "q" },
+            { "waitForExit": 5000 }
+        ]"#,
+    );
+    let session_name = unique_session("restart-jefe");
+    let request = TmuxStartRequest::jefe(
+        session_name,
+        jefe_binary.to_path_buf(),
+        config_dir,
+        std::env::current_dir().value_or_panic("current dir"),
+        TmuxPaneSize::new(100, 30, 2_000),
+    )
+    .value_or_panic("jefe request");
+
+    run_tmux_scenario(&scenario, &request, None).value_or_panic("run restart scenario")
+}

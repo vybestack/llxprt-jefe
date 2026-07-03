@@ -23,7 +23,7 @@ pub fn HelpModal(props: &HelpModalProps) -> impl Into<AnyElement<'static>> {
         Box(
             flex_direction: FlexDirection::Column,
             width: 60u32,
-            height: 20u32,
+            height: 22u32,
             border_style: BorderStyle::Round,
             border_color: rc.border_focused,
             background_color: rc.bg,
@@ -50,6 +50,7 @@ pub fn HelpModal(props: &HelpModalProps) -> impl Into<AnyElement<'static>> {
                 Text(content: "  N           New repository", color: rc.fg)
                 Text(content: "  Ctrl-d      Delete selected", color: rc.fg)
                 Text(content: "  Ctrl-k      Kill agent", color: rc.fg)
+                Text(content: "  Ctrl-r      Restart agent", color: rc.fg)
                 Text(content: "  l           Relaunch dead agent", color: rc.fg)
                 Text(content: "  s           Split mode", color: rc.fg)
                 Text(content: "  v           Toggle active-only (repos + agents)", color: rc.fg)
