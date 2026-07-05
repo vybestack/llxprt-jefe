@@ -109,6 +109,37 @@ fn set_agent_runtime_binding_sets_session_and_signature() {
         assert_eq!(binding.session_name, String::from("jefe-agent-1"));
         assert_eq!(binding.launch_signature, signature);
         assert!(!binding.attached);
+        assert!(binding.pid.is_none());
+    }
+}
+
+#[test]
+fn set_agent_runtime_binding_persists_pid() {
+    let agent_id = AgentId(String::from("agent-pid"));
+    let mut state = AppState::default();
+    state.agents.push(sample_agent(&agent_id));
+
+    let signature = sample_signature();
+    set_agent_runtime_binding(
+        &mut state,
+        &agent_id,
+        String::from("jefe-agent-pid"),
+        signature.clone(),
+        Some(12345),
+    );
+
+    let binding = state
+        .agents
+        .iter()
+        .find(|agent| agent.id == agent_id)
+        .and_then(|agent| agent.runtime_binding.as_ref());
+
+    assert!(binding.is_some());
+    if let Some(binding) = binding {
+        assert_eq!(binding.session_name, String::from("jefe-agent-pid"));
+        assert_eq!(binding.launch_signature, signature);
+        assert!(!binding.attached);
+        assert_eq!(binding.pid, Some(12345));
     }
 }
 

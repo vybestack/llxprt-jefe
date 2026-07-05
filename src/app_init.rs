@@ -295,6 +295,11 @@ fn restore_one_agent(
 
     match restore_dead_decision(session_exists, signature.remote.enabled, pid) {
         RestoreDecision::Dead => RestoreOneOutcome::Dead,
+        // SkipOrphan agents remain Running in AppState but have NO entry in
+        // the TmuxRuntimeManager in-memory session map (by design — the
+        // persisted `runtime_binding.pid` is the liveness source of truth for
+        // orphans; active orphan reclaim/re-adoption is the deferred follow-up,
+        // issue #121 item 4).
         RestoreDecision::SkipOrphan => RestoreOneOutcome::Skip,
         RestoreDecision::Revive => {
             match revive_agent_session(agent, &signature, runtime, runtime_warning) {

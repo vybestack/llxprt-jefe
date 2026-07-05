@@ -401,8 +401,13 @@ fn launch_pr_agent(
 ) {
     let launched = spawn_and_attach_fresh_for_pr(ctx, &agent_id, &work_dir, &launch_sig);
     // Capture the worker PID from the runtime for the persisted binding's
-    // PID-liveness fallback.
-    let pid = worker_pid_for(ctx, &agent_id);
+    // PID-liveness fallback. Skip the query on the failure path (no binding
+    // is persisted), avoiding wasted work.
+    let pid = if launched {
+        worker_pid_for(ctx, &agent_id)
+    } else {
+        None
+    };
     let mut state = app_state.write();
     if launched {
         persist_pr_agent_launch_success(&mut state, &agent_id, launch_sig, pid);

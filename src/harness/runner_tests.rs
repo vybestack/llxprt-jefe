@@ -601,8 +601,8 @@ fn run_sticky_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Pa
 /// socket so jefe's session-exists check (which targets the private socket)
 /// finds it. Returns `true` on success.
 fn create_sleep_session_on_jefe_socket(session_name: &str, seconds: u64) -> bool {
-    let jefe_socket = crate::runtime::socket::jefe_tmux_socket_path();
-    std::process::Command::new("tmux")
+    let jefe_socket = crate::runtime::jefe_tmux_socket_path();
+    match std::process::Command::new("tmux")
         .args([
             "-S",
             &jefe_socket.to_string_lossy(),
@@ -615,12 +615,28 @@ fn create_sleep_session_on_jefe_socket(session_name: &str, seconds: u64) -> bool
             &seconds.to_string(),
         ])
         .output()
-        .is_ok_and(|output| output.status.success())
+    {
+        Ok(output) if output.status.success() => true,
+        Ok(output) => {
+            tracing::warn!(
+                stderr = %String::from_utf8_lossy(&output.stderr),
+                "create_sleep_session_on_jefe_socket failed"
+            );
+            false
+        }
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                "create_sleep_session_on_jefe_socket failed to spawn tmux"
+            );
+            false
+        }
+    }
 }
 
 /// Capture pane text for a session on jefe's dedicated socket.
 fn capture_jefe_pane(session_name: &str) -> Option<String> {
-    let jefe_socket = crate::runtime::socket::jefe_tmux_socket_path();
+    let jefe_socket = crate::runtime::jefe_tmux_socket_path();
     let output = std::process::Command::new("tmux")
         .args([
             "-S",
@@ -651,7 +667,7 @@ impl Drop for TmuxSessionCleanup {
         // Best-effort kill on both jefe's dedicated socket and the default
         // socket, so a pre-created session is cleaned up regardless of which
         // socket it lives on.
-        let jefe_socket = crate::runtime::socket::jefe_tmux_socket_path();
+        let jefe_socket = crate::runtime::jefe_tmux_socket_path();
         let _ = std::process::Command::new("tmux")
             .args([
                 "-S",
@@ -721,13 +737,20 @@ fn guarded_real_jefe_restart_scenario() {
     assert_eq!(summary.steps_run, 8);
 
     // Verify the restart actually killed the original `sleep 300` process.
-    // After restart, the session should no longer contain the sleep process
-    // (it was killed and replaced with the agent command). Query jefe's
-    // dedicated socket since that's where the session lives.
-    let sleep_still_running =
-        capture_jefe_pane(&agent_session).is_some_and(|pane| pane.contains("sleep 300"));
+    // After restart, the session (recreated under the same `jefe-{agent_id}`
+    // name) must still exist and run the agent command — NOT `sleep 300`.
+    //
+    // A `None` capture here means the session was killed but NOT recreated,
+    // i.e. a restart failure that must fail the test rather than silently
+    // passing (the pre-created session name matches jefe's session name, so a
+    // successful restart leaves a live session under the same name).
+    let pane = capture_jefe_pane(&agent_session).unwrap_or_else(|| {
+        panic!(
+            "session {agent_session} should still exist after restart; capture-pane returned None (the session may have been killed but not recreated — a restart failure)"
+        )
+    });
     assert!(
-        !sleep_still_running,
+        !pane.contains("sleep 300"),
         "restart should have killed the original sleep process"
     );
 }
@@ -741,8 +764,14 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
     };
     use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
 
+    // Derive the agent id from the session name so that
+    // `RuntimeSession::session_name_for(agent_id)` reproduces `agent_session`
+    // exactly. This keeps the pre-created (sleep) session name coherent with
+    // the name jefe computes for the agent, so restart targets the SAME session
+    // the scenario seeded.
+    let agent_id_value = agent_session.strip_prefix("jefe-").unwrap_or(agent_session);
     let mut agent = Agent::new(
-        AgentId("restartagent".into()),
+        AgentId(agent_id_value.to_owned()),
         RepositoryId("testrepo".into()),
         "RestartAgent".into(),
         std::path::PathBuf::from("/tmp"),

@@ -153,18 +153,29 @@ fn resolve_from_env(socket_path_env: Option<&str>, socket_dir_env: Option<&str>)
     }
 
     // 2. JEFE_SOCKET_DIR — directory; socket file = `<dir>/jefe-<uid>.sock`.
-    //    Apply the same length guard as the default-dir branch: an over-long
-    //    custom directory would reproduce the cryptic tmux socket failure, so
-    //    warn and fall through to the platform default instead.
+    //    A relative directory resolves against tmux's CWD (not jefe's),
+    //    causing the same bug class as a relative JEFE_SOCKET_PATH, so only
+    //    honor it when absolute. Apply the same length guard as the
+    //    default-dir branch: an over-long custom directory would reproduce
+    //    the cryptic tmux socket failure, so warn and fall through to the
+    //    platform default instead.
     if let Some(dir) = socket_dir_env.map(str::trim).filter(|s| !s.is_empty()) {
-        let candidate = PathBuf::from(dir).join(socket_filename());
-        if socket_path_len_ok(&candidate) {
-            return candidate;
+        let dir_buf = PathBuf::from(dir);
+        if dir_buf.is_absolute() {
+            let candidate = dir_buf.join(socket_filename());
+            if socket_path_len_ok(&candidate) {
+                return candidate;
+            }
+            tracing::warn!(
+                candidate = %candidate.display(),
+                "JEFE_SOCKET_DIR-derived path too long for a Unix domain socket; falling through to default"
+            );
+        } else {
+            tracing::warn!(
+                requested_dir = %dir_buf.display(),
+                "JEFE_SOCKET_DIR is not absolute; ignoring and falling through to default"
+            );
         }
-        tracing::warn!(
-            candidate = %candidate.display(),
-            "JEFE_SOCKET_DIR-derived path too long for a Unix domain socket; falling through to default"
-        );
     }
 
     // 3. Platform default.
@@ -300,6 +311,23 @@ mod tests {
         assert!(
             !path.starts_with(&long_dir),
             "over-long JEFE_SOCKET_DIR should fall through, got {path:?}"
+        );
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_else(|| panic!("fallback must have a filename: {path:?}"));
+        assert_valid_jefe_socket_filename(filename);
+    }
+
+    #[test]
+    fn resolve_ignores_relative_socket_dir() {
+        // A relative JEFE_SOCKET_DIR must be ignored (it would resolve
+        // against tmux's CWD, same bug class as a relative JEFE_SOCKET_PATH),
+        // falling through to the platform default.
+        let path = resolve_from_env(None, Some("relative/sockets"));
+        assert!(
+            !path.starts_with("relative/sockets"),
+            "relative JEFE_SOCKET_DIR should fall through, got {path:?}"
         );
         let filename = path
             .file_name()

@@ -15,7 +15,7 @@ mod liveness;
 mod manager;
 mod preflight;
 mod session;
-pub mod socket;
+mod socket;
 
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use errors::RuntimeError;
@@ -26,6 +26,7 @@ pub use preflight::{
     sandbox_preflight, sandbox_ssh_agent_warning,
 };
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
+pub use socket::jefe_tmux_socket_path;
 
 #[cfg(test)]
 mod tests {

@@ -466,6 +466,12 @@ impl TmuxRuntimeManager {
         // local-only, so it is not queried for remote sessions. Captured for
         // both the reattach and create branches so creation and revival stay
         // symmetric.
+        //
+        // On the reattach path this is best-effort but valid: reattach only
+        // occurs after `check_session_alive` confirmed a non-dead pane, which
+        // means the pane's direct command (the llxprt worker) is still
+        // running, so `#{pane_pid}` is the worker PID. We capture it here so
+        // it persists into RuntimeBinding for the PID-liveness fallback.
         let captured_pid = if signature.remote.enabled {
             None
         } else {

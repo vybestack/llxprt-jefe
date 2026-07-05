@@ -818,7 +818,7 @@ mod tests {
     #[test]
     fn tmux_base_args_include_config_skip_and_dedicated_socket() {
         let args = tmux_base_args();
-        let socket = crate::runtime::socket::jefe_tmux_socket_path();
+        let socket = crate::runtime::jefe_tmux_socket_path();
         assert_eq!(
             args,
             vec![

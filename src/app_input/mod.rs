@@ -644,12 +644,18 @@ fn persist_relaunch_result(
     relaunched: bool,
 ) {
     let relaunch_event = AppEvent::RelaunchAgent(agent_id.clone());
+    // Query the PID BEFORE taking the app-state write lock to match the
+    // established pattern (mark_launch_attached): app_state-lock → ctx-lock
+    // ordering would be a lock-ordering hazard, since worker_pid_for
+    // acquires the ctx mutex. On the failure path no binding is persisted,
+    // so skip the wasted PID query.
+    let pid = if relaunched {
+        worker_pid_for(ctx, &agent_id)
+    } else {
+        None
+    };
     let mut state = app_state.write();
     if relaunched {
-        // Query the runtime for the worker PID only on the success path
-        // (the failure path does not persist a binding), so the persisted
-        // binding carries the PID-liveness fallback.
-        let pid = worker_pid_for(ctx, &agent_id);
         persist_relaunch_success(&mut state, &agent_id, relaunch_event, pid);
     } else {
         persist_relaunch_failure(&mut state, &agent_id, relaunch_event);
@@ -874,8 +880,14 @@ fn launch_issue_agent(
 ) {
     let launched = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
     // Capture the worker PID from the runtime for the persisted binding's
-    // PID-liveness fallback.
-    let pid = worker_pid_for(ctx, &agent_id);
+    // PID-liveness fallback. Skip the query on the failure path (no binding
+    // is persisted), avoiding wasted work. This is already before
+    // `app_state.write()` so lock ordering is correct.
+    let pid = if launched {
+        worker_pid_for(ctx, &agent_id)
+    } else {
+        None
+    };
     let mut state = app_state.write();
     if launched {
         persist_issue_agent_launch_success(&mut state, &agent_id, launch_sig, pid);
