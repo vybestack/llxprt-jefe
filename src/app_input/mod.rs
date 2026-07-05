@@ -24,6 +24,12 @@ mod prs_orchestration;
 
 mod gh_async;
 
+mod agent_runtime;
+use agent_runtime::{
+    clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
+    mark_runtime_session_dead_if_present, set_agent_runtime_binding, worker_pid_for,
+};
+
 pub use modal_handlers::{handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key};
 
 pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
@@ -34,7 +40,7 @@ use tracing::{debug, warn};
 
 use std::time::Duration;
 
-use jefe::domain::{AgentId, AgentStatus, LaunchSignature, Repository};
+use jefe::domain::{AgentId, LaunchSignature, Repository};
 
 const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
     ('¡', 1),
@@ -146,14 +152,6 @@ pub fn persist_state(ctx: &SharedContext, persisted: &PersistedState) {
     }
 }
 
-fn clear_runtime_warning(state: &mut AppState) {
-    if state.warning_message.as_deref().is_some_and(|warning| {
-        warning.contains("SSH_AUTH_SOCK") || warning.contains("SSH agent socket")
-    }) {
-        state.warning_message = None;
-    }
-}
-
 fn launch_signature_for_agent(
     agent: &jefe::domain::Agent,
     repository: &Repository,
@@ -183,59 +181,6 @@ fn agent_and_signature(
     let repository = state.repository_by_id(&agent.repository_id)?;
     let signature = launch_signature_for_agent(&agent, repository);
     Some((agent, signature))
-}
-
-fn set_agent_runtime_binding(
-    state: &mut AppState,
-    agent_id: &AgentId,
-    session_name: String,
-    signature: LaunchSignature,
-    pid: Option<u32>,
-) {
-    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
-        agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
-            session_name,
-            launch_signature: signature,
-            attached: false,
-            last_seen: None,
-            pid,
-        });
-    }
-}
-
-fn mark_agent_runtime_attached(state: &mut AppState, agent_id: &AgentId, attached: bool) {
-    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id)
-        && let Some(binding) = agent.runtime_binding.as_mut()
-    {
-        binding.attached = attached;
-    }
-}
-
-fn clear_agent_runtime_attachment(state: &mut AppState) {
-    for agent in &mut state.agents {
-        if let Some(binding) = agent.runtime_binding.as_mut() {
-            binding.attached = false;
-        }
-    }
-}
-
-/// Query the runtime for an agent's worker PID (`llxprt` OS process) via the
-/// shared context. Returns `None` when the context is absent, the lock is
-/// poisoned, or the runtime has no PID recorded. Shared by the launch,
-/// relaunch, and issue/PR send paths.
-fn worker_pid_for(ctx: &SharedContext, agent_id: &AgentId) -> Option<u32> {
-    ctx.as_ref()
-        .and_then(|arc| arc.lock().ok())
-        .and_then(|guard| guard.runtime.worker_pid(agent_id))
-}
-
-fn mark_runtime_session_dead_if_present(state: &mut AppState, agent_id: &AgentId) {
-    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
-        agent.status = AgentStatus::Dead;
-        if let Some(binding) = agent.runtime_binding.as_mut() {
-            binding.attached = false;
-        }
-    }
 }
 
 fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
