@@ -634,3 +634,80 @@ fn agent_grab_carries_repository_id() {
         other => panic!("expected Agent grab with repository_id, got {other:?}"),
     }
 }
+
+// ============================================================================
+// finalize_message validates stale grab (CodeRabbit finding)
+// ============================================================================
+
+#[test]
+fn enter_issues_mode_clears_dashboard_grab_via_finalize() {
+    let mut state = create_dashboard_test_state();
+    state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 0 });
+
+    // EnterIssuesMode changes screen_mode away from Dashboard; finalize_message
+    // validation must clear the stale grab.
+    state = state.apply(AppEvent::EnterIssuesMode);
+
+    assert_ne!(state.screen_mode, ScreenMode::Dashboard);
+    assert_eq!(state.dashboard_grab, None);
+}
+
+#[test]
+fn repository_deletion_clears_stale_grab_via_finalize() {
+    let mut state = create_dashboard_test_state();
+    // repos: [alpha, bravo, charlie] — grab charlie at visible_index 2
+    state.dashboard_grab = Some(DashboardGrabPane::Repository { visible_index: 2 });
+
+    // Deleting a repository shrinks the Vec; finalize_message validates the
+    // visible_index is still in bounds and clears if not.
+    // Here we simulate the state change by applying a persistence/system event
+    // that triggers finalize. OpenHelp is a modal event that goes through finalize.
+    state = state.apply(AppEvent::OpenHelp);
+
+    // With 3 repos, visible_index 2 is still valid, so grab should survive.
+    assert_eq!(
+        state.dashboard_grab,
+        Some(DashboardGrabPane::Repository { visible_index: 2 })
+    );
+
+    // Now manually shrink the repositories and trigger finalize via another event.
+    state.repositories.pop();
+    state = state.apply(AppEvent::CloseModal);
+
+    // visible_index 2 is now out of bounds (only 2 repos left) — grab cleared.
+    assert_eq!(state.dashboard_grab, None);
+}
+
+#[test]
+fn agent_deletion_clears_stale_agent_grab_via_finalize() {
+    let mut state = create_multi_agent_dashboard_state();
+    // agents: [agent-one, agent-two, agent-three] — grab at local_index 2
+    let repo_id = state.repositories[0].id.clone();
+    state.dashboard_grab = Some(DashboardGrabPane::Agent {
+        repository_id: repo_id,
+        local_index: 2,
+    });
+
+    // Remove the last agent so local_index 2 is out of bounds.
+    state.agents.pop();
+    state = state.apply(AppEvent::OpenHelp);
+
+    assert_eq!(state.dashboard_grab, None);
+}
+
+#[test]
+fn agent_grab_for_deleted_repository_clears_via_finalize() {
+    let mut state = create_dashboard_test_state();
+    let deleted_repo_id = state.repositories[2].id.clone();
+    state.dashboard_grab = Some(DashboardGrabPane::Agent {
+        repository_id: deleted_repo_id,
+        local_index: 0,
+    });
+
+    // Remove the repository the grab points to.
+    state.repositories.pop();
+    state = state.apply(AppEvent::OpenHelp);
+
+    // repository_id no longer exists → grab cleared.
+    assert_eq!(state.dashboard_grab, None);
+}

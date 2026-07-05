@@ -360,6 +360,7 @@ impl AppState {
     fn finalize_message(&mut self, route: MessageRoute) {
         self.rebuild_repository_agent_ids();
         self.normalize_selection_indices();
+        self.validate_dashboard_grab();
         self.last_selected_agent_by_repo
             .retain(|(repo_id, agent_id)| {
                 self.repositories.iter().any(|repo| repo.id == *repo_id)
@@ -614,6 +615,46 @@ impl AppState {
                 self.split_grab_index = Some(grab_visible_idx + 1);
                 self.selected_repository_index = Some(target_global_idx);
             }
+        }
+    }
+
+    /// Validate that an active dashboard grab still points to a valid visible
+    /// item. Clears the grab if the screen is no longer the Dashboard, the
+    /// grabbed repository was deleted, or the visible-index/local-index is out
+    /// of bounds after a visibility or data change.
+    fn validate_dashboard_grab(&mut self) {
+        if self.screen_mode != ScreenMode::Dashboard {
+            self.dashboard_grab = None;
+            return;
+        }
+        match &self.dashboard_grab {
+            Some(DashboardGrabPane::Repository { visible_index }) => {
+                if self
+                    .visible_repository_indices()
+                    .get(*visible_index)
+                    .is_none()
+                {
+                    self.dashboard_grab = None;
+                }
+            }
+            Some(DashboardGrabPane::Agent {
+                repository_id,
+                local_index,
+            }) => {
+                let repo_exists = self
+                    .repositories
+                    .iter()
+                    .any(|repo| repo.id == *repository_id);
+                if !repo_exists
+                    || self
+                        .agent_indices_for_repository(repository_id)
+                        .get(*local_index)
+                        .is_none()
+                {
+                    self.dashboard_grab = None;
+                }
+            }
+            None => {}
         }
     }
 
