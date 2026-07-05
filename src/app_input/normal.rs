@@ -110,6 +110,9 @@ pub fn handle_normal_key_event(
     {
         return event;
     }
+    if let KeyHandling::Handled(event) = resolve_dashboard_grab_key(app_state, key_event) {
+        return event;
+    }
     if let KeyHandling::Handled(event) = resolve_quit_key(should_quit, key_event) {
         return event;
     }
@@ -245,6 +248,41 @@ fn resolve_quit_key(should_quit: &mut QuitHandle, key_event: &KeyEvent) -> KeyHa
         KeyHandling::Handled(None)
     } else {
         KeyHandling::Unhandled
+    }
+}
+
+/// Dashboard reorder grab interaction: Space grabs, arrows move, Space/Enter drops.
+///
+/// Only active on the Dashboard screen. When a grab is in progress, Space/Enter
+/// drops and Up/Down move; other keys fall through. When no grab is active,
+/// Space grabs the highlighted item in the Repositories or Agents pane (the
+/// terminal pane is a no-op so Space passes through to the PTY).
+fn resolve_dashboard_grab_key(app_state: &AppStateHandle, key_event: &KeyEvent) -> KeyHandling {
+    let state = app_state.read();
+    if state.screen_mode != ScreenMode::Dashboard || state.terminal_focused {
+        return KeyHandling::Unhandled;
+    }
+    match state.dashboard_grab {
+        Some(_) => match key_event.code {
+            KeyCode::Char(' ') | KeyCode::Enter => {
+                KeyHandling::Handled(Some(AppEvent::ExitDashboardGrab))
+            }
+            KeyCode::Up => KeyHandling::Handled(Some(AppEvent::DashboardGrabMoveUp)),
+            KeyCode::Down => KeyHandling::Handled(Some(AppEvent::DashboardGrabMoveDown)),
+            _ => KeyHandling::Unhandled,
+        },
+        None => {
+            if key_event.code == KeyCode::Char(' ') {
+                match state.pane_focus {
+                    PaneFocus::Repositories | PaneFocus::Agents => {
+                        KeyHandling::Handled(Some(AppEvent::EnterDashboardGrab))
+                    }
+                    PaneFocus::Terminal => KeyHandling::Unhandled,
+                }
+            } else {
+                KeyHandling::Unhandled
+            }
+        }
     }
 }
 
@@ -433,6 +471,7 @@ fn handle_direct_pane_focus_key(
 fn set_pane_focus(app_state: &mut AppStateHandle, ctx: &SharedContext, pane_focus: PaneFocus) {
     let mut state = app_state.write();
     state.pane_focus = pane_focus;
+    state.dashboard_grab = None;
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
@@ -457,11 +496,13 @@ fn prepare_terminal_focus_state(app_state: &mut AppStateHandle) -> Option<AgentI
 
     if running_agent_id.is_some() {
         state.pane_focus = PaneFocus::Terminal;
+        state.dashboard_grab = None;
         if !state.terminal_focused {
             *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
         }
     } else {
         state.pane_focus = PaneFocus::Agents;
+        state.dashboard_grab = None;
         state.terminal_focused = false;
     }
 

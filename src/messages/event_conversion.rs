@@ -43,6 +43,18 @@ impl From<AppEvent> for AppMessage {
             AppEvent::SetSplitFilter(filter) => {
                 Self::UiNavigation(UiNavigationMessage::SetSplitFilter(filter))
             }
+            AppEvent::EnterDashboardGrab => {
+                Self::UiNavigation(UiNavigationMessage::EnterDashboardGrab)
+            }
+            AppEvent::ExitDashboardGrab => {
+                Self::UiNavigation(UiNavigationMessage::ExitDashboardGrab)
+            }
+            AppEvent::DashboardGrabMoveUp => {
+                Self::UiNavigation(UiNavigationMessage::DashboardGrabMoveUp)
+            }
+            AppEvent::DashboardGrabMoveDown => {
+                Self::UiNavigation(UiNavigationMessage::DashboardGrabMoveDown)
+            }
             AppEvent::OpenHelp => Self::Modal(ModalMessage::OpenHelp),
             AppEvent::OpenSearch => Self::Modal(ModalMessage::OpenSearch),
             AppEvent::CloseModal => Self::Modal(ModalMessage::CloseModal),
@@ -254,6 +266,10 @@ impl From<UiNavigationMessage> for AppEvent {
             UiNavigationMessage::GrabMoveUp => Self::GrabMoveUp,
             UiNavigationMessage::GrabMoveDown => Self::GrabMoveDown,
             UiNavigationMessage::SetSplitFilter(filter) => Self::SetSplitFilter(filter),
+            UiNavigationMessage::EnterDashboardGrab => Self::EnterDashboardGrab,
+            UiNavigationMessage::ExitDashboardGrab => Self::ExitDashboardGrab,
+            UiNavigationMessage::DashboardGrabMoveUp => Self::DashboardGrabMoveUp,
+            UiNavigationMessage::DashboardGrabMoveDown => Self::DashboardGrabMoveDown,
         }
     }
 }

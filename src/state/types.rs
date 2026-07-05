@@ -251,6 +251,24 @@ pub enum PaneFocus {
     Terminal,
 }
 
+/// In-progress dashboard reorder ("grab") target — tracks the visible-index
+/// position of the grabbed item so arrow-move stays within the filtered/visible set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DashboardGrabPane {
+    /// Grabbing a repository at the given visible-index position.
+    Repository { visible_index: usize },
+    /// Grabbing an agent at the given local visible-index position within its repository.
+    ///
+    /// The `repository_id` is captured at grab time so the grab stays bound to
+    /// the repository that was selected when Space was pressed — even if the
+    /// selected repository changes (e.g. via a shortcut jump) while the grab
+    /// is active.
+    Agent {
+        repository_id: RepositoryId,
+        local_index: usize,
+    },
+}
+
 /// Application state - single source of truth.
 #[derive(Debug, Default, Clone)]
 pub struct AppState {
@@ -279,6 +297,10 @@ pub struct AppState {
     // Split mode state
     pub split_filter: Option<RepositoryId>,
     pub split_grab_index: Option<usize>,
+
+    /// Active dashboard reorder grab (Space to grab, arrows to move, Space/Enter to drop).
+    /// Transient interaction state — not persisted (like split_grab_index).
+    pub dashboard_grab: Option<DashboardGrabPane>,
 
     // Errors/warnings
     pub error_message: Option<String>,
@@ -561,6 +583,12 @@ pub enum AppEvent {
     GrabMoveUp,
     GrabMoveDown,
     SetSplitFilter(Option<RepositoryId>),
+
+    // Dashboard reorder grab (Space to grab, arrows to move, Space/Enter to drop)
+    EnterDashboardGrab,
+    ExitDashboardGrab,
+    DashboardGrabMoveUp,
+    DashboardGrabMoveDown,
 
     // Modal/form actions
     OpenHelp,

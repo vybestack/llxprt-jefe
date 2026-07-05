@@ -9,7 +9,7 @@ use iocraft::prelude::*;
 
 use crate::layout::{LEFT_COL_WIDTH, RIGHT_COL_WIDTH, dashboard_middle_row_heights};
 use crate::runtime::TerminalSnapshot;
-use crate::state::{AppState, PaneFocus, ScreenMode};
+use crate::state::{AppState, DashboardGrabPane, PaneFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{AgentList, KeybindBar, Preview, Sidebar, StatusBar, TerminalView};
@@ -59,6 +59,16 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
         .unwrap_or(0);
     let pane_focus = state.map_or(PaneFocus::Repositories, |s| s.pane_focus);
     let terminal_focused = state.is_some_and(|s| s.terminal_focused);
+
+    // Dashboard reorder grab indicator indices (only for the relevant pane).
+    let grabbed_repo_idx = state.and_then(|s| match s.dashboard_grab.as_ref()? {
+        DashboardGrabPane::Repository { visible_index } => Some(*visible_index),
+        DashboardGrabPane::Agent { .. } => None,
+    });
+    let grabbed_agent_idx = state.and_then(|s| match s.dashboard_grab.as_ref()? {
+        DashboardGrabPane::Agent { local_index, .. } => Some(*local_index),
+        DashboardGrabPane::Repository { .. } => None,
+    });
 
     let repositories: Vec<_> = state.map_or_else(Vec::new, |s| {
         visible_repo_indices
@@ -125,6 +135,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                         agent_counts: agent_counts,
                         selected: selected_repo_idx,
                         focused: !terminal_focused && pane_focus == PaneFocus::Repositories,
+                        grabbed: grabbed_repo_idx,
                         colors: colors.clone(),
                     )
                 }
@@ -140,6 +151,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                             agents: agents,
                             selected: selected_agent_idx,
                             focused: !terminal_focused && pane_focus == PaneFocus::Agents,
+                            grabbed: grabbed_agent_idx,
                             colors: colors.clone(),
                         )
                     }

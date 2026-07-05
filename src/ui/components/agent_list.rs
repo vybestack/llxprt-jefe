@@ -18,6 +18,8 @@ pub struct AgentListProps {
     pub selected: usize,
     /// Whether this pane is focused.
     pub focused: bool,
+    /// Local index of a grabbed agent (dashboard reorder indicator).
+    pub grabbed: Option<usize>,
     /// Theme colors.
     pub colors: ThemeColors,
 }
@@ -55,6 +57,7 @@ pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
             ) {
                 #(props.agents.iter().enumerate().map(|(i, agent)| {
                     let selected = i == props.selected;
+                    let grabbed = props.grabbed.is_some_and(|idx| idx == i);
                     let status_icon = match agent.status {
                         AgentStatus::Running => "*",
                         AgentStatus::Completed => "+",
@@ -71,7 +74,13 @@ pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
                         AgentStatus::Paused => Color::Blue,
                         AgentStatus::Queued => rc.dim,
                     };
-                    let prefix = if selected { "> " } else { "  " };
+                    let prefix = if grabbed {
+                        "\u{2195} "
+                    } else if selected {
+                        "> "
+                    } else {
+                        "  "
+                    };
                     let name_color = if selected { rc.bright } else { rc.fg };
                     let shortcut_label = agent.shortcut_slot
                         .map_or_else(String::new, |slot| format!("[{slot}] "));

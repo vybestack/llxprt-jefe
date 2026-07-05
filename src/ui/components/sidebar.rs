@@ -19,6 +19,8 @@ pub struct SidebarProps {
     pub selected: usize,
     /// Whether this pane is focused.
     pub focused: bool,
+    /// Visible index of a grabbed repository (dashboard reorder indicator).
+    pub grabbed: Option<usize>,
     /// Theme colors.
     pub colors: ThemeColors,
 }
@@ -56,7 +58,14 @@ pub fn Sidebar(props: &SidebarProps) -> impl Into<AnyElement<'static>> {
             ) {
                 #(props.repositories.iter().enumerate().map(|(i, repo)| {
                     let selected = i == props.selected;
-                    let prefix = if selected { "> " } else { "  " };
+                    let grabbed = props.grabbed.is_some_and(|idx| idx == i);
+                    let prefix = if grabbed {
+                        "\u{2195} "
+                    } else if selected {
+                        "> "
+                    } else {
+                        "  "
+                    };
                     let agent_count = props.agent_counts.get(i).copied()
                         .unwrap_or(repo.agent_ids.len());
                     let label = format!("{}{} ({})", prefix, repo.name, agent_count);

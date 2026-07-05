@@ -64,6 +64,10 @@ pub enum UiNavigationMessage {
     GrabMoveUp,
     GrabMoveDown,
     SetSplitFilter(Option<RepositoryId>),
+    EnterDashboardGrab,
+    ExitDashboardGrab,
+    DashboardGrabMoveUp,
+    DashboardGrabMoveDown,
 }
 
 /// Modal and form-editing messages.
@@ -610,6 +614,10 @@ message_names!(UiNavigationMessage {
     Self::GrabMoveUp => "GrabMoveUp",
     Self::GrabMoveDown => "GrabMoveDown",
     Self::SetSplitFilter(_) => "SetSplitFilter",
+    Self::EnterDashboardGrab => "EnterDashboardGrab",
+    Self::ExitDashboardGrab => "ExitDashboardGrab",
+    Self::DashboardGrabMoveUp => "DashboardGrabMoveUp",
+    Self::DashboardGrabMoveDown => "DashboardGrabMoveDown",
 });
 
 message_names!(ModalMessage {
