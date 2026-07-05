@@ -41,6 +41,10 @@ pub(super) fn resolve_prs_key_event(state: &AppState, key_event: &KeyEvent) -> O
     if state.prs_state.agent_chooser.is_some() {
         return handle_pr_agent_chooser_key(state, key_event);
     }
+    // P2.5: merge chooser (issue #92)
+    if state.prs_state.merge_chooser.is_some() {
+        return handle_pr_merge_chooser_key(state, key_event);
+    }
     // P3: search input
     if state.prs_state.search_input_focused {
         return handle_pr_search_input_key(state, key_event);
@@ -210,6 +214,7 @@ fn handle_pr_detail_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEve
         )),
         KeyCode::Char('S') => Some(AppEvent::PrOpenAgentChooser),
         KeyCode::Char('o') => Some(pr_open_in_browser_or_notice(pr_detail_present(state))),
+        KeyCode::Char('m') => Some(pr_merge_event_for_detail(state)),
         _ => None,
     }
 }
@@ -280,6 +285,23 @@ fn pr_detail_present(state: &AppState) -> bool {
     state.prs_state.pr_detail.is_some()
 }
 
+/// Map `m` to the merge-chooser-open event when a loaded open PR is present,
+/// else to a non-blocking notice (issue #92).
+///
+/// @plan PLAN-20260624-PR-MODE.P11
+/// @requirement REQ-PR-009
+fn pr_merge_event_for_detail(state: &AppState) -> AppEvent {
+    if state.prs_state.pr_detail.is_none() {
+        return AppEvent::PrShowNotice(ReadOnlyHintKind::NoPrToMerge);
+    }
+    if let Some(detail) = &state.prs_state.pr_detail
+        && detail.state != jefe::domain::PrState::Open
+    {
+        return AppEvent::PrShowNotice(ReadOnlyHintKind::PrNotMergeable);
+    }
+    AppEvent::PrOpenMergeChooser
+}
+
 /// Handle the Esc key in PR Mode by unwinding the active overlay.
 ///
 /// Precedence: inline composer → agent chooser → search (clear query if
@@ -344,6 +366,20 @@ fn handle_pr_agent_chooser_key(_state: &AppState, key_event: &KeyEvent) -> Optio
         KeyCode::Down => Some(AppEvent::PrAgentChooserNavigateDown),
         KeyCode::Enter => Some(AppEvent::PrAgentChooserConfirm),
         KeyCode::Esc => Some(AppEvent::PrAgentChooserCancel),
+        _ => None,
+    }
+}
+
+/// Handle keys while the merge chooser is open (issue #92).
+///
+/// @plan PLAN-20260624-PR-MODE.P11
+/// @requirement REQ-PR-009
+fn handle_pr_merge_chooser_key(_state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Up => Some(AppEvent::PrMergeNavigateUp),
+        KeyCode::Down => Some(AppEvent::PrMergeNavigateDown),
+        KeyCode::Enter => Some(AppEvent::PrMergeConfirm),
+        KeyCode::Esc => Some(AppEvent::PrMergeCancel),
         _ => None,
     }
 }

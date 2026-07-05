@@ -59,7 +59,7 @@ pub enum PrDetailSubfocus {
 /// @requirement REQ-PR-013
 /// @pseudocode component-003 lines 83-89
 ///
-/// Canonical read-only hint kind for invalid `r`/`c`/`e`/`o` actions.
+/// Canonical read-only hint kind for invalid `r`/`c`/`e`/`o`/`m` actions.
 /// Carried by `AppEvent::PrShowNotice` to surface a non-blocking hint
 /// instead of silently dropping the key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +72,10 @@ pub enum ReadOnlyHintKind {
     ReadOnlyNotEditable,
     /// `o` pressed with no PR selected/loaded (nothing to open in browser).
     NoSelectionToOpen,
+    /// `m` pressed with no loaded PR detail (nothing to merge).
+    NoPrToMerge,
+    /// `m` pressed on a PR that is not in an open+mergeable state.
+    PrNotMergeable,
 }
 
 /// @plan PLAN-20260624-PR-MODE.P03
@@ -103,6 +107,10 @@ pub struct PullRequestsState {
     pub detail_viewport_rows: usize,
     pub inline_state: InlineState,
     pub agent_chooser: Option<AgentChooserState>,
+    /// Merge-method chooser overlay state (issue #92; mirrors AgentChooser).
+    pub merge_chooser: Option<PrMergeChooserState>,
+    /// Pending merge mutation staleness guard (issue #92).
+    pub merge_mutation_pending: Option<PrMergeMutationPending>,
     pub filter_ui: PrFilterUiState,
     pub search_input_focused: bool,
     pub prior_agent_focus: Option<PriorAgentFocus>,
@@ -173,6 +181,37 @@ pub struct PrMutationPending {
     pub scope_repo_id: RepositoryId,
     pub mutation_id: u64,
     pub target: ComposerTarget,
+}
+
+/// Merge-method chooser overlay state (issue #92; mirrors AgentChooserState).
+///
+/// `selected_index` ranges over [`crate::domain::MERGE_METHODS`].
+/// `allowed_methods` is `None` until the repo settings fetch resolves; while
+/// `None`, ALL methods are shown as available. Once loaded, methods NOT in
+/// the list are rendered disabled.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+#[derive(Debug, Clone)]
+pub struct PrMergeChooserState {
+    /// 0-based index into [`crate::domain::MERGE_METHODS`].
+    pub selected_index: usize,
+    /// Methods allowed by repo settings; `None` until fetched.
+    pub allowed_methods: Option<Vec<crate::domain::MergeMethod>>,
+    /// True when the confirmation step is active (second Enter triggers merge).
+    pub awaiting_confirmation: bool,
+}
+
+/// Pending merge mutation staleness guard (issue #92; mirrors PrMutationPending).
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrMergeMutationPending {
+    pub scope_repo_id: RepositoryId,
+    pub mutation_id: u64,
+    pub pr_number: u64,
+    pub method: crate::domain::MergeMethod,
 }
 
 /// @plan PLAN-20260624-PR-MODE.P03

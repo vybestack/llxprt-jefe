@@ -49,6 +49,8 @@ fn detail_with_long_comment() -> PullRequestDetail {
         }],
         has_more_comments: false,
         comments_cursor: None,
+        mergeable: None,
+        merge_state_status: None,
     }
 }
 
@@ -281,6 +283,8 @@ fn rendered_long_composer_line_truncated_to_content_width() {
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        mergeable: None,
+        merge_state_status: None,
     };
     let long_text =
         "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789".to_string();

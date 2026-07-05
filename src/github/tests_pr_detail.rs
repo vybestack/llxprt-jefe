@@ -80,7 +80,9 @@ const PR_DETAIL_JSON: &str = r#"{
             "submittedAt": "2026-06-14T10:00:00Z",
             "body": "LGTM"
         }
-    ]
+    ],
+    "mergeable": true,
+    "mergeStateStatus": "MERGEABLE"
 }"#;
 
 /// Captured `repository.pullRequest.comments` JSON envelope (P07 fixture):
@@ -182,6 +184,8 @@ fn sample_pr_detail() -> PullRequestDetail {
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        mergeable: Some(true),
+        merge_state_status: Some("MERGEABLE".to_string()),
     }
 }
 
@@ -837,4 +841,92 @@ fn test_parse_malformed_json_returns_parse_error_not_panic() {
         matches!(result, Err(GhError::ParseError(_))),
         "malformed JSON should yield a ParseError, not Ok or another error variant"
     );
+}
+
+// =============================================================================
+// Mergeable + mergeStateStatus parsing (issue #92)
+// =============================================================================
+
+/// The PR detail JSON fixture now includes `mergeable` and `mergeStateStatus`
+/// fields; they must be parsed into the `PullRequestDetail` correctly.
+///
+/// @requirement REQ-PR-009
+#[test]
+fn test_parse_pr_detail_mergeable_fields() {
+    let detail = parse_pull_request_detail_json(PR_DETAIL_JSON, "owner/repo")
+        .value_or_panic("valid PR detail JSON");
+    assert_eq!(
+        detail.mergeable,
+        Some(true),
+        "mergeable must parse as Some(true) from the fixture"
+    );
+    assert_eq!(
+        detail.merge_state_status,
+        Some("MERGEABLE".to_string()),
+        "merge_state_status must parse from mergeStateStatus field"
+    );
+}
+
+/// When `mergeable` is false (conflicting PR), the parser must yield Some(false).
+///
+/// @requirement REQ-PR-009
+#[test]
+fn test_parse_pr_detail_not_mergeable() {
+    let json = r#"{
+        "number": 99,
+        "title": "Conflicting PR",
+        "state": "OPEN",
+        "mergedAt": null,
+        "author": {"login": "someone"},
+        "createdAt": "2026-06-01T00:00:00Z",
+        "updatedAt": "2026-06-01T00:00:00Z",
+        "headRefName": "conflict",
+        "baseRefName": "main",
+        "isDraft": false,
+        "labels": [],
+        "assignees": [],
+        "milestone": null,
+        "body": "",
+        "url": "https://github.com/o/r/pull/99",
+        "reviewDecision": null,
+        "statusCheckRollup": [],
+        "reviews": [],
+        "mergeable": false,
+        "mergeStateStatus": "DIRTY"
+    }"#;
+    let detail = parse_pull_request_detail_json(json, "o/r")
+        .value_or_panic("valid PR detail JSON with mergeable=false");
+    assert_eq!(detail.mergeable, Some(false));
+    assert_eq!(detail.merge_state_status, Some("DIRTY".to_string()));
+}
+
+/// When the JSON omits mergeable fields entirely, they default to None.
+///
+/// @requirement REQ-PR-009
+#[test]
+fn test_parse_pr_detail_missing_mergeable_defaults_none() {
+    let json = r#"{
+        "number": 1,
+        "title": "No merge info",
+        "state": "OPEN",
+        "mergedAt": null,
+        "author": {"login": "x"},
+        "createdAt": "",
+        "updatedAt": "",
+        "headRefName": "b",
+        "baseRefName": "m",
+        "isDraft": false,
+        "labels": [],
+        "assignees": [],
+        "milestone": null,
+        "body": "",
+        "url": "",
+        "reviewDecision": null,
+        "statusCheckRollup": [],
+        "reviews": []
+    }"#;
+    let detail = parse_pull_request_detail_json(json, "o/r")
+        .value_or_panic("valid PR detail JSON without mergeable fields");
+    assert_eq!(detail.mergeable, None);
+    assert_eq!(detail.merge_state_status, None);
 }

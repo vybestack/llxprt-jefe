@@ -72,6 +72,8 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        mergeable: None,
+        merge_state_status: None,
     });
     state.prs_state.inline_state = InlineState::None;
     state

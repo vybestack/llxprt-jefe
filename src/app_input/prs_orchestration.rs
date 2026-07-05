@@ -96,6 +96,14 @@ pub(super) fn dispatch_prs_message(
             );
             prs_dispatch::dispatch_pr_open_in_browser(app_state, ctx);
         }
+        PullRequestsMessage::OpenMergeChooser => {
+            apply_and_persist(app_state, ctx, AppEvent::PrOpenMergeChooser);
+            prs_dispatch::dispatch_pr_merge_methods_load(app_state, ctx);
+        }
+        PullRequestsMessage::MergeConfirm => {
+            apply_and_persist(app_state, ctx, AppEvent::PrMergeConfirm);
+            prs_dispatch::dispatch_pr_merge(app_state, ctx);
+        }
         // All other PullRequests variants (data-load results, notices, etc.)
         // route through the reducer only.
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
@@ -194,6 +202,8 @@ fn reset_pr_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.prs_state.list_reload_pending = None;
     state.prs_state.list_page_pending = None;
     state.prs_state.agent_chooser = None;
+    state.prs_state.merge_chooser = None;
+    state.prs_state.merge_mutation_pending = None;
     state.prs_state.loading.list = true;
 }
 

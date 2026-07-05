@@ -367,6 +367,11 @@ pub fn parse_pull_request_detail_json(
         comments: Vec::new(),
         has_more_comments: false,
         comments_cursor: None,
+        mergeable: value.get("mergeable").and_then(Value::as_bool),
+        merge_state_status: value
+            .get("mergeStateStatus")
+            .and_then(Value::as_str)
+            .map(String::from),
     })
 }
 

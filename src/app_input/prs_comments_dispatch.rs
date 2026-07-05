@@ -281,6 +281,8 @@ mod tests {
             }],
             has_more_comments: true,
             comments_cursor: Some("cursor".to_string()),
+            mergeable: None,
+            merge_state_status: None,
         }
     }
 

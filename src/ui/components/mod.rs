@@ -11,6 +11,8 @@ mod issue_list;
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-012
 pub(crate) mod keybind_bar;
+/// @requirement REQ-PR-009
+mod merge_chooser;
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-006
 pub(crate) mod pr_detail;
@@ -39,6 +41,8 @@ pub use filter_controls::{FilterControls, FilterControlsProps};
 pub use issue_detail::{IssueDetailView, IssueDetailViewProps};
 pub use issue_list::{IssueList, IssueListLayout, IssueListProps};
 pub use keybind_bar::{KeybindBar, KeybindBarProps};
+/// @requirement REQ-PR-009
+pub use merge_chooser::{MergeChooser, MergeChooserProps};
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
 pub use pr_detail::{PrDetailView, PrDetailViewProps};

@@ -963,6 +963,31 @@ pub enum AppEvent {
         error: String,
     },
 
+    // PR In-App Merge (issue #92)
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-009
+    PrOpenMergeChooser,
+    PrMergeNavigateUp,
+    PrMergeNavigateDown,
+    PrMergeConfirm,
+    PrMergeCancel,
+    PrMerged {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        method: crate::domain::MergeMethod,
+    },
+    PrMergeFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        error: String,
+    },
+    PrMergeMethodsLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        allowed_methods: Vec<crate::domain::MergeMethod>,
+    },
+
     // PR Send-to-Agent
     /// @pseudocode component-001 lines 331-343
     PrOpenAgentChooser,

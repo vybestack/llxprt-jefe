@@ -46,6 +46,8 @@ fn sample_detail() -> PullRequestDetail {
         }],
         has_more_comments: false,
         comments_cursor: None,
+        mergeable: None,
+        merge_state_status: None,
     }
 }
 

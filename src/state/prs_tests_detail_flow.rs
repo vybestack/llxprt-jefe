@@ -75,6 +75,8 @@ fn make_test_pr_detail(number: u64, comments: Vec<IssueComment>) -> PullRequestD
         comments,
         has_more_comments: true,
         comments_cursor: Some("cursor-1".to_string()),
+        mergeable: None,
+        merge_state_status: None,
     }
 }
 

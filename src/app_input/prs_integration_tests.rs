@@ -416,6 +416,8 @@ pub(super) fn make_test_pr_detail(number: u64) -> jefe::domain::PullRequestDetai
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        mergeable: None,
+        merge_state_status: None,
     }
 }
 
@@ -587,13 +589,13 @@ fn assert_o_no_selection_emits_notice() {
 }
 
 /// Assert the detail path: `o` in PrDetail with a loaded PR emits
-/// `PrOpenInBrowser`, and that no in-app merge/approve keybinding exists
-/// (`external_url` is display-only).
+/// `PrOpenInBrowser`, and `m` opens the merge chooser when a loaded PR is
+/// present (issue #92).
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-012
 /// @pseudocode component-003 lines 88-89
-fn assert_o_in_detail_and_no_mutation_keybinding() {
+fn assert_o_in_detail_and_merge_keybinding() {
     let mut state_detail = active_prs_state();
     state_detail.prs_state.pr_focus = PrFocus::PrDetail;
     state_detail.prs_state.pr_detail = Some(make_test_pr_detail(9));
@@ -602,12 +604,19 @@ fn assert_o_in_detail_and_no_mutation_keybinding() {
         matches!(event, Some(AppEvent::PrOpenInBrowser)),
         "'o' in detail with a loaded PR must emit PrOpenInBrowser (got {event:?})"
     );
-    // external_url is display-only: no in-app merge/approve/review-submit keybinding.
-    let detail_state = active_prs_state();
-    let merge = prs::resolve_prs_key_event(&detail_state, &key(KeyCode::Char('m')));
+    // Issue #92: `m` in detail with a loaded open PR emits PrOpenMergeChooser.
+    let event = prs::resolve_prs_key_event(&state_detail, &key(KeyCode::Char('m')));
     assert!(
-        merge.is_none() || matches!(merge, Some(AppEvent::PrShowNotice(_))),
-        "no in-app merge keybinding (m is unbound or a notice), got: {merge:?}"
+        matches!(event, Some(AppEvent::PrOpenMergeChooser)),
+        "'m' in detail with a loaded open PR must emit PrOpenMergeChooser (got {event:?})"
+    );
+    // `m` in detail without a loaded PR emits a notice (no PR to merge).
+    let mut no_detail_state = active_prs_state();
+    no_detail_state.prs_state.pr_focus = PrFocus::PrDetail;
+    let merge = prs::resolve_prs_key_event(&no_detail_state, &key(KeyCode::Char('m')));
+    assert!(
+        matches!(merge, Some(AppEvent::PrShowNotice(_))),
+        "'m' without a loaded PR must emit a notice, got: {merge:?}"
     );
 }
 
@@ -676,7 +685,7 @@ fn it_open_in_browser_spawns_gh_pr_view_web() {
 
     // ── No-selection + detail + no-mutation-keybinding paths ──
     assert_o_no_selection_emits_notice();
-    assert_o_in_detail_and_no_mutation_keybinding();
+    assert_o_in_detail_and_merge_keybinding();
 }
 
 // ═════════════════════════════════════════════════════════════════════════

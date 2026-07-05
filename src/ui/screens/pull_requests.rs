@@ -10,8 +10,8 @@ use crate::state::{AppState, PaneFocus, PrFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
-    AgentChooser, KeybindBar, PrDetailView, PrFilterControls, PrList, PrListLayout, Sidebar,
-    StatusBar,
+    AgentChooser, KeybindBar, MergeChooser, PrDetailView, PrFilterControls, PrList, PrListLayout,
+    Sidebar, StatusBar,
 };
 
 /// Props for the pull requests mode screen.
@@ -133,6 +133,18 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
         .map_or_else(Vec::new, |c| c.agents.clone());
     let chooser_selected = agent_chooser.as_ref().map_or(0, |c| c.selected_index);
 
+    // Merge chooser overlay (issue #92)
+    let merge_chooser = state.and_then(|s| s.prs_state.merge_chooser.clone());
+    let merge_visible = merge_chooser.is_some();
+    let merge_selected = merge_chooser.as_ref().map_or(0, |c| c.selected_index);
+    let merge_allowed = merge_chooser
+        .as_ref()
+        .and_then(|c| c.allowed_methods.clone());
+    let merge_confirming = merge_chooser
+        .as_ref()
+        .is_some_and(|c| c.awaiting_confirmation);
+    let merge_pr_number = pr_detail.as_ref().map_or(0, |d| d.number);
+
     // Sidebar is highlighted when RepoList focus or PaneFocus::Repositories
     let sidebar_focused = pane_focus == PaneFocus::Repositories || pr_focus == PrFocus::RepoList;
     let list_focused = pr_focus == PrFocus::PrList || pr_focus == PrFocus::RepoList;
@@ -253,6 +265,28 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                                     visible: true,
                                     agents: chooser_agents.clone(),
                                     selected_index: chooser_selected,
+                                    colors: colors.clone(),
+                                )
+                            }
+                        }]
+                    } else {
+                        vec![]
+                    })
+
+                    // Merge chooser overlay (issue #92)
+                    #(if merge_visible {
+                        vec![element! {
+                            Box(
+                                position: Position::Absolute,
+                                top: 2,
+                                left: 4,
+                            ) {
+                                MergeChooser(
+                                    visible: true,
+                                    pr_number: merge_pr_number,
+                                    selected_index: merge_selected,
+                                    allowed_methods: merge_allowed.clone(),
+                                    awaiting_confirmation: merge_confirming,
                                     colors: colors.clone(),
                                 )
                             }

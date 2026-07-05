@@ -72,6 +72,8 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        mergeable: None,
+        merge_state_status: None,
     }
 }
 

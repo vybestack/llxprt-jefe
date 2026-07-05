@@ -18,6 +18,7 @@ mod modal_ops;
 // @requirement REQ-PR-001
 mod prs_inline_ops;
 mod prs_load_ops;
+mod prs_merge_ops;
 mod prs_mutation_ops;
 mod prs_nav_ops;
 mod prs_ops;
@@ -812,6 +813,10 @@ mod prs_tests;
 #[cfg(test)]
 #[path = "prs_tests_detail.rs"]
 mod prs_tests_detail;
+
+#[cfg(test)]
+#[path = "prs_tests_merge.rs"]
+mod prs_tests_merge;
 
 #[cfg(test)]
 #[path = "prs_tests_filter.rs"]

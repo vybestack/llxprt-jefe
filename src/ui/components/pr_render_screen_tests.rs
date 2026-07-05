@@ -198,9 +198,8 @@ fn test_pr_screen_renders_error_banner_when_error_present() {
 // ===========================================================================
 
 /// The PR-mode keybind bar (`keybind_hints_for`, to which the `KeybindBar`
-/// component delegates) includes an `o open in browser` label — the PR can be
-/// opened in the browser, but there is NO in-app merge/approve binding
-/// (#012: display-only). When the terminal is focused, the bar short-circuits
+/// component delegates) includes an `o open in browser` label and an `m merge`
+/// label (issue #92). When the terminal is focused, the bar short-circuits
 /// to the `F12 unfocus` hint.
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
@@ -213,14 +212,13 @@ fn test_pr_keybind_bar_and_help_list_o_open_in_browser() {
         hints.contains("o open in browser"),
         "PR-mode keybind bar must list 'o open in browser', got: {hints}"
     );
-    let lower = hints.to_lowercase();
     assert!(
-        !lower.contains("merge"),
-        "keybind bar must be display-only (no merge binding): {hints}"
+        hints.contains("m merge"),
+        "PR-mode keybind bar must list 'm merge' (issue #92), got: {hints}"
     );
     assert!(
-        !lower.contains("approve"),
-        "keybind bar must be display-only (no approve binding): {hints}"
+        !hints.contains("approve"),
+        "keybind bar must not have an approve binding: {hints}"
     );
 
     // terminal_focused short-circuit: the bar shows the unfocus hint instead.

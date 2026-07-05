@@ -541,7 +541,7 @@ impl GhClient {
             "--repo".to_string(),
             format!("{owner}/{name}"),
             "--json".to_string(),
-            "number,title,state,mergedAt,author,createdAt,updatedAt,headRefName,baseRefName,isDraft,labels,assignees,milestone,body,url,reviewDecision,statusCheckRollup,reviews".to_string(),
+            "number,title,state,mergedAt,author,createdAt,updatedAt,headRefName,baseRefName,isDraft,labels,assignees,milestone,body,url,reviewDecision,statusCheckRollup,reviews,mergeable,mergeStateStatus".to_string(),
         ];
         let stdout = Self::run_gh(&args)?;
         let mut detail = parse_pull_request_detail_json(&stdout, &format!("{owner}/{name}"))?;
@@ -643,6 +643,54 @@ impl GhClient {
         ];
         Self::run_gh(&args)?;
         Ok(())
+    }
+
+    /// Merge a pull request via `gh pr merge` with the chosen method.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P08
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-002 lines 115-122
+    pub fn merge_pull_request(
+        &self,
+        owner: &str,
+        name: &str,
+        number: u64,
+        method: crate::domain::MergeMethod,
+    ) -> Result<(), GhError> {
+        let args = vec![
+            "pr".to_string(),
+            "merge".to_string(),
+            number.to_string(),
+            "--repo".to_string(),
+            format!("{owner}/{name}"),
+            method.gh_flag().to_string(),
+        ];
+        Self::run_gh(&args)?;
+        Ok(())
+    }
+
+    /// Fetch the repo's allowed merge methods via `gh api repos/{owner}/{repo}`.
+    ///
+    /// Returns the subset of [`MergeMethod`] allowed by the repository's merge
+    /// settings. On any error, returns an empty `Vec` (the chooser treats
+    /// unknown as "all available" — graceful degradation).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P08
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-002 lines 115-122
+    pub fn get_repo_merge_methods(
+        &self,
+        owner: &str,
+        name: &str,
+    ) -> Result<Vec<crate::domain::MergeMethod>, GhError> {
+        let args = vec![
+            "api".to_string(),
+            format!("repos/{owner}/{name}"),
+            "--jq".to_string(),
+            "{allow_merge_commit, allow_squash_merge, allow_rebase_merge}".to_string(),
+        ];
+        let stdout = Self::run_gh(&args)?;
+        Ok(parse_repo_merge_methods(&stdout))
     }
 
     /// Build a send-to-agent payload from PR context (mirrors
@@ -836,4 +884,42 @@ fn fetch_issue_search_raw_page(
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     parse_issue_search_json(&stdout)
+}
+
+/// Parse the `gh api repos/{owner}/{repo} --jq {...}` output into the allowed
+/// merge methods. The `--jq` flag emits a compact JSON object with the three
+/// boolean fields. Any parse failure yields an empty Vec (graceful degradation
+/// — the chooser treats unknown as "all available").
+///
+/// @plan PLAN-20260624-PR-MODE.P08
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 115-122
+fn parse_repo_merge_methods(jq_output: &str) -> Vec<crate::domain::MergeMethod> {
+    use crate::domain::MergeMethod;
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(jq_output.trim()) else {
+        return Vec::new();
+    };
+    let mut methods = Vec::new();
+    if value
+        .get("allow_merge_commit")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        methods.push(MergeMethod::Merge);
+    }
+    if value
+        .get("allow_squash_merge")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        methods.push(MergeMethod::Squash);
+    }
+    if value
+        .get("allow_rebase_merge")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        methods.push(MergeMethod::Rebase);
+    }
+    methods
 }

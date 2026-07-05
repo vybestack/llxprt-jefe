@@ -308,6 +308,8 @@ fn build_pr_preview_for_selection(
         comments: Vec::new(),
         has_more_comments: false,
         comments_cursor: None,
+        mergeable: None,
+        merge_state_status: None,
     };
     Some((scope_repo_id, pr.number, detail))
 }
@@ -610,4 +612,211 @@ pub(super) fn pr_open_in_browser_failure_context_from_state(
         .and_then(|idx| state.prs_state.pull_requests.get(idx))
         .map_or(0, |pr| pr.number);
     (scope, pr_number)
+}
+
+// ── In-app merge dispatch (issue #92) ─────────────────────────────────────
+
+/// Resolved context needed to merge a PR (mirrors `PrOpenInBrowserInfo`).
+///
+/// @requirement REQ-PR-009
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct PrMergeInfo {
+    pub scope: RepositoryId,
+    pub owner: String,
+    pub name: String,
+    pub number: u64,
+    pub mutation_id: u64,
+    pub method: jefe::domain::MergeMethod,
+}
+
+/// Resolve the merge context from the pending merge mutation in state.
+///
+/// Returns `Ok(info)` when a merge mutation is pending with a valid repo slug,
+/// `Err(RepoContextError::InvalidSlug)` when the slug is malformed, and
+/// `Err(RepoContextError::NoSelection)` when no mutation is pending.
+///
+/// @requirement REQ-PR-009
+pub(super) fn pr_merge_info_from_state(
+    state: &jefe::state::AppState,
+) -> Result<PrMergeInfo, RepoContextError> {
+    let pending = state
+        .prs_state
+        .merge_mutation_pending
+        .as_ref()
+        .ok_or(RepoContextError::NoSelection)?;
+    let (owner, name) = resolve_pr_gh_repo(state);
+    if owner.is_empty() || name.is_empty() {
+        return Err(RepoContextError::InvalidSlug);
+    }
+    Ok(PrMergeInfo {
+        scope: pending.scope_repo_id.clone(),
+        owner,
+        name,
+        number: pending.pr_number,
+        mutation_id: pending.mutation_id,
+        method: pending.method,
+    })
+}
+
+/// Dispatch the merge side effect for a confirmed merge mutation.
+///
+/// Reads `merge_mutation_pending` from state, resolves the repo/PR/method,
+/// and spawns `GhClient::merge_pull_request` OFF the UI thread via
+/// `spawn_gh_task_with_panic`, delivering `PrMerged` on success and
+/// `PrMergeFailed` on Err/panic.
+///
+/// @requirement REQ-PR-009
+pub(super) fn dispatch_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let info = {
+        let state = app_state.read();
+        pr_merge_info_from_state(&state)
+    };
+    match info {
+        Ok(info) => spawn_pr_merge(app_state, ctx, info),
+        Err(RepoContextError::NoSelection) => {}
+        Err(RepoContextError::InvalidSlug) => {
+            let (scope, pr_number, mutation_id) = {
+                let state = app_state.read();
+                let pending = state.prs_state.merge_mutation_pending.as_ref();
+                let scope = pending.map_or_else(
+                    || current_pr_scope_repo_id(&state),
+                    |p| p.scope_repo_id.clone(),
+                );
+                let pr_number = pending.map_or(0, |p| p.pr_number);
+                let mutation_id = pending.map_or(0, |p| p.mutation_id);
+                drop(state);
+                (scope, pr_number, mutation_id)
+            };
+            apply_and_persist(
+                app_state,
+                ctx,
+                AppEvent::PrMergeFailed {
+                    scope_repo_id: scope,
+                    pr_number,
+                    mutation_id,
+                    error: "Configure repository (owner/name) before merging".to_string(),
+                },
+            );
+        }
+    }
+}
+
+/// Spawn the off-thread `gh pr merge` task for a valid repo + PR + method.
+///
+/// @requirement REQ-PR-009
+fn spawn_pr_merge(app_state: &AppStateHandle, ctx: &SharedContext, info: PrMergeInfo) {
+    let panic_info = info.clone();
+    gh_async::spawn_gh_task_with_panic(
+        app_state,
+        ctx,
+        move |mut app_state, ctx| {
+            let event = pr_merge_event(&ctx, &info);
+            apply_and_persist(&mut app_state, &ctx, event);
+        },
+        move |mut app_state, ctx, message| {
+            apply_and_persist(
+                &mut app_state,
+                &ctx,
+                AppEvent::PrMergeFailed {
+                    scope_repo_id: panic_info.scope.clone(),
+                    pr_number: panic_info.number,
+                    mutation_id: panic_info.mutation_id,
+                    error: format!("GitHub merge task panicked: {message}"),
+                },
+            );
+        },
+    );
+}
+
+/// Build the merge success/failure event from the gh result.
+///
+/// @requirement REQ-PR-009
+fn pr_merge_event(ctx: &SharedContext, info: &PrMergeInfo) -> AppEvent {
+    let result = github_client(ctx)
+        .map(|client| client.merge_pull_request(&info.owner, &info.name, info.number, info.method));
+    match result {
+        Some(Ok(())) => AppEvent::PrMerged {
+            scope_repo_id: info.scope.clone(),
+            pr_number: info.number,
+            method: info.method,
+        },
+        Some(Err(error)) => AppEvent::PrMergeFailed {
+            scope_repo_id: info.scope.clone(),
+            pr_number: info.number,
+            mutation_id: info.mutation_id,
+            error: error.to_string(),
+        },
+        None => AppEvent::PrMergeFailed {
+            scope_repo_id: info.scope.clone(),
+            pr_number: info.number,
+            mutation_id: info.mutation_id,
+            error: "Application context unavailable".to_string(),
+        },
+    }
+}
+
+/// Dispatch the merge-methods fetch when the chooser opens.
+///
+/// Resolves the repo owner/name from state and spawns
+/// `GhClient::get_repo_merge_methods` OFF the UI thread, delivering
+/// `PrMergeMethodsLoaded` on success. On failure, nothing is delivered — the
+/// chooser treats `allowed_methods: None` as "all available" (graceful
+/// degradation).
+///
+/// @requirement REQ-PR-009
+pub(super) fn dispatch_pr_merge_methods_load(app_state: &AppStateHandle, ctx: &SharedContext) {
+    let info = {
+        let state = app_state.read();
+        let pr_number = state.prs_state.pr_detail.as_ref().map_or(0, |d| d.number);
+        let (owner, name) = resolve_pr_gh_repo(&state);
+        let scope = current_pr_scope_repo_id(&state);
+        drop(state);
+        if owner.is_empty() || name.is_empty() {
+            None
+        } else {
+            Some((scope, owner, name, pr_number))
+        }
+    };
+    let Some((scope, owner, name, pr_number)) = info else {
+        return;
+    };
+    gh_async::spawn_gh_task_with_panic(
+        app_state,
+        ctx,
+        move |mut app_state, ctx| {
+            let event = pr_merge_methods_event(&ctx, &scope, &owner, &name, pr_number);
+            apply_and_persist(&mut app_state, &ctx, event);
+        },
+        // On panic: deliver nothing (chooser stays in "all available" mode).
+        move |_app_state, _ctx, _message| {},
+    );
+}
+
+/// Build the merge-methods-loaded event (or nothing on failure).
+///
+/// @requirement REQ-PR-009
+fn pr_merge_methods_event(
+    ctx: &SharedContext,
+    scope: &RepositoryId,
+    owner: &str,
+    name: &str,
+    pr_number: u64,
+) -> AppEvent {
+    // On failure, do nothing — the chooser treats None as all-available.
+    if let Some(Ok(methods)) = github_client(ctx)
+        .map(|client| client.get_repo_merge_methods(owner, name))
+        .or(Some(Ok(Vec::new())))
+    {
+        AppEvent::PrMergeMethodsLoaded {
+            scope_repo_id: scope.clone(),
+            pr_number,
+            allowed_methods: methods,
+        }
+    } else {
+        AppEvent::PrMergeMethodsLoaded {
+            scope_repo_id: scope.clone(),
+            pr_number,
+            allowed_methods: Vec::new(),
+        }
+    }
 }

@@ -274,6 +274,8 @@ fn test_pr_detail(number: u64) -> jefe::domain::PullRequestDetail {
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        mergeable: None,
+        merge_state_status: None,
     }
 }
 

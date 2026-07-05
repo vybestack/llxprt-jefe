@@ -357,6 +357,59 @@ pub enum PrState {
     Merged,
 }
 
+/// Merge method for a pull request (mirrors GitHub's three merge types).
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 74-101
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeMethod {
+    /// Create a merge commit (`--merge`).
+    Merge,
+    /// Squash commits into one (`--squash`).
+    Squash,
+    /// Rebase commits onto base (`--rebase`).
+    Rebase,
+}
+
+/// All known merge methods in canonical display order.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 74-101
+pub const MERGE_METHODS: [MergeMethod; 3] =
+    [MergeMethod::Merge, MergeMethod::Squash, MergeMethod::Rebase];
+
+impl MergeMethod {
+    /// User-facing display label (mirrors GitHub's three merge-type buttons).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-002 lines 74-101
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Merge => "Create a merge commit",
+            Self::Squash => "Squash and merge",
+            Self::Rebase => "Rebase and merge",
+        }
+    }
+
+    /// The `gh pr merge` flag for this method.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P08
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-002 lines 115-122
+    #[must_use]
+    pub const fn gh_flag(self) -> &'static str {
+        match self {
+            Self::Merge => "--merge",
+            Self::Squash => "--squash",
+            Self::Rebase => "--rebase",
+        }
+    }
+}
+
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-009
 /// @pseudocode component-002 lines 74-101
@@ -458,6 +511,12 @@ pub struct PullRequestDetail {
     pub comments: Vec<IssueComment>,
     pub has_more_comments: bool,
     pub comments_cursor: Option<String>,
+    /// Whether the PR can be merged right now (GitHub `mergeable`).
+    /// `None` when not yet fetched (e.g. preview-from-list).
+    pub mergeable: Option<bool>,
+    /// Detailed mergeability status (GitHub `mergeStateStatus`, e.g. "CLEAN",
+    /// "BLOCKED", "BEHIND"). `None` when not yet fetched.
+    pub merge_state_status: Option<String>,
 }
 
 /// @plan PLAN-20260624-PR-MODE.P03

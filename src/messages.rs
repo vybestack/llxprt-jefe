@@ -6,8 +6,8 @@
 //! app-shell-specific branching.
 
 use crate::domain::{
-    AgentId, AgentStatus, Issue, IssueComment, IssueDetail, IssueFilter, PrFilter, PullRequest,
-    PullRequestDetail, RepositoryId,
+    AgentId, AgentStatus, Issue, IssueComment, IssueDetail, IssueFilter, MergeMethod, PrFilter,
+    PullRequest, PullRequestDetail, RepositoryId,
 };
 use crate::state::{EditorTarget, InlineState, ReadOnlyHintKind};
 
@@ -418,6 +418,29 @@ pub enum PullRequestsMessage {
         pr_number: u64,
         error: String,
     },
+    // PR In-App Merge (issue #92)
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-009
+    OpenMergeChooser,
+    MergeNavigate(NavDir),
+    MergeConfirm,
+    MergeCancel,
+    Merged {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        method: MergeMethod,
+    },
+    MergeFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        error: String,
+    },
+    MergeMethodsLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        allowed_methods: Vec<MergeMethod>,
+    },
 }
 
 /// Navigation direction for PR list and filter controls.
@@ -792,4 +815,11 @@ message_names!(PullRequestsMessage {
     Self::OpenInBrowser => "PrOpenInBrowser",
     Self::OpenedInBrowser { .. } => "PrOpenedInBrowser",
     Self::OpenInBrowserFailed { .. } => "PrOpenInBrowserFailed",
+    Self::OpenMergeChooser => "PrOpenMergeChooser",
+    Self::MergeNavigate(_) => "PrMergeNavigate",
+    Self::MergeConfirm => "PrMergeConfirm",
+    Self::MergeCancel => "PrMergeCancel",
+    Self::Merged { .. } => "PrMerged",
+    Self::MergeFailed { .. } => "PrMergeFailed",
+    Self::MergeMethodsLoaded { .. } => "PrMergeMethodsLoaded",
 });

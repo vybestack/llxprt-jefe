@@ -347,6 +347,50 @@ impl PullRequestsMessage {
             AppEvent::PrAgentChooserCancel => Self::AgentChooserCancel,
             AppEvent::PrSendToAgentCompleted => Self::SendToAgentCompleted,
             AppEvent::PrSendToAgentFailed { error } => Self::SendToAgentFailed { error },
+            other => Self::from_app_event_merge(other),
+        }
+    }
+
+    /// Merge chooser and merge-lifecycle variants (issue #92).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-009
+    fn from_app_event_merge(event: AppEvent) -> Self {
+        match event {
+            AppEvent::PrOpenMergeChooser => Self::OpenMergeChooser,
+            AppEvent::PrMergeNavigateUp => Self::MergeNavigate(NavDir::Up),
+            AppEvent::PrMergeNavigateDown => Self::MergeNavigate(NavDir::Down),
+            AppEvent::PrMergeConfirm => Self::MergeConfirm,
+            AppEvent::PrMergeCancel => Self::MergeCancel,
+            AppEvent::PrMerged {
+                scope_repo_id,
+                pr_number,
+                method,
+            } => Self::Merged {
+                scope_repo_id,
+                pr_number,
+                method,
+            },
+            AppEvent::PrMergeFailed {
+                scope_repo_id,
+                pr_number,
+                mutation_id,
+                error,
+            } => Self::MergeFailed {
+                scope_repo_id,
+                pr_number,
+                mutation_id,
+                error,
+            },
+            AppEvent::PrMergeMethodsLoaded {
+                scope_repo_id,
+                pr_number,
+                allowed_methods,
+            } => Self::MergeMethodsLoaded {
+                scope_repo_id,
+                pr_number,
+                allowed_methods,
+            },
             _ => unreachable!("non-PR AppEvent routed to PR converter"),
         }
     }
@@ -677,7 +721,51 @@ impl PullRequestsMessage {
             Self::AgentChooserCancel => AppEvent::PrAgentChooserCancel,
             Self::SendToAgentCompleted => AppEvent::PrSendToAgentCompleted,
             Self::SendToAgentFailed { error } => AppEvent::PrSendToAgentFailed { error },
-            _ => unreachable!("unrouted PullRequestsMessage variant reached agent converter"),
+            other => other.into_app_event_merge(),
+        }
+    }
+
+    /// Merge chooser and merge-lifecycle variants (issue #92).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-009
+    fn into_app_event_merge(self) -> AppEvent {
+        match self {
+            Self::OpenMergeChooser => AppEvent::PrOpenMergeChooser,
+            Self::MergeNavigate(NavDir::Up | NavDir::Prev) => AppEvent::PrMergeNavigateUp,
+            Self::MergeNavigate(NavDir::Down | NavDir::Next) => AppEvent::PrMergeNavigateDown,
+            Self::MergeConfirm => AppEvent::PrMergeConfirm,
+            Self::MergeCancel => AppEvent::PrMergeCancel,
+            Self::Merged {
+                scope_repo_id,
+                pr_number,
+                method,
+            } => AppEvent::PrMerged {
+                scope_repo_id,
+                pr_number,
+                method,
+            },
+            Self::MergeFailed {
+                scope_repo_id,
+                pr_number,
+                mutation_id,
+                error,
+            } => AppEvent::PrMergeFailed {
+                scope_repo_id,
+                pr_number,
+                mutation_id,
+                error,
+            },
+            Self::MergeMethodsLoaded {
+                scope_repo_id,
+                pr_number,
+                allowed_methods,
+            } => AppEvent::PrMergeMethodsLoaded {
+                scope_repo_id,
+                pr_number,
+                allowed_methods,
+            },
+            _ => unreachable!("unrouted PullRequestsMessage variant reached merge converter"),
         }
     }
 }

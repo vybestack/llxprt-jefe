@@ -51,6 +51,8 @@ impl AppState {
         self.prs_state.comments_page_pending = None;
         self.prs_state.inline_state = InlineState::None;
         self.prs_state.agent_chooser = None;
+        self.prs_state.merge_chooser = None;
+        self.prs_state.merge_mutation_pending = None;
         self.prs_state.filter_ui.controls_open = false;
         self.prs_state.search_input_focused = false;
         self.prs_state.search_query.clear();
@@ -125,6 +127,8 @@ impl AppState {
         self.prs_state.detail_scroll_offset = 0;
         self.prs_state.detail_subfocus = super::PrDetailSubfocus::Body;
         self.prs_state.mutation_pending = None;
+        self.prs_state.merge_chooser = None;
+        self.prs_state.merge_mutation_pending = None;
     }
 
     // ---- Filter controls ----
@@ -429,6 +433,10 @@ impl AppState {
             ReadOnlyHintKind::ReadOnlyNoComment => "No comments to reply to".to_string(),
             ReadOnlyHintKind::ReadOnlyNotEditable => "This section is read-only".to_string(),
             ReadOnlyHintKind::NoSelectionToOpen => "No pull request selected to open".to_string(),
+            ReadOnlyHintKind::NoPrToMerge => "No pull request loaded to merge".to_string(),
+            ReadOnlyHintKind::PrNotMergeable => {
+                "Pull request is not mergeable (closed/merged)".to_string()
+            }
         };
         self.prs_state.draft_notice = Some(text);
     }
@@ -544,6 +552,7 @@ impl AppState {
             || self.apply_pr_inline_dispatch(&event)
             || self.apply_pr_mutation_event(event.clone())
             || self.apply_pr_agent_chooser_event(&event)
+            || self.apply_pr_merge_event(&event)
             || self.apply_prs_data_wrapper(&event)
             || self.apply_prs_load_error_wrapper(&event)
             || self.apply_pr_notice_event(&event)

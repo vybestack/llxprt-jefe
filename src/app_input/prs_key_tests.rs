@@ -831,5 +831,7 @@ fn test_pr_detail() -> jefe::domain::PullRequestDetail {
         comments: Vec::new(),
         has_more_comments: false,
         comments_cursor: None,
+        mergeable: None,
+        merge_state_status: None,
     }
 }
