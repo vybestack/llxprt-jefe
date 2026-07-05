@@ -9,6 +9,26 @@ use crate::runtime::commands::{
     remote_tmux_command, run_remote_ssh, shell_escape_single, tmux_command,
 };
 
+/// Check if a process with the given PID is alive via `kill -0`.
+///
+/// This **complements**, not replaces, [`check_session_alive`]. When the jefe
+/// tmux server has died but the `llxprt` worker was reparented to launchd
+/// (ppid=1) and is still running, `check_session_alive` reports false (no
+/// tmux session) while `pid_alive` reports true — letting jefe recognize the
+/// worker is recoverable rather than marking the agent Dead.
+///
+/// Uses a shell-out to `kill -0` (resolved via PATH) because the project
+/// forbids `unsafe` code and the `libc`/`nix`/`sysinfo` crates. Local-only:
+/// remote agents must stay on the tmux/SSH-only path.
+#[must_use]
+pub fn pid_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .arg("-0")
+        .arg(pid.to_string())
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
 /// Check if a tmux session exists and has at least one non-dead pane.
 ///
 /// @pseudocode component-002 lines 33-35
@@ -128,5 +148,21 @@ mod tests {
         // This session should not exist
         let alive = check_session_alive("jefe-nonexistent-test-session-12345");
         assert!(!alive);
+    }
+
+    #[test]
+    fn pid_alive_returns_true_for_current_process() {
+        // The current process always exists, so kill -0 must succeed.
+        let me = std::process::id();
+        assert!(pid_alive(me));
+    }
+
+    #[test]
+    fn pid_alive_returns_false_for_nonexistent_pid() {
+        // u32::MAX exceeds the OS pid_t range on every supported platform, so it
+        // can never correspond to a real process. (Linux pid_max tops out at
+        // ~4.19M; choosing a lower "safe-looking" value risks flakes on systems
+        // with high pid_max.)
+        assert!(!pid_alive(u32::MAX));
     }
 }

@@ -411,6 +411,13 @@ fn attach_command(session_name: &str, ssh_command: Option<&str>) -> CommandBuild
         let mut cmd = CommandBuilder::new("tmux");
         cmd.arg("-f");
         cmd.arg("/dev/null");
+        // Target jefe's dedicated socket so attach connects to the same
+        // isolated server as the rest of jefe's tmux operations. The remote
+        // (SSH) branch is intentionally left without `-S` because remote tmux
+        // runs on the remote host under its own (possibly shared) socket.
+        let socket = super::socket::jefe_tmux_socket_path();
+        cmd.arg("-S");
+        cmd.arg(socket);
         cmd.arg("attach-session");
         cmd.arg("-t");
         cmd.arg(session_name);

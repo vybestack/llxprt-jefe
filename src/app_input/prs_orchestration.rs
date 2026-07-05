@@ -400,9 +400,15 @@ fn launch_pr_agent(
     launch_sig: LaunchSignature,
 ) {
     let launched = spawn_and_attach_fresh_for_pr(ctx, &agent_id, &work_dir, &launch_sig);
+    // Capture the worker PID from the runtime for the persisted binding's
+    // PID-liveness fallback.
+    let pid = ctx
+        .as_ref()
+        .and_then(|arc| arc.lock().ok())
+        .and_then(|guard| guard.runtime.worker_pid(&agent_id));
     let mut state = app_state.write();
     if launched {
-        persist_pr_agent_launch_success(&mut state, &agent_id, launch_sig);
+        persist_pr_agent_launch_success(&mut state, &agent_id, launch_sig, pid);
     } else {
         *state = std::mem::take(&mut *state).apply(AppEvent::PrSendToAgentFailed {
             error: "Failed to launch agent".to_string(),
@@ -469,6 +475,7 @@ fn persist_pr_agent_launch_success(
     state: &mut AppState,
     agent_id: &AgentId,
     launch_sig: LaunchSignature,
+    pid: Option<u32>,
 ) {
     if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
         agent.status = jefe::domain::AgentStatus::Running;
@@ -478,6 +485,7 @@ fn persist_pr_agent_launch_success(
             launch_signature: launch_sig,
             attached: false,
             last_seen: None,
+            pid,
         });
     }
     clear_agent_runtime_attachment(state);

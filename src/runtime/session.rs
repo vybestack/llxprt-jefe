@@ -20,6 +20,12 @@ pub struct RuntimeSession {
     pub launch_signature: LaunchSignature,
     /// Whether a viewer is currently attached to this session.
     pub attached: bool,
+    /// OS PID of the worker process (`llxprt`) backing this session, when
+    /// known. Captured via tmux `list-panes` (the pane PID *is* the worker
+    /// because the worker runs as the pane's direct command). Used as a
+    /// liveness fallback when the tmux session is gone but the worker process
+    /// is still alive.
+    pub pid: Option<u32>,
 }
 
 impl RuntimeSession {
@@ -31,6 +37,7 @@ impl RuntimeSession {
             session_name,
             launch_signature,
             attached: false,
+            pid: None,
         }
     }
 

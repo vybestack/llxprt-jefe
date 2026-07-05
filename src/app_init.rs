@@ -9,7 +9,8 @@ use jefe::domain::{
 };
 use jefe::persistence::{PersistenceManager, Settings, State as PersistedState};
 use jefe::runtime::{
-    RuntimeError, RuntimeManager, RuntimeSession, TmuxRuntimeManager, platform_engine_diagnostic,
+    RuntimeError, RuntimeManager, RuntimeSession, TmuxRuntimeManager, pid_alive,
+    platform_engine_diagnostic,
 };
 use jefe::state::AppState;
 use jefe::theme::ThemeManager;
@@ -128,12 +129,49 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     }
 }
 
+/// Pure decision helper: given whether the tmux session exists, whether the
+/// agent is remote, and an optional persisted worker PID, decide whether the
+/// agent is dead.
+///
+/// - A session that still exists is never dead.
+/// - Remote agents (no pane PID available locally) rely solely on the tmux/SSH
+///   session check: if the session is gone, they are dead.
+/// - Local agents with a persisted worker PID consult [`pid_alive`] as a
+///   fallback: if the worker process is still alive (e.g. reparented to
+///   launchd after the jefe tmux server died), the agent is NOT considered
+///   dead and keeps its existing binding for later reclaim.
+///
+/// Factored out of [`reconcile_running_agents`] so the decision logic is
+/// unit-testable without spawning real tmux.
+#[must_use]
+fn is_agent_dead(session_exists: bool, remote_enabled: bool, pid: Option<u32>) -> bool {
+    if session_exists {
+        return false;
+    }
+    // Remote agents: no local PID fallback is available; dead if session gone.
+    if remote_enabled {
+        return true;
+    }
+    // Local agents: consult the worker PID fallback. A live worker means the
+    // agent is recoverable, not dead.
+    match pid {
+        Some(pid) => !pid_alive(pid),
+        None => true,
+    }
+}
+
 /// Find Running agents whose tmux sessions no longer exist.
 ///
 /// Agents persisted as Running without a backing repository are also stale.
+/// For LOCAL agents whose tmux session is gone, the persisted worker PID is
+/// consulted as a liveness fallback: if the worker process is still alive
+/// (reparented to launchd after the jefe tmux server died), the agent is left
+/// Running rather than demoted to Dead. Remote agents stay on the
+/// tmux/SSH-only path.
+///
 /// Returns the collected dead agent IDs; does not mutate `state`.
 fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> Vec<AgentId> {
-    let mut running_agents: Vec<(AgentId, LaunchSignature)> = Vec::new();
+    let mut running_agents: Vec<(AgentId, LaunchSignature, Option<u32>)> = Vec::new();
     let mut dead_ids = Vec::new();
     for agent in state
         .agents
@@ -148,10 +186,12 @@ fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> V
         running_agents.push((
             agent.id.clone(),
             launch_signature_for_agent(agent, &repository.remote),
+            agent.runtime_binding.as_ref().and_then(|b| b.pid),
         ));
     }
-    for (agent_id, signature) in running_agents {
-        if !runtime.session_exists_for_signature(&agent_id, &signature) {
+    for (agent_id, signature, pid) in running_agents {
+        let session_exists = runtime.session_exists_for_signature(&agent_id, &signature);
+        if is_agent_dead(session_exists, signature.remote.enabled, pid) {
             dead_ids.push(agent_id);
         }
     }
@@ -180,11 +220,102 @@ fn apply_dead_reconciliations(
     true
 }
 
+/// Restore decision for a single Running agent's missing-or-present session.
+///
+/// Factored out of [`restore_runtime_sessions`] so the three-way restore
+/// decision is unit-testable without spawning real tmux. Mirrors
+/// [`is_agent_dead`] as the single source of truth for the dead-decision.
+#[must_use]
+fn restore_dead_decision(
+    session_exists: bool,
+    remote_enabled: bool,
+    pid: Option<u32>,
+) -> RestoreDecision {
+    if session_exists {
+        return RestoreDecision::Revive;
+    }
+    if is_agent_dead(session_exists, remote_enabled, pid) {
+        return RestoreDecision::Dead;
+    }
+    // Session is gone but the local worker PID is still alive: keep the agent
+    // Running with its existing binding and skip the revive/reattach attempt
+    // (active reclaim/re-adoption is deferred per the issue scope).
+    RestoreDecision::SkipOrphan
+}
+
+/// Decision outcome for restoring one Running agent's session.
+#[derive(Debug, PartialEq, Eq)]
+enum RestoreDecision {
+    /// Tmux session still exists → reattach/revive.
+    Revive,
+    /// Agent is confirmed dead → mark Dead, clear binding.
+    Dead,
+    /// Local orphan: tmux session gone but worker PID alive → leave Running
+    /// with binding preserved, skip revive.
+    SkipOrphan,
+}
+
+/// Outcome of processing a single agent during [`restore_runtime_sessions`].
+enum RestoreOneOutcome {
+    /// Agent was revived/reattached; carries its signature and worker PID.
+    Revived {
+        signature: Box<LaunchSignature>,
+        pid: Option<u32>,
+    },
+    /// Agent should be marked Dead (binding cleared).
+    Dead,
+    /// Agent should be left as-is (non-running, or local orphan kept Running).
+    Skip,
+}
+
+/// Process one agent during restore: decide Dead / Skip / Revive and, when
+/// reviving, drive the runtime and capture the worker PID.
+fn restore_one_agent(
+    agent: &Agent,
+    repositories: &[jefe::domain::Repository],
+    runtime: &mut TmuxRuntimeManager,
+    runtime_warning: &mut Option<String>,
+) -> RestoreOneOutcome {
+    if agent.status != AgentStatus::Running {
+        return RestoreOneOutcome::Skip;
+    }
+    let Some(repository) = repositories
+        .iter()
+        .find(|repository| repository.id == agent.repository_id)
+        .cloned()
+    else {
+        return RestoreOneOutcome::Dead;
+    };
+    let signature = launch_signature_for_agent(agent, &repository.remote);
+    let pid = agent.runtime_binding.as_ref().and_then(|b| b.pid);
+    let session_exists = runtime.session_exists_for_signature(&agent.id, &signature);
+
+    match restore_dead_decision(session_exists, signature.remote.enabled, pid) {
+        RestoreDecision::Dead => RestoreOneOutcome::Dead,
+        RestoreDecision::SkipOrphan => RestoreOneOutcome::Skip,
+        RestoreDecision::Revive => {
+            match revive_agent_session(agent, &signature, runtime, runtime_warning) {
+                ReviveOutcome::Revived => {
+                    let pid = runtime.worker_pid(&agent.id);
+                    RestoreOneOutcome::Revived {
+                        signature: Box::new(signature),
+                        pid,
+                    }
+                }
+                ReviveOutcome::Died => RestoreOneOutcome::Dead,
+            }
+        }
+    }
+}
+
 /// Restore the runtime session map from persisted agent statuses exactly once.
 ///
 /// Running agents prefer reattach to existing live tmux sessions by stable ID;
 /// if missing, a new session is spawned.
 /// Dead/non-running agents are intentionally NOT spawned.
+/// Local agents whose tmux session is gone but whose persisted worker PID is
+/// still alive are left Running with their binding preserved (PID-liveness
+/// fallback), rather than being marked Dead or revived.
 pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &SharedContext) {
     let Some(ctx_arc) = ctx else {
         return;
@@ -199,41 +330,22 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
         return;
     };
 
-    let mut revived_running: Vec<(AgentId, LaunchSignature)> = Vec::new();
+    let mut revived_running: Vec<(AgentId, LaunchSignature, Option<u32>)> = Vec::new();
     let mut newly_dead = Vec::new();
     let mut runtime_warning: Option<String> = None;
 
     for agent in agents {
-        if agent.status != AgentStatus::Running {
-            continue;
-        }
-
-        let Some(repository) = repositories
-            .iter()
-            .find(|repository| repository.id == agent.repository_id)
-            .cloned()
-        else {
-            newly_dead.push(agent.id.clone());
-            continue;
-        };
-        let signature = launch_signature_for_agent(&agent, &repository.remote);
-
-        if !ctx_guard
-            .runtime
-            .session_exists_for_signature(&agent.id, &signature)
-        {
-            newly_dead.push(agent.id.clone());
-            continue;
-        }
-
-        match revive_agent_session(
+        match restore_one_agent(
             &agent,
-            &signature,
+            &repositories,
             &mut ctx_guard.runtime,
             &mut runtime_warning,
         ) {
-            ReviveOutcome::Revived => revived_running.push((agent.id.clone(), signature)),
-            ReviveOutcome::Died => newly_dead.push(agent.id.clone()),
+            RestoreOneOutcome::Revived { signature, pid } => {
+                revived_running.push((agent.id.clone(), *signature, pid));
+            }
+            RestoreOneOutcome::Dead => newly_dead.push(agent.id.clone()),
+            RestoreOneOutcome::Skip => {}
         }
     }
 
@@ -284,11 +396,11 @@ fn revive_agent_session(
 /// Apply restored session results to app state and persist.
 fn apply_restored_state(
     state: &mut AppState,
-    revived_running: Vec<(AgentId, LaunchSignature)>,
+    revived_running: Vec<(AgentId, LaunchSignature, Option<u32>)>,
     newly_dead: Vec<AgentId>,
     runtime_warning: Option<String>,
 ) {
-    for (agent_id, signature) in revived_running {
+    for (agent_id, signature, pid) in revived_running {
         if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) {
             agent.status = AgentStatus::Running;
             let session_name = RuntimeSession::session_name_for(&agent_id);
@@ -297,6 +409,7 @@ fn apply_restored_state(
                 launch_signature: signature,
                 attached: false,
                 last_seen: None,
+                pid,
             });
         }
     }
@@ -311,5 +424,104 @@ fn apply_restored_state(
     state.normalize_selection_indices();
     if let Some(warning) = runtime_warning {
         append_warning(state, warning);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Session still exists → never dead, regardless of PID.
+    #[test]
+    fn is_agent_dead_false_when_session_exists() {
+        let me = std::process::id();
+        assert!(!is_agent_dead(true, false, Some(me)));
+        assert!(!is_agent_dead(true, true, None));
+    }
+
+    /// Local agent, session gone, but worker PID alive → NOT dead (PID fallback
+    /// keeps it Running for reclaim).
+    #[test]
+    fn is_agent_dead_false_when_local_worker_pid_alive() {
+        let me = std::process::id();
+        assert!(!is_agent_dead(false, false, Some(me)));
+    }
+
+    /// Local agent, session gone, worker PID dead → dead.
+    #[test]
+    fn is_agent_dead_true_when_local_worker_pid_dead() {
+        // u32::MAX exceeds the OS pid_t range on every supported platform, so it
+        // can never be a live process (avoids flakes on high pid_max systems).
+        assert!(is_agent_dead(false, false, Some(u32::MAX)));
+    }
+
+    /// Local agent, session gone, no PID recorded → dead (no fallback info).
+    #[test]
+    fn is_agent_dead_true_when_local_no_pid() {
+        assert!(is_agent_dead(false, false, None));
+    }
+
+    /// Remote agent, session gone → always dead (no local PID fallback).
+    #[test]
+    fn is_agent_dead_true_when_remote_session_gone() {
+        // Even with a live PID present, remote agents must not use the local
+        // pid_alive check; they rely solely on the tmux/SSH session path.
+        let me = std::process::id();
+        assert!(is_agent_dead(false, true, Some(me)));
+    }
+
+    // --- restore_dead_decision: end-to-end restore-path behavior ---
+
+    /// Local agent, no tmux session, persisted live PID ⇒ NOT newly Dead
+    /// (kept Running, binding preserved). This is the core issue #121 fix:
+    /// the restore path must not clobber the PID fallback that
+    /// `init_app_state` correctly applied.
+    #[test]
+    fn restore_decision_skips_local_orphan_with_live_pid() {
+        let me = std::process::id();
+        assert_eq!(
+            restore_dead_decision(false, false, Some(me)),
+            RestoreDecision::SkipOrphan
+        );
+    }
+
+    /// Remote agent, no session ⇒ Dead (no local PID fallback; workers live on
+    /// the remote host).
+    #[test]
+    fn restore_decision_dead_when_remote_no_session() {
+        let me = std::process::id();
+        assert_eq!(
+            restore_dead_decision(false, true, Some(me)),
+            RestoreDecision::Dead
+        );
+    }
+
+    /// Local agent, no session, no PID ⇒ Dead.
+    #[test]
+    fn restore_decision_dead_when_local_no_session_no_pid() {
+        assert_eq!(
+            restore_dead_decision(false, false, None),
+            RestoreDecision::Dead
+        );
+    }
+
+    /// Local agent, no session, dead/nonexistent PID ⇒ Dead.
+    #[test]
+    fn restore_decision_dead_when_local_no_session_dead_pid() {
+        // u32::MAX exceeds the OS pid_t range, so it can never be live.
+        assert_eq!(
+            restore_dead_decision(false, false, Some(u32::MAX)),
+            RestoreDecision::Dead
+        );
+    }
+
+    /// Local agent with a live tmux session ⇒ Revive (reattach).
+    #[test]
+    fn restore_decision_revive_when_session_exists() {
+        let me = std::process::id();
+        assert_eq!(
+            restore_dead_decision(true, false, Some(me)),
+            RestoreDecision::Revive
+        );
     }
 }

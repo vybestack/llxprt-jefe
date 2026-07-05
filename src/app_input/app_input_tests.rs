@@ -95,6 +95,7 @@ fn set_agent_runtime_binding_sets_session_and_signature() {
         &agent_id,
         String::from("jefe-agent-1"),
         signature.clone(),
+        None,
     );
 
     let binding = state
@@ -122,6 +123,7 @@ fn mark_and_clear_runtime_attachment_flags() {
         launch_signature: sample_signature(),
         attached: false,
         last_seen: None,
+        pid: None,
     });
 
     let mut second = sample_agent(&agent_b);
@@ -130,6 +132,7 @@ fn mark_and_clear_runtime_attachment_flags() {
         launch_signature: sample_signature(),
         attached: true,
         last_seen: None,
+        pid: None,
     });
 
     let mut state = AppState::default();
@@ -163,6 +166,7 @@ fn mark_runtime_session_dead_sets_dead_and_detaches() {
         launch_signature: sample_signature(),
         attached: true,
         last_seen: None,
+        pid: None,
     });
 
     let mut state = AppState::default();

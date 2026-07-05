@@ -566,6 +566,12 @@ pub struct RuntimeBinding {
     pub launch_signature: LaunchSignature,
     pub attached: bool,
     pub last_seen: Option<u64>,
+    /// OS PID of the worker process (`llxprt`), used as a liveness fallback
+    /// when the tmux session is gone but the worker is still alive.
+    /// `#[serde(default)]` for backward-compatible loading of older state.json
+    /// files that predate this field.
+    #[serde(default)]
+    pub pid: Option<u32>,
 }
 
 /// Launch signature for recreating runtime sessions.
@@ -966,5 +972,57 @@ mod tests {
 
         let repo: Repository = serde_json::from_value(value).value_or_panic("should deserialize");
         assert_eq!(repo.issue_base_prompt, "");
+    }
+
+    /// Regression for issue #121: a persisted `state.json` written before the
+    /// `pid` field was added to `RuntimeBinding` must still deserialize, with
+    /// `pid` defaulting to `None` (via `#[serde(default)]`).
+    #[test]
+    fn runtime_binding_deserializes_missing_pid_as_none() {
+        let value = json!({
+            "session_name": "jefe-agent-1",
+            "launch_signature": {
+                "work_dir": "/tmp/agent-1",
+                "profile": "",
+                "mode_flags": [],
+                "pass_continue": true,
+                "sandbox_enabled": false,
+                "sandbox_engine": "podman",
+                "sandbox_flags": DEFAULT_SANDBOX_FLAGS
+            },
+            "attached": false,
+            "last_seen": null
+            // Note: no pid field
+        });
+
+        let binding: RuntimeBinding =
+            serde_json::from_value(value).value_or_panic("binding should deserialize");
+        assert!(binding.pid.is_none());
+    }
+
+    #[test]
+    fn runtime_binding_roundtrips_pid_when_present() {
+        let binding = RuntimeBinding {
+            session_name: "jefe-agent-2".to_string(),
+            launch_signature: LaunchSignature {
+                work_dir: PathBuf::from("/tmp/agent-2"),
+                profile: String::new(),
+                mode_flags: vec![],
+                llxprt_debug: String::new(),
+                pass_continue: true,
+                sandbox_enabled: false,
+                sandbox_engine: SandboxEngine::Podman,
+                sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+                remote: RemoteRepositorySettings::default(),
+            },
+            attached: false,
+            last_seen: None,
+            pid: Some(42_000),
+        };
+
+        let json = serde_json::to_value(&binding).value_or_panic("should serialize");
+        let binding2: RuntimeBinding =
+            serde_json::from_value(json).value_or_panic("should deserialize");
+        assert_eq!(binding2.pid, Some(42_000));
     }
 }

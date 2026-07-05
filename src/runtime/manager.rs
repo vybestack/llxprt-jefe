@@ -400,6 +400,16 @@ impl TmuxRuntimeManager {
         true
     }
 
+    /// Return the stored worker PID (`llxprt` OS process) for an agent, if known.
+    ///
+    /// Bridges the runtime layer to the app/domain layer for the PID-based
+    /// liveness fallback. Returns `None` for untracked agents or sessions whose
+    /// PID was never captured (e.g. remote sessions, or pre-restored entries).
+    #[must_use]
+    pub fn worker_pid(&self, agent_id: &AgentId) -> Option<u32> {
+        self.sessions.get(agent_id).and_then(|s| s.pid)
+    }
+
     fn spawn_session_internal(
         &mut self,
         agent_id: &AgentId,
@@ -449,8 +459,19 @@ impl TmuxRuntimeManager {
             }
         }
 
+        // Capture the worker PID for the PID-liveness fallback. `pane_pid` is
+        // local-only (the worker runs as the pane's direct command), so it is
+        // not queried for remote sessions. Captured for both the reattach and
+        // create branches so creation and revival stay symmetric.
+        let captured_pid = if signature.remote.enabled {
+            None
+        } else {
+            commands::pane_pid(&session_name)
+        };
+
         // Store/refresh session binding.
-        let session = RuntimeSession::new(agent_id.clone(), session_name, signature.clone());
+        let mut session = RuntimeSession::new(agent_id.clone(), session_name, signature.clone());
+        session.pid = captured_pid;
         self.sessions.insert(agent_id.clone(), session);
 
         // Remove from dead signatures if present.

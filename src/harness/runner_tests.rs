@@ -480,19 +480,10 @@ fn guarded_real_jefe_sticky_kill_scenario() {
     let unique = unique_session("stickyagent");
     let agent_session = format!("jefe-stickyagent-{unique}");
 
-    // Pre-create a tmux session running sleep so jefe's kill can target it.
-    let session_ok = std::process::Command::new("tmux")
-        .args([
-            "new-session",
-            "-d",
-            "-s",
-            &agent_session,
-            "--",
-            "sleep",
-            "300",
-        ])
-        .output()
-        .is_ok_and(|output| output.status.success());
+    // Pre-create a tmux session running sleep on jefe's dedicated socket so
+    // jefe's session-exists check (which now targets the private socket) finds
+    // it. The session runs `sleep 300` so jefe's kill can target it.
+    let session_ok = create_sleep_session_on_jefe_socket(&agent_session, 300);
 
     if !session_ok {
         let _ = std::io::Write::write_all(
@@ -546,6 +537,7 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         },
         attached: false,
         last_seen: None,
+        pid: None,
     });
 
     let persisted_state = State {
@@ -605,6 +597,46 @@ fn run_sticky_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Pa
     run_tmux_scenario(&scenario, &request, None).value_or_panic("run sticky scenario")
 }
 
+/// Pre-create a tmux session running `sleep <seconds>` on jefe's dedicated
+/// socket so jefe's session-exists check (which targets the private socket)
+/// finds it. Returns `true` on success.
+fn create_sleep_session_on_jefe_socket(session_name: &str, seconds: u64) -> bool {
+    let jefe_socket = crate::runtime::socket::jefe_tmux_socket_path();
+    std::process::Command::new("tmux")
+        .args([
+            "-S",
+            &jefe_socket.to_string_lossy(),
+            "new-session",
+            "-d",
+            "-s",
+            session_name,
+            "--",
+            "sleep",
+            &seconds.to_string(),
+        ])
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+/// Capture pane text for a session on jefe's dedicated socket.
+fn capture_jefe_pane(session_name: &str) -> Option<String> {
+    let jefe_socket = crate::runtime::socket::jefe_tmux_socket_path();
+    let output = std::process::Command::new("tmux")
+        .args([
+            "-S",
+            &jefe_socket.to_string_lossy(),
+            "capture-pane",
+            "-t",
+            session_name,
+            "-p",
+            "-S",
+            "-",
+        ])
+        .output()
+        .ok()?;
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 /// RAII guard that kills a pre-created tmux session on drop, ensuring cleanup
 /// even if the test panics mid-scenario.
 struct TmuxSessionCleanup {
@@ -613,6 +645,19 @@ struct TmuxSessionCleanup {
 
 impl Drop for TmuxSessionCleanup {
     fn drop(&mut self) {
+        // Best-effort kill on both jefe's dedicated socket and the default
+        // socket, so a pre-created session is cleaned up regardless of which
+        // socket it lives on.
+        let jefe_socket = crate::runtime::socket::jefe_tmux_socket_path();
+        let _ = std::process::Command::new("tmux")
+            .args([
+                "-S",
+                &jefe_socket.to_string_lossy(),
+                "kill-session",
+                "-t",
+                &self.session_name,
+            ])
+            .output();
         let _ = std::process::Command::new("tmux")
             .args(["kill-session", "-t", &self.session_name])
             .output();
@@ -647,19 +692,10 @@ fn guarded_real_jefe_restart_scenario() {
     let unique = unique_session("restartagent");
     let agent_session = format!("jefe-restartagent-{unique}");
 
-    // Pre-create a tmux session running sleep so jefe's kill can target it.
-    let session_ok = std::process::Command::new("tmux")
-        .args([
-            "new-session",
-            "-d",
-            "-s",
-            &agent_session,
-            "--",
-            "sleep",
-            "300",
-        ])
-        .output()
-        .is_ok_and(|output| output.status.success());
+    // Pre-create a tmux session running sleep on jefe's dedicated socket so
+    // jefe's session-exists check (which now targets the private socket) finds
+    // it. The session runs `sleep 300` so jefe's restart kill can target it.
+    let session_ok = create_sleep_session_on_jefe_socket(&agent_session, 300);
 
     if !session_ok {
         let _ = std::io::Write::write_all(
@@ -683,11 +719,10 @@ fn guarded_real_jefe_restart_scenario() {
 
     // Verify the restart actually killed the original `sleep 300` process.
     // After restart, the session should no longer contain the sleep process
-    // (it was killed and replaced with the agent command).
-    let sleep_still_running = std::process::Command::new("tmux")
-        .args(["capture-pane", "-t", &agent_session, "-p", "-S", "-"])
-        .output()
-        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("sleep 300"));
+    // (it was killed and replaced with the agent command). Query jefe's
+    // dedicated socket since that's where the session lives.
+    let sleep_still_running =
+        capture_jefe_pane(&agent_session).is_some_and(|pane| pane.contains("sleep 300"));
     assert!(
         !sleep_still_running,
         "restart should have killed the original sleep process"
@@ -726,6 +761,7 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         },
         attached: false,
         last_seen: None,
+        pid: None,
     });
 
     let persisted_state = State {

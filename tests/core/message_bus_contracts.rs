@@ -144,6 +144,7 @@ fn typed_kill_agent_clears_runtime_binding() {
         },
         attached: true,
         last_seen: None,
+        pid: None,
     });
 
     let state = AppState {

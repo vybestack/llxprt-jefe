@@ -14,17 +14,41 @@ use crate::domain::LaunchSignature;
 
 use super::errors::RuntimeError;
 use super::preflight::sandbox_ssh_agent_warning;
+use super::socket::jefe_tmux_socket_path;
 
 const REMOTE_SSH_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// Build a local tmux `Command` that skips user config (`-f /dev/null`).
+/// The fixed base arguments every jefe local tmux command starts with:
+/// `-f /dev/null` (skip user config) and `-S <jefe-socket>` (dedicated socket).
+///
+/// Factored out so tests can inspect the base arg composition deterministically
+/// without spawning tmux.
+#[must_use]
+pub fn tmux_base_args() -> Vec<String> {
+    let socket = jefe_tmux_socket_path();
+    vec![
+        "-f".to_owned(),
+        "/dev/null".to_owned(),
+        "-S".to_owned(),
+        socket.to_string_lossy().into_owned(),
+    ]
+}
+
+/// Build a local tmux `Command` that skips user config (`-f /dev/null`) and
+/// targets jefe's *private* socket (`-S <jefe-socket>`).
 ///
 /// Jefe sets all tmux options programmatically, so loading `~/.tmux.conf` is
 /// unnecessary and can cause errors (e.g., pane-scoped options in the user
 /// config fail with "no current pane" when the server starts headlessly).
+///
+/// The dedicated socket (`-S`) isolates jefe's sessions from any unrelated user
+/// tmux sessions that share the default socket. This prevents jefe from
+/// destroying unrelated sessions and means jefe is unaffected when the shared
+/// default server dies (e.g. an OS reboot of the default tmux server).
 pub fn tmux_command() -> Command {
     let mut cmd = Command::new("tmux");
-    cmd.args(["-f", "/dev/null"]);
+    let base = tmux_base_args();
+    cmd.args(&base);
     cmd
 }
 
@@ -47,10 +71,6 @@ fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
             String::from_utf8_lossy(&output.stderr)
         ))
     }
-}
-
-fn reset_tmux_server() {
-    let _ = tmux_cmd_status(["kill-server"].as_ref(), None);
 }
 
 fn apply_session_style(session_name: &str) {
@@ -541,7 +561,12 @@ pub fn create_session(
         Ok(()) => return Ok(()),
         Err(stderr) if is_tmux_fork_broken(&stderr) => {
             debug!(session_name = %session_name, attempt = 0, stderr = %stderr, "create_session retrying after tmux fork failure");
-            reset_tmux_server();
+            // Scoped recovery: kill only this one target session on the
+            // jefe-private socket, then retry. We must NOT call `tmux
+            // kill-server` here — that would nuke every jefe session (and,
+            // before the dedicated socket, every unrelated user session too)
+            // over a transient per-session fork error.
+            let _ = kill_session(session_name);
         }
         Err(stderr) => return Err(local_spawn_error(session_name, 0, stderr)),
     }
@@ -586,6 +611,43 @@ pub fn capture_pane_lines(session_name: &str) -> Option<Vec<String>> {
 
     let text = String::from_utf8_lossy(&output.stdout);
     Some(text.lines().map(std::borrow::ToOwned::to_owned).collect())
+}
+
+/// Parse the stdout of `tmux list-panes -t <session> -F '#{pane_pid}'` into a
+/// single PID.
+///
+/// Returns the first non-empty trimmed line parsed as a `u32`, or `None` if the
+/// output is empty/garbage. Factored out of [`pane_pid`] so the parsing logic is
+/// unit-testable without spawning tmux.
+#[must_use]
+pub fn parse_pane_pid(stdout: &str) -> Option<u32> {
+    stdout
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .and_then(|line| line.parse::<u32>().ok())
+}
+
+/// Query the PID of the (first) pane in a local tmux session.
+///
+/// Runs `tmux list-panes -t <session> -F '#{pane_pid}'` against the jefe-private
+/// socket. Because `llxprt` runs as the pane's direct command (not a shell
+/// wrapper), the returned PID **is** the worker process itself. Local sessions
+/// only.
+///
+/// Returns `None` if tmux is unavailable, the session does not exist, or the
+/// output cannot be parsed. This is the PID-fallback input used to detect
+/// workers that are still alive after their tmux session is gone.
+#[must_use]
+pub fn pane_pid(session_name: &str) -> Option<u32> {
+    let output = tmux_command()
+        .args(["list-panes", "-t", session_name, "-F", "#{pane_pid}"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_pane_pid(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// Kill a tmux session.
@@ -751,5 +813,58 @@ mod tests {
             arg,
             "SANDBOX_FLAGS=--cpus=2 --memory=12288m --pids-limit=256"
         );
+    }
+
+    #[test]
+    fn tmux_base_args_include_config_skip_and_dedicated_socket() {
+        let args = tmux_base_args();
+        // Must skip user config.
+        assert!(
+            args.iter().any(|a| a == "-f"),
+            "tmux base args must include -f"
+        );
+        assert!(
+            args.iter().any(|a| a == "/dev/null"),
+            "tmux base args must include /dev/null"
+        );
+        // Must target the dedicated jefe socket.
+        assert!(
+            args.iter().any(|a| a == "-S"),
+            "tmux base args must include -S"
+        );
+        let socket = crate::runtime::socket::jefe_tmux_socket_path();
+        assert!(
+            args.iter()
+                .any(|a| a == &socket.to_string_lossy().into_owned()),
+            "tmux base args must embed the resolved socket path"
+        );
+    }
+
+    #[test]
+    fn parse_pane_pid_extracts_first_numeric_line() {
+        assert_eq!(parse_pane_pid("12345\n"), Some(12_345));
+        assert_eq!(parse_pane_pid("  98765  \n"), Some(98_765));
+    }
+
+    #[test]
+    fn parse_pane_pid_returns_none_for_empty_output() {
+        assert_eq!(parse_pane_pid(""), None);
+        assert_eq!(parse_pane_pid("   \n  \n"), None);
+    }
+
+    #[test]
+    fn parse_pane_pid_returns_none_for_garbage() {
+        assert_eq!(parse_pane_pid("not-a-pid\n"), None);
+        assert_eq!(parse_pane_pid("abc\ndef\n"), None);
+    }
+
+    #[test]
+    fn is_tmux_fork_broken_classifies_known_messages() {
+        assert!(is_tmux_fork_broken("tmux: fork failed"));
+        assert!(is_tmux_fork_broken(
+            "open terminal failed: Device not configured"
+        ));
+        assert!(!is_tmux_fork_broken("session already exists"));
+        assert!(!is_tmux_fork_broken(""));
     }
 }
