@@ -70,6 +70,7 @@ impl AppState {
             || self.prs_state.inline_state != InlineState::None
             || self.prs_state.agent_chooser.is_some()
             || self.prs_state.merge_chooser.is_some()
+            || self.prs_state.merge_mutation_pending.is_some()
         {
             return;
         }
@@ -163,6 +164,14 @@ impl AppState {
         {
             detail.state = PrState::Merged;
         }
+        if let Some(pr) = self
+            .prs_state
+            .pull_requests
+            .iter_mut()
+            .find(|p| p.number == pr_number)
+        {
+            pr.state = PrState::Merged;
+        }
         self.prs_state.draft_notice = Some(format!("Merged PR #{pr_number}"));
         true
     }
@@ -189,8 +198,8 @@ impl AppState {
             });
         if pending_matches {
             self.prs_state.merge_mutation_pending = None;
+            self.prs_state.error = Some(format!("Failed to merge PR #{pr_number}: {error}"));
         }
-        self.prs_state.error = Some(format!("Failed to merge PR #{pr_number}: {error}"));
         true
     }
 
@@ -201,10 +210,13 @@ impl AppState {
     fn apply_pr_merge_methods_loaded(
         &mut self,
         scope_repo_id: &RepositoryId,
-        _pr_number: u64,
+        pr_number: u64,
         allowed_methods: &[MergeMethod],
     ) -> bool {
         if !self.scope_repo_id_matches_pr_merge(scope_repo_id) {
+            return true;
+        }
+        if self.prs_state.pr_detail.as_ref().map(|d| d.number) != Some(pr_number) {
             return true;
         }
         if let Some(chooser) = &mut self.prs_state.merge_chooser {

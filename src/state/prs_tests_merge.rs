@@ -261,3 +261,98 @@ fn merge_methods_loaded_updates_chooser() {
         None => panic!("allowed_methods must be loaded"),
     }
 }
+
+// ── Edge cases: list sync, stale responses, pending guard ────────────────
+
+#[test]
+fn merged_updates_pull_requests_list_state() {
+    let state = prs_state_with_detail("repo-1", 42);
+    let state = state.apply(AppEvent::PrMerged {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 42,
+        method: MergeMethod::Merge,
+    });
+    let list_state = state
+        .prs_state
+        .pull_requests
+        .iter()
+        .find(|p| p.number == 42)
+        .map(|p| p.state);
+    assert_eq!(
+        list_state,
+        Some(PrState::Merged),
+        "pull_requests list entry must reflect Merged state"
+    );
+    let detail_state = state.prs_state.pr_detail.as_ref().map(|d| d.state);
+    assert_eq!(
+        detail_state,
+        Some(PrState::Merged),
+        "pr_detail must reflect Merged state"
+    );
+}
+
+#[test]
+fn merge_failed_ignored_for_wrong_scope() {
+    let state = prs_state_with_detail("repo-1", 42);
+    let state = state.apply(AppEvent::PrMergeFailed {
+        scope_repo_id: RepositoryId("wrong-repo".to_string()),
+        pr_number: 42,
+        mutation_id: 1,
+        error: "some error".to_string(),
+    });
+    assert!(
+        state.prs_state.error.is_none(),
+        "PrMergeFailed with wrong scope must NOT set an error"
+    );
+}
+
+#[test]
+fn merge_failed_ignored_for_wrong_mutation_id() {
+    let state = prs_state_with_detail("repo-1", 42);
+    let state = state.apply(AppEvent::PrMergeFailed {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 42,
+        mutation_id: 999,
+        error: "stale".to_string(),
+    });
+    assert!(
+        state.prs_state.error.is_none(),
+        "PrMergeFailed with wrong mutation_id must NOT set an error"
+    );
+}
+
+#[test]
+fn merge_methods_loaded_ignored_for_wrong_pr_number() {
+    let state = prs_state_with_detail("repo-1", 42);
+    let state = state.apply(AppEvent::PrOpenMergeChooser);
+    let state = state.apply(AppEvent::PrMergeMethodsLoaded {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 99,
+        allowed_methods: vec![MergeMethod::Squash],
+    });
+    let still_none = state
+        .prs_state
+        .merge_chooser
+        .as_ref()
+        .is_some_and(|c| c.allowed_methods.is_none());
+    assert!(
+        still_none,
+        "PrMergeMethodsLoaded for wrong pr_number must NOT update chooser"
+    );
+}
+
+#[test]
+fn open_merge_chooser_blocked_while_merge_pending() {
+    let mut state = prs_state_with_detail("repo-1", 42);
+    state.prs_state.merge_mutation_pending = Some(super::types::PrMergeMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 1,
+        pr_number: 42,
+        method: MergeMethod::Merge,
+    });
+    let state = state.apply(AppEvent::PrOpenMergeChooser);
+    assert!(
+        state.prs_state.merge_chooser.is_none(),
+        "merge chooser must NOT open while a merge is pending"
+    );
+}

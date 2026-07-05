@@ -784,15 +784,18 @@ pub(super) fn dispatch_pr_merge_methods_load(app_state: &AppStateHandle, ctx: &S
         app_state,
         ctx,
         move |mut app_state, ctx| {
-            let event = pr_merge_methods_event(&ctx, &scope, &owner, &name, pr_number);
-            apply_and_persist(&mut app_state, &ctx, event);
+            if let Some(event) = pr_merge_methods_event(&ctx, &scope, &owner, &name, pr_number) {
+                apply_and_persist(&mut app_state, &ctx, event);
+            }
         },
         // On panic: deliver nothing (chooser stays in "all available" mode).
         move |_app_state, _ctx, _message| {},
     );
 }
 
-/// Build the merge-methods-loaded event (or nothing on failure).
+/// Build the merge-methods-loaded event, returning `None` on failure so the
+/// chooser keeps `allowed_methods: None` (meaning "all available") rather than
+/// collapsing to an empty list that disables every method.
 ///
 /// @requirement REQ-PR-009
 fn pr_merge_methods_event(
@@ -801,22 +804,13 @@ fn pr_merge_methods_event(
     owner: &str,
     name: &str,
     pr_number: u64,
-) -> AppEvent {
-    // On failure, do nothing — the chooser treats None as all-available.
-    if let Some(Ok(methods)) = github_client(ctx)
-        .map(|client| client.get_repo_merge_methods(owner, name))
-        .or(Some(Ok(Vec::new())))
-    {
-        AppEvent::PrMergeMethodsLoaded {
-            scope_repo_id: scope.clone(),
-            pr_number,
-            allowed_methods: methods,
-        }
-    } else {
-        AppEvent::PrMergeMethodsLoaded {
-            scope_repo_id: scope.clone(),
-            pr_number,
-            allowed_methods: Vec::new(),
-        }
-    }
+) -> Option<AppEvent> {
+    let methods = github_client(ctx)?
+        .get_repo_merge_methods(owner, name)
+        .ok()?;
+    Some(AppEvent::PrMergeMethodsLoaded {
+        scope_repo_id: scope.clone(),
+        pr_number,
+        allowed_methods: methods,
+    })
 }
