@@ -83,6 +83,14 @@ fn ensure_dir_or_fallback(socket_file: PathBuf) -> PathBuf {
     std::env::temp_dir().join(fallback_name)
 }
 
+/// Whether a candidate Unix-domain-socket path fits safely under the kernel's
+/// `sun_path` limit (104 bytes macOS, 108 Linux). Use 100 to stay under the
+/// strictest platform limit, avoiding cryptic tmux socket-bind failures.
+#[must_use]
+fn socket_path_len_ok(candidate: &std::path::Path) -> bool {
+    candidate.to_string_lossy().len() < 100
+}
+
 /// Resolve the default socket directory when no env var is set.
 ///
 /// Precedence: `dirs::runtime_dir()` (Linux XDG_RUNTIME_DIR; `None` on macOS)
@@ -96,10 +104,9 @@ fn default_socket_dir() -> PathBuf {
         // macOS, 108 Linux). On macOS `runtime_dir()` is `None` so the
         // fallback reaches `data_local_dir()` (`~/Library/Application
         // Support`), which with a long username + `jefe-<uid>.sock` can
-        // exceed 104 bytes, making tmux fail cryptically. Use 100 to stay
-        // safely under macOS's 104-byte limit.
+        // exceed 104 bytes, making tmux fail cryptically.
         let candidate = dir.join(socket_filename());
-        if candidate.to_string_lossy().len() < 100 {
+        if socket_path_len_ok(&candidate) {
             return dir;
         }
         tracing::warn!(
@@ -125,10 +132,18 @@ fn default_socket_dir() -> PathBuf {
 fn resolve_from_env(socket_path_env: Option<&str>, socket_dir_env: Option<&str>) -> PathBuf {
     // 1. JEFE_SOCKET_PATH — absolute socket file path. A relative path
     //    resolves against tmux's CWD (not jefe's), causing subtle bugs, so
-    //    only honor it when absolute.
+    //    only honor it when absolute. This is the most explicit user intent,
+    //    so an over-length path is warned about but still honored (falling
+    //    through to a different socket would be more surprising).
     if let Some(path) = socket_path_env.map(str::trim).filter(|s| !s.is_empty()) {
         let path_buf = PathBuf::from(path);
         if path_buf.is_absolute() {
+            if !socket_path_len_ok(&path_buf) {
+                tracing::warn!(
+                    requested_path = %path_buf.display(),
+                    "JEFE_SOCKET_PATH exceeds the Unix domain socket path length limit; tmux may fail to bind it"
+                );
+            }
             return path_buf;
         }
         tracing::warn!(
@@ -138,8 +153,18 @@ fn resolve_from_env(socket_path_env: Option<&str>, socket_dir_env: Option<&str>)
     }
 
     // 2. JEFE_SOCKET_DIR — directory; socket file = `<dir>/jefe-<uid>.sock`.
+    //    Apply the same length guard as the default-dir branch: an over-long
+    //    custom directory would reproduce the cryptic tmux socket failure, so
+    //    warn and fall through to the platform default instead.
     if let Some(dir) = socket_dir_env.map(str::trim).filter(|s| !s.is_empty()) {
-        return PathBuf::from(dir).join(socket_filename());
+        let candidate = PathBuf::from(dir).join(socket_filename());
+        if socket_path_len_ok(&candidate) {
+            return candidate;
+        }
+        tracing::warn!(
+            candidate = %candidate.display(),
+            "JEFE_SOCKET_DIR-derived path too long for a Unix domain socket; falling through to default"
+        );
     }
 
     // 3. Platform default.
@@ -260,5 +285,46 @@ mod tests {
             .and_then(|n| n.to_str())
             .unwrap_or_else(|| panic!("default must have a filename: {path:?}"));
         assert_valid_jefe_socket_filename(filename);
+    }
+
+    #[test]
+    fn resolve_falls_through_when_socket_dir_too_long() {
+        // A JEFE_SOCKET_DIR that yields a socket path >= 100 bytes must fall
+        // through to the platform default rather than reproducing the cryptic
+        // tmux socket-bind failure. Build a directory long enough that even
+        // the short `jefe-<uid>.sock` suffix pushes the total over the limit.
+        let long_dir = "/tmp/".to_owned() + &"a".repeat(95);
+        let path = resolve_from_env(None, Some(&long_dir));
+
+        // The result must NOT live under the over-long custom directory.
+        assert!(
+            !path.starts_with(&long_dir),
+            "over-long JEFE_SOCKET_DIR should fall through, got {path:?}"
+        );
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_else(|| panic!("fallback must have a filename: {path:?}"));
+        assert_valid_jefe_socket_filename(filename);
+    }
+
+    #[test]
+    fn resolve_honors_overlong_explicit_socket_path() {
+        // JEFE_SOCKET_PATH is the most explicit user intent: an over-long path
+        // is still honored (falling through to a different socket would be more
+        // surprising). The warning is emitted but the value is returned as-is.
+        let overlong = "/tmp/".to_owned() + &"z".repeat(100) + ".sock";
+        let path = resolve_from_env(Some(&overlong), None);
+        assert_eq!(path, PathBuf::from(&overlong));
+    }
+
+    #[test]
+    fn socket_path_len_ok_respects_threshold() {
+        assert!(socket_path_len_ok(std::path::Path::new("/tmp/short.sock")));
+        // Exactly 100 bytes is NOT ok (guard is strictly < 100).
+        let at_limit: String = "a".repeat(100);
+        assert!(!socket_path_len_ok(std::path::Path::new(&at_limit)));
+        let just_under: String = "a".repeat(99);
+        assert!(socket_path_len_ok(std::path::Path::new(&just_under)));
     }
 }
