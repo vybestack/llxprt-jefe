@@ -818,25 +818,15 @@ mod tests {
     #[test]
     fn tmux_base_args_include_config_skip_and_dedicated_socket() {
         let args = tmux_base_args();
-        // Must skip user config.
-        assert!(
-            args.iter().any(|a| a == "-f"),
-            "tmux base args must include -f"
-        );
-        assert!(
-            args.iter().any(|a| a == "/dev/null"),
-            "tmux base args must include /dev/null"
-        );
-        // Must target the dedicated jefe socket.
-        assert!(
-            args.iter().any(|a| a == "-S"),
-            "tmux base args must include -S"
-        );
         let socket = crate::runtime::socket::jefe_tmux_socket_path();
-        assert!(
-            args.iter()
-                .any(|a| a == &socket.to_string_lossy().into_owned()),
-            "tmux base args must embed the resolved socket path"
+        assert_eq!(
+            args,
+            vec![
+                "-f".to_owned(),
+                "/dev/null".to_owned(),
+                "-S".to_owned(),
+                socket.to_string_lossy().into_owned(),
+            ]
         );
     }
 

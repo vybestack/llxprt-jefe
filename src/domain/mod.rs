@@ -568,6 +568,12 @@ pub struct RuntimeBinding {
     pub last_seen: Option<u64>,
     /// OS PID of the worker process (`llxprt`), used as a liveness fallback
     /// when the tmux session is gone but the worker is still alive.
+    ///
+    /// PID-based liveness is a best-effort heuristic: OS PID reuse can in
+    /// principle produce a false positive (a recycled PID appearing alive).
+    /// The window is narrow because this check only fires when the tmux
+    /// session is *recently* gone, so a real crash is far more likely than a
+    /// collision with a recycled PID in that interval.
     /// `#[serde(default)]` for backward-compatible loading of older state.json
     /// files that predate this field.
     #[serde(default)]

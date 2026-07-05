@@ -634,6 +634,9 @@ fn capture_jefe_pane(session_name: &str) -> Option<String> {
         ])
         .output()
         .ok()?;
+    if !output.status.success() {
+        return None;
+    }
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 

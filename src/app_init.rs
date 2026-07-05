@@ -234,6 +234,9 @@ fn restore_dead_decision(
     if session_exists {
         return RestoreDecision::Revive;
     }
+    // `session_exists` is always `false` here — the `true` case early-returns
+    // as `Revive` above. The argument is threaded through for clarity and to
+    // keep `is_agent_dead` self-documenting.
     if is_agent_dead(session_exists, remote_enabled, pid) {
         return RestoreDecision::Dead;
     }
@@ -296,7 +299,12 @@ fn restore_one_agent(
         RestoreDecision::Revive => {
             match revive_agent_session(agent, &signature, runtime, runtime_warning) {
                 ReviveOutcome::Revived => {
-                    let pid = runtime.worker_pid(&agent.id);
+                    // A reattach does not respawn the worker, so fall back to
+                    // the previously-persisted PID if worker_pid transiently
+                    // returns None (e.g. a tmux list-panes hiccup right after
+                    // create). Without this, the revived agent's binding could
+                    // be persisted with pid: None, stripping the fallback.
+                    let pid = runtime.worker_pid(&agent.id).or(pid);
                     RestoreOneOutcome::Revived {
                         signature: Box::new(signature),
                         pid,
@@ -450,9 +458,10 @@ mod tests {
     /// Local agent, session gone, worker PID dead → dead.
     #[test]
     fn is_agent_dead_true_when_local_worker_pid_dead() {
-        // u32::MAX exceeds the OS pid_t range on every supported platform, so it
-        // can never be a live process (avoids flakes on high pid_max systems).
-        assert!(is_agent_dead(false, false, Some(u32::MAX)));
+        // 2_000_000_000 is within pid_t (i32) range but far above every
+        // platform's pid_max (Linux ~4.19M, macOS ~99998), so kill -0
+        // deterministically returns ESRCH (no such process).
+        assert!(is_agent_dead(false, false, Some(2_000_000_000)));
     }
 
     /// Local agent, session gone, no PID recorded → dead (no fallback info).
@@ -508,9 +517,11 @@ mod tests {
     /// Local agent, no session, dead/nonexistent PID ⇒ Dead.
     #[test]
     fn restore_decision_dead_when_local_no_session_dead_pid() {
-        // u32::MAX exceeds the OS pid_t range, so it can never be live.
+        // 2_000_000_000 is within pid_t (i32) range but far above every
+        // platform's pid_max (Linux ~4.19M, macOS ~99998), so kill -0
+        // deterministically returns ESRCH (no such process).
         assert_eq!(
-            restore_dead_decision(false, false, Some(u32::MAX)),
+            restore_dead_decision(false, false, Some(2_000_000_000)),
             RestoreDecision::Dead
         );
     }

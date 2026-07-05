@@ -219,6 +219,16 @@ fn clear_agent_runtime_attachment(state: &mut AppState) {
     }
 }
 
+/// Query the runtime for an agent's worker PID (`llxprt` OS process) via the
+/// shared context. Returns `None` when the context is absent, the lock is
+/// poisoned, or the runtime has no PID recorded. Shared by the launch,
+/// relaunch, and issue/PR send paths.
+fn worker_pid_for(ctx: &SharedContext, agent_id: &AgentId) -> Option<u32> {
+    ctx.as_ref()
+        .and_then(|arc| arc.lock().ok())
+        .and_then(|guard| guard.runtime.worker_pid(agent_id))
+}
+
 fn mark_runtime_session_dead_if_present(state: &mut AppState, agent_id: &AgentId) {
     if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
         agent.status = AgentStatus::Dead;
@@ -357,10 +367,7 @@ fn mark_launch_attached(
 ) {
     // Query the runtime for the worker PID before taking the app-state write
     // lock, so the persisted binding carries the PID-liveness fallback.
-    let pid = ctx
-        .as_ref()
-        .and_then(|arc| arc.lock().ok())
-        .and_then(|guard| guard.runtime.worker_pid(agent_id));
+    let pid = worker_pid_for(ctx, agent_id);
 
     let mut state = app_state.write();
     set_agent_runtime_binding(
@@ -692,15 +699,12 @@ fn persist_relaunch_result(
     relaunched: bool,
 ) {
     let relaunch_event = AppEvent::RelaunchAgent(agent_id.clone());
-    // Query the runtime for the worker PID so the persisted binding carries
-    // the PID-liveness fallback. Done once here (where `ctx` is available)
-    // and threaded into the success path.
-    let pid = ctx
-        .as_ref()
-        .and_then(|arc| arc.lock().ok())
-        .and_then(|guard| guard.runtime.worker_pid(&agent_id));
     let mut state = app_state.write();
     if relaunched {
+        // Query the runtime for the worker PID only on the success path
+        // (the failure path does not persist a binding), so the persisted
+        // binding carries the PID-liveness fallback.
+        let pid = worker_pid_for(ctx, &agent_id);
         persist_relaunch_success(&mut state, &agent_id, relaunch_event, pid);
     } else {
         persist_relaunch_failure(&mut state, &agent_id, relaunch_event);
@@ -926,10 +930,7 @@ fn launch_issue_agent(
     let launched = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
     // Capture the worker PID from the runtime for the persisted binding's
     // PID-liveness fallback.
-    let pid = ctx
-        .as_ref()
-        .and_then(|arc| arc.lock().ok())
-        .and_then(|guard| guard.runtime.worker_pid(&agent_id));
+    let pid = worker_pid_for(ctx, &agent_id);
     let mut state = app_state.write();
     if launched {
         persist_issue_agent_launch_success(&mut state, &agent_id, launch_sig, pid);

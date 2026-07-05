@@ -22,11 +22,20 @@ use crate::runtime::commands::{
 /// remote agents must stay on the tmux/SSH-only path.
 #[must_use]
 pub fn pid_alive(pid: u32) -> bool {
-    std::process::Command::new("kill")
+    match std::process::Command::new("kill")
         .arg("-0")
         .arg(pid.to_string())
         .output()
-        .is_ok_and(|output| output.status.success())
+    {
+        Ok(output) => output.status.success(),
+        Err(e) => {
+            // Fail-open: this is a recovery safety net whose whole purpose is
+            // to avoid marking live workers Dead. If we can't even run `kill`,
+            // assume the worker is still alive rather than risk losing it.
+            tracing::warn!(error = %e, pid, "failed to spawn kill -0; assuming worker alive");
+            true
+        }
+    }
 }
 
 /// Check if a tmux session exists and has at least one non-dead pane.
@@ -159,10 +168,11 @@ mod tests {
 
     #[test]
     fn pid_alive_returns_false_for_nonexistent_pid() {
-        // u32::MAX exceeds the OS pid_t range on every supported platform, so it
-        // can never correspond to a real process. (Linux pid_max tops out at
-        // ~4.19M; choosing a lower "safe-looking" value risks flakes on systems
-        // with high pid_max.)
-        assert!(!pid_alive(u32::MAX));
+        // 2_000_000_000 is within pid_t (i32) range but far above every
+        // platform's pid_max (Linux ~4.19M, macOS ~99998), so kill -0
+        // deterministically returns ESRCH (no such process). u32::MAX
+        // (4_294_967_295) overflows pid_t parsing on macOS, which is
+        // implementation-defined.
+        assert!(!pid_alive(2_000_000_000));
     }
 }

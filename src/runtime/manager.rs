@@ -459,10 +459,13 @@ impl TmuxRuntimeManager {
             }
         }
 
-        // Capture the worker PID for the PID-liveness fallback. `pane_pid` is
-        // local-only (the worker runs as the pane's direct command), so it is
-        // not queried for remote sessions. Captured for both the reattach and
-        // create branches so creation and revival stay symmetric.
+        // Capture the worker PID for the PID-liveness fallback. `pane_pid`
+        // only returns the worker PID when the worker runs as the pane's
+        // *direct* command — jefe launches `llxprt` directly (no shell/wrapper
+        // in the pane), so the pane PID *is* the worker PID. It is
+        // local-only, so it is not queried for remote sessions. Captured for
+        // both the reattach and create branches so creation and revival stay
+        // symmetric.
         let captured_pid = if signature.remote.enabled {
             None
         } else {
