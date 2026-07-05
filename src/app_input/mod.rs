@@ -27,7 +27,8 @@ mod gh_async;
 mod agent_runtime;
 use agent_runtime::{
     clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
-    mark_runtime_session_dead_if_present, set_agent_runtime_binding, worker_pid_for,
+    mark_runtime_session_dead_if_present, pid_on_success, set_agent_runtime_binding,
+    worker_pid_for,
 };
 
 pub use modal_handlers::{handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key};
@@ -644,16 +645,11 @@ fn persist_relaunch_result(
     relaunched: bool,
 ) {
     let relaunch_event = AppEvent::RelaunchAgent(agent_id.clone());
-    // Query the PID BEFORE taking the app-state write lock to match the
-    // established pattern (mark_launch_attached): app_state-lock → ctx-lock
-    // ordering would be a lock-ordering hazard, since worker_pid_for
-    // acquires the ctx mutex. On the failure path no binding is persisted,
-    // so skip the wasted PID query.
-    let pid = if relaunched {
-        worker_pid_for(ctx, &agent_id)
-    } else {
-        None
-    };
+    // Query the PID BEFORE taking the app-state write lock: worker_pid_for
+    // acquires the ctx mutex, so app_state-lock → ctx-lock would be a
+    // lock-ordering hazard. `pid_on_success` skips the query on the failure
+    // path (no binding is persisted).
+    let pid = pid_on_success(ctx, &agent_id, relaunched);
     let mut state = app_state.write();
     if relaunched {
         persist_relaunch_success(&mut state, &agent_id, relaunch_event, pid);
@@ -879,15 +875,10 @@ fn launch_issue_agent(
     launch_sig: LaunchSignature,
 ) {
     let launched = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
-    // Capture the worker PID from the runtime for the persisted binding's
-    // PID-liveness fallback. Skip the query on the failure path (no binding
-    // is persisted), avoiding wasted work. This is already before
-    // `app_state.write()` so lock ordering is correct.
-    let pid = if launched {
-        worker_pid_for(ctx, &agent_id)
-    } else {
-        None
-    };
+    // Resolve the worker PID for the persisted binding's PID-liveness
+    // fallback, before taking the app-state write lock (lock-ordering
+    // constraint). Skipped on the failure path (no binding persisted).
+    let pid = pid_on_success(ctx, &agent_id, launched);
     let mut state = app_state.write();
     if launched {
         persist_issue_agent_launch_success(&mut state, &agent_id, launch_sig, pid);

@@ -18,8 +18,8 @@ use tracing::warn;
 use super::{
     AppStateHandle, REMOTE_ATTACH_SETTLE_DELAY, SharedContext, apply_and_persist,
     clear_agent_runtime_attachment, dispatch_app_event, launch_signature_for_agent,
-    mark_agent_runtime_attached, persist_state, preflight_or_prompt, prs_comments_dispatch,
-    prs_dispatch, prs_list_dispatch, prs_mutation, to_persisted_state, worker_pid_for,
+    mark_agent_runtime_attached, persist_state, pid_on_success, preflight_or_prompt,
+    prs_comments_dispatch, prs_dispatch, prs_list_dispatch, prs_mutation, to_persisted_state,
 };
 
 // ── PR-mode dispatch routing + loader helpers ──────────────────────────────
@@ -400,14 +400,9 @@ fn launch_pr_agent(
     launch_sig: LaunchSignature,
 ) {
     let launched = spawn_and_attach_fresh_for_pr(ctx, &agent_id, &work_dir, &launch_sig);
-    // Capture the worker PID from the runtime for the persisted binding's
-    // PID-liveness fallback. Skip the query on the failure path (no binding
-    // is persisted), avoiding wasted work.
-    let pid = if launched {
-        worker_pid_for(ctx, &agent_id)
-    } else {
-        None
-    };
+    // Resolve the worker PID before taking the app-state write lock
+    // (lock-ordering constraint). Skipped on the failure path.
+    let pid = pid_on_success(ctx, &agent_id, launched);
     let mut state = app_state.write();
     if launched {
         persist_pr_agent_launch_success(&mut state, &agent_id, launch_sig, pid);

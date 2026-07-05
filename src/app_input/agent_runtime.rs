@@ -66,6 +66,24 @@ pub(super) fn worker_pid_for(ctx: &SharedContext, agent_id: &AgentId) -> Option<
         .and_then(|guard| guard.runtime.worker_pid(agent_id))
 }
 
+/// Resolve the worker PID to persist on a runtime binding, gated on launch
+/// success.
+///
+/// All launch/relaunch persistence paths share the same invariant: the PID
+/// must be queried from the runtime **before** the caller takes the
+/// `app_state` write lock, because `worker_pid_for` acquires the shared
+/// context mutex and `app_state-lock → ctx-lock` would be a lock-ordering
+/// hazard. Centralizing the success-gated query here guarantees that ordering
+/// is respected at every call site. On the failure path no binding is
+/// persisted, so the query is skipped.
+pub(super) fn pid_on_success(
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+    success: bool,
+) -> Option<u32> {
+    success.then(|| worker_pid_for(ctx, agent_id)).flatten()
+}
+
 pub(super) fn mark_runtime_session_dead_if_present(state: &mut AppState, agent_id: &AgentId) {
     if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
         agent.status = AgentStatus::Dead;
