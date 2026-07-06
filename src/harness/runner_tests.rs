@@ -389,28 +389,40 @@ fn artifact_capture_failure_preserves_original_assertion() {
     assert!(matches!(err, RunnerError::Assertion(_)));
 }
 
-#[test]
-fn guarded_real_jefe_runner_scenario_starts_and_quits() {
+/// Resolve the jefe binary for a guarded integration test.
+///
+/// Prints a labeled skip reason and returns `None` when tmux or the jefe
+/// binary is unavailable. `context` labels the message (e.g. "real runner
+/// test") so it's clear which scenario was skipped.
+fn guarded_jefe_binary(context: &str) -> Option<PathBuf> {
     let tmux = TmuxDriver::new();
     if !tmux.is_available() {
         let _ = std::io::Write::write_all(
             &mut std::io::stderr(),
-            b"skipping real runner test: tmux unavailable\n",
+            format!("skipping {context}: tmux unavailable\n").as_bytes(),
         );
-        return;
+        return None;
     }
-    let Some(jefe_binary) = jefe_binary_path() else {
+    let binary = jefe_binary_path();
+    if binary.is_none() {
         let _ = std::io::Write::write_all(
             &mut std::io::stderr(),
-            b"skipping real runner test: jefe binary unavailable\n",
+            format!("skipping {context}: jefe binary unavailable\n").as_bytes(),
         );
+    }
+    binary
+}
+
+#[test]
+fn guarded_real_jefe_runner_scenario_starts_and_quits() {
+    let Some(jefe_binary) = guarded_jefe_binary("real runner test") else {
         return;
     };
     let config_dir = tempfile::tempdir().value_or_panic("isolated config tempdir");
     let scenario = scenario(
         r#"[
             { "waitFor": "LLxprt Jefe" },
-            { "key": "q" },
+            { "key": "C-q" },
             { "waitForExit": 3000 }
         ]"#,
     );
@@ -428,6 +440,39 @@ fn guarded_real_jefe_runner_scenario_starts_and_quits() {
         run_tmux_scenario(&scenario, &request, None).value_or_panic("real runner scenario");
 
     assert_eq!(summary.steps_run, 3);
+}
+
+/// Rapid triple-`q` (`qqq`) quits the app — behavioral proof of the quit
+/// sequence fallback (issue #129). Three bare `q`s sent back-to-back land
+/// within the 1s window, so the app exits.
+#[test]
+fn guarded_real_jefe_qqq_quits() {
+    let Some(jefe_binary) = guarded_jefe_binary("qqq quit test") else {
+        return;
+    };
+    let config_dir = tempfile::tempdir().value_or_panic("isolated config tempdir");
+    let scenario = scenario(
+        r#"[
+            { "waitFor": "LLxprt Jefe" },
+            { "key": "q" },
+            { "key": "q" },
+            { "key": "q" },
+            { "waitForExit": 3000 }
+        ]"#,
+    );
+    let session_name = unique_session("qqq-jefe");
+    let request = TmuxStartRequest::jefe(
+        session_name,
+        jefe_binary,
+        config_dir.path(),
+        std::env::current_dir().value_or_panic("current dir"),
+        TmuxPaneSize::new(100, 30, 2_000),
+    )
+    .value_or_panic("jefe request");
+
+    let summary = run_tmux_scenario(&scenario, &request, None).value_or_panic("qqq quit scenario");
+
+    assert_eq!(summary.steps_run, 5);
 }
 
 fn jefe_binary_path() -> Option<PathBuf> {
@@ -461,19 +506,7 @@ fn unique_session(label: &str) -> String {
 /// kill → still-visible → navigate → filtered → quit flow.
 #[test]
 fn guarded_real_jefe_sticky_kill_scenario() {
-    let tmux = TmuxDriver::new();
-    if !tmux.is_available() {
-        let _ = std::io::Write::write_all(
-            &mut std::io::stderr(),
-            b"skipping sticky kill test: tmux unavailable\n",
-        );
-        return;
-    }
-    let Some(jefe_binary) = jefe_binary_path() else {
-        let _ = std::io::Write::write_all(
-            &mut std::io::stderr(),
-            b"skipping sticky kill test: jefe binary unavailable\n",
-        );
+    let Some(jefe_binary) = guarded_jefe_binary("sticky kill test") else {
         return;
     };
 
@@ -580,7 +613,7 @@ fn run_sticky_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Pa
             { "key": "Down" },
             { "wait": 500 },
             { "waitForNot": "StickyAgent" },
-            { "key": "q" },
+            { "key": "C-q" },
             { "waitForExit": 3000 }
         ]"#,
     );
@@ -690,21 +723,7 @@ impl Drop for TmuxSessionCleanup {
 /// Ctrl-r → expect agent still visible and running → quit.
 #[test]
 fn guarded_real_jefe_restart_scenario() {
-    let tmux = TmuxDriver::new();
-    if !tmux.is_available() {
-        let _ = std::io::Write::write_all(
-            &mut std::io::stderr(),
-            b"skipping restart test: tmux unavailable
-",
-        );
-        return;
-    }
-    let Some(jefe_binary) = jefe_binary_path() else {
-        let _ = std::io::Write::write_all(
-            &mut std::io::stderr(),
-            b"skipping restart test: jefe binary unavailable
-",
-        );
+    let Some(jefe_binary) = guarded_jefe_binary("restart test") else {
         return;
     };
 
@@ -831,7 +850,7 @@ fn run_restart_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::P
             { "key": "C-r" },
             { "wait": 3000 },
             { "expect": "RestartAgent" },
-            { "key": "q" },
+            { "key": "C-q" },
             { "waitForExit": 5000 }
         ]"#,
     );

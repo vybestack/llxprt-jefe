@@ -125,7 +125,7 @@ fn guarded_dashboard_reorder_tui_scenario() {
                 { "key": "Space" },
                 { "wait": 300 },
                 { "expect": "bravo" },
-                { "key": "q" },
+                { "key": "C-q" },
                 { "waitForExit": 3000 }
             ]
         }"#,

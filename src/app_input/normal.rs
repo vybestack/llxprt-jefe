@@ -1,10 +1,12 @@
 //! Normal-mode keyboard event dispatch.
 
+use std::time::Instant;
+
 use iocraft::prelude::*;
 use tracing::{debug, warn};
 
 use jefe::domain::{AgentId, RepositoryId};
-use jefe::input::{InputMode, input_mode_for_state};
+use jefe::input::{InputMode, QuitOutcome, input_mode_for_state, observe_quit_sequence};
 use jefe::runtime::RuntimeManager;
 use jefe::state::{AppEvent, AppState, PaneFocus, ScreenMode};
 use jefe::theme::ThemeManager;
@@ -92,8 +94,16 @@ pub fn handle_normal_key_event(
 ) -> Option<AppEvent> {
     let snapshot = normal_key_snapshot(app_state);
 
+    // Unified quit resolver (`Ctrl-Q` or rapid `qqq`). Runs first so the quit
+    // trigger is honored in every eligible sub-mode and a pending `q` is
+    // swallowed before any lower handler consumes it.
     if let KeyHandling::Handled(event) =
-        handle_dashboard_issues_key(app_state, should_quit, ctx, key_event, screen_mode)
+        resolve_quit(app_state, should_quit, key_event, screen_mode)
+    {
+        return event;
+    }
+    if let KeyHandling::Handled(event) =
+        handle_dashboard_issues_key(app_state, ctx, key_event, screen_mode)
     {
         return event;
     }
@@ -106,14 +116,11 @@ pub fn handle_normal_key_event(
     // @requirement REQ-PR-002
     // @pseudocode component-003 lines 10-14
     if let KeyHandling::Handled(event) =
-        handle_dashboard_prs_key(app_state, should_quit, ctx, key_event, screen_mode)
+        handle_dashboard_prs_key(app_state, ctx, key_event, screen_mode)
     {
         return event;
     }
     if let KeyHandling::Handled(event) = resolve_dashboard_grab_key(app_state, key_event) {
-        return event;
-    }
-    if let KeyHandling::Handled(event) = resolve_quit_key(should_quit, key_event) {
         return event;
     }
     if let KeyHandling::Handled(event) = resolve_navigation_key(key_event) {
@@ -161,10 +168,60 @@ fn normal_key_snapshot(app_state: &AppStateHandle) -> NormalKeySnapshot {
     }
 }
 
-/// Returns true when `q`/`Q` should act as the global quit shortcut while in
+/// Whether the global quit shortcut (`Ctrl-Q` / rapid `qqq`) should be eligible
+/// to act for the current screen and input mode.
+///
+/// Quit is eligible in the plain navigation sub-modes — `Dashboard` normal,
+/// `Split`, `IssuesNormal`, and `PrsNormal` — and explicitly *not* in any
+/// text-capturing or overlay sub-mode, so a `q` typed in a composer/search/
+/// filter is never swallowed by quit. `Split` has no text-capturing sub-modes
+/// and does not bind `q` for anything else, so quit stays eligible there (a
+/// bare `q` harmlessly advances the `qqq` sequence).
+fn quit_shortcut_active(state: &AppState, screen_mode: ScreenMode) -> bool {
+    match screen_mode {
+        ScreenMode::Dashboard | ScreenMode::Split => true,
+        ScreenMode::DashboardIssues => issues_quit_shortcut_active(state),
+        ScreenMode::DashboardPullRequests => prs_quit_shortcut_active(state),
+    }
+}
+
+/// Unified quit resolver: the instant `Ctrl-Q` chord or the rapid `qqq`
+/// sequence. Checked first in the normal-mode dispatch so the quit trigger is
+/// honored in every eligible sub-mode and any pending `q` is swallowed before
+/// lower handlers run.
+fn resolve_quit(
+    app_state: &mut AppStateHandle,
+    should_quit: &mut QuitHandle,
+    key_event: &KeyEvent,
+    screen_mode: ScreenMode,
+) -> KeyHandling {
+    let eligible = {
+        let state = app_state.read();
+        quit_shortcut_active(&state, screen_mode)
+    };
+    if !eligible {
+        return KeyHandling::Unhandled;
+    }
+    let outcome = {
+        let mut state = app_state.write();
+        observe_quit_sequence(&mut state.quit_sequence, key_event, Instant::now())
+    };
+    match outcome {
+        QuitOutcome::Quit => {
+            should_quit.set(true);
+            KeyHandling::Handled(None)
+        }
+        // A `q` is accumulating toward `qqq`: consume it so it neither quits
+        // nor reaches a lower handler.
+        QuitOutcome::Continue => KeyHandling::Handled(None),
+        // Unrelated key: let the rest of the dispatch handle it.
+        QuitOutcome::Reset => KeyHandling::Unhandled,
+    }
+}
+
+/// Returns true when the global quit shortcut should act while in
 /// Issues Mode. Quit only applies in the plain `IssuesNormal` sub-mode; any
-/// text-capturing or overlay sub-mode (inline editor/composer, search input,
-/// filter controls, agent chooser) must receive the key so the character is
+/// text-capturing or overlay sub-mode must receive the key so it is
 /// not swallowed by quit.
 fn issues_quit_shortcut_active(state: &AppState) -> bool {
     matches!(input_mode_for_state(state), InputMode::IssuesNormal)
@@ -172,7 +229,6 @@ fn issues_quit_shortcut_active(state: &AppState) -> bool {
 
 fn handle_dashboard_issues_key(
     app_state: &AppStateHandle,
-    should_quit: &mut QuitHandle,
     ctx: &SharedContext,
     key_event: &KeyEvent,
     screen_mode: ScreenMode,
@@ -181,22 +237,14 @@ fn handle_dashboard_issues_key(
         return KeyHandling::Unhandled;
     }
 
-    let quit_active = {
-        let state = app_state.read();
-        issues_quit_shortcut_active(&state)
-    };
-
-    if quit_active && matches!(key_event.code, KeyCode::Char('q' | 'Q')) {
-        should_quit.set(true);
-        KeyHandling::Handled(None)
-    } else {
-        KeyHandling::Handled(super::issues::handle_issues_mode_key(
-            app_state, ctx, key_event,
-        ))
-    }
+    // Quit is resolved centrally by `resolve_quit` before this handler runs;
+    // every remaining key is delegated to Issues mode (and consumed).
+    KeyHandling::Handled(super::issues::handle_issues_mode_key(
+        app_state, ctx, key_event,
+    ))
 }
 
-/// Returns true when `q`/`Q` should act as the global quit shortcut while in
+/// Returns true when the global quit shortcut should act while in
 /// PR Mode. Quit only applies in the plain `PrsNormal` sub-mode; any
 /// text-capturing or overlay sub-mode must receive the key.
 ///
@@ -210,7 +258,7 @@ fn prs_quit_shortcut_active(state: &AppState) -> bool {
 /// Route key events when `screen_mode == DashboardPullRequests`.
 ///
 /// Mirrors `handle_dashboard_issues_key`: if the quit shortcut is active and
-/// the key is `q`/`Q`, quit; otherwise delegate to `prs::handle_prs_mode_key`.
+/// the key is the quit shortcut, quit; otherwise delegate to `prs::handle_prs_mode_key`.
 /// The entire result is wrapped in `KeyHandling::Handled(...)` so every key is
 /// consumed while in PR Mode (never leaks to dashboard/destructive handlers).
 ///
@@ -220,7 +268,6 @@ fn prs_quit_shortcut_active(state: &AppState) -> bool {
 /// @pseudocode component-003 lines 05-14
 fn handle_dashboard_prs_key(
     app_state: &AppStateHandle,
-    should_quit: &mut QuitHandle,
     ctx: &SharedContext,
     key_event: &KeyEvent,
     screen_mode: ScreenMode,
@@ -229,26 +276,9 @@ fn handle_dashboard_prs_key(
         return KeyHandling::Unhandled;
     }
 
-    let quit_active = {
-        let state = app_state.read();
-        prs_quit_shortcut_active(&state)
-    };
-
-    if quit_active && matches!(key_event.code, KeyCode::Char('q' | 'Q')) {
-        should_quit.set(true);
-        KeyHandling::Handled(None)
-    } else {
-        KeyHandling::Handled(super::prs::handle_prs_mode_key(app_state, ctx, key_event))
-    }
-}
-
-fn resolve_quit_key(should_quit: &mut QuitHandle, key_event: &KeyEvent) -> KeyHandling {
-    if matches!(key_event.code, KeyCode::Char('q' | 'Q')) {
-        should_quit.set(true);
-        KeyHandling::Handled(None)
-    } else {
-        KeyHandling::Unhandled
-    }
+    // Quit is resolved centrally by `resolve_quit` before this handler runs;
+    // every remaining key is delegated to PR mode (and consumed).
+    KeyHandling::Handled(super::prs::handle_prs_mode_key(app_state, ctx, key_event))
 }
 
 /// Dashboard reorder grab interaction: Space grabs, arrows move, Space/Enter drops.
@@ -561,8 +591,8 @@ fn handle_theme_key(ctx: &SharedContext, key_event: &KeyEvent) -> KeyHandling {
 #[cfg(test)]
 mod tests {
     use super::{
-        KeyHandling, NormalKeySnapshot, issues_quit_shortcut_active,
-        relaunch_event_for_selected_agent, resolve_agent_lifecycle_key,
+        KeyHandling, NormalKeySnapshot, issues_quit_shortcut_active, prs_quit_shortcut_active,
+        quit_shortcut_active, relaunch_event_for_selected_agent, resolve_agent_lifecycle_key,
     };
     use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
     use jefe::domain::AgentId;
@@ -570,7 +600,7 @@ mod tests {
     use jefe::input::input_mode_for_state;
     use jefe::state::{
         AgentChooserState, AppEvent, AppState, ComposerTarget, InlineState, IssueFocus,
-        IssuesState, PaneFocus, ScreenMode,
+        IssuesState, PaneFocus, PrFocus, PullRequestsState, ScreenMode,
     };
 
     #[test]
@@ -606,9 +636,9 @@ mod tests {
     // issues_quit_shortcut_active predicate (RED → GREEN)
     // ═══════════════════════════════════════════════════════════════════════
 
-    /// `q`/`Q` quits in the plain `IssuesNormal` sub-mode.
+    /// The quit shortcut is eligible in the plain `IssuesNormal` sub-mode.
     #[test]
-    fn q_quits_in_issues_normal_submode() {
+    fn quit_shortcut_active_in_issues_normal_submode() {
         let state = issues_base_state();
         assert!(matches!(
             input_mode_for_state(&state),
@@ -617,10 +647,10 @@ mod tests {
         assert!(issues_quit_shortcut_active(&state));
     }
 
-    /// `q`/`Q` must NOT quit when the filter controls overlay is open — it
-    /// types into the filter instead.
+    /// The quit shortcut must NOT act when the filter controls overlay is open
+    /// — `q` types into the filter instead.
     #[test]
-    fn q_does_not_quit_when_filter_controls_open() {
+    fn quit_shortcut_inactive_when_filter_controls_open() {
         let mut state = issues_base_state();
         state.issues_state.filter_ui.controls_open = true;
         assert!(matches!(
@@ -630,10 +660,10 @@ mod tests {
         assert!(!issues_quit_shortcut_active(&state));
     }
 
-    /// `q`/`Q` must NOT quit when the search input is focused — it types
-    /// into the search query instead.
+    /// The quit shortcut must NOT act when the search input is focused — `q`
+    /// types into the search query instead.
     #[test]
-    fn q_does_not_quit_when_search_input_focused() {
+    fn quit_shortcut_inactive_when_search_input_focused() {
         let mut state = issues_base_state();
         state.issues_state.search_input_focused = true;
         assert!(matches!(
@@ -643,10 +673,10 @@ mod tests {
         assert!(!issues_quit_shortcut_active(&state));
     }
 
-    /// `q`/`Q` must NOT quit when an inline composer/editor is active — it
-    /// types into the composer body instead.
+    /// The quit shortcut must NOT act when an inline composer/editor is active
+    /// — `q` types into the composer body instead.
     #[test]
-    fn q_does_not_quit_when_inline_composer_active() {
+    fn quit_shortcut_inactive_when_inline_composer_active() {
         let mut state = issues_base_state();
         state.issues_state.inline_state = InlineState::Composer {
             target: ComposerTarget::NewComment,
@@ -660,9 +690,9 @@ mod tests {
         assert!(!issues_quit_shortcut_active(&state));
     }
 
-    /// `q`/`Q` must NOT quit while the agent chooser overlay is open.
+    /// The quit shortcut must NOT act while the agent chooser overlay is open.
     #[test]
-    fn q_does_not_quit_when_agent_chooser_open() {
+    fn quit_shortcut_inactive_when_agent_chooser_open() {
         let mut state = issues_base_state();
         state.issues_state.agent_chooser = Some(AgentChooserState {
             selected_index: 0,
@@ -675,16 +705,132 @@ mod tests {
         assert!(!issues_quit_shortcut_active(&state));
     }
 
-    /// Sanity: for a non-issues `ScreenMode::Dashboard` state the predicate
+    /// Sanity: for a plain `ScreenMode::Dashboard` state the issues predicate
     /// returns false, because `input_mode_for_state` would be `Normal`.
     #[test]
-    fn q_quit_predicate_false_for_non_issues_dashboard_state() {
+    fn issues_predicate_false_for_non_issues_dashboard_state() {
         let state = AppState {
             screen_mode: ScreenMode::Dashboard,
             ..AppState::default()
         };
         assert!(matches!(input_mode_for_state(&state), InputMode::Normal));
         assert!(!issues_quit_shortcut_active(&state));
+    }
+
+    fn prs_base_state() -> AppState {
+        AppState {
+            screen_mode: ScreenMode::DashboardPullRequests,
+            prs_state: PullRequestsState {
+                active: true,
+                pr_focus: PrFocus::PrList,
+                ..PullRequestsState::default()
+            },
+            ..AppState::default()
+        }
+    }
+
+    /// The quit shortcut should act while in PR Mode under plain `PrsNormal` sub-mode.
+    #[test]
+    fn prs_quit_shortcut_active_in_prs_normal_submode() {
+        let state = prs_base_state();
+        assert!(matches!(input_mode_for_state(&state), InputMode::PrsNormal));
+        assert!(prs_quit_shortcut_active(&state));
+    }
+
+    /// The quit shortcut must NOT act when the PR filter controls overlay is open.
+    #[test]
+    fn prs_quit_shortcut_inactive_when_filter_controls_open() {
+        let mut state = prs_base_state();
+        state.prs_state.filter_ui.controls_open = true;
+        assert!(matches!(input_mode_for_state(&state), InputMode::PrsFilter));
+        assert!(!prs_quit_shortcut_active(&state));
+    }
+
+    /// The quit shortcut must NOT act when the PR search input is focused.
+    #[test]
+    fn prs_quit_shortcut_inactive_when_search_input_focused() {
+        let mut state = prs_base_state();
+        state.prs_state.search_input_focused = true;
+        assert!(matches!(input_mode_for_state(&state), InputMode::PrsSearch));
+        assert!(!prs_quit_shortcut_active(&state));
+    }
+
+    /// The quit shortcut must NOT act when a PR inline composer/editor is open.
+    #[test]
+    fn prs_quit_shortcut_inactive_when_inline_composer_active() {
+        let mut state = prs_base_state();
+        state.prs_state.inline_state = InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            text: String::new(),
+            cursor: 0,
+        };
+        assert!(matches!(input_mode_for_state(&state), InputMode::PrsInline));
+        assert!(!prs_quit_shortcut_active(&state));
+    }
+
+    /// The quit shortcut must NOT act while the PR agent chooser overlay is open.
+    #[test]
+    fn prs_quit_shortcut_inactive_when_agent_chooser_open() {
+        let mut state = prs_base_state();
+        state.prs_state.agent_chooser = Some(AgentChooserState {
+            selected_index: 0,
+            agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+        });
+        assert!(matches!(
+            input_mode_for_state(&state),
+            InputMode::PrsChooser
+        ));
+        assert!(!prs_quit_shortcut_active(&state));
+    }
+
+    // ── quit_shortcut_active(screen_mode) routing ──────────────────────────
+
+    #[test]
+    fn quit_shortcut_active_on_dashboard_normal() {
+        let state = AppState {
+            screen_mode: ScreenMode::Dashboard,
+            ..AppState::default()
+        };
+        assert!(quit_shortcut_active(&state, ScreenMode::Dashboard));
+    }
+
+    #[test]
+    fn quit_shortcut_active_in_split_mode() {
+        let state = AppState {
+            screen_mode: ScreenMode::Split,
+            ..AppState::default()
+        };
+        // Split mode has no text-capturing sub-modes and does not bind `q`, so
+        // the quit shortcut must remain eligible (restores the pre-refactor
+        // catch-all behavior where `q` quit from Split mode).
+        assert!(quit_shortcut_active(&state, ScreenMode::Split));
+    }
+
+    #[test]
+    fn quit_shortcut_routes_through_issues_predicate() {
+        let normal = issues_base_state();
+        assert!(quit_shortcut_active(&normal, ScreenMode::DashboardIssues));
+        let mut searching = issues_base_state();
+        searching.issues_state.search_input_focused = true;
+        assert!(!quit_shortcut_active(
+            &searching,
+            ScreenMode::DashboardIssues
+        ));
+    }
+
+    #[test]
+    fn quit_shortcut_routes_through_prs_predicate() {
+        let normal = prs_base_state();
+        assert!(quit_shortcut_active(
+            &normal,
+            ScreenMode::DashboardPullRequests
+        ));
+        let mut filtering = prs_base_state();
+        filtering.prs_state.filter_ui.controls_open = true;
+        assert!(!quit_shortcut_active(
+            &filtering,
+            ScreenMode::DashboardPullRequests
+        ));
     }
 
     // ═══════════════════════════════════════════════════════════════════════

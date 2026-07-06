@@ -1,5 +1,7 @@
 //! State types: structs, enums, and field definitions.
 
+use std::time::Instant;
+
 use crate::domain::{AgentId, AgentStatus, LaunchSignature, RepositoryId};
 use crate::runtime::PreflightIssue;
 
@@ -115,6 +117,20 @@ pub enum DashboardGrabPane {
     },
 }
 
+/// Bookkeeping for the rapid `qqq` quit sequence.
+///
+/// Held in [`AppState`] so the count survives across key events. It is reset
+/// on the inter-press timeout, on any non-`q` key, and whenever a quit fires.
+/// The decision logic lives in `crate::input::observe_quit_sequence`; this type
+/// only stores the accumulated state. Runtime-only — never persisted.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct QuitSequenceState {
+    /// Consecutive rapid `q` presses accumulated toward the quit threshold.
+    pub presses: u8,
+    /// Instant of the most recent `q`, used to enforce the inter-press window.
+    pub last_press: Option<Instant>,
+}
+
 /// Application state - single source of truth.
 #[derive(Debug, Default, Clone)]
 pub struct AppState {
@@ -161,6 +177,9 @@ pub struct AppState {
     /// @plan PLAN-20260624-PR-MODE.P03
     /// @requirement REQ-PR-001
     pub prs_state: PullRequestsState,
+
+    /// Rapid `qqq` quit-sequence bookkeeping. Runtime-only — never persisted.
+    pub quit_sequence: QuitSequenceState,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
