@@ -66,44 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Enforce source file length policy
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          hard_limit=1000
-          warning_limit=750
-
-          errors=0
-          warnings=0
-          found=0
-
-          while IFS= read -r file; do
-            found=1
-            lines=$(wc -l < "$file")
-            if [ "$lines" -gt "$hard_limit" ]; then
-              echo "ERROR: $file has $lines lines (max $hard_limit)"
-              errors=$((errors + 1))
-            elif [ "$lines" -gt "$warning_limit" ]; then
-              echo "WARNING: $file has $lines lines (recommended max $warning_limit)"
-              warnings=$((warnings + 1))
-            fi
-          done < <(
-            find src tests -type f -name '*.rs' | sort
-          )
-
-          if [ "$found" -eq 0 ]; then
-            echo "No Rust source files found under src/ or tests/."
-            exit 0
-          fi
-
-          if [ "$warnings" -gt 0 ]; then
-            echo "Emitted $warnings file length warning(s)."
-          fi
-
-          if [ "$errors" -gt 0 ]; then
-            echo "Found $errors file(s) exceeding the hard limit."
-            exit 1
-          fi
+        run: scripts/check-source-file-size.sh
 
   complexity:
     name: Complexity checks
