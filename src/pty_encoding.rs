@@ -24,14 +24,18 @@ pub fn ctrl_char_to_byte(c: char) -> Option<u8> {
     }
 }
 
+/// Compute the xterm modifier parameter for a key event.
+///
+/// Returns `None` when no PTY-relevant modifier (Shift/Alt/Ctrl) is held so that
+/// unmodified keys keep their base sequences. Super/Meta are intentionally
+/// excluded: they are host/window-manager concerns (e.g. macOS Cmd), not input
+/// that should be forwarded into the managed PTY, and the xterm "meta" param
+/// bit is not what the OS Super key represents.
 fn modifiers_to_param(modifiers: KeyModifiers) -> Option<u8> {
     let shift = u8::from(modifiers.contains(KeyModifiers::SHIFT));
     let alt = u8::from(modifiers.contains(KeyModifiers::ALT)) * 2;
     let ctrl = u8::from(modifiers.contains(KeyModifiers::CONTROL)) * 4;
-    let meta =
-        u8::from(modifiers.contains(KeyModifiers::META) || modifiers.contains(KeyModifiers::SUPER))
-            * 8;
-    let val = 1 + shift + alt + ctrl + meta;
+    let val = 1 + shift + alt + ctrl;
     if val > 1 { Some(val) } else { None }
 }
 
@@ -147,49 +151,29 @@ fn nav_key_bytes(code: KeyCode, modifiers: KeyModifiers) -> Option<(Vec<u8>, boo
 
 fn fkey_bytes(n: u8, modifiers: KeyModifiers) -> Option<(Vec<u8>, bool)> {
     let param = modifiers_to_param(modifiers);
-    if param.is_some() {
-        Some((function_key_to_bytes(n, param)?, true))
-    } else {
-        Some((function_key_to_bytes(n, param)?, false))
-    }
+    Some((function_key_to_bytes(n, param)?, param.is_some()))
 }
 
 pub fn key_to_bytes(key: &KeyEvent, passthrough_enter: bool) -> Option<Vec<u8>> {
     let modifiers = key.modifiers;
 
-    if let Some((mut out, alt_encoded)) = basic_key_bytes(key.code, modifiers, passthrough_enter) {
-        if modifiers.contains(KeyModifiers::ALT) && !alt_encoded {
-            let mut prefixed = Vec::with_capacity(out.len() + 1);
-            prefixed.push(0x1b);
-            prefixed.extend_from_slice(&out);
-            out = prefixed;
-        }
-        return Some(out);
+    let (mut out, alt_encoded) = basic_key_bytes(key.code, modifiers, passthrough_enter)
+        .or_else(|| nav_key_bytes(key.code, modifiers))
+        .or_else(|| match key.code {
+            KeyCode::F(n) => fkey_bytes(n, modifiers),
+            _ => None,
+        })?;
+
+    // Alt that was not already embedded in a CSI modifier param is represented
+    // as a leading ESC prefix.
+    if modifiers.contains(KeyModifiers::ALT) && !alt_encoded {
+        let mut prefixed = Vec::with_capacity(out.len() + 1);
+        prefixed.push(0x1b);
+        prefixed.extend_from_slice(&out);
+        out = prefixed;
     }
 
-    if let Some((mut out, alt_encoded)) = nav_key_bytes(key.code, modifiers) {
-        if modifiers.contains(KeyModifiers::ALT) && !alt_encoded {
-            let mut prefixed = Vec::with_capacity(out.len() + 1);
-            prefixed.push(0x1b);
-            prefixed.extend_from_slice(&out);
-            out = prefixed;
-        }
-        return Some(out);
-    }
-
-    if let KeyCode::F(n) = key.code
-        && let Some((mut out, alt_encoded)) = fkey_bytes(n, modifiers)
-    {
-        if modifiers.contains(KeyModifiers::ALT) && !alt_encoded {
-            let mut prefixed = Vec::with_capacity(out.len() + 1);
-            prefixed.push(0x1b);
-            prefixed.extend_from_slice(&out);
-            out = prefixed;
-        }
-        return Some(out);
-    }
-
-    None
+    Some(out)
 }
 
 pub fn should_suppress_synthetic_enter(armed: bool, key_event: &KeyEvent) -> bool {
