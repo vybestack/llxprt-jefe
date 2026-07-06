@@ -60,7 +60,7 @@ pub fn HelpModal(props: &HelpModalProps) -> impl Into<AnyElement<'static>> {
                 Text(content: "Other:", color: rc.fg)
                 Text(content: "  1/2/3       Switch theme", color: rc.fg)
                 Text(content: "  ?/h/F1      This help", color: rc.fg)
-                Text(content: "  q/Esc       Quit/Close", color: rc.fg)
+                Text(content: "  Ctrl-q/qqq   Quit (Esc closes)", color: rc.fg)
             }
 
             // Footer

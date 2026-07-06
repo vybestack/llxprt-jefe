@@ -8,6 +8,9 @@ research/
 /target/
 /tmp/
 /.llxprt/
+# Coverage instrumentation artifacts (cargo-llvm-cov / --profraw)
+*.profraw
+*.profdata
 # Local dev runtime state (jefe-dev scratch persistence)
 /.config/
 

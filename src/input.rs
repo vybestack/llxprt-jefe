@@ -1,8 +1,10 @@
 //! Input-mode and key-routing helpers.
 
-use iocraft::prelude::{KeyCode, KeyEvent};
+use std::time::{Duration, Instant};
 
-use crate::state::{AppState, InlineState, ModalState, PaneFocus, ScreenMode};
+use iocraft::prelude::{KeyCode, KeyEvent, KeyModifiers};
+
+use crate::state::{AppState, InlineState, ModalState, PaneFocus, QuitSequenceState, ScreenMode};
 
 /// High-level mode used to route keyboard events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,5 +140,350 @@ pub fn route_search_key(key: &KeyEvent) -> SearchKeyRoute {
             SearchKeyRoute::CloseAndReroute
         }
         _ => SearchKeyRoute::Ignore,
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Quit policy: instant `Ctrl-Q` plus the rapid `qqq` sequence fallback.
+//
+// The quit key is a deliberate two-modifier-free chord (`Ctrl-Q`) so a stray
+// keystroke can never drop unsent composer/inline text. As a terminal-portable
+// fallback that preserves the `q` muscle memory, three rapid bare-`q` presses
+// (`qqq`) within a short window also quit — guarding against terminals that
+// swallow `Ctrl-Q` for XON/XOFF flow control.
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Number of rapid `q` presses required to quit via the `qqq` sequence.
+const QUIT_SEQUENCE_THRESHOLD: u8 = 3;
+/// Window within which consecutive `q` presses count toward `qqq`.
+const QUIT_SEQUENCE_WINDOW: Duration = Duration::from_secs(1);
+
+/// Outcome of observing a key against the quit policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuitOutcome {
+    /// The quit trigger fired (`Ctrl-Q`, or the rapid `qqq` sequence completed).
+    Quit,
+    /// A bare `q` was registered toward a `qqq` sequence; the key should be
+    /// swallowed (consumed) but the app must not quit yet.
+    Continue,
+    /// An unrelated key arrived; the pending sequence resets and the key should
+    /// be routed normally.
+    Reset,
+}
+
+/// Returns `true` for the instant `Ctrl-Q` quit chord.
+///
+/// Accepts both `q` and `Q` so Caps Lock (which can make the terminal report an
+/// uppercase glyph) still quits, while requiring the *only* modifier to be
+/// `CONTROL` — excluding `Ctrl-Shift-Q` and `Ctrl-Alt-Q`.
+#[must_use]
+pub fn is_quit_key(key: &KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char('q' | 'Q')) && key.modifiers == KeyModifiers::CONTROL
+}
+
+/// Returns `true` for a bare, unmodified `q`/`Q` — a single press toward the
+/// `qqq` rapid-quit sequence.
+///
+/// Accepts both `q` and `Q` for Caps-Lock tolerance, mirroring [`is_quit_key`].
+/// Any modifier (Shift, Ctrl, Alt, …) disqualifies it, so chords such as
+/// `Ctrl-Q` or `Shift-Q` are never miscounted as sequence presses.
+#[must_use]
+pub fn is_qqq_press(key: &KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char('q' | 'Q')) && key.modifiers == KeyModifiers::NONE
+}
+
+/// Observe a key against the quit policy, advancing the rapid-`qqq` sequence
+/// state stored in `seq`.
+///
+/// - `Ctrl-Q` ([`is_quit_key`]) quits immediately and resets the sequence.
+/// - A bare `q` ([`is_qqq_press`]) increments the counter when it lands within
+///   [`QUIT_SEQUENCE_WINDOW`] of the previous `q`; reaching
+///   [`QUIT_SEQUENCE_THRESHOLD`] consecutive rapid presses quits. A lone or
+///   slow `q` yields [`QuitOutcome::Continue`] (the key is swallowed).
+/// - Any other key resets the sequence and yields [`QuitOutcome::Reset`].
+#[must_use]
+pub fn observe_quit_sequence(
+    seq: &mut QuitSequenceState,
+    key: &KeyEvent,
+    now: Instant,
+) -> QuitOutcome {
+    if is_quit_key(key) {
+        *seq = QuitSequenceState::default();
+        return QuitOutcome::Quit;
+    }
+    if is_qqq_press(key) {
+        let within_window = seq.last_press.is_some_and(|pressed| {
+            now.checked_duration_since(pressed)
+                .is_some_and(|elapsed| elapsed <= QUIT_SEQUENCE_WINDOW)
+        });
+        seq.presses = if within_window {
+            seq.presses.saturating_add(1)
+        } else {
+            1
+        };
+        seq.last_press = Some(now);
+        if seq.presses >= QUIT_SEQUENCE_THRESHOLD {
+            *seq = QuitSequenceState::default();
+            return QuitOutcome::Quit;
+        }
+        return QuitOutcome::Continue;
+    }
+    // Any other key breaks the rapid-`q` run.
+    *seq = QuitSequenceState::default();
+    QuitOutcome::Reset
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iocraft::prelude::KeyEventKind;
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(KeyEventKind::Press, code)
+    }
+
+    fn key_mods(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        let mut event = KeyEvent::new(KeyEventKind::Press, code);
+        event.modifiers = modifiers;
+        event
+    }
+
+    /// Fixed base instant; tests pass `base + ms` so timing is deterministic.
+    fn at(base: Instant, millis: u64) -> Instant {
+        base + Duration::from_millis(millis)
+    }
+
+    // ── is_quit_key ────────────────────────────────────────────────────────
+
+    #[test]
+    fn is_quit_key_accepts_ctrl_q() {
+        assert!(is_quit_key(&key_mods(
+            KeyCode::Char('q'),
+            KeyModifiers::CONTROL
+        )));
+    }
+
+    #[test]
+    fn is_quit_key_accepts_ctrl_q_under_caps_lock() {
+        assert!(is_quit_key(&key_mods(
+            KeyCode::Char('Q'),
+            KeyModifiers::CONTROL
+        )));
+    }
+
+    #[test]
+    fn is_quit_key_rejects_bare_q() {
+        assert!(!is_quit_key(&key(KeyCode::Char('q'))));
+    }
+
+    #[test]
+    fn is_quit_key_rejects_ctrl_shift_q() {
+        assert!(!is_quit_key(&key_mods(
+            KeyCode::Char('Q'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT
+        )));
+    }
+
+    #[test]
+    fn is_quit_key_rejects_ctrl_alt_q() {
+        assert!(!is_quit_key(&key_mods(
+            KeyCode::Char('q'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT
+        )));
+    }
+
+    #[test]
+    fn is_quit_key_rejects_unrelated_keys() {
+        assert!(!is_quit_key(&key(KeyCode::Enter)));
+        assert!(!is_quit_key(&key(KeyCode::Char('a'))));
+    }
+
+    // ── is_qqq_press ───────────────────────────────────────────────────────
+
+    #[test]
+    fn qqq_press_accepts_bare_q() {
+        assert!(is_qqq_press(&key(KeyCode::Char('q'))));
+    }
+
+    #[test]
+    fn qqq_press_accepts_bare_q_under_caps_lock() {
+        assert!(is_qqq_press(&key(KeyCode::Char('Q'))));
+    }
+
+    #[test]
+    fn qqq_press_rejects_any_modifier() {
+        assert!(!is_qqq_press(&key_mods(
+            KeyCode::Char('q'),
+            KeyModifiers::SHIFT
+        )));
+        assert!(!is_qqq_press(&key_mods(
+            KeyCode::Char('q'),
+            KeyModifiers::CONTROL
+        )));
+        assert!(!is_qqq_press(&key_mods(
+            KeyCode::Char('q'),
+            KeyModifiers::ALT
+        )));
+    }
+
+    #[test]
+    fn qqq_press_rejects_non_q() {
+        assert!(!is_qqq_press(&key(KeyCode::Enter)));
+        assert!(!is_qqq_press(&key(KeyCode::Char('a'))));
+    }
+
+    // ── observe_quit_sequence ──────────────────────────────────────────────
+
+    #[test]
+    fn ctrl_q_quits_immediately_from_idle() {
+        let mut seq = QuitSequenceState::default();
+        let base = Instant::now();
+        assert_eq!(
+            observe_quit_sequence(
+                &mut seq,
+                &key_mods(KeyCode::Char('q'), KeyModifiers::CONTROL),
+                base
+            ),
+            QuitOutcome::Quit
+        );
+        assert_eq!(seq, QuitSequenceState::default());
+    }
+
+    #[test]
+    fn first_q_starts_sequence_without_quitting() {
+        let mut seq = QuitSequenceState::default();
+        let base = Instant::now();
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), base),
+            QuitOutcome::Continue
+        );
+        assert_eq!(seq.presses, 1);
+        assert_eq!(seq.last_press, Some(base));
+    }
+
+    #[test]
+    fn two_rapid_qs_do_not_quit() {
+        let mut seq = QuitSequenceState::default();
+        let base = Instant::now();
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 0)),
+            QuitOutcome::Continue
+        );
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 100)),
+            QuitOutcome::Continue
+        );
+        assert_eq!(seq.presses, 2);
+    }
+
+    #[test]
+    fn three_rapid_qs_quit_and_reset() {
+        let mut seq = QuitSequenceState::default();
+        let base = Instant::now();
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 0)),
+            QuitOutcome::Continue
+        );
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 100)),
+            QuitOutcome::Continue
+        );
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 200)),
+            QuitOutcome::Quit
+        );
+        assert_eq!(seq, QuitSequenceState::default());
+    }
+
+    #[test]
+    fn slow_third_q_does_not_quit_and_restarts_count() {
+        let mut seq = QuitSequenceState::default();
+        let base = Instant::now();
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 0)),
+            QuitOutcome::Continue
+        );
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 100)),
+            QuitOutcome::Continue
+        );
+        // Third q lands after the 1s window: the run restarts at 1, no quit.
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 1500)),
+            QuitOutcome::Continue
+        );
+        assert_eq!(seq.presses, 1);
+    }
+
+    #[test]
+    fn q_at_exact_window_boundary_still_counts() {
+        let mut seq = QuitSequenceState::default();
+        let base = Instant::now();
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 0)),
+            QuitOutcome::Continue
+        );
+        // The window is inclusive (`elapsed <= WINDOW`): a second `q` landing at
+        // exactly 1000ms still counts toward the sequence rather than resetting.
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 1000)),
+            QuitOutcome::Continue
+        );
+        assert_eq!(seq.presses, 2);
+    }
+
+    #[test]
+    fn non_q_key_resets_pending_sequence() {
+        let mut seq = QuitSequenceState::default();
+        let base = Instant::now();
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 0)),
+            QuitOutcome::Continue
+        );
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 100)),
+            QuitOutcome::Continue
+        );
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Enter), at(base, 150)),
+            QuitOutcome::Reset
+        );
+        assert_eq!(seq, QuitSequenceState::default());
+        // After reset, three fresh rapid q's are required to quit.
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 200)),
+            QuitOutcome::Continue
+        );
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 250)),
+            QuitOutcome::Continue
+        );
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 300)),
+            QuitOutcome::Quit
+        );
+    }
+
+    #[test]
+    fn ctrl_q_quits_even_mid_sequence() {
+        let mut seq = QuitSequenceState::default();
+        let base = Instant::now();
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 0)),
+            QuitOutcome::Continue
+        );
+        assert_eq!(
+            observe_quit_sequence(&mut seq, &key(KeyCode::Char('q')), at(base, 100)),
+            QuitOutcome::Continue
+        );
+        assert_eq!(
+            observe_quit_sequence(
+                &mut seq,
+                &key_mods(KeyCode::Char('q'), KeyModifiers::CONTROL),
+                at(base, 150)
+            ),
+            QuitOutcome::Quit
+        );
+        assert_eq!(seq, QuitSequenceState::default());
     }
 }

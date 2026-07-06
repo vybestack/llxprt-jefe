@@ -32,9 +32,9 @@ pub fn keybind_hints_for(screen_mode: ScreenMode, terminal_focused: bool) -> &'s
     }
     match screen_mode {
         ScreenMode::Dashboard => {
-            "^/v navigate | </> pane | t/f12 terminal focus | v active-only (repos+agents) | \u{2325}1-9 jump agent | n new-agent | N new-repo | ctrl-d delete | ctrl-k kill | ctrl-r restart | l relaunch-dead | Space reorder | s split | ? help | q quit"
+            "^/v navigate | </> pane | t/f12 terminal focus | v active-only (repos+agents) | \u{2325}1-9 jump agent | n new-agent | N new-repo | ctrl-d delete | ctrl-k kill | ctrl-r restart | l relaunch-dead | Space reorder | s split | ? help | ctrl-q/qqq quit"
         }
-        ScreenMode::Split => "^/v select | g grab | m move | Esc back | ? help",
+        ScreenMode::Split => "^/v select | g grab | m move | Esc back | ? help | ctrl-q/qqq quit",
         ScreenMode::DashboardIssues => {
             "^/v navigate | Enter open detail | n new issue | f filter | / search | Tab cycle focus | i issue list | r reply | S send-to-agent | e edit | c comment | a exit issues | Esc back/exit"
         }
