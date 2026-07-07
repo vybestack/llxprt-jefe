@@ -203,9 +203,6 @@ discipline already exists in:
   terminal_focused)` is a pure `#[must_use]` function returning a `&'static str`
   hint for each screen mode. The iocraft `KeybindBar` component just renders it.
   See [Display and UI](./display-and-ui.md).
-- **`src/presenter/`** — `format_elapsed`, `status_icon`, `status_label`,
-  `todo_icon`, `truncate` are pure `#[must_use]` display-formatting functions
-  with no UI-crate dependency.
 
 ### Discipline
 
@@ -224,32 +221,32 @@ discipline already exists in:
 
 ## Dependency Direction DAG
 
-Dependency direction is acyclic and enforced by convention and review. The
-"depends on" arrow always points downward in the table below; no module may
-import a module beneath it.
+Dependency direction should be acyclic and is enforced by convention and review.
+The "depends on" arrow points downward; modules should only import from layers
+below their own. When a module needs a type from a forbidden direction, move the
+type down (usually into `domain/`).
 
-```
+```text
 main.rs ──> state/ ──> domain/ (models only)
 main.rs ──> runtime/ (PTY manager)
 main.rs ──> theme/
-main.rs ──> ui/ ──> presenter/ ──> domain/
-ui/     ──> theme/ (for ResolvedColors)
+main.rs ──> ui/ ──> theme/ (for ResolvedColors)
+ui/     ──> text_box_view/ (pure projection)
 state/  ──> messages/ ──> domain/
 persistence/ ──> domain/
 ```
 
-| Module            | May depend on (project-internal)                          |
-|-------------------|-----------------------------------------------------------|
-| `domain/`         | Nothing project-internal.                                 |
-| `messages/`       | `domain/`, `state/` (for `AppEvent`/types only).          |
-| `events/`         | Nothing project-internal.                                 |
-| `presenter/`      | `domain/` only.                                           |
-| `theme/`          | Nothing project-internal (uses iocraft types for `Color`).|
-| `persistence/`    | `domain/` only.                                           |
-| `runtime/`        | Nothing project-internal (uses iocraft types for `Color`).|
-| `state/`          | `domain/`, `messages/`.                                   |
-| `ui/`             | `domain/`, `presenter/`, `theme/`, pure-view modules.     |
-| `main.rs`         | Wires everything together.                                |
+| Module              | May depend on (project-internal)                          |
+|---------------------|-----------------------------------------------------------|
+| `domain/`           | Nothing project-internal.                                 |
+| `messages/`         | `domain/`, `state/` (types only — see known coupling).    |
+| `theme/`            | Nothing project-internal (uses iocraft types for `Color`).|
+| `persistence/`      | `domain/` only.                                           |
+| `runtime/`          | Nothing project-internal (uses iocraft types for `Color`).|
+| `state/`            | `domain/`, `messages/`.                                   |
+| `text_box_view/`    | Nothing project-internal (pure projection).               |
+| `ui/`               | `domain/`, `theme/`, `text_box_view/`, other pure views.  |
+| `main.rs`           | Wires everything together.                                |
 
 Invariants:
 
@@ -259,3 +256,16 @@ Invariants:
 - `AppState` references PTY slots by index only; it never owns `PtyManager`.
 - Do not break the DAG with a convenience import. If a module needs a type from
   a forbidden direction, move the type down (usually into `domain/`).
+
+### Known coupling: `state/` ↔ `messages/`
+
+The dependency between `state/` and `messages/` is bidirectional today:
+`state/` imports domain message types from `messages/`, and `messages/`
+(in particular `event_conversion.rs`) imports the `AppEvent` input enum and a
+few display-state types (`EditorTarget`, `InlineState`, `ReadOnlyHintKind`)
+from `state/`. This is a known coupling, not a desired pattern — the ideal
+resolution is to move the shared input types (`AppEvent` and the display-state
+enums) into a lower layer (e.g. `events/` or `domain/`) so that `messages/`
+no longer depends on `state/`. New code should avoid deepening this coupling;
+prefer adding new domain message variants in `messages/` and consuming them in
+`state/`, not the reverse.

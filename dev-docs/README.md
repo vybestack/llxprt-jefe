@@ -55,9 +55,11 @@ above:
 1. [`standards/architecture.md`](./standards/architecture.md)
 2. [`standards/coding-standards.md`](./standards/coding-standards.md)
 3. [`standards/testing-and-quality.md`](./standards/testing-and-quality.md)
-4. [`workflow/PLAN.md`](./workflow/PLAN.md)
-5. [`workflow/PLAN-TEMPLATE.md`](./workflow/PLAN-TEMPLATE.md)
-6. [`workflow/COORDINATING.md`](./workflow/COORDINATING.md)
+4. [`standards/display-and-ui.md`](./standards/display-and-ui.md)
+5. [`standards/persistence-and-runtime.md`](./standards/persistence-and-runtime.md)
+6. [`workflow/PLAN.md`](./workflow/PLAN.md)
+7. [`workflow/PLAN-TEMPLATE.md`](./workflow/PLAN-TEMPLATE.md)
+8. [`workflow/COORDINATING.md`](./workflow/COORDINATING.md)
 
 ## Practical Workflow
 

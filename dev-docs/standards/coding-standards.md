@@ -33,7 +33,7 @@ Sibling standards:
 |------|--------|
 | `unsafe` | **Forbidden.** `Cargo.toml` sets `unsafe_code = "forbid"`. Non-negotiable. |
 | Panic-driven control flow | No `panic!()`, `unreachable!()`, `todo!()`, `unimplemented!()` in production paths (`todo`/`unimplemented` are `deny`). If a path is genuinely unreachable, refactor the types to make it structurally impossible. |
-| Error propagation | Use `Result`/`Option` and typed errors. `?`, `.map_err()`, `.ok()`, or explicit `match`. Never silently discard an error. |
+| Error propagation | Use `Result`/`Option` and typed errors. `?`, `.map_err()`, or explicit `match`. Never silently discard an error (avoid `.ok()` unless silent error loss is explicitly intended). |
 
 ### `unwrap`/`expect` policy
 
@@ -178,8 +178,8 @@ If a local non-clippy `#[allow]` is genuinely unavoidable:
 ### DO
 
 - **DO** handle all `Result` and `Option` values explicitly. Use `?`,
-  `.map_err()`, `.unwrap_or()`, `.ok()`, or `match`. Never silently discard
-  errors.
+  `.map_err()`, `.unwrap_or()`, or `match`. Never silently discard errors
+  (avoid `.ok()` unless intentional).
 - **DO** use `eprintln!` for diagnostic output. stdout belongs to the TUI
   rendering pipeline.
 - **DO** derive `Debug`, `Clone` on data types. Derive `Serialize`/`Deserialize`

@@ -85,7 +85,6 @@ as production code (`unwrap_used`/`expect_used` are `warn` + `-D warnings`).
 | `domain/`     | Type construction, equality, serialization round-trip.            |
 | `messages/`   | `AppEvent` <-> `AppMessage` conversion; routing per domain channel. |
 | `state/`      | State transitions for every message; navigation bounds; split mode grab/ungrab; form submit with valid/empty input; delete with confirmation flow; kill and relaunch status transitions. |
-| `presenter/`  | Formatting output for all status variants, elapsed time edge cases, truncation behavior. |
 | `theme/`      | Embedded theme loading, color parsing, hex edge cases, `ResolvedColors` fallbacks, `ThemeManager` set/cycle, external dir loading (empty, nonexistent). |
 | `runtime/`    | PTY session lifecycle, key-event-to-bytes encoding, mouse-event-to-bytes encoding, color resolution for named, indexed, spec colors, snapshot construction. |
 | `persistence/`| Atomic writes, schema/version validation, safe fallback on malformed/missing files, round-trip. |
