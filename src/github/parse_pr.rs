@@ -10,8 +10,8 @@
 //! NOT import `crate::ui`, `crate::state`, or `crate::app_input`.
 
 use crate::domain::{
-    ChecksFilter, PrCheck, PrCheckStatus, PrFilter, PrFilterState, PrReview, PrReviewState,
-    PrState, PullRequest, PullRequestDetail, ReviewDecisionFilter,
+    ChecksFilter, IssueComment, PrCheck, PrCheckStatus, PrFilter, PrFilterState, PrReview,
+    PrReviewState, PrReviewThread, PrState, PullRequest, PullRequestDetail, ReviewDecisionFilter,
 };
 use serde_json::Value;
 
@@ -417,6 +417,7 @@ pub fn parse_pr_review(node: &Value) -> PrReview {
         state,
         submitted_at,
         body,
+        review_threads: Vec::new(),
     }
 }
 
@@ -585,4 +586,194 @@ pub fn sort_pull_requests(items: &mut [PullRequest]) {
             .cmp(&a.updated_at)
             .then(a.number.cmp(&b.number))
     });
+}
+
+// =============================================================================
+// PR review threads (issue #119)
+// =============================================================================
+
+/// Build the GraphQL query string for the PR review-threads fetch.
+///
+/// Selects `repository.pullRequest(number:).reviewThreads(first: N) { nodes
+/// { id isResolved path line comments(first: 50) { nodes { databaseId author
+/// { login } createdAt lastEditedAt body } } } }`. Threads are a direct
+/// connection on `PullRequest` (not nested under each `Review`).
+///
+/// `with_cursor=true` includes the `$after` variable declaration and the
+/// `after: $after` argument on the reviewThreads connection;
+/// `with_cursor=false` omits both.
+///
+/// @plan PLAN-20260624-PR-MODE.P08
+/// @requirement REQ-PR-009
+#[must_use]
+pub fn build_pr_review_threads_query(with_cursor: bool) -> String {
+    if with_cursor {
+        "query($owner: String!, $repo: String!, $number: Int!, $first: Int!, $after: String) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: $first, after: $after) { nodes { id isResolved path line comments(first: 50) { nodes { databaseId author { login } createdAt lastEditedAt body } } } } } } }"
+    } else {
+        "query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: $first) { nodes { id isResolved path line comments(first: 50) { nodes { databaseId author { login } createdAt lastEditedAt body } } } } } } }"
+    }
+    .to_owned()
+}
+
+/// Parse review threads from a GraphQL response JSON value.
+///
+/// Navigates `data.repository.pullRequest.reviewThreads.nodes` and maps each
+/// thread node to a [`PrReviewThread`]. Also accepts the legacy nested shape
+/// `reviews.nodes[*].reviewThreads.nodes` for backward compatibility.
+/// Malformed threads yield degraded entries (never dropped — REQ-PR-013).
+/// Missing data yields an empty vec (graceful degradation).
+///
+/// @plan PLAN-20260624-PR-MODE.P08
+/// @requirement REQ-PR-009
+/// @requirement REQ-PR-013
+#[must_use]
+pub fn parse_pr_review_threads(json: &Value) -> Vec<PrReviewThread> {
+    let pull_request = json
+        .get("data")
+        .and_then(|d| d.get("repository"))
+        .and_then(|r| r.get("pullRequest"));
+
+    let Some(pull_request) = pull_request else {
+        return Vec::new();
+    };
+
+    // Primary path: pullRequest.reviewThreads.nodes (correct GitHub API).
+    if let Some(thread_nodes) = pull_request
+        .get("reviewThreads")
+        .and_then(|rt| rt.get("nodes"))
+        .and_then(Value::as_array)
+    {
+        return thread_nodes
+            .iter()
+            .map(parse_single_review_thread)
+            .collect();
+    }
+
+    // Legacy/fallback path: pullRequest.reviews.nodes[*].reviewThreads.nodes.
+    parse_nested_review_threads(pull_request)
+}
+
+/// Parse threads nested under `reviews.nodes[*].reviewThreads` (fallback).
+fn parse_nested_review_threads(pull_request: &Value) -> Vec<PrReviewThread> {
+    let Some(review_nodes) = pull_request
+        .get("reviews")
+        .and_then(|r| r.get("nodes"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+
+    let mut threads = Vec::new();
+    for review_node in review_nodes {
+        let Some(thread_nodes) = review_node
+            .get("reviewThreads")
+            .and_then(|rt| rt.get("nodes"))
+            .and_then(Value::as_array)
+        else {
+            continue;
+        };
+        for thread_node in thread_nodes {
+            threads.push(parse_single_review_thread(thread_node));
+        }
+    }
+    threads
+}
+
+/// Parse a single review-thread node into a [`PrReviewThread`].
+///
+/// TOTAL function — a malformed thread node still yields a degraded
+/// [`PrReviewThread`] with a placeholder id so it is not dropped.
+fn parse_single_review_thread(node: &Value) -> PrReviewThread {
+    let thread_id = node
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("(unknown thread)")
+        .to_string();
+    let is_resolved = node
+        .get("isResolved")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let path = node
+        .get("path")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+    let line = node
+        .get("line")
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok());
+    let comments = parse_thread_comments(node);
+    PrReviewThread {
+        thread_id,
+        is_resolved,
+        path,
+        line,
+        comments,
+    }
+}
+
+/// Parse the `comments.nodes` array of a thread node into [`IssueComment`]s.
+fn parse_thread_comments(thread_node: &Value) -> Vec<IssueComment> {
+    let Some(nodes) = thread_node
+        .get("comments")
+        .and_then(|c| c.get("nodes"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    nodes.iter().map(parse_thread_comment_node).collect()
+}
+
+/// Parse a single thread comment node into an [`IssueComment`].
+///
+/// Mirrors the GraphQL comment node shape: `databaseId`, `author { login }`,
+/// `createdAt`, `lastEditedAt`, `body`.
+fn parse_thread_comment_node(node: &Value) -> IssueComment {
+    let comment_id = node.get("databaseId").and_then(Value::as_u64).unwrap_or(0);
+    let author_login = node
+        .get("author")
+        .and_then(|a| a.get("login"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("(unknown)")
+        .to_string();
+    let created_at = node
+        .get("createdAt")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let edited_at = node
+        .get("lastEditedAt")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+    let body = node
+        .get("body")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    IssueComment {
+        comment_id,
+        author_login,
+        created_at,
+        edited_at,
+        body,
+    }
+}
+
+/// Parse the `addPullRequestReviewThreadReply` mutation response into an
+/// [`IssueComment`]. The GraphQL path is
+/// `data.addPullRequestReviewThreadReply.comment`.
+///
+/// @requirement REQ-PR-009
+pub fn parse_thread_reply_json(stdout: &str) -> Result<IssueComment, GhError> {
+    let json: Value = serde_json::from_str(stdout)
+        .map_err(|e| GhError::ParseError(format!("thread reply JSON: {e}")))?;
+    let comment_node = json
+        .get("data")
+        .and_then(|d| d.get("addPullRequestReviewThreadReply"))
+        .and_then(|r| r.get("comment"))
+        .ok_or_else(|| GhError::ParseError("missing thread reply comment node".to_string()))?;
+    Ok(parse_thread_comment_node(comment_node))
 }

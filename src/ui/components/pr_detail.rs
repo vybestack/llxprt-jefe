@@ -131,7 +131,7 @@ fn active_pr_composer(inline_state: &InlineState) -> Option<(String, usize, &'st
             crate::layout::NEW_COMMENT_COMPOSER_PREFIX,
         )),
         InlineState::Composer {
-            target: ComposerTarget::Reply { .. },
+            target: ComposerTarget::Reply { .. } | ComposerTarget::ReplyToReviewThread { .. },
             text,
             cursor,
         } => Some((text.clone(), *cursor, crate::layout::REPLY_COMPOSER_PREFIX)),

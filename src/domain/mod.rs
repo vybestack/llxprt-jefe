@@ -469,6 +469,32 @@ pub struct PrReview {
     pub state: PrReviewState,
     pub submitted_at: String,
     pub body: Option<String>,
+    /// Line-level review threads attached to this review (issue #119).
+    /// Empty when no threads were fetched (graceful degradation).
+    pub review_threads: Vec<PrReviewThread>,
+}
+
+/// A review-thread conversation group with its line-level comments.
+///
+/// Each thread carries the GraphQL node id (for resolve/unresolve mutations),
+/// its resolved state, the file location it is attached to, and the nested
+/// reply comments. Reuses [`IssueComment`] for thread replies so the rendering
+/// and message-bus layers share one comment type across the app.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+#[derive(Debug, Clone)]
+pub struct PrReviewThread {
+    /// GraphQL node id used for resolve/unresolve mutations.
+    pub thread_id: String,
+    /// Whether the thread is currently resolved.
+    pub is_resolved: bool,
+    /// File path the thread is attached to (`None` for PR-level threads).
+    pub path: Option<String>,
+    /// Line number the thread is attached to (`None` for PR-level threads).
+    pub line: Option<u32>,
+    /// Nested thread reply comments (oldest first).
+    pub comments: Vec<IssueComment>,
 }
 
 /// @plan PLAN-20260624-PR-MODE.P03

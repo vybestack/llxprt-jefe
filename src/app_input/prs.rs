@@ -209,6 +209,7 @@ fn handle_pr_detail_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEve
         KeyCode::Char('k') => Some(AppEvent::PrDetailSubfocusPrev),
         KeyCode::Char('c') => Some(comment_event_for_subfocus(state.prs_state.detail_subfocus)),
         KeyCode::Char('r') => Some(reply_event_for_subfocus(state.prs_state.detail_subfocus)),
+        KeyCode::Char('R') => Some(resolve_event_for_subfocus(state.prs_state.detail_subfocus)),
         KeyCode::Char('e') => Some(AppEvent::PrShowNotice(
             ReadOnlyHintKind::ReadOnlyNotEditable,
         )),
@@ -232,9 +233,9 @@ fn comment_event_for_subfocus(subfocus: PrDetailSubfocus) -> AppEvent {
         PrDetailSubfocus::Body | PrDetailSubfocus::Comment(_) | PrDetailSubfocus::NewComment => {
             AppEvent::PrOpenNewCommentComposer
         }
-        PrDetailSubfocus::Review(_) | PrDetailSubfocus::Check(_) => {
-            AppEvent::PrShowNotice(ReadOnlyHintKind::ReadOnlyNoComment)
-        }
+        PrDetailSubfocus::Review(_)
+        | PrDetailSubfocus::ReviewThread(_)
+        | PrDetailSubfocus::Check(_) => AppEvent::PrShowNotice(ReadOnlyHintKind::ReadOnlyNoComment),
     }
 }
 
@@ -248,7 +249,23 @@ fn comment_event_for_subfocus(subfocus: PrDetailSubfocus) -> AppEvent {
 fn reply_event_for_subfocus(subfocus: PrDetailSubfocus) -> AppEvent {
     match subfocus {
         PrDetailSubfocus::Comment(idx) => AppEvent::PrOpenReplyComposer { comment_index: idx },
+        PrDetailSubfocus::ReviewThread(idx) => {
+            AppEvent::PrOpenThreadReplyComposer { thread_index: idx }
+        }
         _ => AppEvent::PrShowNotice(ReadOnlyHintKind::ReadOnlyReplyOnComment),
+    }
+}
+
+/// Map `R` to the resolve/unresolve thread event on ReviewThread subfocus, or
+/// to a read-only notice elsewhere (resolve is only valid on a review thread).
+///
+/// @requirement REQ-PR-009
+fn resolve_event_for_subfocus(subfocus: PrDetailSubfocus) -> AppEvent {
+    match subfocus {
+        PrDetailSubfocus::ReviewThread(idx) => {
+            AppEvent::PrToggleThreadResolve { thread_index: idx }
+        }
+        _ => AppEvent::PrShowNotice(ReadOnlyHintKind::ReadOnlyResolveOnThread),
     }
 }
 

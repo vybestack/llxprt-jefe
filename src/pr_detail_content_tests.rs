@@ -30,6 +30,7 @@ fn sample_detail() -> PullRequestDetail {
             state: PrReviewState::ChangesRequested,
             submitted_at: "2026-06-23".to_string(),
             body: Some("please split handler".to_string()),
+            review_threads: vec![],
         }],
         checks: vec![PrCheck {
             name: "ci/fmt".to_string(),
@@ -311,5 +312,173 @@ fn empty_reply_composer_emits_only_anchor_no_flattened_row() {
     assert!(
         !content.text.lines().any(|l| l == "    │ " || l == "    │"),
         "document must NOT contain a flattened reply composer prefix row"
+    );
+}
+
+// =============================================================================
+// Review-thread rendering tests (issue #119)
+// =============================================================================
+
+use crate::domain::PrReviewThread;
+
+fn detail_with_threads() -> PullRequestDetail {
+    let mut detail = sample_detail();
+    detail.reviews[0].review_threads = vec![
+        PrReviewThread {
+            thread_id: "PRRT_kw1".to_string(),
+            is_resolved: false,
+            path: Some("src/parser.rs".to_string()),
+            line: Some(42),
+            comments: vec![
+                IssueComment {
+                    comment_id: 10,
+                    author_login: "bob".to_string(),
+                    created_at: "2026-06-23T11:00:00Z".to_string(),
+                    edited_at: None,
+                    body: "This unwrap can panic.".to_string(),
+                },
+                IssueComment {
+                    comment_id: 11,
+                    author_login: "ada".to_string(),
+                    created_at: "2026-06-23T12:00:00Z".to_string(),
+                    edited_at: None,
+                    body: "Good catch.".to_string(),
+                },
+            ],
+        },
+        PrReviewThread {
+            thread_id: "PRRT_kw2".to_string(),
+            is_resolved: true,
+            path: Some("src/main.rs".to_string()),
+            line: Some(5),
+            comments: vec![IssueComment {
+                comment_id: 20,
+                author_login: "carol".to_string(),
+                created_at: "2026-06-23T10:00:00Z".to_string(),
+                edited_at: None,
+                body: "Looks good.".to_string(),
+            }],
+        },
+    ];
+    detail
+}
+
+#[test]
+fn reviews_section_renders_nested_thread_comments() {
+    let detail = detail_with_threads();
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        content.text.contains("src/parser.rs:42"),
+        "thread path:line"
+    );
+    assert!(content.text.contains("[UNRESOLVED]"), "unresolved tag");
+    assert!(content.text.contains("bob"), "thread comment author");
+    assert!(
+        content.text.contains("This unwrap can panic."),
+        "thread body"
+    );
+    assert!(content.text.contains("ada"), "second comment author");
+}
+
+#[test]
+fn reviews_section_renders_resolution_state() {
+    let detail = detail_with_threads();
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        content.text.contains("[RESOLVED]"),
+        "resolved tag for second thread"
+    );
+    assert!(
+        content.text.contains("[UNRESOLVED]"),
+        "unresolved tag for first thread"
+    );
+}
+
+#[test]
+fn focused_review_thread_shows_reply_and_resolve_hints() {
+    let detail = detail_with_threads();
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::ReviewThread(0),
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        content.text.contains("[ r reply ]"),
+        "focused thread must show reply hint"
+    );
+    assert!(
+        content.text.contains("[ R resolve ]"),
+        "focused thread must show resolve hint"
+    );
+}
+
+#[test]
+fn unfocused_review_thread_hides_reply_resolve_hints() {
+    let detail = detail_with_threads();
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        !content.text.contains("[ r reply ]"),
+        "unfocused threads must NOT show hints"
+    );
+}
+
+#[test]
+fn review_thread_focused_shows_focus_marker() {
+    let detail = detail_with_threads();
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::ReviewThread(0),
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        content.text.contains(">     src/parser.rs:42"),
+        "focused thread must have > marker"
+    );
+}
+
+#[test]
+fn pr_detail_line_count_with_threads_exceeds_base() {
+    let detail_no_threads = sample_detail();
+    let base_count = pr_detail_content_line_count(
+        &detail_no_threads,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+
+    let detail_with_threads = detail_with_threads();
+    let thread_count = pr_detail_content_line_count(
+        &detail_with_threads,
+        PrDetailSubfocus::ReviewThread(0),
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        thread_count > base_count,
+        "threads must add rendered lines: {thread_count} vs base {base_count}"
     );
 }

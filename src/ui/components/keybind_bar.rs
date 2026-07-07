@@ -41,7 +41,7 @@ pub fn keybind_hints_for(screen_mode: ScreenMode, terminal_focused: bool) -> &'s
         // @plan PLAN-20260624-PR-MODE.P12
         // @requirement REQ-PR-001
         ScreenMode::DashboardPullRequests => {
-            "^/v navigate | Enter open detail | f filter | / search | Tab cycle focus | p PR list | r reply | S send-to-agent | e edit | c comment | o open in browser | m merge | a exit | Esc back/exit"
+            "^/v navigate | Enter open detail | f filter | / search | Tab cycle focus | p PR list | r reply | R resolve | S send-to-agent | e edit | c comment | o open in browser | m merge | a exit | Esc back/exit"
         }
     }
 }

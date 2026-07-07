@@ -82,6 +82,7 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
             state: PrReviewState::Approved,
             submitted_at: "2024-01-01T12:00:00Z".to_string(),
             body: Some("LGTM".to_string()),
+            review_threads: vec![],
         }],
         checks: vec![PrCheck {
             name: "CI".to_string(),

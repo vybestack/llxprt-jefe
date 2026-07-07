@@ -441,6 +441,29 @@ pub enum PullRequestsMessage {
         pr_number: u64,
         allowed_methods: Vec<MergeMethod>,
     },
+    // PR Review Threads (issue #119)
+    /// Open the inline reply composer for a review thread.
+    OpenThreadReply {
+        thread_index: usize,
+    },
+    /// Toggle resolve/unresolve on a focused review thread.
+    ToggleThreadResolve {
+        thread_index: usize,
+    },
+    /// A review-thread resolve/unresolve mutation succeeded.
+    ThreadResolveSucceeded {
+        scope_repo_id: RepositoryId,
+        thread_index: usize,
+        is_resolved: bool,
+        request_id: u64,
+    },
+    /// A review-thread resolve/unresolve mutation failed.
+    ThreadResolveFailed {
+        scope_repo_id: RepositoryId,
+        thread_index: usize,
+        request_id: u64,
+        error: String,
+    },
 }
 
 /// Navigation direction for PR list and filter controls.
@@ -822,4 +845,8 @@ message_names!(PullRequestsMessage {
     Self::Merged { .. } => "PrMerged",
     Self::MergeFailed { .. } => "PrMergeFailed",
     Self::MergeMethodsLoaded { .. } => "PrMergeMethodsLoaded",
+    Self::OpenThreadReply { .. } => "PrOpenThreadReply",
+    Self::ToggleThreadResolve { .. } => "PrToggleThreadResolve",
+    Self::ThreadResolveSucceeded { .. } => "PrThreadResolveSucceeded",
+    Self::ThreadResolveFailed { .. } => "PrThreadResolveFailed",
 });

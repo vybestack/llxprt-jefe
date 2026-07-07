@@ -166,24 +166,84 @@ fn build_reviews_section(
     if detail.reviews.is_empty() {
         builder.lines.push("  No reviews yet.".to_string());
     } else {
+        let mut flat_thread_idx = 0usize;
         for (idx, review) in detail.reviews.iter().enumerate() {
-            let prefix = if subfocus == PrDetailSubfocus::Review(idx) {
-                "> "
-            } else {
-                "- "
-            };
-            let state_label = review_state_label(review.state);
-            let body_excerpt = review
-                .body
-                .as_deref()
-                .filter(|b| !b.is_empty())
-                .map_or_else(String::new, |b| format!("  \"{b}\""));
-            builder.lines.push(format!(
-                "{prefix}{:<8} {:<18} {}{}",
-                review.author_login, state_label, review.submitted_at, body_excerpt
-            ));
+            build_single_review(idx, review, subfocus, builder);
+            for thread in &review.review_threads {
+                build_review_thread(flat_thread_idx, thread, subfocus, builder);
+                flat_thread_idx += 1;
+            }
         }
     }
+}
+
+/// Render a single review header line (author, state, submitted_at, body).
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-009
+fn build_single_review(
+    idx: usize,
+    review: &crate::domain::PrReview,
+    subfocus: PrDetailSubfocus,
+    builder: &mut ContentBuilder,
+) {
+    let prefix = if subfocus == PrDetailSubfocus::Review(idx) {
+        "> "
+    } else {
+        "- "
+    };
+    let state_label = review_state_label(review.state);
+    let body_excerpt = review
+        .body
+        .as_deref()
+        .filter(|b| !b.is_empty())
+        .map_or_else(String::new, |b| format!("  \"{b}\""));
+    builder.lines.push(format!(
+        "{prefix}{:<8} {:<18} {}{}",
+        review.author_login, state_label, review.submitted_at, body_excerpt
+    ));
+}
+
+/// Render a review thread with its comments (indented under the review).
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-009
+fn build_review_thread(
+    flat_idx: usize,
+    thread: &crate::domain::PrReviewThread,
+    subfocus: PrDetailSubfocus,
+    builder: &mut ContentBuilder,
+) {
+    let focused = subfocus == PrDetailSubfocus::ReviewThread(flat_idx);
+    let marker = if focused { "> " } else { "  " };
+    let resolve_tag = if thread.is_resolved {
+        "[RESOLVED]"
+    } else {
+        "[UNRESOLVED]"
+    };
+    let location = match (&thread.path, thread.line) {
+        (Some(path), Some(line)) => format!("{path}:{line}"),
+        (Some(path), None) => path.clone(),
+        (None, _) => "(no file)".to_string(),
+    };
+    builder
+        .lines
+        .push(format!("{marker}    {location}  {resolve_tag}"));
+    for comment in &thread.comments {
+        builder.lines.push(format!(
+            "      {}  {}",
+            comment.author_login, comment.created_at
+        ));
+        for body_line in comment.body.lines() {
+            builder.lines.push(format!("        {body_line}"));
+        }
+    }
+    if focused {
+        builder
+            .lines
+            .push("      [ r reply ]  [ R resolve ]".to_string());
+    }
+    builder.lines.push(String::new());
 }
 
 /// @plan PLAN-20260624-PR-MODE.P12

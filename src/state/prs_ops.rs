@@ -437,6 +437,9 @@ impl AppState {
             ReadOnlyHintKind::PrNotMergeable => {
                 "Pull request is not mergeable (closed/merged)".to_string()
             }
+            ReadOnlyHintKind::ReadOnlyResolveOnThread => {
+                "Select a review thread to resolve (read-only context)".to_string()
+            }
         };
         self.prs_state.draft_notice = Some(text);
     }
@@ -555,6 +558,7 @@ impl AppState {
             || self.apply_pr_merge_event(&event)
             || self.apply_prs_data_wrapper(&event)
             || self.apply_prs_load_error_wrapper(&event)
+            || self.apply_pr_thread_event(&event)
             || self.apply_pr_notice_event(&event)
             || self.apply_pr_open_browser_event(&event)
             || self.apply_pr_error_event(event)

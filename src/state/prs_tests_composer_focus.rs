@@ -272,12 +272,14 @@ Line C"
             state: PrReviewState::Approved,
             submitted_at: "2024-01-02T00:00:00Z".to_string(),
             body: Some("looks good".to_string()),
+            review_threads: vec![],
         },
         PrReview {
             author_login: "rev2".to_string(),
             state: PrReviewState::ChangesRequested,
             submitted_at: "2024-01-02T01:00:00Z".to_string(),
             body: None,
+            review_threads: vec![],
         },
     ];
     detail.checks = vec![

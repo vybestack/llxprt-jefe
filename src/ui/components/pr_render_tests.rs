@@ -123,12 +123,14 @@ fn detail_with_reviews_and_checks(number: u64) -> PullRequestDetail {
             state: PrReviewState::Approved,
             submitted_at: "2024-01-03".to_string(),
             body: Some("LGTM".to_string()),
+            review_threads: vec![],
         },
         PrReview {
             author_login: "bob".to_string(),
             state: PrReviewState::Commented,
             submitted_at: "2024-01-04".to_string(),
             body: None,
+            review_threads: vec![],
         },
     ];
     detail.checks = vec![
@@ -170,18 +172,21 @@ fn rich_reviews() -> Vec<PrReview> {
             state: PrReviewState::Approved,
             submitted_at: "2024-01-03".to_string(),
             body: Some("Looks good".to_string()),
+            review_threads: vec![],
         },
         PrReview {
             author_login: "reviewer2".to_string(),
             state: PrReviewState::Commented,
             submitted_at: "2024-01-04".to_string(),
             body: Some("nit: spacing".to_string()),
+            review_threads: vec![],
         },
         PrReview {
             author_login: "reviewer3".to_string(),
             state: PrReviewState::Approved,
             submitted_at: "2024-01-05".to_string(),
             body: None,
+            review_threads: vec![],
         },
     ]
 }
