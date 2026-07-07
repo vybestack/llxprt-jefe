@@ -6,6 +6,7 @@
 mod app_init;
 mod app_input;
 mod app_shell;
+mod mouse_routing;
 mod pty_encoding;
 
 use std::io::Write;

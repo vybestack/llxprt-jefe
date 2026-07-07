@@ -5,6 +5,8 @@
 //! @requirement REQ-TECH-001
 
 pub mod cli;
+/// OSC 52 clipboard writer with tmux / GNU screen passthrough.
+pub mod clipboard;
 pub mod domain;
 pub mod input;
 pub mod issue_detail_content;
@@ -16,6 +18,8 @@ pub mod persistence;
 /// @requirement REQ-PR-009
 pub mod pr_detail_content;
 pub mod runtime;
+/// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).
+pub mod selection;
 pub mod services;
 pub mod startup;
 pub mod state;

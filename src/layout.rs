@@ -104,7 +104,7 @@ fn effective_render_size_inner(cols: u16, rows: u16, fullscreen: bool) -> (u16, 
     }
 }
 
-fn dashboard_middle_row_heights_inner(render_rows: u16) -> (u16, u16) {
+pub(crate) fn dashboard_middle_row_heights_inner(render_rows: u16) -> (u16, u16) {
     let content_rows = render_rows.saturating_sub(OUTER_BARS_HEIGHT);
 
     if content_rows <= AGENT_PANE_MIN_ROWS + TERMINAL_PANE_MIN_ROWS {

@@ -13,8 +13,8 @@ use crate::app_input::{
     persist_state, request_pr_background_refresh, to_persisted_state,
 };
 use crate::pty_encoding::{
-    key_to_bytes, mouse_event_to_bytes, should_arm_paste_enter_suppression,
-    should_disarm_paste_enter_suppression, should_suppress_synthetic_enter,
+    key_to_bytes, should_arm_paste_enter_suppression, should_disarm_paste_enter_suppression,
+    should_suppress_synthetic_enter,
 };
 
 use jefe::domain::{AgentId, AgentStatus};
@@ -367,8 +367,8 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     }
 }
 
-type HookState<T> = iocraft::hooks::State<T>;
-type CtxArc = Arc<std::sync::Mutex<AppContext>>;
+pub type HookState<T> = iocraft::hooks::State<T>;
+pub type CtxArc = Arc<std::sync::Mutex<AppContext>>;
 
 /// Dispatch a terminal event to the appropriate input/runtime handler.
 ///
@@ -383,21 +383,34 @@ fn handle_terminal_event(
     suppress_next_enter: &mut HookState<bool>,
 ) {
     match event {
-        TerminalEvent::Resize(cols, rows) => handle_resize(ctx, cols, rows),
+        TerminalEvent::Resize(cols, rows) => {
+            crate::mouse_routing::clear_selection(app_state);
+            handle_resize(ctx, cols, rows);
+        }
         TerminalEvent::FullscreenMouse(mouse_event) => {
-            handle_fullscreen_mouse(ctx, app_state, mouse_event);
+            crate::mouse_routing::handle_fullscreen_mouse(ctx, app_state, mouse_event);
         }
         TerminalEvent::Paste(pasted_text) => {
+            crate::mouse_routing::clear_selection(app_state);
             handle_paste(ctx, app_state, suppress_next_enter, pasted_text);
         }
-        TerminalEvent::Key(key_event) => handle_key_event(
-            ctx,
-            app_state,
-            should_quit,
-            help_scroll,
-            suppress_next_enter,
-            key_event,
-        ),
+        TerminalEvent::Key(key_event) => {
+            // Clear selection on any keypress except Esc. Esc always clears;
+            // other keys also clear so the selection doesn't linger after the
+            // user transitions to keyboard interaction. (If keyboard copy of
+            // the selection is added later, that key would be excluded here.)
+            if key_event.kind != iocraft::KeyEventKind::Release {
+                crate::mouse_routing::clear_selection(app_state);
+            }
+            handle_key_event(
+                ctx,
+                app_state,
+                should_quit,
+                help_scroll,
+                suppress_next_enter,
+                key_event,
+            );
+        }
         _ => {}
     }
 }
@@ -408,64 +421,6 @@ fn handle_resize(ctx: Option<&CtxArc>, cols: u16, rows: u16) {
     {
         let layout = compute_pty_layout(cols, rows);
         let _ = ctx_guard.runtime.resize(layout.pty_rows, layout.pty_cols);
-    }
-}
-
-fn handle_fullscreen_mouse(
-    ctx: Option<&CtxArc>,
-    app_state: &HookState<AppState>,
-    mouse_event: iocraft::FullscreenMouseEvent,
-) {
-    let terminal_input_enabled = {
-        let state = app_state.read();
-        state.terminal_focused && state.pane_focus == PaneFocus::Terminal
-    };
-    if !terminal_input_enabled {
-        return;
-    }
-
-    let Some(ctx_arc) = ctx else {
-        return;
-    };
-    let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return;
-    };
-
-    if !ctx_guard.runtime.mouse_reporting_active() {
-        return;
-    }
-
-    let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let layout = compute_pty_layout(cols, rows);
-
-    let row_end = layout
-        .pane_row0
-        .saturating_add(layout.pty_rows.saturating_sub(1));
-    let col_end = layout
-        .pane_col0
-        .saturating_add(layout.pty_cols.saturating_sub(1));
-
-    let screen_row0 = mouse_event.row;
-    let screen_col0 = mouse_event.column;
-
-    let in_terminal_bounds = screen_col0 >= layout.pane_col0
-        && screen_col0 <= col_end
-        && screen_row0 >= layout.pane_row0
-        && screen_row0 <= row_end;
-
-    if !in_terminal_bounds {
-        return;
-    }
-
-    let local_row = screen_row0.saturating_sub(layout.pane_row0);
-    let local_col = screen_col0.saturating_sub(layout.pane_col0);
-
-    let mut local_event =
-        iocraft::FullscreenMouseEvent::new(mouse_event.kind, local_col, local_row);
-    local_event.modifiers = mouse_event.modifiers;
-
-    if let Some(bytes) = mouse_event_to_bytes(&local_event) {
-        let _ = ctx_guard.runtime.write_input(&bytes);
     }
 }
 
@@ -829,7 +784,7 @@ fn clear_all_attachments(app_state: &mut HookState<AppState>) {
 }
 
 /// Capture terminal output for the currently selected agent if available.
-fn capture_terminal_snapshot(
+pub fn capture_terminal_snapshot(
     ctx: Option<&CtxArc>,
     snapshot: &AppState,
     selected_agent_id: Option<&AgentId>,

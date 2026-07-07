@@ -180,6 +180,14 @@ pub struct AppState {
 
     /// Rapid `qqq` quit-sequence bookkeeping. Runtime-only — never persisted.
     pub quit_sequence: QuitSequenceState,
+
+    /// Active mouse text-selection, if any. Runtime-only — never persisted.
+    ///
+    /// Set by the app-shell mouse router when the user drag-selects text in any
+    /// pane (or in the terminal snapshot when unfocused). Cleared on Escape or
+    /// when a new selection begins. Used by the renderers to paint an
+    /// inverse-video highlight over the selected cells.
+    pub selection: Option<crate::selection::TextSelection>,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
