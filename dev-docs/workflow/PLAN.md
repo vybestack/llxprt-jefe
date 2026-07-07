@@ -11,8 +11,8 @@ It is designed to prevent common LLM failure modes:
 
 Use this with:
 - [`PLAN-TEMPLATE.md`](./PLAN-TEMPLATE.md)
-- [`RULES.md`](./RULES.md)
-- [`project-standards.md`](./project-standards.md)
+- [Coding Standards](../standards/coding-standards.md)
+- [Testing and Quality](../standards/testing-and-quality.md)
 
 ---
 
