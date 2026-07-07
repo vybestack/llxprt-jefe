@@ -197,14 +197,18 @@ impl AppState {
             return;
         };
         let review_count = detail.reviews.len();
+        let thread_count = count_review_threads(detail);
         let check_count = detail.checks.len();
         let comment_count = detail.comments.len();
         self.prs_state.detail_subfocus = match self.prs_state.detail_subfocus {
             PrDetailSubfocus::Body => {
-                Self::next_after_body(review_count, check_count, comment_count)
+                Self::next_after_body(review_count, thread_count, check_count, comment_count)
             }
             PrDetailSubfocus::Review(i) => {
-                Self::next_after_review(i, review_count, check_count, comment_count)
+                Self::next_after_review(i, review_count, thread_count, check_count, comment_count)
+            }
+            PrDetailSubfocus::ReviewThread(i) => {
+                Self::next_after_thread(i, thread_count, check_count, comment_count)
             }
             PrDetailSubfocus::Check(i) => Self::next_after_check(i, check_count, comment_count),
             PrDetailSubfocus::Comment(i) => Self::next_after_comment(i, comment_count),
@@ -223,25 +227,22 @@ impl AppState {
             return;
         };
         let review_count = detail.reviews.len();
+        let thread_count = count_review_threads(detail);
         let check_count = detail.checks.len();
         let comment_count = detail.comments.len();
         self.prs_state.detail_subfocus = match self.prs_state.detail_subfocus {
             PrDetailSubfocus::Body => {
-                if comment_count > 0 {
-                    PrDetailSubfocus::Comment(comment_count - 1)
-                } else if check_count > 0 {
-                    PrDetailSubfocus::Check(check_count - 1)
-                } else if review_count > 0 {
-                    PrDetailSubfocus::Review(review_count - 1)
-                } else {
-                    PrDetailSubfocus::NewComment
-                }
+                Self::prev_from_body(comment_count, check_count, thread_count, review_count)
             }
             PrDetailSubfocus::Review(0) => PrDetailSubfocus::Body,
             PrDetailSubfocus::Review(i) => PrDetailSubfocus::Review(i - 1),
-            PrDetailSubfocus::Check(0) => Self::prev_from_check_zero(review_count),
+            PrDetailSubfocus::ReviewThread(0) => Self::prev_from_thread_zero(review_count),
+            PrDetailSubfocus::ReviewThread(i) => PrDetailSubfocus::ReviewThread(i - 1),
+            PrDetailSubfocus::Check(0) => Self::prev_from_check_zero(thread_count, review_count),
             PrDetailSubfocus::Check(i) => PrDetailSubfocus::Check(i - 1),
-            PrDetailSubfocus::Comment(0) => Self::prev_from_comment_zero(review_count, check_count),
+            PrDetailSubfocus::Comment(0) => {
+                Self::prev_from_comment_zero(review_count, check_count, thread_count)
+            }
             PrDetailSubfocus::Comment(i) => PrDetailSubfocus::Comment(i - 1),
             PrDetailSubfocus::NewComment => {
                 if comment_count > 0 {
@@ -254,14 +255,22 @@ impl AppState {
     }
 
     /// Compute the next subfocus from Body (skip empty sections).
+    /// Cycle: Body -> Review -> ReviewThread -> Check -> Comment -> NewComment.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-003
     /// @pseudocode component-001 lines 201-208
-    fn next_after_body(reviews: usize, checks: usize, comments: usize) -> super::PrDetailSubfocus {
+    fn next_after_body(
+        reviews: usize,
+        threads: usize,
+        checks: usize,
+        comments: usize,
+    ) -> super::PrDetailSubfocus {
         use super::PrDetailSubfocus;
         if reviews > 0 {
             PrDetailSubfocus::Review(0)
+        } else if threads > 0 {
+            PrDetailSubfocus::ReviewThread(0)
         } else if checks > 0 {
             PrDetailSubfocus::Check(0)
         } else if comments > 0 {
@@ -271,7 +280,7 @@ impl AppState {
         }
     }
 
-    /// Compute the next subfocus from Review(i) (advance or fall through).
+    /// Compute the next subfocus from Review(i) (advance, threads, or fall through).
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-003
@@ -279,12 +288,37 @@ impl AppState {
     fn next_after_review(
         i: usize,
         reviews: usize,
+        threads: usize,
         checks: usize,
         comments: usize,
     ) -> super::PrDetailSubfocus {
         use super::PrDetailSubfocus;
         if i + 1 < reviews {
             PrDetailSubfocus::Review(i + 1)
+        } else if threads > 0 {
+            PrDetailSubfocus::ReviewThread(0)
+        } else if checks > 0 {
+            PrDetailSubfocus::Check(0)
+        } else if comments > 0 {
+            PrDetailSubfocus::Comment(0)
+        } else {
+            PrDetailSubfocus::NewComment
+        }
+    }
+
+    /// Compute the next subfocus from ReviewThread(i) (advance or fall through).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-003
+    fn next_after_thread(
+        i: usize,
+        threads: usize,
+        checks: usize,
+        comments: usize,
+    ) -> super::PrDetailSubfocus {
+        use super::PrDetailSubfocus;
+        if i + 1 < threads {
+            PrDetailSubfocus::ReviewThread(i + 1)
         } else if checks > 0 {
             PrDetailSubfocus::Check(0)
         } else if comments > 0 {
@@ -324,14 +358,47 @@ impl AppState {
         }
     }
 
-    /// Compute the previous subfocus from Check(0) (reverse traversal).
+    /// Compute the previous subfocus from Body (reverse: Comment, Check,
+    /// ReviewThread, Review, NewComment).
+    fn prev_from_body(
+        comments: usize,
+        checks: usize,
+        threads: usize,
+        reviews: usize,
+    ) -> super::PrDetailSubfocus {
+        use super::PrDetailSubfocus;
+        if comments > 0 {
+            PrDetailSubfocus::Comment(comments - 1)
+        } else if checks > 0 {
+            PrDetailSubfocus::Check(checks - 1)
+        } else if threads > 0 {
+            PrDetailSubfocus::ReviewThread(threads - 1)
+        } else if reviews > 0 {
+            PrDetailSubfocus::Review(reviews - 1)
+        } else {
+            PrDetailSubfocus::NewComment
+        }
+    }
+
+    /// Compute the previous subfocus from ReviewThread(0) (go to last Review).
+    fn prev_from_thread_zero(reviews: usize) -> super::PrDetailSubfocus {
+        use super::PrDetailSubfocus;
+        if reviews > 0 {
+            PrDetailSubfocus::Review(reviews - 1)
+        } else {
+            PrDetailSubfocus::Body
+        }
+    }
+
+    /// Compute the previous subfocus from Check(0) (reverse to ReviewThread/Review).
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-003
-    /// @pseudocode component-001 lines 201-208
-    fn prev_from_check_zero(reviews: usize) -> super::PrDetailSubfocus {
+    fn prev_from_check_zero(threads: usize, reviews: usize) -> super::PrDetailSubfocus {
         use super::PrDetailSubfocus;
-        if reviews > 0 {
+        if threads > 0 {
+            PrDetailSubfocus::ReviewThread(threads - 1)
+        } else if reviews > 0 {
             PrDetailSubfocus::Review(reviews - 1)
         } else {
             PrDetailSubfocus::Body
@@ -342,11 +409,16 @@ impl AppState {
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-003
-    /// @pseudocode component-001 lines 201-208
-    fn prev_from_comment_zero(reviews: usize, checks: usize) -> super::PrDetailSubfocus {
+    fn prev_from_comment_zero(
+        reviews: usize,
+        checks: usize,
+        threads: usize,
+    ) -> super::PrDetailSubfocus {
         use super::PrDetailSubfocus;
         if checks > 0 {
             PrDetailSubfocus::Check(checks - 1)
+        } else if threads > 0 {
+            PrDetailSubfocus::ReviewThread(threads - 1)
         } else if reviews > 0 {
             PrDetailSubfocus::Review(reviews - 1)
         } else {
@@ -371,7 +443,9 @@ impl AppState {
         let text_box_active = matches!(
             &self.prs_state.inline_state,
             InlineState::Composer {
-                target: ComposerTarget::NewComment | ComposerTarget::Reply { .. },
+                target: ComposerTarget::NewComment
+                    | ComposerTarget::Reply { .. }
+                    | ComposerTarget::ReplyToReviewThread { .. },
                 ..
             }
         );
@@ -583,4 +657,20 @@ impl AppState {
         self.apply_pr_scroll_event(dir);
         true
     }
+}
+
+/// Count all review threads across all reviews in a PR detail.
+///
+/// Threads are stored under each `PrReview.review_threads`; this flattens and
+/// counts them to support the flat `PrDetailSubfocus::ReviewThread(usize)`
+/// index used for navigation and rendering.
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-009
+pub(super) fn count_review_threads(detail: &crate::domain::PullRequestDetail) -> usize {
+    detail
+        .reviews
+        .iter()
+        .flat_map(|r| &r.review_threads)
+        .count()
 }

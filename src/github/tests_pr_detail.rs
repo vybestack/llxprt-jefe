@@ -174,6 +174,7 @@ fn sample_pr_detail() -> PullRequestDetail {
             state: PrReviewState::Approved,
             submitted_at: "2026-06-14T10:00:00Z".to_string(),
             body: Some("LGTM".to_string()),
+            review_threads: vec![],
         }],
         checks: vec![PrCheck {
             name: "build".to_string(),

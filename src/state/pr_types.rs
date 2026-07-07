@@ -48,6 +48,8 @@ pub enum PrDetailSubfocus {
     #[default]
     Body,
     Review(usize),
+    /// Focus on a review thread (flat index across all reviews' threads).
+    ReviewThread(usize),
     Check(usize),
     Comment(usize),
     NewComment,
@@ -76,6 +78,8 @@ pub enum ReadOnlyHintKind {
     NoPrToMerge,
     /// `m` pressed on a PR that is not in an open+mergeable state.
     PrNotMergeable,
+    /// `R` pressed outside a review thread (resolve only valid on a review thread).
+    ReadOnlyResolveOnThread,
 }
 
 /// @plan PLAN-20260624-PR-MODE.P03
@@ -124,6 +128,10 @@ pub struct PullRequestsState {
     pub next_pr_detail_request_id: u64,
     pub comments_page_pending: Option<PrCommentsPagePending>,
     pub next_comments_page_request_id: u64,
+    /// Pending review-thread resolve/unresolve mutation (issue #119).
+    pub thread_resolve_pending: Option<PrThreadResolvePending>,
+    /// Monotonic request id for thread-resolve mutations (issue #119).
+    pub next_thread_resolve_request_id: u64,
 }
 
 /// @plan PLAN-20260624-PR-MODE.P03
@@ -169,6 +177,20 @@ pub struct PrCommentsPagePending {
     pub scope_repo_id: RepositoryId,
     pub pr_number: u64,
     pub cursor: Option<String>,
+    pub request_id: u64,
+}
+
+/// Pending review-thread resolve/unresolve mutation staleness guard
+/// (issue #119). Tracks the in-flight thread resolve toggle so the UI can
+/// show a pending state and ignore stale responses.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrThreadResolvePending {
+    pub scope_repo_id: RepositoryId,
+    pub thread_index: usize,
+    pub resolve: bool,
     pub request_id: u64,
 }
 

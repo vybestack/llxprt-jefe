@@ -356,6 +356,9 @@ impl PullRequestsMessage {
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-009
     fn from_app_event_merge(event: AppEvent) -> Self {
+        if let Some(msg) = Self::from_app_event_thread(&event) {
+            return msg;
+        }
         match event {
             AppEvent::PrOpenMergeChooser => Self::OpenMergeChooser,
             AppEvent::PrMergeNavigateUp => Self::MergeNavigate(NavDir::Up),
@@ -392,6 +395,43 @@ impl PullRequestsMessage {
                 allowed_methods,
             },
             _ => unreachable!("non-PR AppEvent routed to PR converter"),
+        }
+    }
+
+    /// Convert thread-related `AppEvent` variants into PR messages.
+    ///
+    /// @requirement REQ-PR-009
+    fn from_app_event_thread(event: &AppEvent) -> Option<Self> {
+        match event {
+            AppEvent::PrOpenThreadReplyComposer { thread_index } => Some(Self::OpenThreadReply {
+                thread_index: *thread_index,
+            }),
+            AppEvent::PrToggleThreadResolve { thread_index } => Some(Self::ToggleThreadResolve {
+                thread_index: *thread_index,
+            }),
+            AppEvent::PrThreadResolveSucceeded {
+                scope_repo_id,
+                thread_index,
+                is_resolved,
+                request_id,
+            } => Some(Self::ThreadResolveSucceeded {
+                scope_repo_id: scope_repo_id.clone(),
+                thread_index: *thread_index,
+                is_resolved: *is_resolved,
+                request_id: *request_id,
+            }),
+            AppEvent::PrThreadResolveFailed {
+                scope_repo_id,
+                thread_index,
+                request_id,
+                error,
+            } => Some(Self::ThreadResolveFailed {
+                scope_repo_id: scope_repo_id.clone(),
+                thread_index: *thread_index,
+                request_id: *request_id,
+                error: error.clone(),
+            }),
+            _ => None,
         }
     }
 
@@ -730,6 +770,9 @@ impl PullRequestsMessage {
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-009
     fn into_app_event_merge(self) -> AppEvent {
+        if let Some(event) = self.thread_to_app_event() {
+            return event;
+        }
         match self {
             Self::OpenMergeChooser => AppEvent::PrOpenMergeChooser,
             Self::MergeNavigate(NavDir::Up | NavDir::Prev) => AppEvent::PrMergeNavigateUp,
@@ -766,6 +809,43 @@ impl PullRequestsMessage {
                 allowed_methods,
             },
             _ => unreachable!("unrouted PullRequestsMessage variant reached merge converter"),
+        }
+    }
+
+    /// Convert thread-related PR messages back into `AppEvent`.
+    ///
+    /// @requirement REQ-PR-009
+    fn thread_to_app_event(&self) -> Option<AppEvent> {
+        match self {
+            Self::OpenThreadReply { thread_index } => Some(AppEvent::PrOpenThreadReplyComposer {
+                thread_index: *thread_index,
+            }),
+            Self::ToggleThreadResolve { thread_index } => Some(AppEvent::PrToggleThreadResolve {
+                thread_index: *thread_index,
+            }),
+            Self::ThreadResolveSucceeded {
+                scope_repo_id,
+                thread_index,
+                is_resolved,
+                request_id,
+            } => Some(AppEvent::PrThreadResolveSucceeded {
+                scope_repo_id: scope_repo_id.clone(),
+                thread_index: *thread_index,
+                is_resolved: *is_resolved,
+                request_id: *request_id,
+            }),
+            Self::ThreadResolveFailed {
+                scope_repo_id,
+                thread_index,
+                request_id,
+                error,
+            } => Some(AppEvent::PrThreadResolveFailed {
+                scope_repo_id: scope_repo_id.clone(),
+                thread_index: *thread_index,
+                request_id: *request_id,
+                error: error.clone(),
+            }),
+            _ => None,
         }
     }
 }

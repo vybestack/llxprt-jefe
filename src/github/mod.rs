@@ -11,11 +11,12 @@
 
 use crate::domain::{
     Issue, IssueComment, IssueDetail, IssueFilter, IssueState, PrCheck, PrFilter, PrReview,
-    PrReviewState, PrState, PullRequestDetail,
+    PrReviewState, PrReviewThread, PrState, PullRequestDetail,
 };
 use std::process::Command;
 
 mod create_issue;
+mod pr_threads;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};
 
 mod parse;
@@ -28,9 +29,10 @@ pub use parse::{
 
 mod parse_pr;
 pub use parse_pr::{
-    build_pr_comments_query, build_pr_search_args, build_pr_search_query, parse_check_status,
-    parse_checks_rollup, parse_pr_check, parse_pr_review, parse_pr_state,
-    parse_pull_request_detail_json, parse_pull_requests_json, parse_review_decision, rollup_nodes,
+    build_pr_comments_query, build_pr_review_threads_query, build_pr_search_args,
+    build_pr_search_query, parse_check_status, parse_checks_rollup, parse_pr_check,
+    parse_pr_review, parse_pr_review_threads, parse_pr_state, parse_pull_request_detail_json,
+    parse_pull_requests_json, parse_review_decision, parse_thread_reply_json, rollup_nodes,
     sort_pull_requests,
 };
 
@@ -550,6 +552,8 @@ impl GhClient {
         detail.comments = comments_response.comments;
         detail.comments_cursor = comments_response.cursor;
         detail.has_more_comments = comments_response.has_more;
+        let threads = self.list_pr_review_threads(owner, name, number);
+        assign_threads_to_reviews(&mut detail.reviews, threads);
         Ok(detail)
     }
 
@@ -727,7 +731,7 @@ impl GhClient {
     /// Run `gh` with the given args, returning stdout on success. Encapsulates
     /// the established error idiom: `NotFound→NotInstalled` else
     /// `NetworkError`; non-zero exit → `categorize_error`.
-    fn run_gh(args: &[String]) -> Result<String, GhError> {
+    pub(super) fn run_gh(args: &[String]) -> Result<String, GhError> {
         let output = Command::new("gh").args(args).output().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 GhError::NotInstalled
@@ -747,6 +751,25 @@ impl Default for GhClient {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Distribute fetched review threads onto the review structs.
+///
+/// GitHub's `reviewThreads` connection is on `PullRequest`, not on each
+/// `Review`. Since the domain model stores threads under `PrReview`, all
+/// fetched threads are assigned to the first review (if any). When there are
+/// no reviews but threads exist, the threads are silently dropped (there is
+/// no review slot to hold them). The renderer flattens
+/// `reviews.iter().flat_map(|r| &r.review_threads)` so this preserves all
+/// threads for display.
+fn assign_threads_to_reviews(reviews: &mut [PrReview], threads: Vec<PrReviewThread>) {
+    if threads.is_empty() {
+        return;
+    }
+    let Some(first_review) = reviews.first_mut() else {
+        return;
+    };
+    first_review.review_threads = threads;
 }
 
 /// Map a [`PrState`] to its lowercase send-payload string.

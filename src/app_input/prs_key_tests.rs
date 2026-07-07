@@ -835,3 +835,42 @@ fn test_pr_detail() -> jefe::domain::PullRequestDetail {
         merge_state_status: None,
     }
 }
+
+// =============================================================================
+// Review-thread key dispatch tests (issue #119)
+// =============================================================================
+
+/// `r` on ReviewThread subfocus opens the thread-reply composer.
+#[test]
+fn test_r_on_review_thread_opens_thread_reply_composer() {
+    let thread = prs_state_with_detail_subfocus(PrDetailSubfocus::ReviewThread(0));
+    let event = resolve_prs_key_event(&thread, &key(KeyCode::Char('r')));
+    assert!(matches!(
+        event,
+        Some(AppEvent::PrOpenThreadReplyComposer { thread_index: 0 })
+    ));
+}
+
+/// `R` on ReviewThread subfocus toggles resolve.
+#[test]
+fn test_big_r_on_review_thread_toggles_resolve() {
+    let thread = prs_state_with_detail_subfocus(PrDetailSubfocus::ReviewThread(1));
+    let event = resolve_prs_key_event(&thread, &key(KeyCode::Char('R')));
+    assert!(matches!(
+        event,
+        Some(AppEvent::PrToggleThreadResolve { thread_index: 1 })
+    ));
+}
+
+/// `R` on non-thread subfocus emits a notice (NOT None).
+#[test]
+fn test_big_r_on_body_emits_show_notice_not_none() {
+    let body = prs_state_with_detail_subfocus(PrDetailSubfocus::Body);
+    let event = resolve_prs_key_event(&body, &key(KeyCode::Char('R')));
+    assert!(matches!(
+        event,
+        Some(AppEvent::PrShowNotice(
+            ReadOnlyHintKind::ReadOnlyResolveOnThread
+        ))
+    ));
+}

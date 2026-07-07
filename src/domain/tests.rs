@@ -374,3 +374,91 @@ fn runtime_binding_roundtrips_pid_when_present() {
         serde_json::from_value(json).value_or_panic("should deserialize");
     assert_eq!(binding2.pid, Some(42_000));
 }
+
+// =============================================================================
+// PR review threads (issue #119)
+// =============================================================================
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+#[test]
+fn pr_review_thread_constructs_with_thread_id_and_resolved_flag() {
+    let thread = PrReviewThread {
+        thread_id: "PRRT_kwAAA".to_string(),
+        is_resolved: false,
+        path: Some("src/lib.rs".to_string()),
+        line: Some(42),
+        comments: vec![IssueComment {
+            comment_id: 1,
+            author_login: "reviewer1".to_string(),
+            created_at: "2026-07-01T10:00:00Z".to_string(),
+            edited_at: None,
+            body: "Please fix this".to_string(),
+        }],
+    };
+    assert_eq!(thread.thread_id, "PRRT_kwAAA");
+    assert!(!thread.is_resolved);
+    assert_eq!(thread.path.as_deref(), Some("src/lib.rs"));
+    assert_eq!(thread.line, Some(42));
+    assert_eq!(thread.comments.len(), 1);
+}
+
+/// @plan PLAN-PR-REVIEW-THREADS
+/// @requirement REQ-PR-009
+#[test]
+fn pr_review_carries_review_threads_field() {
+    let review = PrReview {
+        author_login: "reviewer1".to_string(),
+        state: PrReviewState::Commented,
+        submitted_at: "2026-07-01T10:00:00Z".to_string(),
+        body: Some("Please review".to_string()),
+        review_threads: vec![PrReviewThread {
+            thread_id: "PRRT_kwBBB".to_string(),
+            is_resolved: true,
+            path: None,
+            line: None,
+            comments: vec![],
+        }],
+    };
+    assert_eq!(review.review_threads.len(), 1);
+    let thread = &review.review_threads[0];
+    assert!(thread.is_resolved);
+    assert!(thread.path.is_none());
+    assert!(thread.line.is_none());
+    assert!(thread.comments.is_empty());
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+#[test]
+fn pr_review_thread_supports_unresolved_with_location() {
+    let thread = PrReviewThread {
+        thread_id: "PRRT_kwCCC".to_string(),
+        is_resolved: false,
+        path: Some("src/main.rs".to_string()),
+        line: Some(10),
+        comments: vec![
+            IssueComment {
+                comment_id: 100,
+                author_login: "alice".to_string(),
+                created_at: "2026-07-01T10:00:00Z".to_string(),
+                edited_at: None,
+                body: "First reply".to_string(),
+            },
+            IssueComment {
+                comment_id: 101,
+                author_login: "bob".to_string(),
+                created_at: "2026-07-01T11:00:00Z".to_string(),
+                edited_at: Some("2026-07-01T11:30:00Z".to_string()),
+                body: "Second reply".to_string(),
+            },
+        ],
+    };
+    assert_eq!(thread.comments.len(), 2);
+    assert_eq!(thread.comments[0].author_login, "alice");
+    assert_eq!(thread.comments[1].author_login, "bob");
+    assert_eq!(
+        thread.comments[1].edited_at.as_deref(),
+        Some("2026-07-01T11:30:00Z")
+    );
+}

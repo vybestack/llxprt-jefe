@@ -235,6 +235,12 @@ pub enum ComposerTarget {
         comment_index: usize,
         author: String,
     },
+    /// Reply to a PR review thread (issue #119). `thread_index` is the flat
+    /// index across all reviews' threads, matching `PrDetailSubfocus::ReviewThread`.
+    ReplyToReviewThread {
+        thread_index: usize,
+        author: String,
+    },
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -862,6 +868,30 @@ pub enum AppEvent {
     PrAgentChooserCancel,
     PrSendToAgentCompleted,
     PrSendToAgentFailed {
+        error: String,
+    },
+
+    // PR Review Threads (issue #119)
+    /// Open the inline reply composer for a review thread.
+    PrOpenThreadReplyComposer {
+        thread_index: usize,
+    },
+    /// Toggle resolve/unresolve on a focused review thread.
+    PrToggleThreadResolve {
+        thread_index: usize,
+    },
+    /// A review-thread resolve/unresolve mutation succeeded.
+    PrThreadResolveSucceeded {
+        scope_repo_id: RepositoryId,
+        thread_index: usize,
+        is_resolved: bool,
+        request_id: u64,
+    },
+    /// A review-thread resolve/unresolve mutation failed.
+    PrThreadResolveFailed {
+        scope_repo_id: RepositoryId,
+        thread_index: usize,
+        request_id: u64,
         error: String,
     },
 }

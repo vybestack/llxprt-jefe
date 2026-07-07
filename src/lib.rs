@@ -47,6 +47,10 @@ mod github_tests_pr;
 #[path = "github/tests_pr_detail.rs"]
 mod github_tests_pr_detail;
 
+#[cfg(test)]
+#[path = "github/tests_pr_threads.rs"]
+mod github_tests_pr_threads;
+
 /// Current application version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub mod harness;

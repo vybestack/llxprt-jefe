@@ -22,6 +22,7 @@ mod prs_merge_ops;
 mod prs_mutation_ops;
 mod prs_nav_ops;
 mod prs_ops;
+mod prs_thread_ops;
 mod selectors;
 pub mod state_ops;
 mod types;
@@ -853,6 +854,14 @@ mod prs_tests_detail_flow;
 #[cfg(test)]
 #[path = "prs_tests_components.rs"]
 mod prs_tests_components;
+
+/// Review-thread state tests (issue #119): open reply composer, toggle resolve.
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-009
+#[cfg(test)]
+#[path = "prs_tests_review_threads.rs"]
+mod prs_tests_review_threads;
 
 // @plan PLAN-20260624-PR-MODE.P15
 // @requirement REQ-PR-001

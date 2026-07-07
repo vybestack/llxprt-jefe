@@ -107,6 +107,10 @@ pub(super) fn dispatch_prs_message(
             apply_and_persist(app_state, ctx, AppEvent::PrMergeConfirm);
             prs_dispatch::dispatch_pr_merge(app_state, ctx);
         }
+        PullRequestsMessage::ToggleThreadResolve { .. } => {
+            apply_and_persist(app_state, ctx, AppEvent::from(message));
+            prs_mutation::handle_pr_thread_resolve(app_state, ctx);
+        }
         // All other PullRequests variants (data-load results, notices, etc.)
         // route through the reducer only.
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
