@@ -168,6 +168,9 @@ tmux show-window-options -g allow-passthrough
 
 ## For contributors
 
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the contributor guide and
+coding/architecture/display standards.
+
 Build/test/developer details moved to [`docs/building.md`](docs/building.md).
 
 Local PR gate command (matches CI):

@@ -15,8 +15,8 @@ fn dev_docs_index_links_to_tmux_harness_guide() {
     let readme = read_repo_text("dev-docs/README.md");
 
     assert!(
-        readme.contains("[`tmux-harness.md`](./tmux-harness.md)"),
-        "dev-docs index should link the tmux harness guide"
+        readme.contains("[`tmux-harness.md`](./testing/tmux-harness.md)"),
+        "dev-docs index should link the tmux harness guide (moved under testing/)"
     );
 }
 

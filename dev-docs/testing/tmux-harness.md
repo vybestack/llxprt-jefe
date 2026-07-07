@@ -139,11 +139,11 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
 
 ## Included scenarios
 
-- [`startup-quit.json`](./tmux-scenarios/startup-quit.json): waits for the
+- [`startup-quit.json`](../tmux-scenarios/startup-quit.json): waits for the
   dashboard keybind bar, captures the screen, quits, and waits for exit.
-- [`help-modal.json`](./tmux-scenarios/help-modal.json): opens the help modal,
+- [`help-modal.json`](../tmux-scenarios/help-modal.json): opens the help modal,
   verifies its stable title, captures it, closes it, then quits.
-- [`scratch-pr-mode.json`](./tmux-scenarios/scratch-pr-mode.json): manual
+- [`scratch-pr-mode.json`](../tmux-scenarios/scratch-pr-mode.json): manual
   scratch scenario for PR-mode screen validation. It is intentionally not a CI
   gate because repository/GitHub configuration can vary by developer machine.
 

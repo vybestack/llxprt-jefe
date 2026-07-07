@@ -1,46 +1,77 @@
 # Dev Docs Index
 
-This directory contains the working rules for planning and implementation in Jefe.
+This directory contains the working rules for planning and implementation in
+Jefe. The single entry point for contributors is
+[`CONTRIBUTING.md`](../CONTRIBUTING.md) at the repo root.
 
-## Documents
+## Standards
 
-- [`RULES.md`](./RULES.md)
-  - Day-to-day development rules for contributors and LLMs.
-  - Read this first before coding.
+Normative standards live under [`standards/`](./standards/):
 
-- [`project-standards.md`](./project-standards.md)
-  - Project-wide coding, lint, complexity, testing, and review standards.
-  - Treat this as policy.
+- [`architecture.md`](./standards/architecture.md) — module boundaries, the
+  unidirectional data flow, the pure-views projection pattern, dependency DAG.
+- [`coding-standards.md`](./standards/coding-standards.md) — Rust conventions,
+  lint/complexity thresholds, source-file-length policy, DO/DON'T rules,
+  documentation standards.
+- [`testing-and-quality.md`](./standards/testing-and-quality.md) — TDD, test
+  layers, assertion style, coverage floor, the verification suite, CI jobs.
+- [`display-and-ui.md`](./standards/display-and-ui.md) — emoji-free policy,
+  pure projections, screen/component structure, keybind footer, help modal,
+  theme/UX rules.
+- [`persistence-and-runtime.md`](./standards/persistence-and-runtime.md) —
+  versioned file persistence, atomic writes, safe fallback, runtime
+  orchestration.
 
-- [`PLAN.md`](./PLAN.md)
-  - How to create and execute robust multi-phase implementation plans.
-  - Includes preflight, traceability, integration, and verification requirements.
+## Workflow
 
-- [`PLAN-TEMPLATE.md`](./PLAN-TEMPLATE.md)
-  - Reusable template for writing plans under `project-plans/<feature>/plan/`.
+Multi-phase planning and coordination under [`workflow/`](./workflow/):
 
-- [`COORDINATING.md`](./COORDINATING.md)
-  - How coordinators execute phase-by-phase work with subagents.
-  - Covers strict sequencing, verification gating, and remediation loops.
+- [`PLAN.md`](./workflow/PLAN.md) — how to create and execute robust multi-phase
+  implementation plans.
+- [`PLAN-TEMPLATE.md`](./workflow/PLAN-TEMPLATE.md) — reusable template for
+  writing plans under `project-plans/<feature>/plan/`.
+- [`COORDINATING.md`](./workflow/COORDINATING.md) — how coordinators execute
+  phase-by-phase work with subagents.
 
-- [`tmux-harness.md`](./tmux-harness.md)
-  - How to run deterministic real-TTY TUI scenarios through the tmux-backed harness.
-  - Covers scenario JSON, local execution, artifacts, and optional smoke checks.
+## Testing
+
+TUI harness scenarios (real-TTY end-to-end checks) under [`testing/`](./testing/):
+
+- [`tmux-harness.md`](./testing/tmux-harness.md) — scenario JSON schema, step
+  catalog, local execution, artifacts, optional smoke checks.
+
+## Redirect stubs
+
+The following files are now short redirect stubs pointing at the standards docs
+above:
+
+- [`RULES.md`](./RULES.md) — redirects to coding-standards, testing-and-quality,
+  architecture.
+- [`project-standards.md`](./project-standards.md) — redirects to all standards
+  docs.
 
 ## Recommended Reading Order
 
-1. `RULES.md`
-2. `project-standards.md`
-3. `PLAN.md`
-4. `PLAN-TEMPLATE.md`
-5. `COORDINATING.md`
+1. [`standards/architecture.md`](./standards/architecture.md)
+2. [`standards/coding-standards.md`](./standards/coding-standards.md)
+3. [`standards/testing-and-quality.md`](./standards/testing-and-quality.md)
+4. [`standards/display-and-ui.md`](./standards/display-and-ui.md)
+5. [`standards/persistence-and-runtime.md`](./standards/persistence-and-runtime.md)
+6. [`workflow/PLAN.md`](./workflow/PLAN.md)
+7. [`workflow/PLAN-TEMPLATE.md`](./workflow/PLAN-TEMPLATE.md)
+8. [`workflow/COORDINATING.md`](./workflow/COORDINATING.md)
 
 ## Practical Workflow
 
 1. Define or update feature spec under `project-plans/...`.
-2. Create/refresh plan using `PLAN-TEMPLATE.md`.
-3. Use `COORDINATING.md` to execute phases in strict sequence.
-4. Ensure all quality gates pass:
+2. Create/refresh plan using [`workflow/PLAN-TEMPLATE.md`](./workflow/PLAN-TEMPLATE.md).
+3. Use [`workflow/COORDINATING.md`](./workflow/COORDINATING.md) to execute
+   phases in strict sequence.
+4. Ensure all quality gates pass (`make ci-check`), covering:
    - `cargo fmt --all --check`
-   - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-   - `cargo test --workspace --all-features`
+   - `scripts/check-clippy-allows.sh`
+   - `scripts/check-source-file-size.sh`
+   - clippy complexity gates
+   - coverage (`--fail-under-lines 30`)
+   - `cargo build --workspace --all-features --locked`
+   - `cargo test --workspace --all-features --locked`
