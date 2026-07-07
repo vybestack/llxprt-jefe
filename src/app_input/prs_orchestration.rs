@@ -17,9 +17,10 @@ use tracing::warn;
 
 use super::{
     AppStateHandle, REMOTE_ATTACH_SETTLE_DELAY, SharedContext, apply_and_persist,
-    clear_agent_runtime_attachment, dispatch_app_event, launch_signature_for_agent,
-    mark_agent_runtime_attached, persist_state, pid_on_success, preflight_or_prompt,
-    prs_comments_dispatch, prs_dispatch, prs_list_dispatch, prs_mutation, to_persisted_state,
+    clear_agent_runtime_attachment, dispatch_app_event, gh_async, github_client,
+    launch_signature_for_agent, mark_agent_runtime_attached, persist_state, pid_on_success,
+    preflight_or_prompt, prs_comments_dispatch, prs_dispatch, prs_list_dispatch, prs_mutation,
+    to_persisted_state,
 };
 
 // ── PR-mode dispatch routing + loader helpers ──────────────────────────────
@@ -51,14 +52,19 @@ pub(super) fn dispatch_prs_message(
     ctx: &SharedContext,
     message: PullRequestsMessage,
 ) {
-    use jefe::messages::{PrInlineMsg, ScrollDir};
-
-    // Refresh detail_viewport_rows ONCE at the dispatch boundary (before any
-    // reducer runs a scroll clamp or detail line-count) so every clamp path
-    // uses the current terminal dimensions, not a stale height from a
-    // previous ScrollDetail(Down|PageDown). Reducers stay crossterm-free;
-    // this is the only crossterm read here.
     update_pr_detail_viewport_rows(app_state);
+    route_prs_message(app_state, ctx, message);
+}
+
+/// Route a `PullRequestsMessage` to the appropriate dispatch helper.
+/// Extracted from `dispatch_prs_message` to stay under the per-function line
+/// limit (issue #128).
+fn route_prs_message(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: PullRequestsMessage,
+) {
+    use jefe::messages::{PrInlineMsg, ScrollDir};
 
     match message {
         m @ (PullRequestsMessage::Navigate(_)
@@ -111,9 +117,155 @@ pub(super) fn dispatch_prs_message(
             apply_and_persist(app_state, ctx, AppEvent::from(message));
             prs_mutation::handle_pr_thread_resolve(app_state, ctx);
         }
+        PullRequestsMessage::Merged { .. } | PullRequestsMessage::CommentCreated { .. } => {
+            let is_merged = matches!(message, PullRequestsMessage::Merged { .. });
+            dispatch_prs_post_mutation(app_state, ctx, message, is_merged);
+        }
         // All other PullRequests variants (data-load results, notices, etc.)
         // route through the reducer only.
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+    }
+}
+
+/// Post-mutation refresh: after a merge or comment, reload the list/detail to
+/// reflect server state (issue #128).
+fn dispatch_prs_post_mutation(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: PullRequestsMessage,
+    is_merged: bool,
+) {
+    apply_and_persist(app_state, ctx, AppEvent::from(message));
+    // Merged reloads BOTH list + detail; CommentCreated reloads detail only.
+    if is_merged {
+        prs_list_dispatch::request_pr_list_reload(app_state, ctx);
+    }
+    prs_dispatch::load_pr_detail_for_selection(app_state, ctx);
+}
+
+/// Request a silent background refresh of the PR list + detail (issue #128).
+///
+/// Fires ONLY when the PR view is open (`DashboardPullRequests`) and no list
+/// or detail load is already in flight. The refresh is silent: it preserves
+/// selection, scroll offset, filter, and search query, and does NOT flash the
+/// loading spinner.
+///
+/// @requirement issue #128
+pub fn request_pr_background_refresh(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let should_refresh = {
+        let state = app_state.read();
+        should_background_refresh(
+            state.screen_mode,
+            state.prs_state.list_reload_pending.is_some(),
+            state.prs_state.list_page_pending.is_some(),
+            state.prs_state.detail_pending.is_some(),
+        )
+    };
+    if should_refresh {
+        prs_list_dispatch::request_pr_list_silent_refresh(app_state, ctx);
+        prs_dispatch::load_pr_detail_silent_refresh(app_state, ctx);
+    }
+}
+
+/// Pure guard predicate for `request_pr_background_refresh` (issue #128).
+/// Returns `true` when the PR view is open AND no list/detail load is in
+/// flight. Extracted so the guard logic is unit-testable without an
+/// `AppStateHandle`.
+///
+/// @requirement issue #128
+pub(super) fn should_background_refresh(
+    screen_mode: jefe::state::ScreenMode,
+    list_reload_pending: bool,
+    list_page_pending: bool,
+    detail_pending: bool,
+) -> bool {
+    screen_mode == jefe::state::ScreenMode::DashboardPullRequests
+        && !list_reload_pending
+        && !list_page_pending
+        && !detail_pending
+}
+
+/// Silently refresh PR detail for the currently selected PR (issue #128).
+/// Mirrors `prs_dispatch::load_pr_detail_for_selection` but does NOT set
+/// `loading.detail` (no spinner flash), preserves `detail_subfocus` and
+/// `detail_scroll_offset` on success, and does NOT surface errors visibly on
+/// failure. Lives here (not in `prs_dispatch.rs`) to keep that file under the
+/// architecture boundary line limit.
+///
+/// @requirement issue #128
+pub(super) fn load_pr_detail_silent_refresh(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let Some(mut params) = prs_dispatch::pr_detail_load_params(app_state) else {
+        return;
+    };
+    mark_pr_detail_silent_loading(app_state, &mut params);
+    if params.owner.is_empty() || params.repo.is_empty() {
+        // Missing repo: silently clear the pending marker (no visible error).
+        apply_and_persist(app_state, ctx, silent_refresh_failed_event(&params));
+        return;
+    }
+
+    let panic_params = params.clone();
+    gh_async::spawn_gh_task_with_panic(
+        app_state,
+        ctx,
+        move |mut app_state, ctx| {
+            let event = silent_refresh_event(&ctx, &params);
+            apply_and_persist(&mut app_state, &ctx, event);
+        },
+        move |mut app_state, ctx, _message| {
+            // On panic: silently clear the pending marker (no visible error).
+            apply_and_persist(
+                &mut app_state,
+                &ctx,
+                silent_refresh_failed_event(&panic_params),
+            );
+        },
+    );
+}
+
+/// Mark the PR detail as silently loading (does NOT set `loading.detail`).
+/// @requirement issue #128
+fn mark_pr_detail_silent_loading(
+    app_state: &mut AppStateHandle,
+    params: &mut prs_dispatch::PrDetailLoadParams,
+) {
+    let mut state = app_state.write();
+    let request_id = state.next_pr_detail_request_id();
+    state.mark_pr_detail_silent_loading(params.scope_repo_id.clone(), params.pr_number, request_id);
+    drop(state);
+    params.request_id = request_id;
+}
+
+/// Build the silent-refresh detail-loaded/failed event from the gh result.
+/// Unlike the loud variant, failures are delivered as
+/// `PrDetailSilentRefreshFailed` (no visible error) and success as
+/// `PrDetailSilentRefreshed` (no `loading.detail` flag).
+/// @requirement issue #128
+fn silent_refresh_event(
+    ctx: &SharedContext,
+    params: &prs_dispatch::PrDetailLoadParams,
+) -> AppEvent {
+    let result = github_client(ctx).map(|client| {
+        client.get_pull_request_detail(&params.owner, &params.repo, params.pr_number)
+    });
+    match result {
+        Some(Ok(detail)) => AppEvent::PrDetailSilentRefreshed {
+            scope_repo_id: params.scope_repo_id.clone(),
+            pr_number: params.pr_number,
+            request_id: params.request_id,
+            detail: std::boxed::Box::new(detail),
+        },
+        _ => silent_refresh_failed_event(params),
+    }
+}
+
+/// Build the silent-refresh failure event (clears pending, no visible error).
+/// @requirement issue #128
+fn silent_refresh_failed_event(params: &prs_dispatch::PrDetailLoadParams) -> AppEvent {
+    AppEvent::PrDetailSilentRefreshFailed {
+        scope_repo_id: params.scope_repo_id.clone(),
+        pr_number: params.pr_number,
+        request_id: params.request_id,
     }
 }
 

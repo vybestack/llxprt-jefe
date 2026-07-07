@@ -597,7 +597,9 @@ impl AppState {
             event,
             AppEvent::PrListLoaded { .. }
                 | AppEvent::PrListPageLoaded { .. }
+                | AppEvent::PrListSilentRefreshed { .. }
                 | AppEvent::PrDetailLoaded { .. }
+                | AppEvent::PrDetailSilentRefreshed { .. }
                 | AppEvent::PrCommentsPageLoaded { .. }
         );
         if handled {
@@ -615,7 +617,9 @@ impl AppState {
         let handled = matches!(
             event,
             AppEvent::PrListLoadFailed { .. }
+                | AppEvent::PrListSilentRefreshFailed { .. }
                 | AppEvent::PrDetailLoadFailed { .. }
+                | AppEvent::PrDetailSilentRefreshFailed { .. }
                 | AppEvent::PrCommentsPageFailed { .. }
         );
         if handled {

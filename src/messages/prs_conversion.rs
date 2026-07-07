@@ -87,10 +87,13 @@ impl PullRequestsMessage {
         match event {
             AppEvent::PrListLoaded { .. }
             | AppEvent::PrListLoadFailed { .. }
-            | AppEvent::PrListPageLoaded { .. } => Self::from_app_event_list(event),
-            AppEvent::PrDetailLoaded { .. } | AppEvent::PrDetailLoadFailed { .. } => {
-                Self::from_app_event_detail(event)
-            }
+            | AppEvent::PrListPageLoaded { .. }
+            | AppEvent::PrListSilentRefreshed { .. }
+            | AppEvent::PrListSilentRefreshFailed { .. } => Self::from_app_event_list(event),
+            AppEvent::PrDetailLoaded { .. }
+            | AppEvent::PrDetailLoadFailed { .. }
+            | AppEvent::PrDetailSilentRefreshed { .. }
+            | AppEvent::PrDetailSilentRefreshFailed { .. } => Self::from_app_event_detail(event),
             AppEvent::PrCommentsPageLoaded { .. } | AppEvent::PrCommentsPageFailed { .. } => {
                 Self::from_app_event_comments(event)
             }
@@ -104,6 +107,9 @@ impl PullRequestsMessage {
     /// @requirement REQ-PR-NFR-001
     /// @pseudocode component-004 lines 51-67
     fn from_app_event_list(event: AppEvent) -> Self {
+        if let Some(msg) = Self::from_app_event_silent_refresh(&event) {
+            return msg;
+        }
         match event {
             AppEvent::PrListLoaded {
                 scope_repo_id,
@@ -146,6 +152,35 @@ impl PullRequestsMessage {
         }
     }
 
+    /// Silent-refresh list events (issue #128).
+    fn from_app_event_silent_refresh(event: &AppEvent) -> Option<Self> {
+        match event {
+            AppEvent::PrListSilentRefreshed {
+                scope_repo_id,
+                filter,
+                request_id,
+                pull_requests,
+                cursor,
+                has_more,
+            } => Some(Self::ListSilentRefreshed {
+                scope_repo_id: scope_repo_id.clone(),
+                filter: filter.clone(),
+                request_id: *request_id,
+                pull_requests: pull_requests.clone(),
+                cursor: cursor.clone(),
+                has_more: *has_more,
+            }),
+            AppEvent::PrListSilentRefreshFailed {
+                scope_repo_id,
+                request_id,
+            } => Some(Self::ListSilentRefreshFailed {
+                scope_repo_id: scope_repo_id.clone(),
+                request_id: *request_id,
+            }),
+            _ => None,
+        }
+    }
+
     /// Detail loaded/error payload events.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
@@ -174,6 +209,26 @@ impl PullRequestsMessage {
                 pr_number,
                 request_id,
                 error,
+            },
+            AppEvent::PrDetailSilentRefreshed {
+                scope_repo_id,
+                pr_number,
+                request_id,
+                detail,
+            } => Self::DetailSilentRefreshed {
+                scope_repo_id,
+                pr_number,
+                request_id,
+                detail,
+            },
+            AppEvent::PrDetailSilentRefreshFailed {
+                scope_repo_id,
+                pr_number,
+                request_id,
+            } => Self::DetailSilentRefreshFailed {
+                scope_repo_id,
+                pr_number,
+                request_id,
             },
             _ => unreachable!("non-detail AppEvent routed to detail converter"),
         }
@@ -499,12 +554,15 @@ impl PullRequestsMessage {
     /// @pseudocode component-004 lines 68-85
     fn into_app_event_data(self) -> AppEvent {
         match self {
-            Self::ListLoaded { .. } | Self::ListLoadFailed { .. } | Self::ListPageLoaded { .. } => {
-                self.into_app_event_list()
-            }
-            Self::DetailLoaded { .. } | Self::DetailLoadFailed { .. } => {
-                self.into_app_event_detail()
-            }
+            Self::ListLoaded { .. }
+            | Self::ListLoadFailed { .. }
+            | Self::ListPageLoaded { .. }
+            | Self::ListSilentRefreshed { .. }
+            | Self::ListSilentRefreshFailed { .. } => self.into_app_event_list(),
+            Self::DetailLoaded { .. }
+            | Self::DetailLoadFailed { .. }
+            | Self::DetailSilentRefreshed { .. }
+            | Self::DetailSilentRefreshFailed { .. } => self.into_app_event_detail(),
             Self::CommentsPageLoaded { .. } | Self::CommentsPageFailed { .. } => {
                 self.into_app_event_comments()
             }
@@ -518,6 +576,9 @@ impl PullRequestsMessage {
     /// @requirement REQ-PR-NFR-001
     /// @pseudocode component-004 lines 68-85
     fn into_app_event_list(self) -> AppEvent {
+        if let Some(event) = self.silent_refresh_to_app_event() {
+            return event;
+        }
         match self {
             Self::ListLoaded {
                 scope_repo_id,
@@ -560,6 +621,35 @@ impl PullRequestsMessage {
         }
     }
 
+    /// Convert silent-refresh PR messages back into `AppEvent` (issue #128).
+    fn silent_refresh_to_app_event(&self) -> Option<AppEvent> {
+        match self {
+            Self::ListSilentRefreshed {
+                scope_repo_id,
+                filter,
+                request_id,
+                pull_requests,
+                cursor,
+                has_more,
+            } => Some(AppEvent::PrListSilentRefreshed {
+                scope_repo_id: scope_repo_id.clone(),
+                filter: filter.clone(),
+                request_id: *request_id,
+                pull_requests: pull_requests.clone(),
+                cursor: cursor.clone(),
+                has_more: *has_more,
+            }),
+            Self::ListSilentRefreshFailed {
+                scope_repo_id,
+                request_id,
+            } => Some(AppEvent::PrListSilentRefreshFailed {
+                scope_repo_id: scope_repo_id.clone(),
+                request_id: *request_id,
+            }),
+            _ => None,
+        }
+    }
+
     /// Detail loaded/error payload messages.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
@@ -588,6 +678,26 @@ impl PullRequestsMessage {
                 pr_number,
                 request_id,
                 error,
+            },
+            Self::DetailSilentRefreshed {
+                scope_repo_id,
+                pr_number,
+                request_id,
+                detail,
+            } => AppEvent::PrDetailSilentRefreshed {
+                scope_repo_id,
+                pr_number,
+                request_id,
+                detail,
+            },
+            Self::DetailSilentRefreshFailed {
+                scope_repo_id,
+                pr_number,
+                request_id,
+            } => AppEvent::PrDetailSilentRefreshFailed {
+                scope_repo_id,
+                pr_number,
+                request_id,
             },
             _ => unreachable!("non-detail PullRequestsMessage routed to detail"),
         }

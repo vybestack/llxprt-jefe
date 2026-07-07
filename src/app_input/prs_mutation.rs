@@ -11,7 +11,8 @@
 use jefe::state::{AppEvent, ComposerTarget, InlineState};
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client, prs_dispatch,
+    AppStateHandle, SharedContext, apply_and_persist, dispatch_app_event, gh_async, github_client,
+    prs_dispatch,
 };
 
 /// Handle an inline submit for PR Mode.
@@ -153,7 +154,10 @@ fn dispatch_pr_comment_create(
         ctx,
         move |mut app_state, ctx| {
             let event = pr_comment_create_event(&ctx, &repo, &action);
-            apply_and_persist(&mut app_state, &ctx, event);
+            // Route through the full dispatch chain so a successful
+            // `PrCommentCreated` triggers the post-mutation detail reload
+            // (issue #128). A `PrCommentCreateFailed` does not trigger a reload.
+            dispatch_app_event(&mut app_state, &ctx, event);
         },
         move |mut app_state, ctx, message| {
             apply_and_persist(
@@ -221,7 +225,10 @@ fn dispatch_pr_thread_reply(
         ctx,
         move |mut app_state, ctx| {
             let event = pr_thread_reply_event(&ctx, &action, &thread_id);
-            apply_and_persist(&mut app_state, &ctx, event);
+            // Route through the full dispatch chain so a successful
+            // `PrCommentCreated` triggers the post-mutation detail reload
+            // (issue #128). A `PrCommentCreateFailed` does not trigger a reload.
+            dispatch_app_event(&mut app_state, &ctx, event);
         },
         move |mut app_state, ctx, message| {
             apply_and_persist(

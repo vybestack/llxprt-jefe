@@ -330,6 +330,20 @@ pub enum PullRequestsMessage {
         cursor: Option<String>,
         has_more: bool,
     },
+    /// Silent background refresh succeeded (issue #128).
+    ListSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        filter: Box<PrFilter>,
+        request_id: u64,
+        pull_requests: Vec<PullRequest>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    /// Silent background refresh failed (issue #128).
+    ListSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+    },
     DetailLoaded {
         scope_repo_id: RepositoryId,
         pr_number: u64,
@@ -341,6 +355,19 @@ pub enum PullRequestsMessage {
         pr_number: u64,
         request_id: u64,
         error: String,
+    },
+    /// Silent background detail refresh succeeded (issue #128).
+    DetailSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        detail: Box<PullRequestDetail>,
+    },
+    /// Silent background detail refresh failed (issue #128).
+    DetailSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
     },
     CommentsPageLoaded {
         scope_repo_id: RepositoryId,
@@ -803,8 +830,12 @@ message_names!(PullRequestsMessage {
     Self::ListLoaded { .. } => "PrListLoaded",
     Self::ListLoadFailed { .. } => "PrListLoadFailed",
     Self::ListPageLoaded { .. } => "PrListPageLoaded",
+    Self::ListSilentRefreshed { .. } => "PrListSilentRefreshed",
+    Self::ListSilentRefreshFailed { .. } => "PrListSilentRefreshFailed",
     Self::DetailLoaded { .. } => "PrDetailLoaded",
     Self::DetailLoadFailed { .. } => "PrDetailLoadFailed",
+    Self::DetailSilentRefreshed { .. } => "PrDetailSilentRefreshed",
+    Self::DetailSilentRefreshFailed { .. } => "PrDetailSilentRefreshFailed",
     Self::CommentsPageLoaded { .. } => "PrCommentsPageLoaded",
     Self::CommentsPageFailed { .. } => "PrCommentsPageFailed",
     Self::OpenFilterControls => "PrOpenFilterControls",

@@ -859,6 +859,11 @@ mod prs_tests_components;
 ///
 /// @plan PLAN-20260624-PR-MODE.P05
 /// @requirement REQ-PR-009
+/// Silent background refresh state-transition tests (issue #128).
+#[cfg(test)]
+#[path = "prs_tests_silent_refresh.rs"]
+mod prs_tests_silent_refresh;
+
 #[cfg(test)]
 #[path = "prs_tests_review_threads.rs"]
 mod prs_tests_review_threads;

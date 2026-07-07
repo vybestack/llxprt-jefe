@@ -731,6 +731,22 @@ pub enum AppEvent {
         cursor: Option<String>,
         has_more: bool,
     },
+    /// Silent background refresh succeeded (issue #128). Like `PrListLoaded`
+    /// but preserves selection/scroll and does NOT flash the loading spinner.
+    PrListSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::PrFilter>,
+        request_id: u64,
+        pull_requests: Vec<crate::domain::PullRequest>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    /// Silent background refresh failed (issue #128). Clears the pending marker
+    /// WITHOUT surfacing an error (background failures are non-disruptive).
+    PrListSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+    },
     PrDetailLoaded {
         scope_repo_id: RepositoryId,
         pr_number: u64,
@@ -742,6 +758,22 @@ pub enum AppEvent {
         pr_number: u64,
         request_id: u64,
         error: String,
+    },
+    /// Silent background detail refresh succeeded (issue #128). Like
+    /// `PrDetailLoaded` but does NOT set `loading.detail` and preserves
+    /// `detail_subfocus` and `detail_scroll_offset`.
+    PrDetailSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        detail: Box<crate::domain::PullRequestDetail>,
+    },
+    /// Silent background detail refresh failed (issue #128). Clears
+    /// `detail_pending` silently WITHOUT setting `loading.detail` or an error.
+    PrDetailSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
     },
     PrCommentsPageLoaded {
         scope_repo_id: RepositoryId,

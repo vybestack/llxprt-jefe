@@ -30,7 +30,7 @@ pub fn dispatch_pr_list_reload(
 ) {
     let fresh_reload = is_fresh_pr_list_reload(&message);
     apply_and_persist(app_state, ctx, AppEvent::from(message));
-    dispatch_pr_list_fetch(app_state, ctx, fresh_reload);
+    dispatch_pr_list_fetch(app_state, ctx, fresh_reload, false);
 }
 
 /// Whether the message triggers a fresh (cursor-resetting) list reload.
@@ -63,10 +63,16 @@ pub(super) fn dispatch_pr_list_fetch(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     fresh_reload: bool,
+    silent: bool,
 ) {
-    let mut params = pr_fetch_params(app_state, fresh_reload);
+    let mut params = pr_fetch_params(app_state, fresh_reload, silent);
 
     if params.owner.is_empty() || params.repo.is_empty() {
+        if params.silent {
+            // Silent refresh of a repo with no GitHub slug: silently no-op
+            // (do NOT surface a visible error — issue #128).
+            return;
+        }
         persist_missing_github_repo(app_state, ctx);
         return;
     }
@@ -98,7 +104,16 @@ pub(super) fn dispatch_pr_list_fetch(
 /// @requirement REQ-PR-007
 /// @pseudocode component-004 lines 127-137
 pub(super) fn request_pr_list_reload(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    dispatch_pr_list_fetch(app_state, ctx, true);
+    dispatch_pr_list_fetch(app_state, ctx, true, false);
+}
+
+/// Request a silent background refresh of the PR list (issue #128). This is a
+/// fresh reload that does NOT flash the loading spinner, preserves selection,
+/// and is dispatched only when the PR view is open with no in-flight load.
+///
+/// @requirement issue #128
+pub(super) fn request_pr_list_silent_refresh(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    dispatch_pr_list_fetch(app_state, ctx, true, true);
 }
 
 /// @plan PLAN-20260624-PR-MODE.P11
@@ -113,6 +128,10 @@ struct PrFetchParams {
     request_id: u64,
     cursor: Option<String>,
     fresh_reload: bool,
+    /// When true, the result is delivered as a silent background refresh
+    /// (`PrListSilentRefreshed`/`PrListSilentRefreshFailed`) that preserves
+    /// selection/scroll and does NOT flash the loading spinner (issue #128).
+    silent: bool,
 }
 
 /// Mark the PR list fetch as loading and return the monotonic request id.
@@ -124,7 +143,13 @@ fn mark_pr_list_fetch_loading(app_state: &mut AppStateHandle, params: &PrFetchPa
     let mut state = app_state.write();
     let request_id = state.prs_state.next_pr_list_request_id.saturating_add(1);
     state.prs_state.next_pr_list_request_id = request_id;
-    if params.fresh_reload {
+    if params.silent && params.fresh_reload {
+        state.mark_pr_list_silent_refresh_loading(
+            params.scope_repo_id.clone(),
+            params.filter.clone(),
+            request_id,
+        );
+    } else if params.fresh_reload {
         state.mark_pr_list_reload_loading(
             params.scope_repo_id.clone(),
             params.filter.clone(),
@@ -146,7 +171,7 @@ fn mark_pr_list_fetch_loading(app_state: &mut AppStateHandle, params: &PrFetchPa
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-006
 /// @pseudocode component-004 lines 127-137
-fn pr_fetch_params(app_state: &AppStateHandle, fresh_reload: bool) -> PrFetchParams {
+fn pr_fetch_params(app_state: &AppStateHandle, fresh_reload: bool, silent: bool) -> PrFetchParams {
     let state = app_state.read();
     let gh_repo = prs_dispatch::resolve_pr_gh_repo(&state);
     PrFetchParams {
@@ -159,6 +184,7 @@ fn pr_fetch_params(app_state: &AppStateHandle, fresh_reload: bool) -> PrFetchPar
             .then(|| state.prs_state.list_cursor.clone())
             .flatten(),
         fresh_reload,
+        silent,
     }
 }
 
@@ -233,7 +259,9 @@ fn persist_pr_list_loaded(
 ) {
     let has_prs = !response.pull_requests.is_empty();
     let mut state = app_state.write();
-    let should_preview = params.fresh_reload
+    // Silent refresh skips the preview logic (it must not disrupt selection).
+    let should_preview = !params.silent
+        && params.fresh_reload
         && has_prs
         && state
             .selected_repository_index
@@ -248,7 +276,16 @@ fn persist_pr_list_loaded(
                     && pending.filter == params.filter
                     && pending.request_id == params.request_id
             });
-    let event = if params.fresh_reload {
+    let event = if params.silent {
+        AppEvent::PrListSilentRefreshed {
+            scope_repo_id: params.scope_repo_id.clone(),
+            filter: std::boxed::Box::new(params.filter.clone()),
+            request_id: params.request_id,
+            pull_requests: response.pull_requests,
+            cursor: response.cursor,
+            has_more: response.has_more,
+        }
+    } else if params.fresh_reload {
         AppEvent::PrListLoaded {
             scope_repo_id: params.scope_repo_id.clone(),
             filter: std::boxed::Box::new(params.filter.clone()),
@@ -288,15 +325,19 @@ fn persist_pr_list_failed(
     params: &PrFetchParams,
     error: String,
 ) {
-    apply_and_persist(
-        app_state,
-        ctx,
+    let event = if params.silent {
+        AppEvent::PrListSilentRefreshFailed {
+            scope_repo_id: params.scope_repo_id.clone(),
+            request_id: params.request_id,
+        }
+    } else {
         AppEvent::PrListLoadFailed {
             scope_repo_id: params.scope_repo_id.clone(),
             request_id: params.request_id,
             error,
-        },
-    );
+        }
+    };
+    apply_and_persist(app_state, ctx, event);
 }
 
 /// Load more PRs if the selection is at the end of the list.
@@ -311,9 +352,15 @@ pub(super) fn load_more_prs_if_at_end(app_state: &mut AppStateHandle, ctx: &Shar
             .prs_state
             .selected_pr_index
             .is_some_and(|idx| idx + 1 >= state.prs_state.pull_requests.len());
-        at_end && state.prs_state.has_more_prs && !state.prs_state.loading.list
+        // Guard against a pending silent refresh (`loading.list` is false but
+        // `list_reload_pending` is `Some`) so pagination does not clobber an
+        // in-flight background refresh (issue #128).
+        at_end
+            && state.prs_state.has_more_prs
+            && !state.prs_state.loading.list
+            && state.prs_state.list_reload_pending.is_none()
     };
     if should_load {
-        dispatch_pr_list_fetch(app_state, ctx, false);
+        dispatch_pr_list_fetch(app_state, ctx, false, false);
     }
 }

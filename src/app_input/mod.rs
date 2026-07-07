@@ -35,6 +35,10 @@ pub use modal_handlers::{handle_f12_toggle, handle_mode_confirm_key, handle_mode
 
 pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
 
+// Re-export the background-refresh orchestration helper so `app_shell` can
+// import it from `app_input` (issue #128).
+pub use prs_orchestration::request_pr_background_refresh;
+
 use iocraft::hooks::State as HookState;
 use iocraft::prelude::*;
 use tracing::{debug, warn};

@@ -491,3 +491,5 @@ fn test_list_loaded_non_empty_clears_stale_pr_detail() {
         "detail_subfocus MUST reset to Body"
     );
 }
+
+// Silent background refresh tests moved to prs_tests_silent_refresh.rs (issue #128).

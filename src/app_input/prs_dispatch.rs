@@ -17,7 +17,9 @@ use jefe::domain::RepositoryId;
 use jefe::github::PrSendPayload;
 use jefe::state::AppEvent;
 
-use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client};
+use super::{
+    AppStateHandle, SharedContext, apply_and_persist, dispatch_app_event, gh_async, github_client,
+};
 
 /// Typed unavailable-context result for PR open-in-browser (REQ-PR-013).
 ///
@@ -124,23 +126,30 @@ pub(super) fn load_pr_detail_for_selection(app_state: &mut AppStateHandle, ctx: 
     );
 }
 
+/// Silently refresh PR detail for the currently selected PR (issue #128).
+/// Lives in `prs_orchestration.rs` (re-exported here for the dispatch chain) to
+/// keep this file under the architecture boundary line limit.
+///
+/// @requirement issue #128
+pub(super) use super::prs_orchestration::load_pr_detail_silent_refresh;
+
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-009
 /// @pseudocode component-004 lines 139-145
 #[derive(Clone)]
-struct PrDetailLoadParams {
-    scope_repo_id: RepositoryId,
-    pr_number: u64,
-    owner: String,
-    repo: String,
-    request_id: u64,
+pub(super) struct PrDetailLoadParams {
+    pub(super) scope_repo_id: RepositoryId,
+    pub(super) pr_number: u64,
+    pub(super) owner: String,
+    pub(super) repo: String,
+    pub(super) request_id: u64,
 }
 
 /// Gather detail-load params from state (returns None if no PR selected).
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-009
 /// @pseudocode component-004 lines 139-145
-fn pr_detail_load_params(app_state: &AppStateHandle) -> Option<PrDetailLoadParams> {
+pub(super) fn pr_detail_load_params(app_state: &AppStateHandle) -> Option<PrDetailLoadParams> {
     let state = app_state.read();
     let pr_number = state
         .prs_state
@@ -711,7 +720,12 @@ fn spawn_pr_merge(app_state: &AppStateHandle, ctx: &SharedContext, info: PrMerge
         ctx,
         move |mut app_state, ctx| {
             let event = pr_merge_event(&ctx, &info);
-            apply_and_persist(&mut app_state, &ctx, event);
+            // Route the merge result through the full dispatch chain so that a
+            // successful `PrMerged` hits the `PullRequestsMessage::Merged` arm
+            // and triggers the post-mutation list + detail reload (issue #128).
+            // A `PrMergeFailed` outcome is converted to a message but does NOT
+            // trigger a reload (it lacks the `Merged`/`CommentCreated` markers).
+            dispatch_app_event(&mut app_state, &ctx, event);
         },
         move |mut app_state, ctx, message| {
             apply_and_persist(
