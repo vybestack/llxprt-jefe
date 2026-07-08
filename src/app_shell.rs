@@ -71,9 +71,10 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // Event-driven render: only trigger a re-render when the PTY has new data
     // (dirty flag) or a safety-net interval (~1s) has elapsed. This avoids
     // wasteful ~30fps renders that block keyboard input on smol's single
-    // executor thread. PTY dirtiness is only consumed as a render trigger when
-    // the terminal pane is the active focus target — when the user is
-    // navigating agents/repos lists, the safety-net interval is sufficient.
+    // executor thread. PTY dirtiness triggers fast renders when the terminal
+    // pane has input focus; for a read-only preview (Running agent selected but
+    // terminal not focused), dirty renders are throttled to avoid starving the
+    // input loop while navigating lists (issue #160).
     hooks.use_future({
         let ctx = ctx.clone();
         let app_state = app_state;
@@ -81,18 +82,28 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         async move {
             const POLL_MS: u64 = 16;
             const SAFETY_NET_MS: u64 = 1000;
+            const PREVIEW_THROTTLE_MS: u64 = 250;
             let mut elapsed_ms: u64 = 0;
             loop {
                 smol::Timer::after(std::time::Duration::from_millis(POLL_MS)).await;
                 elapsed_ms = elapsed_ms.saturating_add(POLL_MS);
 
-                let terminal_active = {
+                let terminal_focused = {
                     let state = app_state.read();
                     state.pane_focus == PaneFocus::Terminal
                 };
+                let running_preview = !terminal_focused
+                    && {
+                        let state = app_state.read();
+                        state
+                            .selected_agent()
+                            .is_some_and(|agent| agent.status == AgentStatus::Running)
+                    };
 
-                let should_render =
-                    elapsed_ms >= SAFETY_NET_MS || (terminal_active && is_pty_dirty(ctx.as_ref()));
+                let dirty = is_pty_dirty(ctx.as_ref());
+                let should_render = elapsed_ms >= SAFETY_NET_MS
+                    || (terminal_focused && dirty)
+                    || (running_preview && elapsed_ms >= PREVIEW_THROTTLE_MS && dirty);
 
                 if should_render {
                     elapsed_ms = 0;
@@ -813,16 +824,15 @@ fn clear_all_attachments(app_state: &mut HookState<AppState>) {
     }
 }
 
-/// Whether the live PTY snapshot should be skipped because the terminal pane
-/// is not the active focus target.
+/// Whether the live PTY snapshot should be attempted for the selected agent.
 ///
-/// Only the live PTY snapshot for a running agent is gated — it is the
-/// expensive hot-path operation (cell-by-cell terminal grid iteration under
-/// mutex lock). Dead-agent output capture is a one-shot read and is always
-/// allowed regardless of pane focus.
+/// Previously gated on `pane_focus == Terminal` for Running agents via
+/// `should_skip_live_snapshot(status, pane_focus)` (issue #160); now always
+/// attempts for Running agents so the terminal renders as a read-only preview
+/// regardless of which pane has focus. Dead agents also get a one-shot capture.
 #[must_use]
-fn should_skip_live_snapshot(status: AgentStatus, pane_focus: PaneFocus) -> bool {
-    status == AgentStatus::Running && pane_focus != PaneFocus::Terminal
+fn wants_live_snapshot(status: AgentStatus) -> bool {
+    matches!(status, AgentStatus::Running | AgentStatus::Dead)
 }
 
 /// Capture terminal output for the currently selected agent if available.
@@ -834,13 +844,22 @@ pub fn capture_terminal_snapshot(
 ) -> Option<TerminalSnapshot> {
     let selected_agent = snapshot.selected_agent()?;
 
-    // Skip the expensive live PTY snapshot when the terminal pane is not the
-    // active focus target. This check runs before locking the ctx mutex so
-    // the render cycle stays cheap while the user navigates agents/repos lists.
-    if should_skip_live_snapshot(selected_agent.status, snapshot.pane_focus) {
+    // The live PTY snapshot is attempted for any Running agent whose viewer is
+    // attached, regardless of pane focus. Decoupling the snapshot from
+    // `pane_focus` lets the terminal render as a read-only *preview* while the
+    // user navigates the agents/repos lists (and after restart), so a healthy
+    // live session is never mistaken for a lost one (issue #160). Keystroke
+    // forwarding is controlled separately by `terminal_focused`.
+    //
+    // Early-return for statuses that never produce a snapshot, before locking
+    // the ctx mutex.
+    if !wants_live_snapshot(selected_agent.status) {
         return None;
     }
 
+    // `try_lock` keeps the render cycle non-blocking: when a background attach
+    // holds the ctx mutex, this frame simply returns None and the next frame
+    // picks up the snapshot.
     let ctx_arc = ctx?;
     let ctx_guard = ctx_arc.try_lock().ok()?;
     match selected_agent.status {
@@ -879,59 +898,47 @@ mod tests {
     use jefe::domain::AgentStatus;
     use jefe::state::PaneFocus;
 
-    // --- should_skip_live_snapshot ---
+    // --- wants_live_snapshot (issue #160 gate removal) ---
+    //
+    // The old `should_skip_live_snapshot(status, pane_focus)` gate suppressed
+    // Running-agent snapshots when `pane_focus != Terminal`. That gate was
+    // removed; `wants_live_snapshot` is the replacement decision function that
+    // depends ONLY on agent status, never on pane focus. These tests pin that
+    // contract: a Running agent's snapshot is always eligible, so the terminal
+    // renders as a read-only preview after restart and during list navigation.
 
     #[test]
-    fn should_skip_live_snapshot_for_running_when_pane_is_agents() {
-        assert!(
-            should_skip_live_snapshot(AgentStatus::Running, PaneFocus::Agents),
-            "running agent with Agents pane should be skipped"
-        );
-    }
-
-    #[test]
-    fn should_skip_live_snapshot_for_running_when_pane_is_repositories() {
-        assert!(
-            should_skip_live_snapshot(AgentStatus::Running, PaneFocus::Repositories),
-            "running agent with Repositories pane should be skipped"
-        );
-    }
-
-    #[test]
-    fn should_not_skip_live_snapshot_for_running_when_pane_is_terminal() {
-        assert!(
-            !should_skip_live_snapshot(AgentStatus::Running, PaneFocus::Terminal),
-            "running agent with Terminal pane should NOT be skipped"
-        );
-    }
-
-    #[test]
-    fn should_not_skip_live_snapshot_for_dead_regardless_of_pane() {
+    fn wants_live_snapshot_for_running_regardless_of_pane() {
+        // Running agents always get a snapshot attempt. `wants_live_snapshot`
+        // does NOT take pane_focus — proving the old focus gate is gone.
         for focus in [
             PaneFocus::Agents,
             PaneFocus::Repositories,
             PaneFocus::Terminal,
         ] {
+            let _ = focus; // pane focus is intentionally irrelevant
             assert!(
-                !should_skip_live_snapshot(AgentStatus::Dead, focus),
-                "dead agent with {focus:?} pane should NOT be skipped"
+                wants_live_snapshot(AgentStatus::Running),
+                "Running status must always want a live snapshot (pane_focus={focus:?})"
             );
         }
     }
 
-    /// The live-snapshot gate only applies to Running agents. Other statuses
-    /// (Queued, Completed, etc.) are handled by the match arms in
-    /// `capture_terminal_snapshot`, not by this gate.
     #[test]
-    fn gate_only_affects_running_status() {
-        for focus in [PaneFocus::Agents, PaneFocus::Terminal] {
+    fn wants_live_snapshot_for_dead() {
+        // Dead agents get a one-shot pane capture.
+        assert!(
+            wants_live_snapshot(AgentStatus::Dead),
+            "Dead status must want a snapshot capture"
+        );
+    }
+
+    #[test]
+    fn does_not_want_live_snapshot_for_idle_statuses() {
+        for status in [AgentStatus::Queued, AgentStatus::Completed] {
             assert!(
-                !should_skip_live_snapshot(AgentStatus::Queued, focus),
-                "queued agent should not be skipped by live-snapshot gate"
-            );
-            assert!(
-                !should_skip_live_snapshot(AgentStatus::Completed, focus),
-                "completed agent should not be skipped by live-snapshot gate"
+                !wants_live_snapshot(status),
+                "{status:?} should not produce a terminal snapshot"
             );
         }
     }

@@ -38,6 +38,25 @@ pub struct TerminalViewProps {
     /// Active text selection, if any. Selected cells are painted in
     /// inverse-video over the terminal grid for live drag-selection feedback.
     pub selection: Option<TextSelection>,
+    /// Whether the selected agent has a live session (Running) even though no
+    /// snapshot is currently available (e.g. the viewer has not finished
+    /// attaching). When true the empty-state copy distinguishes a healthy live
+    /// session from a genuinely unattached terminal (issue #160).
+    pub session_live: bool,
+}
+
+/// Empty-state message for the terminal pane when no snapshot is available.
+///
+/// Pure (iocraft-free) so it is unit-testable. A Running agent with no snapshot
+/// yet gets a reassuring "session live" hint; everything else reports no
+/// terminal attached.
+#[must_use]
+pub fn terminal_empty_message(session_live: bool) -> &'static str {
+    if session_live {
+        "Session live - press t to focus terminal"
+    } else {
+        "No terminal attached"
+    }
 }
 
 /// Terminal view showing the PTY output for the attached agent.
@@ -95,7 +114,7 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
                 } else {
                     element! {
                         Box {
-                            Text(content: "No terminal attached", color: rc.dim)
+                            Text(content: terminal_empty_message(props.session_live), color: rc.dim)
                         }
                     }
                     .into_any()
@@ -473,5 +492,20 @@ mod tests {
         let total: usize = runs.iter().map(|r| r.width).sum();
         assert_eq!(total, 3);
         assert_eq!(runs[0].text, "abc");
+    }
+
+    // --- terminal_empty_message (issue #160) ---
+
+    #[test]
+    fn empty_message_live_session_when_session_live() {
+        assert_eq!(
+            terminal_empty_message(true),
+            "Session live - press t to focus terminal"
+        );
+    }
+
+    #[test]
+    fn empty_message_no_terminal_when_not_live() {
+        assert_eq!(terminal_empty_message(false), "No terminal attached");
     }
 }

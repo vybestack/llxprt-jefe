@@ -99,7 +99,14 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     state.selected_agent_index = persisted.selected_agent_index;
     state.hide_idle_repositories = persisted.hide_idle_repositories;
     state.last_selected_agent_by_repo = persisted.last_selected_agent_by_repo;
-    state.terminal_focused = false;
+    // Restore the persisted pane focus and terminal-focus so an explicitly
+    // focused view survives restart (issue #160). `terminal_focused` is only
+    // meaningful when the terminal pane is active, so clamp an inconsistent
+    // persisted pair (terminal_focused=true but pane != Terminal) back to false;
+    // the per-keypress defensive guard in app_shell would clear it anyway.
+    state.pane_focus = crate::app_input::pane_focus_from_persisted(&persisted.pane_focus);
+    state.terminal_focused =
+        persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
 

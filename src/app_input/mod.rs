@@ -7,6 +7,7 @@ mod issues_list_dispatch;
 mod issues_mutation;
 mod modal_handlers;
 mod normal;
+mod persist_focus;
 mod preflight;
 
 // PR-mode key-routing + dispatch surface.
@@ -60,7 +61,7 @@ const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
 ];
 use jefe::input::{SearchKeyRoute, route_search_key};
 use jefe::messages::{AppMessage, IssuesMessage, RuntimeMessage, UiNavigationMessage};
-use jefe::persistence::{PersistenceManager, State as PersistedState};
+use jefe::persistence::State as PersistedState;
 const REMOTE_ATTACH_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
 use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_preflight, sandbox_ssh_agent_warning};
@@ -145,17 +146,12 @@ pub fn to_persisted_state(state: &AppState) -> PersistedState {
         selected_agent_index: state.selected_agent_index,
         hide_idle_repositories: state.hide_idle_repositories,
         last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
+        pane_focus: pane_focus_to_persisted(state.pane_focus),
+        terminal_focused: state.terminal_focused,
     }
 }
 
-pub fn persist_state(ctx: &SharedContext, persisted: &PersistedState) {
-    if let Some(ctx_arc) = &ctx
-        && let Ok(ctx_guard) = ctx_arc.lock()
-        && let Err(e) = ctx_guard.persistence.save_state(persisted)
-    {
-        warn!(error = %e, "could not save state");
-    }
-}
+pub use persist_focus::{pane_focus_from_persisted, pane_focus_to_persisted, persist_state};
 
 fn launch_signature_for_agent(
     agent: &jefe::domain::Agent,

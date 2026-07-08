@@ -586,8 +586,9 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         selected_agent_index: Some(0),
         hide_idle_repositories: false,
         last_selected_agent_by_repo: vec![],
+        pane_focus: String::new(),
+        terminal_focused: false,
     };
-
     let paths = PersistencePaths {
         settings_path: config_dir.join("settings.toml"),
         state_path: config_dir.join("state.json"),
@@ -828,8 +829,9 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         selected_agent_index: Some(0),
         hide_idle_repositories: false,
         last_selected_agent_by_repo: vec![],
+        pane_focus: String::new(),
+        terminal_focused: false,
     };
-
     let paths = PersistencePaths {
         settings_path: config_dir.join("settings.toml"),
         state_path: config_dir.join("state.json"),

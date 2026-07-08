@@ -97,6 +97,17 @@ pub struct State {
     pub hide_idle_repositories: bool,
     #[serde(default)]
     pub last_selected_agent_by_repo: Vec<(RepositoryId, AgentId)>,
+    /// Persisted pane focus ("repositories" | "agents" | "terminal"). Stored
+    /// as a string rather than the state-layer `PaneFocus` enum so this module
+    /// stays within its `domain/`-only dependency budget. Conversion lives in
+    /// the app-shell layer (`app_input`/`app_init`).
+    #[serde(default)]
+    pub pane_focus: String,
+    /// Whether the terminal pane had input focus at last save. Restored on
+    /// startup so a focused terminal survives restart (issue #160), clamped to
+    /// consistency with `pane_focus` during restore.
+    #[serde(default)]
+    pub terminal_focused: bool,
 }
 
 impl State {
@@ -110,6 +121,8 @@ impl State {
             selected_agent_index: None,
             hide_idle_repositories: false,
             last_selected_agent_by_repo: Vec::new(),
+            pane_focus: String::new(),
+            terminal_focused: false,
         }
     }
 }

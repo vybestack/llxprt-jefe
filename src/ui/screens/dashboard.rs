@@ -93,6 +93,14 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
     });
     let selected_agent_data = state.and_then(|s| s.selected_agent().cloned());
 
+    // Whether the selected agent is Running with a live session. Threading this
+    // to TerminalView lets the empty-state copy distinguish a healthy live
+    // session (viewer not yet attached) from a genuinely unattached terminal
+    // (issue #160).
+    let session_live = selected_agent_data
+        .as_ref()
+        .is_some_and(crate::domain::Agent::is_running);
+
     // Resolve colors with green screen fallback
     let colors = props.colors.clone().unwrap_or_default();
     let rc = ResolvedColors::from_theme(Some(&colors));
@@ -165,6 +173,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                             focused: terminal_focused,
                             colors: colors.clone(),
                             selection: selection,
+                            session_live: session_live,
                         )
                     }
                 }

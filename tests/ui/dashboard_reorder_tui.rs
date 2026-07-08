@@ -52,6 +52,8 @@ fn seed_reorder_state(config_dir: &Path) {
         selected_agent_index: Some(0),
         hide_idle_repositories: false,
         last_selected_agent_by_repo: vec![],
+        pane_focus: String::new(),
+        terminal_focused: false,
     };
 
     let paths = PersistencePaths {

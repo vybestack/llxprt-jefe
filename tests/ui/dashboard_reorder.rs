@@ -511,6 +511,8 @@ fn reordered_repository_vec_order_matches_persisted_order() {
         selected_agent_index: state.selected_agent_index,
         hide_idle_repositories: state.hide_idle_repositories,
         last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
+        pane_focus: String::new(),
+        terminal_focused: false,
     };
 
     assert_eq!(persisted.repositories[0].name, "bravo");

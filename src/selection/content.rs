@@ -27,6 +27,7 @@ use crate::ui::components::issue_detail::issue_detail_header_view;
 use crate::ui::components::issue_list::{IssueListLayout, issue_list_visible_rows};
 use crate::ui::components::pr_detail::pr_detail_header_view;
 use crate::ui::components::pr_list::pr_list_visible_rows;
+use crate::ui::components::terminal_empty_message;
 
 /// Separator line rendered between the fixed detail header and the scrollable
 /// content, mirroring the components' `"─────…"` row.
@@ -92,7 +93,7 @@ pub fn pane_content_lines(
         SelectablePane::Sidebar => sidebar_lines(state),
         SelectablePane::AgentList => agent_list_lines(state),
         SelectablePane::Preview => preview_lines(state),
-        SelectablePane::TerminalView => terminal_lines(snapshot),
+        SelectablePane::TerminalView => terminal_lines(snapshot, state),
         SelectablePane::HelpModal => help_lines(),
         SelectablePane::StatusBar => status_bar_lines(state),
         SelectablePane::KeybindBar => keybind_bar_lines(state),
@@ -272,11 +273,17 @@ fn preview_lines(state: &AppState) -> PaneContent {
     PaneContent::new(SelectablePane::Preview, lines)
 }
 
-fn terminal_lines(snapshot: Option<&TerminalSnapshot>) -> PaneContent {
+fn terminal_lines(snapshot: Option<&TerminalSnapshot>, state: &AppState) -> PaneContent {
     let Some(snap) = snapshot else {
+        // A Running selected agent has a live session even before the viewer
+        // finishes attaching; mirror the TerminalView empty-state copy so a
+        // healthy session is not mistaken for a lost one (issue #160).
+        let session_live = state
+            .selected_agent()
+            .is_some_and(|agent| agent.status == AgentStatus::Running);
         return PaneContent::new(
             SelectablePane::TerminalView,
-            vec!["No terminal attached".to_string()],
+            vec![terminal_empty_message(session_live).to_string()],
         );
     };
     let lines: Vec<String> = (0..snap.rows)
@@ -378,6 +385,39 @@ mod tests {
             40,
         );
         assert_eq!(content.lines, vec!["No terminal attached".to_string()]);
+    }
+
+    /// A Running selected agent with no snapshot yet shows the reassuring
+    /// "session live" hint rather than the misleading "No terminal attached"
+    /// (issue #160).
+    #[test]
+    fn terminal_lines_none_snapshot_running_agent_shows_session_live() {
+        use crate::domain::{Agent, AgentId, Repository, RepositoryId};
+        let repo_id = RepositoryId("r1".to_string());
+        let mut state = AppState::default();
+        state.repositories.push(Repository::new(
+            repo_id.clone(),
+            "repo".to_string(),
+            "repo".to_string(),
+            std::path::PathBuf::from("/tmp/repo"),
+        ));
+        let agent_id = AgentId("a1".to_string());
+        let mut agent = Agent::new(
+            agent_id,
+            repo_id,
+            "agent".to_string(),
+            std::path::PathBuf::from("/tmp/agent"),
+        );
+        agent.status = AgentStatus::Running;
+        state.agents.push(agent);
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+
+        let content = pane_content_lines(SelectablePane::TerminalView, &state, None, 120, 40);
+        assert_eq!(
+            content.lines,
+            vec!["Session live - press t to focus terminal".to_string()]
+        );
     }
 
     #[test]

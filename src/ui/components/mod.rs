@@ -62,7 +62,7 @@ pub use preview::{Preview, PreviewProps};
 pub use scrollable_text::{ScrollableText, ScrollableTextProps};
 pub use sidebar::{Sidebar, SidebarProps};
 pub use status_bar::{StatusBar, StatusBarProps};
-pub use terminal_view::{TerminalView, TerminalViewProps};
+pub use terminal_view::{TerminalView, TerminalViewProps, terminal_empty_message};
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-010

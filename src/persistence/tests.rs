@@ -159,8 +159,9 @@ fn file_persistence_roundtrip_state() {
         selected_agent_index: None,
         hide_idle_repositories: true,
         last_selected_agent_by_repo: vec![],
+        pane_focus: String::new(),
+        terminal_focused: false,
     };
-
     mgr.save_state(&state).value_or_panic("should save");
     let loaded = mgr.load_state().value_or_panic("should load");
 
@@ -168,6 +169,37 @@ fn file_persistence_roundtrip_state() {
     assert!(loaded.hide_idle_repositories);
 
     // Cleanup
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+/// Pane focus and terminal focus must survive a save/load round-trip (issue #160).
+#[test]
+fn file_persistence_roundtrip_pane_focus_and_terminal_focused() {
+    let temp = std::env::temp_dir().join("jefe_test_roundtrip_focus");
+    let _ = std::fs::remove_dir_all(&temp);
+    let paths = PersistencePaths {
+        settings_path: temp.join("settings.toml"),
+        state_path: temp.join("state.json"),
+    };
+    let mgr = FilePersistenceManager::with_paths(paths);
+
+    let state = State {
+        schema_version: STATE_SCHEMA_VERSION,
+        repositories: vec![],
+        agents: vec![],
+        selected_repository_index: None,
+        selected_agent_index: None,
+        hide_idle_repositories: false,
+        last_selected_agent_by_repo: vec![],
+        pane_focus: "terminal".to_string(),
+        terminal_focused: true,
+    };
+    mgr.save_state(&state).value_or_panic("should save");
+    let loaded = mgr.load_state().value_or_panic("should load");
+
+    assert_eq!(loaded.pane_focus, "terminal");
+    assert!(loaded.terminal_focused);
+
     let _ = std::fs::remove_dir_all(&temp);
 }
 
@@ -225,8 +257,9 @@ fn test_issue_base_prompt_state_round_trip() {
         selected_agent_index: None,
         hide_idle_repositories: false,
         last_selected_agent_by_repo: vec![],
+        pane_focus: String::new(),
+        terminal_focused: false,
     };
-
     let temp = std::env::temp_dir().join("jefe_test_p13_issue_base_prompt_roundtrip");
     let _ = std::fs::remove_dir_all(&temp);
     let paths = PersistencePaths {
