@@ -358,6 +358,19 @@ pub fn handle_mode_help_key(
         KeyCode::Down => {
             help_scroll.set(help_scroll.get() + 1);
         }
+        KeyCode::PageUp => {
+            let offset = help_scroll.get();
+            help_scroll.set(offset.saturating_sub(8));
+        }
+        KeyCode::PageDown => {
+            help_scroll.set(help_scroll.get() + 8);
+        }
+        KeyCode::Home => {
+            help_scroll.set(0);
+        }
+        KeyCode::End => {
+            help_scroll.set(u32::MAX);
+        }
         _ => {}
     }
 }

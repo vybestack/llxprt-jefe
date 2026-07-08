@@ -36,12 +36,12 @@ pub fn keybind_hints_for(screen_mode: ScreenMode, terminal_focused: bool) -> &'s
         }
         ScreenMode::Split => "^/v select | g grab | m move | Esc back | ? help | ctrl-q/qqq quit",
         ScreenMode::DashboardIssues => {
-            "^/v navigate | Enter open detail | n new issue | f filter | / search | Tab cycle focus | i issue list | r reply | S send-to-agent | e edit | c comment | a exit issues | Esc back/exit"
+            "^/v items | </> panes | Enter detail | n new issue | f filter | / search | Tab detail focus (j/k) | i list | r reply | S send-to-agent | e edit | c comment | a exit | Esc back/exit"
         }
         // @plan PLAN-20260624-PR-MODE.P12
         // @requirement REQ-PR-001
         ScreenMode::DashboardPullRequests => {
-            "^/v navigate | Enter open detail | f filter | / search | Tab cycle focus | p PR list | r reply | R resolve | S send-to-agent | e edit | c comment | o open in browser | m merge | a exit | Esc back/exit"
+            "^/v items | </> panes | Enter detail | f filter | / search | Tab detail focus (j/k) | p list | r reply | R resolve | S send-to-agent | e edit | c comment | o open in browser | m merge | a exit | Esc back/exit"
         }
     }
 }

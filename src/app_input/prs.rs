@@ -118,9 +118,10 @@ fn resolve_pr_focus_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEve
 /// P7 pane-cycle resolver for PR Mode.
 ///
 /// Tab cycles focus forward, Shift+Tab cycles reverse (issue #46). These are
-/// in a dedicated tier (after focus-domain handlers) so detail-subfocus `j`/`k`
-/// and list/detail navigation take priority within their pane, while Tab still
-/// cycles panes from every pane.
+/// in a dedicated tier (after focus-domain handlers) so the detail-subfocus
+/// `j`/`k` and list/detail navigation take priority within their pane. The PR
+/// DETAIL pane intercepts Tab/BackTab for detail subfocus in the P6 focus
+/// tier (issue #150), so this P7 fallback only applies to RepoList/PrList.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-003
@@ -137,9 +138,10 @@ fn resolve_pr_pane_cycle_key(key_event: &KeyEvent) -> Option<AppEvent> {
 ///
 /// Up/Down navigate the repository selection (repo nav is independent of
 /// pane_focus — issue #47; it reuses the shared `PrNavigateUp`/`Down` events
-/// that the issues repo handler also emits). Right cycles panes forward
-/// (mirror `resolve_repo_list_key_event` arrow handling). Left is unbound.
-/// Tab/BackTab fall through to the P7 pane-cycle tier.
+/// that the issues repo handler also emits). Left/Right cycle panes
+/// (issue #150: Left/Right symmetric pane-focus in every pane — mirrors
+/// `resolve_repo_list_key_event` arrow handling). Tab/BackTab fall through to
+/// the P7 pane-cycle tier.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-003
@@ -148,6 +150,7 @@ fn handle_pr_repo_key(_state: &AppState, key_event: &KeyEvent) -> Option<AppEven
     match key_event.code {
         KeyCode::Up => Some(AppEvent::PrNavigateUp),
         KeyCode::Down => Some(AppEvent::PrNavigateDown),
+        KeyCode::Left => Some(AppEvent::PrCycleFocusReverse),
         KeyCode::Right => Some(AppEvent::PrCycleFocus),
         _ => None,
     }
@@ -183,13 +186,14 @@ fn handle_pr_list_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent
 
 /// Handle keys while the PrDetail pane is focused.
 ///
-/// Scroll Up/Down/PageUp/PageDown scroll the detail viewport; `j`/`k` move
-/// detail subfocus; `c` opens the comment composer from comment-eligible
-/// subfocus (Body/Comment/NewComment) and surfaces a read-only notice on
-/// Review/Check; `r` replies on Comment subfocus and surfaces a notice
-/// elsewhere; `e` is read-only everywhere; `S` opens the agent chooser;
-/// `o` opens the loaded PR in the browser. Tab/BackTab fall through to
-/// pane-cycle; Left is an optional reverse pane-cycle.
+/// Scroll Up/Down/PageUp/PageDown scroll the detail viewport; Tab/BackTab
+/// cycle detail subfocus (issue #150: Tab owns subfocus cycling within the
+/// focused pane) with `j`/`k` as vim aliases; `c` opens the comment composer
+/// from comment-eligible subfocus (Body/Comment/NewComment) and surfaces a
+/// read-only notice on Review/Check; `r` replies on Comment subfocus and
+/// surfaces a notice elsewhere; `e` is read-only everywhere; `S` opens the
+/// agent chooser; `o` opens the loaded PR in the browser. Left/Right cycle
+/// panes (issue #150: symmetric pane-focus in every pane).
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-003
@@ -205,8 +209,9 @@ fn handle_pr_detail_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEve
         KeyCode::PageUp => Some(AppEvent::PrScrollDetailPageUp),
         KeyCode::PageDown => Some(AppEvent::PrScrollDetailPageDown),
         KeyCode::Left => Some(AppEvent::PrCycleFocusReverse),
-        KeyCode::Char('j') => Some(AppEvent::PrDetailSubfocusNext),
-        KeyCode::Char('k') => Some(AppEvent::PrDetailSubfocusPrev),
+        KeyCode::Right => Some(AppEvent::PrCycleFocus),
+        KeyCode::Tab | KeyCode::Char('j') => Some(AppEvent::PrDetailSubfocusNext),
+        KeyCode::BackTab | KeyCode::Char('k') => Some(AppEvent::PrDetailSubfocusPrev),
         KeyCode::Char('c') => Some(comment_event_for_subfocus(state.prs_state.detail_subfocus)),
         KeyCode::Char('r') => Some(reply_event_for_subfocus(state.prs_state.detail_subfocus)),
         KeyCode::Char('R') => Some(resolve_event_for_subfocus(state.prs_state.detail_subfocus)),

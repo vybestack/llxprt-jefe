@@ -118,17 +118,26 @@ pub fn build_screen_element(
 }
 
 /// Build the modal element for the current modal state, if any.
+///
+/// `help_scroll_offset` and `available_rows` are forwarded to the `HelpModal`
+/// so its `ScrollableText` viewport never overflows the screen.
 #[must_use]
 pub fn build_modal_element(
     snapshot: &AppState,
     modal: &ModalState,
     colors: &ThemeColors,
     confirm_data: Option<ConfirmModalData>,
+    help_scroll_offset: usize,
+    available_rows: u16,
 ) -> Option<AnyElement<'static>> {
     match modal {
         ModalState::Help => Some(
             element! {
-                HelpModal(colors: colors.clone())
+                HelpModal(
+                    colors: colors.clone(),
+                    scroll_offset: help_scroll_offset,
+                    available_rows: available_rows,
+                )
             }
             .into_any(),
         ),

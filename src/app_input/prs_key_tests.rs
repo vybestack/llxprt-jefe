@@ -221,15 +221,18 @@ fn test_input_mode_for_state_routes_dashboard_pull_requests_by_precedence() {
 // Pane Cycling / Detail Subfocus (tests 7-10)
 // ═══════════════════════════════════════════════════════════════════════
 
-/// Tab/Shift+Tab cycle panes from EVERY pane (RepoList, PrList, PrDetail).
-/// Issue #46: Tab between repo list / PR list / PR detail.
+/// Tab/Shift+Tab cycle panes from RepoList and PrList ONLY. From PrDetail,
+/// Tab/Shift+Tab cycle detail subfocus (issue #150: unified focus model —
+/// arrows own spatial navigation, Tab owns subfocus cycling within the
+/// focused pane).
 ///
 /// @plan PLAN-20260624-PR-MODE.P10
 /// @requirement REQ-PR-003
 /// @pseudocode component-003 lines 14-20
 #[test]
 fn test_tab_cycles_panes_from_every_pane() {
-    for focus in [PrFocus::RepoList, PrFocus::PrList, PrFocus::PrDetail] {
+    // RepoList and PrList: Tab/BackTab still cycle panes (P7 fallback tier).
+    for focus in [PrFocus::RepoList, PrFocus::PrList] {
         let state = prs_state_with_focus(focus);
         let tab = resolve_prs_key_event(&state, &key(KeyCode::Tab));
         assert!(
@@ -242,9 +245,22 @@ fn test_tab_cycles_panes_from_every_pane() {
             "Shift+Tab from {focus:?} should yield PrCycleFocusReverse (got {back:?})"
         );
     }
+    // PrDetail: Tab/BackTab now cycle detail subfocus (issue #150).
+    let detail = prs_state_with_detail_subfocus(PrDetailSubfocus::Body);
+    let tab = resolve_prs_key_event(&detail, &key(KeyCode::Tab));
+    assert!(
+        matches!(tab, Some(AppEvent::PrDetailSubfocusNext)),
+        "Tab from PrDetail should yield PrDetailSubfocusNext (got {tab:?})"
+    );
+    let back = resolve_prs_key_event(&detail, &key(KeyCode::BackTab));
+    assert!(
+        matches!(back, Some(AppEvent::PrDetailSubfocusPrev)),
+        "Shift+Tab from PrDetail should yield PrDetailSubfocusPrev (got {back:?})"
+    );
 }
 
-/// j/k move detail subfocus; Tab/Shift+Tab do NOT map to subfocus in PrDetail.
+/// j/k move detail subfocus (aliases); Tab/Shift+Tab ALSO cycle detail
+/// subfocus in PrDetail (issue #150 unified model).
 ///
 /// @plan PLAN-20260624-PR-MODE.P10
 /// @requirement REQ-PR-003
@@ -256,11 +272,17 @@ fn test_jk_moves_subfocus_in_pr_detail() {
     assert!(matches!(j, Some(AppEvent::PrDetailSubfocusNext)));
     let k = resolve_prs_key_event(&state, &key(KeyCode::Char('k')));
     assert!(matches!(k, Some(AppEvent::PrDetailSubfocusPrev)));
-    // Tab/Shift+Tab must NOT be consumed for subfocus — they cycle panes.
+    // Tab/Shift+Tab now also cycle detail subfocus (issue #150).
     let tab = resolve_prs_key_event(&state, &key(KeyCode::Tab));
-    assert!(matches!(tab, Some(AppEvent::PrCycleFocus)));
+    assert!(
+        matches!(tab, Some(AppEvent::PrDetailSubfocusNext)),
+        "Tab from PrDetail should yield PrDetailSubfocusNext (got {tab:?})"
+    );
     let back = resolve_prs_key_event(&state, &key(KeyCode::BackTab));
-    assert!(matches!(back, Some(AppEvent::PrCycleFocusReverse)));
+    assert!(
+        matches!(back, Some(AppEvent::PrDetailSubfocusPrev)),
+        "Shift+Tab from PrDetail should yield PrDetailSubfocusPrev (got {back:?})"
+    );
 }
 
 /// Left arrow yields optional reverse pane-cycle in PrDetail.
@@ -289,25 +311,27 @@ fn test_repo_focus_up_down_changes_repo_not_pane_focus() {
     assert!(matches!(down, Some(AppEvent::PrNavigateDown)));
 }
 
-/// Arrow pane-cycle matrix per pane (component-003 L324-328):
-/// RepoList Right→PrCycleFocus (Left unbound); PrList Left→Reverse /
-/// Right→forward; PrDetail Left→Reverse (Right unbound).
+/// Arrow pane-cycle matrix per pane (issue #150: Left/Right symmetric in ALL
+/// panes):
+/// RepoList Left→PrCycleFocusReverse / Right→PrCycleFocus;
+/// PrList Left→Reverse / Right→forward;
+/// PrDetail Left→Reverse / Right→PrCycleFocus.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-003
 /// @pseudocode component-003 lines 49-62,72-78a,324-328
 #[test]
 fn test_arrow_pane_cycle_matrix_per_pane() {
-    // RepoList: Right => PrCycleFocus (Left unbound => None).
+    // RepoList: Left => PrCycleFocusReverse, Right => PrCycleFocus (symmetric).
     let repo = prs_state_with_focus(PrFocus::RepoList);
+    assert!(matches!(
+        resolve_prs_key_event(&repo, &key(KeyCode::Left)),
+        Some(AppEvent::PrCycleFocusReverse)
+    ));
     assert!(matches!(
         resolve_prs_key_event(&repo, &key(KeyCode::Right)),
         Some(AppEvent::PrCycleFocus)
     ));
-    assert!(
-        resolve_prs_key_event(&repo, &key(KeyCode::Left)).is_none(),
-        "Left must be unbound in RepoList"
-    );
 
     // PrList: Left => PrCycleFocusReverse, Right => PrCycleFocus.
     let list = prs_state_with_focus(PrFocus::PrList);
@@ -320,21 +344,59 @@ fn test_arrow_pane_cycle_matrix_per_pane() {
         Some(AppEvent::PrCycleFocus)
     ));
 
-    // PrDetail: Left => PrCycleFocusReverse (optional parity), Right unbound.
+    // PrDetail: Left => PrCycleFocusReverse, Right => PrCycleFocus (symmetric).
     let detail = prs_state_with_detail_subfocus(PrDetailSubfocus::Body);
     assert!(matches!(
         resolve_prs_key_event(&detail, &key(KeyCode::Left)),
         Some(AppEvent::PrCycleFocusReverse)
     ));
-    assert!(
-        resolve_prs_key_event(&detail, &key(KeyCode::Right)).is_none(),
-        "Right must be unbound in PrDetail"
-    );
+    assert!(matches!(
+        resolve_prs_key_event(&detail, &key(KeyCode::Right)),
+        Some(AppEvent::PrCycleFocus)
+    ));
 }
 
 // ═══════════════════════════════════════════════════════════════════════
 // Precedence: Inline / Chooser / Search (tests 11-13)
 // ═══════════════════════════════════════════════════════════════════════
+
+/// Tab/Shift+Tab cycle detail subfocus in PrDetail (issue #150 — Tab owns
+/// subfocus within the focused detail pane).
+///
+/// @plan PLAN-20260624-PR-MODE.P10
+/// @requirement REQ-PR-003
+#[test]
+fn test_tab_shift_tab_cycle_detail_subfocus_in_pr_detail() {
+    let state = prs_state_with_detail_subfocus(PrDetailSubfocus::Body);
+    let tab = resolve_prs_key_event(&state, &key(KeyCode::Tab));
+    assert!(matches!(tab, Some(AppEvent::PrDetailSubfocusNext)));
+    let back = resolve_prs_key_event(&state, &key(KeyCode::BackTab));
+    assert!(matches!(back, Some(AppEvent::PrDetailSubfocusPrev)));
+}
+
+/// Right arrow forward-cycles panes from PrDetail (issue #150 — Left/Right
+/// symmetric pane-focus in every pane).
+///
+/// @plan PLAN-20260624-PR-MODE.P10
+/// @requirement REQ-PR-003
+#[test]
+fn test_right_arrow_forward_cycles_pane_from_pr_detail() {
+    let state = prs_state_with_detail_subfocus(PrDetailSubfocus::Body);
+    let right = resolve_prs_key_event(&state, &key(KeyCode::Right));
+    assert!(matches!(right, Some(AppEvent::PrCycleFocus)));
+}
+
+/// Left arrow reverse-cycles panes from RepoList (issue #150 — Left/Right
+/// symmetric pane-focus in every pane).
+///
+/// @plan PLAN-20260624-PR-MODE.P10
+/// @requirement REQ-PR-003
+#[test]
+fn test_left_arrow_reverse_cycles_pane_from_pr_repo_list() {
+    let state = prs_state_with_focus(PrFocus::RepoList);
+    let left = resolve_prs_key_event(&state, &key(KeyCode::Left));
+    assert!(matches!(left, Some(AppEvent::PrCycleFocusReverse)));
+}
 
 /// Inline composer consumes keys before global (P1 > P5).
 ///

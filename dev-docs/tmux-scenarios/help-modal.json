@@ -10,7 +10,7 @@
     { "waitFor": "LLxprt Jefe" },
     { "key": "?" },
     { "waitFor": "Help - Keyboard Shortcuts" },
-    { "expect": "Press any key to close" },
+    { "expect": "Esc/? close | Up/Down scroll" },
     { "capture": "help-modal" },
     { "key": "Escape" },
     { "waitForNot": "Help - Keyboard Shortcuts" },

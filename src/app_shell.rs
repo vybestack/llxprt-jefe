@@ -367,7 +367,14 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // Build screen and modal elements using orchestration helpers.
     let screen_el = build_screen_element(&snapshot, &colors, &theme_name, terminal_snapshot);
     let confirm_data = derive_confirm_modal_data(&snapshot, &modal);
-    let modal_el = build_modal_element(&snapshot, &modal, &colors, confirm_data);
+    let modal_el = build_modal_element(
+        &snapshot,
+        &modal,
+        &colors,
+        confirm_data,
+        usize::try_from(help_scroll.get()).unwrap_or(0),
+        render_rows,
+    );
 
     // Root element with proper dimensions.
     // Search is an in-band mode used by SplitScreen's filter bar, not a blocking
