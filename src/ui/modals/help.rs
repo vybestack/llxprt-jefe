@@ -118,6 +118,10 @@ pub fn HelpModal(props: &HelpModalProps) -> impl Into<AnyElement<'static>> {
             .max(1),
     )
     .unwrap_or(1);
+    // Explicit viewport height so the container and `ScrollableText` enforce
+    // each other directly (rather than relying on `flex_grow` matching
+    // `HELP_CHROME_ROWS` implicitly).
+    let viewport_height = u32::try_from(viewport_rows).unwrap_or(0);
 
     let content = help_content_lines().join("\n");
 
@@ -140,8 +144,13 @@ pub fn HelpModal(props: &HelpModalProps) -> impl Into<AnyElement<'static>> {
                 )
             }
 
-            // Scrollable shortcuts viewport.
-            Box(flex_direction: FlexDirection::Column, flex_grow: 1.0, background_color: rc.bg) {
+            // Scrollable shortcuts viewport (explicit height == ScrollableText
+            // viewport_rows so the container and rendered rows stay in sync).
+            Box(
+                flex_direction: FlexDirection::Column,
+                height: viewport_height,
+                background_color: rc.bg
+            ) {
                 ScrollableText(
                     content: content,
                     scroll_offset: props.scroll_offset,
