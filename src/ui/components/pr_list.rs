@@ -338,11 +338,16 @@ fn render_pr_row(
     } else {
         row_colors.fg
     };
+    let weight = if is_selected {
+        Weight::Bold
+    } else {
+        Weight::Normal
+    };
 
     if compact {
         return element! {
             Box(height: 1u32, background_color: row_bg) {
-                Text(content: title_line.to_string(), color: title_fg, weight: if is_selected { Weight::Bold } else { Weight::Normal })
+                Text(content: title_line, color: title_fg, weight: weight)
             }
         }
         .into_any();
@@ -351,10 +356,10 @@ fn render_pr_row(
     element! {
         Box(flex_direction: FlexDirection::Column) {
             Box(height: 1u32, background_color: row_bg) {
-                Text(content: title_line.to_string(), color: title_fg, weight: if is_selected { Weight::Bold } else { Weight::Normal })
+                Text(content: title_line, color: title_fg, weight: weight)
             }
             Box(height: 1u32, background_color: row_bg) {
-                Text(content: meta_line.to_string(), color: if highlighted { highlight_colors.fg } else { dim })
+                Text(content: meta_line, color: if highlighted { highlight_colors.fg } else { dim })
             }
         }
     }

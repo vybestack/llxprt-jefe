@@ -74,11 +74,40 @@ fn active_issue_composer(inline_state: &InlineState) -> Option<(String, usize, &
 /// Whether content line `line` (one of the fixed header rows) falls inside the
 /// active selection for the issue detail pane. When true the header row is
 /// painted in inverse-video selection colors.
+///
+/// Header rows use whole-row highlight (ignoring partial column ranges) for
+/// visual simplicity on short metadata lines.
 fn header_highlight(line: usize, selection: Option<&TextSelection>) -> bool {
     selection
         .filter(|s| s.pane() == SelectablePane::IssueDetail)
         .and_then(|s| row_highlight_range(s, line))
         .is_some()
+}
+
+/// Render a single header row, applying whole-row inverse-video when it falls
+/// inside the active drag selection.
+fn header_row(
+    content: String,
+    default_fg: Color,
+    line: usize,
+    selection: Option<&TextSelection>,
+    rc: &ResolvedColors,
+) -> AnyElement<'static> {
+    if header_highlight(line, selection) {
+        element! {
+            Box(height: 1u32, background_color: rc.sel_bg) {
+                Text(content: content, color: rc.sel_fg)
+            }
+        }
+        .into_any()
+    } else {
+        element! {
+            Box(height: 1u32) {
+                Text(content: content, color: default_fg)
+            }
+        }
+        .into_any()
+    }
 }
 
 /// Issue detail view — fixed structure that NEVER changes layout.
@@ -238,77 +267,17 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
         ) {
             // ── Metadata header — always exactly HEADER_ROWS rows ─────────
             Box(flex_direction: FlexDirection::Column, padding_left: 1u32, padding_right: 1u32) {
-                #(if header_highlight(0, props.selection.as_ref()) {
-                    element! {
-                        Box(height: 1u32, background_color: rc.sel_bg) {
-                            Text(content: h_title, color: rc.sel_fg)
-                        }
-                    }.into_any()
-                } else {
-                    element! {
-                        Box(height: 1u32) {
-                            Text(content: h_title, color: rc.fg)
-                        }
-                    }.into_any()
-                })
-                #(if header_highlight(1, props.selection.as_ref()) {
-                    element! {
-                        Box(height: 1u32, background_color: rc.sel_bg) {
-                            Text(content: h_state, color: rc.sel_fg)
-                        }
-                    }.into_any()
-                } else {
-                    element! {
-                        Box(height: 1u32) {
-                            Text(content: h_state, color: state_color)
-                        }
-                    }.into_any()
-                })
-                #(if header_highlight(2, props.selection.as_ref()) {
-                    element! {
-                        Box(height: 1u32, background_color: rc.sel_bg) {
-                            Text(content: h_labels, color: rc.sel_fg)
-                        }
-                    }.into_any()
-                } else {
-                    element! {
-                        Box(height: 1u32) {
-                            Text(content: h_labels, color: rc.dim)
-                        }
-                    }.into_any()
-                })
-                #(if header_highlight(3, props.selection.as_ref()) {
-                    element! {
-                        Box(height: 1u32, background_color: rc.sel_bg) {
-                            Text(content: h_url, color: rc.sel_fg)
-                        }
-                    }.into_any()
-                } else {
-                    element! {
-                        Box(height: 1u32) {
-                            Text(content: h_url, color: rc.dim)
-                        }
-                    }.into_any()
-                })
-                #(if header_highlight(4, props.selection.as_ref()) {
-                    element! {
-                        Box(height: 1u32, background_color: rc.sel_bg) {
-                            Text(
-                                content: "─────────────────────────────────────────",
-                                color: rc.sel_fg,
-                            )
-                        }
-                    }.into_any()
-                } else {
-                    element! {
-                        Box(height: 1u32) {
-                            Text(
-                                content: "─────────────────────────────────────────",
-                                color: rc.dim,
-                            )
-                        }
-                    }.into_any()
-                })
+                #(header_row(h_title, rc.fg, 0, props.selection.as_ref(), &rc))
+                #(header_row(h_state, state_color, 1, props.selection.as_ref(), &rc))
+                #(header_row(h_labels, rc.dim, 2, props.selection.as_ref(), &rc))
+                #(header_row(h_url, rc.dim, 3, props.selection.as_ref(), &rc))
+                #(header_row(
+                    "─────────────────────────────────────────".to_string(),
+                    rc.dim,
+                    4,
+                    props.selection.as_ref(),
+                    &rc,
+                ))
             }
 
             // ── Scrollable viewport — always exactly scroll_rows rows ─────

@@ -56,7 +56,7 @@ pub enum PassthroughMode {
 /// is screen-inside-tmux, where tmux's outer passthrough is what matters).
 #[must_use]
 pub fn detect_passthrough_mode() -> PassthroughMode {
-    // SAFETY: `var_os` is safe to call (read-only). It is not marked `unsafe`.
+    // `var_os` performs a read-only environment lookup and is not marked `unsafe`.
     if std::env::var_os("TMUX").is_some() {
         PassthroughMode::Tmux
     } else if std::env::var_os("STY").is_some() {
@@ -238,19 +238,43 @@ fn escape_for_tmux(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-/// GNU screen DCS passthrough, chunked to stay under screen's per-segment limit.
+/// GNU screen DCS passthrough — wraps the complete OSC 52 sequence in a single
+/// DCS wrapper so the terminal receives one intact clipboard-copy command.
+///
+/// Screen's per-segment byte limit means very large payloads may not fit. When
+/// that happens we truncate the base64 on a 4-char boundary (each 4-char group
+/// decodes to 3 bytes, so truncation stays valid) rather than splitting the OSC
+/// 52 across multiple independent sequences (which would cause only the last
+/// fragment to reach the clipboard).
 fn write_screen_passthrough(b64: &str, writer: &mut impl Write) -> io::Result<usize> {
-    let mut total = 0usize;
-    for chunk in b64.as_bytes().chunks(SCREEN_DCS_CHUNK_BYTES) {
-        let mut buf: Vec<u8> = Vec::with_capacity(chunk.len() + 16);
-        buf.extend_from_slice(b"\x1bP\x1b]52;c;");
-        buf.extend_from_slice(chunk);
-        buf.push(BEL);
-        buf.extend_from_slice(b"\x1b\\");
-        writer.write_all(&buf)?;
-        total += buf.len();
+    let inner = build_screen_inner(b64);
+    let body = truncate_for_screen(&inner);
+    let mut buf: Vec<u8> = Vec::with_capacity(body.len() + 8);
+    buf.extend_from_slice(b"\x1bP");
+    buf.extend_from_slice(body);
+    buf.extend_from_slice(b"\x1b\\");
+    writer.write_all(&buf)?;
+    Ok(buf.len())
+}
+
+/// Build the inner OSC 52 sequence bytes for screen DCS wrapping.
+fn build_screen_inner(b64: &str) -> Vec<u8> {
+    let mut inner: Vec<u8> = Vec::with_capacity(b64.len() + 16);
+    inner.extend_from_slice(b"\x1b]52;c;");
+    inner.extend_from_slice(b64.as_bytes());
+    inner.push(BEL);
+    inner
+}
+
+/// Truncate the inner OSC 52 bytes to fit screen's DCS segment limit, on a
+/// 4-char base64 boundary so the truncated payload stays decodable.
+fn truncate_for_screen(inner: &[u8]) -> &[u8] {
+    if inner.len() <= SCREEN_DCS_CHUNK_BYTES {
+        return inner;
     }
-    Ok(total)
+    let limit = SCREEN_DCS_CHUNK_BYTES;
+    let boundary = (limit / 4) * 4;
+    &inner[..boundary.max(4)]
 }
 
 #[cfg(test)]
@@ -337,8 +361,11 @@ mod tests {
     }
 
     #[test]
-    fn write_osc52_screen_passthrough_splits_large_payload() {
-        // A payload whose base64 exceeds one screen chunk must produce >1 segment.
+    fn write_osc52_screen_passthrough_truncates_large_payload() {
+        // A payload whose base64 exceeds screen's DCS segment limit must be
+        // truncated to fit a single DCS wrapper rather than split across
+        // multiple independent OSC 52 sequences (which would cause only the
+        // last fragment to reach the clipboard).
         let big = "a".repeat(SCREEN_DCS_CHUNK_BYTES * 4);
         let mut out: Vec<u8> = Vec::new();
         if let Err(e) = write_osc52_to_writer_with_mode(&big, PassthroughMode::Screen, &mut out) {
@@ -347,10 +374,16 @@ mod tests {
         let Ok(s) = String::from_utf8(out) else {
             panic!("non-UTF8 output");
         };
+        // Should produce exactly one DCS-wrapped OSC 52 sequence.
         let segment_count = s.matches("\x1bP\x1b]52;c;").count();
+        assert_eq!(
+            segment_count, 1,
+            "expected exactly 1 DCS-wrapped sequence, got {segment_count}: {s:?}"
+        );
+        // The output must end with the DCS terminator.
         assert!(
-            segment_count > 1,
-            "expected multiple chunks, got {segment_count}: {s:?}"
+            s.ends_with("\x1b\\"),
+            "expected DCS terminator at end, got: {s:?}"
         );
     }
 
