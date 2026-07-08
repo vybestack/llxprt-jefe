@@ -69,6 +69,22 @@ pub fn handle_fullscreen_mouse(
         MouseEventKind::Up(MouseButton::Left) => {
             finalize_and_copy_selection(ctx, app_state);
         }
+        MouseEventKind::ScrollUp => {
+            scroll_detail_pane(
+                app_state,
+                mouse_event.column,
+                mouse_event.row,
+                WheelDirection::Up,
+            );
+        }
+        MouseEventKind::ScrollDown => {
+            scroll_detail_pane(
+                app_state,
+                mouse_event.column,
+                mouse_event.row,
+                WheelDirection::Down,
+            );
+        }
         _ => {}
     }
 }
@@ -287,5 +303,149 @@ fn scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
         SelectablePane::IssueDetail => state.issues_state.detail_scroll_offset,
         SelectablePane::PrDetail => state.prs_state.detail_scroll_offset,
         _ => 0,
+    }
+}
+
+/// Direction of a single mousewheel tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WheelDirection {
+    Up,
+    Down,
+}
+
+/// Next detail scroll offset after one mousewheel tick, clamped to `[0, max]`.
+///
+/// Pure and side-effect-free so the clamp invariant is unit-testable without
+/// the iocraft runtime: scrolling up never drops below 0 and scrolling down
+/// never exceeds the pane's maximum offset. `max` is the detail pane's
+/// `max_detail_scroll_offset()` (0 when there is no content to scroll).
+#[must_use]
+fn next_wheel_scroll_offset(current: usize, max: usize, direction: WheelDirection) -> usize {
+    match direction {
+        WheelDirection::Up => current.saturating_sub(1),
+        WheelDirection::Down => (current + 1).min(max),
+    }
+}
+
+/// Maximum scroll offset for a detail pane from app state.
+///
+/// Returns 0 for non-scrollable panes (they are never advanced by the wheel).
+fn max_scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
+    match pane {
+        SelectablePane::IssueDetail => state.issues_state.max_detail_scroll_offset(),
+        SelectablePane::PrDetail => state.pr_detail_max_scroll_offset(),
+        _ => 0,
+    }
+}
+
+/// Scroll the detail pane under `(col, row)` by one wheel tick.
+///
+/// Resolves the pane under the cursor via [`resolve_pane`] and, when it is a
+/// scrollable detail pane (`IssueDetail` / `PrDetail`), advances its scroll
+/// offset by one line in the given direction, clamped to the pane's valid
+/// bounds via [`next_wheel_scroll_offset`]. Non-detail panes are ignored —
+/// mousewheel scrolling in list/terminal panes is out of scope (issue #148).
+fn scroll_detail_pane(
+    app_state: &mut HookState<AppState>,
+    col: u16,
+    row: u16,
+    direction: WheelDirection,
+) {
+    let (cols, rows) = terminal_size();
+    // Resolve the pane in one short read guard, then read current/max offsets
+    // in another, so each read guard drops immediately (the guard has a
+    // significant Drop and clippy::significant_drop_tightening requires it not
+    // be held across unrelated statements).
+    let pane = {
+        let state = app_state.read();
+        let Some((pane, _geometry)) = resolve_pane(&state, col, row, cols, rows) else {
+            return;
+        };
+        pane
+    };
+    if !matches!(pane, SelectablePane::IssueDetail | SelectablePane::PrDetail) {
+        return;
+    }
+    let (current, max) = {
+        let state = app_state.read();
+        let current = scroll_offset_for_pane(&state, pane);
+        let max = max_scroll_offset_for_pane(&state, pane);
+        drop(state);
+        (current, max)
+    };
+    let next = next_wheel_scroll_offset(current, max, direction);
+    let mut state = app_state.write();
+    match pane {
+        SelectablePane::IssueDetail => state.issues_state.detail_scroll_offset = next,
+        SelectablePane::PrDetail => state.prs_state.detail_scroll_offset = next,
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WheelDirection, next_wheel_scroll_offset};
+
+    #[test]
+    fn scroll_down_advances_within_bounds() {
+        assert_eq!(
+            next_wheel_scroll_offset(2, 5, WheelDirection::Down),
+            3,
+            "scrolling down from 2 with max 5 should advance to 3"
+        );
+    }
+
+    #[test]
+    fn scroll_up_decrements_within_bounds() {
+        assert_eq!(
+            next_wheel_scroll_offset(2, 5, WheelDirection::Up),
+            1,
+            "scrolling up from 2 with max 5 should decrement to 1"
+        );
+    }
+
+    #[test]
+    fn scroll_down_clamps_at_max_offset() {
+        assert_eq!(
+            next_wheel_scroll_offset(5, 5, WheelDirection::Down),
+            5,
+            "scrolling down at max offset must not overscroll"
+        );
+    }
+
+    #[test]
+    fn scroll_up_clamps_at_zero() {
+        assert_eq!(
+            next_wheel_scroll_offset(0, 5, WheelDirection::Up),
+            0,
+            "scrolling up at offset 0 must not underscroll"
+        );
+    }
+
+    #[test]
+    fn scroll_down_with_zero_max_stays_zero() {
+        assert_eq!(
+            next_wheel_scroll_offset(0, 0, WheelDirection::Down),
+            0,
+            "empty detail pane (max 0) cannot scroll down"
+        );
+    }
+
+    #[test]
+    fn scroll_up_with_zero_max_stays_zero() {
+        assert_eq!(
+            next_wheel_scroll_offset(0, 0, WheelDirection::Up),
+            0,
+            "empty detail pane (max 0) cannot scroll up"
+        );
+    }
+
+    #[test]
+    fn scroll_down_in_middle_of_large_content() {
+        assert_eq!(
+            next_wheel_scroll_offset(10, 100, WheelDirection::Down),
+            11,
+            "scrolling down from 10 within a large pane should advance to 11"
+        );
     }
 }

@@ -484,7 +484,8 @@ impl AppState {
     /// @plan PLAN-20260624-PR-MODE.P14
     /// @requirement REQ-PR-009
     /// @pseudocode component-001 lines 169-176
-    fn pr_detail_max_scroll_offset(&self) -> usize {
+    #[must_use]
+    pub fn pr_detail_max_scroll_offset(&self) -> usize {
         let Some(detail) = &self.prs_state.pr_detail else {
             return 0;
         };
