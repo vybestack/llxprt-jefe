@@ -92,13 +92,12 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                     let state = app_state.read();
                     state.pane_focus == PaneFocus::Terminal
                 };
-                let running_preview = !terminal_focused
-                    && {
-                        let state = app_state.read();
-                        state
-                            .selected_agent()
-                            .is_some_and(|agent| agent.status == AgentStatus::Running)
-                    };
+                let running_preview = !terminal_focused && {
+                    let state = app_state.read();
+                    state
+                        .selected_agent()
+                        .is_some_and(|agent| agent.status == AgentStatus::Running)
+                };
 
                 let dirty = is_pty_dirty(ctx.as_ref());
                 let should_render = elapsed_ms >= SAFETY_NET_MS
