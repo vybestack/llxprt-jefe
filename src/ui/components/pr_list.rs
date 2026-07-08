@@ -1,14 +1,23 @@
-//! PR list pane component.
+//! PR list pane projection for the generic [`SelectableList`] component.
+//!
+//! The PR list pane used to have its own iocraft `PrList` component; the
+//! rendering is now owned by [`crate::ui::components::SelectableList`]. This
+//! module keeps the pure projection ([`pr_list_visible_rows`]) plus the
+//! [`pr_list_props`] wrapper that maps the projected rows into
+//! [`crate::ui::components::SelectableRow`]s.
+//!
 //! @plan PLAN-20260624-PR-MODE.P12
 //! @requirement REQ-PR-006
 //! @requirement REQ-PR-014
 
-use iocraft::prelude::*;
 use unicode_width::UnicodeWidthStr;
 
 use crate::domain::{PrCheckStatus, PrReviewState, PrState, PullRequest};
-use crate::selection::{HighlightRange, TextSelection, row_highlight_range};
-use crate::theme::{ResolvedColors, RowColors, SelectionColors, ThemeColors};
+use crate::selection::{SelectablePane, TextSelection};
+use crate::theme::ThemeColors;
+use crate::ui::components::selectable_list::{
+    ListBorder, SelectableListProps, SelectableRow, SelectableSpan, SelectionStyle, SpanColor,
+};
 
 /// PR list density variant.
 ///
@@ -31,39 +40,6 @@ impl PrListLayout {
     fn is_compact(self) -> bool {
         matches!(self, Self::Compact)
     }
-}
-
-/// Props for the PR list pane.
-///
-/// @plan PLAN-20260624-PR-MODE.P12
-/// @requirement REQ-PR-006
-/// @requirement REQ-PR-014
-/// @pseudocode component-001 lines 1-12
-#[derive(Default, Props)]
-pub struct PrListProps {
-    /// Pull requests to display.
-    pub pull_requests: Vec<PullRequest>,
-    /// Currently selected index.
-    pub selected_index: Option<usize>,
-    /// First-visible row offset (selection-follow).
-    pub list_scroll_offset: usize,
-    /// PR-list pane height in rows.
-    pub list_pane_rows: u16,
-    /// Whether this pane is focused.
-    pub focused: bool,
-    /// Whether pull requests are loading.
-    pub loading: bool,
-    /// Whether filters are active (affects empty-state message).
-    pub has_filters: bool,
-    /// List density variant.
-    pub layout: PrListLayout,
-    /// Theme colors.
-    pub colors: ThemeColors,
-    /// Available content width (in terminal columns) for title truncation.
-    pub available_width: Option<u16>,
-    /// Active text selection, if any (and if it targets this pane). Selected
-    /// cells are painted in inverse video for live drag-selection feedback.
-    pub selection: Option<TextSelection>,
 }
 
 /// Projected PR list row exactly as the component renders it.
@@ -167,12 +143,91 @@ pub fn pr_list_visible_rows(
         .collect()
 }
 
+/// Map already-windowed [`PrListRowView`]s into [`SelectableRow`]s for the
+/// generic [`crate::ui::components::SelectableList`]. In compact mode the meta
+/// line is replaced with an empty string so the list renders a single-line row
+/// (matching the pre-refactor `render_pr_row` compact path). Takes the views by
+/// value so the owned strings move into the spans without per-row clones.
+fn to_selectable_rows(views: Vec<PrListRowView>, compact: bool) -> Vec<SelectableRow> {
+    views
+        .into_iter()
+        .map(|v| SelectableRow {
+            spans: vec![SelectableSpan {
+                text: v.title_line,
+                color: SpanColor::Themed,
+            }],
+            meta_line: Some(if compact { String::new() } else { v.meta_line }),
+            is_selected: v.is_selected,
+        })
+        .collect()
+}
+
+/// Windowing/geometry inputs for [`pr_list_props`].
+///
+/// Bundles the parameters that [`pr_list_visible_rows`] needs to compute the
+/// visible window, plus the layout variant (which decides compact vs full row
+/// rendering). Keeping them in a struct keeps [`pr_list_props`] under the
+/// argument-count limit.
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-006
+#[derive(Clone, Copy, Debug)]
+pub struct PrListWindow {
+    /// Currently selected PR index.
+    pub selected_index: Option<usize>,
+    /// PR-list pane height in rows.
+    pub list_pane_rows: u16,
+    /// Available content width (in terminal columns) for title truncation.
+    pub available_width: Option<u16>,
+    /// List density variant (compact rows omit the meta line).
+    pub layout: PrListLayout,
+}
+
+/// Build [`SelectableListProps`] for the PR list pane.
+///
+/// Calls the unchanged [`pr_list_visible_rows`] projection and maps each
+/// [`PrListRowView`] into a [`SelectableRow`]. The empty/loading message is
+/// computed by the caller via [`pr_list_status_message`] and passed in as
+/// `empty_message`.
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-006
+#[must_use]
+pub fn pr_list_props(
+    pull_requests: &[PullRequest],
+    window: PrListWindow,
+    focused: bool,
+    empty_message: Option<&str>,
+    colors: ThemeColors,
+    selection: Option<TextSelection>,
+) -> SelectableListProps {
+    let rows = pr_list_visible_rows(
+        pull_requests,
+        window.selected_index,
+        window.list_pane_rows,
+        window.available_width,
+    );
+    SelectableListProps {
+        title: "Pull Requests".to_string(),
+        rows: to_selectable_rows(rows, window.layout.is_compact()),
+        focused,
+        empty_message: empty_message.map(String::from),
+        colors,
+        selection,
+        pane: SelectablePane::PrList,
+        border: ListBorder::DoubleOnFocus,
+        content_padding: false,
+        selection_style: SelectionStyle::BoldSelected,
+    }
+}
+
 /// Loading/empty status line for the PR list. Returns `None` when rows are
 /// shown (i.e. when the list is non-empty and not loading) — REQ-PR-014.
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-014
 /// @pseudocode component-001 lines 1-12
+#[must_use]
 pub fn pr_list_status_message(
     loading: bool,
     is_empty: bool,
@@ -191,142 +246,6 @@ pub fn pr_list_status_message(
     }
 }
 
-/// PR list pane — renders pull requests with selection highlight, loading, and empty states.
-///
-/// @plan PLAN-20260624-PR-MODE.P12
-/// @requirement REQ-PR-006
-/// @requirement REQ-PR-014
-/// @pseudocode component-001 lines 1-12
-#[component]
-pub fn PrList(props: &PrListProps) -> impl Into<AnyElement<'static>> {
-    let rc = ResolvedColors::from_theme(Some(&props.colors));
-    let border_style = if props.focused {
-        BorderStyle::Double
-    } else {
-        BorderStyle::Round
-    };
-
-    let status_msg = pr_list_status_message(
-        props.loading,
-        props.pull_requests.is_empty(),
-        props.has_filters,
-    );
-
-    element! {
-        Box(
-            flex_direction: FlexDirection::Column,
-            width: 100pct,
-            height: 100pct,
-            border_style: border_style,
-            border_color: rc.border,
-            background_color: rc.bg,
-        ) {
-            // Title row
-            Box(height: 1u32, padding_left: 1u32) {
-                Text(content: "Pull Requests", weight: Weight::Bold, color: rc.fg)
-            }
-
-            // Content
-            Box(
-                flex_direction: FlexDirection::Column,
-                flex_grow: 1.0,
-                background_color: rc.bg,
-            ) {
-                #(if let Some(msg) = status_msg {
-                    vec![element! {
-                        Box(padding_left: 1u32, height: 1u32) {
-                            Text(content: msg, color: rc.dim)
-                        }
-                    }
-                    .into_any()]
-                } else {
-                    let rows = props;
-                    let projected = pr_list_visible_rows(
-                        &rows.pull_requests,
-                        rows.selected_index,
-                        rows.list_pane_rows,
-                        rows.available_width,
-                    );
-                    projected.iter().enumerate().map(|(window_i, view)| {
-                        let highlight = rows.selection.as_ref().and_then(|s| {
-                            if s.pane() == crate::selection::SelectablePane::PrList {
-                                row_highlight_range(s, window_i)
-                            } else {
-                                None
-                            }
-                        });
-                        render_pr_row(
-                            view,
-                            rows.layout.is_compact(),
-                            highlight,
-                            RowColors::from_resolved(&rc),
-                            SelectionColors::from_resolved(&rc),
-                            rc.dim,
-                        )
-                    }).collect()
-                })
-            }
-        }
-    }
-}
-
-/// Render a single PR list row, applying the selection-row highlight when the
-/// row falls inside an active drag selection.
-fn render_pr_row(
-    view: &PrListRowView,
-    compact: bool,
-    highlight: Option<HighlightRange>,
-    row_colors: RowColors,
-    highlight_colors: SelectionColors,
-    dim: Color,
-) -> AnyElement<'static> {
-    let title_line = view.title_line.as_str();
-    let meta_line = view.meta_line.as_str();
-    let is_selected = view.is_selected;
-
-    // When a drag selection covers this row, paint the whole row in the
-    // selection colors. Keyboard selection uses bold for text emphasis but
-    // not inverse-video, which is reserved for active drag selection.
-    let highlighted = highlight.is_some();
-    let row_bg = if highlighted {
-        highlight_colors.bg
-    } else {
-        row_colors.bg
-    };
-    let title_fg = if highlighted {
-        highlight_colors.fg
-    } else {
-        row_colors.fg
-    };
-    let weight = if is_selected {
-        Weight::Bold
-    } else {
-        Weight::Normal
-    };
-
-    if compact {
-        return element! {
-            Box(height: 1u32, background_color: row_bg) {
-                Text(content: title_line, color: title_fg, weight: weight)
-            }
-        }
-        .into_any();
-    }
-
-    element! {
-        Box(flex_direction: FlexDirection::Column) {
-            Box(height: 1u32, background_color: row_bg) {
-                Text(content: title_line, color: title_fg, weight: weight)
-            }
-            Box(height: 1u32, background_color: row_bg) {
-                Text(content: meta_line, color: if highlighted { highlight_colors.fg } else { dim })
-            }
-        }
-    }
-    .into_any()
-}
-
-///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-006
 /// @pseudocode component-001 lines 1-12

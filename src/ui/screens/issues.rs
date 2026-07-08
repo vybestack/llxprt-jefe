@@ -11,8 +11,8 @@ use crate::state::{AppState, IssueFocus, PaneFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
-    AgentChooser, FilterControls, IssueDetailView, IssueList, IssueListLayout, KeybindBar, Sidebar,
-    StatusBar,
+    AgentChooser, FilterControls, IssueDetailView, IssueListLayout, IssueListWindow, KeybindBar,
+    Sidebar, StatusBar, issue_list_props, issue_list_status_message, selectable_list_element,
 };
 
 /// Props for the issues mode screen.
@@ -199,18 +199,19 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                     // Issue list + detail (split view)
                     // Fixed 30/70 split: compact issue list + detail view
                     Box(height: list_pane_rows, width: 100pct) {
-                        IssueList(
-                            issues: issues.clone(),
-                            selected_index: selected_issue_idx,
-                            list_pane_rows: list_pane_rows,
-                            focused: list_focused,
-                            loading: list_loading,
-                            has_filters: has_filters,
-                            layout: IssueListLayout::Compact,
-                            colors: colors.clone(),
-                            available_width: Some(list_width),
-                            selection: selection,
-                        )
+                        #(vec![selectable_list_element(issue_list_props(
+                            &issues,
+                            IssueListWindow {
+                                selected_index: selected_issue_idx,
+                                list_pane_rows,
+                                layout: IssueListLayout::Compact,
+                                available_width: Some(list_width),
+                            },
+                            list_focused,
+                            issue_list_status_message(list_loading, issues.is_empty(), has_filters),
+                            colors.clone(),
+                            selection,
+                        ))])
                     }
                     Box(flex_grow: 1.0, width: 100pct) {
                         IssueDetailView(

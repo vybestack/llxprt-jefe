@@ -11,9 +11,10 @@ use crate::selection::PaneGeometry;
 /// ordered roughly top-to-bottom, left-to-right to match how the panes appear,
 /// but ordering carries no semantic weight — comparisons use
 /// [`SelectionPoint`] ordering, not the enum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SelectablePane {
     /// Repository sidebar (left column, all screen modes).
+    #[default]
     Sidebar,
     /// Agent list (dashboard middle column, top).
     AgentList,

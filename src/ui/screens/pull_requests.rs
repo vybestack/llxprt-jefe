@@ -10,8 +10,9 @@ use crate::state::{AppState, PaneFocus, PrFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
-    AgentChooser, KeybindBar, MergeChooser, PrDetailView, PrFilterControls, PrList, PrListLayout,
-    Sidebar, StatusBar,
+    AgentChooser, KeybindBar, MergeChooser, PrDetailView, PrFilterControls, PrListLayout,
+    PrListWindow, Sidebar, StatusBar, pr_list_props, pr_list_status_message,
+    selectable_list_element,
 };
 
 /// Props for the pull requests mode screen.
@@ -75,7 +76,6 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
     let pr_focus = state.map_or(PrFocus::PrList, |s| s.prs_state.pr_focus);
     let pull_requests = state.map_or_else(Vec::new, |s| s.prs_state.pull_requests.clone());
     let selected_pr_idx = state.and_then(|s| s.prs_state.selected_pr_index);
-    let list_scroll_offset = state.map_or(0, |s| s.prs_state.list_scroll_offset);
     let list_loading = state.is_some_and(|s| s.prs_state.loading.list);
     let filter_controls_open = state.is_some_and(|s| s.prs_state.filter_ui.controls_open);
     let filter_field_index = state.map_or(0, |s| s.prs_state.filter_ui.field_index);
@@ -228,19 +228,23 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                     // PR list + detail (split view)
                     // Fixed 30/70 split: compact PR list + detail view
                     Box(height: list_pane_rows, width: 100pct) {
-                        PrList(
-                            pull_requests: pull_requests.clone(),
-                            selected_index: selected_pr_idx,
-                            list_scroll_offset: list_scroll_offset,
-                            list_pane_rows: list_pane_rows,
-                            focused: list_focused,
-                            loading: list_loading,
-                            has_filters: has_filters,
-                            layout: PrListLayout::Compact,
-                            colors: colors.clone(),
-                            available_width: Some(list_width),
-                            selection: selection,
-                        )
+                        #(vec![selectable_list_element(pr_list_props(
+                            &pull_requests,
+                            PrListWindow {
+                                selected_index: selected_pr_idx,
+                                list_pane_rows,
+                                available_width: Some(list_width),
+                                layout: PrListLayout::Compact,
+                            },
+                            list_focused,
+                            pr_list_status_message(
+                                list_loading,
+                                pull_requests.is_empty(),
+                                has_filters,
+                            ),
+                            colors.clone(),
+                            selection,
+                        ))])
                     }
                     Box(flex_grow: 1.0, width: 100pct) {
                         PrDetailView(

@@ -30,6 +30,10 @@ pub(crate) mod pr_filter_controls;
 pub(crate) mod pr_list;
 mod preview;
 mod scrollable_text;
+/// Generic bordered, scrollable, selectable list used by the Issue, PR, and
+/// Agent list panes. Domain layers project into [`SelectableRow`]s; this
+/// component owns the iocraft rendering once.
+pub(crate) mod selectable_list;
 mod sidebar;
 mod status_bar;
 mod terminal_view;
@@ -42,10 +46,12 @@ mod terminal_view;
 mod text_box;
 
 pub use agent_chooser::{AgentChooser, AgentChooserProps};
-pub use agent_list::{AgentList, AgentListProps};
+pub use agent_list::agent_list_props;
 pub use filter_controls::{FilterControls, FilterControlsProps};
 pub use issue_detail::{IssueDetailView, IssueDetailViewProps};
-pub use issue_list::{IssueList, IssueListLayout, IssueListProps};
+pub use issue_list::{
+    IssueListLayout, IssueListWindow, issue_list_props, issue_list_status_message,
+};
 pub use keybind_bar::{KeybindBar, KeybindBarProps};
 /// @requirement REQ-PR-009
 pub use merge_chooser::{MergeChooser, MergeChooserProps};
@@ -57,9 +63,13 @@ pub use pr_detail::{PrDetailView, PrDetailViewProps};
 pub use pr_filter_controls::{PrFilterControls, PrFilterControlsProps};
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-006
-pub use pr_list::{PrList, PrListLayout, PrListProps};
+pub use pr_list::{PrListLayout, PrListWindow, pr_list_props, pr_list_status_message};
 pub use preview::{Preview, PreviewProps};
 pub use scrollable_text::{ScrollableText, ScrollableTextProps};
+pub use selectable_list::{
+    ListBorder, SelectableList, SelectableListProps, SelectableRow, SelectableSpan, SelectionStyle,
+    SpanColor, SpanRole, selectable_list_element,
+};
 pub use sidebar::{Sidebar, SidebarProps};
 pub use status_bar::{StatusBar, StatusBarProps};
 pub use terminal_view::{TerminalView, TerminalViewProps, terminal_empty_message};

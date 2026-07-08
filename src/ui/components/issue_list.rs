@@ -1,14 +1,23 @@
-//! Issue list pane component.
+//! Issue list pane projection for the generic [`SelectableList`] component.
+//!
+//! The issue list pane used to have its own iocraft `IssueList` component; the
+//! rendering is now owned by [`crate::ui::components::SelectableList`]. This
+//! module keeps the pure projection ([`issue_list_visible_rows`]) plus the
+//! [`issue_list_props`] wrapper that maps the projected rows into
+//! [`crate::ui::components::SelectableRow`]s.
+//!
 //! @plan PLAN-20260329-ISSUES-MODE.P12
 //! @plan PLAN-20260329-ISSUES-MODE.P14
 //! @requirement REQ-ISS-006
 
-use iocraft::prelude::*;
 use unicode_width::UnicodeWidthStr;
 
 use crate::domain::{Issue, IssueState};
-use crate::selection::{HighlightRange, TextSelection, row_highlight_range};
-use crate::theme::{ResolvedColors, RowColors, SelectionColors, ThemeColors};
+use crate::selection::{SelectablePane, TextSelection};
+use crate::theme::ThemeColors;
+use crate::ui::components::selectable_list::{
+    ListBorder, SelectableListProps, SelectableRow, SelectableSpan, SelectionStyle, SpanColor,
+};
 
 /// Rows consumed by the bordered list container and title before item content.
 const LIST_CHROME_ROWS: u16 = 3;
@@ -27,34 +36,6 @@ impl IssueListLayout {
     fn is_compact(self) -> bool {
         matches!(self, Self::Compact)
     }
-}
-
-/// Props for the issue list pane.
-#[derive(Default, Props)]
-pub struct IssueListProps {
-    /// Issues to display.
-    pub issues: Vec<Issue>,
-    /// Currently selected index.
-    pub selected_index: Option<usize>,
-    /// Issue-list pane height in rows, including border and title chrome.
-    pub list_pane_rows: u16,
-    /// Whether this pane is focused.
-    pub focused: bool,
-    /// Whether issues are loading.
-    pub loading: bool,
-    /// Whether filters are active (affects empty-state message).
-    pub has_filters: bool,
-    /// List density variant.
-    pub layout: IssueListLayout,
-    /// Theme colors.
-    pub colors: ThemeColors,
-    /// Available content width (in terminal columns) for title truncation.
-    ///
-    /// When provided, long issue titles are truncated with an ellipsis to fit.
-    pub available_width: Option<u16>,
-    /// Active text selection, if any (and if it targets this pane). Selected
-    /// cells are painted in inverse video for live drag-selection feedback.
-    pub selection: Option<TextSelection>,
 }
 
 /// Projected issue-list row exactly as the component renders it.
@@ -152,11 +133,90 @@ pub fn issue_list_visible_rows(
         .collect()
 }
 
+/// Map already-windowed [`IssueListRowView`]s into [`SelectableRow`]s for the
+/// generic [`crate::ui::components::SelectableList`]. The title line becomes a
+/// single themed span; the meta line is carried through (empty string in
+/// compact mode signals a single-line row). Takes the views by value so the
+/// owned strings move into the spans without per-row clones.
+fn to_selectable_rows(views: Vec<IssueListRowView>) -> Vec<SelectableRow> {
+    views
+        .into_iter()
+        .map(|v| SelectableRow {
+            spans: vec![SelectableSpan {
+                text: v.title_line,
+                color: SpanColor::Themed,
+            }],
+            meta_line: Some(v.meta_line),
+            is_selected: v.is_selected,
+        })
+        .collect()
+}
+
+/// Windowing/geometry inputs for [`issue_list_props`].
+///
+/// Bundles the parameters that [`issue_list_visible_rows`] needs to compute the
+/// visible window. Keeping them in a struct keeps [`issue_list_props`] under the
+/// argument-count limit.
+///
+/// @plan PLAN-20260630-ISSUES-REGRESSION.P01
+/// @requirement REQ-ISS-006
+#[derive(Clone, Copy, Debug)]
+pub struct IssueListWindow {
+    /// Currently selected issue index.
+    pub selected_index: Option<usize>,
+    /// Issue-list pane height in rows, including border and title chrome.
+    pub list_pane_rows: u16,
+    /// List density variant.
+    pub layout: IssueListLayout,
+    /// Available content width (in terminal columns) for title truncation.
+    pub available_width: Option<u16>,
+}
+
+/// Build [`SelectableListProps`] for the issue list pane.
+///
+/// Calls the unchanged [`issue_list_visible_rows`] projection and maps each
+/// [`IssueListRowView`] into a [`SelectableRow`]. The empty/loading message is
+/// computed by the caller via [`issue_list_status_message`] and passed in as
+/// `empty_message`.
+///
+/// @plan PLAN-20260630-ISSUES-REGRESSION.P01
+/// @requirement REQ-ISS-006
+#[must_use]
+pub fn issue_list_props(
+    issues: &[Issue],
+    window: IssueListWindow,
+    focused: bool,
+    empty_message: Option<&str>,
+    colors: ThemeColors,
+    selection: Option<TextSelection>,
+) -> SelectableListProps {
+    let rows = issue_list_visible_rows(
+        issues,
+        window.selected_index,
+        window.list_pane_rows,
+        window.layout,
+        window.available_width,
+    );
+    SelectableListProps {
+        title: "Issues".to_string(),
+        rows: to_selectable_rows(rows),
+        focused,
+        empty_message: empty_message.map(String::from),
+        colors,
+        selection,
+        pane: SelectablePane::IssueList,
+        border: ListBorder::DoubleOnFocus,
+        content_padding: false,
+        selection_style: SelectionStyle::BoldSelected,
+    }
+}
+
 /// Loading/empty status line for the issue list. Returns `None` when rows show.
 /// @plan PLAN-20260630-ISSUES-REGRESSION.P01
 /// @requirement REQ-ISS-006
 /// @pseudocode component-001 lines 1-12
-fn issue_list_status_message(
+#[must_use]
+pub fn issue_list_status_message(
     loading: bool,
     is_empty: bool,
     has_filters: bool,
@@ -172,132 +232,6 @@ fn issue_list_status_message(
     } else {
         None
     }
-}
-
-/// Issue list pane — renders issues with selection highlight, loading, and empty states.
-/// @plan PLAN-20260329-ISSUES-MODE.P14
-/// @requirement REQ-ISS-006
-#[component]
-pub fn IssueList(props: &IssueListProps) -> impl Into<AnyElement<'static>> {
-    let rc = ResolvedColors::from_theme(Some(&props.colors));
-    let border_style = if props.focused {
-        BorderStyle::Double
-    } else {
-        BorderStyle::Round
-    };
-    let status_msg =
-        issue_list_status_message(props.loading, props.issues.is_empty(), props.has_filters);
-
-    element! {
-        Box(
-            flex_direction: FlexDirection::Column,
-            width: 100pct,
-            height: 100pct,
-            border_style: border_style,
-            border_color: rc.border,
-            background_color: rc.bg,
-        ) {
-            Box(height: 1u32, padding_left: 1u32) {
-                Text(content: "Issues", weight: Weight::Bold, color: rc.fg)
-            }
-            Box(
-                flex_direction: FlexDirection::Column,
-                flex_grow: 1.0,
-                background_color: rc.bg,
-            ) {
-                #(if let Some(msg) = status_msg {
-                    vec![element! {
-                        Box(padding_left: 1u32, height: 1u32) {
-                            Text(content: msg, color: rc.dim)
-                        }
-                    }
-                    .into_any()]
-                } else {
-                    let rows = props;
-                    let projected = issue_list_visible_rows(
-                        &rows.issues,
-                        rows.selected_index,
-                        rows.list_pane_rows,
-                        rows.layout,
-                        rows.available_width,
-                    );
-                    projected.iter().enumerate().map(|(window_i, view)| {
-                        let highlight = rows.selection.as_ref().and_then(|s| {
-                            if s.pane() == crate::selection::SelectablePane::IssueList {
-                                row_highlight_range(s, window_i)
-                            } else {
-                                None
-                            }
-                        });
-                        render_issue_row(
-                            view,
-                            rows.layout.is_compact(),
-                            highlight,
-                            RowColors::from_resolved(&rc),
-                            SelectionColors::from_resolved(&rc),
-                            rc.dim,
-                        )
-                    }).collect()
-                })
-            }
-        }
-    }
-}
-
-/// Render a single issue-list row, applying the selection-row highlight when
-/// the row falls inside an active drag selection. Mirrors the pr_list helper.
-fn render_issue_row(
-    view: &IssueListRowView,
-    compact: bool,
-    highlight: Option<HighlightRange>,
-    row_colors: RowColors,
-    highlight_colors: SelectionColors,
-    dim: Color,
-) -> AnyElement<'static> {
-    let title_line = view.title_line.as_str();
-    let meta_line = view.meta_line.as_str();
-    let is_selected = view.is_selected;
-
-    // When a drag selection covers this row, paint the whole row in the
-    // selection colors. Keyboard selection uses a separate highlight color
-    // (`is_selected`) for text emphasis (bold) but not inverse-video.
-    let highlighted = highlight.is_some();
-    let row_bg = if highlighted {
-        highlight_colors.bg
-    } else {
-        row_colors.bg
-    };
-    let title_fg = if highlighted {
-        highlight_colors.fg
-    } else {
-        row_colors.fg
-    };
-    let weight = if is_selected {
-        Weight::Bold
-    } else {
-        Weight::Normal
-    };
-
-    if compact {
-        return element! {
-            Box(height: 1u32, background_color: row_bg) {
-                Text(content: title_line, color: title_fg, weight: weight)
-            }
-        }
-        .into_any();
-    }
-
-    element! {
-        Box(flex_direction: FlexDirection::Column) {
-            Box(height: 1u32, background_color: row_bg) {
-                Text(content: title_line, color: title_fg, weight: weight)
-            }
-            Box(height: 1u32, background_color: row_bg) {
-                Text(content: meta_line, color: if highlighted { highlight_colors.fg } else { dim })
-            }
-        }
-    }
-    .into_any()
 }
 
 #[cfg(test)]

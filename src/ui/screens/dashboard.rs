@@ -12,7 +12,10 @@ use crate::runtime::TerminalSnapshot;
 use crate::state::{AppState, DashboardGrabPane, PaneFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
-use super::super::components::{AgentList, KeybindBar, Preview, Sidebar, StatusBar, TerminalView};
+use super::super::components::{
+    KeybindBar, Preview, Sidebar, StatusBar, TerminalView, agent_list_props,
+    selectable_list_element,
+};
 
 /// Props for the dashboard screen.
 #[derive(Default, Props)]
@@ -158,14 +161,14 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                     height: 100pct,
                 ) {
                     Box(height: agent_rows, width: 100pct) {
-                        AgentList(
-                            agents: agents,
-                            selected: selected_agent_idx,
-                            focused: !terminal_focused && pane_focus == PaneFocus::Agents,
-                            grabbed: grabbed_agent_idx,
-                            colors: colors.clone(),
-                            selection: selection,
-                        )
+                        #(vec![selectable_list_element(agent_list_props(
+                            &agents,
+                            selected_agent_idx,
+                            grabbed_agent_idx,
+                            !terminal_focused && pane_focus == PaneFocus::Agents,
+                            colors.clone(),
+                            selection,
+                        ))])
                     }
                     Box(height: terminal_rows, width: 100pct) {
                         TerminalView(
