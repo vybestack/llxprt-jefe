@@ -8,7 +8,7 @@ use iocraft::prelude::*;
 use crate::domain::{IssueDetail, IssueState};
 use crate::issue_detail_content::{DetailContent, build_detail_content, build_new_issue_content};
 use crate::layout::DETAIL_HEADER_ROWS as HEADER_ROWS;
-use crate::selection::TextSelection;
+use crate::selection::{SelectablePane, TextSelection, row_highlight_range};
 use crate::state::{ComposerTarget, DetailSubfocus, InlineState};
 use crate::theme::{ResolvedColors, ThemeColors};
 
@@ -69,6 +69,16 @@ fn active_issue_composer(inline_state: &InlineState) -> Option<(String, usize, &
         | InlineState::Editor { .. }
         | InlineState::None => None,
     }
+}
+
+/// Whether content line `line` (one of the fixed header rows) falls inside the
+/// active selection for the issue detail pane. When true the header row is
+/// painted in inverse-video selection colors.
+fn header_highlight(line: usize, selection: Option<&TextSelection>) -> bool {
+    selection
+        .filter(|s| s.pane() == SelectablePane::IssueDetail)
+        .and_then(|s| row_highlight_range(s, line))
+        .is_some()
 }
 
 /// Issue detail view — fixed structure that NEVER changes layout.
@@ -228,24 +238,77 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
         ) {
             // ── Metadata header — always exactly HEADER_ROWS rows ─────────
             Box(flex_direction: FlexDirection::Column, padding_left: 1u32, padding_right: 1u32) {
-                Box(height: 1u32) {
-                    Text(content: h_title, color: rc.fg)
-                }
-                Box(height: 1u32) {
-                    Text(content: h_state, color: state_color)
-                }
-                Box(height: 1u32) {
-                    Text(content: h_labels, color: rc.dim)
-                }
-                Box(height: 1u32) {
-                    Text(content: h_url, color: rc.dim)
-                }
-                Box(height: 1u32) {
-                    Text(
-                        content: "─────────────────────────────────────────",
-                        color: rc.dim,
-                    )
-                }
+                #(if header_highlight(0, props.selection.as_ref()) {
+                    element! {
+                        Box(height: 1u32, background_color: rc.sel_bg) {
+                            Text(content: h_title, color: rc.sel_fg)
+                        }
+                    }.into_any()
+                } else {
+                    element! {
+                        Box(height: 1u32) {
+                            Text(content: h_title, color: rc.fg)
+                        }
+                    }.into_any()
+                })
+                #(if header_highlight(1, props.selection.as_ref()) {
+                    element! {
+                        Box(height: 1u32, background_color: rc.sel_bg) {
+                            Text(content: h_state, color: rc.sel_fg)
+                        }
+                    }.into_any()
+                } else {
+                    element! {
+                        Box(height: 1u32) {
+                            Text(content: h_state, color: state_color)
+                        }
+                    }.into_any()
+                })
+                #(if header_highlight(2, props.selection.as_ref()) {
+                    element! {
+                        Box(height: 1u32, background_color: rc.sel_bg) {
+                            Text(content: h_labels, color: rc.sel_fg)
+                        }
+                    }.into_any()
+                } else {
+                    element! {
+                        Box(height: 1u32) {
+                            Text(content: h_labels, color: rc.dim)
+                        }
+                    }.into_any()
+                })
+                #(if header_highlight(3, props.selection.as_ref()) {
+                    element! {
+                        Box(height: 1u32, background_color: rc.sel_bg) {
+                            Text(content: h_url, color: rc.sel_fg)
+                        }
+                    }.into_any()
+                } else {
+                    element! {
+                        Box(height: 1u32) {
+                            Text(content: h_url, color: rc.dim)
+                        }
+                    }.into_any()
+                })
+                #(if header_highlight(4, props.selection.as_ref()) {
+                    element! {
+                        Box(height: 1u32, background_color: rc.sel_bg) {
+                            Text(
+                                content: "─────────────────────────────────────────",
+                                color: rc.sel_fg,
+                            )
+                        }
+                    }.into_any()
+                } else {
+                    element! {
+                        Box(height: 1u32) {
+                            Text(
+                                content: "─────────────────────────────────────────",
+                                color: rc.dim,
+                            )
+                        }
+                    }.into_any()
+                })
             }
 
             // ── Scrollable viewport — always exactly scroll_rows rows ─────
@@ -264,9 +327,11 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
                     thumb_color: rc.bright,
                     selection: props
                         .selection
-                        .filter(|s| s.pane() == crate::selection::SelectablePane::IssueDetail),
+                        .filter(|s| s.pane() == SelectablePane::IssueDetail),
                     selection_bg: Some(rc.sel_bg),
                     selection_fg: Some(rc.sel_fg),
+                    bg: Some(rc.bg),
+                    content_line_offset: HEADER_ROWS,
                 )
             }
 

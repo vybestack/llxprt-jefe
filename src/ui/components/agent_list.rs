@@ -89,7 +89,7 @@ pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
                         .filter(|s| s.pane() == SelectablePane::AgentList)
                         .and_then(|s| row_highlight_range(s, i))
                         .is_some();
-                    let row_bg = if highlighted { rc.sel_bg } else { Color::Reset };
+                    let row_bg = if highlighted { rc.sel_bg } else { rc.bg };
                     let name_color = if selected { rc.bright } else { rc.fg };
                     let name_color = if highlighted { rc.sel_fg } else { name_color };
                     let shortcut_label = agent.shortcut_slot

@@ -110,6 +110,30 @@ pub struct SelectionColors {
     pub bg: Color,
 }
 
+/// Bundled foreground + background colors for a list row's default (non-selected)
+/// styling.
+///
+/// Lets render helpers receive themed values instead of `Color::Reset` (which
+/// leaks the terminal default background and can produce a visible haze).
+#[derive(Debug, Clone, Copy)]
+pub struct RowColors {
+    /// Default text color for a row.
+    pub fg: Color,
+    /// Themed background color for a row (avoids `Color::Reset` haze).
+    pub bg: Color,
+}
+
+impl RowColors {
+    /// Derive row colors from a [`ResolvedColors`] snapshot.
+    #[must_use]
+    pub const fn from_resolved(rc: &ResolvedColors) -> Self {
+        Self {
+            fg: rc.fg,
+            bg: rc.bg,
+        }
+    }
+}
+
 impl SelectionColors {
     /// Derive selection colors from a [`ResolvedColors`] snapshot.
     #[must_use]

@@ -77,7 +77,7 @@ pub fn Sidebar(props: &SidebarProps) -> impl Into<AnyElement<'static>> {
                         .filter(|s| s.pane() == SelectablePane::Sidebar)
                         .and_then(|s| row_highlight_range(s, i))
                         .is_some();
-                    let row_bg = if highlighted { rc.sel_bg } else { Color::Reset };
+                    let row_bg = if highlighted { rc.sel_bg } else { rc.bg };
                     let fg = if highlighted { rc.sel_fg } else { rc.fg };
                     let weight = if selected { Weight::Bold } else { Weight::Normal };
                     element! {

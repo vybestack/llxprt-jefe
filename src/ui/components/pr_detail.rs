@@ -7,7 +7,7 @@ use iocraft::prelude::*;
 use crate::domain::PullRequestDetail;
 use crate::layout::PR_DETAIL_HEADER_ROWS as HEADER_ROWS;
 use crate::pr_detail_content::{build_pr_detail_content, pr_state_tag};
-use crate::selection::TextSelection;
+use crate::selection::{SelectablePane, TextSelection, row_highlight_range};
 use crate::state::{ComposerTarget, InlineState, PrDetailSubfocus};
 use crate::theme::{ResolvedColors, ThemeColors};
 
@@ -148,6 +148,16 @@ fn active_pr_composer(inline_state: &InlineState) -> Option<(String, usize, &'st
     }
 }
 
+/// Whether content line `line` (one of the fixed header rows) falls inside the
+/// active selection for `pane`. When true the header row is painted in
+/// inverse-video selection colors.
+fn header_highlight(line: usize, selection: Option<&TextSelection>, pane: SelectablePane) -> bool {
+    selection
+        .filter(|s| s.pane() == pane)
+        .and_then(|s| row_highlight_range(s, line))
+        .is_some()
+}
+
 /// PR detail view — fixed structure that NEVER changes layout.
 ///
 /// ALWAYS renders: border box → `HEADER_ROWS` header rows → fixed-row scrollable viewport.
@@ -258,24 +268,77 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
         ) {
             // ── Metadata header — always exactly HEADER_ROWS rows ─────────
             Box(flex_direction: FlexDirection::Column, padding_left: 1u32, padding_right: 1u32) {
-                Box(height: 1u32) {
-                    Text(content: h_title, color: rc.fg)
-                }
-                Box(height: 1u32) {
-                    Text(content: h_state, color: state_color)
-                }
-                Box(height: 1u32) {
-                    Text(content: h_branches, color: rc.dim)
-                }
-                Box(height: 1u32) {
-                    Text(content: h_url, color: rc.dim)
-                }
-                Box(height: 1u32) {
-                    Text(
-                        content: "─────────────────────────────────────────",
-                        color: rc.dim,
-                    )
-                }
+                #(if header_highlight(0, props.selection.as_ref(), SelectablePane::PrDetail) {
+                    element! {
+                        Box(height: 1u32, background_color: rc.sel_bg) {
+                            Text(content: h_title, color: rc.sel_fg)
+                        }
+                    }.into_any()
+                } else {
+                    element! {
+                        Box(height: 1u32) {
+                            Text(content: h_title, color: rc.fg)
+                        }
+                    }.into_any()
+                })
+                #(if header_highlight(1, props.selection.as_ref(), SelectablePane::PrDetail) {
+                    element! {
+                        Box(height: 1u32, background_color: rc.sel_bg) {
+                            Text(content: h_state, color: rc.sel_fg)
+                        }
+                    }.into_any()
+                } else {
+                    element! {
+                        Box(height: 1u32) {
+                            Text(content: h_state, color: state_color)
+                        }
+                    }.into_any()
+                })
+                #(if header_highlight(2, props.selection.as_ref(), SelectablePane::PrDetail) {
+                    element! {
+                        Box(height: 1u32, background_color: rc.sel_bg) {
+                            Text(content: h_branches, color: rc.sel_fg)
+                        }
+                    }.into_any()
+                } else {
+                    element! {
+                        Box(height: 1u32) {
+                            Text(content: h_branches, color: rc.dim)
+                        }
+                    }.into_any()
+                })
+                #(if header_highlight(3, props.selection.as_ref(), SelectablePane::PrDetail) {
+                    element! {
+                        Box(height: 1u32, background_color: rc.sel_bg) {
+                            Text(content: h_url, color: rc.sel_fg)
+                        }
+                    }.into_any()
+                } else {
+                    element! {
+                        Box(height: 1u32) {
+                            Text(content: h_url, color: rc.dim)
+                        }
+                    }.into_any()
+                })
+                #(if header_highlight(4, props.selection.as_ref(), SelectablePane::PrDetail) {
+                    element! {
+                        Box(height: 1u32, background_color: rc.sel_bg) {
+                            Text(
+                                content: "─────────────────────────────────────────",
+                                color: rc.sel_fg,
+                            )
+                        }
+                    }.into_any()
+                } else {
+                    element! {
+                        Box(height: 1u32) {
+                            Text(
+                                content: "─────────────────────────────────────────",
+                                color: rc.dim,
+                            )
+                        }
+                    }.into_any()
+                })
             }
 
             // ── Scrollable viewport — always exactly scroll_rows rows ─────
@@ -297,6 +360,8 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
                         .filter(|s| s.pane() == crate::selection::SelectablePane::PrDetail),
                     selection_bg: Some(rc.sel_bg),
                     selection_fg: Some(rc.sel_fg),
+                    bg: Some(rc.bg),
+                    content_line_offset: HEADER_ROWS,
                 )
             }
 

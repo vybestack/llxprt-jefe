@@ -6,7 +6,7 @@
 //! the pane under a `(col, row)` along with its screen-space rectangle.
 
 use crate::layout::{
-    AGENT_LIST_CHROME_COLS, AGENT_LIST_CHROME_ROWS, DETAIL_HEADER_ROWS, DETAIL_PANE_CHROME_COLS,
+    AGENT_LIST_CHROME_COLS, AGENT_LIST_CHROME_ROWS, DETAIL_PANE_CHROME_COLS,
     DETAIL_PANE_CHROME_ROWS, KEYBIND_BAR_CHROME_COLS, LEFT_COL_WIDTH, LIST_PANE_CHROME_COLS,
     LIST_PANE_CHROME_ROWS, RIGHT_COL_WIDTH, SIDEBAR_CHROME_COLS, SIDEBAR_CHROME_ROWS,
     STATUS_BAR_CHROME_COLS, TERMINAL_VIEW_CHROME_COLS, TERMINAL_VIEW_CHROME_ROWS,
@@ -350,12 +350,11 @@ fn detail_pane(
     } else {
         SelectablePane::IssueDetail
     };
-    // Detail content starts below the border (1 row) + the fixed metadata
-    // header rows (which include the trailing separator). The header row count
-    // is shared with the renderer via crate::layout::DETAIL_HEADER_ROWS.
-    let detail_chrome_rows = u16::try_from(DETAIL_HEADER_ROWS)
-        .unwrap_or(0)
-        .saturating_add(DETAIL_PANE_CHROME_ROWS);
+    // Detail content starts directly below the border (1 row). The fixed
+    // metadata header rows (title/state/labels/url/separator) are part of the
+    // selectable content — they are rendered above the scroll viewport but are
+    // NOT scrolled, so `content_origin_row` points at the first header row and
+    // the scroll offset is suppressed for those rows in the mouse router.
     (
         pane,
         PaneGeometry::with_chrome(
@@ -364,7 +363,7 @@ fn detail_pane(
             width,
             height,
             DETAIL_PANE_CHROME_COLS,
-            detail_chrome_rows,
+            DETAIL_PANE_CHROME_ROWS,
         ),
     )
 }

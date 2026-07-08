@@ -24,7 +24,12 @@ use crate::runtime::TerminalSnapshot;
 use crate::selection::SelectablePane;
 use crate::state::AppState;
 use crate::ui::components::issue_list::{IssueListLayout, issue_list_visible_rows};
+use crate::ui::components::pr_detail::pr_detail_header_view;
 use crate::ui::components::pr_list::pr_list_visible_rows;
+
+/// Separator line rendered between the fixed detail header and the scrollable
+/// content, mirroring the components' `"─────…"` row.
+const DETAIL_SEPARATOR_LINE: &str = "─────────────────────────────────────────";
 
 /// The copyable text content of a pane, as a flat list of lines.
 ///
@@ -103,10 +108,9 @@ fn issue_detail_lines(state: &AppState) -> PaneContent {
         &state.issues_state.inline_state,
         state.issues_state.loading.comments,
     );
-    PaneContent::new(
-        SelectablePane::IssueDetail,
-        content.text.lines().map(String::from),
-    )
+    let mut lines = issue_detail_header_lines(detail);
+    lines.extend(content.text.lines().map(String::from));
+    PaneContent::new(SelectablePane::IssueDetail, lines)
 }
 
 fn pr_detail_lines(state: &AppState) -> PaneContent {
@@ -120,10 +124,46 @@ fn pr_detail_lines(state: &AppState) -> PaneContent {
         state.prs_state.loading.detail,
         state.prs_state.loading.comments,
     );
-    PaneContent::new(
-        SelectablePane::PrDetail,
-        content.text.lines().map(String::from),
-    )
+    let header = pr_detail_header_view(detail);
+    let mut lines = vec![
+        header.title,
+        header.state,
+        header.branches,
+        header.url,
+        DETAIL_SEPARATOR_LINE.to_string(),
+    ];
+    lines.extend(content.text.lines().map(String::from));
+    PaneContent::new(SelectablePane::PrDetail, lines)
+}
+
+/// Build the five fixed header lines the `IssueDetailView` renders above its
+/// scrollable viewport, so selection coordinates map to those header rows too.
+fn issue_detail_header_lines(detail: &crate::domain::IssueDetail) -> Vec<String> {
+    let state_tag = match detail.state {
+        crate::domain::IssueState::Open => "OPEN",
+        crate::domain::IssueState::Closed => "CLOSED",
+    };
+    let labels_str = if detail.labels.is_empty() {
+        "-".to_string()
+    } else {
+        detail.labels.join(", ")
+    };
+    let assignees_str = if detail.assignees.is_empty() {
+        "-".to_string()
+    } else {
+        detail.assignees.join(", ")
+    };
+    let milestone_str = detail.milestone.as_deref().unwrap_or("-").to_string();
+    vec![
+        format!("#{} {}", detail.number, detail.title),
+        format!(
+            "{}  by @{}  opened: {}  updated: {}",
+            state_tag, detail.author_login, detail.created_at, detail.updated_at
+        ),
+        format!("labels: {labels_str}  assignees: {assignees_str}  milestone: {milestone_str}"),
+        detail.external_url.clone(),
+        DETAIL_SEPARATOR_LINE.to_string(),
+    ]
 }
 
 /// Issue list lines that match the rendered Compact-mode projection exactly
@@ -448,5 +488,83 @@ mod tests {
         let content = pane_content_lines(SelectablePane::KeybindBar, &state, None, 120, 40);
         assert_eq!(content.lines.len(), 1);
         assert!(content.lines[0].contains("navigate"));
+    }
+
+    #[test]
+    fn issue_detail_lines_start_with_header_rows() {
+        use crate::domain::{IssueDetail, IssueState};
+        let mut state = AppState::default();
+        state.issues_state.issue_detail = Some(IssueDetail {
+            repo_owner_name: "o/r".to_string(),
+            number: 42,
+            title: "My Issue".to_string(),
+            state: IssueState::Open,
+            author_login: "octocat".to_string(),
+            created_at: "2026-01-01".to_string(),
+            updated_at: "2026-02-01".to_string(),
+            labels: vec!["bug".to_string()],
+            assignees: vec!["alice".to_string()],
+            milestone: Some("v1".to_string()),
+            body: "Body text".to_string(),
+            external_url: "https://example.com/42".to_string(),
+            comments: Vec::new(),
+            has_more_comments: false,
+            comments_cursor: None,
+        });
+        let content = pane_content_lines(SelectablePane::IssueDetail, &state, None, 120, 40);
+        // Line 0: title, Line 1: state/author, Line 2: labels/assignees/milestone,
+        // Line 3: url, Line 4: separator, then scrollable content lines.
+        assert!(content.lines.len() > 5);
+        assert_eq!(content.lines[0], "#42 My Issue");
+        assert!(content.lines[1].contains("OPEN"));
+        assert!(content.lines[1].contains("@octocat"));
+        assert!(content.lines[2].contains("labels: bug"));
+        assert!(content.lines[2].contains("assignees: alice"));
+        assert!(content.lines[2].contains("milestone: v1"));
+        assert_eq!(content.lines[3], "https://example.com/42");
+        assert!(content.lines[4].starts_with('─'));
+    }
+
+    #[test]
+    fn pr_detail_lines_start_with_header_rows() {
+        use crate::domain::{PrCheckStatus, PrState, PullRequestDetail};
+        let mut state = AppState::default();
+        state.prs_state.pr_detail = Some(PullRequestDetail {
+            repo_owner_name: "o/r".to_string(),
+            number: 7,
+            title: "My PR".to_string(),
+            state: PrState::Open,
+            is_draft: false,
+            author_login: "octocat".to_string(),
+            created_at: "2026-01-01".to_string(),
+            updated_at: "2026-02-01".to_string(),
+            head_ref: "feature".to_string(),
+            base_ref: "main".to_string(),
+            labels: vec!["enhancement".to_string()],
+            assignees: vec!["bob".to_string()],
+            milestone: None,
+            body: "PR body".to_string(),
+            external_url: "https://example.com/pull/7".to_string(),
+            review_decision: None,
+            checks_status: PrCheckStatus::None,
+            reviews: Vec::new(),
+            checks: Vec::new(),
+            comments: Vec::new(),
+            has_more_comments: false,
+            comments_cursor: None,
+            mergeable: None,
+            merge_state_status: None,
+        });
+        let content = pane_content_lines(SelectablePane::PrDetail, &state, None, 120, 40);
+        // Header rows first, then scrollable content.
+        assert!(content.lines.len() > 5);
+        assert_eq!(content.lines[0], "#7 My PR");
+        assert!(content.lines[1].contains("OPEN"));
+        assert!(content.lines[1].contains("octocat"));
+        assert!(content.lines[2].contains("feature -> main"));
+        assert!(content.lines[2].contains("labels: enhancement"));
+        assert!(content.lines[2].contains("assignees: bob"));
+        assert_eq!(content.lines[3], "https://example.com/pull/7");
+        assert!(content.lines[4].starts_with('─'));
     }
 }

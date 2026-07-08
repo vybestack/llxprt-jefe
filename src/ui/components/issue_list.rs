@@ -8,7 +8,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::domain::{Issue, IssueState};
 use crate::selection::{HighlightRange, TextSelection, row_highlight_range};
-use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
+use crate::theme::{ResolvedColors, RowColors, SelectionColors, ThemeColors};
 
 /// Ellipsis character appended when a title is truncated.
 const ELLIPSIS: char = '…';
@@ -268,7 +268,7 @@ pub fn IssueList(props: &IssueListProps) -> impl Into<AnyElement<'static>> {
                             view,
                             rows.layout.is_compact(),
                             highlight,
-                            rc.fg,
+                            RowColors::from_resolved(&rc),
                             SelectionColors::from_resolved(&rc),
                             rc.dim,
                         )
@@ -285,7 +285,7 @@ fn render_issue_row(
     view: &IssueListRowView,
     compact: bool,
     highlight: Option<HighlightRange>,
-    fg: Color,
+    row_colors: RowColors,
     highlight_colors: SelectionColors,
     dim: Color,
 ) -> AnyElement<'static> {
@@ -300,9 +300,13 @@ fn render_issue_row(
     let row_bg = if highlighted {
         highlight_colors.bg
     } else {
-        Color::Reset
+        row_colors.bg
     };
-    let title_fg = if highlighted { highlight_colors.fg } else { fg };
+    let title_fg = if highlighted {
+        highlight_colors.fg
+    } else {
+        row_colors.fg
+    };
 
     if compact {
         return element! {

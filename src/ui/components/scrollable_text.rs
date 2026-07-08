@@ -57,6 +57,15 @@ pub struct ScrollableTextProps {
     pub selection_bg: Option<Color>,
     /// Selection highlight foreground color.
     pub selection_fg: Option<Color>,
+    /// Background color painted on plain (non-highlighted, non-cursor) rows.
+    /// When set, avoids `Color::Reset` (terminal default) haze on the themed
+    /// background. Detail panes pass `Some(rc.bg)`.
+    pub bg: Option<Color>,
+    /// Number of content lines preceding the scrollable region (e.g. detail
+    /// header rows rendered above the viewport). The highlight line-mapping
+    /// adds this offset so a content line that lives in the header is detected
+    /// correctly. Defaults to 0 (no preceding header).
+    pub content_line_offset: usize,
 }
 
 /// Truncate a string to at most `max_chars` display characters.
@@ -165,9 +174,16 @@ pub fn ScrollableText(props: &ScrollableTextProps) -> impl Into<AnyElement<'stat
             Box(flex_direction: FlexDirection::Column, flex_grow: 1.0) {
                 #(display_lines.iter().enumerate().map(|(row_idx, line)| {
                     render_display_row(
-                        RowContext { row_idx, offset },
+                        RowContext {
+                            row_idx,
+                            offset,
+                            content_line_offset: props.content_line_offset,
+                        },
                         line,
-                        fg,
+                        PlainRowColors {
+                            fg,
+                            bg: props.bg,
+                        },
                         CursorPos {
                             line: props.cursor_line,
                             vp_line: cursor_vp_line,
@@ -204,6 +220,16 @@ pub fn ScrollableText(props: &ScrollableTextProps) -> impl Into<AnyElement<'stat
     }
 }
 
+/// Bundled default (non-highlighted, non-cursor) foreground + background colors
+/// for [`render_display_row`].
+#[derive(Clone, Copy)]
+struct PlainRowColors {
+    /// Text color for plain rows.
+    fg: Color,
+    /// Background color for plain rows (`None` leaves the cell transparent).
+    bg: Option<Color>,
+}
+
 /// Bundled cursor foreground + background colors.
 ///
 /// Extracted to keep [`render_display_row`] under the clippy
@@ -234,6 +260,8 @@ struct RowContext {
     row_idx: usize,
     /// Scroll offset of the viewport.
     offset: usize,
+    /// Content lines preceding the scrollable region (header rows).
+    content_line_offset: usize,
 }
 
 /// Bundled selection state + colors for [`render_display_row`].
@@ -249,13 +277,14 @@ struct SelectionState<'a> {
 fn render_display_row(
     ctx: RowContext,
     line: &str,
-    fg: Color,
+    plain_colors: PlainRowColors,
     cursor: CursorPos,
     cursor_colors: CursorColors,
     selection: SelectionState<'_>,
 ) -> AnyElement<'static> {
     let row_idx = ctx.row_idx;
     let offset = ctx.offset;
+    let fg = plain_colors.fg;
     let cursor_line = cursor.line;
     let cursor_vp_line = cursor.vp_line;
     let cursor_col = cursor.col;
@@ -263,7 +292,7 @@ fn render_display_row(
         && Some(row_idx) == cursor_vp_line
         && (offset + row_idx) == cursor_line.unwrap_or(usize::MAX);
 
-    let content_line = offset + row_idx;
+    let content_line = ctx.content_line_offset + offset + row_idx;
     let highlight = selection
         .selection
         .and_then(|s| row_highlight_range(s, content_line));
@@ -310,7 +339,7 @@ fn render_display_row(
     }
 
     element! {
-        Box(height: 1u32) {
+        Box(height: 1u32, background_color: plain_colors.bg) {
             Text(content: line.to_string(), color: fg, wrap: TextWrap::NoWrap)
         }
     }

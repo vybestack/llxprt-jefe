@@ -371,12 +371,13 @@ fn point_to_content_coords_accounts_for_list_chrome() {
 }
 
 #[test]
-fn point_to_content_coords_detail_pane_skips_header() {
-    // Detail pane: content starts after border + 5 header rows = 6 rows below
-    // widget-box top.
-    let geo = PaneGeometry::with_chrome(22, 20, 60, 18, 2, 6);
-    let (line, _col) = point_to_content_coords(24, 26, 0, &geo);
-    assert_eq!(line, 0); // first content row
+fn point_to_content_coords_detail_pane_header_is_content() {
+    // Detail pane: content (the header rows) starts directly below the border,
+    // 1 row below the widget-box top. A click on the first header row maps to
+    // content line 0.
+    let geo = PaneGeometry::with_chrome(22, 20, 60, 18, 2, 1);
+    let (line, _col) = point_to_content_coords(24, 21, 0, &geo);
+    assert_eq!(line, 0); // first header row (title)
 }
 
 // ── pane_at: content origins account for chrome (#141 follow-up) ────────────
@@ -397,15 +398,14 @@ fn pane_at_pr_list_content_origin_accounts_for_border_and_title() {
 #[test]
 fn pane_at_pr_detail_content_origin_accounts_for_header_rows() {
     let lay = layout(120, 40, PRS, false, false);
-    // Detail pane content starts after border + DETAIL_HEADER_ROWS (5) = 6 rows.
+    // Detail pane content starts directly below the border (1 row). The fixed
+    // header rows are part of the selectable content (rendered above the scroll
+    // viewport but not scrolled), so content_origin_row == origin_row + 1.
     let Some((pane, geo)) = pane_at(40, 25, PRS, false, &lay) else {
         panic!("expected pr detail at (40, 25)");
     };
     assert!(matches!(pane, SelectablePane::PrDetail));
-    assert_eq!(
-        geo.content_origin_row,
-        geo.origin_row + 1 + u16::try_from(crate::layout::DETAIL_HEADER_ROWS).unwrap_or(0)
-    );
+    assert_eq!(geo.content_origin_row, geo.origin_row + 1);
     assert_eq!(geo.content_origin_col, geo.origin_col + 2);
 }
 

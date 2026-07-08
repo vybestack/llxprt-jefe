@@ -155,18 +155,38 @@ fn resolve_pane(
 /// Begin a new text selection at `(col, row)`.
 fn begin_selection(app_state: &mut HookState<AppState>, col: u16, row: u16) {
     let (cols, rows) = terminal_size();
-    let scroll_offset = read_scroll_offset(app_state, col, row, cols, rows);
-    let point = {
+    let point = resolve_selection_point(app_state, col, row, cols, rows);
+    match point {
+        Some(p) => app_state.write().selection = Some(TextSelection::collapsed(p)),
+        None => app_state.write().selection = None,
+    }
+}
+
+/// Resolve the screen `(col, row)` to a content selection point under the pane
+/// it lands in, applying the detail-header scroll suppression. Returns `None`
+/// when the coordinate is not over any selectable pane.
+fn resolve_selection_point(
+    app_state: &HookState<AppState>,
+    col: u16,
+    row: u16,
+    cols: u16,
+    rows: u16,
+) -> Option<SelectionPoint> {
+    // Resolve the pane + geometry in one short read, then read the scroll
+    // offset in another, so each read guard drops immediately (the guard has a
+    // significant Drop and clippy::significant_drop_tightening requires it not
+    // be held across unrelated statements).
+    let (pane, geometry) = {
         let state = app_state.read();
-        let Some((pane, geometry)) = resolve_pane(&state, col, row, cols, rows) else {
-            drop(state);
-            app_state.write().selection = None;
-            return;
-        };
-        let (line, c) = point_to_content_coords(col, row, scroll_offset, &geometry);
-        SelectionPoint::new(pane, line, c)
+        resolve_pane(&state, col, row, cols, rows)?
     };
-    app_state.write().selection = Some(TextSelection::collapsed(point));
+    let raw_scroll = {
+        let state = app_state.read();
+        scroll_offset_for_pane(&state, pane)
+    };
+    let scroll_offset = effective_scroll_for_detail(pane, row, &geometry, raw_scroll);
+    let (line, c) = point_to_content_coords(col, row, scroll_offset, &geometry);
+    Some(SelectionPoint::new(pane, line, c))
 }
 
 /// Update the focus (drag) point of the active selection.
@@ -178,9 +198,9 @@ fn update_selection(app_state: &mut HookState<AppState>, col: u16, row: u16) {
             return;
         };
         let pane = current.pane();
-        let scroll_offset = scroll_offset_for_pane(&state, pane);
+        let raw_scroll = scroll_offset_for_pane(&state, pane);
         drop(state);
-        (current.anchor, pane, scroll_offset)
+        (current.anchor, pane, raw_scroll)
     };
     let focus_point = {
         let state = app_state.read();
@@ -192,6 +212,7 @@ fn update_selection(app_state: &mut HookState<AppState>, col: u16, row: u16) {
         if resolved_pane != pane {
             return;
         }
+        let scroll_offset = effective_scroll_for_detail(pane, row, &geometry, scroll_offset);
         let (line, c) = point_to_content_coords(col, row, scroll_offset, &geometry);
         SelectionPoint::new(pane, line, c)
     };
@@ -236,19 +257,28 @@ fn finalize_and_copy_selection(ctx: Option<&CtxArc>, app_state: &HookState<AppSt
     }
 }
 
-/// Read the scroll offset of the pane under `(col, row)`, if it is scrollable.
-fn read_scroll_offset(
-    app_state: &HookState<AppState>,
-    col: u16,
+/// For detail panes, headers occupy content lines `0..DETAIL_HEADER_ROWS` and
+/// are not affected by scroll offset. Scrollable content starts at line
+/// `DETAIL_HEADER_ROWS`. Return 0 when the click is in the header area,
+/// otherwise the real scroll offset.
+fn effective_scroll_for_detail(
+    pane: SelectablePane,
     row: u16,
-    cols: u16,
-    rows: u16,
+    geometry: &jefe::selection::PaneGeometry,
+    scroll_offset: usize,
 ) -> usize {
-    let state = app_state.read();
-    let Some((pane, _)) = resolve_pane(&state, col, row, cols, rows) else {
-        return 0;
-    };
-    scroll_offset_for_pane(&state, pane)
+    use jefe::layout::DETAIL_HEADER_ROWS;
+    match pane {
+        SelectablePane::IssueDetail | SelectablePane::PrDetail => {
+            let content_row = usize::from(row.saturating_sub(geometry.content_origin_row));
+            if content_row < DETAIL_HEADER_ROWS {
+                0
+            } else {
+                scroll_offset
+            }
+        }
+        _ => scroll_offset,
+    }
 }
 
 /// Scroll offset for a specific pane from app state.
