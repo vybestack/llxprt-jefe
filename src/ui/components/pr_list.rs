@@ -246,6 +246,8 @@ pub fn pr_list_status_message(
     }
 }
 
+/// Map a PR state to its short uppercase tag used in the list meta line.
+///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-006
 /// @pseudocode component-001 lines 1-12
