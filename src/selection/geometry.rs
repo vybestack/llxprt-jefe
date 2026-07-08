@@ -7,8 +7,8 @@
 
 use crate::layout::{
     AGENT_LIST_CHROME_COLS, AGENT_LIST_CHROME_ROWS, DETAIL_HEADER_ROWS, DETAIL_PANE_CHROME_COLS,
-    KEYBIND_BAR_CHROME_COLS, LEFT_COL_WIDTH, LIST_PANE_CHROME_COLS, LIST_PANE_CHROME_ROWS,
-    OUTER_BARS_HEIGHT, RIGHT_COL_WIDTH, SIDEBAR_CHROME_COLS, SIDEBAR_CHROME_ROWS,
+    DETAIL_PANE_CHROME_ROWS, KEYBIND_BAR_CHROME_COLS, LEFT_COL_WIDTH, LIST_PANE_CHROME_COLS,
+    LIST_PANE_CHROME_ROWS, RIGHT_COL_WIDTH, SIDEBAR_CHROME_COLS, SIDEBAR_CHROME_ROWS,
     STATUS_BAR_CHROME_COLS, TERMINAL_VIEW_CHROME_COLS, TERMINAL_VIEW_CHROME_ROWS,
     effective_render_size, issues_pane_rows,
 };
@@ -102,19 +102,19 @@ impl PaneGeometry {
 ///
 /// Returns `None` when the point falls outside any known pane (e.g. on a
 /// border line or in the gutter). The layout is computed from `term_cols` /
-/// `term_rows` and the active `screen_mode`, using the exact [`crate::layout`]
-/// constants the screens render with, so geometry can never drift from the
-/// rendered output.
+/// `term_rows` and the active screen mode (read from `layout.screen_mode`),
+/// using the exact [`crate::layout`] constants the screens render with, so
+/// geometry can never drift from the rendered output.
 ///
-/// `terminal_focused` only matters for the dashboard: when the terminal is
-/// focused, mouse events over the terminal pane are forwarded to the PTY and
-/// should not start an app selection, so [`SelectablePane::TerminalView`] is
-/// excluded from the result in that case.
+/// `terminal_input_enabled` only matters for the dashboard: when the terminal
+/// is focused, mouse events over the terminal pane are forwarded to the PTY
+/// and should not start an app selection, so [`SelectablePane::TerminalView`]
+/// is excluded from the result in that case.
 #[must_use]
 pub fn pane_at(
     col: u16,
     row: u16,
-    screen_mode: crate::state::ScreenMode,
+    _screen_mode: crate::state::ScreenMode,
     terminal_input_enabled: bool,
     layout: &ScreenLayout,
 ) -> Option<(SelectablePane, PaneGeometry)> {
@@ -131,7 +131,7 @@ pub fn pane_at(
         return Some(keybind_bar(render_cols, render_rows));
     }
 
-    match screen_mode {
+    match layout.screen_mode {
         crate::state::ScreenMode::Dashboard | crate::state::ScreenMode::Split => {
             dashboard_pane_at(col, row, render_cols, render_rows, terminal_input_enabled)
         }
@@ -229,12 +229,11 @@ fn dashboard_pane_at(
 
 /// Issues/PR-mode layout hit-test (identical geometry, different pane names).
 ///
-/// The caller passes the `SelectablePane` variant set appropriate for the mode
-/// via the [`ScreenLayout`]'s screen mode; here we always return Issue* variants
-/// and rely on the fact that PR mode reuses the same geometry. The pane
-/// *identity* is corrected by the caller when needed — but since this is the
-/// single shared geometry, we return the Issues-named panes and the
-/// mouse-routing layer maps them to PR panes when in PR mode.
+/// The [`ScreenLayout`]'s screen mode determines whether the list and detail
+/// panes are returned as `IssueList`/`IssueDetail` or `PrList`/`PrDetail`
+/// (see [`list_pane`] and [`detail_pane`], which branch on
+/// `layout.is_pr_mode()`). The geometry itself is shared between issues and
+/// PR modes because both use the same `issues_pane_rows` layout math.
 fn issues_pane_at(
     col: u16,
     row: u16,
@@ -356,7 +355,7 @@ fn detail_pane(
     // is shared with the renderer via crate::layout::DETAIL_HEADER_ROWS.
     let detail_chrome_rows = u16::try_from(DETAIL_HEADER_ROWS)
         .unwrap_or(0)
-        .saturating_add(1);
+        .saturating_add(DETAIL_PANE_CHROME_ROWS);
     (
         pane,
         PaneGeometry::with_chrome(
@@ -442,6 +441,5 @@ fn terminal_view(
 /// geometry uses the exact same clamping the renderer applies (single source of
 /// truth). `render_rows` is the post-`effective_render_size` height.
 fn dashboard_middle_row_heights_for_render(render_rows: u16) -> (u16, u16) {
-    let content_rows = render_rows.saturating_sub(OUTER_BARS_HEIGHT);
-    crate::layout::dashboard_middle_row_heights_inner(content_rows)
+    crate::layout::dashboard_middle_row_heights_inner(render_rows)
 }

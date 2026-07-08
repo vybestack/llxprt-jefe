@@ -111,6 +111,27 @@ fn pane_at_dashboard_terminal_unfocused() {
 }
 
 #[test]
+fn pane_at_dashboard_agent_terminal_boundary() {
+    let lay = layout(120, 40, DASHBOARD, false, false);
+    // Find the exact boundary row between AgentList and TerminalView.
+    let Some((_, agent_geo)) = pane_at(30, 1, DASHBOARD, false, &lay) else {
+        panic!("expected agent list at (30, 1)");
+    };
+    let agent_end_row = agent_geo.origin_row + agent_geo.height;
+    // The row at agent_end_row should be the first terminal row.
+    let Some((pane, term_geo)) = pane_at(30, agent_end_row, DASHBOARD, false, &lay) else {
+        panic!("expected terminal view at agent boundary row {agent_end_row}");
+    };
+    assert!(matches!(pane, SelectablePane::TerminalView));
+    assert_eq!(term_geo.origin_row, agent_end_row);
+    // The row just above the boundary should still be AgentList.
+    let Some((above_pane, _)) = pane_at(30, agent_end_row - 1, DASHBOARD, false, &lay) else {
+        panic!("expected agent list at row {}", agent_end_row - 1);
+    };
+    assert!(matches!(above_pane, SelectablePane::AgentList));
+}
+
+#[test]
 fn pane_at_dashboard_terminal_focused_returns_none_in_terminal_region() {
     let lay = layout(120, 40, DASHBOARD, false, false);
     // When the terminal is focused, mouse over the terminal goes to the PTY,

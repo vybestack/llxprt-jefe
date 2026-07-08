@@ -92,9 +92,10 @@ pub fn write_osc52_to_writer_with_mode(
     mode: PassthroughMode,
     writer: &mut impl Write,
 ) -> io::Result<usize> {
-    let b64 = base64_encode(text.as_bytes());
-    let truncated = truncate_payload(&b64);
-    write_payload_with_mode(&truncated, mode, writer)
+    let truncated_text = truncate_text_on_char_boundary(text);
+    let b64 = base64_encode(truncated_text.as_bytes());
+    let truncated_b64 = truncate_payload(&b64);
+    write_payload_with_mode(&truncated_b64, mode, writer)
 }
 
 /// Write an OSC 52 copy sequence for `text` to the controlling terminal.
@@ -152,6 +153,26 @@ fn base64_encode(input: &[u8]) -> String {
         }
     }
     out
+}
+
+/// Truncate `text` so the base64-encoded form stays within the payload limit.
+///
+/// Truncating on a `char` boundary first guarantees the clipboard text is
+/// always valid UTF-8 even after the base64-level truncation.
+#[must_use]
+fn truncate_text_on_char_boundary(text: &str) -> String {
+    // MAX_BASE64_PAYLOAD_BYTES is the byte limit for the base64 string.
+    // Base64 encodes 3 bytes -> 4 chars, so the max input bytes = limit * 3 / 4.
+    let max_input_bytes = MAX_BASE64_PAYLOAD_BYTES / 4 * 3;
+    if text.len() <= max_input_bytes {
+        return text.to_string();
+    }
+    // Walk backward from the byte limit to a char boundary.
+    let mut cut = max_input_bytes;
+    while cut > 0 && !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    text[..cut].to_string()
 }
 
 /// Truncate the base64 string to the max payload size, keeping it valid base64.

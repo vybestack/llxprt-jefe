@@ -17,6 +17,11 @@ use jefe::selection::{
 };
 use jefe::state::{AppState, PaneFocus};
 
+/// Terminal size fallback for the default 120x40 geometry.
+fn terminal_size() -> (u16, u16) {
+    crossterm::terminal::size().unwrap_or((120, 40))
+}
+
 /// Clear any active mouse selection.
 ///
 /// Called on every non-mouse terminal event (key, paste, resize) so a
@@ -88,7 +93,7 @@ fn forward_to_pty_if_in_terminal(
         return false;
     }
 
-    let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (cols, rows) = terminal_size();
     let layout = compute_pty_layout(cols, rows);
 
     let row_end = layout
@@ -149,7 +154,7 @@ fn resolve_pane(
 
 /// Begin a new text selection at `(col, row)`.
 fn begin_selection(app_state: &mut HookState<AppState>, col: u16, row: u16) {
-    let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (cols, rows) = terminal_size();
     let scroll_offset = read_scroll_offset(app_state, col, row, cols, rows);
     let point = {
         let state = app_state.read();
@@ -166,7 +171,7 @@ fn begin_selection(app_state: &mut HookState<AppState>, col: u16, row: u16) {
 
 /// Update the focus (drag) point of the active selection.
 fn update_selection(app_state: &mut HookState<AppState>, col: u16, row: u16) {
-    let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (cols, rows) = terminal_size();
     let (anchor, pane, scroll_offset) = {
         let state = app_state.read();
         let Some(current) = state.selection else {
@@ -219,7 +224,7 @@ fn finalize_and_copy_selection(ctx: Option<&CtxArc>, app_state: &HookState<AppSt
                 .filter(|a| a.is_running())
                 .map(|a| &a.id),
         );
-        let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
+        let (cols, rows) = terminal_size();
         let content = pane_content_lines(selection.pane(), &state, snapshot.as_ref(), cols, rows);
         drop(state);
         selection_text(&selection, &content.lines)

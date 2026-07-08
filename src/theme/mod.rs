@@ -102,7 +102,7 @@ pub struct ResolvedColors {
 ///
 /// Extracted from [`ResolvedColors`] to keep helper function argument counts
 /// under the clippy `too_many_arguments` threshold (6).
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct SelectionColors {
     /// Inverse-video foreground for selected text.
     pub fg: Color,

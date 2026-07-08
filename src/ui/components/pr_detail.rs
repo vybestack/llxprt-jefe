@@ -292,7 +292,9 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
                     cursor_bg: rc.bright,
                     track_color: rc.dim,
                     thumb_color: rc.bright,
-                    selection: props.selection,
+                    selection: props
+                        .selection
+                        .filter(|s| s.pane() == crate::selection::SelectablePane::PrDetail),
                     selection_bg: Some(rc.sel_bg),
                     selection_fg: Some(rc.sel_fg),
                 )

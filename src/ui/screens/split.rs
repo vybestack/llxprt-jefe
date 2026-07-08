@@ -131,8 +131,8 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                             .filter(|s| s.pane() == SelectablePane::Sidebar)
                             .and_then(|s| row_highlight_range(&s, i))
                             .is_some();
-                        let row_bg = if highlighted || selected { rc.sel_bg } else { Color::Reset };
-                        let fg = if highlighted || selected { rc.sel_fg } else { rc.fg };
+                        let row_bg = if highlighted { rc.sel_bg } else { Color::Reset };
+                        let fg = if highlighted { rc.sel_fg } else { rc.fg };
                         let weight = if selected { Weight::Bold } else { Weight::Normal };
                         element! {
                             Box(height: 1u32, background_color: row_bg) {

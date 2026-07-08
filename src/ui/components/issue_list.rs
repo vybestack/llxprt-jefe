@@ -256,20 +256,10 @@ pub fn IssueList(props: &IssueListProps) -> impl Into<AnyElement<'static>> {
                         rows.layout,
                         rows.available_width,
                     );
-                    let rows_per_item = if rows.layout.is_compact() { 1 } else { 2 };
-                    let viewport =
-                        (rows.list_pane_rows.saturating_sub(LIST_CHROME_ROWS) / rows_per_item)
-                            .max(1) as usize;
-                    let first_visible = crate::layout::list_first_visible_index(
-                        rows.selected_index.unwrap_or(0),
-                        rows.issues.len(),
-                        viewport,
-                    );
                     projected.iter().enumerate().map(|(window_i, view)| {
-                        let content_line = first_visible + window_i;
                         let highlight = rows.selection.as_ref().and_then(|s| {
                             if s.pane() == crate::selection::SelectablePane::IssueList {
-                                row_highlight_range(s, content_line)
+                                row_highlight_range(s, window_i)
                             } else {
                                 None
                             }
@@ -304,19 +294,15 @@ fn render_issue_row(
     let is_selected = view.is_selected;
 
     // When a drag selection covers this row, paint the whole row in the
-    // selection colors (lists are single-line-per-item in Compact mode, so a
-    // row-level highlight is sufficient and matches the copyable text).
+    // selection colors. Keyboard selection uses a separate highlight color
+    // (`is_selected`) for text emphasis (bold) but not inverse-video.
     let highlighted = highlight.is_some();
-    let row_bg = if highlighted || is_selected {
+    let row_bg = if highlighted {
         highlight_colors.bg
     } else {
         Color::Reset
     };
-    let title_fg = if highlighted || is_selected {
-        highlight_colors.fg
-    } else {
-        fg
-    };
+    let title_fg = if highlighted { highlight_colors.fg } else { fg };
 
     if compact {
         return element! {
@@ -341,7 +327,7 @@ fn render_issue_row(
                 )
             }
             Box(height: 1u32, background_color: row_bg) {
-                Text(content: meta_line.to_string(), color: if is_selected { highlight_colors.fg } else { dim })
+                Text(content: meta_line.to_string(), color: if highlighted { highlight_colors.fg } else { dim })
             }
         }
     }
