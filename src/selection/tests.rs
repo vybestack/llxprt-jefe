@@ -4,8 +4,8 @@
 //! [`selection_text`], and [`point_to_content_coords`] without any terminal.
 
 use crate::selection::{
-    PaneGeometry, SelectablePane, SelectionPoint, TextSelection, normalize_selection, pane_at,
-    point_to_content_coords, selection_text,
+    HighlightRange, PaneGeometry, SelectablePane, SelectionPoint, TextSelection,
+    normalize_selection, pane_at, point_to_content_coords, row_highlight_range, selection_text,
 };
 use crate::state::ScreenMode;
 
@@ -27,12 +27,21 @@ fn layout(
 
 #[test]
 fn geometry_contains_includes_interior_and_edges() {
-    let g = PaneGeometry::new(5, 3, 4, 2);
+    let g = PaneGeometry::new(5, 3, 4, 2, 6, 4);
     assert!(g.contains(5, 3));
     assert!(g.contains(8, 4)); // bottom-right inclusive
     assert!(!g.contains(4, 3)); // left of origin
     assert!(!g.contains(9, 4)); // right of edge
     assert!(!g.contains(5, 5)); // below edge
+}
+
+#[test]
+fn geometry_with_chrome_derives_content_origin() {
+    let g = PaneGeometry::with_chrome(10, 5, 40, 20, 2, 3);
+    assert_eq!(g.origin_col, 10);
+    assert_eq!(g.origin_row, 5);
+    assert_eq!(g.content_origin_col, 12);
+    assert_eq!(g.content_origin_row, 8);
 }
 
 // ── pane_at: dashboard ──────────────────────────────────────────────────────
@@ -65,6 +74,9 @@ fn pane_at_dashboard_sidebar() {
     assert!(matches!(pane, SelectablePane::Sidebar));
     assert_eq!(geo.origin_col, 0);
     assert_eq!(geo.origin_row, 1);
+    // Sidebar content starts at col +2 (border + padding), row +2 (border + title).
+    assert_eq!(geo.content_origin_col, 2);
+    assert_eq!(geo.content_origin_row, 3);
 }
 
 #[test]
@@ -160,13 +172,16 @@ fn pane_at_issues_with_error_banner_shifts_workspace_down() {
 #[test]
 fn pane_at_issues_with_filter_controls_shifts_workspace_down() {
     let lay = layout(120, 40, ISSUES, false, true);
-    // Filter band occupies 5 rows starting at row 1.
-    let Some((pane, geo)) = pane_at(40, 2, ISSUES, false, &lay) else {
-        panic!("expected a pane for filter band at (40, 2)");
+    // Filter band occupies 5 rows starting at row 1 — not selectable (it is
+    // a separate UI element with no content provider).
+    assert!(pane_at(40, 2, ISSUES, false, &lay).is_none());
+    // Below the filter band (row 6+) is the issue list.
+    let Some((pane, geo)) = pane_at(40, 6, ISSUES, false, &lay) else {
+        panic!("expected issue list below filter band at (40, 6)");
     };
-    assert_eq!(geo.origin_row, 1);
-    assert!(geo.height >= 5);
-    let _ = pane;
+    assert!(matches!(pane, SelectablePane::IssueList));
+    assert_eq!(geo.origin_row, 6);
+    let _ = geo;
 }
 
 // ── pane_at: PR mode (mirrors issues geometry, different pane names) ─────────
@@ -298,16 +313,18 @@ fn selection_text_empty_lines_input_returns_empty() {
 // ── point_to_content_coords ─────────────────────────────────────────────────
 
 #[test]
-fn point_to_content_coords_adjusts_for_origin_and_scroll() {
-    let geo = PaneGeometry::new(22, 5, 60, 20);
+fn point_to_content_coords_adjusts_for_content_origin_and_scroll() {
+    // Content origin at (22, 5): a click at col 25, row 7 → content (line 2, col 3)
+    // before scroll; with scroll_offset 3 → line 5.
+    let geo = PaneGeometry::new(20, 3, 60, 20, 22, 5);
     let (line, col) = point_to_content_coords(25, 7, 3, &geo);
-    assert_eq!(line, 5); // row 7 - origin 5 + scroll 3
-    assert_eq!(col, 3); // col 25 - origin 22
+    assert_eq!(line, 5); // row 7 - content_origin 5 + scroll 3
+    assert_eq!(col, 3); // col 25 - content_origin 22
 }
 
 #[test]
 fn point_to_content_coords_zero_scroll() {
-    let geo = PaneGeometry::new(0, 1, 40, 10);
+    let geo = PaneGeometry::new(0, 1, 40, 10, 0, 1);
     let (line, col) = point_to_content_coords(2, 3, 0, &geo);
     assert_eq!(line, 2);
     assert_eq!(col, 2);
@@ -315,8 +332,155 @@ fn point_to_content_coords_zero_scroll() {
 
 #[test]
 fn point_to_content_coords_clamps_before_origin() {
-    let geo = PaneGeometry::new(22, 5, 60, 20);
+    let geo = PaneGeometry::new(22, 5, 60, 20, 24, 7);
     let (line, col) = point_to_content_coords(10, 2, 0, &geo);
-    assert_eq!(line, 0); // row 2 - origin 5 saturates to 0
-    assert_eq!(col, 0); // col 10 - origin 22 saturates to 0
+    assert_eq!(line, 0); // row 2 - content_origin 7 saturates to 0
+    assert_eq!(col, 0); // col 10 - content_origin 24 saturates to 0
+}
+
+#[test]
+fn point_to_content_coords_accounts_for_list_chrome() {
+    // Simulate a bordered list pane whose widget box starts at (22, 1) with
+    // content starting at (23, 3) (border + title). A click on the first
+    // content row should map to content line 0.
+    let geo = PaneGeometry::with_chrome(22, 1, 60, 10, 1, 2);
+    let (line, col) = point_to_content_coords(23, 3, 0, &geo);
+    assert_eq!(line, 0);
+    assert_eq!(col, 0);
+}
+
+#[test]
+fn point_to_content_coords_detail_pane_skips_header() {
+    // Detail pane: content starts after border + 5 header rows = 6 rows below
+    // widget-box top.
+    let geo = PaneGeometry::with_chrome(22, 20, 60, 18, 2, 6);
+    let (line, _col) = point_to_content_coords(24, 26, 0, &geo);
+    assert_eq!(line, 0); // first content row
+}
+
+// ── pane_at: content origins account for chrome (#141 follow-up) ────────────
+
+#[test]
+fn pane_at_pr_list_content_origin_accounts_for_border_and_title() {
+    let lay = layout(120, 40, PRS, false, false);
+    // PR list widget box top is at row 1. Content starts at row 3 (border +
+    // title), col 23 (border). Clicking the first content row maps to line 0.
+    let Some((pane, geo)) = pane_at(23, 3, PRS, false, &lay) else {
+        panic!("expected pr list at (23, 3)");
+    };
+    assert!(matches!(pane, SelectablePane::PrList));
+    assert_eq!(geo.content_origin_col, geo.origin_col + 1);
+    assert_eq!(geo.content_origin_row, geo.origin_row + 2);
+}
+
+#[test]
+fn pane_at_pr_detail_content_origin_accounts_for_header_rows() {
+    let lay = layout(120, 40, PRS, false, false);
+    // Detail pane content starts after border + DETAIL_HEADER_ROWS (5) = 6 rows.
+    let Some((pane, geo)) = pane_at(40, 25, PRS, false, &lay) else {
+        panic!("expected pr detail at (40, 25)");
+    };
+    assert!(matches!(pane, SelectablePane::PrDetail));
+    assert_eq!(
+        geo.content_origin_row,
+        geo.origin_row + 1 + u16::try_from(crate::layout::DETAIL_HEADER_ROWS).unwrap_or(0)
+    );
+    assert_eq!(geo.content_origin_col, geo.origin_col + 2);
+}
+
+#[test]
+fn pane_at_status_bar_content_origin_accounts_for_padding() {
+    let lay = layout(120, 40, DASHBOARD, false, false);
+    let Some((pane, geo)) = pane_at(60, 0, DASHBOARD, false, &lay) else {
+        panic!("expected status bar at (60, 0)");
+    };
+    assert!(matches!(pane, SelectablePane::StatusBar));
+    assert_eq!(geo.content_origin_col, 1); // padding_left
+}
+
+#[test]
+fn pane_at_dashboard_agent_list_content_origin_accounts_for_chrome() {
+    let lay = layout(120, 40, DASHBOARD, false, false);
+    let Some((pane, geo)) = pane_at(30, 1, DASHBOARD, false, &lay) else {
+        panic!("expected agent list at (30, 1)");
+    };
+    assert!(matches!(pane, SelectablePane::AgentList));
+    assert_eq!(geo.content_origin_col, geo.origin_col + 2);
+    assert_eq!(geo.content_origin_row, geo.origin_row + 2);
+}
+
+// ── row_highlight_range ─────────────────────────────────────────────────────
+
+fn sel(start_line: usize, start_col: usize, end_line: usize, end_col: usize) -> TextSelection {
+    TextSelection {
+        anchor: SelectionPoint::new(SelectablePane::IssueDetail, start_line, start_col),
+        focus: SelectionPoint::new(SelectablePane::IssueDetail, end_line, end_col),
+    }
+}
+
+#[test]
+fn highlight_range_none_for_empty_selection() {
+    let s = TextSelection::collapsed(SelectionPoint::new(SelectablePane::IssueDetail, 2, 3));
+    assert_eq!(row_highlight_range(&s, 2), None);
+}
+
+#[test]
+fn highlight_range_single_line_substring() {
+    let s = sel(1, 2, 1, 5);
+    assert_eq!(
+        row_highlight_range(&s, 1),
+        Some(HighlightRange { start: 2, end: 5 })
+    );
+}
+
+#[test]
+fn highlight_range_line_outside_selection_is_none() {
+    let s = sel(1, 0, 3, 0);
+    assert_eq!(row_highlight_range(&s, 0), None);
+    assert_eq!(row_highlight_range(&s, 4), None);
+}
+
+#[test]
+fn highlight_range_start_line_tail_to_end() {
+    let s = sel(1, 2, 3, 4);
+    assert_eq!(
+        row_highlight_range(&s, 1),
+        Some(HighlightRange {
+            start: 2,
+            end: usize::MAX
+        })
+    );
+}
+
+#[test]
+fn highlight_range_end_line_head_from_zero() {
+    let s = sel(1, 2, 3, 4);
+    assert_eq!(
+        row_highlight_range(&s, 3),
+        Some(HighlightRange { start: 0, end: 4 })
+    );
+}
+
+#[test]
+fn highlight_range_middle_line_full() {
+    let s = sel(1, 2, 3, 4);
+    assert_eq!(
+        row_highlight_range(&s, 2),
+        Some(HighlightRange {
+            start: 0,
+            end: usize::MAX
+        })
+    );
+}
+
+#[test]
+fn highlight_range_works_with_reversed_anchor_focus() {
+    let s = sel(3, 4, 1, 2);
+    assert_eq!(
+        row_highlight_range(&s, 1),
+        Some(HighlightRange {
+            start: 2,
+            end: usize::MAX
+        })
+    );
 }

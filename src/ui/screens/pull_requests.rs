@@ -41,6 +41,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
     let state = props.state.as_ref();
     let colors = props.colors.clone().unwrap_or_default();
     let rc = ResolvedColors::from_theme(Some(&colors));
+    let selection = state.and_then(|s| s.selection);
 
     // ── Sidebar data ────────────────────────────────────────────────────────
     let selected_repo_idx = state
@@ -165,6 +166,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                 version: crate::VERSION.to_owned(),
                 warning_message: state.and_then(|s| s.warning_message.clone()),
                 colors: colors.clone(),
+                selection: selection,
             )
 
             // ── Main body: sidebar + PR workspace ───────────────────────────
@@ -181,6 +183,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                         selected: selected_repo_idx,
                         focused: sidebar_focused,
                         colors: colors.clone(),
+                        selection: selection,
                     )
                 }
 
@@ -236,6 +239,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                             layout: PrListLayout::Compact,
                             colors: colors.clone(),
                             available_width: Some(list_width),
+                            selection: selection,
                         )
                     }
                     Box(flex_grow: 1.0, width: 100pct) {
@@ -250,6 +254,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                             detail_content_width: detail_content_width,
                             colors: colors.clone(),
                             viewport_rows: Some(detail_pane_height),
+                            selection: selection,
                         )
                     }
 

@@ -7,6 +7,7 @@ use iocraft::prelude::*;
 use crate::domain::PullRequestDetail;
 use crate::layout::PR_DETAIL_HEADER_ROWS as HEADER_ROWS;
 use crate::pr_detail_content::{build_pr_detail_content, pr_state_tag};
+use crate::selection::TextSelection;
 use crate::state::{ComposerTarget, InlineState, PrDetailSubfocus};
 use crate::theme::{ResolvedColors, ThemeColors};
 
@@ -111,6 +112,9 @@ pub struct PrDetailViewProps {
     pub detail_content_width: usize,
     /// Theme colors.
     pub colors: ThemeColors,
+    /// Active text selection, if any (and if it targets this pane). Passed
+    /// through to the `ScrollableText` so selected cells render inverse-video.
+    pub selection: Option<TextSelection>,
 }
 
 /// Extract the active PR composer `(text, byte_cursor, prefix)`.
@@ -288,6 +292,9 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
                     cursor_bg: rc.bright,
                     track_color: rc.dim,
                     thumb_color: rc.bright,
+                    selection: props.selection,
+                    selection_bg: Some(rc.sel_bg),
+                    selection_fg: Some(rc.sel_fg),
                 )
             }
 

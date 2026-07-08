@@ -7,6 +7,7 @@
 use iocraft::prelude::*;
 
 use crate::domain::{Agent, AgentStatus};
+use crate::selection::{SelectablePane, TextSelection, row_highlight_range};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the agent list component.
@@ -22,6 +23,9 @@ pub struct AgentListProps {
     pub grabbed: Option<usize>,
     /// Theme colors.
     pub colors: ThemeColors,
+    /// Active text selection, if any (and if it targets this pane). Selected
+    /// rows are painted in inverse video for live drag-selection feedback.
+    pub selection: Option<TextSelection>,
 }
 
 /// Agent list showing agents for the current repository.
@@ -81,16 +85,23 @@ pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
                     } else {
                         "  "
                     };
+                    let highlighted = props.selection.as_ref()
+                        .filter(|s| s.pane() == SelectablePane::AgentList)
+                        .and_then(|s| row_highlight_range(s, i))
+                        .is_some();
+                    let row_bg = if highlighted { rc.sel_bg } else { Color::Reset };
                     let name_color = if selected { rc.bright } else { rc.fg };
+                    let name_color = if highlighted { rc.sel_fg } else { name_color };
                     let shortcut_label = agent.shortcut_slot
                         .map_or_else(String::new, |slot| format!("[{slot}] "));
                     element! {
-                        Box(flex_direction: FlexDirection::Row) {
+                        Box(flex_direction: FlexDirection::Row, background_color: row_bg) {
                             Text(content: prefix, color: name_color)
                             Text(content: status_icon, color: status_color)
                             Text(content: format!(" {}{}", shortcut_label, agent.name), color: name_color)
                         }
                     }
+                    .into_any()
                 }))
             }
         }

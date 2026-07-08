@@ -35,6 +35,47 @@ pub const AGENT_PANE_MIN_ROWS: u16 = 3;
 /// Minimum rows reserved for the terminal pane so it keeps its chrome and a usable viewport.
 pub const TERMINAL_PANE_MIN_ROWS: u16 = TERMINAL_WIDGET_CHROME_ROWS + 2;
 
+// ── Selection chrome offsets ───────────────────────────────────────────────
+//
+// Each bordered pane consumes a fixed number of rows/cols of "chrome" (border,
+// title, padding) before its first content cell. The mouse-selection geometry
+// uses these to translate screen coordinates into content coordinates so a
+// click on the first content line maps to content line 0, not to the border or
+// title row. They mirror exactly what each `#[component]` renders.
+
+/// Bordered-list panes (PrList, IssueList): top border + title row.
+pub const LIST_PANE_CHROME_ROWS: u16 = 2;
+/// Bordered-list panes: left border column.
+pub const LIST_PANE_CHROME_COLS: u16 = 1;
+/// Sidebar: top border + title row.
+pub const SIDEBAR_CHROME_ROWS: u16 = 2;
+/// Sidebar: left border + 1-col content padding.
+pub const SIDEBAR_CHROME_COLS: u16 = 2;
+/// Agent list: top border + title row.
+pub const AGENT_LIST_CHROME_ROWS: u16 = 2;
+/// Agent list: left border + 1-col content padding.
+pub const AGENT_LIST_CHROME_COLS: u16 = 2;
+/// Terminal view: top border + title row.
+pub const TERMINAL_VIEW_CHROME_ROWS: u16 = 2;
+/// Terminal view: left border column.
+pub const TERMINAL_VIEW_CHROME_COLS: u16 = 1;
+/// Detail panes (PrDetail, IssueDetail): top border above the header rows.
+///
+/// The detail pane renders a border, then `DETAIL_HEADER_ROWS` metadata rows
+/// (which includes the trailing separator), so the scrollable content starts
+/// `DETAIL_HEADER_ROWS + 1` rows below the widget-box top.
+pub const DETAIL_PANE_CHROME_ROWS: u16 = 1;
+/// Detail panes: left border + 1-col left padding.
+pub const DETAIL_PANE_CHROME_COLS: u16 = 2;
+/// Status bar: 1-col left padding, no border.
+pub const STATUS_BAR_CHROME_COLS: u16 = 1;
+/// Status bar: no top chrome.
+pub const STATUS_BAR_CHROME_ROWS: u16 = 0;
+/// Keybind bar: 1-col left padding, no border.
+pub const KEYBIND_BAR_CHROME_COLS: u16 = 1;
+/// Keybind bar: no top chrome.
+pub const KEYBIND_BAR_CHROME_ROWS: u16 = 0;
+
 /// Static layout specification: the fixed geometry contract shared across the
 /// dashboard and issues screens.
 ///

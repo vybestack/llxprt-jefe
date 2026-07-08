@@ -3,21 +3,28 @@
 //! Each [`crate::selection::SelectablePane`] renders some text; to copy a
 //! selection we need that text as a flat `Vec<String>` of content lines. This
 //! module owns the pure mapping from [`crate::state::AppState`] data to those
-//! lines, reusing the existing pure projection builders
-//! ([`crate::issue_detail_content::build_detail_content`],
-//! [`crate::pr_detail_content::build_pr_detail_content`]) so the copyable text
-//! matches what the user sees.
+//! lines, reusing the existing pure projection builders so the copyable text
+//! matches what the user sees:
+//! - [`crate::issue_detail_content::build_detail_content`] /
+//!   [`crate::pr_detail_content::build_pr_detail_content`] for detail panes,
+//! - [`crate::ui::components::pr_list::pr_list_visible_rows`] /
+//!   [`crate::ui::components::issue_list::issue_list_visible_rows`] for list
+//!   panes (these are pure functions even though they live next to iocraft
+//!   components; importing them keeps a single source of truth for the rendered
+//!   row text so selection coordinates map to the exact characters on screen).
 //!
 //! All functions are pure and `#[must_use]`. The terminal snapshot is passed in
 //! explicitly (it lives on the runtime, not AppState) so the module stays
 //! iocraft-free and side-effect-free.
 
-use crate::domain::{Agent, AgentStatus, Issue, PullRequest};
+use crate::domain::AgentStatus;
 use crate::issue_detail_content::build_detail_content;
 use crate::pr_detail_content::build_pr_detail_content;
 use crate::runtime::TerminalSnapshot;
 use crate::selection::SelectablePane;
 use crate::state::AppState;
+use crate::ui::components::issue_list::{IssueListLayout, issue_list_visible_rows};
+use crate::ui::components::pr_list::pr_list_visible_rows;
 
 /// The copyable text content of a pane, as a flat list of lines.
 ///
@@ -56,7 +63,9 @@ impl PaneContent {
 ///
 /// Returns [`PaneContent::empty`] when the pane has no content (e.g. no
 /// selected issue/PR, no agent). The terminal snapshot is passed separately
-/// because it lives on the runtime, not AppState.
+/// because it lives on the runtime, not AppState. `term_cols`/`term_rows` are
+/// the live terminal size, used to compute the same pane widths/heights the
+/// screens render with so list-row truncation matches.
 ///
 /// # Panics
 ///
@@ -66,12 +75,14 @@ pub fn pane_content_lines(
     pane: SelectablePane,
     state: &AppState,
     snapshot: Option<&TerminalSnapshot>,
+    term_cols: u16,
+    term_rows: u16,
 ) -> PaneContent {
     match pane {
         SelectablePane::IssueDetail => issue_detail_lines(state),
         SelectablePane::PrDetail => pr_detail_lines(state),
-        SelectablePane::IssueList => issue_list_lines(state),
-        SelectablePane::PrList => pr_list_lines(state),
+        SelectablePane::IssueList => issue_list_lines(state, term_cols, term_rows),
+        SelectablePane::PrList => pr_list_lines(state, term_cols, term_rows),
         SelectablePane::Sidebar => sidebar_lines(state),
         SelectablePane::AgentList => agent_list_lines(state),
         SelectablePane::Preview => preview_lines(state),
@@ -115,64 +126,94 @@ fn pr_detail_lines(state: &AppState) -> PaneContent {
     )
 }
 
-fn issue_list_lines(state: &AppState) -> PaneContent {
-    let lines: Vec<String> = state
-        .issues_state
-        .issues
-        .iter()
-        .flat_map(issue_to_lines)
-        .collect();
-    PaneContent::new(SelectablePane::IssueList, lines)
+/// Issue list lines that match the rendered Compact-mode projection exactly
+/// (prefix + `#number` + truncated title, one line per issue).
+fn issue_list_lines(state: &AppState, term_cols: u16, term_rows: u16) -> PaneContent {
+    let (list_pane_rows, _) = crate::layout::issues_pane_rows(
+        usize::from(term_rows),
+        state.issues_state.error.is_some(),
+        state.issues_state.filter_ui.controls_open,
+    );
+    let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
+    let available_width = crate::layout::issue_list_content_width(term_cols);
+    let rows = issue_list_visible_rows(
+        &state.issues_state.issues,
+        state.issues_state.selected_issue_index,
+        list_pane_rows,
+        IssueListLayout::Compact,
+        Some(available_width),
+    );
+    PaneContent::new(
+        SelectablePane::IssueList,
+        rows.into_iter().map(|r| r.title_line),
+    )
 }
 
-fn pr_list_lines(state: &AppState) -> PaneContent {
-    let lines: Vec<String> = state
-        .prs_state
-        .pull_requests
-        .iter()
-        .flat_map(pr_to_lines)
-        .collect();
-    PaneContent::new(SelectablePane::PrList, lines)
+/// PR list lines that match the rendered Compact-mode projection exactly
+/// (prefix + `#number` + truncated title, one line per PR).
+fn pr_list_lines(state: &AppState, term_cols: u16, term_rows: u16) -> PaneContent {
+    let (list_pane_rows, _) = crate::layout::prs_pane_rows(
+        usize::from(term_rows),
+        state.prs_state.error.is_some(),
+        state.prs_state.filter_ui.controls_open,
+    );
+    let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
+    let available_width = crate::layout::pr_list_content_width(term_cols);
+    let rows = pr_list_visible_rows(
+        &state.prs_state.pull_requests,
+        state.prs_state.selected_pr_index,
+        list_pane_rows,
+        Some(available_width),
+    );
+    PaneContent::new(
+        SelectablePane::PrList,
+        rows.into_iter().map(|r| r.title_line),
+    )
 }
 
-fn issue_to_lines(issue: &Issue) -> Vec<String> {
-    vec![
-        format!("#{} {}", issue.number, issue.title),
-        format!(
-            "  @{} updated:{} comments:{}",
-            issue.author_login, issue.updated_at, issue.comment_count
-        ),
-    ]
-}
-
-fn pr_to_lines(pr: &PullRequest) -> Vec<String> {
-    vec![format!("#{} {}", pr.number, pr.title)]
-}
-
+/// Sidebar lines that match the rendered repo list, including the `> `/`  `
+/// selection prefix and `(count)` suffix.
 fn sidebar_lines(state: &AppState) -> PaneContent {
-    let lines: Vec<String> = state
-        .repositories
+    let visible_indices = state.visible_repository_indices();
+    let selected_visible = state.selected_repository_visible_index();
+    let lines: Vec<String> = visible_indices
         .iter()
-        .map(|repo| format!("{} ({})", repo.name, repo.agent_ids.len()))
+        .enumerate()
+        .filter_map(|(vis_i, &repo_i)| {
+            let repo = state.repositories.get(repo_i)?;
+            let count = state.visible_agent_count_for_repository(&repo.id);
+            let prefix = if selected_visible == Some(vis_i) {
+                "> "
+            } else {
+                "  "
+            };
+            Some(format!("{prefix}{} ({count})", repo.name))
+        })
         .collect();
     PaneContent::new(SelectablePane::Sidebar, lines)
 }
 
+/// Agent list lines that match the rendered agent list, including the
+/// status icon, `> `/`  ` prefix, optional `[slot]`, and name.
 fn agent_list_lines(state: &AppState) -> PaneContent {
     let Some(repo) = state.selected_repository() else {
         return PaneContent::empty(SelectablePane::AgentList);
     };
     let agents = state.visible_agents_for_repository(&repo.id);
-    let lines: Vec<String> = agents.iter().map(agent_to_line).collect();
+    let selected_local = state.selected_agent_local_index().unwrap_or(0);
+    let lines: Vec<String> = agents
+        .iter()
+        .enumerate()
+        .map(|(i, agent)| {
+            let icon = status_icon(agent.status);
+            let prefix = if i == selected_local { "> " } else { "  " };
+            let shortcut = agent
+                .shortcut_slot
+                .map_or_else(String::new, |slot| format!("[{slot}] "));
+            format!("{prefix}{icon} {shortcut}{}", agent.name)
+        })
+        .collect();
     PaneContent::new(SelectablePane::AgentList, lines)
-}
-
-fn agent_to_line(agent: &Agent) -> String {
-    let icon = status_icon(agent.status);
-    let shortcut = agent
-        .shortcut_slot
-        .map_or_else(String::new, |slot| format!("[{slot}] "));
-    format!("{icon} {}{}", shortcut, agent.name)
 }
 
 fn status_icon(status: AgentStatus) -> char {
@@ -225,28 +266,27 @@ fn help_lines() -> PaneContent {
     PaneContent::new(SelectablePane::HelpModal, Vec::<String>::new())
 }
 
+/// Status bar line that matches the rendered format:
+/// `LLxprt Jefe - {version}   {repos} repos | {running}/{total} running   {theme}`.
+///
+/// The theme name is not in AppState (it is a screen prop), so the right-hand
+/// segment is omitted here; the left/center segments — where selection is most
+/// likely — match exactly.
 fn status_bar_lines(state: &AppState) -> PaneContent {
-    let repo_count = state.repositories.len();
+    let repo_count = state.visible_repository_indices().len();
     let running = state.agents.iter().filter(|a| a.is_running()).count();
-    let line = format!(
-        "jefe {} | repos: {} | running: {}",
-        crate::VERSION,
-        repo_count,
-        running
-    );
+    let agent_count = state.visible_agent_count();
+    let left = format!("LLxprt Jefe - {}", crate::VERSION);
+    let center = format!("{repo_count} repos | {running}/{agent_count} running");
+    let line = format!("{left}   {center}");
     PaneContent::new(SelectablePane::StatusBar, vec![line])
 }
 
+/// Keybind bar line that matches the rendered hint text for the active screen
+/// mode, reusing the pure [`keybind_hints_for`] projection.
 fn keybind_bar_lines(state: &AppState) -> PaneContent {
-    // The keybind bar content varies by screen mode; expose the mode label so
-    // at least the visible hint text is copyable.
-    let label = match state.screen_mode {
-        crate::state::ScreenMode::Dashboard => "Dashboard",
-        crate::state::ScreenMode::Split => "Split",
-        crate::state::ScreenMode::DashboardIssues => "Issues",
-        crate::state::ScreenMode::DashboardPullRequests => "Pull Requests",
-    };
-    PaneContent::new(SelectablePane::KeybindBar, vec![label.to_string()])
+    let hints = crate::ui::components::keybind_bar::keybind_hints_for(state.screen_mode, false);
+    PaneContent::new(SelectablePane::KeybindBar, vec![hints.to_string()])
 }
 
 #[cfg(test)]
@@ -295,18 +335,26 @@ mod tests {
             SelectablePane::TerminalView,
             &AppState::default(),
             Some(&snap),
+            120,
+            40,
         );
         assert_eq!(content.lines, vec!["hi".to_string(), "!".to_string()]);
     }
 
     #[test]
     fn terminal_lines_none_snapshot_shows_placeholder() {
-        let content = pane_content_lines(SelectablePane::TerminalView, &AppState::default(), None);
+        let content = pane_content_lines(
+            SelectablePane::TerminalView,
+            &AppState::default(),
+            None,
+            120,
+            40,
+        );
         assert_eq!(content.lines, vec!["No terminal attached".to_string()]);
     }
 
     #[test]
-    fn sidebar_lines_count_repos() {
+    fn sidebar_lines_include_selection_prefix() {
         use crate::domain::{AgentId, Repository, RepositoryId};
         let mut state = AppState::default();
         state.repositories.push(Repository {
@@ -320,7 +368,85 @@ mod tests {
             issue_base_prompt: String::new(),
             agent_ids: vec![AgentId("a1".to_string()), AgentId("a2".to_string())],
         });
-        let content = pane_content_lines(SelectablePane::Sidebar, &state, None);
-        assert_eq!(content.lines, vec!["repo-one (2)".to_string()]);
+        // Select the first repo so the rendered "> " prefix appears.
+        state.selected_repository_index = Some(0);
+        let content = pane_content_lines(SelectablePane::Sidebar, &state, None, 120, 40);
+        // Selected repo gets "> " prefix; matches the Sidebar renderer.
+        assert_eq!(content.lines, vec!["> repo-one (0)".to_string()]);
+    }
+
+    #[test]
+    fn pr_list_lines_match_rendered_projection_with_prefix() {
+        use crate::domain::{PrCheckStatus, PrState, PullRequest};
+        let mut state = AppState::default();
+        state.prs_state.pull_requests.push(PullRequest {
+            number: 7,
+            title: "A title".to_string(),
+            state: PrState::Open,
+            author_login: "octocat".to_string(),
+            updated_at: String::new(),
+            head_ref: String::new(),
+            base_ref: String::new(),
+            is_draft: false,
+            review_decision: None,
+            checks_status: PrCheckStatus::None,
+            assignee_summary: String::new(),
+            labels_summary: String::new(),
+            comment_count: 0,
+        });
+        state.prs_state.selected_pr_index = Some(0);
+        let content = pane_content_lines(SelectablePane::PrList, &state, None, 120, 40);
+        // Compact mode: one line per PR, with the "> " selected prefix and #N.
+        assert_eq!(content.lines.len(), 1);
+        assert!(content.lines[0].starts_with("> #7 "));
+    }
+
+    #[test]
+    fn issue_list_lines_match_rendered_projection_with_prefix() {
+        use crate::domain::{Issue, IssueState};
+        let mut state = AppState::default();
+        state.issues_state.issues.push(Issue {
+            number: 3,
+            title: "Bug".to_string(),
+            state: IssueState::Open,
+            author_login: "octocat".to_string(),
+            updated_at: String::new(),
+            assignee_summary: String::new(),
+            labels_summary: String::new(),
+            assignees: Vec::new(),
+            labels: Vec::new(),
+            issue_type: String::new(),
+            milestone: String::new(),
+            module: String::new(),
+            comment_count: 0,
+            body: String::new(),
+        });
+        state.issues_state.selected_issue_index = Some(0);
+        let content = pane_content_lines(SelectablePane::IssueList, &state, None, 120, 40);
+        assert_eq!(content.lines.len(), 1);
+        assert!(content.lines[0].starts_with("> #3 "));
+    }
+
+    #[test]
+    fn status_bar_lines_match_rendered_left_and_center() {
+        let content = pane_content_lines(
+            SelectablePane::StatusBar,
+            &AppState::default(),
+            None,
+            120,
+            40,
+        );
+        assert_eq!(content.lines.len(), 1);
+        assert!(content.lines[0].contains("LLxprt Jefe -"));
+        assert!(content.lines[0].contains("repos |"));
+    }
+
+    #[test]
+    fn keybind_bar_lines_match_rendered_hints() {
+        let mut state = AppState::default();
+        state.screen_mode = crate::state::ScreenMode::Dashboard;
+        let content = pane_content_lines(SelectablePane::KeybindBar, &state, None, 120, 40);
+        assert_eq!(content.lines.len(), 1);
+        assert!(content.lines[0].contains("navigate"));
     }
 }

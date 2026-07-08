@@ -5,6 +5,7 @@
 
 use iocraft::prelude::*;
 
+use crate::selection::{SelectablePane, TextSelection};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the status bar component.
@@ -24,12 +25,25 @@ pub struct StatusBarProps {
     pub warning_message: Option<String>,
     /// Theme colors.
     pub colors: ThemeColors,
+    /// Active text selection, if any. When it targets this pane the whole
+    /// single-line bar is painted in inverse-video.
+    pub selection: Option<TextSelection>,
 }
 
 /// Status bar showing app title and statistics.
 #[component]
 pub fn StatusBar(props: &StatusBarProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
+
+    // When a drag selection covers the single-line status bar, paint the whole
+    // line in inverse-video so the user sees live feedback.
+    let highlighted = props
+        .selection
+        .as_ref()
+        .filter(|s| s.pane() == SelectablePane::StatusBar)
+        .is_some();
+    let bar_bg = if highlighted { rc.sel_bg } else { rc.border };
+    let text_color = if highlighted { rc.sel_fg } else { rc.bg };
 
     let stats = props.warning_message.as_ref().map_or_else(
         || {
@@ -46,7 +60,7 @@ pub fn StatusBar(props: &StatusBarProps) -> impl Into<AnyElement<'static>> {
             flex_direction: FlexDirection::Row,
             width: 100pct,
             height: 1u32,
-            background_color: rc.border,
+            background_color: bar_bg,
             justify_content: JustifyContent::SpaceBetween,
             padding_left: 1u32,
             padding_right: 1u32,
@@ -55,14 +69,14 @@ pub fn StatusBar(props: &StatusBarProps) -> impl Into<AnyElement<'static>> {
             Text(
                 content: format!("LLxprt Jefe - {}", props.version),
                 weight: Weight::Bold,
-                color: rc.bg,
+                color: text_color,
             )
 
             // Center: stats
-            Text(content: stats, color: rc.bg)
+            Text(content: stats, color: text_color)
 
             // Right: theme name
-            Text(content: props.theme_name.clone(), color: rc.bg)
+            Text(content: props.theme_name.clone(), color: text_color)
         }
     }
 }

@@ -34,6 +34,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
     let state = props.state.as_ref();
     let colors = props.colors.clone().unwrap_or_default();
     let rc = ResolvedColors::from_theme(Some(&colors));
+    let selection = state.and_then(|s| s.selection);
 
     // ── Sidebar data ────────────────────────────────────────────────────────
     let selected_repo_idx = state
@@ -136,6 +137,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                 version: crate::VERSION.to_owned(),
                 warning_message: state.and_then(|s| s.warning_message.clone()),
                 colors: colors.clone(),
+                selection: selection,
             )
 
             // ── Main body: sidebar + issues workspace ───────────────────────
@@ -152,6 +154,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                         selected: selected_repo_idx,
                         focused: sidebar_focused,
                         colors: colors.clone(),
+                        selection: selection,
                     )
                 }
 
@@ -206,6 +209,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                             layout: IssueListLayout::Compact,
                             colors: colors.clone(),
                             available_width: Some(list_width),
+                            selection: selection,
                         )
                     }
                     Box(flex_grow: 1.0, width: 100pct) {
@@ -219,6 +223,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                             colors: colors.clone(),
                             available_height: Some(detail_pane_height),
                             available_width: Some(crate::layout::issues_detail_content_width(term_cols)),
+                            selection: selection,
                         )
                     }
 

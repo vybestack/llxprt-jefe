@@ -6,6 +6,7 @@
 use iocraft::prelude::*;
 
 use crate::domain::Repository;
+use crate::selection::{SelectablePane, TextSelection, row_highlight_range};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the sidebar component.
@@ -23,6 +24,9 @@ pub struct SidebarProps {
     pub grabbed: Option<usize>,
     /// Theme colors.
     pub colors: ThemeColors,
+    /// Active text selection, if any (and if it targets this pane). Selected
+    /// rows are painted in inverse video for live drag-selection feedback.
+    pub selection: Option<TextSelection>,
 }
 
 /// Sidebar showing the list of repositories.
@@ -69,19 +73,19 @@ pub fn Sidebar(props: &SidebarProps) -> impl Into<AnyElement<'static>> {
                     let agent_count = props.agent_counts.get(i).copied()
                         .unwrap_or(repo.agent_ids.len());
                     let label = format!("{}{} ({})", prefix, repo.name, agent_count);
-                    if selected {
-                        element! {
-                            Box(height: 1u32, background_color: rc.sel_bg) {
-                                Text(content: label, color: rc.sel_fg, weight: Weight::Bold)
-                            }
-                        }
-                    } else {
-                        element! {
-                            Box(height: 1u32) {
-                                Text(content: label, color: rc.fg)
-                            }
+                    let highlighted = props.selection.as_ref()
+                        .filter(|s| s.pane() == SelectablePane::Sidebar)
+                        .and_then(|s| row_highlight_range(s, i))
+                        .is_some();
+                    let row_bg = if highlighted || selected { rc.sel_bg } else { Color::Reset };
+                    let fg = if highlighted || selected { rc.sel_fg } else { rc.fg };
+                    let weight = if selected { Weight::Bold } else { Weight::Normal };
+                    element! {
+                        Box(height: 1u32, background_color: row_bg) {
+                            Text(content: label, color: fg, weight: weight)
                         }
                     }
+                    .into_any()
                 }))
             }
         }

@@ -6,7 +6,11 @@
 //! the pane under a `(col, row)` along with its screen-space rectangle.
 
 use crate::layout::{
-    LEFT_COL_WIDTH, OUTER_BARS_HEIGHT, RIGHT_COL_WIDTH, effective_render_size, issues_pane_rows,
+    AGENT_LIST_CHROME_COLS, AGENT_LIST_CHROME_ROWS, DETAIL_HEADER_ROWS, DETAIL_PANE_CHROME_COLS,
+    KEYBIND_BAR_CHROME_COLS, LEFT_COL_WIDTH, LIST_PANE_CHROME_COLS, LIST_PANE_CHROME_ROWS,
+    OUTER_BARS_HEIGHT, RIGHT_COL_WIDTH, SIDEBAR_CHROME_COLS, SIDEBAR_CHROME_ROWS,
+    STATUS_BAR_CHROME_COLS, TERMINAL_VIEW_CHROME_COLS, TERMINAL_VIEW_CHROME_ROWS,
+    effective_render_size, issues_pane_rows,
 };
 use crate::selection::ScreenLayout;
 use crate::selection::text::SelectablePane;
@@ -14,33 +18,72 @@ use crate::selection::text::SelectablePane;
 /// Screen-space rectangle of one pane, in render-grid coordinates.
 ///
 /// `origin_col`/`origin_row` is the top-left cell (0-based) of the pane's
-/// content area; `width`/`height` are its size in cells. All fields are
-/// non-negative and clamped to the terminal size.
+/// *widget box* (including borders/title/padding), while
+/// `content_origin_col`/`content_origin_row` is the top-left cell of the
+/// pane's *first content cell* (after borders/title/padding). Selection
+/// coordinate math uses the content origin so a click on the first content
+/// line maps to content line 0. `width`/`height` are the widget-box size in
+/// cells. All fields are non-negative and clamped to the terminal size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PaneGeometry {
-    /// 0-based column of the pane's left edge.
+    /// 0-based column of the pane's widget-box left edge (border).
     pub origin_col: u16,
-    /// 0-based row of the pane's top edge.
+    /// 0-based row of the pane's widget-box top edge (border).
     pub origin_row: u16,
-    /// Pane width in columns.
+    /// Pane widget-box width in columns.
     pub width: u16,
-    /// Pane height in rows.
+    /// Pane widget-box height in rows.
     pub height: u16,
+    /// 0-based column of the first content cell (after left border/padding).
+    pub content_origin_col: u16,
+    /// 0-based row of the first content cell (after top border/title).
+    pub content_origin_row: u16,
 }
 
 impl PaneGeometry {
-    /// Construct a pane rectangle from its origin and size.
+    /// Construct a pane rectangle from its widget-box origin and size, plus the
+    /// content-cell origin (the first cell inside the border/title/padding).
     #[must_use]
-    pub const fn new(origin_col: u16, origin_row: u16, width: u16, height: u16) -> Self {
+    pub const fn new(
+        origin_col: u16,
+        origin_row: u16,
+        width: u16,
+        height: u16,
+        content_origin_col: u16,
+        content_origin_row: u16,
+    ) -> Self {
         Self {
             origin_col,
             origin_row,
             width,
             height,
+            content_origin_col,
+            content_origin_row,
         }
     }
 
-    /// Whether a screen-space `(col, row)` falls inside this rectangle.
+    /// Construct a pane rectangle from the widget-box origin/size, deriving the
+    /// content origin by adding the given chrome offsets.
+    #[must_use]
+    pub const fn with_chrome(
+        origin_col: u16,
+        origin_row: u16,
+        width: u16,
+        height: u16,
+        chrome_cols: u16,
+        chrome_rows: u16,
+    ) -> Self {
+        Self::new(
+            origin_col,
+            origin_row,
+            width,
+            height,
+            origin_col.saturating_add(chrome_cols),
+            origin_row.saturating_add(chrome_rows),
+        )
+    }
+
+    /// Whether a screen-space `(col, row)` falls inside this widget-box rectangle.
     ///
     /// Points on the bottom/right edge (inclusive of `origin + size - 1`) count
     /// as inside.
@@ -103,7 +146,14 @@ pub fn pane_at(
 fn status_bar(render_cols: u16) -> (SelectablePane, PaneGeometry) {
     (
         SelectablePane::StatusBar,
-        PaneGeometry::new(0, 0, render_cols, 1),
+        PaneGeometry::with_chrome(
+            0,
+            0,
+            render_cols,
+            1,
+            STATUS_BAR_CHROME_COLS,
+            crate::layout::STATUS_BAR_CHROME_ROWS,
+        ),
     )
 }
 
@@ -112,7 +162,14 @@ fn keybind_bar(render_cols: u16, render_rows: u16) -> (SelectablePane, PaneGeome
     let origin_row = render_rows.saturating_sub(1);
     (
         SelectablePane::KeybindBar,
-        PaneGeometry::new(0, origin_row, render_cols, 1),
+        PaneGeometry::with_chrome(
+            0,
+            origin_row,
+            render_cols,
+            1,
+            KEYBIND_BAR_CHROME_COLS,
+            crate::layout::KEYBIND_BAR_CHROME_ROWS,
+        ),
     )
 }
 
@@ -195,29 +252,9 @@ fn issues_pane_at(
 
     // Workspace column: vertical stack of optional bands + list + detail.
     let workspace_col0 = LEFT_COL_WIDTH;
-    let workspace_col_end = render_cols;
-    let workspace_width = workspace_col_end.saturating_sub(workspace_col0);
+    let workspace_width = render_cols.saturating_sub(workspace_col0);
 
-    let mut cursor_row = content_top;
-    if layout.error_visible {
-        // Error banner occupies one row — not selectable (no content provider).
-        if row == cursor_row {
-            return None;
-        }
-        cursor_row = cursor_row.saturating_add(1);
-    }
-    if layout.filter_controls_open {
-        let band_rows = u16::try_from(crate::layout::FILTER_CONTROLS_ROWS).unwrap_or(5);
-        let band_bottom = cursor_row.saturating_add(band_rows);
-        if row < band_bottom {
-            return Some((
-                SelectablePane::IssueList,
-                PaneGeometry::new(workspace_col0, cursor_row, workspace_width, band_rows),
-            ));
-        }
-        cursor_row = band_bottom;
-    }
-
+    let cursor_row = skip_non_list_bands(row, content_top, layout)?;
     let (list_rows, detail_rows) = issues_pane_rows(
         usize::from(render_rows),
         layout.error_visible,
@@ -251,6 +288,30 @@ fn issues_pane_at(
     None
 }
 
+/// Advance `cursor_row` past the error banner and filter band (if present).
+///
+/// Returns `Some(updated_cursor_row)` when the row is not inside a skipped
+/// band, or `None` when the row hits a non-selectable band (error banner) or
+/// the filter-controls band (which is not selectable).
+fn skip_non_list_bands(row: u16, content_top: u16, layout: ScreenLayout) -> Option<u16> {
+    let mut cursor_row = content_top;
+    if layout.error_visible {
+        if row == cursor_row {
+            return None;
+        }
+        cursor_row = cursor_row.saturating_add(1);
+    }
+    if layout.filter_controls_open {
+        let band_rows = u16::try_from(crate::layout::FILTER_CONTROLS_ROWS).unwrap_or(5);
+        let band_bottom = cursor_row.saturating_add(band_rows);
+        if row < band_bottom {
+            return None;
+        }
+        cursor_row = band_bottom;
+    }
+    Some(cursor_row)
+}
+
 /// Choose the IssueList vs PrList variant based on the screen mode in layout.
 fn list_pane(
     col0: u16,
@@ -264,7 +325,17 @@ fn list_pane(
     } else {
         SelectablePane::IssueList
     };
-    (pane, PaneGeometry::new(col0, row0, width, height))
+    (
+        pane,
+        PaneGeometry::with_chrome(
+            col0,
+            row0,
+            width,
+            height,
+            LIST_PANE_CHROME_COLS,
+            LIST_PANE_CHROME_ROWS,
+        ),
+    )
 }
 
 /// Choose the IssueDetail vs PrDetail variant based on the screen mode in layout.
@@ -280,14 +351,37 @@ fn detail_pane(
     } else {
         SelectablePane::IssueDetail
     };
-    (pane, PaneGeometry::new(col0, row0, width, height))
+    // Detail content starts below the border (1 row) + the fixed metadata
+    // header rows (which include the trailing separator). The header row count
+    // is shared with the renderer via crate::layout::DETAIL_HEADER_ROWS.
+    let detail_chrome_rows = u16::try_from(DETAIL_HEADER_ROWS)
+        .unwrap_or(0)
+        .saturating_add(1);
+    (
+        pane,
+        PaneGeometry::with_chrome(
+            col0,
+            row0,
+            width,
+            height,
+            DETAIL_PANE_CHROME_COLS,
+            detail_chrome_rows,
+        ),
+    )
 }
 
 fn sidebar(content_top: u16, content_bottom: u16) -> (SelectablePane, PaneGeometry) {
     let height = content_bottom.saturating_sub(content_top);
     (
         SelectablePane::Sidebar,
-        PaneGeometry::new(0, content_top, LEFT_COL_WIDTH, height),
+        PaneGeometry::with_chrome(
+            0,
+            content_top,
+            LEFT_COL_WIDTH,
+            height,
+            SIDEBAR_CHROME_COLS,
+            SIDEBAR_CHROME_ROWS,
+        ),
     )
 }
 
@@ -295,7 +389,15 @@ fn preview(col0: u16, content_top: u16, content_bottom: u16) -> (SelectablePane,
     let height = content_bottom.saturating_sub(content_top);
     (
         SelectablePane::Preview,
-        PaneGeometry::new(col0, content_top, RIGHT_COL_WIDTH, height),
+        // Preview is a bordered box like the sidebar; reuse sidebar chrome.
+        PaneGeometry::with_chrome(
+            col0,
+            content_top,
+            RIGHT_COL_WIDTH,
+            height,
+            SIDEBAR_CHROME_COLS,
+            SIDEBAR_CHROME_ROWS,
+        ),
     )
 }
 
@@ -303,7 +405,14 @@ fn agent_list(col0: u16, row0: u16, col_end: u16, height: u16) -> (SelectablePan
     let width = col_end.saturating_sub(col0);
     (
         SelectablePane::AgentList,
-        PaneGeometry::new(col0, row0, width, height),
+        PaneGeometry::with_chrome(
+            col0,
+            row0,
+            width,
+            height,
+            AGENT_LIST_CHROME_COLS,
+            AGENT_LIST_CHROME_ROWS,
+        ),
     )
 }
 
@@ -316,7 +425,14 @@ fn terminal_view(
     let width = col_end.saturating_sub(col0);
     (
         SelectablePane::TerminalView,
-        PaneGeometry::new(col0, row0, width, height),
+        PaneGeometry::with_chrome(
+            col0,
+            row0,
+            width,
+            height,
+            TERMINAL_VIEW_CHROME_COLS,
+            TERMINAL_VIEW_CHROME_ROWS,
+        ),
     )
 }
 

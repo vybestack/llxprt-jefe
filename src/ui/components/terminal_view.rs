@@ -23,7 +23,8 @@
 use iocraft::prelude::*;
 
 use crate::runtime::{TerminalCell, TerminalSnapshot};
-use crate::theme::{ResolvedColors, ThemeColors};
+use crate::selection::{SelectablePane, TextSelection, row_highlight_range};
+use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
 
 /// Props for the terminal view component.
 #[derive(Default, Props)]
@@ -34,6 +35,9 @@ pub struct TerminalViewProps {
     pub focused: bool,
     /// Theme colors for chrome around the terminal content.
     pub colors: ThemeColors,
+    /// Active text selection, if any. Selected cells are painted in
+    /// inverse-video over the terminal grid for live drag-selection feedback.
+    pub selection: Option<TextSelection>,
 }
 
 /// Terminal view showing the PTY output for the attached agent.
@@ -81,7 +85,11 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
             ) {
                 #(if let Some(snapshot) = props.snapshot.clone() {
                     element! {
-                        TerminalGrid(snapshot: snapshot)
+                        TerminalGrid(
+                            snapshot: snapshot,
+                            selection: props.selection,
+                            sel_colors: SelectionColors::from_resolved(&rc),
+                        )
                     }
                     .into_any()
                 } else {
@@ -98,10 +106,28 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
 }
 
 /// Props for the low-level terminal grid renderer.
-#[derive(Default, Props)]
+#[derive(Props)]
 struct TerminalGridProps {
     /// Styled PTY grid to draw.
     snapshot: TerminalSnapshot,
+    /// Active text selection, if any. When it targets the terminal pane,
+    /// selected cells are overpainted in inverse-video in [`TerminalGrid::draw`].
+    selection: Option<TextSelection>,
+    /// Selection foreground + background colors (inverse-video).
+    sel_colors: SelectionColors,
+}
+
+impl Default for TerminalGridProps {
+    fn default() -> Self {
+        Self {
+            snapshot: TerminalSnapshot::default(),
+            selection: None,
+            sel_colors: SelectionColors {
+                fg: Color::Reset,
+                bg: Color::Reset,
+            },
+        }
+    }
 }
 
 /// Low-level component that paints a [`TerminalSnapshot`] directly onto the
@@ -110,9 +136,23 @@ struct TerminalGridProps {
 /// This keeps the taffy node count constant (one leaf) regardless of how many
 /// distinct style-runs the snapshot contains, which is the fix for the render
 /// lockup described in issue #60.
-#[derive(Default)]
 struct TerminalGrid {
     snapshot: TerminalSnapshot,
+    selection: Option<TextSelection>,
+    sel_colors: SelectionColors,
+}
+
+impl Default for TerminalGrid {
+    fn default() -> Self {
+        Self {
+            snapshot: TerminalSnapshot::default(),
+            selection: None,
+            sel_colors: SelectionColors {
+                fg: Color::Reset,
+                bg: Color::Reset,
+            },
+        }
+    }
 }
 
 impl Component for TerminalGrid {
@@ -129,6 +169,8 @@ impl Component for TerminalGrid {
         updater: &mut ComponentUpdater,
     ) {
         self.snapshot = props.snapshot.clone();
+        self.selection = props.selection;
+        self.sel_colors = props.sel_colors;
 
         // Fill the available space; the parent Box constrains us to the pane.
         // Build the taffy style directly so node count stays at one leaf.
@@ -150,36 +192,107 @@ impl Component for TerminalGrid {
         }
 
         let mut canvas = drawer.canvas();
+        paint_terminal_cells(&mut canvas, &self.snapshot, max_rows, max_cols);
+        paint_selection_overlay(
+            &mut canvas,
+            &self.snapshot,
+            self.selection,
+            max_rows,
+            max_cols,
+            self.sel_colors,
+        );
+    }
+}
 
-        for (row_idx, row) in self
-            .snapshot
-            .cells
-            .iter()
-            .take(self.snapshot.rows.min(max_rows))
-            .enumerate()
-        {
-            let Some(y) = canvas_coord(row_idx) else {
+/// Paint the styled terminal cells onto the canvas as style-runs.
+fn paint_terminal_cells(
+    canvas: &mut CanvasSubviewMut<'_>,
+    snapshot: &TerminalSnapshot,
+    max_rows: usize,
+    max_cols: usize,
+) {
+    for (row_idx, row) in snapshot
+        .cells
+        .iter()
+        .take(snapshot.rows.min(max_rows))
+        .enumerate()
+    {
+        let Some(y) = canvas_coord(row_idx) else {
+            continue;
+        };
+        for run in row_to_runs(row, max_cols) {
+            let Some(x) = canvas_coord(run.start_col) else {
                 continue;
             };
-            for run in row_to_runs(row, max_cols) {
-                let Some(x) = canvas_coord(run.start_col) else {
-                    continue;
-                };
-                // CanvasTextStyle is #[non_exhaustive]; build via Default then set fields.
-                let mut style = CanvasTextStyle::default();
-                style.color = Some(run.style.fg);
-                style.weight = if run.style.bold {
-                    Weight::Bold
-                } else {
-                    Weight::Normal
-                };
-                style.underline = run.style.underline;
+            // CanvasTextStyle is #[non_exhaustive]; build via Default then set fields.
+            let mut style = CanvasTextStyle::default();
+            style.color = Some(run.style.fg);
+            style.weight = if run.style.bold {
+                Weight::Bold
+            } else {
+                Weight::Normal
+            };
+            style.underline = run.style.underline;
 
-                // Background is painted as a filled region under the run so that
-                // per-cell background colors are preserved.
-                canvas.set_background_color(x, y, run.width, 1, run.style.bg);
-                canvas.set_text(x, y, &run.text, style);
-            }
+            // Background is painted as a filled region under the run so that
+            // per-cell background colors are preserved.
+            canvas.set_background_color(x, y, run.width, 1, run.style.bg);
+            canvas.set_text(x, y, &run.text, style);
+        }
+    }
+}
+
+/// Paint inverse-video over the selected cells of the terminal grid.
+///
+/// Called after [`paint_terminal_cells`] so the selection highlight overlays the
+/// normal content. Only acts when a selection targets the terminal pane.
+fn paint_selection_overlay(
+    canvas: &mut CanvasSubviewMut<'_>,
+    snapshot: &TerminalSnapshot,
+    selection: Option<TextSelection>,
+    max_rows: usize,
+    max_cols: usize,
+    sel_colors: SelectionColors,
+) {
+    let Some(selection) = selection else {
+        return;
+    };
+    if selection.pane() != SelectablePane::TerminalView || selection.is_empty() {
+        return;
+    }
+    let visible_rows = snapshot.rows.min(max_rows);
+    for row_idx in 0..visible_rows {
+        let Some(range) = row_highlight_range(&selection, row_idx) else {
+            continue;
+        };
+        let Some(y) = canvas_coord(row_idx) else {
+            continue;
+        };
+        let row_len = snapshot
+            .cells
+            .get(row_idx)
+            .map_or(0, |row| row.len().min(max_cols));
+        let start = range.start.min(row_len);
+        let end = if range.end == usize::MAX {
+            row_len
+        } else {
+            range.end.min(row_len)
+        };
+        if start >= end {
+            continue;
+        }
+        let width = end - start;
+        let Some(x) = canvas_coord(start) else {
+            continue;
+        };
+        canvas.set_background_color(x, y, width, 1, sel_colors.bg);
+        // Re-draw the selected cell text in the selection fg so the glyphs stay
+        // legible over the inverse-video background.
+        if let Some(row) = snapshot.cells.get(row_idx) {
+            let chars: String = row.iter().skip(start).take(width).map(|c| c.ch).collect();
+            let mut style = CanvasTextStyle::default();
+            style.color = Some(sel_colors.fg);
+            canvas.set_text(x, y, &chars, style);
         }
     }
 }

@@ -45,6 +45,7 @@ pub struct DashboardProps {
 #[component]
 pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
     let state = props.state.as_ref();
+    let selection = state.and_then(|s| s.selection);
 
     // Extract state values with defaults
     let visible_repo_indices = state.map_or_else(Vec::new, AppState::visible_repository_indices);
@@ -120,6 +121,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                 version: crate::VERSION.to_owned(),
                 warning_message: state.and_then(|s| s.warning_message.clone()),
                 colors: colors.clone(),
+                selection: selection,
             )
 
             // Main content area
@@ -137,6 +139,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                         focused: !terminal_focused && pane_focus == PaneFocus::Repositories,
                         grabbed: grabbed_repo_idx,
                         colors: colors.clone(),
+                        selection: selection,
                     )
                 }
 
@@ -153,6 +156,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                             focused: !terminal_focused && pane_focus == PaneFocus::Agents,
                             grabbed: grabbed_agent_idx,
                             colors: colors.clone(),
+                            selection: selection,
                         )
                     }
                     Box(height: terminal_rows, width: 100pct) {
@@ -160,6 +164,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                             snapshot: props.terminal_snapshot.clone(),
                             focused: terminal_focused,
                             colors: colors.clone(),
+                            selection: selection,
                         )
                     }
                 }

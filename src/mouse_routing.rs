@@ -219,14 +219,15 @@ fn finalize_and_copy_selection(ctx: Option<&CtxArc>, app_state: &HookState<AppSt
                 .filter(|a| a.is_running())
                 .map(|a| &a.id),
         );
-        let content = pane_content_lines(selection.pane(), &state, snapshot.as_ref());
+        let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
+        let content = pane_content_lines(selection.pane(), &state, snapshot.as_ref(), cols, rows);
         drop(state);
         selection_text(&selection, &content.lines)
     };
-    if !text.is_empty() {
-        if let Err(err) = clipboard::write_osc52(&text) {
-            tracing::warn!(error = %err, "OSC 52 clipboard write failed");
-        }
+    if !text.is_empty()
+        && let Err(err) = clipboard::write_osc52(&text)
+    {
+        tracing::warn!(error = %err, "OSC 52 clipboard write failed");
     }
 }
 

@@ -98,6 +98,29 @@ pub struct ResolvedColors {
     pub sel_bg: Color,
 }
 
+/// Bundled foreground + background colors for selection highlighting.
+///
+/// Extracted from [`ResolvedColors`] to keep helper function argument counts
+/// under the clippy `too_many_arguments` threshold (6).
+#[derive(Clone, Copy)]
+pub struct SelectionColors {
+    /// Inverse-video foreground for selected text.
+    pub fg: Color,
+    /// Inverse-video background for selected text.
+    pub bg: Color,
+}
+
+impl SelectionColors {
+    /// Derive selection colors from a [`ResolvedColors`] snapshot.
+    #[must_use]
+    pub const fn from_resolved(rc: &ResolvedColors) -> Self {
+        Self {
+            fg: rc.sel_fg,
+            bg: rc.sel_bg,
+        }
+    }
+}
+
 impl Default for ResolvedColors {
     fn default() -> Self {
         Self::from_theme(None)

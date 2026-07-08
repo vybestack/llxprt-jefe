@@ -33,8 +33,8 @@ pub use content::{PaneContent, pane_content_lines};
 pub use geometry::{PaneGeometry, pane_at};
 pub use layout_descriptor::ScreenLayout;
 pub use text::{
-    SelectablePane, SelectionPoint, TextSelection, normalize_selection, point_to_content_coords,
-    selection_text,
+    HighlightRange, SelectablePane, SelectionPoint, TextSelection, normalize_selection,
+    point_to_content_coords, row_highlight_range, selection_text,
 };
 
 #[cfg(test)]

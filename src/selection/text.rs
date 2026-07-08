@@ -208,8 +208,9 @@ fn multi_line_text(lines: &[String], start: &SelectionPoint, end: &SelectionPoin
 ///
 /// `scroll_offset` is the pane's current scroll position (lines hidden above
 /// the viewport). The result is `(content_line, content_col)` — content line
-/// is the screen row translated by the scroll offset, content col is the
-/// screen column minus the pane's left origin. Both are clamped to be
+/// is the screen row translated by the content origin (the first content cell,
+/// after borders/title/padding) plus the scroll offset, and content col is the
+/// screen column minus the content origin column. Both are clamped to be
 /// non-negative via saturating subtraction.
 #[must_use]
 pub fn point_to_content_coords(
@@ -218,9 +219,9 @@ pub fn point_to_content_coords(
     scroll_offset: usize,
     geometry: &PaneGeometry,
 ) -> (usize, usize) {
-    let content_line =
-        usize::from(screen_row.saturating_sub(geometry.origin_row)).saturating_add(scroll_offset);
-    let content_col = usize::from(screen_col.saturating_sub(geometry.origin_col));
+    let content_line = usize::from(screen_row.saturating_sub(geometry.content_origin_row))
+        .saturating_add(scroll_offset);
+    let content_col = usize::from(screen_col.saturating_sub(geometry.content_origin_col));
     (content_line, content_col)
 }
 
@@ -228,4 +229,65 @@ pub fn point_to_content_coords(
 mod text_tests {
     // The shared, parametrized tests live in the crate-level selection::tests
     // module so they exercise the public surface exactly as callers do.
+}
+
+/// A half-open column range `[start, end)` to highlight on a single display row.
+///
+/// Returned by [`row_highlight_range`] when a content line falls within a
+/// selection. `start` is inclusive and `end` is exclusive; both are character
+/// offsets within the line. When the whole line is selected, `start == 0` and
+/// `end == usize::MAX` (callers clamp to the line length).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HighlightRange {
+    /// Inclusive start column.
+    pub start: usize,
+    /// Exclusive end column (`usize::MAX` means "to end of line").
+    pub end: usize,
+}
+
+/// Compute the highlight column range for a single content line within a
+/// selection, or `None` if the line is outside the selection.
+///
+/// The selection is normalized internally. For a line strictly between the
+/// start and end lines the entire line is highlighted (`0..usize::MAX`). For
+/// the start or end line, the column range is clamped to the selection
+/// boundary. A collapsed (empty) selection yields `None`.
+///
+/// This is a pure helper used by the renderers to paint inverse-video
+/// highlights; it owns no iocraft types so it is fully unit-testable.
+#[must_use]
+pub fn row_highlight_range(
+    selection: &TextSelection,
+    content_line: usize,
+) -> Option<HighlightRange> {
+    if selection.is_empty() {
+        return None;
+    }
+    let (start, end) = normalize_selection(&selection.anchor, &selection.focus);
+    if content_line < start.line || content_line > end.line {
+        return None;
+    }
+    if content_line == start.line && content_line == end.line {
+        return Some(HighlightRange {
+            start: start.col,
+            end: end.col.max(start.col),
+        });
+    }
+    if content_line == start.line {
+        return Some(HighlightRange {
+            start: start.col,
+            end: usize::MAX,
+        });
+    }
+    if content_line == end.line {
+        return Some(HighlightRange {
+            start: 0,
+            end: end.col,
+        });
+    }
+    // Strictly between start and end lines: whole line.
+    Some(HighlightRange {
+        start: 0,
+        end: usize::MAX,
+    })
 }
