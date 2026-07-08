@@ -4,51 +4,11 @@
 //! @requirement REQ-PR-014
 
 use iocraft::prelude::*;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
 
 use crate::domain::{PrCheckStatus, PrReviewState, PrState, PullRequest};
 use crate::selection::{HighlightRange, TextSelection, row_highlight_range};
 use crate::theme::{ResolvedColors, RowColors, SelectionColors, ThemeColors};
-
-/// Ellipsis character appended when a title is truncated.
-const ELLIPSIS: char = '…';
-
-/// Truncate `text` to fit within `max_width` terminal columns, appending an
-/// ellipsis when truncation occurs.
-///
-/// Uses character boundaries and Unicode display width so multi-byte characters
-/// are never split and wide characters are accounted for.
-///
-/// @plan PLAN-20260624-PR-MODE.P12
-/// @requirement REQ-PR-006
-/// @pseudocode component-001 lines 1-12
-fn truncate_title(text: &str, max_width: usize) -> String {
-    if max_width == 0 {
-        return String::new();
-    }
-    if UnicodeWidthStr::width(text) <= max_width {
-        return text.to_string();
-    }
-
-    let ellipsis_width = ELLIPSIS.width().unwrap_or(1);
-    if max_width <= ellipsis_width {
-        return ELLIPSIS.to_string();
-    }
-
-    let content_width = max_width - ellipsis_width;
-    let mut used = 0usize;
-    let mut result = String::new();
-    for ch in text.chars() {
-        let width = ch.width().unwrap_or(0);
-        if used + width > content_width {
-            break;
-        }
-        used += width;
-        result.push(ch);
-    }
-    result.push(ELLIPSIS);
-    result
-}
 
 /// PR list density variant.
 ///
@@ -135,7 +95,7 @@ fn build_title_line(pr: &PullRequest, prefix: &str, available_width: Option<u16>
         Some(width) => {
             let used = UnicodeWidthStr::width(number_prefix.as_str());
             let budget = (width as usize).saturating_sub(used);
-            truncate_title(&pr.title, budget)
+            crate::ui::util::truncate_with_ellipsis(&pr.title, budget)
         }
         None => pr.title.clone(),
     };
@@ -413,57 +373,7 @@ fn checks_glyph(status: PrCheckStatus) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_title;
     use unicode_width::UnicodeWidthStr;
-
-    /// @plan PLAN-20260624-PR-MODE.P12
-    /// @requirement REQ-PR-006
-    /// @pseudocode component-001 lines 1-12
-    #[test]
-    fn short_title_is_returned_unchanged() {
-        assert_eq!(truncate_title("hello", 10), "hello");
-    }
-
-    /// @plan PLAN-20260624-PR-MODE.P12
-    /// @requirement REQ-PR-006
-    /// @pseudocode component-001 lines 1-12
-    #[test]
-    fn long_title_is_truncated_with_ellipsis() {
-        let result = truncate_title("a very long title that exceeds the budget", 10);
-        assert!(result.ends_with('\u{2026}'));
-        assert_eq!(UnicodeWidthStr::width(result.as_str()), 10);
-    }
-
-    /// @plan PLAN-20260624-PR-MODE.P12
-    /// @requirement REQ-PR-006
-    /// @pseudocode component-001 lines 1-12
-    #[test]
-    fn exact_fit_title_is_not_truncated() {
-        assert_eq!(truncate_title("exact", 5), "exact");
-    }
-
-    /// @plan PLAN-20260624-PR-MODE.P12
-    /// @requirement REQ-PR-006
-    /// @pseudocode component-001 lines 1-12
-    #[test]
-    fn unicode_title_truncates_on_character_boundary() {
-        // Each emoji is one char but multiple bytes; truncation must never
-        // split a multi-byte code point.
-        let title = "\u{1F600}\u{1F601}\u{1F602}\u{1F603}\u{1F604}\u{1F605}\u{1F606}\u{1F607}\u{1F608}\u{1F609}";
-        let result = truncate_title(title, 5);
-        assert!(UnicodeWidthStr::width(result.as_str()) <= 5);
-        assert!(result.ends_with('\u{2026}'));
-        // Ensure no panic on multi-byte slicing.
-        assert!(result.chars().next().is_some());
-    }
-
-    /// @plan PLAN-20260624-PR-MODE.P12
-    /// @requirement REQ-PR-006
-    /// @pseudocode component-001 lines 1-12
-    #[test]
-    fn one_column_budget_returns_ellipsis() {
-        assert_eq!(truncate_title("abcdef", 1), "…");
-    }
 
     /// @plan PLAN-20260624-PR-MODE.P12
     /// @requirement REQ-PR-006
@@ -471,7 +381,7 @@ mod tests {
     #[test]
     fn full_width_prefix_display_width_is_counted_in_title_budget() {
         let number_prefix = "  #１２ ";
-        let title = truncate_title(
+        let title = crate::ui::util::truncate_with_ellipsis(
             "abcdef",
             8usize.saturating_sub(UnicodeWidthStr::width(number_prefix)),
         );
@@ -559,20 +469,6 @@ mod tests {
             UnicodeWidthStr::width(row.title_line.as_str()),
             row.title_line
         );
-    }
-
-    /// Truncation respects an even smaller budget (pane-width driven) and the
-    /// ellipsis is the only content when the budget is one column.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P13
-    /// @requirement REQ-PR-006
-    /// @pseudocode component-001 lines 1-12
-    #[test]
-    fn test_pr_list_truncates_to_tiny_pane_budget() {
-        let title = "ABCDEFGH";
-        let tiny = truncate_title(title, 3);
-        assert!(tiny.ends_with('\u{2026}'));
-        assert_eq!(UnicodeWidthStr::width(tiny.as_str()), 3);
     }
 
     /// `review_glyph` covers all remaining decision states so a PR list row

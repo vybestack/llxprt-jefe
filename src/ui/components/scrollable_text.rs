@@ -68,15 +68,6 @@ pub struct ScrollableTextProps {
     pub content_line_offset: usize,
 }
 
-/// Truncate a string to at most `max_chars` display characters.
-fn truncate_line(line: &str, max_chars: usize) -> String {
-    if max_chars == 0 || line.chars().count() <= max_chars {
-        return line.to_string();
-    }
-    let truncated: String = line.chars().take(max_chars.saturating_sub(1)).collect();
-    format!("{truncated}…")
-}
-
 /// Compute scrollbar thumb position and size using integer math.
 fn scrollbar_geometry(total: usize, visible: usize, offset: usize) -> (usize, usize) {
     if total <= visible || visible == 0 {
@@ -150,7 +141,7 @@ pub fn ScrollableText(props: &ScrollableTextProps) -> impl Into<AnyElement<'stat
         .map(|row| {
             let line_idx = offset + row;
             if line_idx < total {
-                truncate_line(all_lines[line_idx], max_w)
+                crate::ui::util::truncate_with_ellipsis(all_lines[line_idx], max_w)
             } else {
                 String::new()
             }
