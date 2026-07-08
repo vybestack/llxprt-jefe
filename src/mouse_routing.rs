@@ -306,6 +306,36 @@ fn scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
     }
 }
 
+/// Refresh the cached `detail_viewport_rows` for `pane` from the current
+/// terminal size and conditional bands.
+///
+/// Mirrors `update_detail_viewport_rows` / `update_pr_detail_viewport_rows` in
+/// the keyboard dispatch path so the scroll-offset clamp bound
+/// (`max_detail_scroll_offset` / `pr_detail_max_scroll_offset`) agrees with the
+/// viewport the renderer actually uses. Without this, a stale cache (e.g. left
+/// over from before entering the mode, since it is only refreshed on keyboard
+/// scroll-down) lets the stored offset drift past the renderer's clamp bound.
+fn refresh_detail_viewport_rows(state: &mut AppState, pane: SelectablePane, term_rows: u16) {
+    let term_rows = usize::from(term_rows);
+    match pane {
+        SelectablePane::IssueDetail => {
+            state.issues_state.detail_viewport_rows = jefe::layout::issues_detail_viewport_rows(
+                term_rows,
+                state.issues_state.error.is_some(),
+                state.issues_state.filter_ui.controls_open,
+            );
+        }
+        SelectablePane::PrDetail => {
+            state.prs_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
+                term_rows,
+                state.prs_state.error.is_some(),
+                state.prs_state.filter_ui.controls_open,
+            );
+        }
+        _ => {}
+    }
+}
+
 /// Direction of a single mousewheel tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WheelDirection {
@@ -319,11 +349,17 @@ enum WheelDirection {
 /// the iocraft runtime: scrolling up never drops below 0 and scrolling down
 /// never exceeds the pane's maximum offset. `max` is the detail pane's
 /// `max_detail_scroll_offset()` (0 when there is no content to scroll).
+///
+/// `current` is clamped to `max` *before* the tick is applied, so a stale
+/// offset that drifted past `max` (e.g. the cached viewport shrank) snaps back
+/// into the valid range on the very next tick instead of stranding the view in
+/// a phantom region the renderer clamps but the stored value does not.
 #[must_use]
 fn next_wheel_scroll_offset(current: usize, max: usize, direction: WheelDirection) -> usize {
+    let clamped = current.min(max);
     match direction {
-        WheelDirection::Up => current.saturating_sub(1),
-        WheelDirection::Down => (current + 1).min(max),
+        WheelDirection::Up => clamped.saturating_sub(1),
+        WheelDirection::Down => (clamped + 1).min(max),
     }
 }
 
@@ -343,8 +379,10 @@ fn max_scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
 /// Resolves the pane under the cursor via [`resolve_pane`] and, when it is a
 /// scrollable detail pane (`IssueDetail` / `PrDetail`), advances its scroll
 /// offset by one line in the given direction, clamped to the pane's valid
-/// bounds via [`next_wheel_scroll_offset`]. Non-detail panes are ignored —
-/// mousewheel scrolling in list/terminal panes is out of scope (issue #148).
+/// bounds via [`next_wheel_scroll_offset`]. The cached viewport row count is
+/// refreshed first ([`refresh_detail_viewport_rows`]) so the clamp bound
+/// matches the renderer. Non-detail panes are ignored — mousewheel scrolling
+/// in list/terminal panes is out of scope (issue #148).
 fn scroll_detail_pane(
     app_state: &mut HookState<AppState>,
     col: u16,
@@ -365,6 +403,18 @@ fn scroll_detail_pane(
     };
     if !matches!(pane, SelectablePane::IssueDetail | SelectablePane::PrDetail) {
         return;
+    }
+    // Refresh the cached detail-viewport row count from the current terminal
+    // layout before computing the clamp bound. The renderer windows content
+    // with a *fresh* viewport (derived from the actual layout), but
+    // `max_detail_scroll_offset` / `pr_detail_max_scroll_offset` read the cached
+    // `detail_viewport_rows` field. The keyboard dispatch path refreshes that
+    // cache (`update_*_detail_viewport_rows`) before every scroll; the mouse
+    // path must too, otherwise a stale (smaller) cache lets the offset run past
+    // the renderer's clamp bound and the wheel appears to overscroll / stick.
+    {
+        let mut state = app_state.write();
+        refresh_detail_viewport_rows(&mut state, pane, rows);
     }
     let (current, max) = {
         let state = app_state.read();
@@ -446,6 +496,43 @@ mod tests {
             next_wheel_scroll_offset(10, 100, WheelDirection::Down),
             11,
             "scrolling down from 10 within a large pane should advance to 11"
+        );
+    }
+
+    // ── stale / inflated offset recovery ───────────────────────────────────
+    //
+    // The stored detail scroll offset can lag behind the renderer's clamp
+    // bound when the cached `detail_viewport_rows` is smaller than the
+    // renderer's fresh viewport (the keyboard dispatch path refreshes that
+    // cache before scrolling; the mouse path now does too). If the offset is
+    // ever inflated past `max`, a single wheel tick must snap it back into the
+    // valid range instead of leaving it stranded in a phantom region where the
+    // renderer clamps the display but the stored value keeps climbing.
+
+    #[test]
+    fn scroll_up_from_inflated_offset_snaps_below_max() {
+        assert_eq!(
+            next_wheel_scroll_offset(8, 5, WheelDirection::Up),
+            4,
+            "scrolling up from an inflated offset (8) with max 5 must snap to 4, not walk back one-at-a-time through the phantom region"
+        );
+    }
+
+    #[test]
+    fn scroll_down_from_inflated_offset_snaps_to_max() {
+        assert_eq!(
+            next_wheel_scroll_offset(8, 5, WheelDirection::Down),
+            5,
+            "scrolling down from an inflated offset (8) with max 5 must snap to 5"
+        );
+    }
+
+    #[test]
+    fn scroll_up_from_inflated_offset_near_zero_snaps_to_zero() {
+        assert_eq!(
+            next_wheel_scroll_offset(8, 1, WheelDirection::Up),
+            0,
+            "scrolling up from an inflated offset (8) with max 1 must snap to 0"
         );
     }
 }
