@@ -7,10 +7,11 @@ use iocraft::prelude::*;
 use crate::domain::PullRequestDetail;
 use crate::layout::PR_DETAIL_HEADER_ROWS as HEADER_ROWS;
 use crate::pr_detail_content::{build_pr_detail_content, pr_state_tag};
-use crate::selection::{SelectablePane, TextSelection, row_highlight_range};
+use crate::selection::{SelectablePane, TextSelection};
 use crate::state::{ComposerTarget, InlineState, PrDetailSubfocus};
 use crate::theme::{ResolvedColors, ThemeColors};
 
+use super::issue_detail::header_row;
 use super::scrollable_text::ScrollableText;
 use super::text_box::TextBox;
 
@@ -148,45 +149,6 @@ fn active_pr_composer(inline_state: &InlineState) -> Option<(String, usize, &'st
     }
 }
 
-/// Whether content line `line` (one of the fixed header rows) falls inside the
-/// active selection for `pane`. When true the header row is painted in
-/// inverse-video selection colors.
-///
-/// Header rows use whole-row highlight (ignoring partial column ranges) for
-/// visual simplicity on short metadata lines.
-fn header_highlight(line: usize, selection: Option<&TextSelection>, pane: SelectablePane) -> bool {
-    selection
-        .filter(|s| s.pane() == pane)
-        .and_then(|s| row_highlight_range(s, line))
-        .is_some()
-}
-
-/// Render a single PR header row, applying whole-row inverse-video when it
-/// falls inside the active drag selection.
-fn header_row(
-    content: String,
-    default_fg: Color,
-    line: usize,
-    selection: Option<&TextSelection>,
-    rc: &ResolvedColors,
-) -> AnyElement<'static> {
-    if header_highlight(line, selection, SelectablePane::PrDetail) {
-        element! {
-            Box(height: 1u32, background_color: rc.sel_bg) {
-                Text(content: content, color: rc.sel_fg)
-            }
-        }
-        .into_any()
-    } else {
-        element! {
-            Box(height: 1u32) {
-                Text(content: content, color: default_fg)
-            }
-        }
-        .into_any()
-    }
-}
-
 /// PR detail view — fixed structure that NEVER changes layout.
 ///
 /// ALWAYS renders: border box → `HEADER_ROWS` header rows → fixed-row scrollable viewport.
@@ -297,15 +259,16 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
         ) {
             // ── Metadata header — always exactly HEADER_ROWS rows ─────────
             Box(flex_direction: FlexDirection::Column, padding_left: 1u32, padding_right: 1u32) {
-                #(header_row(h_title, rc.fg, 0, props.selection.as_ref(), &rc))
-                #(header_row(h_state, state_color, 1, props.selection.as_ref(), &rc))
-                #(header_row(h_branches, rc.dim, 2, props.selection.as_ref(), &rc))
-                #(header_row(h_url, rc.dim, 3, props.selection.as_ref(), &rc))
+                #(header_row(h_title, rc.fg, 0, props.selection.as_ref(), SelectablePane::PrDetail, &rc))
+                #(header_row(h_state, state_color, 1, props.selection.as_ref(), SelectablePane::PrDetail, &rc))
+                #(header_row(h_branches, rc.dim, 2, props.selection.as_ref(), SelectablePane::PrDetail, &rc))
+                #(header_row(h_url, rc.dim, 3, props.selection.as_ref(), SelectablePane::PrDetail, &rc))
                 #(header_row(
                     "─────────────────────────────────────────".to_string(),
                     rc.dim,
                     4,
                     props.selection.as_ref(),
+                    SelectablePane::PrDetail,
                     &rc,
                 ))
             }

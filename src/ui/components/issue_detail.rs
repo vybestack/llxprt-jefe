@@ -15,6 +15,52 @@ use crate::theme::{ResolvedColors, ThemeColors};
 use super::scrollable_text::ScrollableText;
 use super::text_box::TextBox;
 
+/// Projected issue detail header exactly as the component renders it (the four
+/// fixed metadata rows). The component delegates to this so the selection
+/// content provider (`src/selection/content.rs`) and the renderer share the
+/// same single source of truth, preventing drift.
+pub struct IssueDetailHeaderView {
+    /// "#number title" row.
+    pub title: String,
+    /// State tag + author/created/updated row.
+    pub state: String,
+    /// "labels: ...  assignees: ...  milestone: ..." row.
+    pub labels: String,
+    /// Display-only external URL row.
+    pub url: String,
+}
+
+/// Pure projection of the issue detail's four fixed header rows exactly as the
+/// component renders them.
+pub fn issue_detail_header_view(detail: &IssueDetail) -> IssueDetailHeaderView {
+    let state_tag = match detail.state {
+        IssueState::Open => "OPEN",
+        IssueState::Closed => "CLOSED",
+    };
+    let labels_str = if detail.labels.is_empty() {
+        "-".to_string()
+    } else {
+        detail.labels.join(", ")
+    };
+    let assignees_str = if detail.assignees.is_empty() {
+        "-".to_string()
+    } else {
+        detail.assignees.join(", ")
+    };
+    let milestone_str = detail.milestone.as_deref().unwrap_or("-").to_string();
+    IssueDetailHeaderView {
+        title: format!("#{} {}", detail.number, detail.title),
+        state: format!(
+            "{}  by @{}  opened: {}  updated: {}",
+            state_tag, detail.author_login, detail.created_at, detail.updated_at
+        ),
+        labels: format!(
+            "labels: {labels_str}  assignees: {assignees_str}  milestone: {milestone_str}"
+        ),
+        url: detail.external_url.clone(),
+    }
+}
+
 /// Props for the issue detail view.
 #[derive(Default, Props)]
 pub struct IssueDetailViewProps {
@@ -33,17 +79,59 @@ pub struct IssueDetailViewProps {
     /// Theme colors.
     pub colors: ThemeColors,
     /// Actual available height (in terminal rows) for the detail pane.
-    ///
-    /// When provided, this is used instead of computing the height from
-    /// `crossterm::terminal::size()`, ensuring the viewport matches the real
-    /// flex allocation in the parent layout. Falls back to the terminal-size
-    /// calculation when `None`.
     pub available_height: Option<u16>,
     /// Actual available width (in terminal columns) for detail/composer text.
     pub available_width: Option<u16>,
     /// Active text selection, if any (and if it targets this pane). Passed
     /// through to the `ScrollableText` so selected cells render inverse-video.
     pub selection: Option<TextSelection>,
+}
+
+/// Shared header-row selection highlight + rendering helper used by both
+/// `IssueDetailView` and `PrDetailView`.
+///
+/// `header_highlight` checks whether content line `line` falls inside the
+/// active drag selection for `pane`. `header_row` renders the row with
+/// inverse-video when highlighted, or in the default color otherwise.
+///
+/// Header rows use whole-row highlight (ignoring partial column ranges) for
+/// visual simplicity on short metadata lines.
+pub fn header_highlight(
+    line: usize,
+    selection: Option<&TextSelection>,
+    pane: SelectablePane,
+) -> bool {
+    selection
+        .filter(|s| s.pane() == pane)
+        .and_then(|s| row_highlight_range(s, line))
+        .is_some()
+}
+
+/// Render a single header row, applying whole-row inverse-video when it falls
+/// inside the active drag selection.
+pub fn header_row(
+    content: String,
+    default_fg: Color,
+    line: usize,
+    selection: Option<&TextSelection>,
+    pane: SelectablePane,
+    rc: &ResolvedColors,
+) -> AnyElement<'static> {
+    if header_highlight(line, selection, pane) {
+        element! {
+            Box(height: 1u32, background_color: rc.sel_bg) {
+                Text(content: content, color: rc.sel_fg)
+            }
+        }
+        .into_any()
+    } else {
+        element! {
+            Box(height: 1u32) {
+                Text(content: content, color: default_fg)
+            }
+        }
+        .into_any()
+    }
 }
 
 fn active_issue_composer(inline_state: &InlineState) -> Option<(String, usize, &'static str)> {
@@ -71,48 +159,9 @@ fn active_issue_composer(inline_state: &InlineState) -> Option<(String, usize, &
     }
 }
 
-/// Whether content line `line` (one of the fixed header rows) falls inside the
-/// active selection for the issue detail pane. When true the header row is
-/// painted in inverse-video selection colors.
-///
-/// Header rows use whole-row highlight (ignoring partial column ranges) for
-/// visual simplicity on short metadata lines.
-fn header_highlight(line: usize, selection: Option<&TextSelection>) -> bool {
-    selection
-        .filter(|s| s.pane() == SelectablePane::IssueDetail)
-        .and_then(|s| row_highlight_range(s, line))
-        .is_some()
-}
-
-/// Render a single header row, applying whole-row inverse-video when it falls
-/// inside the active drag selection.
-fn header_row(
-    content: String,
-    default_fg: Color,
-    line: usize,
-    selection: Option<&TextSelection>,
-    rc: &ResolvedColors,
-) -> AnyElement<'static> {
-    if header_highlight(line, selection) {
-        element! {
-            Box(height: 1u32, background_color: rc.sel_bg) {
-                Text(content: content, color: rc.sel_fg)
-            }
-        }
-        .into_any()
-    } else {
-        element! {
-            Box(height: 1u32) {
-                Text(content: content, color: default_fg)
-            }
-        }
-        .into_any()
-    }
-}
-
 /// Issue detail view — fixed structure that NEVER changes layout.
 ///
-/// ALWAYS renders: border box → 5 header rows → fixed-row scrollable viewport.
+/// ALWAYS renders: border box -> 5 header rows -> fixed-row scrollable viewport.
 /// When no issue is selected, header rows are blank and viewport shows a message.
 /// This ensures layout is identical regardless of whether an issue is loaded.
 ///
@@ -172,36 +221,17 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
                 rc.bright,
             )
         } else if let Some(detail) = props.issue_detail.as_ref() {
-            let state_tag = match detail.state {
-                IssueState::Open => "OPEN",
-                IssueState::Closed => "CLOSED",
-            };
+            let header = issue_detail_header_view(detail);
             let sc = match detail.state {
                 IssueState::Open => rc.bright,
                 IssueState::Closed => rc.dim,
             };
-            let labels_str = if detail.labels.is_empty() {
-                "-".to_string()
-            } else {
-                detail.labels.join(", ")
-            };
-            let assignees_str = if detail.assignees.is_empty() {
-                "-".to_string()
-            } else {
-                detail.assignees.join(", ")
-            };
-            let milestone_str = detail.milestone.as_deref().unwrap_or("-").to_string();
 
             (
-                format!("#{} {}", detail.number, detail.title),
-                format!(
-                    "{}  by @{}  opened: {}  updated: {}",
-                    state_tag, detail.author_login, detail.created_at, detail.updated_at
-                ),
-                format!(
-                    "labels: {labels_str}  assignees: {assignees_str}  milestone: {milestone_str}"
-                ),
-                detail.external_url.clone(),
+                header.title,
+                header.state,
+                header.labels,
+                header.url,
                 build_detail_content(
                     detail,
                     props.detail_subfocus,
@@ -267,15 +297,16 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
         ) {
             // ── Metadata header — always exactly HEADER_ROWS rows ─────────
             Box(flex_direction: FlexDirection::Column, padding_left: 1u32, padding_right: 1u32) {
-                #(header_row(h_title, rc.fg, 0, props.selection.as_ref(), &rc))
-                #(header_row(h_state, state_color, 1, props.selection.as_ref(), &rc))
-                #(header_row(h_labels, rc.dim, 2, props.selection.as_ref(), &rc))
-                #(header_row(h_url, rc.dim, 3, props.selection.as_ref(), &rc))
+                #(header_row(h_title, rc.fg, 0, props.selection.as_ref(), SelectablePane::IssueDetail, &rc))
+                #(header_row(h_state, state_color, 1, props.selection.as_ref(), SelectablePane::IssueDetail, &rc))
+                #(header_row(h_labels, rc.dim, 2, props.selection.as_ref(), SelectablePane::IssueDetail, &rc))
+                #(header_row(h_url, rc.dim, 3, props.selection.as_ref(), SelectablePane::IssueDetail, &rc))
                 #(header_row(
                     "─────────────────────────────────────────".to_string(),
                     rc.dim,
                     4,
                     props.selection.as_ref(),
+                    SelectablePane::IssueDetail,
                     &rc,
                 ))
             }

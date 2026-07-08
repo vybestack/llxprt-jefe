@@ -268,13 +268,19 @@ fn build_screen_inner(b64: &str) -> Vec<u8> {
 
 /// Truncate the inner OSC 52 bytes to fit screen's DCS segment limit, on a
 /// 4-char base64 boundary so the truncated payload stays decodable.
+///
+/// The inner buffer layout is `OSC_PREFIX + base64 + BEL`. The OSC prefix
+/// (`\x1b]52;c;`) is 7 bytes, so truncation must align to a base64 4-char
+/// boundary *within the payload*, not within the whole buffer.
+const SCREEN_INNER_PREFIX_LEN: usize = 7;
 fn truncate_for_screen(inner: &[u8]) -> &[u8] {
     if inner.len() <= SCREEN_DCS_CHUNK_BYTES {
         return inner;
     }
-    let limit = SCREEN_DCS_CHUNK_BYTES;
-    let boundary = (limit / 4) * 4;
-    &inner[..boundary.max(4)]
+    let available_for_b64 = SCREEN_DCS_CHUNK_BYTES.saturating_sub(SCREEN_INNER_PREFIX_LEN);
+    let b64_boundary = (available_for_b64 / 4) * 4;
+    let cut = SCREEN_INNER_PREFIX_LEN + b64_boundary.max(4);
+    &inner[..cut.min(inner.len())]
 }
 
 #[cfg(test)]
@@ -385,6 +391,19 @@ mod tests {
             s.ends_with("\x1b\\"),
             "expected DCS terminator at end, got: {s:?}"
         );
+        // The embedded base64 payload must be a multiple of 4 so it decodes.
+        let b64_start = s.find("]52;c;").map(|i| i + 6);
+        if let Some(start) = b64_start {
+            let b64_end = s[start..].find('\x07').map(|i| start + i);
+            if let Some(end) = b64_end {
+                let b64_len = end - start;
+                assert_eq!(
+                    b64_len % 4,
+                    0,
+                    "base64 payload length {b64_len} must be a multiple of 4"
+                );
+            }
+        }
     }
 
     #[test]

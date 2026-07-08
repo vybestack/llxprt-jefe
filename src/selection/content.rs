@@ -17,12 +17,13 @@
 //! explicitly (it lives on the runtime, not AppState) so the module stays
 //! iocraft-free and side-effect-free.
 
-use crate::domain::AgentStatus;
+use crate::domain::{AgentStatus, IssueDetail};
 use crate::issue_detail_content::build_detail_content;
 use crate::pr_detail_content::build_pr_detail_content;
 use crate::runtime::TerminalSnapshot;
 use crate::selection::SelectablePane;
 use crate::state::AppState;
+use crate::ui::components::issue_detail::issue_detail_header_view;
 use crate::ui::components::issue_list::{IssueListLayout, issue_list_visible_rows};
 use crate::ui::components::pr_detail::pr_detail_header_view;
 use crate::ui::components::pr_list::pr_list_visible_rows;
@@ -138,30 +139,16 @@ fn pr_detail_lines(state: &AppState) -> PaneContent {
 
 /// Build the five fixed header lines the `IssueDetailView` renders above its
 /// scrollable viewport, so selection coordinates map to those header rows too.
-fn issue_detail_header_lines(detail: &crate::domain::IssueDetail) -> Vec<String> {
-    let state_tag = match detail.state {
-        crate::domain::IssueState::Open => "OPEN",
-        crate::domain::IssueState::Closed => "CLOSED",
-    };
-    let labels_str = if detail.labels.is_empty() {
-        "-".to_string()
-    } else {
-        detail.labels.join(", ")
-    };
-    let assignees_str = if detail.assignees.is_empty() {
-        "-".to_string()
-    } else {
-        detail.assignees.join(", ")
-    };
-    let milestone_str = detail.milestone.as_deref().unwrap_or("-").to_string();
+///
+/// Reuses [`issue_detail_header_view`] (the same pure projection the renderer
+/// uses) so the copyable header text never drifts from what the user sees.
+fn issue_detail_header_lines(detail: &IssueDetail) -> Vec<String> {
+    let header = issue_detail_header_view(detail);
     vec![
-        format!("#{} {}", detail.number, detail.title),
-        format!(
-            "{}  by @{}  opened: {}  updated: {}",
-            state_tag, detail.author_login, detail.created_at, detail.updated_at
-        ),
-        format!("labels: {labels_str}  assignees: {assignees_str}  milestone: {milestone_str}"),
-        detail.external_url.clone(),
+        header.title,
+        header.state,
+        header.labels,
+        header.url,
         DETAIL_SEPARATOR_LINE.to_string(),
     ]
 }
