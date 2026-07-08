@@ -120,19 +120,6 @@ fn test_a_key_exits_issues_mode() {
     assert!(matches!(event, Some(AppEvent::ExitIssuesMode)));
 }
 
-/// `i` key in Dashboard mode dispatches EnterIssuesMode (routing in normal.rs).
-///
-/// GREEN — verifies the event variant exists; routing already wired in P09.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P10
-/// @requirement REQ-ISS-001
-/// @pseudocode component-003 lines 01-38
-#[test]
-fn test_i_key_enters_issues_mode_event_identity() {
-    let evt = AppEvent::EnterIssuesMode;
-    assert!(matches!(evt, AppEvent::EnterIssuesMode));
-}
-
 // ═══════════════════════════════════════════════════════════════════════
 // Suppression Tests (expect None — GREEN from stub)
 // ═══════════════════════════════════════════════════════════════════════
@@ -354,6 +341,28 @@ fn test_j_k_cycle_detail_subfocus_in_issue_detail() {
     assert!(matches!(j, Some(AppEvent::IssueDetailSubfocusNext)));
     let k = resolve_issues_key_event(&state, &key(KeyCode::Char('k')));
     assert!(matches!(k, Some(AppEvent::IssueDetailSubfocusPrev)));
+}
+
+/// j/k are consumed as InlineChar when an inline editor is active (P1 inline
+/// precedence over the P6 detail-subfocus mapping) — protects the routing
+/// priority chain so the j/k subfocus alias never leaks into inline typing.
+#[test]
+fn test_j_k_consumed_by_inline_when_active_not_subfocus() {
+    let state = issues_state_with_inline(InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: String::new(),
+        cursor: 0,
+    });
+    let j = resolve_issues_key_event(&state, &key(KeyCode::Char('j')));
+    assert!(
+        matches!(j, Some(AppEvent::InlineChar('j'))),
+        "Inline must consume 'j' (got {j:?})"
+    );
+    let k = resolve_issues_key_event(&state, &key(KeyCode::Char('k')));
+    assert!(
+        matches!(k, Some(AppEvent::InlineChar('k'))),
+        "Inline must consume 'k' (got {k:?})"
+    );
 }
 
 /// Tab/BackTab cycle detail subfocus in IssueDetail (issue #150).
@@ -795,6 +804,9 @@ fn test_esc_in_repo_list_exits_mode() {
 /// Up/Down arrows in inline mode dispatch cursor movement events.
 #[test]
 fn test_up_down_in_inline_dispatches_cursor_vertical() {
+    // cursor 8 lands on the second line ("line1\n" is 6 bytes; index 8 is in
+    // "line2") — a valid position so Up/Down dispatch vertical-cursor events.
+    // The assertions only check the dispatched event, not cursor math.
     let state = issues_state_with_inline(InlineState::Editor {
         target: EditorTarget::IssueBody,
         text: String::from(

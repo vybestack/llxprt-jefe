@@ -356,14 +356,16 @@ pub fn handle_mode_help_key(
             }
         }
         KeyCode::Down => {
-            help_scroll.set(help_scroll.get() + 1);
+            // `saturating_add` is required: `End` sets the sentinel `u32::MAX`
+            // (clamped by the renderer); plain `+ 1` would overflow-panic then.
+            help_scroll.set(help_scroll.get().saturating_add(1));
         }
         KeyCode::PageUp => {
             let offset = help_scroll.get();
             help_scroll.set(offset.saturating_sub(8));
         }
         KeyCode::PageDown => {
-            help_scroll.set(help_scroll.get() + 8);
+            help_scroll.set(help_scroll.get().saturating_add(8));
         }
         KeyCode::Home => {
             help_scroll.set(0);
