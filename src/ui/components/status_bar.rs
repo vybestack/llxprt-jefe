@@ -40,8 +40,7 @@ pub fn StatusBar(props: &StatusBarProps) -> impl Into<AnyElement<'static>> {
     let highlighted = props
         .selection
         .as_ref()
-        .filter(|s| s.pane() == SelectablePane::StatusBar)
-        .is_some();
+        .is_some_and(|s| s.pane() == SelectablePane::StatusBar);
     let bar_bg = if highlighted { rc.sel_bg } else { rc.border };
     let text_color = if highlighted { rc.sel_fg } else { rc.bg };
 
