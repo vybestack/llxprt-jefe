@@ -86,7 +86,11 @@ fn issue_subfocus_range_from_lines(
             let start = lines
                 .iter()
                 .position(|l| *l == "> New Comment" || *l == "  New Comment")?;
-            let end = (start + 1).min(lines.len().saturating_sub(1));
+            // NewComment is the last section; it spans from its label to the
+            // end of content (no separator follows). This adapts to the
+            // variable-length composer editor when a NewComment composer is
+            // active (the editor pushes several rows into the document).
+            let end = lines.len().saturating_sub(1).max(start);
             Some((start, end))
         }
     }
@@ -97,6 +101,15 @@ fn issue_subfocus_range_from_lines(
 /// (`"[Reply]"`) are excluded. Body sub-lines (6-space indent rendered as
 /// `"  "  body text"` after stripping the 2-space prefix → 4-space indent) are
 /// excluded because they start with spaces, not `@`.
+fn issue_line_is_comment(line: &str) -> bool {
+    let Some(rest) = line.strip_prefix("> ").or_else(|| line.strip_prefix("  ")) else {
+        return false;
+    };
+    // Editor gutter lines, reply anchors, and editing markers start with
+    // special chars; comment headers start with `@author`.
+    rest.starts_with('@')
+}
+
 /// Find the last line of a section (the line before the next separator). If
 /// no separator follows, the last content line is used. Falls back to
 /// `start` itself if the section is a single label line.
@@ -110,14 +123,6 @@ fn find_section_end(lines: &[&str], start: usize) -> usize {
         return i.saturating_sub(1);
     }
     lines.len().saturating_sub(1).max(start)
-}
-fn issue_line_is_comment(line: &str) -> bool {
-    let Some(rest) = line.strip_prefix("> ").or_else(|| line.strip_prefix("  ")) else {
-        return false;
-    };
-    // Editor gutter lines, reply anchors, and editing markers start with
-    // special chars; comment headers start with `@author`.
-    rest.starts_with('@')
 }
 
 /// Find the last content line of a comment block (the blank line that
