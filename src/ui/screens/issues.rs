@@ -11,8 +11,9 @@ use crate::state::{AppState, IssueFocus, PaneFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
-    AgentChooser, FilterControls, IssueDetailView, IssueListLayout, IssueListWindow, KeybindBar,
-    Sidebar, StatusBar, issue_list_props, issue_list_status_message, selectable_list_element,
+    AgentChooser, IssueDetailProjectionInputs, IssueListLayout, IssueListWindow, KeybindBar,
+    Sidebar, StatusBar, detail_pane_element, filter_bar_element, issue_detail_props,
+    issue_filter_props, issue_list_props, issue_list_status_message, selectable_list_element,
 };
 
 /// Props for the issues mode screen.
@@ -183,13 +184,13 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                     #(if filter_controls_open {
                         vec![element! {
                             Box(width: 100pct) {
-                                FilterControls(
-                                    draft_filter: draft_filter.clone(),
-                                    visible: true,
-                                    colors: colors.clone(),
-                                    active_field_index: filter_field_index,
-                                    draft_labels_text: draft_labels_text.clone(),
-                                )
+                                #(vec![filter_bar_element(issue_filter_props(
+                                    &draft_filter,
+                                    &draft_labels_text,
+                                    filter_field_index,
+                                    true,
+                                    colors.clone(),
+                                ))])
                             }
                         }]
                     } else {
@@ -214,18 +215,20 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                         ))])
                     }
                     Box(flex_grow: 1.0, width: 100pct) {
-                        IssueDetailView(
-                            issue_detail: issue_detail.clone(),
-                            detail_subfocus: detail_subfocus,
-                            inline_state: inline_state.clone(),
-                            comments_loading: comments_loading,
-                            focused: detail_focused,
-                            scroll_offset: detail_scroll_offset,
-                            colors: colors.clone(),
-                            available_height: Some(detail_pane_height),
-                            available_width: Some(crate::layout::issues_detail_content_width(term_cols)),
-                            selection: selection,
-                        )
+                        #(vec![detail_pane_element(issue_detail_props(
+                            IssueDetailProjectionInputs {
+                                issue_detail: issue_detail.as_ref(),
+                                detail_subfocus,
+                                inline_state: &inline_state,
+                                comments_loading,
+                                focused: detail_focused,
+                                scroll_offset: detail_scroll_offset,
+                                colors: colors.clone(),
+                                available_height: Some(detail_pane_height),
+                                available_width: Some(crate::layout::issues_detail_content_width(term_cols)),
+                                selection,
+                            },
+                        ))])
                     }
 
                     // Agent chooser overlay (anchored inside workspace)

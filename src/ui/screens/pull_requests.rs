@@ -10,9 +10,9 @@ use crate::state::{AppState, PaneFocus, PrFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
-    AgentChooser, KeybindBar, MergeChooser, PrDetailView, PrFilterControls, PrListLayout,
-    PrListWindow, Sidebar, StatusBar, pr_list_props, pr_list_status_message,
-    selectable_list_element,
+    AgentChooser, KeybindBar, MergeChooser, PrDetailProjectionInputs, PrListLayout, PrListWindow,
+    Sidebar, StatusBar, detail_pane_element, filter_bar_element, pr_detail_props, pr_filter_props,
+    pr_list_props, pr_list_status_message, selectable_list_element,
 };
 
 /// Props for the pull requests mode screen.
@@ -212,13 +212,13 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                     #(if filter_controls_open {
                         vec![element! {
                             Box(width: 100pct) {
-                                PrFilterControls(
-                                    draft_filter: draft_filter.clone(),
-                                    visible: true,
-                                    colors: colors.clone(),
-                                    active_field_index: filter_field_index,
-                                    draft_labels_text: draft_labels_text.clone(),
-                                )
+                                #(vec![filter_bar_element(pr_filter_props(
+                                    &draft_filter,
+                                    &draft_labels_text,
+                                    filter_field_index,
+                                    true,
+                                    colors.clone(),
+                                ))])
                             }
                         }]
                     } else {
@@ -247,19 +247,21 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                         ))])
                     }
                     Box(flex_grow: 1.0, width: 100pct) {
-                        PrDetailView(
-                            detail: pr_detail.clone(),
-                            subfocus: detail_subfocus,
-                            inline_state: inline_state.clone(),
-                            detail_loading: detail_loading,
-                            comments_loading: comments_loading,
-                            focused: detail_focused,
-                            scroll_offset: detail_scroll_offset,
-                            detail_content_width: detail_content_width,
-                            colors: colors.clone(),
-                            viewport_rows: Some(detail_pane_height),
-                            selection: selection,
-                        )
+                        #(vec![detail_pane_element(pr_detail_props(
+                            PrDetailProjectionInputs {
+                                detail: pr_detail.as_ref(),
+                                subfocus: detail_subfocus,
+                                inline_state: &inline_state,
+                                detail_loading,
+                                comments_loading,
+                                focused: detail_focused,
+                                scroll_offset: detail_scroll_offset,
+                                detail_content_width,
+                                colors: colors.clone(),
+                                viewport_rows: Some(detail_pane_height),
+                                selection,
+                            },
+                        ))])
                     }
 
                     // Agent chooser overlay (anchored inside workspace)

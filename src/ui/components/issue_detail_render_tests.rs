@@ -5,7 +5,7 @@
 use crate::domain::{IssueComment, IssueDetail, IssueState};
 use crate::state::{ComposerTarget, DetailSubfocus, InlineState};
 use crate::theme::ThemeColors;
-use crate::ui::components::IssueDetailView;
+use crate::ui::components::{IssueDetailProjectionInputs, detail_pane_element, issue_detail_props};
 
 use iocraft::prelude::*;
 
@@ -48,17 +48,20 @@ fn render_detail_canvas(p: RenderParams) -> iocraft::Canvas {
     let rows: u16 = p.pane_height + 10;
     let mut elem = element! {
         Box(width: u32::from(p.cols), height: u32::from(rows)) {
-            IssueDetailView(
-                issue_detail: Some(p.detail.clone()),
-                detail_subfocus: p.subfocus,
-                inline_state: p.inline_state.clone(),
-                comments_loading: false,
-                focused: true,
-                scroll_offset: p.scroll_offset,
-                colors: ThemeColors::default(),
-                available_height: Some(p.pane_height),
-                available_width: Some(p.cols),
-            )
+            #(vec![detail_pane_element(issue_detail_props(
+                IssueDetailProjectionInputs {
+                    issue_detail: Some(p.detail),
+                    detail_subfocus: p.subfocus,
+                    inline_state: p.inline_state,
+                    comments_loading: false,
+                    focused: true,
+                    scroll_offset: p.scroll_offset,
+                    colors: ThemeColors::default(),
+                    available_height: Some(p.pane_height),
+                    available_width: Some(p.cols),
+                    selection: None,
+                },
+            ))])
         }
     };
     elem.render(Some(usize::from(p.cols)))

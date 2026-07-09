@@ -1,19 +1,25 @@
-//! Unified issue detail + comments view.
-//! @plan PLAN-20260329-ISSUES-MODE.P12
-//! @plan PLAN-20260329-ISSUES-MODE.P14
-//! @requirement REQ-ISS-009
-
-use iocraft::prelude::*;
+//! Issue detail pane projection.
+//!
+//! The pure header projection ([`IssueDetailHeaderView`] /
+//! [`issue_detail_header_view`]) is shared with the selection content provider
+//! so copied text matches the rendered rows. The full-pane projection
+//! ([`issue_detail_props`]) computes all layout math + semantic colors and
+//! builds a [`DetailPaneProps`] that the generic [`DetailPane`] renders via
+//! [`detail_pane_element`]. This module stays iocraft-free (pure-views
+//! pattern): it never touches `Color` — only semantic [`DetailHeaderColor`]
+//! roles resolved by the component.
 
 use crate::domain::{IssueDetail, IssueState};
 use crate::issue_detail_content::{DetailContent, build_detail_content, build_new_issue_content};
 use crate::layout::DETAIL_HEADER_ROWS as HEADER_ROWS;
-use crate::selection::{SelectablePane, TextSelection, row_highlight_range};
+use crate::selection::{SelectablePane, TextSelection};
 use crate::state::{ComposerTarget, DetailSubfocus, InlineState};
-use crate::theme::{ResolvedColors, ThemeColors};
+use crate::theme::ThemeColors;
 
-use super::scrollable_text::ScrollableText;
-use super::text_box::TextBox;
+use super::detail_pane::{
+    DetailComposerProps, DetailHeaderColor, DetailHeaderRow, DetailPaneProps,
+    composer_from_inline_state,
+};
 
 /// Projected issue detail header exactly as the component renders it (the four
 /// fixed metadata rows). The component delegates to this so the selection
@@ -32,6 +38,7 @@ pub struct IssueDetailHeaderView {
 
 /// Pure projection of the issue detail's four fixed header rows exactly as the
 /// component renders them.
+#[must_use]
 pub fn issue_detail_header_view(detail: &IssueDetail) -> IssueDetailHeaderView {
     let state_tag = match detail.state {
         IssueState::Open => "OPEN",
@@ -61,15 +68,15 @@ pub fn issue_detail_header_view(detail: &IssueDetail) -> IssueDetailHeaderView {
     }
 }
 
-/// Props for the issue detail view.
-#[derive(Default, Props)]
-pub struct IssueDetailViewProps {
+/// Inputs the Issues screen passes to [`issue_detail_props`], bundled to stay
+/// under the clippy::too_many-arguments threshold (max 6).
+pub struct IssueDetailProjectionInputs<'a> {
     /// Full issue detail (metadata, body, comments).
-    pub issue_detail: Option<IssueDetail>,
+    pub issue_detail: Option<&'a IssueDetail>,
     /// Which sub-element is focused within the detail view.
     pub detail_subfocus: DetailSubfocus,
     /// Active inline editor/composer state.
-    pub inline_state: InlineState,
+    pub inline_state: &'a InlineState,
     /// Whether comments are loading.
     pub comments_loading: bool,
     /// Whether this pane is focused.
@@ -82,179 +89,139 @@ pub struct IssueDetailViewProps {
     pub available_height: Option<u16>,
     /// Actual available width (in terminal columns) for detail/composer text.
     pub available_width: Option<u16>,
-    /// Active text selection, if any (and if it targets this pane). Passed
-    /// through to the `ScrollableText` so selected cells render inverse-video.
+    /// Active text selection, if any (and if it targets this pane).
     pub selection: Option<TextSelection>,
 }
 
-/// Shared header-row selection highlight + rendering helper used by both
-/// `IssueDetailView` and `PrDetailView`.
-///
-/// `header_highlight` checks whether content line `line` falls inside the
-/// active drag selection for `pane`. `header_row` renders the row with
-/// inverse-video when highlighted, or in the default color otherwise.
-///
-/// Header rows use whole-row highlight (ignoring partial column ranges) for
-/// visual simplicity on short metadata lines.
-pub fn header_highlight(
-    line: usize,
-    selection: Option<&TextSelection>,
-    pane: SelectablePane,
-) -> bool {
-    selection
-        .filter(|s| s.pane() == pane)
-        .and_then(|s| row_highlight_range(s, line))
-        .is_some()
-}
-
-/// Render a single header row, applying whole-row inverse-video when it falls
-/// inside the active drag selection.
-pub fn header_row(
-    content: String,
-    default_fg: Color,
-    line: usize,
-    selection: Option<&TextSelection>,
-    pane: SelectablePane,
-    rc: &ResolvedColors,
-) -> AnyElement<'static> {
-    if header_highlight(line, selection, pane) {
-        element! {
-            Box(height: 1u32, background_color: rc.sel_bg) {
-                Text(content: content, color: rc.sel_fg)
-            }
-        }
-        .into_any()
-    } else {
-        element! {
-            Box(height: 1u32) {
-                Text(content: content, color: default_fg)
-            }
-        }
-        .into_any()
+/// Semantic state-row color for an issue: `Bright` when Open, `Dim` when Closed.
+/// Matches the pre-refactor component (`rc.bright` / `rc.dim`).
+fn issue_state_color(state: IssueState) -> DetailHeaderColor {
+    match state {
+        IssueState::Open => DetailHeaderColor::Bright,
+        IssueState::Closed => DetailHeaderColor::Dim,
     }
 }
 
-fn active_issue_composer(inline_state: &InlineState) -> Option<(String, usize, &'static str)> {
-    match inline_state {
-        InlineState::Composer {
-            target: ComposerTarget::NewComment,
-            text,
-            cursor,
-        } => Some((
-            text.clone(),
-            *cursor,
-            crate::layout::NEW_COMMENT_COMPOSER_PREFIX,
-        )),
-        InlineState::Composer {
-            target: ComposerTarget::Reply { .. } | ComposerTarget::ReplyToReviewThread { .. },
-            text,
-            cursor,
-        } => Some((text.clone(), *cursor, crate::layout::REPLY_COMPOSER_PREFIX)),
-        InlineState::Composer {
-            target: ComposerTarget::NewIssue,
-            ..
-        }
-        | InlineState::Editor { .. }
-        | InlineState::None => None,
-    }
-}
-
-/// Issue detail view — fixed structure that NEVER changes layout.
-///
-/// ALWAYS renders: border box -> 5 header rows -> fixed-row scrollable viewport.
-/// When no issue is selected, header rows are blank and viewport shows a message.
-/// This ensures layout is identical regardless of whether an issue is loaded.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P14
-/// @requirement REQ-ISS-009
-#[component]
-pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'static>> {
-    let rc = ResolvedColors::from_theme(Some(&props.colors));
-    let border_style = if props.focused {
-        BorderStyle::Double
-    } else {
-        BorderStyle::Round
-    };
-
-    // Compute viewport rows. Prefer the actual available height passed from the
-    // parent layout; fall back to deriving it from the terminal size when the
-    // parent did not supply one.
-    let detail_viewport_rows = if let Some(height) = props.available_height {
-        // The available height is the real flex allocation for the detail pane,
-        // including its borders and header. Subtract header + border (2) to get
-        // the scrollable viewport. Do NOT force the minimum-viewport floor here:
-        // on a very short terminal that floor would exceed the parent allocation
-        // and overflow the layout. The floor is only a fallback heuristic used
-        // when the parent does not report an actual height.
+/// Compute the detail viewport rows (scrollable area) from the available pane
+/// height. Mirrors the pre-refactor component's height-derived viewport math.
+fn detail_viewport_rows(available_height: Option<u16>) -> usize {
+    if let Some(height) = available_height {
         (height as usize).saturating_sub(HEADER_ROWS + 2)
     } else {
         let term_rows = crossterm::terminal::size().map_or(40, |(_, h)| h as usize);
         crate::layout::detail_viewport_rows(term_rows)
-    };
-    let composer = active_issue_composer(&props.inline_state);
-    let composer_active = composer.is_some();
-    let reserved_document_rows =
-        crate::layout::issue_detail_document_viewport_rows(detail_viewport_rows, composer_active);
-    let detail_content_width = usize::from(props.available_width.unwrap_or_else(|| {
+    }
+}
+
+/// Build the five fixed header rows (title, state, labels, url, separator) with
+/// their semantic colors and selection-line indices.
+fn build_header_rows(
+    h_title: String,
+    h_state: String,
+    h_labels: String,
+    h_url: String,
+    state_color: DetailHeaderColor,
+) -> Vec<DetailHeaderRow> {
+    vec![
+        DetailHeaderRow {
+            content: h_title,
+            color: DetailHeaderColor::Fg,
+            line: 0,
+        },
+        DetailHeaderRow {
+            content: h_state,
+            color: state_color,
+            line: 1,
+        },
+        DetailHeaderRow {
+            content: h_labels,
+            color: DetailHeaderColor::Dim,
+            line: 2,
+        },
+        DetailHeaderRow {
+            content: h_url,
+            color: DetailHeaderColor::Dim,
+            line: 3,
+        },
+        DetailHeaderRow {
+            content: "─────────────────────────────────────────".to_string(),
+            color: DetailHeaderColor::Dim,
+            line: 4,
+        },
+    ]
+}
+
+/// Resolve the content + header for the "new issue composer" branch (title
+/// "New Issue", state "Draft", bright state color).
+fn new_issue_composer_content(inline_state: &InlineState) -> (Vec<DetailHeaderRow>, DetailContent) {
+    let rows = build_header_rows(
+        "New Issue".to_string(),
+        "Draft".to_string(),
+        String::new(),
+        String::new(),
+        DetailHeaderColor::Bright,
+    );
+    (rows, build_new_issue_content(inline_state))
+}
+
+/// Resolve the content + header for a loaded issue detail.
+fn loaded_issue_content(
+    detail: &IssueDetail,
+    detail_subfocus: DetailSubfocus,
+    inline_state: &InlineState,
+    comments_loading: bool,
+) -> (Vec<DetailHeaderRow>, DetailContent) {
+    let header = issue_detail_header_view(detail);
+    let rows = build_header_rows(
+        header.title,
+        header.state,
+        header.labels,
+        header.url,
+        issue_state_color(detail.state),
+    );
+    (
+        rows,
+        build_detail_content(detail, detail_subfocus, inline_state, comments_loading),
+    )
+}
+
+/// Resolve the content + header for the "no issue selected" placeholder branch.
+fn empty_issue_content() -> (Vec<DetailHeaderRow>, DetailContent) {
+    let rows = build_header_rows(
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        DetailHeaderColor::Dim,
+    );
+    (
+        rows,
+        DetailContent {
+            text: "No issue selected".to_string(),
+            cursor: None,
+        },
+    )
+}
+
+/// Resolve the issue detail content width (terminal cols) from the supplied
+/// width, falling back to the terminal size when the parent did not supply one.
+fn detail_content_width(available_width: Option<u16>) -> usize {
+    usize::from(available_width.unwrap_or_else(|| {
         crate::layout::issues_detail_content_width(
             crossterm::terminal::size().map_or(120, |(w, _)| w),
         )
-    }));
+    }))
+}
 
-    // Build header and content.
-    let showing_new_issue_composer = matches!(
-        &props.inline_state,
-        InlineState::Composer {
-            target: ComposerTarget::NewIssue,
-            ..
-        }
-    );
-
-    let (h_title, h_state, h_labels, h_url, detail_content, state_color) =
-        if showing_new_issue_composer {
-            (
-                "New Issue".to_string(),
-                "Draft".to_string(),
-                String::new(),
-                String::new(),
-                build_new_issue_content(&props.inline_state),
-                rc.bright,
-            )
-        } else if let Some(detail) = props.issue_detail.as_ref() {
-            let header = issue_detail_header_view(detail);
-            let sc = match detail.state {
-                IssueState::Open => rc.bright,
-                IssueState::Closed => rc.dim,
-            };
-
-            (
-                header.title,
-                header.state,
-                header.labels,
-                header.url,
-                build_detail_content(
-                    detail,
-                    props.detail_subfocus,
-                    &props.inline_state,
-                    props.comments_loading,
-                ),
-                sc,
-            )
-        } else {
-            (
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                DetailContent {
-                    text: "No issue selected".to_string(),
-                    cursor: None,
-                },
-                rc.dim,
-            )
-        };
-
-    let document_line_count = detail_content.text.lines().count().max(1);
+/// Compute the `(scroll_rows, composer_rows)` split for the issue detail pane
+/// given the total detail viewport rows, the reserved document rows, the
+/// document line count, and whether a composer is active.
+fn issue_scroll_composer_rows(
+    detail_viewport_rows: usize,
+    reserved_document_rows: usize,
+    document_line_count: usize,
+    composer_active: bool,
+) -> (usize, usize) {
     let scroll_rows = if composer_active {
         reserved_document_rows.min(document_line_count)
     } else {
@@ -266,77 +233,77 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
     } else {
         0
     };
+    (scroll_rows, composer_rows)
+}
 
-    let composer_element: Option<AnyElement<'static>> =
-        composer.map(|(text, byte_cursor, prefix)| {
-            element! {
-                Box(width: 100pct, padding_left: 1u32) {
-                    TextBox(
-                        text: text,
-                        byte_cursor: byte_cursor,
-                        viewport_rows: composer_rows,
-                        content_width: detail_content_width,
-                        prefix: prefix.to_string(),
-                        color: rc.fg,
-                        caret_color: rc.bg,
-                        caret_bg: rc.bright,
-                    )
-                }
-            }
-            .into()
-        });
+/// Pure projection of the issue detail pane into a [`DetailPaneProps`].
+///
+/// Encapsulates ALL the logic the pre-refactor `IssueDetailView` component body
+/// owned: the new-issue-composer / loaded-detail / empty branching, the
+/// viewport/composer row math, the semantic state color, and the composer
+/// extraction. The result is rendered byte-identically by the generic
+/// [`DetailPane`] via [`detail_pane_element`].
+///
+/// This function is iocraft-free: it emits semantic [`DetailHeaderColor`] roles
+/// (never concrete `Color`), keeping the pure-views invariant.
+#[must_use]
+pub fn issue_detail_props(inputs: IssueDetailProjectionInputs<'_>) -> DetailPaneProps {
+    let detail_vp_rows = detail_viewport_rows(inputs.available_height);
+    let composer = composer_from_inline_state(inputs.inline_state);
+    let composer_active = composer.is_some();
+    let reserved_document_rows =
+        crate::layout::issue_detail_document_viewport_rows(detail_vp_rows, composer_active);
+    let content_width = detail_content_width(inputs.available_width);
 
-    element! {
-        Box(
-            flex_direction: FlexDirection::Column,
-            width: 100pct,
-            height: 100pct,
-            border_style: border_style,
-            border_color: rc.border,
-            background_color: rc.bg,
-        ) {
-            // ── Metadata header — always exactly HEADER_ROWS rows ─────────
-            Box(flex_direction: FlexDirection::Column, padding_left: 1u32, padding_right: 1u32) {
-                #(header_row(h_title, rc.fg, 0, props.selection.as_ref(), SelectablePane::IssueDetail, &rc))
-                #(header_row(h_state, state_color, 1, props.selection.as_ref(), SelectablePane::IssueDetail, &rc))
-                #(header_row(h_labels, rc.dim, 2, props.selection.as_ref(), SelectablePane::IssueDetail, &rc))
-                #(header_row(h_url, rc.dim, 3, props.selection.as_ref(), SelectablePane::IssueDetail, &rc))
-                #(header_row(
-                    "─────────────────────────────────────────".to_string(),
-                    rc.dim,
-                    4,
-                    props.selection.as_ref(),
-                    SelectablePane::IssueDetail,
-                    &rc,
-                ))
-            }
-
-            // ── Scrollable viewport — always exactly scroll_rows rows ─────
-            Box(width: 100pct, padding_left: 1u32) {
-                ScrollableText(
-                    content: detail_content.text,
-                    scroll_offset: props.scroll_offset,
-                    viewport_rows: scroll_rows,
-                    max_line_width: detail_content_width,
-                    cursor_line: detail_content.cursor.map(|(l, _)| l),
-                    cursor_col: detail_content.cursor.map(|(_, c)| c),
-                    color: rc.fg,
-                    cursor_color: rc.bg,
-                    cursor_bg: rc.bright,
-                    track_color: rc.dim,
-                    thumb_color: rc.bright,
-                    selection: props
-                        .selection
-                        .filter(|s| s.pane() == SelectablePane::IssueDetail),
-                    selection_bg: Some(rc.sel_bg),
-                    selection_fg: Some(rc.sel_fg),
-                    bg: Some(rc.bg),
-                    content_line_offset: HEADER_ROWS,
-                )
-            }
-
-            #(composer_element)
+    let showing_new_issue_composer = matches!(
+        inputs.inline_state,
+        InlineState::Composer {
+            target: ComposerTarget::NewIssue,
+            ..
         }
+    );
+
+    let (header_rows, detail_content) = if showing_new_issue_composer {
+        new_issue_composer_content(inputs.inline_state)
+    } else if let Some(detail) = inputs.issue_detail {
+        loaded_issue_content(
+            detail,
+            inputs.detail_subfocus,
+            inputs.inline_state,
+            inputs.comments_loading,
+        )
+    } else {
+        empty_issue_content()
+    };
+
+    let document_line_count = detail_content.text.lines().count().max(1);
+    let (scroll_rows, composer_rows) = issue_scroll_composer_rows(
+        detail_vp_rows,
+        reserved_document_rows,
+        document_line_count,
+        composer_active,
+    );
+    let composer_props = composer.map(|(text, byte_cursor, prefix)| DetailComposerProps {
+        text,
+        byte_cursor,
+        content_width,
+        prefix,
+    });
+
+    DetailPaneProps {
+        header_rows,
+        content: detail_content.text,
+        content_cursor: detail_content.cursor,
+        scroll_offset: inputs.scroll_offset,
+        viewport_rows: scroll_rows,
+        content_line_offset: HEADER_ROWS,
+        max_line_width: content_width,
+        focused: inputs.focused,
+        pane: SelectablePane::IssueDetail,
+        colors: inputs.colors,
+        selection: inputs.selection,
+        composer: composer_props,
+        composer_rows,
     }
 }
 
@@ -358,10 +325,8 @@ mod tests {
         assert!(text.contains("New Issue"));
         assert!(text.contains("Title: first line | Body: remaining lines"));
         assert!(text.contains("Ctrl+Enter submit | Esc cancel"));
-        // Cursor should be positioned at the end of the text
         assert!(cursor.is_some());
         if let Some((line, col)) = cursor {
-            // Cursor on second line (after the newline), at end of body
             assert!(line > 0, "cursor should be on a text line");
             assert!(col > 0, "cursor column should be non-zero at end of text");
         }

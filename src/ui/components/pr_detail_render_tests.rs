@@ -10,7 +10,7 @@
 use crate::domain::{IssueComment, PrCheckStatus, PrState, PullRequestDetail};
 use crate::state::{ComposerTarget, InlineState, PrDetailSubfocus};
 use crate::theme::ThemeColors;
-use crate::ui::components::PrDetailView;
+use crate::ui::components::{PrDetailProjectionInputs, detail_pane_element, pr_detail_props};
 
 use iocraft::prelude::*;
 
@@ -80,18 +80,21 @@ fn render_detail_canvas(p: RenderParams) -> iocraft::Canvas {
     let rows: u16 = p.pane_height + 10;
     let mut elem = element! {
         Box(width: u32::from(p.cols), height: u32::from(rows)) {
-            PrDetailView(
-                detail: Some(p.detail.clone()),
-                subfocus: p.subfocus,
-                inline_state: p.inline_state.clone(),
-                detail_loading: false,
-                comments_loading: false,
-                focused: true,
-                scroll_offset: p.scroll_offset,
-                detail_content_width: p.detail_content_width,
-                colors: ThemeColors::default(),
-                viewport_rows: Some(p.pane_height),
-            )
+            #(vec![detail_pane_element(pr_detail_props(
+                PrDetailProjectionInputs {
+                    detail: Some(p.detail),
+                    subfocus: p.subfocus,
+                    inline_state: p.inline_state,
+                    detail_loading: false,
+                    comments_loading: false,
+                    focused: true,
+                    scroll_offset: p.scroll_offset,
+                    detail_content_width: p.detail_content_width,
+                    colors: ThemeColors::default(),
+                    viewport_rows: Some(p.pane_height),
+                    selection: None,
+                },
+            ))])
         }
     };
     elem.render(Some(usize::from(p.cols)))

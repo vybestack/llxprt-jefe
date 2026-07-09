@@ -44,7 +44,7 @@ fn assert_filter_fields_contract(filter: &PrFilter, labels_text: &str, active_in
         8,
         "exactly 8 filter fields must render (active_index={active_index})"
     );
-    let labels: Vec<&str> = views.iter().map(|v| v.label).collect();
+    let labels: Vec<&str> = views.iter().map(|v| v.label.as_str()).collect();
     assert_eq!(
         labels, EXPECTED_PR_FILTER_LABELS,
         "field labels must be in the documented order (active_index={active_index})"
