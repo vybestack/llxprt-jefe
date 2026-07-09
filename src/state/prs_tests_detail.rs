@@ -366,7 +366,7 @@ fn assert_pr_thread_visible(state: &AppState, thread_idx: usize) {
     )
     .unwrap_or_else(|| panic!("expected range for thread {thread_idx}"));
     assert!(
-        range.0 >= offset || range.0 < offset + viewport,
+        range.0 >= offset && range.0 < offset + viewport,
         "thread #{thread_idx} first line {} must be within viewport [{}, {})",
         range.0,
         offset,

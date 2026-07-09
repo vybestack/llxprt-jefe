@@ -98,7 +98,7 @@ fn pr_subfocus_range_from_lines(
     match subfocus {
         PrDetailSubfocus::Body => pr_body_range(lines),
         PrDetailSubfocus::Review(target_idx) => {
-            pr_indexed_single_line(lines, *target_idx, pr_line_is_review_header)
+            pr_section_single_line(lines, "Reviews", *target_idx, pr_line_is_review_header)
         }
         PrDetailSubfocus::ReviewThread(target_flat_idx) => pr_indexed_block(
             lines,
@@ -107,7 +107,7 @@ fn pr_subfocus_range_from_lines(
             pr_thread_end_line,
         ),
         PrDetailSubfocus::Check(target_idx) => {
-            pr_indexed_single_line(lines, *target_idx, pr_line_is_check)
+            pr_section_single_line(lines, "Checks", *target_idx, pr_line_is_check)
         }
         PrDetailSubfocus::Comment(target_idx) => pr_comment_range(lines, *target_idx),
         PrDetailSubfocus::NewComment => {
@@ -122,24 +122,48 @@ fn pr_subfocus_range_from_lines(
 /// separator.
 fn pr_body_range(lines: &[&str]) -> Option<(usize, usize)> {
     let start = lines.iter().position(|l| *l == "Description")?;
-    let end = lines
+    Some((start, pr_find_section_end(lines, start)))
+}
+
+/// Find the content-line range of a named section (e.g. "Reviews", "Checks").
+/// Returns `(start, end)` where `start` is the section-label line index and
+/// `end` is the last line before the next separator (or the last content line
+/// if no separator follows). The label match is a prefix match because the
+/// rendered section header includes a parenthetical suffix (e.g.
+/// "Reviews  (decision: APPROVED)").
+fn pr_section_range(lines: &[&str], label: &str) -> Option<(usize, usize)> {
+    let start = lines.iter().position(|l| l.starts_with(label))?;
+    Some((start, pr_find_section_end(lines, start)))
+}
+
+/// Find the last line of a section (the line before the next separator). If
+/// no separator follows, the last content line is used. Falls back to `start`
+/// itself if the section is a single label line.
+fn pr_find_section_end(lines: &[&str], start: usize) -> usize {
+    if let Some((i, _)) = lines
         .iter()
         .enumerate()
         .skip(start + 1)
         .find(|(_, l)| l.starts_with('─'))
-        .map(|(i, _)| i.saturating_sub(1))?;
-    Some((start, end))
+    {
+        return i.saturating_sub(1);
+    }
+    lines.len().saturating_sub(1).max(start)
 }
 
-/// Scan for the `target_idx`-th line matching `predicate`, returning its
-/// single-line range. Used for reviews and checks (one rendered line each).
-fn pr_indexed_single_line(
+/// Scan for the `target_idx`-th line matching `predicate` within a named
+/// section, returning its single-line range. Scoping to the section prevents
+/// index drift from similar-looking lines in other sections (e.g. a review
+/// body excerpt containing "pending" being miscounted as a check).
+fn pr_section_single_line(
     lines: &[&str],
+    section_label: &str,
     target_idx: usize,
     predicate: fn(&str) -> bool,
 ) -> Option<(usize, usize)> {
+    let (start, end) = pr_section_range(lines, section_label)?;
     let mut count = 0usize;
-    for (i, line) in lines.iter().enumerate() {
+    for (i, line) in lines.iter().enumerate().take(end + 1).skip(start + 1) {
         if predicate(line) {
             if count == target_idx {
                 return Some((i, i));
@@ -151,8 +175,7 @@ fn pr_indexed_single_line(
 }
 
 /// Scan for the `target_idx`-th header matching `predicate`, returning the
-/// block range from the header through `end_fn`. Used for review threads and
-/// comments.
+/// block range from the header through `end_fn`. Used for review threads.
 fn pr_indexed_block(
     lines: &[&str],
     target_idx: usize,
@@ -232,8 +255,14 @@ fn pr_line_is_check(line: &str) -> bool {
         .any(|s| rest.contains(s))
 }
 
-/// True for a comment line in the Comments section: prefix `"> "` or `"- "`
-/// + author + date. Thread comment sub-lines (6-space indent) are excluded.
+/// True for a comment line in the Comments section: prefix marker plus
+/// author login (no leading spaces) and date. The author/date separator is
+/// two spaces, so we verify the line is NOT an indented body line and uses
+/// the separator after stripping the marker prefix.
+///
+/// `rest` is the text after the marker prefix. The two-space separator
+/// between the author login and the date distinguishes comment header lines
+/// from indented thread body lines.
 fn pr_line_is_comment(line: &str) -> bool {
     let Some(rest) = line.strip_prefix("> ").or_else(|| line.strip_prefix("- ")) else {
         return false;
@@ -241,6 +270,9 @@ fn pr_line_is_comment(line: &str) -> bool {
     if rest.starts_with("    ") {
         return false;
     }
+    // Comment headers are `author  date`; body sub-lines are indented and
+    // excluded by the 4-space check above. The two-space separator is the
+    // distinguishing marker between the author and the date.
     rest.contains("  ")
 }
 

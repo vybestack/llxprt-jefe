@@ -62,12 +62,8 @@ fn issue_subfocus_range_from_lines(
                 .iter()
                 .position(|l| *l == "> Body" || *l == "  Body")?;
             // Body spans from its label to the line before the next separator.
-            let end = lines
-                .iter()
-                .enumerate()
-                .skip(start + 1)
-                .find(|(_, l)| l.starts_with('─'))
-                .map(|(i, _)| i.saturating_sub(1))?;
+            // Fall back to the last content line if no separator follows.
+            let end = find_section_end(lines, start);
             Some((start, end))
         }
         DetailSubfocus::Comment(target_idx) => {
@@ -97,19 +93,31 @@ fn issue_subfocus_range_from_lines(
 }
 
 /// True for a comment header line in the Comments section: prefix `"> "` or
-/// `  "` + author + date. Editor gutter lines (`"    │ "`) are excluded.
+/// `  "` + `@author` + date. Editor gutter lines (`"│"`) and reply anchors
+/// (`"[Reply]"`) are excluded. Body sub-lines (6-space indent rendered as
+/// `"  "  body text"` after stripping the 2-space prefix → 4-space indent) are
+/// excluded because they start with spaces, not `@`.
+/// Find the last line of a section (the line before the next separator). If
+/// no separator follows, the last content line is used. Falls back to
+/// `start` itself if the section is a single label line.
+fn find_section_end(lines: &[&str], start: usize) -> usize {
+    if let Some((i, _)) = lines
+        .iter()
+        .enumerate()
+        .skip(start + 1)
+        .find(|(_, l)| l.starts_with('─'))
+    {
+        return i.saturating_sub(1);
+    }
+    lines.len().saturating_sub(1).max(start)
+}
 fn issue_line_is_comment(line: &str) -> bool {
     let Some(rest) = line.strip_prefix("> ").or_else(|| line.strip_prefix("  ")) else {
         return false;
     };
-    // Editor gutter lines and reply anchors start with "│" or "[Reply]".
-    if rest.starts_with('│') || rest.starts_with("[Reply]") {
-        return false;
-    }
-    // Comment line: "@author  date" or "author  date" — contains a double
-    // space separating author from date. Section labels like "Comments" are
-    // excluded by the caller's skip.
-    rest.contains("  ")
+    // Editor gutter lines, reply anchors, and editing markers start with
+    // special chars; comment headers start with `@author`.
+    rest.starts_with('@')
 }
 
 /// Find the last content line of a comment block (the blank line that
@@ -615,5 +623,84 @@ mod tests {
             false,
         );
         assert!(range.is_none(), "out-of-bounds comment must return None");
+    }
+
+    #[test]
+    fn issue_subfocus_line_range_comment_1_locates_second_comment() {
+        let detail = detail_with_comments(2);
+        let range = require_range(
+            &detail,
+            DetailSubfocus::Comment(1),
+            &InlineState::None,
+            false,
+        );
+        let content = build_detail_content(
+            &detail,
+            DetailSubfocus::Comment(1),
+            &InlineState::None,
+            false,
+        );
+        let lines: Vec<&str> = content.text.lines().collect();
+        let block: Vec<&str> = lines[range.0..=range.1].to_vec();
+        assert!(
+            block.iter().any(|l| l.contains("comment 1")),
+            "Comment(1) must locate the second comment, got block: {block:?}"
+        );
+        // The header line must start with the comment marker, not a body line.
+        let header = lines[range.0];
+        assert!(
+            header
+                .strip_prefix("> ")
+                .is_some_and(|r| r.starts_with('@'))
+                || header
+                    .strip_prefix("  ")
+                    .is_some_and(|r| r.starts_with('@')),
+            "Comment(1) header must be a comment header starting with @, got: {header:?}"
+        );
+    }
+
+    #[test]
+    fn issue_subfocus_line_range_comment_not_confused_by_body_lines() {
+        // Two comments with multi-line bodies. Body lines are indented and must
+        // NOT be miscounted as comment headers.
+        let mut detail = detail_with_body("body");
+        detail.comments = vec![
+            comment(
+                "comment 0 line 1
+comment 0 line 2",
+            ),
+            comment(
+                "comment 1 line 1
+comment 1 line 2",
+            ),
+        ];
+        let range = require_range(
+            &detail,
+            DetailSubfocus::Comment(1),
+            &InlineState::None,
+            false,
+        );
+        let content = build_detail_content(
+            &detail,
+            DetailSubfocus::Comment(1),
+            &InlineState::None,
+            false,
+        );
+        let lines: Vec<&str> = content.text.lines().collect();
+        let header = lines[range.0];
+        assert!(
+            header
+                .strip_prefix("> ")
+                .is_some_and(|r| r.starts_with('@'))
+                || header
+                    .strip_prefix("  ")
+                    .is_some_and(|r| r.starts_with('@')),
+            "Comment(1) must point at a header line, not a body line: {header:?}"
+        );
+        let block: Vec<&str> = lines[range.0..=range.1].to_vec();
+        assert!(
+            block.iter().any(|l| l.contains("comment 1")),
+            "Comment(1) block must contain the second comment body, got: {block:?}"
+        );
     }
 }

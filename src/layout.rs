@@ -672,6 +672,9 @@ pub fn list_visible_window<T>(rows: &[T], selected_index: usize, viewport_rows: 
 /// - If the item is entirely below or straddles the bottom edge, scroll down so
 ///   its last line is the bottom viewport row — unless the item is taller than
 ///   the viewport, in which case anchor on its first line (top) instead.
+/// - If the item straddles the top edge (its tail is inside the viewport but its
+///   head is scrolled off the top), scroll up to `item_start` so the whole item
+///   is visible from its first line.
 ///
 /// Returns `offset` unchanged when `viewport_rows == 0` (no viewport).
 #[must_use]
@@ -691,6 +694,12 @@ pub fn reveal_range_scroll_offset(
     }
     // Entirely above the viewport: snap the first line to the top.
     if item_end < offset {
+        return item_start;
+    }
+    // Straddling the top edge: the item's tail is inside the viewport but its
+    // head is scrolled off the top. Scroll up to reveal the whole item from
+    // its first line (minimal movement that makes it fully visible).
+    if item_start < offset {
         return item_start;
     }
     // Entirely below or straddling the bottom: bring the last line into view as

@@ -759,10 +759,14 @@ fn reveal_range_returns_offset_when_viewport_rows_is_zero() {
 }
 
 #[test]
-fn reveal_range_noop_when_item_partially_visible_at_top() {
+fn reveal_range_scrolls_up_when_item_straddles_top_edge() {
     // item lines 0..2, offset 1, viewport 10 (1..10): line 0 is above but
     // 1-2 are visible. Since item_start (0) < offset (1) but item_end (2) is
     // within the viewport, the item is NOT fully visible — it straddles the
     // top. Scroll up so line 0 is at the top.
     assert_eq!(reveal_range_scroll_offset(0, 2, 1, 10), 0);
+    // item lines 3..7, offset 5, viewport 10 (5..14): lines 3-4 are scrolled
+    // off the top while 5-7 are visible. Scroll up to item_start so the whole
+    // item is revealed from its first line.
+    assert_eq!(reveal_range_scroll_offset(3, 7, 5, 10), 3);
 }
