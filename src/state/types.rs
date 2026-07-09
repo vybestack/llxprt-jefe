@@ -181,6 +181,8 @@ pub enum ModalState {
     ThemePicker {
         available_themes: Vec<(String, String)>,
         selected_index: usize,
+        /// Slug of the currently-applied theme (for the active marker).
+        active_slug: String,
     },
     NewRepository {
         fields: RepositoryFormFields,

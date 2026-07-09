@@ -710,6 +710,7 @@ impl AppState {
                 self.modal = ModalState::ThemePicker {
                     available_themes,
                     selected_index,
+                    active_slug,
                 };
             }
             AppEvent::ThemePickerNavigateUp => {
@@ -723,6 +724,7 @@ impl AppState {
                 if let ModalState::ThemePicker {
                     available_themes,
                     selected_index,
+                    ..
                 } = &mut self.modal
                 {
                     if *selected_index + 1 < available_themes.len() {

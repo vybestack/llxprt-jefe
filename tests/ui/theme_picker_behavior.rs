@@ -24,6 +24,7 @@ fn picker_state(themes: &[&str], selected: usize) -> AppState {
             .map(|&s| (s.to_string(), s.to_string()))
             .collect(),
         selected_index: selected,
+        active_slug: String::new(),
     };
     state
 }

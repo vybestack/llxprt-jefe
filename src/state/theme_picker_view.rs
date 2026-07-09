@@ -27,6 +27,7 @@ pub fn theme_picker_view(state: &AppState) -> Option<(Vec<ThemePickerRow>, usize
     let ModalState::ThemePicker {
         available_themes,
         selected_index,
+        active_slug,
     } = &state.modal
     else {
         return None;
@@ -39,7 +40,7 @@ pub fn theme_picker_view(state: &AppState) -> Option<(Vec<ThemePickerRow>, usize
             slug: slug.clone(),
             name: name.clone(),
             selected: idx == *selected_index,
-            active: false,
+            active: slug == active_slug,
         })
         .collect();
 
@@ -71,6 +72,7 @@ mod tests {
                 ("dracula".into(), "Dracula".into()),
             ],
             selected_index: 1,
+            active_slug: "green-screen".into(),
         };
 
         let (rows, selected) = theme_picker_view(&state).expect("picker open");
@@ -78,6 +80,9 @@ mod tests {
         assert_eq!(selected, 1);
         assert!(rows[1].selected);
         assert!(!rows[0].selected);
+        // Active marker follows active_slug, not selection.
+        assert!(rows[0].active);
+        assert!(!rows[1].active);
     }
 
     #[test]
@@ -86,11 +91,13 @@ mod tests {
         state.modal = ModalState::ThemePicker {
             available_themes: vec![("atom-one-dark".into(), "Atom One Dark".into())],
             selected_index: 0,
+            active_slug: "atom-one-dark".into(),
         };
 
         let (rows, _) = theme_picker_view(&state).expect("picker open");
         assert_eq!(rows[0].slug, "atom-one-dark");
         assert_eq!(rows[0].name, "Atom One Dark");
+        assert!(rows[0].active);
     }
 
     #[test]
@@ -99,6 +106,7 @@ mod tests {
         state.modal = ModalState::ThemePicker {
             available_themes: vec![],
             selected_index: 0,
+            active_slug: String::new(),
         };
 
         let (rows, _) = theme_picker_view(&state).expect("picker open");

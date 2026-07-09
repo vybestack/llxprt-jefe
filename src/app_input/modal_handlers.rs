@@ -321,13 +321,14 @@ pub fn handle_mode_theme_picker_key(
             apply_and_persist(app_state, ctx, AppEvent::ThemePickerNavigateDown);
         }
         KeyCode::Enter => {
-            // Read the selected slug from state, apply it, persist, close.
+            // Read the selected slug from state.
             let selected_slug = {
                 let state = app_state.read();
                 match &state.modal {
                     ModalState::ThemePicker {
                         available_themes,
                         selected_index,
+                        ..
                     } => available_themes
                         .get(*selected_index)
                         .map(|(slug, _)| slug.clone()),
@@ -335,6 +336,7 @@ pub fn handle_mode_theme_picker_key(
                 }
             };
 
+            // Apply the theme to the ThemeManager (fast, in-memory).
             if let Some(slug) = selected_slug
                 && let Some(ctx_arc) = &ctx
                 && let Ok(mut ctx_guard) = ctx_arc.lock()
@@ -342,26 +344,26 @@ pub fn handle_mode_theme_picker_key(
                 if let Err(e) = ctx_guard.theme_manager.set_active(&slug) {
                     warn!(error = %e, theme = %slug, "theme picker: invalid selection, fell back to Green Screen");
                 }
-                // Persist the selection to settings.toml.
+            }
+
+            // Persist the selection to settings.toml (file I/O outside the hot
+            // lock path — re-acquire only to read the active slug + save).
+            if let Some(ctx_arc) = &ctx
+                && let Ok(ctx_guard) = ctx_arc.lock()
+            {
+                let active_slug = ctx_guard.theme_manager.active_theme().slug.clone();
                 let mut settings = ctx_guard.persistence.load_settings().unwrap_or_else(|e| {
                     warn!(error = %e, "could not load settings, using defaults");
                     jefe::persistence::Settings::default_with_version()
                 });
-                settings
-                    .theme
-                    .clone_from(&ctx_guard.theme_manager.active_theme().slug);
+                settings.theme = active_slug;
                 if let Err(e) = ctx_guard.persistence.save_settings(&settings) {
                     warn!(error = %e, "could not persist theme selection");
                 }
             }
 
-            // Close the picker (confirm clears the modal in the reducer).
-            {
-                let mut state = app_state.write();
-                let snapshot = std::mem::take(&mut *state);
-                *state = snapshot.apply(AppEvent::ThemePickerConfirm(String::new()));
-                persist_state_snapshot(ctx, &state);
-            }
+            // Close the picker (reuses the same helper as Esc for consistency).
+            apply_and_persist(app_state, ctx, AppEvent::ThemePickerConfirm(String::new()));
         }
         KeyCode::Esc => {
             apply_and_persist(app_state, ctx, AppEvent::CloseThemePicker);

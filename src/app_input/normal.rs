@@ -201,15 +201,7 @@ pub fn handle_normal_key_event(
             if let Some(ctx_arc) = &ctx
                 && let Ok(ctx_guard) = ctx_arc.lock()
             {
-                let available: Vec<(String, String)> = ctx_guard
-                    .theme_manager
-                    .available_themes()
-                    .into_iter()
-                    .map(|slug| {
-                        let theme = ctx_guard.theme_manager.resolve(&slug);
-                        (slug, theme.name)
-                    })
-                    .collect();
+                let available = ctx_guard.theme_manager.themes_with_names();
                 let active = ctx_guard.theme_manager.active_theme().slug.clone();
                 drop(ctx_guard);
                 Some(AppEvent::OpenThemePicker {

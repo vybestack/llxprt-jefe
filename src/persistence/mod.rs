@@ -177,6 +177,7 @@ fn resolve_config_dir_from_env(
     }
     if let Some(path) = jefe_settings_path.filter(|s| !s.is_empty())
         && let Some(parent) = PathBuf::from(path).parent()
+        && !parent.as_os_str().is_empty()
     {
         return parent.to_path_buf();
     }
@@ -185,12 +186,10 @@ fn resolve_config_dir_from_env(
 
 /// The default themes directory: `<config_dir>/themes`.
 ///
-/// This is where custom JSON theme files are loaded from. Returns `None`
-/// only if no config dir can be resolved (which never happens in practice
-/// since `platform_default_config_dir` always returns a fallback).
+/// This is where custom JSON theme files are loaded from.
 #[must_use]
-pub fn default_themes_dir() -> Option<PathBuf> {
-    Some(default_config_dir().join("themes"))
+pub fn default_themes_dir() -> PathBuf {
+    default_config_dir().join("themes")
 }
 
 /// Platform-specific config directory.
@@ -410,7 +409,7 @@ mod tests {
 
     #[test]
     fn default_themes_dir_ends_with_themes_subdir() {
-        let dir = default_themes_dir().expect("themes dir should resolve");
+        let dir = default_themes_dir();
         assert!(dir.ends_with("themes"));
     }
 
@@ -424,6 +423,13 @@ mod tests {
     fn resolve_config_dir_uses_settings_path_parent_when_no_config_dir() {
         let dir = resolve_config_dir_from_env(None, Some("/a/b/settings.toml".into()));
         assert_eq!(dir, PathBuf::from("/a/b"));
+    }
+
+    #[test]
+    fn resolve_config_dir_ignores_bare_filename_settings_path() {
+        // A bare filename with no parent dir should fall back to platform default.
+        let dir = resolve_config_dir_from_env(None, Some("settings.toml".into()));
+        assert!(dir.ends_with("jefe"));
     }
 
     #[test]

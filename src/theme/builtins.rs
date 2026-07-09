@@ -364,22 +364,50 @@ mod tests {
     #[test]
     fn ansi_themes_use_ansi_kind() {
         let themes = builtin_themes();
+        let ansi_count = themes
+            .iter()
+            .filter(|t| t.slug == "ansi" || t.slug == "ansi-light")
+            .count();
+        assert_eq!(ansi_count, 2, "both ANSI themes must be present");
         for theme in &themes {
             if theme.slug == "ansi" || theme.slug == "ansi-light" {
-                assert_eq!(theme.kind, ThemeKind::Ansi);
+                assert_eq!(theme.kind, ThemeKind::Ansi, "{}", theme.slug);
             }
         }
     }
 
     #[test]
     fn light_themes_classified_light() {
+        let light_slugs = [
+            "ayu-light",
+            "default-light",
+            "github-light",
+            "google-code",
+            "xcode",
+        ];
         let themes = builtin_themes();
         for theme in &themes {
-            match theme.slug.as_str() {
-                "ayu-light" | "default-light" | "github-light" | "google-code" | "xcode" => {
-                    assert_eq!(theme.kind, ThemeKind::Light, "{}", theme.slug);
-                }
-                _ => {}
+            if light_slugs.contains(&theme.slug.as_str()) {
+                assert_eq!(theme.kind, ThemeKind::Light, "{}", theme.slug);
+            }
+        }
+    }
+
+    #[test]
+    fn dark_themes_classified_dark() {
+        let dark_slugs = [
+            "green-screen",
+            "ayu-dark",
+            "atom-one-dark",
+            "dracula",
+            "default-dark",
+            "github-dark",
+            "shades-of-purple",
+        ];
+        let themes = builtin_themes();
+        for theme in &themes {
+            if dark_slugs.contains(&theme.slug.as_str()) {
+                assert_eq!(theme.kind, ThemeKind::Dark, "{}", theme.slug);
             }
         }
     }

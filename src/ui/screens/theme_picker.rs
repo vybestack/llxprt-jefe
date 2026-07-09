@@ -38,6 +38,12 @@ pub fn ThemePickerScreen(props: &ThemePickerScreenProps) -> impl Into<AnyElement
         .and_then(theme_picker_view)
         .unwrap_or_else(|| (Vec::<ThemePickerRow>::new(), 0));
 
+    // Size the panel to fit available themes, capped at terminal height.
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let panel_width = term_cols.saturating_sub(20).clamp(40, 60);
+    let theme_count = u16::try_from(rows.len() + 6).unwrap_or(u16::MAX);
+    let panel_height = term_rows.saturating_sub(4).clamp(10, theme_count);
+
     element! {
         Box(
             flex_direction: FlexDirection::Column,
@@ -47,8 +53,8 @@ pub fn ThemePickerScreen(props: &ThemePickerScreenProps) -> impl Into<AnyElement
         ) {
             Box(
                 flex_direction: FlexDirection::Column,
-                width: 50u32,
-                height: 20u32,
+                width: u32::from(panel_width),
+                height: u32::from(panel_height),
                 border_style: BorderStyle::Round,
                 border_color: rc.border_focused,
                 background_color: rc.bg,
@@ -64,6 +70,7 @@ pub fn ThemePickerScreen(props: &ThemePickerScreenProps) -> impl Into<AnyElement
                 }
 
                 // Theme list — selected row gets inverse-video highlight + marker.
+                // Active theme (currently applied) gets a leading dot.
                 Box(
                     flex_direction: FlexDirection::Column,
                     flex_grow: 1.0,
@@ -72,7 +79,8 @@ pub fn ThemePickerScreen(props: &ThemePickerScreenProps) -> impl Into<AnyElement
                     #(rows.iter().map(|row| {
                         let is_selected = row.selected;
                         let marker = if is_selected { "▶ " } else { "  " };
-                        let label = format!("{marker}{}", row.name);
+                        let active_marker = if row.active { " ●" } else { ""  };
+                        let label = format!("{marker}{}{active_marker}", row.name);
                         element! {
                             Box(
                                 width: 100pct,

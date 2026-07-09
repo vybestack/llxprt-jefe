@@ -18,9 +18,13 @@ pub use builtins::builtin_themes;
 #[serde(rename_all = "lowercase")]
 pub enum ThemeKind {
     #[default]
+    #[serde(alias = "Dark")]
     Dark,
+    #[serde(alias = "Light")]
     Light,
+    #[serde(alias = "Ansi")]
     Ansi,
+    #[serde(alias = "Custom")]
     Custom,
 }
 
@@ -218,6 +222,21 @@ pub trait ThemeManager {
 
     /// Resolve a theme by slug, with Green Screen fallback.
     fn resolve(&self, slug: &str) -> ThemeDefinition;
+
+    /// Get all available themes as `(slug, name)` pairs in a single pass.
+    ///
+    /// Default implementation uses `available_themes()` + `resolve()`.
+    /// Implementors with direct access to the theme list can override
+    /// to avoid the O(n²) repeated linear scans.
+    fn themes_with_names(&self) -> Vec<(String, String)> {
+        self.available_themes()
+            .into_iter()
+            .map(|slug| {
+                let name = self.resolve(&slug).name;
+                (slug, name)
+            })
+            .collect()
+    }
 }
 
 /// Stub implementation of ThemeManager for testing.
@@ -292,19 +311,11 @@ impl FileThemeManager {
     /// Create with the full built-in llxprt theme set.
     ///
     /// Green Screen is always first (index 0) so it remains the default and
-    /// fallback per REQ-FUNC-009.
+    /// fallback per REQ-FUNC-009. `builtin_themes()` guarantees this ordering.
     #[must_use]
     pub fn new() -> Self {
-        let mut themes = builtin_themes();
-        // Defensive: ensure Green Screen is index 0 even if the built-in list
-        // ordering is ever changed. find + swap to front.
-        if let Some(gs_idx) = themes.iter().position(|t| t.slug == "green-screen") {
-            if gs_idx != 0 {
-                themes.swap(0, gs_idx);
-            }
-        }
         Self {
-            themes,
+            themes: builtin_themes(),
             active_index: 0,
         }
     }
@@ -372,6 +383,13 @@ impl ThemeManager for FileThemeManager {
             .find(|t| t.slug == slug)
             .cloned()
             .unwrap_or_else(ThemeDefinition::green_screen)
+    }
+
+    fn themes_with_names(&self) -> Vec<(String, String)> {
+        self.themes
+            .iter()
+            .map(|t| (t.slug.clone(), t.name.clone()))
+            .collect()
     }
 }
 
