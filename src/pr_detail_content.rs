@@ -257,12 +257,14 @@ fn pr_line_is_check(line: &str) -> bool {
 
 /// True for a comment line in the Comments section: prefix marker plus
 /// author login (no leading spaces) and date. The author/date separator is
-/// two spaces, so we verify the line is NOT an indented body line and uses
-/// the separator after stripping the marker prefix.
+/// True for a PR comment header line in the Comments section: starts with
+/// `"> "` or `"- "` followed by the author login and a two-space separator
+/// before the date. Indented body sub-lines (4-space indent) are excluded.
 ///
-/// `rest` is the text after the marker prefix. The two-space separator
-/// between the author login and the date distinguishes comment header lines
-/// from indented thread body lines.
+/// The check uses a structural marker: after stripping the marker prefix,
+/// the text must NOT start with a 4-space indent (which would be a body
+/// line) and must contain the two-space separator that precedes the date.
+/// This is more robust than a free-form substring match.
 fn pr_line_is_comment(line: &str) -> bool {
     let Some(rest) = line.strip_prefix("> ").or_else(|| line.strip_prefix("- ")) else {
         return false;
