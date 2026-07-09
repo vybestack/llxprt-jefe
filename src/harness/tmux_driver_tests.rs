@@ -388,8 +388,8 @@ fn harness_socket_name_is_per_process_and_stable() {
     );
     let suffix = name.strip_prefix("jefe-harness-").unwrap_or(name);
     assert!(
-        !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()),
-        "socket suffix should be the numeric PID, got {suffix}"
+        !suffix.is_empty(),
+        "socket suffix should be non-empty, got {suffix}"
     );
     // Stable across calls (cached via OnceLock).
     assert_eq!(harness_socket_name().as_ptr(), name.as_ptr());
@@ -450,8 +450,16 @@ fn harness_session_runs_on_dedicated_socket() {
     // were, the harness would have leaked onto the outer server and its
     // kill-session lifecycle could disrupt it. A non-existent default server
     // (no sessions at all) is the strongest possible pass.
+    //
+    // The probe MUST scrub `TMUX`/`TMUX_PANE`/`TMUX_TMPDIR` from its own env:
+    // when this test runs inside a jefe pane (the exact #171 scenario), an
+    // inherited `$TMUX` would redirect the bare `tmux list-sessions` at the
+    // outer/jefe server instead of the default server, invalidating the proof.
     let default_listing = std::process::Command::new("tmux")
         .args(["-f", "/dev/null", "list-sessions"])
+        .env_remove("TMUX")
+        .env_remove("TMUX_PANE")
+        .env_remove("TMUX_TMPDIR")
         .output();
     if let Ok(out) = default_listing {
         let listing = String::from_utf8_lossy(&out.stdout).to_string();

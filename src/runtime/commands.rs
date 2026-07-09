@@ -452,11 +452,30 @@ fn build_remote_launch_command(
     let pane_command = format!("{env_scrub} {cli_command}");
     let env_prefix = remote_env_exports(signature).join(" ");
     let escaped_session = shell_escape_single(session_name);
-    let tmux_script = format!(
-        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {pane_command} \\; set-option -t {escaped_session} remain-on-exit on"
+    let tmux_script = build_remote_tmux_script(
+        &escaped_work_dir,
+        &env_prefix,
+        &escaped_session,
+        &pane_command,
     );
 
     Ok(remote_tmux_command(remote, &tmux_script))
+}
+
+/// Assemble the remote tmux startup script from its already-escaped parts.
+///
+/// Factored out of [`build_remote_launch_command`] so the script template —
+/// including the `env -u` scrub inside `pane_command` — is unit-testable
+/// without the SSH resolver side effect (#171).
+fn build_remote_tmux_script(
+    escaped_work_dir: &str,
+    env_prefix: &str,
+    escaped_session: &str,
+    pane_command: &str,
+) -> String {
+    format!(
+        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {pane_command} \\; set-option -t {escaped_session} remain-on-exit on"
+    )
 }
 
 struct LocalLaunchPlan {
@@ -915,18 +934,27 @@ mod tests {
 
     /// The remote launch script must prepend the `env -u` scrub to the pane
     /// command so a remote agent cannot reach the (remote) tmux server hosting
-    /// it (#171).
+    /// it (#171). Exercises the real [`build_remote_tmux_script`] template plus
+    /// the real scrub/escape helpers rather than re-deriving the string.
     #[test]
     fn remote_launch_command_scrubs_tmux_env_from_pane() {
-        let session_name = shell_escape_single("jefe-agent-scrub");
-        let work_dir = shell_escape_single("/tmp/work");
-        let cli_command = shell_escape_single("/tmp/work/node_modules/.bin/llxprt");
+        let escaped_work_dir = shell_escape_single("/tmp/work");
+        let escaped_session = shell_escape_single("jefe-agent-scrub");
+        // Build the pane command from the same production helpers the launcher
+        // uses, so a regression in any of them (removing the scrub, reordering
+        // the template) is caught here.
+        let cli_command = remote_cli_command(
+            "/tmp/work/node_modules/.bin/llxprt",
+            &launch_args(&base_signature()),
+        );
         let env_scrub = tmux_scrub_env_args().join(" ");
         let pane_command = format!("{env_scrub} {cli_command}");
-        let env_prefix = String::new();
 
-        let tmux_script = format!(
-            "set -e; mkdir -p {work_dir}; cd {work_dir}; {env_prefix} tmux new-session -d -s {session_name} -c {work_dir} {pane_command} \\; set-option -t {session_name} remain-on-exit on"
+        let tmux_script = build_remote_tmux_script(
+            &escaped_work_dir,
+            "", // no sandbox/debug env exports in the base signature
+            &escaped_session,
+            &pane_command,
         );
 
         // The scrub prefix must appear before the llxprt command in the pane.
