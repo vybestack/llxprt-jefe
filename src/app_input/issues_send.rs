@@ -18,6 +18,12 @@ use super::{
 };
 use tracing::warn;
 
+/// The issue prompt file written into the agent work dir and referenced in
+/// the launch instruction. Both `prepare_issue_launch_signature` (the agent
+/// instruction string) and `write_issue_prompt` (the on-disk path) must use
+/// exactly this relative path.
+const ISSUE_PROMPT_RELATIVE_PATH: &str = ".jefe/issue-prompt.md";
+
 pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let send_info = issue_send_info(app_state);
     apply_and_persist(app_state, ctx, AppEvent::AgentChooserConfirm);
@@ -79,8 +85,9 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
 pub(super) fn prepare_issue_launch_signature(mut sig: LaunchSignature) -> LaunchSignature {
     sig.pass_continue = false;
     sig.mode_flags.push("-i".to_owned());
-    sig.mode_flags
-        .push("Read and work on the GitHub issue described in .jefe/issue-prompt.md".to_owned());
+    sig.mode_flags.push(format!(
+        "Read and work on the GitHub issue described in {ISSUE_PROMPT_RELATIVE_PATH}"
+    ));
     sig
 }
 
@@ -200,7 +207,9 @@ fn write_issue_prompt(
     let prompt_dir = work_dir.join(".jefe");
     std::fs::create_dir_all(&prompt_dir)
         .map_err(|error| format!("Failed to create .jefe dir: {error}"))?;
-    let prompt_path = prompt_dir.join("issue-prompt.md");
+    // Reconstruct the path from the constant so it can never diverge from
+    // the instruction string in `prepare_issue_launch_signature`.
+    let prompt_path = work_dir.join(ISSUE_PROMPT_RELATIVE_PATH);
     let prompt_content = issues_dispatch::format_issue_prompt(payload);
     std::fs::write(&prompt_path, &prompt_content)
         .map_err(|error| format!("Failed to write issue prompt: {error}"))

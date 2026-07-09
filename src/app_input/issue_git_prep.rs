@@ -44,7 +44,29 @@ pub(super) fn resolve_default_branch(work_dir: &Path) -> Result<String, String> 
                 .to_owned(),
         );
     }
-    Ok(strip_remote_prefix(&branch).to_owned())
+    let short = strip_remote_prefix(&branch).to_owned();
+    // Reject anything that doesn't look like a valid git branch name.
+    // This guards against option injection if a malicious remote sets
+    // origin/HEAD to a value starting with `-`.
+    if !is_valid_branch_name(&short) {
+        return Err(format!(
+            "Resolved default branch name {short:?} contains invalid characters"
+        ));
+    }
+    Ok(short)
+}
+
+/// Validate a branch name against a conservative safe-character set.
+///
+/// Rejects names starting with `-` (option injection), containing spaces,
+/// control characters, or path traversal sequences. This is intentionally
+/// stricter than git's actual ref naming rules.
+fn is_valid_branch_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('-')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '/' | '_' | '-'))
 }
 
 /// Strip a `refs/remotes/origin/` prefix, returning the short branch name.
@@ -114,8 +136,9 @@ fn porcelain_path(line: &str) -> Option<&str> {
 /// not cause a silent failure.
 fn checkout_and_pull(work_dir: &Path, branch: &str) -> Result<(), String> {
     let remote_ref = format!("origin/{branch}");
-    // The `--` separator prevents a malicious branch name starting with `-`
-    // from being interpreted as a git option.
+    // The `--` disambiguates the following args (none here) from pathspecs.
+    // Branch-name option injection is prevented by `is_valid_branch_name` in
+    // `resolve_default_branch`, not by this separator.
     git_require_success(
         work_dir,
         ["checkout", "-B", branch, &remote_ref, "--"],
@@ -147,7 +170,21 @@ pub(super) fn prepare_issue_workdir(work_dir: &Path) -> PrepResult {
 /// are preserved.
 pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
     git_require_success(work_dir, ["reset", "--hard"], "reset --hard")?;
-    let output = git_capture(work_dir, ["clean", "-fd", "-e", ".jefe/", "-e", ".llxprt/"])?;
+    let output = git_capture(
+        work_dir,
+        [
+            "clean",
+            "-fd",
+            "-e",
+            ".jefe/",
+            "-e",
+            ".jefe/**",
+            "-e",
+            ".llxprt/",
+            "-e",
+            ".llxprt/**",
+        ],
+    )?;
     // Log what was removed so the destructive operation is auditable.
     let removed = String::from_utf8_lossy(&output.stdout);
     if !removed.trim().is_empty() {

@@ -2,10 +2,13 @@ use super::prs_orchestration::{pr_send_info_from_state, write_pr_prompt};
 use super::*;
 use std::path::PathBuf;
 
+use super::issues_send::{issue_send_info_from_state, prepare_issue_launch_signature};
 use jefe::domain::{
     Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature, RemoteRepositorySettings,
     RepositoryId, RuntimeBinding, SandboxEngine,
 };
+use jefe::domain::{IssueDetail, IssueState};
+use jefe::state::{AgentChooserState, ScreenMode};
 
 trait TestResultExt<T> {
     fn value_or_panic(self, context: &str) -> T;
@@ -700,10 +703,6 @@ fn test_inline_submit_dispatch_applies_reducer_before_mutation() {
 
 // ── Issue send-to-agent: default-branch prep + dirty-copy guard (issue #166) ─
 
-use super::issues_send::{issue_send_info_from_state, prepare_issue_launch_signature};
-use jefe::domain::{IssueDetail, IssueState};
-use jefe::state::{AgentChooserState, ScreenMode};
-
 /// Build an AppState for the issue agent-chooser send path: an open chooser +
 /// issue detail + an agent (with `pass_continue = true`) whose work_dir is a
 /// temp dir. Mirrors `state_for_pr_agent_chooser_confirm`.
@@ -773,12 +772,9 @@ fn state_for_issue_agent_chooser_send(
 #[test]
 fn issue_send_forces_pass_continue_false_on_launch_signature() {
     let agent_id = AgentId(String::from("issue-agent-1"));
-    let work_dir = std::env::temp_dir().join(format!(
-        "jefe-issue-send-test-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos())
-    ));
+    // This test only exercises pure struct transforms — the work_dir is
+    // never materialized on disk — so a static path suffices.
+    let work_dir = std::path::PathBuf::from("/tmp/jefe-issue-send-test");
     let state = state_for_issue_agent_chooser_send(&agent_id, &work_dir);
 
     let send_info = issue_send_info_from_state(&state)
