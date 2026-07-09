@@ -37,25 +37,34 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
     // Ensure the agent starts from a clean, up-to-date checkout of the repo's
     // default branch (issue #166). The prompt file under `.jefe/` is already
     // written and is excluded from the dirty-copy guard and any cleanup.
-    if let Err(error) = issue_git_prep::prepare_issue_workdir(&send_info.work_dir) {
-        apply_send_to_agent_failed(app_state, ctx, error);
-        return;
-    }
+    //
+    // Check dirty FIRST: if the working copy has uncommitted changes, the
+    // checkout/pull would fail, so we surface the dirty-copy confirm prompt
+    // instead. After user-confirmed cleanup (or if already clean), we
+    // checkout+pull the default branch and launch.
     match issue_git_prep::is_workdir_dirty(&send_info.work_dir) {
-        Ok(false) => proceed_issue_launch(
-            app_state,
-            ctx,
-            &send_info.agent_id,
-            send_info.work_dir.clone(),
-            launch_sig,
-        ),
-        Ok(true) => prompt_dirty_copy_confirm(
-            app_state,
-            ctx,
-            &send_info.agent_id,
-            &send_info.work_dir,
-            launch_sig,
-        ),
+        Ok(true) => {
+            prompt_dirty_copy_confirm(
+                app_state,
+                ctx,
+                &send_info.agent_id,
+                &send_info.work_dir,
+                launch_sig,
+            );
+        }
+        Ok(false) => {
+            if let Err(error) = issue_git_prep::prepare_issue_workdir(&send_info.work_dir) {
+                apply_send_to_agent_failed(app_state, ctx, error);
+                return;
+            }
+            proceed_issue_launch(
+                app_state,
+                ctx,
+                &send_info.agent_id,
+                send_info.work_dir.clone(),
+                launch_sig,
+            );
+        }
         Err(error) => apply_send_to_agent_failed(app_state, ctx, error),
     }
 }
@@ -110,7 +119,8 @@ fn prompt_dirty_copy_confirm(
 
 /// Dirty-copy confirm: user pressed Enter to discard uncommitted changes and
 /// proceed with the issue-driven launch. Runs `git reset --hard` + `git clean`
-/// (preserving `.jefe/` and `.llxprt/`), then closes the modal and launches.
+/// (preserving `.jefe/` and `.llxprt/`), then closes the modal, checks out +
+/// pulls the default branch, and launches.
 pub(super) fn confirm_issue_dirty_copy_enter(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -124,6 +134,12 @@ pub(super) fn confirm_issue_dirty_copy_enter(
         return;
     }
     close_modal_and_persist(app_state, ctx);
+    // Now that the working copy is clean, checkout+pull the default branch
+    // before launching (mirrors the clean path in dispatch_agent_chooser_confirm).
+    if let Err(error) = issue_git_prep::prepare_issue_workdir(&work_dir) {
+        apply_send_to_agent_failed(app_state, ctx, error);
+        return;
+    }
     proceed_issue_launch(app_state, ctx, &agent_id, work_dir, launch_sig);
 }
 
