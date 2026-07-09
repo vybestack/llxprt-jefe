@@ -5,6 +5,7 @@ mod issues_dispatch;
 mod issues_filter;
 mod issues_list_dispatch;
 mod issues_mutation;
+mod issues_subfocus_dispatch;
 mod modal_handlers;
 mod normal;
 mod persist_focus;
@@ -450,12 +451,13 @@ pub fn dispatch_app_message(
             issues_dispatch::load_issue_detail_for_selection(app_state, ctx);
         }
         AppMessage::Issues(
-            message @ (IssuesMessage::ScrollDetailDown | IssuesMessage::ScrollDetailPageDown),
-        ) => {
-            update_detail_viewport_rows(app_state);
-            apply_and_persist(app_state, ctx, AppEvent::from(AppMessage::Issues(message)));
-            issues_dispatch::load_more_comments(app_state, ctx);
-        }
+            message @ (IssuesMessage::ScrollDetailDown
+            | IssuesMessage::ScrollDetailPageDown
+            | IssuesMessage::DetailSubfocusNext
+            | IssuesMessage::DetailSubfocusPrev),
+        ) => issues_subfocus_dispatch::dispatch_issues_detail_scroll_or_subfocus(
+            app_state, ctx, message,
+        ),
         AppMessage::Issues(IssuesMessage::AgentChooserConfirm) => {
             dispatch_agent_chooser_confirm(app_state, ctx);
         }

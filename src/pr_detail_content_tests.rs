@@ -3,6 +3,21 @@ use crate::domain::{
     IssueComment, PrCheck, PrCheckStatus, PrReview, PrReviewState, PrState, PullRequestDetail,
 };
 use crate::state::{ComposerTarget, InlineState};
+
+fn require_range(
+    detail: &PullRequestDetail,
+    subfocus: PrDetailSubfocus,
+    inline: &InlineState,
+    detail_loading: bool,
+    comments_loading: bool,
+) -> (usize, usize) {
+    let Some(range) =
+        pr_subfocus_line_range(detail, subfocus, inline, detail_loading, comments_loading)
+    else {
+        panic!("expected subfocus range");
+    };
+    range
+}
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 1-12
@@ -480,5 +495,209 @@ fn pr_detail_line_count_with_threads_exceeds_base() {
     assert!(
         thread_count > base_count,
         "threads must add rendered lines: {thread_count} vs base {base_count}"
+    );
+}
+
+// ── pr_subfocus_line_range (#151) ────────────────────────────────────────
+//
+// The scroll-into-view feature needs the content-line range of the focused
+// subfocus item. These tests verify the pure projection returns correct
+// ranges for each subfocus variant using the rendered content as the source
+// of truth.
+
+#[test]
+fn pr_subfocus_line_range_body_covers_description_section() {
+    let detail = sample_detail();
+    let range = require_range(
+        &detail,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+    let lines: Vec<&str> = content.text.lines().collect();
+    // The range must start at the "Description" label and end just before the
+    // first separator.
+    assert_eq!(lines[range.0], "Description");
+    assert!(
+        !lines[range.1].is_empty() && !lines[range.1].starts_with('─'),
+        "Body range end must be a content line, not a separator"
+    );
+    // The line after the range should be the separator.
+    if range.1 + 1 < lines.len() {
+        assert!(
+            lines[range.1 + 1].starts_with('─'),
+            "Line after Body range must be a separator"
+        );
+    }
+}
+
+#[test]
+fn pr_subfocus_line_range_review_locates_focused_review() {
+    let detail = sample_detail();
+    let range = require_range(
+        &detail,
+        PrDetailSubfocus::Review(0),
+        &InlineState::None,
+        false,
+        false,
+    );
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Review(0),
+        &InlineState::None,
+        false,
+        false,
+    );
+    let lines: Vec<&str> = content.text.lines().collect();
+    // The focused review line starts with "> " and contains the author "ada".
+    let line = lines[range.0];
+    assert!(line.starts_with("> "), "focused review must have > marker");
+    assert!(line.contains("ada"), "focused review must contain author");
+    assert!(line.contains("CHANGES_REQUESTED"));
+    // Single-line item.
+    assert_eq!(range.0, range.1);
+}
+
+#[test]
+fn pr_subfocus_line_range_review_thread_spans_thread_block() {
+    let detail = detail_with_threads();
+    let range = require_range(
+        &detail,
+        PrDetailSubfocus::ReviewThread(0),
+        &InlineState::None,
+        false,
+        false,
+    );
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::ReviewThread(0),
+        &InlineState::None,
+        false,
+        false,
+    );
+    let lines: Vec<&str> = content.text.lines().collect();
+    let header = lines[range.0];
+    assert!(
+        header.contains("src/parser.rs:42"),
+        "thread header must contain location"
+    );
+    // The range must include the thread comments and the reply/resolve hint
+    // (since thread 0 is focused), ending at the last content line before the
+    // trailing blank.
+    let block: Vec<&str> = lines[range.0..=range.1].to_vec();
+    assert!(
+        block.iter().any(|l| l.contains("This unwrap can panic.")),
+        "thread block must include comment body"
+    );
+    assert!(
+        block.iter().any(|l| l.contains("[ r reply ]")),
+        "focused thread block must include reply hint"
+    );
+}
+
+#[test]
+fn pr_subfocus_line_range_check_locates_focused_check() {
+    let detail = sample_detail();
+    let range = require_range(
+        &detail,
+        PrDetailSubfocus::Check(0),
+        &InlineState::None,
+        false,
+        false,
+    );
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Check(0),
+        &InlineState::None,
+        false,
+        false,
+    );
+    let lines: Vec<&str> = content.text.lines().collect();
+    let line = lines[range.0];
+    assert!(line.starts_with("> "), "focused check must have > marker");
+    assert!(line.contains("ci/fmt"));
+    assert!(line.contains("success"));
+    assert_eq!(range.0, range.1, "check is a single-line item");
+}
+
+#[test]
+fn pr_subfocus_line_range_comment_spans_comment_block() {
+    let detail = sample_detail();
+    let range = require_range(
+        &detail,
+        PrDetailSubfocus::Comment(0),
+        &InlineState::None,
+        false,
+        false,
+    );
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Comment(0),
+        &InlineState::None,
+        false,
+        false,
+    );
+    let lines: Vec<&str> = content.text.lines().collect();
+    let header = lines[range.0];
+    assert!(
+        header.starts_with("> "),
+        "focused comment must have > marker"
+    );
+    assert!(header.contains("pat"), "comment header must contain author");
+    let block: Vec<&str> = lines[range.0..=range.1].to_vec();
+    assert!(
+        block.iter().any(|l| l.contains("ready for review")),
+        "comment block must include body"
+    );
+}
+
+#[test]
+fn pr_subfocus_line_range_new_comment_locates_label_and_hint() {
+    let detail = sample_detail();
+    let range = require_range(
+        &detail,
+        PrDetailSubfocus::NewComment,
+        &InlineState::None,
+        false,
+        false,
+    );
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::NewComment,
+        &InlineState::None,
+        false,
+        false,
+    );
+    let lines: Vec<&str> = content.text.lines().collect();
+    assert_eq!(lines[range.0], "> New comment");
+    // The hint line is the second line of the section.
+    assert!(
+        lines[range.1].contains("Press c to add a comment")
+            || lines[range.1].contains("Ctrl+Enter submit"),
+        "NewComment range must include the hint line"
+    );
+}
+
+#[test]
+fn pr_subfocus_line_range_returns_none_for_out_of_bounds_index() {
+    let detail = sample_detail();
+    let range = pr_subfocus_line_range(
+        &detail,
+        PrDetailSubfocus::Comment(99),
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        range.is_none(),
+        "out-of-bounds comment index must return None"
     );
 }

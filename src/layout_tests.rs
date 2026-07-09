@@ -702,3 +702,67 @@ fn test_list_visible_window_returns_exact_n_rows_and_bounds() {
         window.len()
     );
 }
+
+// ── reveal_range_scroll_offset (#151) ───────────────────────────────────────
+//
+// Pure scroll-into-view math: given a content-line range [start, end], the
+// current offset, and the viewport height, compute the minimal offset that
+// keeps the range visible. These tests cover the no-op, above, below,
+// straddle, and taller-than-viewport cases.
+
+#[test]
+fn reveal_range_noop_when_item_already_visible() {
+    // item lines 3..5, viewport 0..9 (10 rows): fully visible.
+    assert_eq!(reveal_range_scroll_offset(3, 5, 0, 10), 0);
+    // Scrolled mid-document, item in the middle: no movement.
+    assert_eq!(reveal_range_scroll_offset(12, 14, 10, 10), 10);
+}
+
+#[test]
+fn reveal_range_scrolls_up_when_item_above_viewport() {
+    // item lines 2..3, offset 10 (viewport 10..19): snap first line to top.
+    assert_eq!(reveal_range_scroll_offset(2, 3, 10, 10), 2);
+    // Single-line item far above.
+    assert_eq!(reveal_range_scroll_offset(0, 0, 5, 10), 0);
+}
+
+#[test]
+fn reveal_range_scrolls_down_when_item_below_viewport() {
+    // item lines 20..20, offset 0, viewport 10 rows (0..9): bring last line
+    // to the bottom row → offset = 20 - 9 = 11.
+    assert_eq!(reveal_range_scroll_offset(20, 20, 0, 10), 11);
+    // Multi-line item entirely below: anchor its last line at the bottom.
+    assert_eq!(reveal_range_scroll_offset(25, 27, 0, 10), 18);
+}
+
+#[test]
+fn reveal_range_handles_item_straddling_bottom_edge() {
+    // item lines 8..12, offset 0, viewport 10 (0..9): line 8 is visible but
+    // lines 10-12 are below. Bring line 12 to the bottom row:
+    // offset = 12 - 9 = 3.
+    assert_eq!(reveal_range_scroll_offset(8, 12, 0, 10), 3);
+}
+
+#[test]
+fn reveal_range_anchors_top_when_item_taller_than_viewport() {
+    // item lines 5..20 (16 lines), viewport 10 rows. Anchoring the bottom
+    // would put the top off-screen; instead anchor the first line at the top.
+    assert_eq!(reveal_range_scroll_offset(5, 20, 0, 10), 5);
+    // Already scrolled: item taller than viewport but top is visible.
+    assert_eq!(reveal_range_scroll_offset(5, 20, 5, 10), 5);
+}
+
+#[test]
+fn reveal_range_returns_offset_when_viewport_rows_is_zero() {
+    // Degenerate: no viewport → no movement (caller guards this).
+    assert_eq!(reveal_range_scroll_offset(5, 10, 3, 0), 3);
+}
+
+#[test]
+fn reveal_range_noop_when_item_partially_visible_at_top() {
+    // item lines 0..2, offset 1, viewport 10 (1..10): line 0 is above but
+    // 1-2 are visible. Since item_start (0) < offset (1) but item_end (2) is
+    // within the viewport, the item is NOT fully visible — it straddles the
+    // top. Scroll up so line 0 is at the top.
+    assert_eq!(reveal_range_scroll_offset(0, 2, 1, 10), 0);
+}

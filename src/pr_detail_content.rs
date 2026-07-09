@@ -52,6 +52,225 @@ pub fn pr_detail_content_line_count(
     .count()
 }
 
+/// Compute the inclusive content-line range `[start, end]` of the focused
+/// subfocus item, so the reducer can scroll it into view (#151).
+///
+/// The range is derived from the rendered content by locating the focus
+/// marker (`"> "`) or section label of the focused item. This is a pure
+/// projection over the rendered text — no AppState, no side effects — and
+/// uses the same `build_pr_detail_content` output the renderer paints, so it
+/// cannot drift.
+///
+/// Returns `None` when the subfocus item cannot be located (e.g. empty
+/// detail or an index beyond the available items) — the caller should leave
+/// the offset unchanged in that case.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-009
+#[must_use]
+pub fn pr_subfocus_line_range(
+    detail: &PullRequestDetail,
+    subfocus: PrDetailSubfocus,
+    inline_state: &InlineState,
+    detail_loading: bool,
+    comments_loading: bool,
+) -> Option<(usize, usize)> {
+    let content = build_pr_detail_content(
+        detail,
+        subfocus,
+        inline_state,
+        detail_loading,
+        comments_loading,
+    );
+    let lines: Vec<&str> = content.text.lines().collect();
+    pr_subfocus_range_from_lines(&lines, &subfocus)
+}
+
+/// Resolve the content-line range for `subfocus` by scanning the rendered
+/// lines. The PR detail renders each focusable item with a `"> "` prefix
+/// (reviews, checks, comments) or a `"> New comment"` label (NewComment) or
+/// the `"Description"` label (Body). Review threads use a `">     ` prefix
+/// (four spaces after the marker) to distinguish them from reviews.
+fn pr_subfocus_range_from_lines(
+    lines: &[&str],
+    subfocus: &PrDetailSubfocus,
+) -> Option<(usize, usize)> {
+    match subfocus {
+        PrDetailSubfocus::Body => pr_body_range(lines),
+        PrDetailSubfocus::Review(target_idx) => {
+            pr_indexed_single_line(lines, *target_idx, pr_line_is_review_header)
+        }
+        PrDetailSubfocus::ReviewThread(target_flat_idx) => pr_indexed_block(
+            lines,
+            *target_flat_idx,
+            pr_line_is_review_thread_header,
+            pr_thread_end_line,
+        ),
+        PrDetailSubfocus::Check(target_idx) => {
+            pr_indexed_single_line(lines, *target_idx, pr_line_is_check)
+        }
+        PrDetailSubfocus::Comment(target_idx) => pr_comment_range(lines, *target_idx),
+        PrDetailSubfocus::NewComment => {
+            let start = lines.iter().position(|l| *l == "> New comment")?;
+            let end = (start + 1).min(lines.len().saturating_sub(1));
+            Some((start, end))
+        }
+    }
+}
+
+/// Body section: the "Description" label through the line before the next
+/// separator.
+fn pr_body_range(lines: &[&str]) -> Option<(usize, usize)> {
+    let start = lines.iter().position(|l| *l == "Description")?;
+    let end = lines
+        .iter()
+        .enumerate()
+        .skip(start + 1)
+        .find(|(_, l)| l.starts_with('─'))
+        .map(|(i, _)| i.saturating_sub(1))?;
+    Some((start, end))
+}
+
+/// Scan for the `target_idx`-th line matching `predicate`, returning its
+/// single-line range. Used for reviews and checks (one rendered line each).
+fn pr_indexed_single_line(
+    lines: &[&str],
+    target_idx: usize,
+    predicate: fn(&str) -> bool,
+) -> Option<(usize, usize)> {
+    let mut count = 0usize;
+    for (i, line) in lines.iter().enumerate() {
+        if predicate(line) {
+            if count == target_idx {
+                return Some((i, i));
+            }
+            count += 1;
+        }
+    }
+    None
+}
+
+/// Scan for the `target_idx`-th header matching `predicate`, returning the
+/// block range from the header through `end_fn`. Used for review threads and
+/// comments.
+fn pr_indexed_block(
+    lines: &[&str],
+    target_idx: usize,
+    predicate: fn(&str) -> bool,
+    end_fn: fn(&[&str], usize) -> usize,
+) -> Option<(usize, usize)> {
+    let mut count = 0usize;
+    for (i, line) in lines.iter().enumerate() {
+        if predicate(line) {
+            if count == target_idx {
+                let end = end_fn(lines, i);
+                return Some((i, end));
+            }
+            count += 1;
+        }
+    }
+    None
+}
+
+/// Comment range: comment lines live in the Comments section (after the
+/// "Comments" label).
+fn pr_comment_range(lines: &[&str], target_idx: usize) -> Option<(usize, usize)> {
+    let comments_start = lines.iter().position(|l| *l == "Comments")?;
+    let mut comment_count = 0usize;
+    for (i, line) in lines.iter().enumerate().skip(comments_start + 1) {
+        if pr_line_is_comment(line) {
+            if comment_count == target_idx {
+                let end = pr_comment_end_line(lines, i);
+                return Some((i, end));
+            }
+            comment_count += 1;
+        }
+    }
+    None
+}
+
+/// True for a review header line: starts with `"> "` or `"- "`, is NOT a
+/// thread header (no 4-space indent), and contains a review state token.
+fn pr_line_is_review_header(line: &str) -> bool {
+    let Some(rest) = line.strip_prefix("> ").or_else(|| line.strip_prefix("- ")) else {
+        return false;
+    };
+    if rest.starts_with("    ") {
+        return false;
+    }
+    [
+        "APPROVED",
+        "CHANGES_REQUESTED",
+        "COMMENTED",
+        "PENDING",
+        "DISMISSED",
+        "REVIEW_REQUIRED",
+    ]
+    .iter()
+    .any(|state| rest.contains(state))
+}
+
+/// True for a review-thread header line: marker (`">     ` or `      `)
+/// followed by a path/location and a `[RESOLVED]`/`[UNRESOLVED]` tag.
+fn pr_line_is_review_thread_header(line: &str) -> bool {
+    let Some(rest) = line
+        .strip_prefix(">     ")
+        .or_else(|| line.strip_prefix("      "))
+    else {
+        return false;
+    };
+    rest.contains("[RESOLVED]") || rest.contains("[UNRESOLVED]")
+}
+
+/// True for a check line: prefix `"> "` or `"- "` + a check status label.
+fn pr_line_is_check(line: &str) -> bool {
+    let Some(rest) = line.strip_prefix("> ").or_else(|| line.strip_prefix("- ")) else {
+        return false;
+    };
+    ["pending", "success", "failure", "neutral"]
+        .iter()
+        .any(|s| rest.contains(s))
+}
+
+/// True for a comment line in the Comments section: prefix `"> "` or `"- "`
+/// + author + date. Thread comment sub-lines (6-space indent) are excluded.
+fn pr_line_is_comment(line: &str) -> bool {
+    let Some(rest) = line.strip_prefix("> ").or_else(|| line.strip_prefix("- ")) else {
+        return false;
+    };
+    if rest.starts_with("    ") {
+        return false;
+    }
+    rest.contains("  ")
+}
+
+/// Find the last content line of a review thread (the blank line terminates
+/// the thread block).
+fn pr_thread_end_line(lines: &[&str], start: usize) -> usize {
+    let mut end = start;
+    for (i, line) in lines.iter().enumerate().skip(start + 1) {
+        if line.is_empty() {
+            return i.saturating_sub(1).max(start);
+        }
+        if pr_line_is_review_thread_header(line) || line.starts_with('─') {
+            return i.saturating_sub(1).max(start);
+        }
+        end = i;
+    }
+    end
+}
+
+/// Find the last content line of a comment block (the blank line that
+/// terminates each comment).
+fn pr_comment_end_line(lines: &[&str], start: usize) -> usize {
+    for (i, line) in lines.iter().enumerate().skip(start + 1) {
+        if line.is_empty() {
+            return i.saturating_sub(1).max(start);
+        }
+    }
+    start
+}
+
 /// Build the scrollable content string for the unified PR detail view.
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
