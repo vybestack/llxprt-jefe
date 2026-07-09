@@ -106,7 +106,6 @@ fn porcelain_path(line: &str) -> Option<&str> {
 }
 
 /// Check out `branch` in the working copy and pull it up to date.
-/// Check out `branch` in the working copy and pull it up to date.
 ///
 /// Uses `git checkout -B <branch> origin/<branch>` to ensure a local tracking
 /// branch exists even in fresh/agent checkouts that only have remote-tracking
@@ -142,15 +141,10 @@ pub(super) fn prepare_issue_workdir(work_dir: &Path) -> PrepResult {
 /// `git clean -fdx` with pathspec exclusions for `.jefe/` and `.llxprt/`.
 pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
     git_require_success(work_dir, ["reset", "--hard"], "reset --hard")?;
-    let mut clean = Command::new("git");
-    clean
-        .current_dir(work_dir)
-        .args(["clean", "-fdx"])
-        .args(["-e", ".jefe/"])
-        .args(["-e", ".llxprt/"]);
-    let output = clean
-        .output()
-        .map_err(|error| format!("failed to run git: {error}"))?;
+    let output = git_capture(
+        work_dir,
+        ["clean", "-fdx", "-e", ".jefe/", "-e", ".llxprt/"],
+    )?;
     // Log what was removed so the destructive operation is auditable.
     let removed = String::from_utf8_lossy(&output.stdout);
     if !removed.trim().is_empty() {
@@ -160,7 +154,7 @@ pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
             "discard_workdir_changes: git clean removed paths"
         );
     }
-    require_success(Ok(output), "clean -fdx")
+    require_success(&output, "clean -fdx")
 }
 
 /// Run `git` with the given args in `work_dir`, capturing output. Returns an
@@ -186,14 +180,12 @@ where
     S: AsRef<std::ffi::OsStr>,
 {
     let output = git_capture(work_dir, args)?;
-    require_success(Ok(output), context)
+    require_success(&output, context)
 }
 
-fn require_success(
-    output: Result<std::process::Output, String>,
-    context: &str,
-) -> Result<(), String> {
-    let output = output?;
+/// Inspect a captured `git` output and return `Err` with stderr/stdout detail
+/// when the exit status was non-zero.
+fn require_success(output: &std::process::Output, context: &str) -> Result<(), String> {
     if output.status.success() {
         Ok(())
     } else {
