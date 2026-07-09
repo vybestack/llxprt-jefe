@@ -15,10 +15,14 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// Cached git probe result for a single work directory.
+///
+/// Each field has its own timestamp so that branch (short TTL) and origin
+/// (long TTL) probes are refreshed independently.
 struct CacheEntry {
     branch: Option<String>,
     origin: Option<String>,
-    probed_at: Instant,
+    branch_probed_at: Instant,
+    origin_probed_at: Instant,
 }
 
 /// Thread-safe cache mapping work_dir → cached probe results.
@@ -110,7 +114,7 @@ fn cached_branch(work_dir: &Path) -> Option<String> {
     if let Ok(mut guard) = GIT_CACHE.lock() {
         let cache = guard.get_or_insert_with(HashMap::new);
         if let Some(entry) = cache.get(work_dir)
-            && now.duration_since(entry.probed_at) < BRANCH_TTL
+            && now.duration_since(entry.branch_probed_at) < BRANCH_TTL
         {
             return entry.branch.clone();
         }
@@ -126,10 +130,11 @@ fn cached_branch(work_dir: &Path) -> Option<String> {
         let entry = cache.entry(work_dir.to_path_buf()).or_insert(CacheEntry {
             branch: None,
             origin: None,
-            probed_at: now,
+            branch_probed_at: now,
+            origin_probed_at: now,
         });
         entry.branch.clone_from(&branch);
-        entry.probed_at = now;
+        entry.branch_probed_at = now;
         sweep_stale(cache, now);
     }
 
@@ -143,12 +148,12 @@ fn cached_branch(work_dir: &Path) -> Option<String> {
 fn cached_origin(work_dir: &Path) -> Option<String> {
     let now = Instant::now();
 
-    // Fast path: check the cache under the lock.
+    // Fast path: check the cache under the lock. Cache both Some and None
+    // results so non-git dirs don't spawn git on every frame.
     if let Ok(mut guard) = GIT_CACHE.lock() {
         let cache = guard.get_or_insert_with(HashMap::new);
         if let Some(entry) = cache.get(work_dir)
-            && entry.origin.is_some()
-            && now.duration_since(entry.probed_at) < ORIGIN_TTL
+            && now.duration_since(entry.origin_probed_at) < ORIGIN_TTL
         {
             return entry.origin.clone();
         }
@@ -157,39 +162,37 @@ fn cached_origin(work_dir: &Path) -> Option<String> {
     // Slow path: probe git (outside the lock to avoid blocking other threads).
     let origin = detect_origin_shortform(work_dir);
 
-    // Store the result back in the cache, preserving the existing branch if
-    // it is still fresh.
+    // Store the result back in the cache, preserving the existing branch.
     if let Ok(mut guard) = GIT_CACHE.lock() {
         let cache = guard.get_or_insert_with(HashMap::new);
         let entry = cache.entry(work_dir.to_path_buf()).or_insert(CacheEntry {
             branch: None,
             origin: None,
-            probed_at: now,
+            branch_probed_at: now,
+            origin_probed_at: now,
         });
-        // Only update origin and probed_at if this is a fresh probe or the
-        // origin was previously None.
         entry.origin.clone_from(&origin);
-        // Don't clobber probed_at if branch was probed more recently.
-        if entry.branch.is_none() {
-            entry.probed_at = now;
-        }
+        entry.origin_probed_at = now;
         sweep_stale(cache, now);
     }
 
     origin
 }
 
-/// Remove entries that are stale beyond a generous threshold (both branch and
-/// origin TTLs have elapsed). Called opportunistically on cache writes to
-/// prevent unbounded growth in long-running sessions.
+/// Remove entries where both branch and origin are stale beyond a generous
+/// threshold. Called opportunistically on cache writes to prevent unbounded
+/// growth in long-running sessions.
 fn sweep_stale(cache: &mut HashMap<PathBuf, CacheEntry>, now: Instant) {
-    // Sweep at most every N insertions to amortize cost. Using the cache size
-    // as a heuristic: if it's small, no need to sweep.
+    // Only sweep when the cache grows beyond a threshold.
     if cache.len() < 32 {
         return;
     }
-    let max_age = ORIGIN_TTL * 2;
-    cache.retain(|_, entry| now.duration_since(entry.probed_at) < max_age);
+    let branch_max = BRANCH_TTL * 2;
+    let origin_max = ORIGIN_TTL * 2;
+    cache.retain(|_, entry| {
+        now.duration_since(entry.branch_probed_at) < branch_max
+            || now.duration_since(entry.origin_probed_at) < origin_max
+    });
 }
 
 /// Probe the current git branch for a work directory.
