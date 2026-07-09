@@ -9,8 +9,9 @@ use tracing::{debug, trace, warn};
 use crate::AppContext;
 use crate::app_input::{
     dispatch_app_event, handle_f12_toggle, handle_global_shortcut_key, handle_mode_confirm_key,
-    handle_mode_form_key, handle_mode_help_key, handle_mode_search_key, handle_normal_key_event,
-    persist_state_snapshot, to_persisted_state,
+    handle_mode_form_key, handle_mode_help_key, handle_mode_search_key,
+    handle_mode_theme_picker_key, handle_normal_key_event, persist_state_snapshot,
+    to_persisted_state,
 };
 use crate::pty_encoding::{
     key_to_bytes, mouse_event_to_bytes, should_arm_paste_enter_suppression,
@@ -408,6 +409,10 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                         }
                         InputMode::Confirm => {
                             handle_mode_confirm_key(&mut app_state, &ctx, &key_event);
+                            return;
+                        }
+                        InputMode::ThemePicker => {
+                            handle_mode_theme_picker_key(&mut app_state, &ctx, &key_event);
                             return;
                         }
                         InputMode::Search => {

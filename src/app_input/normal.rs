@@ -196,6 +196,31 @@ pub fn handle_normal_key_event(
         KeyCode::Char('?' | 'h' | 'H') | KeyCode::F(1) => Some(AppEvent::OpenHelp),
         KeyCode::Char('/') => Some(AppEvent::OpenSearch),
 
+        // Theme picker
+        KeyCode::Char('P') if screen_mode == ScreenMode::Dashboard => {
+            if let Some(ctx_arc) = &ctx
+                && let Ok(ctx_guard) = ctx_arc.lock()
+            {
+                let available: Vec<(String, String)> = ctx_guard
+                    .theme_manager
+                    .available_themes()
+                    .into_iter()
+                    .map(|slug| {
+                        let theme = ctx_guard.theme_manager.resolve(&slug);
+                        (slug, theme.name)
+                    })
+                    .collect();
+                let active = ctx_guard.theme_manager.active_theme().slug.clone();
+                drop(ctx_guard);
+                Some(AppEvent::OpenThemePicker {
+                    available_themes: available,
+                    active_slug: active,
+                })
+            } else {
+                None
+            }
+        }
+
         // Repository visibility filter
         KeyCode::Char('v' | 'V') if screen_mode == ScreenMode::Dashboard => {
             Some(AppEvent::ToggleHideIdleRepositories)
@@ -269,32 +294,6 @@ pub fn handle_normal_key_event(
                 Some(AppEvent::ToggleTerminalFocus)
             }
         },
-
-        // Theme switching (1/2/3)
-        KeyCode::Char('1') => {
-            if let Some(ctx_arc) = &ctx
-                && let Ok(mut ctx_guard) = ctx_arc.lock()
-            {
-                let _ = ctx_guard.theme_manager.set_active("green-screen");
-            }
-            None
-        }
-        KeyCode::Char('2') => {
-            if let Some(ctx_arc) = &ctx
-                && let Ok(mut ctx_guard) = ctx_arc.lock()
-            {
-                let _ = ctx_guard.theme_manager.set_active("dracula");
-            }
-            None
-        }
-        KeyCode::Char('3') => {
-            if let Some(ctx_arc) = &ctx
-                && let Ok(mut ctx_guard) = ctx_arc.lock()
-            {
-                let _ = ctx_guard.theme_manager.set_active("default-dark");
-            }
-            None
-        }
 
         _ => None,
     }

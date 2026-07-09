@@ -63,7 +63,12 @@ fn main() {
 
     // Initialize managers.
     let persistence = jefe::persistence::FilePersistenceManager::new();
-    let theme_manager = FileThemeManager::new();
+    let mut theme_manager = FileThemeManager::new();
+    // Load custom themes from the default config dir's themes/ directory
+    // (overridden via JEFE_CONFIG_DIR / JEFE_SETTINGS_PATH).
+    if let Some(themes_dir) = jefe::persistence::default_themes_dir() {
+        theme_manager.load_from_dir(&themes_dir);
+    }
     let runtime = TmuxRuntimeManager::new(pty_rows, pty_cols);
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {

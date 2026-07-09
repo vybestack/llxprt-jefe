@@ -7,7 +7,10 @@ use iocraft::prelude::*;
 
 use crate::state::{AppState, ModalState, ScreenMode};
 use crate::theme::ThemeColors;
-use crate::ui::{ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen};
+use crate::ui::{
+    ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen,
+    ThemePickerScreen,
+};
 
 /// Data needed to render a confirmation modal.
 pub struct ConfirmModalData {
@@ -110,6 +113,15 @@ pub fn build_modal_element(
         ModalState::Help => Some(
             element! {
                 HelpModal(colors: colors.clone())
+            }
+            .into_any(),
+        ),
+        ModalState::ThemePicker { .. } => Some(
+            element! {
+                ThemePickerScreen(
+                    state: Some(snapshot.clone()),
+                    colors: Some(colors.clone()),
+                )
             }
             .into_any(),
         ),

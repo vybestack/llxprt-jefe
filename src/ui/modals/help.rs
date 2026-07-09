@@ -56,7 +56,7 @@ pub fn HelpModal(props: &HelpModalProps) -> impl Into<AnyElement<'static>> {
                 Text(content: "  ⌥1-⌥9       Jump to agent shortcut", color: rc.fg)
                 Text(content: "", color: rc.fg)
                 Text(content: "Other:", color: rc.fg)
-                Text(content: "  1/2/3       Switch theme", color: rc.fg)
+                Text(content: "  P           Theme picker", color: rc.fg)
                 Text(content: "  ?/h/F1      This help", color: rc.fg)
                 Text(content: "  q/Esc       Quit/Close", color: rc.fg)
             }

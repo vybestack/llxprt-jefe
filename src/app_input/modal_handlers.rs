@@ -6,8 +6,10 @@ use iocraft::prelude::*;
 use tracing::warn;
 
 use jefe::domain::{AgentId, SandboxEngine};
+use jefe::persistence::PersistenceManager;
 use jefe::runtime::{RuntimeError, RuntimeManager};
 use jefe::state::{AgentFormFocus, AppEvent, ModalState, PaneFocus, RepositoryFormFocus};
+use jefe::theme::ThemeManager;
 
 use super::{
     AppStateHandle, SharedContext, apply_and_persist, clear_agent_runtime_attachment,
@@ -297,4 +299,73 @@ pub fn handle_mode_form_key(
     }
 
     true
+}
+
+/// Handle keys while the theme picker modal is open.
+///
+/// - Up/Down: move the selection cursor (via reducer).
+/// - Enter: apply the selected theme to the `ThemeManager` and persist the
+///   choice to `settings.toml`, then close the picker. Falls back to Green
+///   Screen if the slug is invalid (the manager handles the fallback).
+/// - Esc: close without applying.
+pub fn handle_mode_theme_picker_key(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    key_event: &KeyEvent,
+) {
+    match key_event.code {
+        KeyCode::Up | KeyCode::Left => {
+            apply_and_persist(app_state, ctx, AppEvent::ThemePickerNavigateUp);
+        }
+        KeyCode::Down | KeyCode::Right => {
+            apply_and_persist(app_state, ctx, AppEvent::ThemePickerNavigateDown);
+        }
+        KeyCode::Enter => {
+            // Read the selected slug from state, apply it, persist, close.
+            let selected_slug = {
+                let state = app_state.read();
+                match &state.modal {
+                    ModalState::ThemePicker {
+                        available_themes,
+                        selected_index,
+                    } => available_themes
+                        .get(*selected_index)
+                        .map(|(slug, _)| slug.clone()),
+                    _ => None,
+                }
+            };
+
+            if let Some(slug) = selected_slug
+                && let Some(ctx_arc) = &ctx
+                && let Ok(mut ctx_guard) = ctx_arc.lock()
+            {
+                if let Err(e) = ctx_guard.theme_manager.set_active(&slug) {
+                    warn!(error = %e, theme = %slug, "theme picker: invalid selection, fell back to Green Screen");
+                }
+                // Persist the selection to settings.toml.
+                let mut settings = ctx_guard.persistence.load_settings().unwrap_or_else(|e| {
+                    warn!(error = %e, "could not load settings, using defaults");
+                    jefe::persistence::Settings::default_with_version()
+                });
+                settings
+                    .theme
+                    .clone_from(&ctx_guard.theme_manager.active_theme().slug);
+                if let Err(e) = ctx_guard.persistence.save_settings(&settings) {
+                    warn!(error = %e, "could not persist theme selection");
+                }
+            }
+
+            // Close the picker (confirm clears the modal in the reducer).
+            {
+                let mut state = app_state.write();
+                let snapshot = std::mem::take(&mut *state);
+                *state = snapshot.apply(AppEvent::ThemePickerConfirm(String::new()));
+                persist_state_snapshot(ctx, &state);
+            }
+        }
+        KeyCode::Esc => {
+            apply_and_persist(app_state, ctx, AppEvent::CloseThemePicker);
+        }
+        _ => {}
+    }
 }

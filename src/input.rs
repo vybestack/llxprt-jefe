@@ -13,6 +13,8 @@ pub enum InputMode {
     Search,
     Form,
     Confirm,
+    /// Theme picker overlay.
+    ThemePicker,
     /// @plan PLAN-20260329-ISSUES-MODE.P03
     /// @requirement REQ-ISS-002
     IssuesNormal,
@@ -46,6 +48,7 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
     match state.modal {
         ModalState::Help => return InputMode::Help,
         ModalState::Search { .. } => return InputMode::Search,
+        ModalState::ThemePicker { .. } => return InputMode::ThemePicker,
         ModalState::NewRepository { .. }
         | ModalState::EditRepository { .. }
         | ModalState::NewAgent { .. }

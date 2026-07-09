@@ -153,6 +153,46 @@ fn resolve_state_path() -> PathBuf {
     platform_default_state_dir().join("state.json")
 }
 
+/// The config directory used for settings.toml (honors JEFE_CONFIG_DIR /
+/// JEFE_SETTINGS_PATH, falling back to the platform default).
+///
+/// Used by callers (e.g. theme loading) that need to locate sibling
+/// subdirectories like `themes/`.
+#[must_use]
+pub fn default_config_dir() -> PathBuf {
+    resolve_config_dir_from_env(
+        std::env::var("JEFE_CONFIG_DIR").ok(),
+        std::env::var("JEFE_SETTINGS_PATH").ok(),
+    )
+}
+
+/// Pure config-dir resolver from explicit env values (testable without env mutation).
+#[must_use]
+fn resolve_config_dir_from_env(
+    jefe_config_dir: Option<String>,
+    jefe_settings_path: Option<String>,
+) -> PathBuf {
+    if let Some(dir) = jefe_config_dir.filter(|s| !s.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    if let Some(path) = jefe_settings_path.filter(|s| !s.is_empty())
+        && let Some(parent) = PathBuf::from(path).parent()
+    {
+        return parent.to_path_buf();
+    }
+    platform_default_config_dir()
+}
+
+/// The default themes directory: `<config_dir>/themes`.
+///
+/// This is where custom JSON theme files are loaded from. Returns `None`
+/// only if no config dir can be resolved (which never happens in practice
+/// since `platform_default_config_dir` always returns a fallback).
+#[must_use]
+pub fn default_themes_dir() -> Option<PathBuf> {
+    Some(default_config_dir().join("themes"))
+}
+
 /// Platform-specific config directory.
 ///
 /// - macOS: ~/Library/Application Support/jefe
@@ -366,6 +406,37 @@ mod tests {
         let paths = resolve_paths();
         assert!(paths.settings_path.ends_with("settings.toml"));
         assert!(paths.state_path.ends_with("state.json"));
+    }
+
+    #[test]
+    fn default_themes_dir_ends_with_themes_subdir() {
+        let dir = default_themes_dir().expect("themes dir should resolve");
+        assert!(dir.ends_with("themes"));
+    }
+
+    #[test]
+    fn resolve_config_dir_prefers_jefe_config_dir() {
+        let dir = resolve_config_dir_from_env(Some("/custom/config".into()), None);
+        assert_eq!(dir, PathBuf::from("/custom/config"));
+    }
+
+    #[test]
+    fn resolve_config_dir_uses_settings_path_parent_when_no_config_dir() {
+        let dir = resolve_config_dir_from_env(None, Some("/a/b/settings.toml".into()));
+        assert_eq!(dir, PathBuf::from("/a/b"));
+    }
+
+    #[test]
+    fn resolve_config_dir_falls_back_to_platform_default() {
+        let dir = resolve_config_dir_from_env(None, None);
+        // Should be the platform default (e.g. ends with "jefe").
+        assert!(dir.ends_with("jefe"));
+    }
+
+    #[test]
+    fn resolve_config_dir_ignores_empty_env_values() {
+        let dir = resolve_config_dir_from_env(Some(String::new()), Some(String::new()));
+        assert!(dir.ends_with("jefe"));
     }
 
     #[test]

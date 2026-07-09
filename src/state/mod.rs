@@ -9,6 +9,7 @@
 mod form_ops;
 mod issues_ops;
 pub mod state_ops;
+pub mod theme_picker_view;
 mod types;
 mod util;
 
@@ -495,7 +496,7 @@ impl AppState {
                     query: String::new(),
                 };
             }
-            AppEvent::CloseModal => {
+            AppEvent::CloseModal | AppEvent::ThemePickerConfirm(_) | AppEvent::CloseThemePicker => {
                 self.modal = ModalState::None;
             }
             AppEvent::SubmitForm => {
@@ -696,6 +697,38 @@ impl AppState {
             // Theme
             AppEvent::ThemeResolveFailed(msg) => {
                 self.warning_message = Some(msg);
+            }
+            AppEvent::OpenThemePicker {
+                available_themes,
+                active_slug,
+            } => {
+                // Default selection to the currently active theme.
+                let selected_index = available_themes
+                    .iter()
+                    .position(|(slug, _)| *slug == active_slug)
+                    .unwrap_or(0);
+                self.modal = ModalState::ThemePicker {
+                    available_themes,
+                    selected_index,
+                };
+            }
+            AppEvent::ThemePickerNavigateUp => {
+                if let ModalState::ThemePicker { selected_index, .. } = &mut self.modal {
+                    if *selected_index > 0 {
+                        *selected_index -= 1;
+                    }
+                }
+            }
+            AppEvent::ThemePickerNavigateDown => {
+                if let ModalState::ThemePicker {
+                    available_themes,
+                    selected_index,
+                } = &mut self.modal
+                {
+                    if *selected_index + 1 < available_themes.len() {
+                        *selected_index += 1;
+                    }
+                }
             }
 
             // Clear warning

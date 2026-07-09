@@ -171,6 +171,17 @@ pub enum ModalState {
     Search {
         query: String,
     },
+    /// Theme picker overlay.
+    ///
+    /// Lists available theme slugs/names for navigation + selection.
+    /// `available_themes` is the snapshot of slugs+names captured when the
+    /// picker was opened; the actual theme application happens via
+    /// `AppEvent::SetTheme`, which the binary's dispatch layer applies to the
+    /// `ThemeManager` and persists to `settings.toml`.
+    ThemePicker {
+        available_themes: Vec<(String, String)>,
+        selected_index: usize,
+    },
     NewRepository {
         fields: RepositoryFormFields,
         focus: RepositoryFormFocus,
@@ -520,6 +531,18 @@ pub enum AppEvent {
     // Theme
     SetTheme(String),
     ThemeResolveFailed(String),
+
+    /// Open the theme picker modal with a snapshot of available themes.
+    /// Payload: `(slug, name)` pairs, plus the currently active slug.
+    OpenThemePicker {
+        available_themes: Vec<(String, String)>,
+        active_slug: String,
+    },
+    ThemePickerNavigateUp,
+    ThemePickerNavigateDown,
+    /// Confirm the current theme-picker selection. Payload: the selected slug.
+    ThemePickerConfirm(String),
+    CloseThemePicker,
 
     // System
     Quit,

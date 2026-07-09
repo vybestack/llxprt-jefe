@@ -15,4 +15,4 @@ pub mod screens;
 // Re-export commonly used types
 pub use components::{AgentList, KeybindBar, Preview, Sidebar, StatusBar, TerminalView};
 pub use modals::{ConfirmModal, HelpModal};
-pub use screens::{Dashboard, NewAgentForm, NewRepositoryForm, SplitScreen};
+pub use screens::{Dashboard, NewAgentForm, NewRepositoryForm, SplitScreen, ThemePickerScreen};
