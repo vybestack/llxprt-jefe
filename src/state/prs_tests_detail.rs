@@ -291,3 +291,145 @@ fn test_scroll_detail_down_advances_then_clamps() {
         "scroll offset should have advanced past 0 with long content"
     );
 }
+
+/// Tab to an offscreen review thread must scroll the detail so the thread is
+/// visible (#151).
+#[test]
+fn test_pr_subfocus_next_scrolls_to_offscreen_thread() {
+    use crate::domain::{IssueComment, PrReview, PrReviewState, PrReviewThread};
+
+    let mut state = prs_mode_state("repo-1");
+    let mut detail = make_test_pr_detail(1);
+    detail.body = "PR body".to_string();
+    // Build many review threads so thread #5 is below a small viewport.
+    let thread: PrReviewThread = PrReviewThread {
+        thread_id: "t1".to_string(),
+        path: Some("src/main.rs".to_string()),
+        line: Some(10),
+        is_resolved: false,
+        comments: vec![IssueComment {
+            comment_id: 1,
+            author_login: "alice".to_string(),
+            created_at: "2024-01-01".to_string(),
+            edited_at: None,
+            body: "thread body".to_string(),
+        }],
+    };
+    detail.reviews = vec![PrReview {
+        author_login: "reviewer".to_string(),
+        state: PrReviewState::Approved,
+        submitted_at: "2024-01-01".to_string(),
+        body: None,
+        review_threads: vec![thread; 8],
+    }];
+    state.prs_state.pr_detail = Some(detail);
+    state.prs_state.detail_subfocus = PrDetailSubfocus::Body;
+    state.prs_state.detail_viewport_rows = 4; // small viewport
+    state.prs_state.detail_scroll_offset = 0;
+
+    // Advance subfocus forward through Reviews and ReviewThreads to thread #5.
+    // Body -> Review(0)
+    state = state.apply(AppEvent::PrDetailSubfocusNext);
+    // Review(0) -> ReviewThread(0)
+    state = state.apply(AppEvent::PrDetailSubfocusNext);
+    // Advance through threads 0..=5
+    for _ in 0..5 {
+        state = state.apply(AppEvent::PrDetailSubfocusNext);
+    }
+    assert_eq!(
+        state.prs_state.detail_subfocus,
+        PrDetailSubfocus::ReviewThread(5),
+        "should have advanced to ReviewThread(5)"
+    );
+    assert_pr_thread_visible(&state, 5);
+}
+
+/// Assert the focused review thread is within the current viewport.
+fn assert_pr_thread_visible(state: &AppState, thread_idx: usize) {
+    let offset = state.prs_state.detail_scroll_offset;
+    let viewport = state.prs_state.detail_viewport_rows;
+    assert!(
+        offset > 0,
+        "scroll offset should have advanced to reveal thread #{thread_idx}, got {offset}"
+    );
+    let detail = state
+        .prs_state
+        .pr_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected detail"));
+    let range = crate::pr_detail_content::pr_subfocus_line_range(
+        detail,
+        PrDetailSubfocus::ReviewThread(thread_idx),
+        &state.prs_state.inline_state,
+        state.prs_state.loading.detail,
+        state.prs_state.loading.comments,
+    )
+    .unwrap_or_else(|| panic!("expected range for thread {thread_idx}"));
+    assert!(
+        range.0 >= offset && range.0 < offset + viewport,
+        "thread #{thread_idx} first line {} must be within viewport [{}, {})",
+        range.0,
+        offset,
+        offset + viewport
+    );
+}
+
+/// Tab backwards to an offscreen comment must scroll the detail so the comment
+/// is visible (#151).
+#[test]
+fn test_pr_subfocus_prev_scrolls_to_offscreen_comment() {
+    use crate::domain::IssueComment;
+
+    let mut state = prs_mode_state("repo-1");
+    let mut detail = make_test_pr_detail(1);
+    detail.body = "PR body".to_string();
+    detail.comments = (0u32..12)
+        .map(|i| IssueComment {
+            comment_id: u64::from(i),
+            author_login: format!("user{i}"),
+            created_at: "2024-01-01".to_string(),
+            edited_at: None,
+            body: format!("comment body {i}"),
+        })
+        .collect();
+    state.prs_state.pr_detail = Some(detail);
+    state.prs_state.detail_subfocus = PrDetailSubfocus::NewComment;
+    state.prs_state.detail_viewport_rows = 4; // small viewport
+    // Start scrolled near the bottom (NewComment is last section).
+    state.prs_state.detail_scroll_offset = 100;
+
+    // Prev from NewComment -> Comment(11) (last comment). With viewport=4, it
+    // should scroll up to reveal comment 11.
+    let state = state.apply(AppEvent::PrDetailSubfocusPrev);
+    assert_eq!(
+        state.prs_state.detail_subfocus,
+        PrDetailSubfocus::Comment(11),
+        "should have moved to Comment(11)"
+    );
+    let offset = state.prs_state.detail_scroll_offset;
+    let viewport = state.prs_state.detail_viewport_rows;
+    assert!(
+        offset < 100,
+        "scroll offset should have decreased to reveal comment 11, got {offset}"
+    );
+    let detail = state
+        .prs_state
+        .pr_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected detail"));
+    let range = crate::pr_detail_content::pr_subfocus_line_range(
+        detail,
+        PrDetailSubfocus::Comment(11),
+        &state.prs_state.inline_state,
+        state.prs_state.loading.detail,
+        state.prs_state.loading.comments,
+    )
+    .unwrap_or_else(|| panic!("expected range for comment 11"));
+    assert!(
+        range.0 >= offset && range.0 < offset + viewport,
+        "comment 11 first line {} must be within viewport [{}, {})",
+        range.0,
+        offset,
+        offset + viewport
+    );
+}

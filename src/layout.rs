@@ -648,6 +648,67 @@ pub fn list_visible_window<T>(rows: &[T], selected_index: usize, viewport_rows: 
     &rows[first..last]
 }
 
+// -----------------------------------------------------------------------------
+// Detail-pane scroll-into-view helper (#151)
+//
+// When the detail-pane subfocus moves to an item that is scrolled out of view,
+// the scroll offset must follow so the focused item stays visible — mirroring
+// how list panes keep the selected row on screen. This pure helper computes
+// the minimal offset adjustment from (item line range, current offset,
+// viewport height). The caller MUST clamp the result to
+// `[0, max_scroll_offset]` because this helper does not know the total content
+// length.
+// -----------------------------------------------------------------------------
+
+/// Compute the scroll offset that minimally reveals a content-line range.
+///
+/// Given an item occupying content lines `[item_start, item_end]` (inclusive),
+/// the current scroll `offset`, and the `viewport_rows` height, return the
+/// offset that keeps the item on-screen with minimal movement:
+///
+/// - If the item is already fully visible, return `offset` unchanged.
+/// - If the item is entirely above the viewport, scroll up so its first line
+///   sits at the top (`item_start`).
+/// - If the item is entirely below or straddles the bottom edge, scroll down so
+///   its last line is the bottom viewport row — unless the item is taller than
+///   the viewport, in which case anchor on its first line (top) instead.
+/// - If the item straddles the top edge (its tail is inside the viewport but its
+///   head is scrolled off the top), scroll up to `item_start` so the whole item
+///   is visible from its first line.
+///
+/// Returns `offset` unchanged when `viewport_rows == 0` (no viewport).
+#[must_use]
+pub fn reveal_range_scroll_offset(
+    item_start: usize,
+    item_end: usize,
+    offset: usize,
+    viewport_rows: usize,
+) -> usize {
+    if viewport_rows == 0 {
+        return offset;
+    }
+    let last_visible = offset.saturating_add(viewport_rows).saturating_sub(1);
+    // Fully visible: no movement.
+    if item_start >= offset && item_end <= last_visible {
+        return offset;
+    }
+    // Entirely above the viewport: snap the first line to the top.
+    if item_end < offset {
+        return item_start;
+    }
+    // Straddling the top edge: the item's tail is inside the viewport but its
+    // head is scrolled off the top. Scroll up to reveal the whole item from
+    // its first line (minimal movement that makes it fully visible).
+    if item_start < offset {
+        return item_start;
+    }
+    // Entirely below or straddling the bottom: bring the last line into view as
+    // the bottom row. For an item taller than the viewport this would push the
+    // top off-screen, so anchor on the first line instead.
+    let anchor_bottom = item_end.saturating_sub(viewport_rows.saturating_sub(1));
+    anchor_bottom.min(item_start)
+}
+
 #[cfg(test)]
 #[path = "layout_tests.rs"]
 mod tests;

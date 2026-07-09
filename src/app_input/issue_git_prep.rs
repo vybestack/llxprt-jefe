@@ -147,18 +147,10 @@ fn checkout_and_pull(work_dir: &Path, branch: &str) -> Result<(), String> {
     // Fetch first so origin/<branch> is up to date, then checkout -B resets
     // the local branch to the fetched remote-tracking ref. No `git pull` —
     // it can trigger a merge or conflict markers in an automated flow.
-    git_require_success(
-        work_dir,
-        ["fetch", "origin", branch, "--"],
-        &format!("fetch origin {branch}"),
-    )?;
+    git_require_success(work_dir, ["fetch", "origin", branch, "--"])?;
     let remote_ref = format!("origin/{branch}");
     // The `--` disambiguates the following args (none here) from pathspecs.
-    git_require_success(
-        work_dir,
-        ["checkout", "-B", branch, &remote_ref, "--"],
-        &format!("checkout -B {branch}"),
-    )?;
+    git_require_success(work_dir, ["checkout", "-B", branch, &remote_ref, "--"])?;
     Ok(())
 }
 
@@ -215,7 +207,7 @@ pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
     require_success(&output, "clean -fd")?;
     // Now discard tracked modifications. Running after clean so if clean
     // fails, tracked changes are still intact.
-    git_require_success(work_dir, ["reset", "--hard"], "reset --hard")?;
+    git_require_success(work_dir, ["reset", "--hard"])?;
     Ok(())
 }
 
@@ -239,13 +231,22 @@ where
 }
 
 /// Run `git` and require a successful exit status, surfacing stderr on failure.
-fn git_require_success<I, S>(work_dir: &Path, args: I, context: &str) -> Result<(), String>
+///
+/// The context string for error messages is auto-derived from the args so it
+/// can never drift from the actual command.
+fn git_require_success<I, S>(work_dir: &Path, args: I) -> Result<(), String>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    let output = git_capture(work_dir, args)?;
-    require_success(&output, context)
+    let args_vec: Vec<S> = args.into_iter().collect();
+    let context = args_vec
+        .iter()
+        .map(|a| a.as_ref().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let output = git_capture(work_dir, &args_vec)?;
+    require_success(&output, &format!("git {context}"))
 }
 
 /// Inspect a captured `git` output and return `Err` with stderr/stdout detail

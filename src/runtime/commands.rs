@@ -18,6 +18,34 @@ use super::socket::jefe_tmux_socket_path;
 
 const REMOTE_SSH_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// tmux client environment variables that must NEVER propagate into an agent
+/// pane. tmux sets `TMUX=<socket>,<pid>,<n>` and `TMUX_PANE=%<n>` inside every
+/// pane, handing the llxprt child (and any tool it spawns) a live handle to
+/// jefe's private tmux server. A bare `tmux` inside such an agent then talks to
+/// jefe's server and can kill it — disconnecting every agent at once (#171).
+///
+/// `TMUX_TMPDIR` is also stripped so agent-side tmux activity cannot locate
+/// jefe's socket directory by convention. Stripping happens via `env -u` inside
+/// the pane command (the tmux server populates the pane env, so removing the
+/// vars from jefe's own process env would have no effect).
+const TMUX_ENV_VARS_TO_SCRUB: &[&str] = &["TMUX", "TMUX_PANE", "TMUX_TMPDIR"];
+
+/// Build the `env -u <VAR> ...` argv prefix that scrubs jefe's tmux client vars
+/// from the process running inside an agent pane. Returned as owned `String`s
+/// so callers can splice them into either a local `Command` argv list or a
+/// remote shell command string.
+///
+/// See [`TMUX_ENV_VARS_TO_SCRUB`] for why this is mandatory (#171).
+#[must_use]
+fn tmux_scrub_env_args() -> Vec<String> {
+    let mut args = vec!["env".to_owned()];
+    for var in TMUX_ENV_VARS_TO_SCRUB {
+        args.push("-u".to_owned());
+        args.push((*var).to_owned());
+    }
+    args
+}
+
 /// The fixed base arguments every jefe local tmux command starts with:
 /// `-f /dev/null` (skip user config) and `-S <jefe-socket>` (dedicated socket).
 ///
@@ -417,13 +445,37 @@ fn build_remote_launch_command(
     let llxprt_command = resolve_remote_llxprt_command(remote, work_dir, remote.setup_env_default)?;
     let args = launch_args(signature);
     let cli_command = remote_cli_command(&llxprt_command, &args);
+    // Scrub jefe's tmux client vars from the remote agent pane for the same
+    // reason as the local path (#171): a bare `tmux` inside the agent must not
+    // reach the (remote) tmux server hosting the agent session.
+    let env_scrub = tmux_scrub_env_args().join(" ");
+    let pane_command = format!("{env_scrub} {cli_command}");
     let env_prefix = remote_env_exports(signature).join(" ");
     let escaped_session = shell_escape_single(session_name);
-    let tmux_script = format!(
-        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {cli_command} \\; set-option -t {escaped_session} remain-on-exit on"
+    let tmux_script = build_remote_tmux_script(
+        &escaped_work_dir,
+        &env_prefix,
+        &escaped_session,
+        &pane_command,
     );
 
     Ok(remote_tmux_command(remote, &tmux_script))
+}
+
+/// Assemble the remote tmux startup script from its already-escaped parts.
+///
+/// Factored out of [`build_remote_launch_command`] so the script template —
+/// including the `env -u` scrub inside `pane_command` — is unit-testable
+/// without the SSH resolver side effect (#171).
+fn build_remote_tmux_script(
+    escaped_work_dir: &str,
+    env_prefix: &str,
+    escaped_session: &str,
+    pane_command: &str,
+) -> String {
+    format!(
+        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {pane_command} \\; set-option -t {escaped_session} remain-on-exit on"
+    )
 }
 
 struct LocalLaunchPlan {
@@ -465,16 +517,31 @@ fn local_launch_command(session_name: &str, work_dir: &Path, plan: &LocalLaunchP
         .arg("-c")
         .arg(work_dir);
 
-    if !plan.env.is_empty() {
-        cmd.arg("env");
-        for (key, value) in &plan.env {
-            cmd.arg(format!("{key}={value}"));
-        }
+    // Wrap the pane command in `env -u TMUX -u TMUX_PANE -u TMUX_TMPDIR …` so
+    // the llxprt child (and any tool it spawns) cannot reach jefe's private
+    // tmux server via a bare `tmux` (#171). tmux's server populates the pane
+    // env, so the scrub MUST live in the pane command rather than jefe's own
+    // process env. The argv is built by the pure [`local_pane_command_args`]
+    // helper so it is directly unit-testable.
+    for arg in local_pane_command_args(plan) {
+        cmd.arg(arg);
     }
-
-    cmd.arg("llxprt");
-    cmd.args(&plan.args);
     cmd
+}
+
+/// Build the pane-command argv for a local agent session: the `env -u` scrub
+/// prefix, any `KEY=VALUE` env assignments, then `llxprt` and its launch args.
+///
+/// Factored out of [`local_launch_command`] so the scrub is unit-testable
+/// without spawning tmux or introspecting a `Command` (#171).
+fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
+    let mut args = tmux_scrub_env_args();
+    for (key, value) in &plan.env {
+        args.push(format!("{key}={value}"));
+    }
+    args.push("llxprt".to_owned());
+    args.extend(plan.args.iter().cloned());
+    args
 }
 
 fn finalize_local_session(session_name: &str, warning: Option<String>) {
@@ -698,185 +765,5 @@ pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::SandboxEngine;
-
-    fn base_signature() -> LaunchSignature {
-        LaunchSignature {
-            work_dir: std::path::PathBuf::from("/tmp"),
-            profile: String::new(),
-            mode_flags: Vec::new(),
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
-        }
-    }
-
-    #[test]
-    fn llxprt_debug_env_is_omitted_when_empty() {
-        let signature = base_signature();
-        let mut launch_env: Vec<(String, String)> = Vec::new();
-
-        if signature.sandbox_enabled {
-            launch_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
-        }
-        if !signature.llxprt_debug.is_empty() {
-            launch_env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
-        }
-
-        assert!(!launch_env.iter().any(|(key, _)| key == "LLXPRT_DEBUG"));
-    }
-
-    #[test]
-    fn remote_tmux_command_wraps_run_as_user_once() {
-        let remote = crate::domain::RemoteRepositorySettings {
-            enabled: true,
-            login_user: "ubuntu".to_owned(),
-            host: "example.com".to_owned(),
-            run_as_user: "acoliver".to_owned(),
-            setup_env_default: false,
-        };
-
-        let command = remote_tmux_command(&remote, "tmux has-session -t 'demo'");
-        assert_eq!(
-            command,
-            "sudo -n su - 'acoliver' -c 'tmux has-session -t '\\''demo'\\'''"
-        );
-    }
-
-    #[test]
-    fn remote_execution_timeout_returns_clear_error() {
-        let mut cmd = Command::new("python3");
-        cmd.args(["-c", "import time; time.sleep(30)"]);
-
-        let Err(RuntimeError::RemoteExecutionFailed(message)) =
-            run_command_capture(cmd, "timeout probe")
-        else {
-            panic!("expected remote timeout failure");
-        };
-
-        assert!(message.contains("timed out"));
-        assert!(message.contains("timeout probe"));
-    }
-
-    #[test]
-    fn llxprt_debug_env_is_included_when_non_empty() {
-        let mut signature = base_signature();
-        signature.llxprt_debug = "trace=1".to_owned();
-
-        let mut launch_env: Vec<(String, String)> = Vec::new();
-        if signature.sandbox_enabled {
-            launch_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
-        }
-        if !signature.llxprt_debug.is_empty() {
-            launch_env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
-        }
-
-        assert_eq!(
-            launch_env
-                .into_iter()
-                .find(|(key, _)| key == "LLXPRT_DEBUG")
-                .map(|(_, value)| value),
-            Some("trace=1".to_owned())
-        );
-    }
-
-    #[test]
-    fn remote_launch_command_enables_remain_on_exit() {
-        let session_name = shell_escape_single("jefe-agent-test");
-        let work_dir = shell_escape_single("/tmp/work");
-        let cli_command = shell_escape_single("/tmp/work/node_modules/.bin/llxprt");
-        let env_prefix = String::new();
-
-        let tmux_script = format!(
-            "set -e; mkdir -p {work_dir}; cd {work_dir}; {env_prefix} tmux new-session -d -s {session_name} -c {work_dir} {cli_command} \\; set-option -t {session_name} remain-on-exit on"
-        );
-
-        assert!(tmux_script.contains("tmux new-session -d -s 'jefe-agent-test'"));
-        assert!(tmux_script.contains("set-option -t 'jefe-agent-test' remain-on-exit on"));
-    }
-
-    #[test]
-    fn sandbox_flags_env_value_is_raw_for_tmux_argv() {
-        let key = "SANDBOX_FLAGS";
-        let value = "--cpus=2 --memory=12288m --pids-limit=256";
-        let arg = format!("{key}={value}");
-        // Rust's Command::arg() passes this as a single argv entry to tmux.
-        // tmux escapes each argument when constructing its sh -c command, so
-        // spaces survive without extra quoting.  Adding shell_escape_single()
-        // would embed literal quote characters in the env var value.
-        assert_eq!(
-            arg,
-            "SANDBOX_FLAGS=--cpus=2 --memory=12288m --pids-limit=256"
-        );
-    }
-
-    #[test]
-    fn tmux_base_args_include_config_skip_and_dedicated_socket() {
-        let args = tmux_base_args();
-        let socket = crate::runtime::jefe_tmux_socket_path();
-        assert_eq!(
-            args,
-            vec![
-                "-f".to_owned(),
-                "/dev/null".to_owned(),
-                "-S".to_owned(),
-                socket.to_string_lossy().into_owned(),
-            ]
-        );
-    }
-
-    #[test]
-    fn parse_pane_pid_extracts_first_numeric_line() {
-        assert_eq!(parse_pane_pid("12345\n"), Some(12_345));
-        assert_eq!(parse_pane_pid("  98765  \n"), Some(98_765));
-    }
-
-    #[test]
-    fn parse_pane_pid_returns_none_for_empty_output() {
-        assert_eq!(parse_pane_pid(""), None);
-        assert_eq!(parse_pane_pid("   \n  \n"), None);
-    }
-
-    #[test]
-    fn parse_pane_pid_returns_none_for_garbage() {
-        assert_eq!(parse_pane_pid("not-a-pid\n"), None);
-        assert_eq!(parse_pane_pid("abc\ndef\n"), None);
-    }
-
-    #[test]
-    fn is_tmux_fork_broken_classifies_known_messages() {
-        assert!(is_tmux_fork_broken("tmux: fork failed"));
-        assert!(is_tmux_fork_broken(
-            "open terminal failed: Device not configured"
-        ));
-        assert!(!is_tmux_fork_broken("session already exists"));
-        assert!(!is_tmux_fork_broken(""));
-    }
-
-    #[test]
-    fn launch_args_emits_continue_when_pass_continue_true() {
-        let signature = base_signature();
-        assert!(
-            launch_args(&signature)
-                .iter()
-                .any(|arg| arg == "--continue")
-        );
-    }
-
-    #[test]
-    fn launch_args_omits_continue_when_pass_continue_false() {
-        let mut signature = base_signature();
-        signature.pass_continue = false;
-        assert!(
-            !launch_args(&signature)
-                .iter()
-                .any(|arg| arg == "--continue"),
-            "issue-driven launches must never pass --continue"
-        );
-    }
-}
+#[path = "commands_tests.rs"]
+mod tests;

@@ -792,6 +792,10 @@ mod issues_tests_components;
 mod issues_tests_detail;
 
 #[cfg(test)]
+#[path = "issues_tests_subfocus.rs"]
+mod issues_tests_subfocus;
+
+#[cfg(test)]
 #[path = "issues_tests_detail_flow.rs"]
 mod issues_tests_detail_flow;
 

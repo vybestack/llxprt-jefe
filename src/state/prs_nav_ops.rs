@@ -477,6 +477,34 @@ impl AppState {
         true
     }
 
+    /// Scroll the detail pane so the currently-focused subfocus item is
+    /// visible, using the pure `reveal_range_scroll_offset` helper and the
+    /// fresh viewport row count. Only fires on a subfocus *change* (Tab/j/k),
+    /// never on manual scroll ticks (#151).
+    fn scroll_pr_detail_to_subfocus(&mut self) {
+        let Some(detail) = &self.prs_state.pr_detail else {
+            return;
+        };
+        let Some((item_start, item_end)) = crate::pr_detail_content::pr_subfocus_line_range(
+            detail,
+            self.prs_state.detail_subfocus,
+            &self.prs_state.inline_state,
+            self.prs_state.loading.detail,
+            self.prs_state.loading.comments,
+        ) else {
+            return;
+        };
+        let viewport = self.pr_detail_scroll_viewport_rows();
+        let desired = crate::layout::reveal_range_scroll_offset(
+            item_start,
+            item_end,
+            self.prs_state.detail_scroll_offset,
+            viewport,
+        );
+        let max = self.pr_detail_max_scroll_offset();
+        self.prs_state.detail_scroll_offset = desired.min(max);
+    }
+
     /// Maximum detail scroll offset derived from the REAL rendered content
     /// length (mirrors `IssuesState::max_detail_scroll_offset_for_viewport`),
     /// so the clamp cannot drift from `build_pr_detail_content`.
@@ -535,10 +563,12 @@ impl AppState {
             }
             AppEvent::PrDetailSubfocusNext => {
                 self.pr_detail_subfocus_next();
+                self.scroll_pr_detail_to_subfocus();
                 true
             }
             AppEvent::PrDetailSubfocusPrev => {
                 self.pr_detail_subfocus_prev();
+                self.scroll_pr_detail_to_subfocus();
                 true
             }
             _ => false,

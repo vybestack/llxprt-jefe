@@ -94,7 +94,7 @@ impl Component for TextInput {
         self.handler = props.on_change.take();
         self.has_focus = props.has_focus;
         updater.set_layout_style(taffy::style::Style {
-            size: taffy::Size::percent(1.0),
+            size: taffy::Size::percent(1.0_f32),
             ..Default::default()
         });
     }

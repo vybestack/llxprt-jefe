@@ -2,8 +2,8 @@
 //! @plan PLAN-20260329-ISSUES-MODE.P05
 
 use super::{
-    AgentChooserState, AppEvent, AppState, DetailSubfocus, ISSUE_FILTER_FIELD_COUNT, InlineState,
-    IssueFocus, PaneFocus, PriorAgentFocus, ScreenMode,
+    AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus,
+    ISSUE_FILTER_FIELD_COUNT, InlineState, IssueFocus, PaneFocus, PriorAgentFocus, ScreenMode,
 };
 use crate::domain::{IssueFilter, IssueFilterState};
 use crate::messages::IssuesMessage;
@@ -113,6 +113,50 @@ impl AppState {
                 }
             };
         }
+    }
+
+    /// Scroll the issue detail pane so the currently-focused subfocus item is
+    /// visible, using the pure `reveal_range_scroll_offset` helper and the
+    /// fresh viewport row count. Only fires on a subfocus *change* (Tab/j/k),
+    /// never on manual scroll ticks (#151).
+    fn scroll_issue_detail_to_subfocus(&mut self) {
+        let Some(detail) = &self.issues_state.issue_detail else {
+            return;
+        };
+        let Some((item_start, item_end)) = crate::issue_detail_content::issue_subfocus_line_range(
+            detail,
+            self.issues_state.detail_subfocus,
+            &self.issues_state.inline_state,
+            self.issues_state.loading.comments,
+        ) else {
+            return;
+        };
+        let viewport = self.issues_detail_scroll_viewport_rows();
+        let desired = crate::layout::reveal_range_scroll_offset(
+            item_start,
+            item_end,
+            self.issues_state.detail_scroll_offset,
+            viewport,
+        );
+        let max = self.issues_state.max_detail_scroll_offset();
+        self.issues_state.detail_scroll_offset = desired.min(max);
+    }
+
+    /// Rows available to the read-only issue detail document after an embedded
+    /// composer reserves rows. Mirrors the PR helper so the scroll-into-view
+    /// clamp bound stays fresh.
+    fn issues_detail_scroll_viewport_rows(&self) -> usize {
+        let composer_active = matches!(
+            self.issues_state.inline_state,
+            InlineState::Composer {
+                target: ComposerTarget::NewComment | ComposerTarget::Reply { .. },
+                ..
+            }
+        );
+        crate::layout::issue_detail_document_viewport_rows(
+            self.issues_state.detail_viewport_rows,
+            composer_active,
+        )
     }
 
     /// Navigate to the previous repository in issues mode.
@@ -473,8 +517,14 @@ impl AppState {
             | AppEvent::IssuesEnter
             | AppEvent::IssuesCycleFocus
             | AppEvent::IssuesCycleFocusReverse => self.apply_issues_navigation(event),
-            AppEvent::IssueDetailSubfocusNext => self.detail_subfocus_next(),
-            AppEvent::IssueDetailSubfocusPrev => self.detail_subfocus_prev(),
+            AppEvent::IssueDetailSubfocusNext => {
+                self.detail_subfocus_next();
+                self.scroll_issue_detail_to_subfocus();
+            }
+            AppEvent::IssueDetailSubfocusPrev => {
+                self.detail_subfocus_prev();
+                self.scroll_issue_detail_to_subfocus();
+            }
             AppEvent::FocusSearchInput => self.issues_state.search_input_focused = true,
             AppEvent::BlurSearchInput => self.issues_state.search_input_focused = false,
             AppEvent::ClearSearch => self.issues_state.search_query.clear(),

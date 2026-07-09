@@ -27,6 +27,115 @@ pub fn detail_content_line_count(
     build_detail_lines(detail, DetailSubfocus::Body, inline_state, comments_loading).len()
 }
 
+/// Compute the inclusive content-line range `[start, end]` of the focused
+/// issue detail subfocus item, so the reducer can scroll it into view (#151).
+///
+/// This is a pure projection over the rendered content — no AppState, no side
+/// effects — and uses the same `build_detail_content` output the renderer
+/// paints, so it cannot drift.
+///
+/// Returns `None` when the subfocus item cannot be located (e.g. empty
+/// detail or an index beyond the available comments) — the caller should
+/// leave the offset unchanged in that case.
+#[must_use]
+pub fn issue_subfocus_line_range(
+    detail: &IssueDetail,
+    subfocus: DetailSubfocus,
+    inline_state: &InlineState,
+    comments_loading: bool,
+) -> Option<(usize, usize)> {
+    let content = build_detail_content(detail, subfocus, inline_state, comments_loading);
+    let lines: Vec<&str> = content.text.lines().collect();
+    issue_subfocus_range_from_lines(&lines, &subfocus)
+}
+
+/// Resolve the content-line range for `subfocus` by scanning the rendered
+/// lines. Issue detail renders Body with a `"> Body"` label, comments with a
+/// `"> "` prefix, and NewComment with a `"> New Comment"` label.
+fn issue_subfocus_range_from_lines(
+    lines: &[&str],
+    subfocus: &DetailSubfocus,
+) -> Option<(usize, usize)> {
+    match subfocus {
+        DetailSubfocus::Body => {
+            let start = lines
+                .iter()
+                .position(|l| *l == "> Body" || *l == "  Body")?;
+            // Body spans from its label to the line before the next separator.
+            // Fall back to the last content line if no separator follows.
+            let end = find_section_end(lines, start);
+            Some((start, end))
+        }
+        DetailSubfocus::Comment(target_idx) => {
+            // Comments live in the Comments section (after the "Comments"
+            // label). Each comment starts with "> " or "  " + author + date.
+            let comments_start = lines.iter().position(|l| *l == "Comments")?;
+            let mut comment_count = 0usize;
+            for (i, line) in lines.iter().enumerate().skip(comments_start + 1) {
+                if issue_line_is_comment(line) {
+                    if comment_count == *target_idx {
+                        let end = issue_comment_end_line(lines, i);
+                        return Some((i, end));
+                    }
+                    comment_count += 1;
+                }
+            }
+            None
+        }
+        DetailSubfocus::NewComment => {
+            let start = lines
+                .iter()
+                .position(|l| *l == "> New Comment" || *l == "  New Comment")?;
+            // NewComment is the last section; it spans from its label to the
+            // end of content (no separator follows). This adapts to the
+            // variable-length composer editor when a NewComment composer is
+            // active (the editor pushes several rows into the document).
+            let end = lines.len().saturating_sub(1).max(start);
+            Some((start, end))
+        }
+    }
+}
+
+/// True for a comment header line in the Comments section: prefix `"> "` or
+/// `  "` + `@author` + date. Editor gutter lines (`"│"`) and reply anchors
+/// (`"[Reply]"`) are excluded. Body sub-lines (6-space indent rendered as
+/// `"  "  body text"` after stripping the 2-space prefix → 4-space indent) are
+/// excluded because they start with spaces, not `@`.
+fn issue_line_is_comment(line: &str) -> bool {
+    let Some(rest) = line.strip_prefix("> ").or_else(|| line.strip_prefix("  ")) else {
+        return false;
+    };
+    // Editor gutter lines, reply anchors, and editing markers start with
+    // special chars; comment headers start with `@author`.
+    rest.starts_with('@')
+}
+
+/// Find the last line of a section (the line before the next separator). If
+/// no separator follows, the last content line is used. Falls back to
+/// `start` itself if the section is a single label line.
+fn find_section_end(lines: &[&str], start: usize) -> usize {
+    if let Some((i, _)) = lines
+        .iter()
+        .enumerate()
+        .skip(start + 1)
+        .find(|(_, l)| l.starts_with('─'))
+    {
+        return i.saturating_sub(1);
+    }
+    lines.len().saturating_sub(1).max(start)
+}
+
+/// Find the last content line of a comment block (the blank line that
+/// terminates each comment, or the next separator).
+fn issue_comment_end_line(lines: &[&str], start: usize) -> usize {
+    for (i, line) in lines.iter().enumerate().skip(start + 1) {
+        if line.is_empty() || line.starts_with('─') {
+            return i.saturating_sub(1).max(start);
+        }
+    }
+    start
+}
+
 /// Build the scrollable content string for the body + comments + new-comment area.
 #[must_use]
 pub fn build_detail_content(
@@ -411,5 +520,192 @@ mod tests {
             cursor: 0,
         };
         assert_count_matches_rendered(&detail, &inline, false);
+    }
+
+    fn detail_with_comments(n: usize) -> IssueDetail {
+        let mut detail = detail_with_body("body line one\nbody line two");
+        detail.comments = (0..n)
+            .map(|i| comment(format!("comment {i} body").as_str()))
+            .collect();
+        detail
+    }
+
+    fn require_range(
+        detail: &IssueDetail,
+        subfocus: DetailSubfocus,
+        inline: &InlineState,
+        loading: bool,
+    ) -> (usize, usize) {
+        let Some(range) = issue_subfocus_line_range(detail, subfocus, inline, loading) else {
+            panic!("expected subfocus range for {subfocus:?}");
+        };
+        range
+    }
+
+    // ── issue_subfocus_line_range (#151) ─────────────────────────────────
+
+    #[test]
+    fn issue_subfocus_line_range_body_covers_body_section() {
+        let detail = detail_with_body("body line");
+        let range = require_range(&detail, DetailSubfocus::Body, &InlineState::None, false);
+        let content =
+            build_detail_content(&detail, DetailSubfocus::Body, &InlineState::None, false);
+        let lines: Vec<&str> = content.text.lines().collect();
+        // The range starts at the Body label.
+        assert!(lines[range.0] == "> Body" || lines[range.0] == "  Body");
+        // The line after the range must be the separator.
+        if range.1 + 1 < lines.len() {
+            assert!(
+                lines[range.1 + 1].starts_with('─'),
+                "line after Body range must be a separator"
+            );
+        }
+    }
+
+    #[test]
+    fn issue_subfocus_line_range_comment_locates_focused_comment() {
+        let detail = detail_with_comments(2);
+        let range = require_range(
+            &detail,
+            DetailSubfocus::Comment(0),
+            &InlineState::None,
+            false,
+        );
+        let content = build_detail_content(
+            &detail,
+            DetailSubfocus::Comment(0),
+            &InlineState::None,
+            false,
+        );
+        let lines: Vec<&str> = content.text.lines().collect();
+        let header = lines[range.0];
+        assert!(
+            header.starts_with("> "),
+            "focused comment must have > marker"
+        );
+        // The range must span the full comment block (header + body lines),
+        // ending at the blank line that terminates the comment.
+        let block: Vec<&str> = lines[range.0..=range.1].to_vec();
+        assert!(
+            block
+                .iter()
+                .any(|l| l.contains("comment 0 body") || l.contains("comment 0")),
+            "comment block must include the comment body within its range: {block:?}"
+        );
+    }
+
+    #[test]
+    fn issue_subfocus_line_range_new_comment_locates_label_and_hint() {
+        let detail = detail_with_body("body");
+        let range = require_range(
+            &detail,
+            DetailSubfocus::NewComment,
+            &InlineState::None,
+            false,
+        );
+        let content = build_detail_content(
+            &detail,
+            DetailSubfocus::NewComment,
+            &InlineState::None,
+            false,
+        );
+        let lines: Vec<&str> = content.text.lines().collect();
+        assert!(lines[range.0] == "> New Comment" || lines[range.0] == "  New Comment");
+        assert!(
+            lines[range.1].contains("Press c to add a comment")
+                || lines[range.1].contains("Ctrl+Enter submit"),
+            "NewComment range must include the hint line"
+        );
+    }
+
+    #[test]
+    fn issue_subfocus_line_range_returns_none_for_out_of_bounds_comment() {
+        let detail = detail_with_comments(1);
+        let range = issue_subfocus_line_range(
+            &detail,
+            DetailSubfocus::Comment(99),
+            &InlineState::None,
+            false,
+        );
+        assert!(range.is_none(), "out-of-bounds comment must return None");
+    }
+
+    #[test]
+    fn issue_subfocus_line_range_comment_1_locates_second_comment() {
+        let detail = detail_with_comments(2);
+        let range = require_range(
+            &detail,
+            DetailSubfocus::Comment(1),
+            &InlineState::None,
+            false,
+        );
+        let content = build_detail_content(
+            &detail,
+            DetailSubfocus::Comment(1),
+            &InlineState::None,
+            false,
+        );
+        let lines: Vec<&str> = content.text.lines().collect();
+        let block: Vec<&str> = lines[range.0..=range.1].to_vec();
+        assert!(
+            block.iter().any(|l| l.contains("comment 1")),
+            "Comment(1) must locate the second comment, got block: {block:?}"
+        );
+        // The header line must start with the comment marker, not a body line.
+        let header = lines[range.0];
+        assert!(
+            header
+                .strip_prefix("> ")
+                .is_some_and(|r| r.starts_with('@'))
+                || header
+                    .strip_prefix("  ")
+                    .is_some_and(|r| r.starts_with('@')),
+            "Comment(1) header must be a comment header starting with @, got: {header:?}"
+        );
+    }
+
+    #[test]
+    fn issue_subfocus_line_range_comment_not_confused_by_body_lines() {
+        // Two comments with multi-line bodies. Body lines are indented and must
+        // NOT be miscounted as comment headers.
+        let mut detail = detail_with_body("body");
+        detail.comments = vec![
+            comment(
+                "comment 0 line 1
+comment 0 line 2",
+            ),
+            comment(
+                "comment 1 line 1
+comment 1 line 2",
+            ),
+        ];
+        let range = require_range(
+            &detail,
+            DetailSubfocus::Comment(1),
+            &InlineState::None,
+            false,
+        );
+        let content = build_detail_content(
+            &detail,
+            DetailSubfocus::Comment(1),
+            &InlineState::None,
+            false,
+        );
+        let lines: Vec<&str> = content.text.lines().collect();
+        let header = lines[range.0];
+        assert!(
+            header
+                .strip_prefix("> ")
+                .is_some_and(|r| r.starts_with('@'))
+                || header
+                    .strip_prefix("  ")
+                    .is_some_and(|r| r.starts_with('@')),
+            "Comment(1) must point at a header line, not a body line: {header:?}"
+        );
+        let block: Vec<&str> = lines[range.0..=range.1].to_vec();
+        assert!(
+            block.iter().any(|l| l.contains("comment 1")),
+            "Comment(1) block must contain the second comment body, got: {block:?}"
+        );
     }
 }

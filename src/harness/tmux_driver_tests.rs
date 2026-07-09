@@ -123,12 +123,11 @@ fn new_session_command_shell_escapes_argv_parts() {
     .value_or_panic("request should be valid");
 
     let args = new_session_args(&request);
-    assert_eq!(
-        args.last().map(String::as_str),
-        Some(
-            "tmux -f /dev/null set-option -pt \"$TMUX_PANE\" remain-on-exit on; tmux -f /dev/null set-option -wt \"$TMUX_PANE\" history-limit 1000; exec '/bin/echo' 'a b' 'quote'\\''it'"
-        )
+    let socket = harness_socket_name();
+    let expected = format!(
+        "tmux -f /dev/null -L {socket} set-option -pt \"$TMUX_PANE\" remain-on-exit on; tmux -f /dev/null -L {socket} set-option -wt \"$TMUX_PANE\" history-limit 1000; exec '/bin/echo' 'a b' 'quote'\\''it'"
     );
+    assert_eq!(args.last().map(String::as_str), Some(expected.as_str()));
 }
 
 /// Real jefe requests always include an isolated `--config` directory.
@@ -374,4 +373,101 @@ fn jefe_binary_path() -> Option<PathBuf> {
     let debug_dir = deps_dir.parent()?;
     let candidate = debug_dir.join("jefe");
     candidate.exists().then_some(candidate)
+}
+
+// --- #171 regression tests: harness tmux socket isolation + env scrub ---------
+
+/// The harness socket name is stable within a process and carries a per-process
+/// suffix so parallel test runs never share a harness server (#171).
+#[test]
+fn harness_socket_name_is_per_process_and_stable() {
+    let name = harness_socket_name();
+    assert!(
+        name.starts_with("jefe-harness-"),
+        "socket name should be prefixed jefe-harness-, got {name}"
+    );
+    let suffix = name.strip_prefix("jefe-harness-").unwrap_or(name);
+    assert!(
+        !suffix.is_empty(),
+        "socket suffix should be non-empty, got {suffix}"
+    );
+    // Stable across calls (cached via OnceLock).
+    assert_eq!(harness_socket_name().as_ptr(), name.as_ptr());
+}
+
+/// Every formatted harness tmux command must carry the dedicated `-L <socket>`
+/// flag so harness calls can never land on an inherited/outer server (#171).
+#[test]
+fn format_command_carries_dedicated_socket_flag() {
+    let socket = harness_socket_name();
+    let empty = format_command(&[]);
+    assert_eq!(empty, format!("tmux -f /dev/null -L {socket}"));
+
+    let with_args = format_command(&["has-session".to_owned(), "-t".to_owned(), "x".to_owned()]);
+    assert_eq!(
+        with_args,
+        format!("tmux -f /dev/null -L {socket} has-session -t x")
+    );
+}
+
+/// A harness session must run on the harness's dedicated `-L` socket, not on
+/// any inherited/outer/default server. This is the behavioral guarantee of
+/// #171: every harness tmux call is pinned to `tmux -L jefe-harness-<pid>`, so
+/// the harness never lands on (and its kill/respawn churn never disrupts) an
+/// outer server — even when the test process itself is running inside a jefe
+/// pane that sets `$TMUX`.
+///
+/// We prove isolation without mutating process env (`set_var` is `unsafe` under
+/// edition 2024 and forbidden here): after starting a session through the
+/// driver, that session must NOT be listed on the shared default tmux server
+/// (queried with no `-L`), proving the harness did not leak onto it.
+#[test]
+fn harness_session_runs_on_dedicated_socket() {
+    let driver = TmuxDriver::new();
+    if !driver.is_available() {
+        return;
+    }
+
+    let request = shell_request("socket", "printf 'socket-ready\\n'; sleep 2");
+    let session = driver
+        .start_session(&request)
+        .value_or_panic("harness session should start on its dedicated socket");
+    let guard = SessionGuard {
+        driver: &driver,
+        session,
+    };
+
+    // The session must render on the harness's own server.
+    let capture = wait_for_screen_literal(&driver, &guard.session, "socket-ready")
+        .value_or_panic("harness session should render on the isolated server");
+    assert!(
+        screen_contains(&capture, MatchPattern::literal("socket-ready")).matched,
+        "capture was {capture:?}"
+    );
+
+    // CRITICAL isolation check (#171): query the *default* shared tmux server
+    // (no `-L`) and confirm the harness session is NOT listed there. If it
+    // were, the harness would have leaked onto the outer server and its
+    // kill-session lifecycle could disrupt it. A non-existent default server
+    // (no sessions at all) is the strongest possible pass.
+    //
+    // The probe MUST scrub `TMUX`/`TMUX_PANE`/`TMUX_TMPDIR` from its own env:
+    // when this test runs inside a jefe pane (the exact #171 scenario), an
+    // inherited `$TMUX` would redirect the bare `tmux list-sessions` at the
+    // outer/jefe server instead of the default server, invalidating the proof.
+    let default_listing = std::process::Command::new("tmux")
+        .args(["-f", "/dev/null", "list-sessions"])
+        .env_remove("TMUX")
+        .env_remove("TMUX_PANE")
+        .env_remove("TMUX_TMPDIR")
+        .output();
+    if let Ok(out) = default_listing {
+        let listing = String::from_utf8_lossy(&out.stdout).to_string();
+        assert!(
+            !listing
+                .lines()
+                .any(|line| line.starts_with(&format!("{}:", guard.session.name))),
+            "harness session leaked onto the default/shared tmux server (#171); listing:\n{listing}"
+        );
+    }
 }
