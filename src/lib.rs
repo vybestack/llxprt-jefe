@@ -32,6 +32,8 @@ pub mod text_box_view;
 pub mod theme;
 pub mod ui;
 
+/// Cached git repository info (origin shortform + branch) for agent display.
+pub mod git_info;
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 pub mod github;
 

@@ -75,7 +75,7 @@ mod terminal_view;
 mod text_box;
 
 pub use agent_chooser::{AgentChooser, AgentChooserProps};
-pub use agent_list::agent_list_props;
+pub use agent_list::{AgentListSelection, agent_list_props};
 pub use detail_pane::{
     DetailComposerProps, DetailHeaderColor, DetailHeaderRow, DetailPane, DetailPaneProps,
     composer_from_inline_state, detail_pane_element, header_highlight, header_row,

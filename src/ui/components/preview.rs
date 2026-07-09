@@ -6,6 +6,7 @@
 use iocraft::prelude::*;
 
 use crate::domain::Agent;
+use crate::git_info::GitRepoInfo;
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the preview component.
@@ -13,6 +14,8 @@ use crate::theme::{ResolvedColors, ThemeColors};
 pub struct PreviewProps {
     /// Selected agent (if any).
     pub agent: Option<Agent>,
+    /// Git display info (origin shortform + branch) for the selected agent.
+    pub git_info: Option<GitRepoInfo>,
     /// Whether this pane is focused.
     pub focused: bool,
     /// Theme colors.
@@ -51,10 +54,18 @@ pub fn Preview(props: &PreviewProps) -> impl Into<AnyElement<'static>> {
                 background_color: rc.bg,
             ) {
                 #(if let Some(agent) = &props.agent {
+                    let repo_line = props.git_info.as_ref()
+                        .and_then(|g| g.origin_shortform.as_deref())
+                        .unwrap_or("(unknown)");
+                    let branch_line = props.git_info.as_ref()
+                        .and_then(|g| g.branch.as_deref())
+                        .unwrap_or("(unknown)");
                     element! {
                         Box(flex_direction: FlexDirection::Column) {
                             Text(content: format!("Name: {}", agent.name), color: rc.fg)
                             Text(content: format!("Status: {:?}", agent.status), color: rc.fg)
+                            Text(content: format!("Repo: {repo_line}"), color: rc.fg)
+                            Text(content: format!("Branch: {branch_line}"), color: rc.fg)
                             Text(content: format!("Dir: {}", agent.work_dir.display()), color: rc.fg)
                             Box(height: 1u32) {}
                             Text(content: "Todo:", weight: Weight::Bold, color: rc.fg)

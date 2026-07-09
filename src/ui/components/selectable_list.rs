@@ -441,8 +441,9 @@ mod tests {
         Agent, AgentId, AgentStatus, Issue, IssueState, PrCheckStatus, PrState, PullRequest,
         RepositoryId,
     };
+    use crate::git_info::GitRepoInfo;
     use crate::theme::ThemeColors;
-    use crate::ui::components::agent_list::agent_list_props;
+    use crate::ui::components::agent_list::{AgentListSelection, agent_list_props};
     use crate::ui::components::issue_list::{IssueListLayout, IssueListWindow, issue_list_props};
     use crate::ui::components::pr_list::{PrListLayout, PrListWindow, pr_list_props};
 
@@ -569,7 +570,14 @@ mod tests {
     #[test]
     fn agent_list_props_running_selected_spans() {
         let agents = vec![agent("alpha", AgentStatus::Running)];
-        let props = agent_list_props(&agents, 0, None, false, ThemeColors::default(), None);
+        let props = agent_list_props(
+            &agents,
+            &[],
+            AgentListSelection::default(),
+            false,
+            ThemeColors::default(),
+            None,
+        );
         assert_eq!(props.rows.len(), 1);
         let row = &props.rows[0];
         assert_eq!(row.spans.len(), 3);
@@ -594,7 +602,17 @@ mod tests {
             agent("alpha", AgentStatus::Running),
             agent("beta", AgentStatus::Completed),
         ];
-        let props = agent_list_props(&agents, 0, Some(1), false, ThemeColors::default(), None);
+        let props = agent_list_props(
+            &agents,
+            &[],
+            AgentListSelection {
+                selected: 0,
+                grabbed: Some(1),
+            },
+            false,
+            ThemeColors::default(),
+            None,
+        );
         // Row 1 is grabbed (index 1).
         assert_eq!(props.rows[1].spans[0].text, "\u{2195} ");
         // Row 0 is selected but NOT grabbed → "> ".
@@ -616,7 +634,14 @@ mod tests {
         ];
         for (status, expected) in cases {
             let agents = vec![agent("a", status)];
-            let props = agent_list_props(&agents, 0, None, false, ThemeColors::default(), None);
+            let props = agent_list_props(
+                &agents,
+                &[],
+                AgentListSelection::default(),
+                false,
+                ThemeColors::default(),
+                None,
+            );
             let row = &props.rows[0];
             assert_eq!(
                 row.spans.len(),
@@ -663,7 +688,14 @@ mod tests {
     #[test]
     fn bright_selected_agent_row_keeps_fixed_glyph_color() {
         let agents = vec![agent("dead-agent", AgentStatus::Dead)];
-        let props = agent_list_props(&agents, 0, None, true, ThemeColors::default(), None);
+        let props = agent_list_props(
+            &agents,
+            &[],
+            AgentListSelection::default(),
+            true,
+            ThemeColors::default(),
+            None,
+        );
         let ansi = render_ansi(props, 30, 8);
         // `Color::Red` is emitted by iocraft as the 256-color code 38;5;9. The
         // key byte-identity guarantee is that the status glyph keeps its fixed
@@ -676,6 +708,105 @@ mod tests {
         assert!(
             ansi.contains("dead-agent"),
             "agent name text must appear: {ansi}"
+        );
+    }
+
+    // ── Agent list with git info (issue #170) ───────────────────────────────
+
+    /// When `git_infos` carries an origin shortform + branch, the agent row
+    /// gets a 4th dim-colored span with `  {origin} @ {branch}` text.
+    #[test]
+    fn agent_list_props_with_git_info_adds_suffix_span() {
+        let agents = vec![agent("fix-login", AgentStatus::Running)];
+        let git_infos = vec![GitRepoInfo {
+            origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
+            branch: Some("main".to_owned()),
+        }];
+        let props = agent_list_props(
+            &agents,
+            &git_infos,
+            AgentListSelection::default(),
+            false,
+            ThemeColors::default(),
+            None,
+        );
+        let row = &props.rows[0];
+        assert_eq!(
+            row.spans.len(),
+            4,
+            "should have prefix + glyph + name + git suffix"
+        );
+        assert_eq!(row.spans[3].text, "  vybestack/llxprt-jefe @ main");
+        assert!(matches!(row.spans[3].color, SpanColor::Role(SpanRole::Dim)));
+    }
+
+    /// When `git_infos` entry has no data (both None), no suffix span is added
+    /// — the row stays at 3 spans.
+    #[test]
+    fn agent_list_props_with_empty_git_info_no_suffix() {
+        let agents = vec![agent("fix-login", AgentStatus::Running)];
+        let git_infos = vec![GitRepoInfo::default()];
+        let props = agent_list_props(
+            &agents,
+            &git_infos,
+            AgentListSelection::default(),
+            false,
+            ThemeColors::default(),
+            None,
+        );
+        let row = &props.rows[0];
+        assert_eq!(
+            row.spans.len(),
+            3,
+            "empty git info should not add a suffix span"
+        );
+    }
+
+    /// When `git_infos` is shorter than `agents` (missing entry), the agent at
+    /// the missing index just renders without a suffix (graceful degradation).
+    #[test]
+    fn agent_list_props_git_infos_shorter_than_agents() {
+        let agents = vec![
+            agent("alpha", AgentStatus::Running),
+            agent("beta", AgentStatus::Completed),
+        ];
+        // Only provide git info for index 0.
+        let git_infos = vec![GitRepoInfo {
+            origin_shortform: Some("acme/widgets".to_owned()),
+            branch: Some("dev".to_owned()),
+        }];
+        let props = agent_list_props(
+            &agents,
+            &git_infos,
+            AgentListSelection::default(),
+            false,
+            ThemeColors::default(),
+            None,
+        );
+        assert_eq!(props.rows[0].spans.len(), 4, "row 0 has git suffix");
+        assert_eq!(props.rows[1].spans.len(), 3, "row 1 has no git suffix");
+    }
+
+    /// Agent list git-info suffix renders in the rendered output.
+    #[test]
+    fn agent_list_git_info_suffix_renders() {
+        let agents = vec![agent("fix-login", AgentStatus::Running)];
+        let git_infos = vec![GitRepoInfo {
+            origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
+            branch: Some("main".to_owned()),
+        }];
+        let props = agent_list_props(
+            &agents,
+            &git_infos,
+            AgentListSelection::default(),
+            true,
+            ThemeColors::default(),
+            None,
+        );
+        let ansi = render_ansi(props, 60, 8);
+        assert!(
+            ansi.contains("vybestack/llxprt-jefe @ main"),
+            "git suffix text must appear in rendered output: {ansi}"
         );
     }
 
