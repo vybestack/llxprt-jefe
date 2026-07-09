@@ -106,17 +106,19 @@ pub fn issue_filter_fields(
 /// Action-hint segments for the Issues filter bar (matches the pre-refactor
 /// `FilterControls` action-hints row exactly).
 ///
+/// Returns `&'static str` slices to avoid per-render heap allocation.
+///
 /// @plan PLAN-20260329-ISSUES-MODE.P14
 /// @requirement REQ-ISS-008
 #[must_use]
-pub fn issue_filter_action_hints() -> Vec<String> {
+pub fn issue_filter_action_hints() -> Vec<&'static str> {
     vec![
-        "Tab next  ".to_string(),
-        "←/→ choices  ".to_string(),
-        "Enter apply  ".to_string(),
-        "Delete field  ".to_string(),
-        "Ctrl-L clear all  ".to_string(),
-        "Esc cancel".to_string(),
+        "Tab next  ",
+        "←/→ choices  ",
+        "Enter apply  ",
+        "Delete field  ",
+        "Ctrl-L clear all  ",
+        "Esc cancel",
     ]
 }
 
@@ -139,8 +141,8 @@ pub fn issue_filter_props(
     FilterBarProps {
         fields: issue_filter_fields(filter, draft_labels_text, active_index),
         visible,
-        row_prefix: ROW_PREFIX.to_string(),
-        continuation_prefix: CONTINUATION_PREFIX.to_string(),
+        row_prefix: ROW_PREFIX,
+        continuation_prefix: CONTINUATION_PREFIX,
         fields_per_row: FIELDS_PER_ROW,
         action_hints: issue_filter_action_hints(),
         colors,

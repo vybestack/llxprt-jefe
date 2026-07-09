@@ -267,7 +267,7 @@ pub fn pr_detail_props(inputs: PrDetailProjectionInputs<'_>) -> DetailPaneProps 
         text,
         byte_cursor,
         content_width: inputs.detail_content_width,
-        prefix: prefix.to_string(),
+        prefix,
     });
 
     DetailPaneProps {

@@ -45,20 +45,24 @@ pub struct FilterFieldView {
 /// The projection owns the field computation, the row-prefix text, the
 /// fields-per-row count, and the action-hint list; the component is a pure
 /// renderer that applies the shared color logic and box structure.
+///
+/// `row_prefix`, `continuation_prefix`, and `action_hints` use `&'static str`
+/// because both domains (Issues and PRs) supply compile-time constant strings
+/// — this avoids per-render heap allocations.
 #[derive(Default, Props)]
 pub struct FilterBarProps {
     /// Projected field views, in render order (row-major).
     pub fields: Vec<FilterFieldView>,
     /// Whether the controls are visible (false → 0×0 box).
     pub visible: bool,
-    /// Text before the first field on row 1 (e.g. "Filter: ").
-    pub row_prefix: String,
+    /// Text before the first field on row 1 (e.g. `"Filter: "`).
+    pub row_prefix: &'static str,
     /// Alignment padding for row 2+ (matches row_prefix width per domain).
-    pub continuation_prefix: String,
+    pub continuation_prefix: &'static str,
     /// Number of fields per row (both domains use 4).
     pub fields_per_row: usize,
     /// Action hint segments rendered in the final row.
-    pub action_hints: Vec<String>,
+    pub action_hints: Vec<&'static str>,
     /// Theme colors.
     pub colors: ThemeColors,
 }
@@ -131,12 +135,12 @@ fn field_row_box(
 }
 
 /// Build the action-hints row: one `Text` per hint segment, all in `rc.dim`.
-fn action_hints_row(hints: &[String], rc: ResolvedColors) -> AnyElement<'static> {
+fn action_hints_row(hints: &[&'static str], rc: ResolvedColors) -> AnyElement<'static> {
     let texts: Vec<AnyElement<'static>> = hints
         .iter()
-        .map(|h| {
+        .map(|&h| {
             element! {
-                Text(content: h.as_str(), color: rc.dim)
+                Text(content: h, color: rc.dim)
             }
             .into_any()
         })
@@ -152,14 +156,18 @@ fn action_hints_row(hints: &[String], rc: ResolvedColors) -> AnyElement<'static>
 /// Build all children for the outer bordered column box: the field rows
 /// (chunked into `fields_per_row`), then the action-hints row.
 fn outer_children(props: &FilterBarProps, rc: ResolvedColors) -> Vec<AnyElement<'static>> {
+    debug_assert!(
+        props.fields_per_row > 0,
+        "fields_per_row must be > 0 — domain projections must always set it"
+    );
     let chunk = props.fields_per_row.max(1);
     let mut children: Vec<AnyElement<'static>> = Vec::new();
     for (row_idx, row_fields) in props.fields.chunks(chunk).enumerate() {
         // Row 0 uses row_prefix; every subsequent row uses continuation_prefix.
         let prefix = if row_idx == 0 {
-            props.row_prefix.as_str()
+            props.row_prefix
         } else {
-            props.continuation_prefix.as_str()
+            props.continuation_prefix
         };
         children.push(field_row_box(prefix, row_fields, rc));
     }

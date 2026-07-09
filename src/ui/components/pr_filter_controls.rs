@@ -156,16 +156,18 @@ pub fn pr_filter_field_views(
 /// Action-hint segments for the PR filter bar (matches the pre-refactor
 /// `PrFilterControls` action-hints row exactly).
 ///
+/// Returns `&'static str` slices to avoid per-render heap allocation.
+///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-008
 #[must_use]
-pub fn pr_filter_action_hints() -> Vec<String> {
+pub fn pr_filter_action_hints() -> Vec<&'static str> {
     vec![
-        "Tab next  ".to_string(),
-        "Space cycle  ".to_string(),
-        "Enter apply  ".to_string(),
-        "Ctrl-c clear  ".to_string(),
-        "Esc cancel".to_string(),
+        "Tab next  ",
+        "Space cycle  ",
+        "Enter apply  ",
+        "Ctrl-c clear  ",
+        "Esc cancel",
     ]
 }
 
@@ -188,8 +190,8 @@ pub fn pr_filter_props(
     FilterBarProps {
         fields: pr_filter_field_views(filter, draft_labels_text, active_index),
         visible,
-        row_prefix: ROW_PREFIX.to_string(),
-        continuation_prefix: CONTINUATION_PREFIX.to_string(),
+        row_prefix: ROW_PREFIX,
+        continuation_prefix: CONTINUATION_PREFIX,
         fields_per_row: FIELDS_PER_ROW,
         action_hints: pr_filter_action_hints(),
         colors,

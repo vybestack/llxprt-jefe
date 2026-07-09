@@ -58,8 +58,9 @@ pub struct DetailComposerProps {
     pub byte_cursor: usize,
     /// Max display width (terminal cols) for prefix + row text.
     pub content_width: usize,
-    /// Gutter prefix string (e.g. `"  │ "`).
-    pub prefix: String,
+    /// Gutter prefix (e.g. `"  │ "`). Always a `&'static str` derived from
+    /// [`composer_from_inline_state`], avoiding per-render allocation.
+    pub prefix: &'static str,
 }
 
 /// Props for the generic [`DetailPane`] component.
@@ -217,7 +218,7 @@ fn header_box(props: &DetailPaneProps, rc: &ResolvedColors) -> AnyElement<'stati
 }
 
 /// Build the scrollable viewport box (always present).
-fn viewport_box(props: &DetailPaneProps, rc: ResolvedColors) -> AnyElement<'static> {
+fn viewport_box(props: &DetailPaneProps, rc: &ResolvedColors) -> AnyElement<'static> {
     let (cursor_line, cursor_col) = (
         props.content_cursor.map(|(l, _)| l),
         props.content_cursor.map(|(_, c)| c),
@@ -253,7 +254,7 @@ fn viewport_box(props: &DetailPaneProps, rc: ResolvedColors) -> AnyElement<'stat
 fn composer_box(
     composer: &DetailComposerProps,
     composer_rows: usize,
-    rc: ResolvedColors,
+    rc: &ResolvedColors,
 ) -> AnyElement<'static> {
     element! {
         Box(width: 100pct, padding_left: 1u32) {
@@ -262,7 +263,7 @@ fn composer_box(
                 byte_cursor: composer.byte_cursor,
                 viewport_rows: composer_rows,
                 content_width: composer.content_width,
-                prefix: composer.prefix.clone(),
+                prefix: composer.prefix.to_string(),
                 color: rc.fg,
                 caret_color: rc.bg,
                 caret_bg: rc.bright,
@@ -287,11 +288,11 @@ pub fn DetailPane(props: &DetailPaneProps) -> impl Into<AnyElement<'static>> {
         BorderStyle::Round
     };
     let header = header_box(props, &rc);
-    let viewport = viewport_box(props, rc);
+    let viewport = viewport_box(props, &rc);
     let composer: Option<AnyElement<'static>> = props
         .composer
         .as_ref()
-        .map(|c| composer_box(c, props.composer_rows, rc));
+        .map(|c| composer_box(c, props.composer_rows, &rc));
 
     element! {
         Box(

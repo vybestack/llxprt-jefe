@@ -61,12 +61,11 @@ fn sample_header_rows() -> Vec<DetailHeaderRow> {
     ]
 }
 
-/// A focused `DetailPane` must render a double border (`╔`); unfocused renders
-/// a round border (`╭`). This mirrors the original `DoubleOnFocus` behavior of
-/// both `IssueDetailView` and `PrDetailView`.
-#[test]
-fn detail_pane_border_switches_on_focus() {
-    let base = || DetailPaneProps {
+/// Base props shared by every test: the full default field set so individual
+/// tests only override the values they care about (avoids error-prone manual
+/// updates whenever a new field is added).
+fn base_props() -> DetailPaneProps {
+    DetailPaneProps {
         header_rows: sample_header_rows(),
         content: "body".to_string(),
         content_cursor: None,
@@ -80,11 +79,24 @@ fn detail_pane_border_switches_on_focus() {
         selection: None,
         composer: None,
         composer_rows: 0,
+    }
+}
+
+/// A focused `DetailPane` must render a double border (`╔`); unfocused renders
+/// a round border (`╭`). This mirrors the original `DoubleOnFocus` behavior of
+/// both `IssueDetailView` and `PrDetailView`.
+#[test]
+fn detail_pane_border_switches_on_focus() {
+    let unfocused = {
+        let mut p = base_props();
+        p.focused = false;
+        render_ansi(p, 40, 14)
     };
-    let unfocused = render_ansi(base(), 40, 14);
-    let mut focused = base();
-    focused.focused = true;
-    let focused = render_ansi(focused, 40, 14);
+    let focused = {
+        let mut p = base_props();
+        p.focused = true;
+        render_ansi(p, 40, 14)
+    };
     assert!(
         unfocused.contains('╭'),
         "unfocused detail must use round border: {unfocused}"
@@ -98,21 +110,8 @@ fn detail_pane_border_switches_on_focus() {
 /// The header rows' text must all appear in the rendered output.
 #[test]
 fn detail_pane_renders_all_header_rows() {
-    let props = DetailPaneProps {
-        header_rows: sample_header_rows(),
-        content: "the body line".to_string(),
-        content_cursor: None,
-        scroll_offset: 0,
-        viewport_rows: 5,
-        content_line_offset: 5,
-        max_line_width: 40,
-        focused: true,
-        pane: SelectablePane::IssueDetail,
-        colors: ThemeColors::default(),
-        selection: None,
-        composer: None,
-        composer_rows: 0,
-    };
+    let mut props = base_props();
+    props.focused = true;
     let ansi = render_ansi(props, 50, 16);
     assert!(ansi.contains("#1 Title"), "title row missing: {ansi}");
     assert!(ansi.contains("OPEN  by @x"), "state row missing: {ansi}");
@@ -130,21 +129,9 @@ fn detail_pane_renders_all_header_rows() {
 /// The scrollable content text must appear below the header rows.
 #[test]
 fn detail_pane_renders_scrollable_content() {
-    let props = DetailPaneProps {
-        header_rows: sample_header_rows(),
-        content: "unique body marker".to_string(),
-        content_cursor: None,
-        scroll_offset: 0,
-        viewport_rows: 5,
-        content_line_offset: 5,
-        max_line_width: 40,
-        focused: true,
-        pane: SelectablePane::IssueDetail,
-        colors: ThemeColors::default(),
-        selection: None,
-        composer: None,
-        composer_rows: 0,
-    };
+    let mut props = base_props();
+    props.focused = true;
+    props.content = "unique body marker".to_string();
     let ansi = render_ansi(props, 50, 16);
     assert!(
         ansi.contains("unique body marker"),
@@ -156,26 +143,16 @@ fn detail_pane_renders_scrollable_content() {
 /// viewport, and the composer prefix must appear.
 #[test]
 fn detail_pane_renders_composer_when_present() {
-    let props = DetailPaneProps {
-        header_rows: sample_header_rows(),
-        content: "body".to_string(),
-        content_cursor: None,
-        scroll_offset: 0,
-        viewport_rows: 3,
-        content_line_offset: 5,
-        max_line_width: 40,
-        focused: true,
-        pane: SelectablePane::IssueDetail,
-        colors: ThemeColors::default(),
-        selection: None,
-        composer: Some(DetailComposerProps {
-            text: "draft composer text".to_string(),
-            byte_cursor: "draft composer text".len(),
-            content_width: 40,
-            prefix: "  │ ".to_string(),
-        }),
-        composer_rows: 3,
-    };
+    let mut props = base_props();
+    props.focused = true;
+    props.viewport_rows = 3;
+    props.composer = Some(DetailComposerProps {
+        text: "draft composer text".to_string(),
+        byte_cursor: "draft composer text".len(),
+        content_width: 40,
+        prefix: "  │ ",
+    });
+    props.composer_rows = 3;
     let ansi = render_ansi(props, 50, 16);
     assert!(
         ansi.contains("draft composer text"),
@@ -191,21 +168,8 @@ fn detail_pane_renders_composer_when_present() {
 /// be absent from the output).
 #[test]
 fn detail_pane_omits_composer_when_absent() {
-    let props = DetailPaneProps {
-        header_rows: sample_header_rows(),
-        content: "body".to_string(),
-        content_cursor: None,
-        scroll_offset: 0,
-        viewport_rows: 5,
-        content_line_offset: 5,
-        max_line_width: 40,
-        focused: true,
-        pane: SelectablePane::IssueDetail,
-        colors: ThemeColors::default(),
-        selection: None,
-        composer: None,
-        composer_rows: 0,
-    };
+    let mut props = base_props();
+    props.focused = true;
     let ansi = render_ansi(props, 50, 16);
     // No TextBox gutter/prefix should appear when no composer is active.
     assert!(

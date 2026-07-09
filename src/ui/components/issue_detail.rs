@@ -287,7 +287,7 @@ pub fn issue_detail_props(inputs: IssueDetailProjectionInputs<'_>) -> DetailPane
         text,
         byte_cursor,
         content_width,
-        prefix: prefix.to_string(),
+        prefix,
     });
 
     DetailPaneProps {
