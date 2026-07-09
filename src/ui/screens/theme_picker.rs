@@ -76,7 +76,7 @@ pub fn ThemePickerScreen(props: &ThemePickerScreenProps) -> impl Into<AnyElement
                 // Active theme (currently applied) gets a leading dot.
                 Box(
                     flex_direction: FlexDirection::Column,
-                    flex_grow: 1.0,
+                    flex_grow: 1.0_f32,
                     background_color: rc.bg,
                 ) {
                     #(rows.iter().map(|row| {
