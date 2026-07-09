@@ -138,7 +138,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
             // Main content area
             Box(
                 flex_direction: FlexDirection::Row,
-                flex_grow: 1.0,
+                flex_grow: 1.0_f32,
                 width: 100pct,
             ) {
                 // Sidebar (fixed width)
@@ -157,7 +157,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                 // Middle column (agent list + terminal)
                 Box(
                     flex_direction: FlexDirection::Column,
-                    flex_grow: 1.0,
+                    flex_grow: 1.0_f32,
                     height: 100pct,
                 ) {
                     Box(height: agent_rows, width: 100pct) {

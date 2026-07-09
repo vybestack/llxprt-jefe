@@ -197,7 +197,7 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
                 border_color: rc.border_focused,
                 background_color: rc.bg,
                 flex_direction: FlexDirection::Column,
-                flex_grow: 1.0,
+                flex_grow: 1.0_f32,
                 padding: 1i32,
             ) {
                 Box(height: 1u32) {

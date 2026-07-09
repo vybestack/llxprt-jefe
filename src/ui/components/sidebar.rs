@@ -56,7 +56,7 @@ pub fn Sidebar(props: &SidebarProps) -> impl Into<AnyElement<'static>> {
             // Repository list
             Box(
                 flex_direction: FlexDirection::Column,
-                flex_grow: 1.0,
+                flex_grow: 1.0_f32,
                 padding: 1u32,
                 background_color: rc.bg,
             ) {
