@@ -49,7 +49,7 @@ pub struct FilterFieldView {
 /// `row_prefix`, `continuation_prefix`, and `action_hints` use `&'static str`
 /// because both domains (Issues and PRs) supply compile-time constant strings
 /// — this avoids per-render heap allocations.
-#[derive(Default, Props)]
+#[derive(Props)]
 pub struct FilterBarProps {
     /// Projected field views, in render order (row-major).
     pub fields: Vec<FilterFieldView>,
@@ -65,6 +65,22 @@ pub struct FilterBarProps {
     pub action_hints: Vec<&'static str>,
     /// Theme colors.
     pub colors: ThemeColors,
+}
+
+impl Default for FilterBarProps {
+    /// Manual default so `fields_per_row` is `1` (a safe non-zero value)
+    /// instead of the derived `0`, preventing silent single-row collapse.
+    fn default() -> Self {
+        Self {
+            fields: Vec::new(),
+            visible: false,
+            row_prefix: "",
+            continuation_prefix: "",
+            fields_per_row: 1,
+            action_hints: Vec::new(),
+            colors: ThemeColors::default(),
+        }
+    }
 }
 
 /// Build the two-element group (label `Text` + value `Box`) for a single
