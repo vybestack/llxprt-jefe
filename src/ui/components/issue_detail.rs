@@ -70,7 +70,6 @@ pub fn issue_detail_header_view(detail: &IssueDetail) -> IssueDetailHeaderView {
 
 /// Inputs the Issues screen passes to [`issue_detail_props`], bundled to stay
 /// under the clippy::too_many-arguments threshold (max 6).
-#[derive(Clone)]
 pub struct IssueDetailProjectionInputs<'a> {
     /// Full issue detail (metadata, body, comments).
     pub issue_detail: Option<&'a IssueDetail>,

@@ -21,6 +21,9 @@ pub(crate) mod filter_bar;
 /// Issue filter bar projection. The pure field projection
 /// (`issue_filter_fields`) and props builder (`issue_filter_props`) feed the
 /// generic [`filter_bar::FilterBar`] via `filter_bar_element`.
+///
+/// @plan PLAN-20260329-ISSUES-MODE.P14
+/// @requirement REQ-ISS-008
 mod filter_controls;
 /// Issue detail pane projection. The pure header projection
 /// (`issue_detail_header_view`) is reused by the selection content provider so
@@ -40,7 +43,14 @@ mod merge_chooser;
 /// (`pr_detail_header_view`) is reused by the selection content provider;
 /// rendering is delegated to the generic [`super::detail_pane::DetailPane`] via
 /// `pr_detail_props` + `detail_pane_element`.
+///
+/// @plan PLAN-20260624-PR-MODE.P12
+/// @requirement REQ-PR-006
 pub(crate) mod pr_detail;
+/// PR filter bar projection. The pure field projection
+/// (`pr_filter_field_views`) and props builder (`pr_filter_props`) feed the
+/// generic [`filter_bar::FilterBar`] via `filter_bar_element`.
+///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-008
 pub(crate) mod pr_filter_controls;

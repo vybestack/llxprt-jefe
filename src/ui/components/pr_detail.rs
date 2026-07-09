@@ -85,7 +85,6 @@ pub fn pr_detail_header_view(detail: &PullRequestDetail) -> PrDetailHeaderView {
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 1-12
-#[derive(Clone)]
 pub struct PrDetailProjectionInputs<'a> {
     /// Full PR detail (metadata, body, reviews, checks, comments).
     pub detail: Option<&'a PullRequestDetail>,
