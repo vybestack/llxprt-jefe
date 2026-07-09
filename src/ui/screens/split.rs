@@ -102,7 +102,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
             // Main content - repository list
             Box(
                 flex_direction: FlexDirection::Column,
-                flex_grow: 1.0,
+                flex_grow: 1.0_f32,
                 width: 100pct,
                 padding: 1u32,
                 background_color: rc.bg,
@@ -115,7 +115,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                 // Repository list
                 Box(
                     flex_direction: FlexDirection::Column,
-                    flex_grow: 1.0,
+                    flex_grow: 1.0_f32,
                     width: 100pct,
                     border_style: BorderStyle::Round,
                     border_color: rc.border,

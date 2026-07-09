@@ -46,7 +46,7 @@ pub fn Preview(props: &PreviewProps) -> impl Into<AnyElement<'static>> {
             // Content
             Box(
                 flex_direction: FlexDirection::Column,
-                flex_grow: 1.0,
+                flex_grow: 1.0_f32,
                 padding: 1u32,
                 background_color: rc.bg,
             ) {

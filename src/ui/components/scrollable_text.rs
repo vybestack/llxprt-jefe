@@ -162,7 +162,7 @@ pub fn ScrollableText(props: &ScrollableTextProps) -> impl Into<AnyElement<'stat
     element! {
         Box(flex_direction: FlexDirection::Row, width: 100pct) {
             // Text content column — exactly `vp` rows
-            Box(flex_direction: FlexDirection::Column, flex_grow: 1.0) {
+            Box(flex_direction: FlexDirection::Column, flex_grow: 1.0_f32) {
                 #(display_lines.iter().enumerate().map(|(row_idx, line)| {
                     render_display_row(
                         RowContext {

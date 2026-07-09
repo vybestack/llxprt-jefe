@@ -144,7 +144,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
             // ── Main body: sidebar + issues workspace ───────────────────────
             Box(
                 flex_direction: FlexDirection::Row,
-                flex_grow: 1.0,
+                flex_grow: 1.0_f32,
                 width: 100pct,
             ) {
                 // Repos sidebar (fixed 22u, full height)
@@ -162,7 +162,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                 // Issues workspace (flex-grow)
                 Box(
                     flex_direction: FlexDirection::Column,
-                    flex_grow: 1.0,
+                    flex_grow: 1.0_f32,
                     height: 100pct,
                 ) {
                     // Error banner (when present)
@@ -214,7 +214,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                             selection,
                         ))])
                     }
-                    Box(flex_grow: 1.0, width: 100pct) {
+                    Box(flex_grow: 1.0_f32, width: 100pct) {
                         #(vec![detail_pane_element(issue_detail_props(
                             IssueDetailProjectionInputs {
                                 issue_detail: issue_detail.as_ref(),

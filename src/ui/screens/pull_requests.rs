@@ -172,7 +172,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
             // ── Main body: sidebar + PR workspace ───────────────────────────
             Box(
                 flex_direction: FlexDirection::Row,
-                flex_grow: 1.0,
+                flex_grow: 1.0_f32,
                 width: 100pct,
             ) {
                 // Repos sidebar (fixed 22u, full height)
@@ -190,7 +190,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                 // PR workspace (flex-grow)
                 Box(
                     flex_direction: FlexDirection::Column,
-                    flex_grow: 1.0,
+                    flex_grow: 1.0_f32,
                     height: 100pct,
                 ) {
                     // Error banner (when present)
@@ -246,7 +246,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                             selection,
                         ))])
                     }
-                    Box(flex_grow: 1.0, width: 100pct) {
+                    Box(flex_grow: 1.0_f32, width: 100pct) {
                         #(vec![detail_pane_element(pr_detail_props(
                             PrDetailProjectionInputs {
                                 detail: pr_detail.as_ref(),

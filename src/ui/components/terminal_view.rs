@@ -99,7 +99,7 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
             // grid; see module docs for why this is not a flex tree.
             Box(
                 flex_direction: FlexDirection::Column,
-                flex_grow: 1.0,
+                flex_grow: 1.0_f32,
                 background_color: rc.bg,
             ) {
                 #(if let Some(snapshot) = props.snapshot.clone() {
