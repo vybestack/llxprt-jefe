@@ -26,6 +26,11 @@ const CONTINUATION_PREFIX: &str = "       ";
 /// Number of fields per row (matches the pre-refactor two-row layout).
 const FIELDS_PER_ROW: usize = 4;
 
+// Note: ROW_PREFIX ("Filter: ", 8 chars) and CONTINUATION_PREFIX (7 spaces)
+// intentionally differ in length — this mirrors the pre-refactor
+// `PrFilterControls` component exactly, which used a 7-space continuation
+// indent. Changing it would alter the rendered output.
+
 /// The display value for the state filter field (without brackets).
 ///
 /// @plan PLAN-20260624-PR-MODE.P13

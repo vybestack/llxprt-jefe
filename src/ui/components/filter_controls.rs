@@ -27,6 +27,10 @@ const CONTINUATION_PREFIX: &str = "        ";
 /// Number of fields per row (matches the pre-refactor two-row layout).
 const FIELDS_PER_ROW: usize = 4;
 
+// Compile-time invariant: the continuation prefix must align with the row
+// prefix so row-2+ fields line up under row-1 fields. Both are 8 chars.
+const _: () = assert!(ROW_PREFIX.len() == CONTINUATION_PREFIX.len());
+
 /// Render `value` if non-empty, otherwise the "any" sentinel (used for the
 /// text fields: author, assignee, labels, type, milestone, module, search).
 fn display_any(value: &str) -> String {
