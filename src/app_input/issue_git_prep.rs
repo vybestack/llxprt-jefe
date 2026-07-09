@@ -64,6 +64,7 @@ pub(super) fn resolve_default_branch(work_dir: &Path) -> Result<String, String> 
 fn is_valid_branch_name(name: &str) -> bool {
     !name.is_empty()
         && !name.starts_with('-')
+        && !name.contains("..")
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '/' | '_' | '-'))
@@ -205,8 +206,10 @@ pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
         clean_args.push("-e".into());
         clean_args.push(glob);
     }
-    let clean_refs: Vec<&str> = clean_args.iter().map(String::as_str).collect();
-    let output = git_capture(work_dir, &clean_refs)?;
+    let output = git_capture(work_dir, &clean_args)?;
+    // Check exit status before logging so we don't report a partial/failed
+    // clean as if it succeeded.
+    require_success(&output, "clean -fd")?;
     // Log what was removed so the destructive operation is auditable.
     let removed = String::from_utf8_lossy(&output.stdout);
     if !removed.trim().is_empty() {
@@ -216,7 +219,6 @@ pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
             "discard_workdir_changes: git clean removed paths"
         );
     }
-    require_success(&output, "clean -fd")?;
     // Now discard tracked modifications. Running after clean so if clean
     // fails, tracked changes are still intact.
     git_require_success(work_dir, ["reset", "--hard"])?;
