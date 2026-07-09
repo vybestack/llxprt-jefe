@@ -31,23 +31,21 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
     let Some(send_info) = send_info else {
         return;
     };
-    if let Err(error) = write_issue_prompt(&send_info.work_dir, &send_info.payload) {
-        apply_send_to_agent_failed(app_state, ctx, error);
-        return;
-    }
 
     // Issue-driven launches are always fresh instructions, so never resume a
     // prior session regardless of the agent's configured `pass_continue`.
     let launch_sig = prepare_issue_launch_signature(send_info.signature);
 
     // Ensure the agent starts from a clean, up-to-date checkout of the repo's
-    // default branch (issue #166). The prompt file under `.jefe/` is already
-    // written and is excluded from the dirty-copy guard and any cleanup.
+    // default branch (issue #166).
     //
     // Check dirty FIRST: if the working copy has uncommitted changes, the
     // checkout/pull would fail, so we surface the dirty-copy confirm prompt
     // instead. After user-confirmed cleanup (or if already clean), we
-    // checkout+pull the default branch and launch.
+    // checkout+pull the default branch, write the prompt, and launch.
+    //
+    // The prompt file is deliberately written AFTER the dirty check /
+    // cleanup so it is never orphaned if the user aborts.
     match issue_git_prep::is_workdir_dirty(&send_info.work_dir) {
         Ok(true) => {
             prompt_dirty_copy_confirm(
@@ -60,6 +58,10 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
         }
         Ok(false) => {
             if let Err(error) = issue_git_prep::prepare_issue_workdir(&send_info.work_dir) {
+                apply_send_to_agent_failed(app_state, ctx, error);
+                return;
+            }
+            if let Err(error) = write_issue_prompt(&send_info.work_dir, &send_info.payload) {
                 apply_send_to_agent_failed(app_state, ctx, error);
                 return;
             }
@@ -146,6 +148,15 @@ pub(super) fn confirm_issue_dirty_copy_enter(
     if let Err(error) = issue_git_prep::prepare_issue_workdir(&work_dir) {
         apply_send_to_agent_failed(app_state, ctx, error);
         return;
+    }
+    // Write the issue prompt after cleanup+prep so it is never orphaned
+    // if an earlier step fails or the user aborts.
+    let send_info = issue_send_info(app_state);
+    if let Some(info) = send_info {
+        if let Err(error) = write_issue_prompt(&work_dir, &info.payload) {
+            apply_send_to_agent_failed(app_state, ctx, error);
+            return;
+        }
     }
     proceed_issue_launch(app_state, ctx, &agent_id, work_dir, launch_sig);
 }

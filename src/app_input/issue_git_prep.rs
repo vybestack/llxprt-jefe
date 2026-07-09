@@ -147,7 +147,7 @@ fn checkout_and_pull(work_dir: &Path, branch: &str) -> Result<(), String> {
     // Fetch first so origin/<branch> is up to date, then checkout -B resets
     // the local branch to the fetched remote-tracking ref. No `git pull` —
     // it can trigger a merge or conflict markers in an automated flow.
-    git_require_success(work_dir, ["fetch", "origin", branch, "--"])?;
+    git_require_success(work_dir, ["fetch", "origin", branch])?;
     let remote_ref = format!("origin/{branch}");
     // The `--` disambiguates the following args (none here) from pathspecs.
     git_require_success(work_dir, ["checkout", "-B", branch, &remote_ref, "--"])?;
