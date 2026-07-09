@@ -18,6 +18,34 @@ use super::socket::jefe_tmux_socket_path;
 
 const REMOTE_SSH_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// tmux client environment variables that must NEVER propagate into an agent
+/// pane. tmux sets `TMUX=<socket>,<pid>,<n>` and `TMUX_PANE=%<n>` inside every
+/// pane, handing the llxprt child (and any tool it spawns) a live handle to
+/// jefe's private tmux server. A bare `tmux` inside such an agent then talks to
+/// jefe's server and can kill it — disconnecting every agent at once (#171).
+///
+/// `TMUX_TMPDIR` is also stripped so agent-side tmux activity cannot locate
+/// jefe's socket directory by convention. Stripping happens via `env -u` inside
+/// the pane command (the tmux server populates the pane env, so removing the
+/// vars from jefe's own process env would have no effect).
+const TMUX_ENV_VARS_TO_SCRUB: &[&str] = &["TMUX", "TMUX_PANE", "TMUX_TMPDIR"];
+
+/// Build the `env -u <VAR> ...` argv prefix that scrubs jefe's tmux client vars
+/// from the process running inside an agent pane. Returned as owned `String`s
+/// so callers can splice them into either a local `Command` argv list or a
+/// remote shell command string.
+///
+/// See [`TMUX_ENV_VARS_TO_SCRUB`] for why this is mandatory (#171).
+#[must_use]
+fn tmux_scrub_env_args() -> Vec<String> {
+    let mut args = vec!["env".to_owned()];
+    for var in TMUX_ENV_VARS_TO_SCRUB {
+        args.push("-u".to_owned());
+        args.push((*var).to_owned());
+    }
+    args
+}
+
 /// The fixed base arguments every jefe local tmux command starts with:
 /// `-f /dev/null` (skip user config) and `-S <jefe-socket>` (dedicated socket).
 ///
@@ -417,10 +445,15 @@ fn build_remote_launch_command(
     let llxprt_command = resolve_remote_llxprt_command(remote, work_dir, remote.setup_env_default)?;
     let args = launch_args(signature);
     let cli_command = remote_cli_command(&llxprt_command, &args);
+    // Scrub jefe's tmux client vars from the remote agent pane for the same
+    // reason as the local path (#171): a bare `tmux` inside the agent must not
+    // reach the (remote) tmux server hosting the agent session.
+    let env_scrub = tmux_scrub_env_args().join(" ");
+    let pane_command = format!("{env_scrub} {cli_command}");
     let env_prefix = remote_env_exports(signature).join(" ");
     let escaped_session = shell_escape_single(session_name);
     let tmux_script = format!(
-        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {cli_command} \\; set-option -t {escaped_session} remain-on-exit on"
+        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {pane_command} \\; set-option -t {escaped_session} remain-on-exit on"
     );
 
     Ok(remote_tmux_command(remote, &tmux_script))
@@ -465,16 +498,31 @@ fn local_launch_command(session_name: &str, work_dir: &Path, plan: &LocalLaunchP
         .arg("-c")
         .arg(work_dir);
 
-    if !plan.env.is_empty() {
-        cmd.arg("env");
-        for (key, value) in &plan.env {
-            cmd.arg(format!("{key}={value}"));
-        }
+    // Wrap the pane command in `env -u TMUX -u TMUX_PANE -u TMUX_TMPDIR …` so
+    // the llxprt child (and any tool it spawns) cannot reach jefe's private
+    // tmux server via a bare `tmux` (#171). tmux's server populates the pane
+    // env, so the scrub MUST live in the pane command rather than jefe's own
+    // process env. The argv is built by the pure [`local_pane_command_args`]
+    // helper so it is directly unit-testable.
+    for arg in local_pane_command_args(plan) {
+        cmd.arg(arg);
     }
-
-    cmd.arg("llxprt");
-    cmd.args(&plan.args);
     cmd
+}
+
+/// Build the pane-command argv for a local agent session: the `env -u` scrub
+/// prefix, any `KEY=VALUE` env assignments, then `llxprt` and its launch args.
+///
+/// Factored out of [`local_launch_command`] so the scrub is unit-testable
+/// without spawning tmux or introspecting a `Command` (#171).
+fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
+    let mut args = tmux_scrub_env_args();
+    for (key, value) in &plan.env {
+        args.push(format!("{key}={value}"));
+    }
+    args.push("llxprt".to_owned());
+    args.extend(plan.args.iter().cloned());
+    args
 }
 
 fn finalize_local_session(session_name: &str, warning: Option<String>) {
@@ -798,6 +846,98 @@ mod tests {
 
         assert!(tmux_script.contains("tmux new-session -d -s 'jefe-agent-test'"));
         assert!(tmux_script.contains("set-option -t 'jefe-agent-test' remain-on-exit on"));
+    }
+
+    /// The `env -u` scrub prefix must strip every tmux client var so an agent's
+    /// bare `tmux` can never reach jefe's private server (#171).
+    #[test]
+    fn tmux_scrub_env_args_strips_all_tmux_client_vars() {
+        let args = tmux_scrub_env_args();
+        assert_eq!(
+            args,
+            vec![
+                "env".to_owned(),
+                "-u".to_owned(),
+                "TMUX".to_owned(),
+                "-u".to_owned(),
+                "TMUX_PANE".to_owned(),
+                "-u".to_owned(),
+                "TMUX_TMPDIR".to_owned(),
+            ]
+        );
+    }
+
+    /// The local pane command must begin with the `env -u` scrub and place it
+    /// before `llxprt`, so the agent child never inherits jefe's tmux handle
+    /// (#171). Covers both the no-extra-env and with-env cases.
+    #[test]
+    fn local_pane_command_scrubs_tmux_env_before_llxprt() {
+        let plan_no_env = LocalLaunchPlan {
+            args: vec!["--continue".to_owned()],
+            env: Vec::new(),
+            warning: None,
+        };
+        let args = local_pane_command_args(&plan_no_env);
+        assert_eq!(args[0], "env");
+        assert_eq!(args[1], "-u");
+        assert_eq!(args[2], "TMUX");
+        assert_eq!(args[3], "-u");
+        assert_eq!(args[4], "TMUX_PANE");
+        assert_eq!(args[5], "-u");
+        assert_eq!(args[6], "TMUX_TMPDIR");
+        // scrub (7 entries) is immediately followed by llxprt + its args.
+        assert_eq!(args[7], "llxprt", "scrub must immediately precede llxprt");
+        assert_eq!(args[8], "--continue");
+
+        // With an env assignment, the K=V must sit between the scrub and llxprt.
+        let plan_with_env = LocalLaunchPlan {
+            args: Vec::new(),
+            env: vec![("LLXPRT_DEBUG".to_owned(), "trace=1".to_owned())],
+            warning: None,
+        };
+        let args = local_pane_command_args(&plan_with_env);
+        let scrub_end = args
+            .windows(2)
+            .rposition(|w| w[0] == "-u" && w[1] == "TMUX_TMPDIR");
+        assert!(scrub_end.is_some(), "scrub must be present");
+        let scrub_end = scrub_end.unwrap_or(0);
+        assert_eq!(
+            args[scrub_end + 2],
+            "LLXPRT_DEBUG=trace=1",
+            "env assignment must follow the scrub"
+        );
+        assert_eq!(
+            args[scrub_end + 3],
+            "llxprt",
+            "llxprt must follow the env assignment"
+        );
+    }
+
+    /// The remote launch script must prepend the `env -u` scrub to the pane
+    /// command so a remote agent cannot reach the (remote) tmux server hosting
+    /// it (#171).
+    #[test]
+    fn remote_launch_command_scrubs_tmux_env_from_pane() {
+        let session_name = shell_escape_single("jefe-agent-scrub");
+        let work_dir = shell_escape_single("/tmp/work");
+        let cli_command = shell_escape_single("/tmp/work/node_modules/.bin/llxprt");
+        let env_scrub = tmux_scrub_env_args().join(" ");
+        let pane_command = format!("{env_scrub} {cli_command}");
+        let env_prefix = String::new();
+
+        let tmux_script = format!(
+            "set -e; mkdir -p {work_dir}; cd {work_dir}; {env_prefix} tmux new-session -d -s {session_name} -c {work_dir} {pane_command} \\; set-option -t {session_name} remain-on-exit on"
+        );
+
+        // The scrub prefix must appear before the llxprt command in the pane.
+        let llxprt_pos = tmux_script.find("/tmp/work/node_modules/.bin/llxprt");
+        let scrub_pos = tmux_script.find("env -u TMUX -u TMUX_PANE -u TMUX_TMPDIR");
+        assert!(llxprt_pos.is_some(), "cli command should be present");
+        assert!(scrub_pos.is_some(), "env scrub prefix should be present");
+        assert!(
+            scrub_pos < llxprt_pos,
+            "env scrub must precede the llxprt command"
+        );
     }
 
     #[test]

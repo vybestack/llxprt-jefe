@@ -9,6 +9,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use super::capture::{PaneStatus, PaneStatusParseError, ScreenCapture, ScrollbackSample};
@@ -16,6 +17,24 @@ use super::capture::{PaneStatus, PaneStatusParseError, ScreenCapture, Scrollback
 const TMUX_TIMEOUT: Duration = Duration::from_secs(5);
 const PANE_DEAD_FORMAT: &str = "#{pane_dead}";
 const HISTORY_SIZE_FORMAT: &str = "#{history_size}";
+
+/// tmux client environment variables the harness must never inherit. When the
+/// test suite runs inside a jefe-managed (or any) tmux pane, `$TMUX` points at
+/// the *outer* server. Without scrubbing, every harness `tmux` call would land
+/// on — and its kill/respawn churn could disrupt — that outer server, instead of
+/// the harness's own private server (#171).
+const TMUX_ENV_VARS_TO_SCRUB: &[&str] = &["TMUX", "TMUX_PANE", "TMUX_TMPDIR"];
+
+/// Resolve (once per process) a private tmux socket name for the harness.
+///
+/// `tmux -L <name>` targets a server socket named `<name>` in the per-UID tmux
+/// directory, fully isolated from jefe's `-S <absolute-path>` socket and from
+/// the shared default socket. A per-process suffix prevents parallel test
+/// processes from sharing (and tearing down) one harness server.
+fn harness_socket_name() -> &'static str {
+    static SOCKET_NAME: OnceLock<String> = OnceLock::new();
+    SOCKET_NAME.get_or_init(|| format!("jefe-harness-{}", std::process::id()))
+}
 
 /// Start request for a harness-owned tmux session.
 ///
@@ -388,7 +407,14 @@ fn invalid_request(reason: &str) -> TmuxDriverError {
 
 fn tmux_command() -> Command {
     let mut cmd = Command::new("tmux");
-    cmd.args(["-f", "/dev/null"]);
+    // `-f /dev/null` skips the user config; `-L <name>` isolates the harness
+    // onto its own private server, and the env scrub ensures an inherited
+    // `$TMUX` (e.g. when the suite runs inside a jefe pane) cannot redirect
+    // harness calls onto the outer server (#171).
+    cmd.args(["-f", "/dev/null", "-L", harness_socket_name()]);
+    for var in TMUX_ENV_VARS_TO_SCRUB {
+        cmd.env_remove(var);
+    }
     cmd
 }
 
@@ -409,8 +435,12 @@ fn new_session_args(request: &TmuxStartRequest) -> Vec<String> {
 }
 
 fn tmux_pane_wrapper_command(request: &TmuxStartRequest) -> String {
+    // These run inside the just-created pane. The pane's `$TMUX_PANE` is set by
+    // the harness's own `-L` server, and the explicit `-L` keeps the inner
+    // calls pinned to that same private server (#171).
+    let socket = harness_socket_name();
     format!(
-        "tmux -f /dev/null set-option -pt \"$TMUX_PANE\" remain-on-exit on; tmux -f /dev/null set-option -wt \"$TMUX_PANE\" history-limit {}; exec {}",
+        "tmux -f /dev/null -L {socket} set-option -pt \"$TMUX_PANE\" remain-on-exit on; tmux -f /dev/null -L {socket} set-option -wt \"$TMUX_PANE\" history-limit {}; exec {}",
         request.history_limit,
         shell_join(&request.command)
     )
@@ -524,10 +554,11 @@ fn output_lines(bytes: &[u8]) -> Vec<String> {
 }
 
 fn format_command(args: &[String]) -> String {
+    let prefix = format!("tmux -f /dev/null -L {}", harness_socket_name());
     if args.is_empty() {
-        return "tmux -f /dev/null".to_string();
+        return prefix;
     }
-    format!("tmux -f /dev/null {}", args.join(" "))
+    format!("{prefix} {}", args.join(" "))
 }
 
 #[cfg(test)]
