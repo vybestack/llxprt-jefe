@@ -82,6 +82,7 @@ pub enum ModalState {
         agent_id: AgentId,
         work_dir: std::path::PathBuf,
         signature: LaunchSignature,
+        payload: crate::github::SendPayload,
     },
 }
 

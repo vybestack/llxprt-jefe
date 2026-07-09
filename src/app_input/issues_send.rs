@@ -54,6 +54,7 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
                 &send_info.agent_id,
                 &send_info.work_dir,
                 launch_sig,
+                send_info.payload.clone(),
             );
         }
         Ok(false) => {
@@ -114,12 +115,14 @@ fn prompt_dirty_copy_confirm(
     agent_id: &AgentId,
     work_dir: &std::path::Path,
     launch_sig: LaunchSignature,
+    payload: jefe::github::SendPayload,
 ) {
     let mut state = app_state.write();
     state.modal = ModalState::ConfirmIssueDirtyCopy {
         agent_id: agent_id.clone(),
         work_dir: work_dir.to_path_buf(),
         signature: launch_sig,
+        payload,
     };
     let persisted = to_persisted_state(&state);
     drop(state);
@@ -136,6 +139,7 @@ pub(super) fn confirm_issue_dirty_copy_enter(
     agent_id: AgentId,
     work_dir: std::path::PathBuf,
     launch_sig: LaunchSignature,
+    payload: jefe::github::SendPayload,
 ) {
     if let Err(error) = issue_git_prep::discard_workdir_changes(&work_dir) {
         close_modal_and_persist(app_state, ctx);
@@ -151,12 +155,9 @@ pub(super) fn confirm_issue_dirty_copy_enter(
     }
     // Write the issue prompt after cleanup+prep so it is never orphaned
     // if an earlier step fails or the user aborts.
-    let send_info = issue_send_info(app_state);
-    if let Some(info) = send_info {
-        if let Err(error) = write_issue_prompt(&work_dir, &info.payload) {
-            apply_send_to_agent_failed(app_state, ctx, error);
-            return;
-        }
+    if let Err(error) = write_issue_prompt(&work_dir, &payload) {
+        apply_send_to_agent_failed(app_state, ctx, error);
+        return;
     }
     proceed_issue_launch(app_state, ctx, &agent_id, work_dir, launch_sig);
 }

@@ -814,6 +814,7 @@ fn confirm_issue_dirty_copy_modal_routes_to_confirm_input_mode() {
             agent_id: AgentId(String::from("a1")),
             work_dir: PathBuf::from("/tmp/x"),
             signature: sample_signature(),
+            payload: jefe::github::SendPayload::default(),
         },
         ..AppState::default()
     };

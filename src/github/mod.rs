@@ -109,6 +109,7 @@ const PR_LIST_PAGE_SIZE: u32 = 30;
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-011
 /// @pseudocode component-002 lines 70-83
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SendPayload {
     pub repository: String,
     pub issue_number: u64,

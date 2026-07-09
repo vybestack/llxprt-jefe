@@ -161,8 +161,9 @@ fn handle_confirm_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {
             agent_id,
             work_dir,
             signature,
+            payload,
         } => super::issues_send::confirm_issue_dirty_copy_enter(
-            app_state, ctx, agent_id, work_dir, signature,
+            app_state, ctx, agent_id, work_dir, signature, payload,
         ),
         _ => {}
     }

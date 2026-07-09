@@ -144,6 +144,10 @@ fn porcelain_path(line: &str) -> Option<&str> {
 /// [`resolve_default_branch`]) before being passed here, to prevent option
 /// injection.
 fn checkout_and_pull(work_dir: &Path, branch: &str) -> Result<(), String> {
+    debug_assert!(
+        is_valid_branch_name(branch),
+        "branch must be validated by resolve_default_branch before calling checkout_and_pull"
+    );
     // Fetch first so origin/<branch> is up to date, then checkout -B resets
     // the local branch to the fetched remote-tracking ref. No `git pull` —
     // it can trigger a merge or conflict markers in an automated flow.
@@ -180,6 +184,14 @@ pub(super) fn prepare_issue_workdir(work_dir: &Path) -> PrepResult {
 /// `clean -fd` has already removed untracked files, those untracked files
 /// are gone. The user has explicitly confirmed this destructive operation
 /// via the `ConfirmIssueDirtyCopy` modal.
+///
+/// # Limitation: tracked `.jefe/` files
+///
+/// While `git clean -e` prevents removal of *untracked* `.jefe/` files,
+/// `git reset --hard` will revert any *tracked* `.jefe/` files (e.g.,
+/// committed metadata that was locally modified) to their committed state.
+/// In practice this is not an issue because the issue prompt file is
+/// written fresh after cleanup and is never tracked by git.
 pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
     // Build clean exclusion args from IGNORED_PREFIXES so the porcelain
     // dirty-check and the cleanup step can never drift. Each prefix is
