@@ -97,8 +97,9 @@ fn porcelain_path(line: &str) -> Option<&str> {
         return None;
     }
     let trimmed = line.trim_end();
-    // Skip the 2-char status + 1 space.
-    let rest = &trimmed[3..];
+    // Skip the 2-char status + 1 space. Use `get` so a non-char-boundary
+    // slice (malformed/multi-byte line) returns `None` instead of panicking.
+    let rest = trimmed.get(3..)?;
     // For renames (`R  old -> new`) report the new path.
     let path = rest.rsplit(" -> ").next().unwrap_or(rest);
     let unquoted = path.trim_matches('"');
@@ -113,14 +114,16 @@ fn porcelain_path(line: &str) -> Option<&str> {
 /// not cause a silent failure.
 fn checkout_and_pull(work_dir: &Path, branch: &str) -> Result<(), String> {
     let remote_ref = format!("origin/{branch}");
+    // The `--` separator prevents a malicious branch name starting with `-`
+    // from being interpreted as a git option.
     git_require_success(
         work_dir,
-        ["checkout", "-B", branch, remote_ref.as_str()],
+        ["checkout", "-B", branch, &remote_ref, "--"],
         &format!("checkout -B {branch}"),
     )?;
     git_require_success(
         work_dir,
-        ["pull", "origin", branch],
+        ["pull", "origin", branch, "--"],
         &format!("pull origin {branch}"),
     )?;
     Ok(())
@@ -135,16 +138,16 @@ pub(super) fn prepare_issue_workdir(work_dir: &Path) -> PrepResult {
 }
 
 /// Discard uncommitted/untracked changes in the working copy, preserving
-/// jefe/ and llxprt-owned paths.
+/// jefe/ and llxprt-owned paths and all `.gitignore`-ed files.
 ///
 /// Runs `git reset --hard` (discard tracked changes) followed by
-/// `git clean -fdx` with pathspec exclusions for `.jefe/` and `.llxprt/`.
+/// `git clean -fd` (remove untracked files, respecting `.gitignore`) with
+/// pathspec exclusions for `.jefe/` and `.llxprt/`. Does **not** use `-x`,
+/// so gitignored files like `.env`, `node_modules/`, and build artifacts
+/// are preserved.
 pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
     git_require_success(work_dir, ["reset", "--hard"], "reset --hard")?;
-    let output = git_capture(
-        work_dir,
-        ["clean", "-fdx", "-e", ".jefe/", "-e", ".llxprt/"],
-    )?;
+    let output = git_capture(work_dir, ["clean", "-fd", "-e", ".jefe/", "-e", ".llxprt/"])?;
     // Log what was removed so the destructive operation is auditable.
     let removed = String::from_utf8_lossy(&output.stdout);
     if !removed.trim().is_empty() {
@@ -154,7 +157,7 @@ pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
             "discard_workdir_changes: git clean removed paths"
         );
     }
-    require_success(&output, "clean -fdx")
+    require_success(&output, "clean -fd")
 }
 
 /// Run `git` with the given args in `work_dir`, capturing output. Returns an
@@ -166,6 +169,9 @@ where
 {
     Command::new("git")
         .current_dir(work_dir)
+        // Fail fast instead of hanging on an interactive credential prompt
+        // for private repos over HTTPS (stdout/stderr are piped, not a TTY).
+        .env("GIT_TERMINAL_PROMPT", "0")
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

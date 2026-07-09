@@ -163,15 +163,11 @@ pub(super) fn issue_send_info_from_state(state: &AppState) -> Option<IssueSendIn
     let chooser = state.issues_state.agent_chooser.as_ref()?;
     let detail = state.issues_state.issue_detail.as_ref()?;
     let (agent_id, _) = chooser.agents.get(chooser.selected_index)?.clone();
-    let agent = state
-        .agents
-        .iter()
-        .find(|agent| agent.id == agent_id)?
-        .clone();
+    let agent = state.agents.iter().find(|a| a.id == agent_id)?;
     let repo = state.repository_by_id(&agent.repository_id)?;
     let focused_comment = focused_issue_comment(state, detail);
     let work_dir = agent.work_dir.clone();
-    let signature = launch_signature_for_agent(&agent, repo);
+    let signature = launch_signature_for_agent(agent, repo);
     let payload = jefe::github::GhClient::build_send_payload(
         &repo.slug,
         detail,
