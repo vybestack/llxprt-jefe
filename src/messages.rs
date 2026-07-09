@@ -123,6 +123,11 @@ pub enum PersistenceMessage {
 pub enum ThemeMessage {
     SetTheme(String),
     ResolveFailed(String),
+    /// Open the theme picker modal.
+    ///
+    /// `available_themes` is a list of `(slug, display_name)` pairs from
+    /// `ThemeManager::themes_with_names()`. `active_slug` is the currently
+    /// applied theme's slug (used to mark the active row).
     OpenThemePicker {
         available_themes: Vec<(String, String)>,
         active_slug: String,

@@ -122,7 +122,7 @@ fn main() {
     // Load themes: explicit --config dir takes precedence; otherwise load
     // from the default config dir's themes/ (JEFE_CONFIG_DIR / platform default).
     let themes_dir = match cli_args.config_dir.as_deref() {
-        Some(dir) => std::path::PathBuf::from(dir).join("themes"),
+        Some(dir) => dir.join("themes"),
         None => jefe::persistence::default_themes_dir(),
     };
     theme_manager.load_from_dir(&themes_dir);

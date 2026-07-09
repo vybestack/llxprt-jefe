@@ -414,33 +414,41 @@ fn resolve_state_path() -> PathBuf {
     platform_default_state_dir().join("state.json")
 }
 
-/// The config directory used for settings.toml (honors JEFE_CONFIG_DIR /
-/// JEFE_SETTINGS_PATH, falling back to the platform default).
+/// The config directory used for settings.toml (honors JEFE_SETTINGS_PATH /
+/// JEFE_CONFIG_DIR, falling back to the platform default).
+///
+/// Precedence mirrors `resolve_settings_path()`: JEFE_SETTINGS_PATH's parent
+/// takes priority, then JEFE_CONFIG_DIR, then platform default.
 ///
 /// Used by callers (e.g. theme loading) that need to locate sibling
 /// subdirectories like `themes/`.
 #[must_use]
 pub fn default_config_dir() -> PathBuf {
     resolve_config_dir_from_env(
-        std::env::var("JEFE_CONFIG_DIR").ok(),
         std::env::var("JEFE_SETTINGS_PATH").ok(),
+        std::env::var("JEFE_CONFIG_DIR").ok(),
     )
 }
 
 /// Pure config-dir resolver from explicit env values (testable without env mutation).
+///
+/// Precedence mirrors `resolve_settings_path()`:
+/// 1. `jefe_settings_path`'s parent directory
+/// 2. `jefe_config_dir`
+/// 3. Platform default
 #[must_use]
 fn resolve_config_dir_from_env(
-    jefe_config_dir: Option<String>,
     jefe_settings_path: Option<String>,
+    jefe_config_dir: Option<String>,
 ) -> PathBuf {
-    if let Some(dir) = jefe_config_dir.filter(|s| !s.is_empty()) {
-        return PathBuf::from(dir);
-    }
     if let Some(path) = jefe_settings_path.filter(|s| !s.is_empty())
         && let Some(parent) = PathBuf::from(path).parent()
         && !parent.as_os_str().is_empty()
     {
         return parent.to_path_buf();
+    }
+    if let Some(dir) = jefe_config_dir.filter(|s| !s.is_empty()) {
+        return PathBuf::from(dir);
     }
     platform_default_config_dir()
 }

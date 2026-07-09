@@ -58,6 +58,15 @@ struct LlxprtPalette {
 }
 
 /// Helper to build a `ThemeColors` from the llxprt palette fields.
+///
+/// # Empty foreground contract
+///
+/// Some llxprt themes (ANSI, ANSI Light) leave `foreground` as an empty string,
+/// relying on the terminal's default text color. jefe's `ThemeColors::parse_hex`
+/// requires a `#RRGGBB` value, so empty foregrounds fall back to `accent_blue`
+/// here. This is an intentional part of the `LlxprtPalette` → `ThemeColors`
+/// mapping — direct construction of `ThemeColors` with empty strings will
+/// silently fall back to Green Screen at render time via `ResolvedColors`.
 fn map_colors(p: &LlxprtPalette) -> ThemeColors {
     // foreground falls back to accent_blue when empty (ANSI themes).
     let fg = if p.foreground.is_empty() {

@@ -482,6 +482,8 @@ mod tests {
         assert!(slugs.contains(&"dracula".to_string()));
         assert!(slugs.contains(&"atom-one-dark".to_string()));
         assert!(slugs.len() >= 14);
+        // Green Screen is always first (index 0) — guaranteed by builtin_themes().
+        assert_eq!(slugs[0], "green-screen");
         assert_eq!(mgr.active_theme().slug, "green-screen");
     }
 

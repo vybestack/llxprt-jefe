@@ -270,10 +270,10 @@ pub fn handle_mode_theme_picker_key(
     key_event: &KeyEvent,
 ) {
     match key_event.code {
-        KeyCode::Up | KeyCode::Left => {
+        KeyCode::Up => {
             apply_and_persist(app_state, ctx, AppEvent::ThemePickerNavigateUp);
         }
-        KeyCode::Down | KeyCode::Right => {
+        KeyCode::Down => {
             apply_and_persist(app_state, ctx, AppEvent::ThemePickerNavigateDown);
         }
         KeyCode::Enter => {
@@ -297,7 +297,7 @@ pub fn handle_mode_theme_picker_key(
             if let Some(slug) = selected_slug
                 && let Some(ctx_arc) = &ctx
             {
-                let (settings, persistence_path) = {
+                let save_action = {
                     let Ok(mut ctx_guard) = ctx_arc.lock() else {
                         return;
                     };
@@ -305,19 +305,25 @@ pub fn handle_mode_theme_picker_key(
                         warn!(error = %e, theme = %slug, "theme picker: invalid selection, fell back to Green Screen");
                     }
                     let active_slug = ctx_guard.theme_manager.active_theme().slug.clone();
-                    let mut settings = ctx_guard.persistence.load_settings().unwrap_or_else(|e| {
-                        warn!(error = %e, "could not load settings, using defaults");
-                        jefe::persistence::Settings::default_with_version()
-                    });
-                    settings.theme = active_slug;
                     let path = ctx_guard.persistence.settings_path();
-                    (settings, path)
+                    match ctx_guard.persistence.load_settings() {
+                        Ok(mut settings) => {
+                            settings.theme = active_slug;
+                            Some((settings, path))
+                        }
+                        Err(e) => {
+                            // Don't save — writing defaults would destroy existing settings.
+                            warn!(error = %e, "could not load settings; skipping theme persistence");
+                            None
+                        }
+                    }
                 };
                 // File I/O outside the mutex lock.
-                if let Err(e) = jefe::persistence::FilePersistenceManager::save_settings_to(
-                    &settings,
-                    &persistence_path,
-                ) {
+                if let Some((settings, path)) = save_action
+                    && let Err(e) = jefe::persistence::FilePersistenceManager::save_settings_to(
+                        &settings, &path,
+                    )
+                {
                     warn!(error = %e, "could not persist theme selection");
                 }
             }

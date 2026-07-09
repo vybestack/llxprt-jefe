@@ -629,25 +629,38 @@ fn validate_config_dir_rejects_unwritable_atomic_tmp_files() {
 fn default_themes_dir_ends_with_themes_subdir() {
     // Use the pure helper to avoid reading real env vars.
     let config_dir = resolve_config_dir_from_env(None, None);
-    assert!(config_dir.ends_with("jefe"));
-    assert!(config_dir.join("themes").ends_with("themes"));
+    let themes_dir = config_dir.join("themes");
+    // Verify the themes dir is a child of the config dir and ends with "themes".
+    assert!(themes_dir.starts_with(&config_dir));
+    assert!(themes_dir.ends_with("themes"));
 }
 
 #[test]
 fn resolve_config_dir_prefers_jefe_config_dir() {
-    let dir = resolve_config_dir_from_env(Some("/custom/config".into()), None);
+    // With only JEFE_CONFIG_DIR set (no settings path), it's used directly.
+    let dir = resolve_config_dir_from_env(None, Some("/custom/config".into()));
     assert_eq!(dir, PathBuf::from("/custom/config"));
 }
 
 #[test]
+fn resolve_config_dir_settings_path_takes_precedence_over_config_dir() {
+    // When both are set, JEFE_SETTINGS_PATH's parent wins (mirrors resolve_settings_path).
+    let dir = resolve_config_dir_from_env(
+        Some("/other/settings.toml".into()),
+        Some("/custom/config".into()),
+    );
+    assert_eq!(dir, PathBuf::from("/other"));
+}
+
+#[test]
 fn resolve_config_dir_uses_settings_path_parent_when_no_config_dir() {
-    let dir = resolve_config_dir_from_env(None, Some("/a/b/settings.toml".into()));
+    let dir = resolve_config_dir_from_env(Some("/a/b/settings.toml".into()), None);
     assert_eq!(dir, PathBuf::from("/a/b"));
 }
 
 #[test]
 fn resolve_config_dir_ignores_bare_filename_settings_path() {
-    let dir = resolve_config_dir_from_env(None, Some("settings.toml".into()));
+    let dir = resolve_config_dir_from_env(Some("settings.toml".into()), None);
     assert!(dir.ends_with("jefe"));
 }
 

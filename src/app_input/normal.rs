@@ -583,20 +583,22 @@ fn handle_theme_key(
         return KeyHandling::Unhandled;
     }
 
-    if let Some(ctx_arc) = &ctx
+    let event = if let Some(ctx_arc) = &ctx
         && let Ok(ctx_guard) = ctx_arc.lock()
     {
         let available = ctx_guard.theme_manager.themes_with_names();
         let active = ctx_guard.theme_manager.active_theme().slug.clone();
-        let event = AppEvent::OpenThemePicker {
+        AppEvent::OpenThemePicker {
             available_themes: available,
             active_slug: active,
-        };
-        super::apply_and_persist(app_state, ctx, event);
-        return KeyHandling::Handled(None);
-    }
+        }
+    } else {
+        return KeyHandling::Unhandled;
+    };
 
-    KeyHandling::Unhandled
+    // apply_and_persist internally locks ctx, so the guard above must be dropped.
+    super::apply_and_persist(app_state, ctx, event);
+    KeyHandling::Handled(None)
 }
 
 #[cfg(test)]

@@ -43,7 +43,9 @@ pub fn ThemePickerScreen(props: &ThemePickerScreenProps) -> impl Into<AnyElement
     let panel_width = term_cols.saturating_sub(20).clamp(40, 60);
     let content_rows = u16::try_from(rows.len() + 6).unwrap_or(u16::MAX);
     let max_height = term_rows.saturating_sub(4);
-    // clamp(min, max) panics if min > max, so use min(max_height, max(content_rows, 10)).
+    // Ensure min ≤ max for clamp safety: min(10, max_height) caps the floor
+    // so clamp can never panic. If max_height is 0 (tiny terminal), both
+    // bounds collapse to 0.
     let min_height = 10u16.min(max_height);
     let panel_height = content_rows.clamp(min_height, max_height);
 
@@ -82,7 +84,7 @@ pub fn ThemePickerScreen(props: &ThemePickerScreenProps) -> impl Into<AnyElement
                     #(rows.iter().map(|row| {
                         let is_selected = row.selected;
                         let marker = if is_selected { "▶ " } else { "  " };
-                        let active_marker = if row.active { " ●" } else { ""  };
+                        let active_marker = if row.active { " ●" } else { "  " };
                         let label = format!("{marker}{}{active_marker}", row.name);
                         element! {
                             Box(
