@@ -700,7 +700,7 @@ fn test_inline_submit_dispatch_applies_reducer_before_mutation() {
 
 // ── Issue send-to-agent: default-branch prep + dirty-copy guard (issue #166) ─
 
-use super::issues_send::issue_send_info_from_state;
+use super::issues_send::{issue_send_info_from_state, prepare_issue_launch_signature};
 use jefe::domain::{IssueDetail, IssueState};
 use jefe::state::{AgentChooserState, ScreenMode};
 
@@ -791,11 +791,19 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
     );
 
     // dispatch_agent_chooser_confirm forces pass_continue = false before launch.
-    let mut launch_sig = send_info.signature;
-    launch_sig.pass_continue = false;
+    // This calls the REAL production helper so removing the override would
+    // cause this test to fail.
+    let launch_sig = prepare_issue_launch_signature(send_info.signature);
     assert!(
         !launch_sig.pass_continue,
         "issue-driven launches must force pass_continue = false"
+    );
+    assert!(
+        launch_sig
+            .mode_flags
+            .iter()
+            .any(|flag| flag.contains(".jefe/issue-prompt.md")),
+        "issue launch signature must include the issue prompt instruction"
     );
 }
 

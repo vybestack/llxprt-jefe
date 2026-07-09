@@ -26,24 +26,19 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
         return;
     };
     if let Err(error) = write_issue_prompt(&send_info.work_dir, &send_info.payload) {
-        apply_send_to_agent_failed(app_state, error);
+        apply_send_to_agent_failed(app_state, ctx, error);
         return;
     }
 
     // Issue-driven launches are always fresh instructions, so never resume a
     // prior session regardless of the agent's configured `pass_continue`.
-    let mut launch_sig = send_info.signature;
-    launch_sig.pass_continue = false;
-    launch_sig.mode_flags.push("-i".to_owned());
-    launch_sig
-        .mode_flags
-        .push("Read and work on the GitHub issue described in .jefe/issue-prompt.md".to_owned());
+    let launch_sig = prepare_issue_launch_signature(send_info.signature);
 
     // Ensure the agent starts from a clean, up-to-date checkout of the repo's
     // default branch (issue #166). The prompt file under `.jefe/` is already
     // written and is excluded from the dirty-copy guard and any cleanup.
     if let Err(error) = issue_git_prep::prepare_issue_workdir(&send_info.work_dir) {
-        apply_send_to_agent_failed(app_state, error);
+        apply_send_to_agent_failed(app_state, ctx, error);
         return;
     }
     match issue_git_prep::is_workdir_dirty(&send_info.work_dir) {
@@ -61,8 +56,23 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
             &send_info.work_dir,
             launch_sig,
         ),
-        Err(error) => apply_send_to_agent_failed(app_state, error),
+        Err(error) => apply_send_to_agent_failed(app_state, ctx, error),
     }
+}
+
+/// Build the launch signature for an issue-driven launch from the agent's
+/// base signature. Issue-driven launches are always fresh instructions, so
+/// `pass_continue` is forced to `false` regardless of the agent's configured
+/// value, and the issue prompt instruction is appended.
+///
+/// Extracted as a pure function so the `pass_continue = false` override is
+/// unit-testable without a runtime/git context.
+pub(super) fn prepare_issue_launch_signature(mut sig: LaunchSignature) -> LaunchSignature {
+    sig.pass_continue = false;
+    sig.mode_flags.push("-i".to_owned());
+    sig.mode_flags
+        .push("Read and work on the GitHub issue described in .jefe/issue-prompt.md".to_owned());
+    sig
 }
 
 /// Run preflight; if it passes (or sandbox is disabled), launch the issue agent.
@@ -110,7 +120,7 @@ pub(super) fn confirm_issue_dirty_copy_enter(
 ) {
     if let Err(error) = issue_git_prep::discard_workdir_changes(&work_dir) {
         close_modal_and_persist(app_state, ctx);
-        apply_send_to_agent_failed(app_state, error);
+        apply_send_to_agent_failed(app_state, ctx, error);
         return;
     }
     close_modal_and_persist(app_state, ctx);
@@ -266,7 +276,10 @@ fn persist_issue_agent_launch_success(
     mark_agent_runtime_attached(state, agent_id, true);
 }
 
-fn apply_send_to_agent_failed(app_state: &mut AppStateHandle, error: String) {
+fn apply_send_to_agent_failed(app_state: &mut AppStateHandle, ctx: &SharedContext, error: String) {
     let mut state = app_state.write();
     *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed { error });
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
 }

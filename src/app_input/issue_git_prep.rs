@@ -29,14 +29,13 @@ pub(super) type PrepResult = Result<(), String>;
 
 /// Resolve the repository's default branch for the working copy at `work_dir`.
 ///
-/// Uses `git symbolic-ref refs/remotes/origin/HEAD`, which reflects whatever
-/// the remote advertises as its default branch (works for `main`, `master`,
-/// `develop`, etc.). Returns the short branch name (e.g. `main`).
+/// Uses `git symbolic-ref refs/remotes/origin/HEAD` (without `--short`), which
+/// reflects whatever the remote advertises as its default branch (works for
+/// `main`, `master`, `develop`, etc.) and prints the full ref
+/// (`refs/remotes/origin/main`). The short branch name is extracted by
+/// [`strip_remote_prefix`].
 pub(super) fn resolve_default_branch(work_dir: &Path) -> Result<String, String> {
-    let output = git_capture(
-        work_dir,
-        ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-    )?;
+    let output = git_capture(work_dir, ["symbolic-ref", "refs/remotes/origin/HEAD"])?;
     let branch = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     if branch.is_empty() {
         return Err(
@@ -45,7 +44,6 @@ pub(super) fn resolve_default_branch(work_dir: &Path) -> Result<String, String> 
                 .to_owned(),
         );
     }
-    // symbolic-ref prints `refs/remotes/origin/main`; strip the prefix.
     Ok(strip_remote_prefix(&branch).to_owned())
 }
 
@@ -60,7 +58,7 @@ fn strip_remote_prefix(refname: &str) -> &str {
 /// Return `true` when the working copy has uncommitted/untracked changes,
 /// ignoring jefe/ and llxprt-owned paths.
 pub(super) fn is_workdir_dirty(work_dir: &Path) -> Result<bool, String> {
-    let output = git_capture(work_dir, ["status", "--porcelain"])?;
+    let output = git_capture(work_dir, ["status", "--porcelain=v1"])?;
     let porcelain = String::from_utf8_lossy(&output.stdout);
     Ok(relevant_dirty_lines(&porcelain).next().is_some())
 }
@@ -92,10 +90,13 @@ fn is_ignored_porcelain_line(line: &str) -> bool {
 /// two-column status prefix and take the remainder, trimming a trailing
 /// rename (`->`) to the post-rename path.
 fn porcelain_path(line: &str) -> Option<&str> {
-    let trimmed = line.trim_end();
-    if trimmed.len() < 3 {
+    let bytes = line.as_bytes();
+    // Porcelain v1 format: 2-char status + 1 space + path. Guard the
+    // separator so a malformed line is skipped rather than mis-parsed.
+    if bytes.len() < 3 || bytes[2] != b' ' {
         return None;
     }
+    let trimmed = line.trim_end();
     // Skip the 2-char status + 1 space.
     let rest = &trimmed[3..];
     // For renames (`R  old -> new`) report the new path.
@@ -105,13 +106,24 @@ fn porcelain_path(line: &str) -> Option<&str> {
 }
 
 /// Check out `branch` in the working copy and pull it up to date.
+/// Check out `branch` in the working copy and pull it up to date.
+///
+/// Uses `git checkout -B <branch> origin/<branch>` to ensure a local tracking
+/// branch exists even in fresh/agent checkouts that only have remote-tracking
+/// refs, then explicitly pulls from `origin` so a misconfigured upstream does
+/// not cause a silent failure.
 fn checkout_and_pull(work_dir: &Path, branch: &str) -> Result<(), String> {
+    let remote_ref = format!("origin/{branch}");
     git_require_success(
         work_dir,
-        ["checkout", branch],
-        &format!("checkout {branch}"),
+        ["checkout", "-B", branch, remote_ref.as_str()],
+        &format!("checkout -B {branch}"),
     )?;
-    git_require_success(work_dir, ["pull"], "pull")?;
+    git_require_success(
+        work_dir,
+        ["pull", "origin", branch],
+        &format!("pull origin {branch}"),
+    )?;
     Ok(())
 }
 
@@ -139,6 +151,15 @@ pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
     let output = clean
         .output()
         .map_err(|error| format!("failed to run git: {error}"))?;
+    // Log what was removed so the destructive operation is auditable.
+    let removed = String::from_utf8_lossy(&output.stdout);
+    if !removed.trim().is_empty() {
+        tracing::info!(
+            work_dir = %work_dir.display(),
+            removed = %removed.trim(),
+            "discard_workdir_changes: git clean removed paths"
+        );
+    }
     require_success(Ok(output), "clean -fdx")
 }
 
