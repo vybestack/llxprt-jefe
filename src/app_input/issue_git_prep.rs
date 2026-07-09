@@ -122,32 +122,42 @@ fn porcelain_path(line: &str) -> Option<&str> {
     // Skip the 2-char status + 1 space. Use `get` so a non-char-boundary
     // slice (malformed/multi-byte line) returns `None` instead of panicking.
     let rest = trimmed.get(3..)?;
-    // For renames (`R  old -> new`) report the new path.
-    let path = rest.rsplit(" -> ").next().unwrap_or(rest);
+    // For renames (`R  old -> new`) report the new path (after the first
+    // ` -> `). Using split_once (not rsplit) handles filenames that
+    // themselves contain ` -> `.
+    let path = rest.split_once(" -> ").map_or(rest, |(_, new)| new);
     let unquoted = path.trim_matches('"');
     (!unquoted.is_empty()).then_some(unquoted)
 }
 
-/// Check out `branch` in the working copy and pull it up to date.
+/// Check out `branch` in the working copy at the latest remote state.
 ///
-/// Uses `git checkout -B <branch> origin/<branch>` to ensure a local tracking
-/// branch exists even in fresh/agent checkouts that only have remote-tracking
-/// refs, then explicitly pulls from `origin` so a misconfigured upstream does
-/// not cause a silent failure.
+/// First `git fetch origin <branch>` to update the remote-tracking ref, then
+/// `git checkout -B <branch> origin/<branch>` to force-reset the local branch
+/// to the remote-tracking ref. This avoids `git pull`, which can trigger an
+/// interactive merge or leave conflict markers if the remote advances between
+/// fetch and merge.
+///
+/// # Precondition
+///
+/// `branch` must be validated by [`is_valid_branch_name`] (called from
+/// [`resolve_default_branch`]) before being passed here, to prevent option
+/// injection.
 fn checkout_and_pull(work_dir: &Path, branch: &str) -> Result<(), String> {
+    // Fetch first so origin/<branch> is up to date, then checkout -B resets
+    // the local branch to the fetched remote-tracking ref. No `git pull` —
+    // it can trigger a merge or conflict markers in an automated flow.
+    git_require_success(
+        work_dir,
+        ["fetch", "origin", branch, "--"],
+        &format!("fetch origin {branch}"),
+    )?;
     let remote_ref = format!("origin/{branch}");
     // The `--` disambiguates the following args (none here) from pathspecs.
-    // Branch-name option injection is prevented by `is_valid_branch_name` in
-    // `resolve_default_branch`, not by this separator.
     git_require_success(
         work_dir,
         ["checkout", "-B", branch, &remote_ref, "--"],
         &format!("checkout -B {branch}"),
-    )?;
-    git_require_success(
-        work_dir,
-        ["pull", "origin", branch, "--"],
-        &format!("pull origin {branch}"),
     )?;
     Ok(())
 }
@@ -163,28 +173,36 @@ pub(super) fn prepare_issue_workdir(work_dir: &Path) -> PrepResult {
 /// Discard uncommitted/untracked changes in the working copy, preserving
 /// jefe/ and llxprt-owned paths and all `.gitignore`-ed files.
 ///
-/// Runs `git reset --hard` (discard tracked changes) followed by
-/// `git clean -fd` (remove untracked files, respecting `.gitignore`) with
-/// pathspec exclusions for `.jefe/` and `.llxprt/`. Does **not** use `-x`,
-/// so gitignored files like `.env`, `node_modules/`, and build artifacts
-/// are preserved.
+/// Runs `git clean -fd` first (remove untracked files, respecting
+/// `.gitignore`) then `git reset --hard` (discard tracked changes). Running
+/// `clean` first means if it fails, the user's tracked modifications are
+/// still intact — only untracked files would have been affected. Exclusions
+/// for `.jefe/` and `.llxprt/` are derived from [`IGNORED_PREFIXES`].
+///
+/// Does **not** use `-x`, so gitignored files like `.env`, `node_modules/`,
+/// and build artifacts are preserved.
+///
+/// # Non-atomicity
+///
+/// These two operations are not atomic. If `reset --hard` fails after
+/// `clean -fd` has already removed untracked files, those untracked files
+/// are gone. The user has explicitly confirmed this destructive operation
+/// via the `ConfirmIssueDirtyCopy` modal.
 pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
-    git_require_success(work_dir, ["reset", "--hard"], "reset --hard")?;
-    let output = git_capture(
-        work_dir,
-        [
-            "clean",
-            "-fd",
-            "-e",
-            ".jefe/",
-            "-e",
-            ".jefe/**",
-            "-e",
-            ".llxprt/",
-            "-e",
-            ".llxprt/**",
-        ],
-    )?;
+    // Build clean exclusion args from IGNORED_PREFIXES so the porcelain
+    // dirty-check and the cleanup step can never drift. Each prefix is
+    // added twice: as the directory itself (`.jefe/`) and as a glob for
+    // nested contents (`.jefe/**`).
+    let mut clean_args: Vec<String> = vec!["clean".into(), "-fd".into()];
+    for prefix in IGNORED_PREFIXES {
+        clean_args.push("-e".into());
+        clean_args.push(prefix.into());
+        let glob = format!("{prefix}**");
+        clean_args.push("-e".into());
+        clean_args.push(glob);
+    }
+    let clean_refs: Vec<&str> = clean_args.iter().map(String::as_str).collect();
+    let output = git_capture(work_dir, &clean_refs)?;
     // Log what was removed so the destructive operation is auditable.
     let removed = String::from_utf8_lossy(&output.stdout);
     if !removed.trim().is_empty() {
@@ -194,7 +212,11 @@ pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
             "discard_workdir_changes: git clean removed paths"
         );
     }
-    require_success(&output, "clean -fd")
+    require_success(&output, "clean -fd")?;
+    // Now discard tracked modifications. Running after clean so if clean
+    // fails, tracked changes are still intact.
+    git_require_success(work_dir, ["reset", "--hard"], "reset --hard")?;
+    Ok(())
 }
 
 /// Run `git` with the given args in `work_dir`, capturing output. Returns an
