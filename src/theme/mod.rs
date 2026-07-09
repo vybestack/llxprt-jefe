@@ -107,6 +107,53 @@ pub struct ResolvedColors {
     pub sel_bg: Color,
 }
 
+/// Bundled foreground + background colors for selection highlighting.
+///
+/// Extracted from [`ResolvedColors`] to keep helper function argument counts
+/// under the clippy `too_many_arguments` threshold (6).
+#[derive(Debug, Clone, Copy)]
+pub struct SelectionColors {
+    /// Inverse-video foreground for selected text.
+    pub fg: Color,
+    /// Inverse-video background for selected text.
+    pub bg: Color,
+}
+
+/// Bundled foreground + background colors for a list row's default (non-selected)
+/// styling.
+///
+/// Lets render helpers receive themed values instead of `Color::Reset` (which
+/// leaks the terminal default background and can produce a visible haze).
+#[derive(Debug, Clone, Copy)]
+pub struct RowColors {
+    /// Default text color for a row.
+    pub fg: Color,
+    /// Themed background color for a row (avoids `Color::Reset` haze).
+    pub bg: Color,
+}
+
+impl RowColors {
+    /// Derive row colors from a [`ResolvedColors`] snapshot.
+    #[must_use]
+    pub const fn from_resolved(rc: &ResolvedColors) -> Self {
+        Self {
+            fg: rc.fg,
+            bg: rc.bg,
+        }
+    }
+}
+
+impl SelectionColors {
+    /// Derive selection colors from a [`ResolvedColors`] snapshot.
+    #[must_use]
+    pub const fn from_resolved(rc: &ResolvedColors) -> Self {
+        Self {
+            fg: rc.sel_fg,
+            bg: rc.sel_bg,
+        }
+    }
+}
+
 impl Default for ResolvedColors {
     fn default() -> Self {
         Self::from_theme(None)
@@ -394,7 +441,6 @@ impl ThemeManager for FileThemeManager {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -448,9 +494,7 @@ mod tests {
 
     #[test]
     fn load_from_dir_loads_custom_themes() {
-        let temp = std::env::temp_dir().join("jefe_test_load_from_dir_custom");
-        let _ = std::fs::remove_dir_all(&temp);
-        std::fs::create_dir_all(&temp).expect("create temp themes dir");
+        let temp = tempfile::tempdir().unwrap_or_else(|_| panic!("create temp themes dir"));
 
         let custom = r##"{
             "name": "My Custom",
@@ -470,46 +514,41 @@ mod tests {
                 "selection_fg": "#000000"
             }
         }"##;
-        std::fs::write(temp.join("my-custom.json"), custom).expect("write custom theme");
+        std::fs::write(temp.path().join("my-custom.json"), custom)
+            .unwrap_or_else(|_| panic!("write custom theme"));
 
         let mut mgr = FileThemeManager::new();
-        mgr.load_from_dir(&temp);
+        mgr.load_from_dir(temp.path());
 
         let slugs = mgr.available_themes();
         assert!(slugs.contains(&"my-custom".to_string()));
         assert!(mgr.set_active("my-custom").is_ok());
         assert_eq!(mgr.active_theme().slug, "my-custom");
-
-        let _ = std::fs::remove_dir_all(&temp);
     }
 
     #[test]
     fn load_from_dir_skips_malformed_json() {
-        let temp = std::env::temp_dir().join("jefe_test_load_from_dir_malformed");
-        let _ = std::fs::remove_dir_all(&temp);
-        std::fs::create_dir_all(&temp).expect("create temp themes dir");
+        let temp = tempfile::tempdir().unwrap_or_else(|_| panic!("create temp themes dir"));
 
         // Malformed JSON — should be skipped, not panic.
-        std::fs::write(temp.join("broken.json"), "{ this is not valid json").unwrap();
+        std::fs::write(temp.path().join("broken.json"), "{ this is not valid json")
+            .unwrap_or_else(|_| panic!());
         // Missing required fields — deserialization fails, should be skipped.
-        std::fs::write(temp.join("incomplete.json"), r#"{"name":"NoSlug"}"#).unwrap();
+        std::fs::write(temp.path().join("incomplete.json"), r#"{"name":"NoSlug"}"#)
+            .unwrap_or_else(|_| panic!());
 
         let mut mgr = FileThemeManager::new();
         let before = mgr.available_themes().len();
-        mgr.load_from_dir(&temp);
+        mgr.load_from_dir(temp.path());
         let after = mgr.available_themes().len();
 
         // No new themes added; only built-ins remain.
         assert_eq!(before, after);
-
-        let _ = std::fs::remove_dir_all(&temp);
     }
 
     #[test]
     fn load_from_dir_dedupes_duplicate_slugs() {
-        let temp = std::env::temp_dir().join("jefe_test_load_from_dir_dedup");
-        let _ = std::fs::remove_dir_all(&temp);
-        std::fs::create_dir_all(&temp).expect("create temp themes dir");
+        let temp = tempfile::tempdir().unwrap_or_else(|_| panic!("create temp themes dir"));
 
         let theme_a = r##"{
             "name": "Custom A",
@@ -533,11 +572,11 @@ mod tests {
                 "selection_bg": "#0000ff","selection_fg": "#000000"
             }
         }"##;
-        std::fs::write(temp.join("a.json"), theme_a).unwrap();
-        std::fs::write(temp.join("b.json"), theme_b).unwrap();
+        std::fs::write(temp.path().join("a.json"), theme_a).unwrap_or_else(|_| panic!());
+        std::fs::write(temp.path().join("b.json"), theme_b).unwrap_or_else(|_| panic!());
 
         let mut mgr = FileThemeManager::new();
-        mgr.load_from_dir(&temp);
+        mgr.load_from_dir(temp.path());
 
         let dup_count = mgr
             .available_themes()
@@ -545,8 +584,6 @@ mod tests {
             .filter(|s| *s == "dup-slug")
             .count();
         assert_eq!(dup_count, 1, "duplicate slug must be deduped");
-
-        let _ = std::fs::remove_dir_all(&temp);
     }
 
     #[test]
@@ -560,18 +597,15 @@ mod tests {
 
     #[test]
     fn load_from_dir_ignores_non_json_files() {
-        let temp = std::env::temp_dir().join("jefe_test_load_from_dir_nonjson");
-        let _ = std::fs::remove_dir_all(&temp);
-        std::fs::create_dir_all(&temp).expect("create temp themes dir");
+        let temp = tempfile::tempdir().unwrap_or_else(|_| panic!("create temp themes dir"));
 
-        std::fs::write(temp.join("readme.txt"), "not a theme").unwrap();
-        std::fs::write(temp.join("config.toml"), "slug = 'ignored'").unwrap();
+        std::fs::write(temp.path().join("readme.txt"), "not a theme").unwrap_or_else(|_| panic!());
+        std::fs::write(temp.path().join("config.toml"), "slug = 'ignored'")
+            .unwrap_or_else(|_| panic!());
 
         let mut mgr = FileThemeManager::new();
         let before = mgr.available_themes().len();
-        mgr.load_from_dir(&temp);
+        mgr.load_from_dir(temp.path());
         assert_eq!(mgr.available_themes().len(), before);
-
-        let _ = std::fs::remove_dir_all(&temp);
     }
 }

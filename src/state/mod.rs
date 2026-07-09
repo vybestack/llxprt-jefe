@@ -6,8 +6,24 @@
 //!
 //! Pseudocode reference: component-001 lines 01-12
 
+mod dashboard_grab_ops;
+mod form_cursor;
 mod form_ops;
+mod issues_inline_ops;
+mod issues_load_ops;
+mod issues_mutation_ops;
 mod issues_ops;
+mod modal_ops;
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-001
+mod prs_inline_ops;
+mod prs_load_ops;
+mod prs_merge_ops;
+mod prs_mutation_ops;
+mod prs_nav_ops;
+mod prs_ops;
+mod prs_thread_ops;
+mod selectors;
 pub mod state_ops;
 pub mod theme_picker_view;
 mod types;
@@ -18,60 +34,74 @@ pub use types::*;
 
 use tracing::{debug, trace};
 
-use crate::domain::{Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, SandboxEngine};
+use crate::domain::{Agent, AgentId, AgentStatus};
 use crate::domain::{Repository, RepositoryId};
+use crate::messages::{
+    AppMessage, MessageRoute, PersistenceMessage, RuntimeMessage, SystemMessage, ThemeMessage,
+    UiNavigationMessage,
+};
 
 /// Move the inline editor cursor up or down by `direction` lines (-1 = up, 1 = down).
 /// Attempts to land on the same column in the target line, clamping to line length.
+///
+/// Column positions are computed in **characters** (Unicode scalar values), not
+/// bytes, so multi-byte text does not cause cursor jumps to invalid positions.
 fn inline_cursor_vertical(text: &str, cursor: &mut usize, direction: i32) {
-    // Find line boundaries and current line/column
-    let mut line_starts: Vec<usize> = vec![0];
-    for (i, ch) in text.char_indices() {
+    // Split into lines (as &str slices) preserving byte offsets.
+    let mut line_byte_starts: Vec<usize> = vec![0];
+    for (byte_idx, ch) in text.char_indices() {
         if ch == char::from(0x0Au8) {
-            line_starts.push(i + ch.len_utf8());
+            line_byte_starts.push(byte_idx + ch.len_utf8());
         }
     }
 
-    // Find which line the cursor is on
+    // Clamp the cursor to a valid char boundary within the text. As the shared
+    // single source of truth for vertical movement in both Issues and PR modes,
+    // this defensively walks a mid-codepoint offset DOWN to the nearest UTF-8
+    // boundary so slicing cannot panic on malformed input.
+    let mut clamped_cursor = (*cursor).min(text.len());
+    while clamped_cursor > 0 && !text.is_char_boundary(clamped_cursor) {
+        clamped_cursor -= 1;
+    }
+    let before_cursor = &text[..clamped_cursor];
+
+    // Find which line the cursor is on (by byte offset).
     let mut current_line = 0;
-    for (i, &start) in line_starts.iter().enumerate() {
-        if *cursor >= start {
+    for (i, &byte_start) in line_byte_starts.iter().enumerate() {
+        if clamped_cursor >= byte_start {
             current_line = i;
         }
     }
 
-    let col = *cursor - line_starts[current_line];
+    // Compute the current column in CHARACTERS, not bytes.
+    let line_byte_start = line_byte_starts[current_line];
+    let col_chars = before_cursor[line_byte_start..].chars().count();
+
     let target_line = if direction < 0 {
         current_line.saturating_sub(1)
     } else {
-        (current_line + 1).min(line_starts.len() - 1)
+        (current_line + 1).min(line_byte_starts.len() - 1)
     };
 
     if target_line == current_line {
         return; // already at first/last line
     }
 
-    // Find end of target line
-    let target_start = line_starts[target_line];
-    let target_end = if target_line + 1 < line_starts.len() {
-        // end is just before the newline
-        line_starts[target_line + 1] - 1
+    // Slice the target line (excluding its trailing newline) and convert the
+    // desired character column back to a byte offset within the target line.
+    let target_byte_start = line_byte_starts[target_line];
+    let target_line_end_byte = if target_line + 1 < line_byte_starts.len() {
+        line_byte_starts[target_line + 1] - 1
     } else {
         text.len()
     };
-
-    let target_len = target_end - target_start;
-    let raw_pos = target_start + col.min(target_len);
-    // Snap to nearest char boundary at or before raw_pos.
-    // Use char end positions (start + len) since cursor can sit after the last char.
-    let target_slice = &text[target_start..target_end];
-    let snapped = target_slice
+    let target_slice = &text[target_byte_start..target_line_end_byte];
+    let target_byte_offset = target_slice
         .char_indices()
-        .map(|(i, c)| target_start + i + c.len_utf8())
-        .take_while(|end_pos| *end_pos <= raw_pos)
-        .last()
-        .unwrap_or(target_start);
-    *cursor = snapped.min(target_end);
+        .nth(col_chars)
+        .map_or(target_slice.len(), |(byte_idx, _)| byte_idx);
+
+    *cursor = target_byte_start + target_byte_offset;
 }
 
 impl AppState {
@@ -93,7 +123,7 @@ impl AppState {
         self.repository_by_id(&agent.repository_id)
     }
 
-    fn first_unused_shortcut_slot(&self, ignore_agent: Option<&AgentId>) -> Option<u8> {
+    pub(super) fn first_unused_shortcut_slot(&self, ignore_agent: Option<&AgentId>) -> Option<u8> {
         (1u8..=9u8).find(|slot| {
             self.agents.iter().all(|agent| {
                 if ignore_agent.is_some_and(|id| &agent.id == id) {
@@ -169,75 +199,17 @@ impl AppState {
         self.selected_agent_index = visible_indices.first().copied();
     }
 
-    fn has_running_agent_in_repository(&self, repository_id: &RepositoryId) -> bool {
-        self.agents
-            .iter()
-            .any(|agent| &agent.repository_id == repository_id && agent.is_running())
+    fn has_visible_agent_in_repository(&self, repository_id: &RepositoryId) -> bool {
+        self.agents.iter().any(|agent| {
+            &agent.repository_id == repository_id
+                && (agent.is_running() || self.sticky_dead_agent_ids.contains(&agent.id))
+        })
     }
 
     fn is_agent_visible_with_idle_filter(&self, agent: &Agent) -> bool {
-        !self.hide_idle_repositories || agent.is_running()
-    }
-
-    #[must_use]
-    pub fn visible_repository_indices(&self) -> Vec<usize> {
-        self.repositories
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, repository)| {
-                (!self.hide_idle_repositories
-                    || self.has_running_agent_in_repository(&repository.id))
-                .then_some(idx)
-            })
-            .collect()
-    }
-
-    #[must_use]
-    pub fn selected_repository_visible_index(&self) -> Option<usize> {
-        let selected = self.selected_repository_index?;
-        self.visible_repository_indices()
-            .iter()
-            .position(|idx| *idx == selected)
-    }
-
-    #[must_use]
-    pub fn agent_indices_for_repository(&self, repository_id: &RepositoryId) -> Vec<usize> {
-        self.agents
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, agent)| {
-                (&agent.repository_id == repository_id
-                    && self.is_agent_visible_with_idle_filter(agent))
-                .then_some(idx)
-            })
-            .collect()
-    }
-
-    /// Return the visible agents for a repository, respecting the idle filter.
-    ///
-    /// This uses `agent_indices_for_repository` internally so the returned
-    /// list is always consistent with `selected_agent_local_index`.
-    #[must_use]
-    pub fn visible_agents_for_repository(&self, repository_id: &RepositoryId) -> Vec<Agent> {
-        self.agent_indices_for_repository(repository_id)
-            .iter()
-            .filter_map(|idx| self.agents.get(*idx).cloned())
-            .collect()
-    }
-
-    /// Count of visible agents for a repository, respecting the idle filter.
-    #[must_use]
-    pub fn visible_agent_count_for_repository(&self, repository_id: &RepositoryId) -> usize {
-        self.agent_indices_for_repository(repository_id).len()
-    }
-
-    /// Total count of visible agents across all repositories.
-    #[must_use]
-    pub fn visible_agent_count(&self) -> usize {
-        self.agents
-            .iter()
-            .filter(|agent| self.is_agent_visible_with_idle_filter(agent))
-            .count()
+        !self.hide_idle_repositories
+            || agent.is_running()
+            || self.sticky_dead_agent_ids.contains(&agent.id)
     }
 
     pub fn rebuild_repository_agent_ids(&mut self) {
@@ -277,11 +249,11 @@ impl AppState {
             return;
         }
 
-        #[allow(clippy::unnecessary_map_or)]
-        if self
-            .selected_repository_index
-            .map_or(true, |idx| !visible_repo_indices.contains(&idx))
-        {
+        let selected_repo_hidden = match self.selected_repository_index {
+            Some(idx) => !visible_repo_indices.contains(&idx),
+            None => true,
+        };
+        if selected_repo_hidden {
             self.selected_repository_index = visible_repo_indices.first().copied();
         }
 
@@ -316,393 +288,398 @@ impl AppState {
     }
 
     /// Apply an event to produce the next state.
+    #[must_use]
+    pub fn apply(self, event: AppEvent) -> Self {
+        self.apply_message(event.into())
+    }
+
+    /// Apply a routed domain message to produce the next state.
     ///
     /// State transitions are deterministic per REQ-TECH-003.
     /// @plan PLAN-20260216-FIRSTVERSION-V1.P05
     /// @requirement REQ-TECH-003
     /// @pseudocode component-001 lines 13-33
     #[must_use]
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
-    pub fn apply(mut self, event: AppEvent) -> Self {
+    pub fn apply_message(mut self, message: AppMessage) -> Self {
+        let route = message.route();
         trace!(
-            event = ?event,
+            message_domain = ?route.domain,
+            message = route.name,
             terminal_focused = self.terminal_focused,
             pane_focus = ?self.pane_focus,
             modal = ?std::mem::discriminant(&self.modal),
-            "state.apply"
+            "state.apply_message"
         );
 
-        // When terminal is focused, navigation events are forwarded to PTY
-        // and should NOT change UI selection state.
-        // However, CyclePaneFocus is allowed (user can switch panes even while F12 active).
-        if self.terminal_focused {
-            match &event {
-                AppEvent::NavigateUp
-                | AppEvent::NavigateDown
-                | AppEvent::NavigateLeft
-                | AppEvent::NavigateRight
-                | AppEvent::SelectRepository(_)
-                | AppEvent::SelectAgent(_)
-                | AppEvent::JumpToAgentByShortcut(_) => {
-                    debug!(event = ?event, "blocked navigation event (terminal_focused=true)");
-                    return self;
-                }
-                _ => {}
+        if self.terminal_focused && Self::terminal_blocks(&message) {
+            debug!(
+                message_domain = ?route.domain,
+                message = route.name,
+                "blocked navigation message (terminal_focused=true)"
+            );
+            return self;
+        }
+
+        match message {
+            AppMessage::UiNavigation(message) => self.apply_ui_navigation(message),
+            AppMessage::Modal(message) => self.apply_modal_message(message),
+            AppMessage::RepositoryAgent(message) => self.apply_repository_agent_message(message),
+            AppMessage::Runtime(message) => self.apply_runtime_message(message),
+            AppMessage::Persistence(message) => self.apply_persistence_message(message),
+            AppMessage::Theme(message) => self.apply_theme_message(message),
+            AppMessage::System(message) => self.apply_system_message(message),
+            AppMessage::Issues(message) => {
+                let handled = self.apply_issues_message(message);
+                debug_assert!(handled, "unhandled issues message in apply_message()");
+            }
+            // @plan PLAN-20260624-PR-MODE.P05
+            // @requirement REQ-PR-001
+            // @pseudocode component-004 lines 86-94
+            AppMessage::PullRequests(message) => {
+                let msg_debug = format!("{message:?}");
+                let handled = self.apply_prs_message(message);
+                debug_assert!(handled, "unhandled PullRequestsMessage: {msg_debug}");
             }
         }
 
-        match event {
-            // Navigation
-            AppEvent::NavigateUp => self.handle_navigate_up(),
-            AppEvent::NavigateDown => self.handle_navigate_down(),
-            AppEvent::SelectRepository(idx) => {
-                if idx < self.repositories.len()
-                    && (!self.hide_idle_repositories
-                        || self.visible_repository_indices().contains(&idx))
-                {
-                    self.remember_selected_agent_for_current_repo();
-                    self.selected_repository_index = Some(idx);
-                    self.restore_selected_agent_for_current_repo();
+        self.finalize_message(route);
+        self
+    }
 
-                    // Scope change while in issues mode invalidates loaded data.
-                    // @plan PLAN-20260329-ISSUES-MODE.P15
-                    // @requirement REQ-ISS-001, REQ-ISS-013
-                    if self.issues_state.active {
-                        self.reset_issues_for_repo_change();
-                    }
-                }
-            }
-            AppEvent::SelectAgent(idx) => {
-                if let Some(repository_id) = self.selected_repository_id().cloned() {
-                    let visible_indices = self.agent_indices_for_repository(&repository_id);
-                    if idx < visible_indices.len() {
-                        self.selected_agent_index = Some(visible_indices[idx]);
-                        self.remember_selected_agent_for_current_repo();
-                    }
-                }
-            }
-            AppEvent::JumpToAgentByShortcut(slot) => {
-                if let Some((agent_idx, target_repo_id)) =
-                    self.agents.iter().enumerate().find_map(|(idx, agent)| {
-                        (agent.shortcut_slot == Some(slot)
-                            && self.is_agent_visible_with_idle_filter(agent))
-                        .then_some((idx, agent.repository_id.clone()))
-                    })
-                    && let Some(target_repo_idx) = self
-                        .repositories
+    fn terminal_blocks(message: &AppMessage) -> bool {
+        matches!(
+            message,
+            AppMessage::UiNavigation(
+                UiNavigationMessage::NavigateUp
+                    | UiNavigationMessage::NavigateDown
+                    | UiNavigationMessage::NavigateLeft
+                    | UiNavigationMessage::NavigateRight
+                    | UiNavigationMessage::SelectRepository(_)
+                    | UiNavigationMessage::SelectAgent(_)
+                    | UiNavigationMessage::JumpToAgentByShortcut(_)
+            )
+        )
+    }
+
+    fn finalize_message(&mut self, route: MessageRoute) {
+        self.rebuild_repository_agent_ids();
+        self.normalize_selection_indices();
+        self.validate_dashboard_grab();
+        self.last_selected_agent_by_repo
+            .retain(|(repo_id, agent_id)| {
+                self.repositories.iter().any(|repo| repo.id == *repo_id)
+                    && self
+                        .agents
                         .iter()
-                        .position(|repo| repo.id == target_repo_id)
-                    && (!self.hide_idle_repositories
-                        || self.visible_repository_indices().contains(&target_repo_idx))
-                {
-                    self.remember_selected_agent_for_current_repo();
-                    self.selected_repository_index = Some(target_repo_idx);
-                    self.selected_agent_index = Some(agent_idx);
-                    self.pane_focus = PaneFocus::Agents;
-                    self.terminal_focused = false;
-                    self.remember_selected_agent_for_current_repo();
-                }
-            }
+                        .any(|agent| agent.id == *agent_id && agent.repository_id == *repo_id)
+            });
 
-            // Focus — Tab wraps around, Right arrow clamps at Terminal.
-            AppEvent::CyclePaneFocus => {
-                let old = self.pane_focus;
-                self.pane_focus = match self.pane_focus {
-                    PaneFocus::Repositories => PaneFocus::Agents,
-                    PaneFocus::Agents => PaneFocus::Terminal,
-                    PaneFocus::Terminal => PaneFocus::Repositories,
-                };
-                debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (tab)");
+        trace!(
+            message_domain = ?route.domain,
+            message = route.name,
+            terminal_focused = self.terminal_focused,
+            pane_focus = ?self.pane_focus,
+            modal = ?std::mem::discriminant(&self.modal),
+            "state.apply_message complete"
+        );
+    }
+
+    fn apply_ui_navigation(&mut self, message: UiNavigationMessage) {
+        // Clear sticky-dead agent visibility on selection-changing navigation.
+        // Once the user moves away, the normal active-only filter applies and
+        // dead agents drop out of the visible set (issue #116).
+        //
+        // Display-only toggles (filter, focus, mode switches) do NOT clear
+        // sticky visibility — only actual selection changes do.
+        match message {
+            UiNavigationMessage::NavigateUp
+            | UiNavigationMessage::NavigateDown
+            | UiNavigationMessage::NavigateLeft
+            | UiNavigationMessage::NavigateRight
+            | UiNavigationMessage::SelectRepository(_)
+            | UiNavigationMessage::SelectAgent(_)
+            | UiNavigationMessage::JumpToAgentByShortcut(_) => {
+                self.sticky_dead_agent_ids.clear();
+                self.dashboard_grab = None;
             }
-            AppEvent::NavigateRight => {
-                let old = self.pane_focus;
-                self.pane_focus = match self.pane_focus {
-                    PaneFocus::Repositories => PaneFocus::Agents,
-                    PaneFocus::Agents | PaneFocus::Terminal => PaneFocus::Terminal,
-                };
-                debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (right)");
+            _ => {}
+        }
+
+        match message {
+            UiNavigationMessage::NavigateUp => self.handle_navigate_up(),
+            UiNavigationMessage::NavigateDown => self.handle_navigate_down(),
+            UiNavigationMessage::NavigateLeft => self.move_pane_focus_left(),
+            UiNavigationMessage::NavigateRight => self.move_pane_focus_right(),
+            UiNavigationMessage::SelectRepository(idx) => self.select_repository_by_index(idx),
+            UiNavigationMessage::SelectAgent(idx) => self.select_agent_by_local_index(idx),
+            UiNavigationMessage::JumpToAgentByShortcut(slot) => {
+                self.jump_to_agent_by_shortcut(slot);
             }
-            AppEvent::ToggleTerminalFocus => {
-                self.terminal_focused = !self.terminal_focused;
-                debug!(
-                    terminal_focused = self.terminal_focused,
-                    "toggled terminal focus"
-                );
-            }
-            AppEvent::ToggleHideIdleRepositories => {
+            UiNavigationMessage::CyclePaneFocus => self.cycle_pane_focus(),
+            UiNavigationMessage::ToggleTerminalFocus => self.toggle_terminal_focus(),
+            UiNavigationMessage::ToggleHideIdleRepositories => {
                 self.hide_idle_repositories = !self.hide_idle_repositories;
+                self.dashboard_grab = None;
                 self.normalize_selection_indices();
             }
-
-            // Screen mode
-            AppEvent::EnterSplitMode => {
+            UiNavigationMessage::EnterSplitMode => {
                 self.screen_mode = ScreenMode::Split;
+                self.dashboard_grab = None;
             }
-            AppEvent::ExitSplitMode => {
-                self.screen_mode = ScreenMode::Dashboard;
-                self.split_filter = None;
-                self.split_grab_index = None;
-            }
-
-            // Grab mode for split view reordering
-            AppEvent::EnterGrabMode => {
+            UiNavigationMessage::ExitSplitMode => self.exit_split_mode(),
+            UiNavigationMessage::EnterGrabMode => {
                 self.split_grab_index = self.selected_repository_visible_index();
             }
-            AppEvent::ExitGrabMode => {
-                self.split_grab_index = None;
+            UiNavigationMessage::ExitGrabMode => self.split_grab_index = None,
+            UiNavigationMessage::GrabMoveUp => self.move_split_grab_up(),
+            UiNavigationMessage::GrabMoveDown => self.move_split_grab_down(),
+            UiNavigationMessage::SetSplitFilter(filter) => self.split_filter = filter,
+            UiNavigationMessage::EnterDashboardGrab => self.enter_dashboard_grab(),
+            UiNavigationMessage::ExitDashboardGrab => self.dashboard_grab = None,
+            UiNavigationMessage::DashboardGrabMoveUp => self.move_dashboard_grab_up(),
+            UiNavigationMessage::DashboardGrabMoveDown => self.move_dashboard_grab_down(),
+        }
+    }
+
+    fn cycle_pane_focus(&mut self) {
+        let old = self.pane_focus;
+        self.pane_focus = match self.pane_focus {
+            PaneFocus::Repositories => PaneFocus::Agents,
+            PaneFocus::Agents => PaneFocus::Terminal,
+            PaneFocus::Terminal => PaneFocus::Repositories,
+        };
+        self.dashboard_grab = None;
+        debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (tab)");
+    }
+
+    fn move_pane_focus_right(&mut self) {
+        let old = self.pane_focus;
+        self.pane_focus = match self.pane_focus {
+            PaneFocus::Repositories => PaneFocus::Agents,
+            PaneFocus::Agents | PaneFocus::Terminal => PaneFocus::Terminal,
+        };
+        self.dashboard_grab = None;
+        debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (right)");
+    }
+
+    fn move_pane_focus_left(&mut self) {
+        let old = self.pane_focus;
+        self.pane_focus = match self.pane_focus {
+            PaneFocus::Repositories | PaneFocus::Agents => PaneFocus::Repositories,
+            PaneFocus::Terminal => PaneFocus::Agents,
+        };
+        self.dashboard_grab = None;
+        debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (left)");
+    }
+
+    fn toggle_terminal_focus(&mut self) {
+        self.terminal_focused = !self.terminal_focused;
+        debug!(
+            terminal_focused = self.terminal_focused,
+            "toggled terminal focus"
+        );
+    }
+
+    fn exit_split_mode(&mut self) {
+        self.screen_mode = ScreenMode::Dashboard;
+        self.split_filter = None;
+        self.split_grab_index = None;
+    }
+
+    fn select_repository_by_index(&mut self, idx: usize) {
+        if idx < self.repositories.len()
+            && (!self.hide_idle_repositories || self.visible_repository_indices().contains(&idx))
+        {
+            self.remember_selected_agent_for_current_repo();
+            self.selected_repository_index = Some(idx);
+            self.restore_selected_agent_for_current_repo();
+
+            if self.issues_state.active {
+                self.reset_issues_for_repo_change();
             }
-            AppEvent::GrabMoveUp => {
-                if let Some(grab_visible_idx) = self.split_grab_index
-                    && grab_visible_idx > 0
-                {
-                    let visible_repo_indices = self.visible_repository_indices();
-                    if let (Some(&current_global_idx), Some(&target_global_idx)) = (
-                        visible_repo_indices.get(grab_visible_idx),
-                        visible_repo_indices.get(grab_visible_idx - 1),
-                    ) {
-                        self.repositories
-                            .swap(current_global_idx, target_global_idx);
-                        self.split_grab_index = Some(grab_visible_idx - 1);
-                        self.selected_repository_index = Some(target_global_idx);
-                    }
+            // @plan PLAN-20260624-PR-MODE.P05
+            // @requirement REQ-PR-003
+            if self.prs_state.active {
+                self.reset_prs_for_repo_change();
+            }
+        }
+    }
+
+    /// Move the repository selection up or down within the visible set.
+    ///
+    /// Shared by Issues and PR mode repo navigation (independent of pane_focus, #47).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P05
+    /// @requirement REQ-PR-003
+    /// @pseudocode component-001 lines 134-145
+    fn move_repo_selection(&mut self, direction: crate::messages::NavDir) -> bool {
+        let indices = self.visible_repository_indices();
+        if indices.is_empty() {
+            return false;
+        }
+        // Handle "no selection" explicitly: Down selects the FIRST visible repo
+        // (indices[0]); Up is a no-op. This avoids the old `unwrap_or(0)` which
+        // treated None as visible-index 0 and then Down computed target=1,
+        // skipping the first repo entirely.
+        let Some(current) = self.selected_repository_visible_index() else {
+            if direction == crate::messages::NavDir::Down {
+                self.remember_selected_agent_for_current_repo();
+                self.selected_repository_index = Some(indices[0]);
+                self.restore_selected_agent_for_current_repo();
+                return true;
+            }
+            return false;
+        };
+        let target = match direction {
+            crate::messages::NavDir::Up => {
+                if current > 0 {
+                    current - 1
+                } else {
+                    current
                 }
             }
-            AppEvent::GrabMoveDown => {
-                if let Some(grab_visible_idx) = self.split_grab_index {
-                    let visible_repo_indices = self.visible_repository_indices();
-                    if grab_visible_idx + 1 < visible_repo_indices.len()
-                        && let (Some(&current_global_idx), Some(&target_global_idx)) = (
-                            visible_repo_indices.get(grab_visible_idx),
-                            visible_repo_indices.get(grab_visible_idx + 1),
-                        )
-                    {
-                        self.repositories
-                            .swap(current_global_idx, target_global_idx);
-                        self.split_grab_index = Some(grab_visible_idx + 1);
-                        self.selected_repository_index = Some(target_global_idx);
-                    }
+            crate::messages::NavDir::Down => {
+                if current + 1 < indices.len() {
+                    current + 1
+                } else {
+                    current
                 }
             }
-            AppEvent::SetSplitFilter(filter) => {
-                self.split_filter = filter;
-            }
+            _ => return false,
+        };
+        if target == current {
+            return false;
+        }
+        self.remember_selected_agent_for_current_repo();
+        self.selected_repository_index = Some(indices[target]);
+        self.restore_selected_agent_for_current_repo();
+        true
+    }
 
-            // Modal/form actions
-            AppEvent::OpenHelp => {
-                self.modal = ModalState::Help;
+    fn select_agent_by_local_index(&mut self, idx: usize) {
+        if let Some(repository_id) = self.selected_repository_id().cloned() {
+            let visible_indices = self.agent_indices_for_repository(&repository_id);
+            if idx < visible_indices.len() {
+                self.selected_agent_index = Some(visible_indices[idx]);
+                self.remember_selected_agent_for_current_repo();
             }
-            AppEvent::OpenSearch => {
-                self.modal = ModalState::Search {
-                    query: String::new(),
-                };
-            }
-            AppEvent::CloseModal | AppEvent::ThemePickerConfirm(_) | AppEvent::CloseThemePicker => {
-                self.modal = ModalState::None;
-            }
-            AppEvent::SubmitForm => {
-                self.handle_submit_form();
-            }
+        }
+    }
 
-            // Form input events
-            AppEvent::FormChar(c) => {
-                self.handle_form_char(c);
-            }
-            AppEvent::FormBackspace => {
-                self.handle_form_backspace();
-            }
-            AppEvent::FormDelete => {
-                self.handle_form_delete();
-            }
-            AppEvent::FormMoveCursorLeft => {
-                self.handle_form_move_cursor_left();
-            }
-            AppEvent::FormMoveCursorRight => {
-                self.handle_form_move_cursor_right();
-            }
-            AppEvent::FormNextField => {
-                self.handle_form_next_field();
-            }
-            AppEvent::FormPrevField => {
-                self.handle_form_prev_field();
-            }
-            AppEvent::FormToggleCheckbox => {
-                self.handle_form_toggle_checkbox();
-            }
+    fn jump_to_agent_by_shortcut(&mut self, slot: u8) {
+        if let Some((agent_idx, target_repo_id)) =
+            self.agents.iter().enumerate().find_map(|(idx, agent)| {
+                (agent.shortcut_slot == Some(slot) && self.is_agent_visible_with_idle_filter(agent))
+                    .then_some((idx, agent.repository_id.clone()))
+            })
+            && let Some(target_repo_idx) = self
+                .repositories
+                .iter()
+                .position(|repo| repo.id == target_repo_id)
+            && (!self.hide_idle_repositories
+                || self.visible_repository_indices().contains(&target_repo_idx))
+        {
+            self.remember_selected_agent_for_current_repo();
+            self.selected_repository_index = Some(target_repo_idx);
+            self.selected_agent_index = Some(agent_idx);
+            self.pane_focus = PaneFocus::Agents;
+            self.terminal_focused = false;
+            self.remember_selected_agent_for_current_repo();
+        }
+    }
 
-            // CRUD
-            AppEvent::OpenNewRepository => {
-                self.modal = ModalState::NewRepository {
-                    fields: RepositoryFormFields::default(),
-                    focus: RepositoryFormFocus::default(),
-                    cursor: RepositoryFormCursor::default(),
-                };
+    fn move_split_grab_up(&mut self) {
+        if let Some(grab_visible_idx) = self.split_grab_index
+            && grab_visible_idx > 0
+        {
+            let visible_repo_indices = self.visible_repository_indices();
+            if let (Some(&current_global_idx), Some(&target_global_idx)) = (
+                visible_repo_indices.get(grab_visible_idx),
+                visible_repo_indices.get(grab_visible_idx - 1),
+            ) {
+                self.repositories
+                    .swap(current_global_idx, target_global_idx);
+                self.split_grab_index = Some(grab_visible_idx - 1);
+                self.selected_repository_index = Some(target_global_idx);
             }
-            AppEvent::OpenEditRepository(id) => {
-                let fields = self
-                    .repositories
-                    .iter()
-                    .find(|r| r.id == id)
-                    .map(|r| RepositoryFormFields {
-                        name: r.name.clone(),
-                        base_dir: r.base_dir.to_string_lossy().into_owned(),
-                        default_profile: r.default_profile.clone(),
-                        github_repo: r.github_repo.clone(),
-                        remote_enabled: r.remote.enabled,
-                        login_user: r.remote.login_user.clone(),
-                        host: r.remote.host.clone(),
-                        run_as_user: r.remote.run_as_user.clone(),
-                        setup_env_default: r.remote.setup_env_default,
-                    })
-                    .unwrap_or_default();
-                self.modal = ModalState::EditRepository {
-                    id,
-                    cursor: RepositoryFormCursor {
-                        name: fields.name.chars().count(),
-                        base_dir: fields.base_dir.chars().count(),
-                        default_profile: fields.default_profile.chars().count(),
-                        github_repo: fields.github_repo.chars().count(),
-                        login_user: fields.login_user.chars().count(),
-                        host: fields.host.chars().count(),
-                        run_as_user: fields.run_as_user.chars().count(),
-                    },
-                    fields,
-                    focus: RepositoryFormFocus::default(),
-                };
-            }
-            AppEvent::OpenDeleteRepository(id) => {
-                self.modal = ModalState::ConfirmDeleteRepository { id };
-            }
-            AppEvent::OpenNewAgent(repository_id) => {
-                let (base_dir, default_profile) = self
-                    .repositories
-                    .iter()
-                    .find(|r| r.id == repository_id)
-                    .map(|r| {
-                        (
-                            r.base_dir.to_string_lossy().into_owned(),
-                            r.default_profile.clone(),
-                        )
-                    })
-                    .unwrap_or_default();
+        }
+    }
 
-                let work_dir_len = base_dir.chars().count();
-                let profile_len = default_profile.chars().count();
-
-                self.modal = ModalState::NewAgent {
-                    repository_id,
-                    fields: AgentFormFields {
-                        shortcut_slot: self.first_unused_shortcut_slot(None),
-                        name: String::new(),
-                        description: String::new(),
-                        work_dir: base_dir,
-                        profile: default_profile,
-                        mode: "--yolo".to_owned(),
-                        llxprt_debug: String::new(),
-                        pass_continue: true,
-                        sandbox_enabled: false,
-                        sandbox_engine: SandboxEngine::Podman.label().to_owned(),
-                        sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-                    },
-                    cursor: AgentFormCursor {
-                        work_dir: work_dir_len,
-                        profile: profile_len,
-                        mode: "--yolo".chars().count(),
-                        sandbox_flags: DEFAULT_SANDBOX_FLAGS.chars().count(),
-                        ..AgentFormCursor::default()
-                    },
-                    focus: AgentFormFocus::default(),
-                    work_dir_manual: false,
-                };
+    fn move_split_grab_down(&mut self) {
+        if let Some(grab_visible_idx) = self.split_grab_index {
+            let visible_repo_indices = self.visible_repository_indices();
+            if grab_visible_idx + 1 < visible_repo_indices.len()
+                && let (Some(&current_global_idx), Some(&target_global_idx)) = (
+                    visible_repo_indices.get(grab_visible_idx),
+                    visible_repo_indices.get(grab_visible_idx + 1),
+                )
+            {
+                self.repositories
+                    .swap(current_global_idx, target_global_idx);
+                self.split_grab_index = Some(grab_visible_idx + 1);
+                self.selected_repository_index = Some(target_global_idx);
             }
-            AppEvent::OpenEditAgent(id) => {
-                let fields = self
-                    .agents
-                    .iter()
-                    .find(|a| a.id == id)
-                    .map(|a| AgentFormFields {
-                        shortcut_slot: a.shortcut_slot,
-                        name: a.name.clone(),
-                        description: a.description.clone(),
-                        work_dir: a.work_dir.to_string_lossy().into_owned(),
-                        profile: a.profile.clone(),
-                        mode: a.mode_flags.join(" "),
-                        llxprt_debug: a.llxprt_debug.clone(),
-                        pass_continue: a.pass_continue,
-                        sandbox_enabled: a.sandbox_enabled,
-                        sandbox_engine: a.sandbox_engine.label().to_owned(),
-                        sandbox_flags: a.sandbox_flags.clone(),
-                    })
-                    .unwrap_or_default();
-                self.modal = ModalState::EditAgent {
-                    id,
-                    cursor: AgentFormCursor {
-                        name: fields.name.chars().count(),
-                        description: fields.description.chars().count(),
-                        work_dir: fields.work_dir.chars().count(),
-                        profile: fields.profile.chars().count(),
-                        mode: fields.mode.chars().count(),
-                        llxprt_debug: fields.llxprt_debug.chars().count(),
-                        sandbox_flags: fields.sandbox_flags.chars().count(),
-                    },
-                    fields,
-                    focus: AgentFormFocus::default(),
-                };
-            }
-            AppEvent::OpenDeleteAgent(id) => {
-                self.modal = ModalState::ConfirmDeleteAgent {
-                    id,
-                    delete_work_dir: false,
-                };
-            }
-            AppEvent::ToggleDeleteWorkDir => {
-                if let ModalState::ConfirmDeleteAgent {
-                    id,
-                    delete_work_dir,
-                } = self.modal.clone()
-                {
-                    self.modal = ModalState::ConfirmDeleteAgent {
-                        id,
-                        delete_work_dir: !delete_work_dir,
-                    };
-                }
-            }
-
-            // Lifecycle
-            AppEvent::KillAgent(ref agent_id) => {
-                if let Some(agent) = self.agents.iter_mut().find(|a| &a.id == agent_id) {
+        }
+    }
+    fn apply_runtime_message(&mut self, message: RuntimeMessage) {
+        match message {
+            RuntimeMessage::KillAgent(agent_id) => {
+                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
                     agent.status = AgentStatus::Dead;
+                    agent.runtime_binding = None;
+                    self.sticky_dead_agent_ids.insert(agent_id);
                 }
             }
-            AppEvent::AgentStatusChanged(ref agent_id, status) => {
-                if let Some(agent) = self.agents.iter_mut().find(|a| &a.id == agent_id) {
+            RuntimeMessage::AgentStatusChanged(agent_id, status) => {
+                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id) {
                     agent.status = status;
+                    if status == AgentStatus::Running {
+                        self.sticky_dead_agent_ids.remove(&agent_id);
+                    }
                 }
             }
-            AppEvent::RelaunchAgent(ref agent_id) => {
-                if let Some(agent) = self.agents.iter_mut().find(|a| &a.id == agent_id)
+            RuntimeMessage::RelaunchAgent(agent_id) => {
+                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id)
+                    && agent.runtime_binding.is_some()
+                {
+                    agent.status = AgentStatus::Running;
+                    self.sticky_dead_agent_ids.remove(&agent_id);
+                }
+            }
+            // RestartAgent handles the edge case where apply_and_persist is
+            // called with RestartAgent directly (not via dispatch). The normal
+            // path goes through dispatch_restart_agent which applies Kill then
+            // Relaunch separately. Here we clear sticky and set Running.
+            RuntimeMessage::RestartAgent(agent_id) => {
+                self.sticky_dead_agent_ids.remove(&agent_id);
+                if let Some(agent) = self.agents.iter_mut().find(|a| a.id == agent_id)
                     && agent.runtime_binding.is_some()
                 {
                     agent.status = AgentStatus::Running;
                 }
             }
+        }
+    }
 
-            // Persistence results - clear or set error
-            AppEvent::PersistenceLoadSuccess | AppEvent::ClearError => {
+    fn apply_persistence_message(&mut self, message: PersistenceMessage) {
+        match message {
+            PersistenceMessage::LoadSuccess | PersistenceMessage::SaveSuccess => {
                 self.error_message = None;
             }
-            AppEvent::PersistenceLoadFailed(msg) | AppEvent::PersistenceSaveFailed(msg) => {
+            PersistenceMessage::LoadFailed(msg) | PersistenceMessage::SaveFailed(msg) => {
                 self.error_message = Some(msg);
             }
+        }
+    }
 
-            // Theme
-            AppEvent::ThemeResolveFailed(msg) => {
-                self.warning_message = Some(msg);
-            }
-            AppEvent::OpenThemePicker {
+    fn apply_theme_message(&mut self, message: ThemeMessage) {
+        match message {
+            ThemeMessage::ResolveFailed(msg) => self.warning_message = Some(msg),
+            ThemeMessage::SetTheme(_) => {}
+            ThemeMessage::OpenThemePicker {
                 available_themes,
                 active_slug,
             } => {
-                // Default selection to the currently active theme.
                 let selected_index = available_themes
                     .iter()
                     .position(|(slug, _)| *slug == active_slug)
@@ -713,14 +690,14 @@ impl AppState {
                     active_slug,
                 };
             }
-            AppEvent::ThemePickerNavigateUp => {
+            ThemeMessage::PickerNavigateUp => {
                 if let ModalState::ThemePicker { selected_index, .. } = &mut self.modal {
                     if *selected_index > 0 {
                         *selected_index -= 1;
                     }
                 }
             }
-            AppEvent::ThemePickerNavigateDown => {
+            ThemeMessage::PickerNavigateDown => {
                 if let ModalState::ThemePicker {
                     available_themes,
                     selected_index,
@@ -732,47 +709,18 @@ impl AppState {
                     }
                 }
             }
-
-            // Clear warning
-            AppEvent::ClearWarning => {
-                self.warning_message = None;
-            }
-
-            // Pane focus navigation — Left/Right clamp at boundaries (no wrapping).
-            AppEvent::NavigateLeft => {
-                let old = self.pane_focus;
-                self.pane_focus = match self.pane_focus {
-                    PaneFocus::Repositories | PaneFocus::Agents => PaneFocus::Repositories,
-                    PaneFocus::Terminal => PaneFocus::Agents,
-                };
-                debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (left)");
-            }
-
-            // No-op events (handled elsewhere or reserved)
-            AppEvent::PersistenceSaveSuccess
-            | AppEvent::SetTheme(_)
-            | AppEvent::Quit
-            | AppEvent::ApplySearch
-            | AppEvent::InlineSubmit => {}
-
-            // Issues mode events — delegated to issues_ops.rs
-            event => {
-                let handled = self.apply_issues_event(event);
-                debug_assert!(handled, "unhandled AppEvent variant in apply()");
+            ThemeMessage::PickerConfirm | ThemeMessage::PickerCancel => {
+                self.modal = ModalState::None;
             }
         }
+    }
 
-        self.rebuild_repository_agent_ids();
-        self.normalize_selection_indices();
-        self.last_selected_agent_by_repo
-            .retain(|(repo_id, agent_id)| {
-                self.repositories.iter().any(|repo| repo.id == *repo_id)
-                    && self
-                        .agents
-                        .iter()
-                        .any(|agent| agent.id == *agent_id && agent.repository_id == *repo_id)
-            });
-        self
+    fn apply_system_message(&mut self, message: SystemMessage) {
+        match message {
+            SystemMessage::ClearError => self.error_message = None,
+            SystemMessage::ClearWarning => self.warning_message = None,
+            SystemMessage::Quit => {}
+        }
     }
 
     fn handle_navigate_up(&mut self) {
@@ -866,65 +814,104 @@ impl AppState {
             PaneFocus::Terminal => {}
         }
     }
-
-    /// Get the currently selected repository, if any.
-    #[must_use]
-    pub fn selected_repository(&self) -> Option<&Repository> {
-        self.selected_repository_index
-            .and_then(|i| self.repositories.get(i))
-    }
-
-    /// Get the currently selected agent, if any.
-    #[must_use]
-    pub fn selected_agent(&self) -> Option<&Agent> {
-        let repository_id = self.selected_repository_id()?;
-        let selected_idx = self.selected_agent_index?;
-        let agent = self.agents.get(selected_idx)?;
-        (&agent.repository_id == repository_id && self.is_agent_visible_with_idle_filter(agent))
-            .then_some(agent)
-    }
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::field_reassign_with_default,
-    clippy::manual_string_new,
-    clippy::uninlined_format_args
-)]
 #[path = "issues_tests.rs"]
 mod issues_tests;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::field_reassign_with_default,
-    clippy::manual_string_new,
-    clippy::uninlined_format_args
-)]
+#[path = "issues_tests_components.rs"]
+mod issues_tests_components;
+
+#[cfg(test)]
 #[path = "issues_tests_detail.rs"]
 mod issues_tests_detail;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::field_reassign_with_default,
-    clippy::manual_string_new,
-    clippy::uninlined_format_args
-)]
+#[path = "issues_tests_subfocus.rs"]
+mod issues_tests_subfocus;
+
+#[cfg(test)]
+#[path = "issues_tests_detail_flow.rs"]
+mod issues_tests_detail_flow;
+
+#[cfg(test)]
 #[path = "issues_tests_repo_nav.rs"]
 mod issues_tests_repo_nav;
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::field_reassign_with_default,
-    clippy::manual_string_new,
-    clippy::uninlined_format_args
-)]
 #[path = "issues_tests_filter.rs"]
 mod issues_tests_filter;
+
+#[cfg(test)]
+#[path = "issues_tests_composer_focus.rs"]
+mod issues_tests_composer_focus;
+
+#[cfg(test)]
+#[path = "prs_tests.rs"]
+mod prs_tests;
+
+#[cfg(test)]
+#[path = "prs_tests_detail.rs"]
+mod prs_tests_detail;
+
+#[cfg(test)]
+#[path = "prs_tests_merge.rs"]
+mod prs_tests_merge;
+
+#[cfg(test)]
+#[path = "prs_tests_filter.rs"]
+mod prs_tests_filter;
+
+#[cfg(test)]
+#[path = "prs_tests_repo_nav.rs"]
+mod prs_tests_repo_nav;
+
+/// Shared `#[cfg(test)]` fixtures used by the PR-mode reducer test modules.
+///
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 44-50
+#[cfg(test)]
+#[path = "prs_test_fixtures.rs"]
+mod prs_test_fixtures;
+
+#[cfg(test)]
+#[path = "prs_tests_composer_focus.rs"]
+mod prs_tests_composer_focus;
+
+/// @plan PLAN-20260624-PR-MODE.P14
+/// @requirement REQ-PR-010
+/// @pseudocode component-001 lines 44-50
+#[cfg(test)]
+#[path = "prs_tests_cursor_arrows.rs"]
+mod prs_tests_cursor_arrows;
+
+#[cfg(test)]
+#[path = "prs_tests_detail_flow.rs"]
+mod prs_tests_detail_flow;
+
+#[cfg(test)]
+#[path = "prs_tests_components.rs"]
+mod prs_tests_components;
+
+/// Review-thread state tests (issue #119): open reply composer, toggle resolve.
+///
+/// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-009
+/// Silent background refresh state-transition tests (issue #128).
+#[cfg(test)]
+#[path = "prs_tests_silent_refresh.rs"]
+mod prs_tests_silent_refresh;
+
+#[cfg(test)]
+#[path = "prs_tests_review_threads.rs"]
+mod prs_tests_review_threads;
+
+// @plan PLAN-20260624-PR-MODE.P15
+// @requirement REQ-PR-001
+// @pseudocode component-001 lines 66-291
+#[cfg(test)]
+#[path = "prs_integration_tests.rs"]
+mod prs_integration_tests;

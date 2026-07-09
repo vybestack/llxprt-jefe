@@ -1,98 +1,128 @@
-//! Agent list component.
+//! Agent list projection for the generic [`SelectableList`] component.
+//!
+//! The agent list pane used to have its own iocraft `AgentList` component; the
+//! rendering is now owned by [`crate::ui::components::SelectableList`]. This
+//! module keeps the domain-specific projection ([`agent_list_props`]) that maps
+//! each agent into a [`SelectableRow`] with a fixed-color status glyph span and
+//! a themed name span.
 //!
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P09
 //! @requirement REQ-FUNC-002
 //! @requirement REQ-FUNC-006
 
-use iocraft::prelude::*;
-
 use crate::domain::{Agent, AgentStatus};
-use crate::theme::{ResolvedColors, ThemeColors};
+use crate::selection::{SelectablePane, TextSelection};
+use crate::theme::ThemeColors;
+use crate::ui::components::selectable_list::{
+    ListBorder, SelectableListProps, SelectableRow, SelectableSpan, SelectionStyle, SpanColor,
+    SpanRole,
+};
 
-/// Props for the agent list component.
-#[derive(Default, Props)]
-pub struct AgentListProps {
-    /// List of agents.
-    pub agents: Vec<Agent>,
-    /// Currently selected agent index.
-    pub selected: usize,
-    /// Whether this pane is focused.
-    pub focused: bool,
-    /// Theme colors.
-    pub colors: ThemeColors,
+/// Status glyph rendered before the agent name (single character).
+///
+/// Matches the pre-refactor `AgentList` component's `status_icon` match arms.
+fn status_icon(status: AgentStatus) -> &'static str {
+    match status {
+        AgentStatus::Running => "*",
+        AgentStatus::Completed => "+",
+        AgentStatus::Dead => "x",
+        AgentStatus::Errored => "!",
+        AgentStatus::Waiting => "?",
+        AgentStatus::Paused => "-",
+        AgentStatus::Queued => "o",
+    }
 }
 
-/// Agent list showing agents for the current repository.
-#[component]
-pub fn AgentList(props: &AgentListProps) -> impl Into<AnyElement<'static>> {
-    let rc = ResolvedColors::from_theme(Some(&props.colors));
-    let border_style = if props.focused {
-        BorderStyle::Double
+/// Semantic color role for the status glyph, immune to selection/highlight.
+///
+/// Matches the pre-refactor `AgentList` component's `status_color` match arms;
+/// the generic [`SelectableList`] resolves the role against the theme.
+fn status_role(status: AgentStatus) -> SpanRole {
+    match status {
+        AgentStatus::Running | AgentStatus::Completed => SpanRole::Bright,
+        AgentStatus::Dead | AgentStatus::Errored => SpanRole::Red,
+        AgentStatus::Waiting => SpanRole::Yellow,
+        AgentStatus::Paused => SpanRole::Blue,
+        AgentStatus::Queued => SpanRole::Dim,
+    }
+}
+
+/// Build the prefix string for an agent row: `↕ ` when grabbed, `> ` when
+/// selected, otherwise two spaces.
+fn agent_prefix(is_selected: bool, grabbed: bool) -> &'static str {
+    if grabbed {
+        "\u{2195} "
+    } else if is_selected {
+        "> "
     } else {
-        BorderStyle::Round
-    };
+        "  "
+    }
+}
 
-    element! {
-        Box(
-            flex_direction: FlexDirection::Column,
-            width: 100pct,
-            height: 100pct,
-            border_style: border_style,
-            border_color: rc.border,
-            background_color: rc.bg,
-        ) {
-            // Title
-            Box(height: 1u32, padding_left: 1u32) {
-                Text(content: "Agents", weight: Weight::Bold, color: rc.fg)
-            }
+/// Project one agent into a [`SelectableRow`] with three spans: prefix, status
+/// glyph (fixed role), and ` {shortcut}{name}` (themed).
+fn to_selectable_row(agent: &Agent, is_selected: bool, grabbed: bool) -> SelectableRow {
+    let shortcut_label = agent
+        .shortcut_slot
+        .map_or_else(String::new, |slot| format!("[{slot}] "));
+    SelectableRow {
+        spans: vec![
+            SelectableSpan {
+                text: agent_prefix(is_selected, grabbed).to_string(),
+                color: SpanColor::Themed,
+            },
+            SelectableSpan {
+                text: status_icon(agent.status).to_string(),
+                color: SpanColor::Role(status_role(agent.status)),
+            },
+            SelectableSpan {
+                text: format!(" {}{}", shortcut_label, agent.name),
+                color: SpanColor::Themed,
+            },
+        ],
+        meta_line: None,
+        is_selected,
+    }
+}
 
-            // Agent list
-            Box(
-                flex_direction: FlexDirection::Column,
-                flex_grow: 1.0,
-                padding: 1u32,
-                background_color: rc.bg,
-            ) {
-                #(props.agents.iter().enumerate().map(|(i, agent)| {
-                    let selected = i == props.selected;
-                    let status_icon = match agent.status {
-                        AgentStatus::Running => "o",
-                        AgentStatus::Completed => "+",
-                        AgentStatus::Dead => "!",
-                        AgentStatus::Errored => "x",
-                        AgentStatus::Waiting => "*",
-                        AgentStatus::Paused => "#",
-                        AgentStatus::Queued => "-",
-                    };
-                    let status_color = match agent.status {
-                        AgentStatus::Running | AgentStatus::Completed => rc.bright,
-                        AgentStatus::Dead | AgentStatus::Errored => Color::Red,
-                        AgentStatus::Waiting => Color::Yellow,
-                        AgentStatus::Paused => Color::Blue,
-                        AgentStatus::Queued => rc.dim,
-                    };
-                    let prefix = if selected { "> " } else { "  " };
-                    let shortcut_label = agent
-                        .shortcut_slot
-                        .map_or_else(String::new, |slot| format!("[{slot}] "));
-                    let label = format!("{}{} {}{}", prefix, status_icon, shortcut_label, agent.name);
-                    if selected {
-                        element! {
-                            Box(height: 1u32, background_color: rc.sel_bg) {
-                                Text(content: label, color: rc.sel_fg, weight: Weight::Bold)
-                            }
-                        }
-                    } else {
-                        element! {
-                            Box(flex_direction: FlexDirection::Row, height: 1u32) {
-                                Text(content: prefix, color: rc.fg)
-                                Text(content: status_icon, color: status_color)
-                                Text(content: format!(" {}{}", shortcut_label, agent.name), color: rc.fg)
-                            }
-                        }
-                    }
-                }))
-            }
-        }
+/// Build [`SelectableListProps`] for the agent list pane.
+///
+/// Projects each agent into a [`SelectableRow`] with a fixed-color status glyph
+/// and a themed name span. Uses the agent-style border/padding/selection policy
+/// so rendered output is byte-identical to the pre-refactor `AgentList`
+/// component.
+///
+/// @plan PLAN-20260216-FIRSTVERSION-V1.P09
+/// @requirement REQ-FUNC-002
+/// @requirement REQ-FUNC-006
+#[must_use]
+pub fn agent_list_props(
+    agents: &[Agent],
+    selected: usize,
+    grabbed: Option<usize>,
+    focused: bool,
+    colors: ThemeColors,
+    selection: Option<TextSelection>,
+) -> SelectableListProps {
+    let rows = agents
+        .iter()
+        .enumerate()
+        .map(|(i, agent)| {
+            let is_selected = i == selected;
+            let is_grabbed = grabbed.is_some_and(|idx| idx == i);
+            to_selectable_row(agent, is_selected, is_grabbed)
+        })
+        .collect();
+    SelectableListProps {
+        title: "Agents".to_string(),
+        rows,
+        focused,
+        empty_message: None,
+        colors,
+        selection,
+        pane: SelectablePane::AgentList,
+        border: ListBorder::RoundFocusedColor,
+        content_padding: true,
+        selection_style: SelectionStyle::BrightSelected,
     }
 }

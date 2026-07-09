@@ -8,25 +8,28 @@
 //! Pseudocode reference: component-002 lines 01-35
 
 mod attach;
+mod attach_scheduler;
 mod commands;
 mod errors;
 mod liveness;
 mod manager;
 mod preflight;
 mod session;
+mod socket;
 
+pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use errors::RuntimeError;
-pub use liveness::{check_remote_session_alive, check_session_alive};
+pub use liveness::{check_remote_session_alive, check_session_alive, pid_alive};
 pub use manager::{LivenessCheck, RuntimeManager, StubRuntimeManager, TmuxRuntimeManager};
 pub use preflight::{
     PreflightAction, PreflightIssue, execute_preflight_action, platform_engine_diagnostic,
     sandbox_preflight, sandbox_ssh_agent_warning,
 };
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
+pub use socket::jefe_tmux_socket_path;
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used)]
     use std::path::PathBuf;
 
     use super::*;
@@ -49,11 +52,14 @@ mod tests {
             remote: crate::domain::RemoteRepositorySettings::default(),
         };
 
-        mgr.spawn_session(&agent_id, &work_dir, &signature)
-            .expect("spawn should succeed");
+        if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
+            panic!("spawn should succeed: {error}");
+        }
         assert!(mgr.is_alive(&agent_id));
 
-        mgr.attach(&agent_id).expect("attach should succeed");
+        if let Err(error) = mgr.attach(&agent_id) {
+            panic!("attach should succeed: {error}");
+        }
         assert_eq!(mgr.attached_agent(), Some(&agent_id));
     }
 
@@ -74,9 +80,12 @@ mod tests {
             remote: crate::domain::RemoteRepositorySettings::default(),
         };
 
-        mgr.spawn_session(&agent_id, &work_dir, &signature)
-            .expect("spawn should succeed");
-        mgr.kill(&agent_id).expect("kill should succeed");
+        if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
+            panic!("spawn should succeed: {error}");
+        }
+        if let Err(error) = mgr.kill(&agent_id) {
+            panic!("kill should succeed: {error}");
+        }
         assert!(!mgr.is_alive(&agent_id));
     }
 
@@ -104,8 +113,9 @@ mod tests {
             remote: crate::domain::RemoteRepositorySettings::default(),
         };
 
-        mgr.spawn_session(&agent_id, &work_dir, &signature)
-            .expect("first spawn should succeed");
+        if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
+            panic!("first spawn should succeed: {error}");
+        }
         let result = mgr.spawn_session(&agent_id, &work_dir, &signature);
         assert!(result.is_err());
     }
@@ -127,8 +137,9 @@ mod tests {
             remote: crate::domain::RemoteRepositorySettings::default(),
         };
 
-        mgr.spawn_session_fresh(&agent_id, &work_dir, &signature)
-            .expect("fresh spawn should succeed");
+        if let Err(error) = mgr.spawn_session_fresh(&agent_id, &work_dir, &signature) {
+            panic!("fresh spawn should succeed: {error}");
+        }
         assert!(mgr.is_alive(&agent_id));
 
         let duplicate = mgr.spawn_session_fresh(&agent_id, &work_dir, &signature);

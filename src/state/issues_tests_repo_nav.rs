@@ -2,16 +2,28 @@ use crate::domain::{Issue, IssueDetail, IssueState, Repository, RepositoryId};
 use crate::state::AppState;
 use crate::state::types::{AppEvent, IssueFocus, PaneFocus, ScreenMode};
 
+fn dashboard_issues_state() -> AppState {
+    AppState {
+        screen_mode: ScreenMode::DashboardIssues,
+        ..AppState::default()
+    }
+}
+
 /// Helper to create a test issue with the given number.
 fn make_test_issue(number: u64) -> Issue {
     Issue {
         number,
-        title: format!("Test Issue #{}", number),
+        title: format!("Test Issue #{number}"),
         state: IssueState::Open,
         author_login: "testuser".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
-        assignee_summary: "".to_string(),
-        labels_summary: "".to_string(),
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
+        assignees: Vec::new(),
+        labels: Vec::new(),
+        issue_type: String::new(),
+        milestone: String::new(),
+        module: String::new(),
         comment_count: 0,
         body: String::new(),
     }
@@ -22,7 +34,7 @@ fn make_detail(number: u64) -> IssueDetail {
     IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number,
-        title: format!("Issue #{}", number),
+        title: format!("Issue #{number}"),
         state: IssueState::Open,
         author_login: "user".to_string(),
         created_at: "2024-01-01T00:00:00Z".to_string(),
@@ -31,7 +43,7 @@ fn make_detail(number: u64) -> IssueDetail {
         assignees: vec![],
         milestone: None,
         body: "Issue body".to_string(),
-        external_url: format!("https://github.com/owner/repo/issues/{}", number),
+        external_url: format!("https://github.com/owner/repo/issues/{number}"),
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
@@ -44,7 +56,7 @@ fn make_detail(number: u64) -> IssueDetail {
 /// RepoList focus should still navigate between repositories.
 #[test]
 fn test_issues_repo_navigation_independent_of_pane_focus() {
-    let mut state = AppState::default();
+    let mut state = dashboard_issues_state();
     state.repositories.push(Repository::new(
         RepositoryId("r1".to_string()),
         "R1".to_string(),
@@ -64,7 +76,6 @@ fn test_issues_repo_navigation_independent_of_pane_focus() {
         std::path::PathBuf::from("/tmp/r3"),
     ));
     state.selected_repository_index = Some(0);
-    state.screen_mode = ScreenMode::DashboardIssues;
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::RepoList;
 
@@ -75,7 +86,7 @@ fn test_issues_repo_navigation_independent_of_pane_focus() {
     let state = state.apply(AppEvent::IssuesNavigateDown);
     assert_eq!(state.selected_repository_index, Some(1));
     assert!(
-        state.issues_state.list_loading,
+        state.issues_state.loading.list,
         "issues should reload for new repo"
     );
 
@@ -91,7 +102,7 @@ fn test_issues_repo_navigation_independent_of_pane_focus() {
     let state = state.apply(AppEvent::IssuesNavigateUp);
     assert_eq!(state.selected_repository_index, Some(1));
     assert!(
-        state.issues_state.list_loading,
+        state.issues_state.loading.list,
         "issues should reload for new repo"
     );
 
@@ -107,7 +118,7 @@ fn test_issues_repo_navigation_independent_of_pane_focus() {
 /// Issue #47: Navigating repos in issues mode with pane_focus=Terminal.
 #[test]
 fn test_issues_repo_navigation_with_terminal_focus() {
-    let mut state = AppState::default();
+    let mut state = dashboard_issues_state();
     state.repositories.push(Repository::new(
         RepositoryId("r1".to_string()),
         "R1".to_string(),
@@ -121,7 +132,6 @@ fn test_issues_repo_navigation_with_terminal_focus() {
         std::path::PathBuf::from("/tmp/r2"),
     ));
     state.selected_repository_index = Some(0);
-    state.screen_mode = ScreenMode::DashboardIssues;
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::RepoList;
     state.pane_focus = PaneFocus::Terminal;
@@ -133,7 +143,7 @@ fn test_issues_repo_navigation_with_terminal_focus() {
 /// Issue #47: Repo change in issues mode resets issues state (clears list, detail, etc.).
 #[test]
 fn test_issues_repo_navigation_resets_issues_state() {
-    let mut state = AppState::default();
+    let mut state = dashboard_issues_state();
     state.repositories.push(Repository::new(
         RepositoryId("r1".to_string()),
         "R1".to_string(),
@@ -147,13 +157,12 @@ fn test_issues_repo_navigation_resets_issues_state() {
         std::path::PathBuf::from("/tmp/r2"),
     ));
     state.selected_repository_index = Some(0);
-    state.screen_mode = ScreenMode::DashboardIssues;
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::RepoList;
     state.issues_state.issues = vec![make_test_issue(1), make_test_issue(2)];
     state.issues_state.selected_issue_index = Some(1);
     state.issues_state.issue_detail = Some(make_detail(1));
-    state.issues_state.list_loading = false;
+    state.issues_state.loading.list = false;
     state.pane_focus = PaneFocus::Agents;
 
     let state = state.apply(AppEvent::IssuesNavigateDown);
@@ -168,7 +177,7 @@ fn test_issues_repo_navigation_resets_issues_state() {
         "detail should be cleared"
     );
     assert!(
-        state.issues_state.list_loading,
+        state.issues_state.loading.list,
         "list_loading should be set for new fetch"
     );
 }

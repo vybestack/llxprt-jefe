@@ -4,6 +4,8 @@
 //! @requirement REQ-FUNC-002
 
 pub mod dashboard_navigation;
+pub mod dashboard_reorder;
+pub mod dashboard_reorder_tui;
 pub mod forms_and_modals;
 pub mod help_search_behavior;
 pub mod input_mode_behavior;

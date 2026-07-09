@@ -1,166 +1,19 @@
 //! State types: structs, enums, and field definitions.
 
+use std::time::Instant;
+
 use crate::domain::{AgentId, AgentStatus, LaunchSignature, RepositoryId};
 use crate::runtime::PreflightIssue;
 
-/// Form fields for creating/editing an agent.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct AgentFormFields {
-    pub shortcut_slot: Option<u8>,
-    pub name: String,
-    pub description: String,
-    pub work_dir: String,
-    pub profile: String,
-    pub mode: String,
-    pub llxprt_debug: String,
-    pub pass_continue: bool,
-    pub sandbox_enabled: bool,
-    pub sandbox_engine: String,
-    pub sandbox_flags: String,
-}
+// @plan PLAN-20260624-PR-MODE.P03
+#[path = "pr_types.rs"]
+mod pr_types;
+pub use pr_types::*;
 
-/// Cursor positions for editable agent form text fields.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct AgentFormCursor {
-    pub name: usize,
-    pub description: usize,
-    pub work_dir: usize,
-    pub profile: usize,
-    pub mode: usize,
-    pub llxprt_debug: usize,
-    pub sandbox_flags: usize,
-}
-
-/// Which field is focused in the agent form.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum AgentFormFocus {
-    #[default]
-    Shortcut,
-    Name,
-    Description,
-    WorkDir,
-    Profile,
-    Mode,
-    LlxprtDebug,
-    PassContinue,
-    Sandbox,
-    SandboxEngine,
-    SandboxFlags,
-}
-
-impl AgentFormFocus {
-    /// Move to next field.
-    #[must_use]
-    pub fn next(self) -> Self {
-        match self {
-            Self::Shortcut => Self::Name,
-            Self::Name => Self::Description,
-            Self::Description => Self::WorkDir,
-            Self::WorkDir => Self::Profile,
-            Self::Profile => Self::Mode,
-            Self::Mode => Self::LlxprtDebug,
-            Self::LlxprtDebug => Self::PassContinue,
-            Self::PassContinue => Self::Sandbox,
-            Self::Sandbox => Self::SandboxEngine,
-            Self::SandboxEngine => Self::SandboxFlags,
-            Self::SandboxFlags => Self::Shortcut,
-        }
-    }
-
-    /// Move to previous field.
-    #[must_use]
-    pub fn prev(self) -> Self {
-        match self {
-            Self::Shortcut => Self::SandboxFlags,
-            Self::Name => Self::Shortcut,
-            Self::Description => Self::Name,
-            Self::WorkDir => Self::Description,
-            Self::Profile => Self::WorkDir,
-            Self::Mode => Self::Profile,
-            Self::LlxprtDebug => Self::Mode,
-            Self::PassContinue => Self::LlxprtDebug,
-            Self::Sandbox => Self::PassContinue,
-            Self::SandboxEngine => Self::Sandbox,
-            Self::SandboxFlags => Self::SandboxEngine,
-        }
-    }
-}
-
-/// Form fields for creating/editing a repository.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RepositoryFormFields {
-    pub name: String,
-    pub base_dir: String,
-    pub default_profile: String,
-    /// GitHub repository slug in `"owner/repo"` format.
-    pub github_repo: String,
-    pub remote_enabled: bool,
-    pub login_user: String,
-    pub host: String,
-    pub run_as_user: String,
-    pub setup_env_default: bool,
-}
-
-/// Cursor positions for repository form text fields.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RepositoryFormCursor {
-    pub name: usize,
-    pub base_dir: usize,
-    pub default_profile: usize,
-    pub github_repo: usize,
-    pub login_user: usize,
-    pub host: usize,
-    pub run_as_user: usize,
-}
-
-/// Which field is focused in the repository form.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum RepositoryFormFocus {
-    #[default]
-    Name,
-    BaseDir,
-    DefaultProfile,
-    GitHubRepo,
-    RemoteEnabled,
-    LoginUser,
-    Host,
-    RunAsUser,
-    SetupEnvDefault,
-}
-
-impl RepositoryFormFocus {
-    /// Move to next field.
-    #[must_use]
-    pub fn next(self) -> Self {
-        match self {
-            Self::Name => Self::BaseDir,
-            Self::BaseDir => Self::DefaultProfile,
-            Self::DefaultProfile => Self::GitHubRepo,
-            Self::GitHubRepo => Self::RemoteEnabled,
-            Self::RemoteEnabled => Self::LoginUser,
-            Self::LoginUser => Self::Host,
-            Self::Host => Self::RunAsUser,
-            Self::RunAsUser => Self::SetupEnvDefault,
-            Self::SetupEnvDefault => Self::Name,
-        }
-    }
-
-    /// Move to previous field.
-    #[must_use]
-    pub fn prev(self) -> Self {
-        match self {
-            Self::Name => Self::SetupEnvDefault,
-            Self::BaseDir => Self::Name,
-            Self::DefaultProfile => Self::BaseDir,
-            Self::GitHubRepo => Self::DefaultProfile,
-            Self::RemoteEnabled => Self::GitHubRepo,
-            Self::LoginUser => Self::RemoteEnabled,
-            Self::Host => Self::LoginUser,
-            Self::RunAsUser => Self::Host,
-            Self::SetupEnvDefault => Self::RunAsUser,
-        }
-    }
-}
+// Form-field types extracted to keep this file under the length limit.
+#[path = "form_types.rs"]
+mod form_types;
+pub use form_types::*;
 
 /// Modal/form state variants.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -233,6 +86,17 @@ pub enum ModalState {
         /// Placeholder for future multi-issue handling.
         remaining_issues: Vec<PreflightIssue>,
     },
+    /// Issue send: the working copy has uncommitted changes (excluding
+    /// jefe/llxprt-owned paths). Prompt the user to discard them before
+    /// the issue-driven launch proceeds. The default is no/halt; the
+    /// user must explicitly opt in (Enter) before destructive cleanup.
+    /// Escape (or `n`) aborts and leaves the working copy untouched.
+    ConfirmIssueDirtyCopy {
+        agent_id: AgentId,
+        work_dir: std::path::PathBuf,
+        signature: LaunchSignature,
+        payload: crate::github::SendPayload,
+    },
 }
 
 /// Screen mode variants.
@@ -244,6 +108,10 @@ pub enum ScreenMode {
     /// @plan PLAN-20260329-ISSUES-MODE.P03
     /// @requirement REQ-ISS-001
     DashboardIssues,
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-001
+    /// @pseudocode component-001 lines 66-76
+    DashboardPullRequests,
 }
 
 /// Pane focus within a view.
@@ -253,6 +121,38 @@ pub enum PaneFocus {
     Repositories,
     Agents,
     Terminal,
+}
+
+/// In-progress dashboard reorder ("grab") target — tracks the visible-index
+/// position of the grabbed item so arrow-move stays within the filtered/visible set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DashboardGrabPane {
+    /// Grabbing a repository at the given visible-index position.
+    Repository { visible_index: usize },
+    /// Grabbing an agent at the given local visible-index position within its repository.
+    ///
+    /// The `repository_id` is captured at grab time so the grab stays bound to
+    /// the repository that was selected when Space was pressed — even if the
+    /// selected repository changes (e.g. via a shortcut jump) while the grab
+    /// is active.
+    Agent {
+        repository_id: RepositoryId,
+        local_index: usize,
+    },
+}
+
+/// Bookkeeping for the rapid `qqq` quit sequence.
+///
+/// Held in [`AppState`] so the count survives across key events. It is reset
+/// on the inter-press timeout, on any non-`q` key, and whenever a quit fires.
+/// The decision logic lives in `crate::input::observe_quit_sequence`; this type
+/// only stores the accumulated state. Runtime-only — never persisted.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct QuitSequenceState {
+    /// Consecutive rapid `q` presses accumulated toward the quit threshold.
+    pub presses: u8,
+    /// Instant of the most recent `q`, used to enforce the inter-press window.
+    pub last_press: Option<Instant>,
 }
 
 /// Application state - single source of truth.
@@ -273,12 +173,20 @@ pub struct AppState {
     pub terminal_focused: bool,
     pub hide_idle_repositories: bool,
 
+    /// Agent IDs that were just killed and should remain visible in active-only
+    /// mode until the user navigates away. Runtime-only — not persisted.
+    pub sticky_dead_agent_ids: std::collections::HashSet<crate::domain::AgentId>,
+
     // Modal/form state
     pub modal: ModalState,
 
     // Split mode state
     pub split_filter: Option<RepositoryId>,
     pub split_grab_index: Option<usize>,
+
+    /// Active dashboard reorder grab (Space to grab, arrows to move, Space/Enter to drop).
+    /// Transient interaction state — not persisted (like split_grab_index).
+    pub dashboard_grab: Option<DashboardGrabPane>,
 
     // Errors/warnings
     pub error_message: Option<String>,
@@ -288,6 +196,22 @@ pub struct AppState {
     /// @plan PLAN-20260329-ISSUES-MODE.P03
     /// @requirement REQ-ISS-001
     pub issues_state: IssuesState,
+
+    // PR mode state (runtime-only — omitted from persisted DTO, same as issues_state)
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-001
+    pub prs_state: PullRequestsState,
+
+    /// Rapid `qqq` quit-sequence bookkeeping. Runtime-only — never persisted.
+    pub quit_sequence: QuitSequenceState,
+
+    /// Active mouse text-selection, if any. Runtime-only — never persisted.
+    ///
+    /// Set by the app-shell mouse router when the user drag-selects text in any
+    /// pane (or in the terminal snapshot when unfocused). Cleared on Escape or
+    /// when a new selection begins. Used by the renderers to paint an
+    /// inverse-video highlight over the selected cells.
+    pub selection: Option<crate::selection::TextSelection>,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -343,6 +267,12 @@ pub enum ComposerTarget {
         comment_index: usize,
         author: String,
     },
+    /// Reply to a PR review thread (issue #119). `thread_index` is the flat
+    /// index across all reviews' threads, matching `PrDetailSubfocus::ReviewThread`.
+    ReplyToReviewThread {
+        thread_index: usize,
+        author: String,
+    },
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -378,7 +308,6 @@ pub struct PriorAgentFocus {
 /// @pseudocode component-001 lines 33-40
 /// Aggregate state for Issues Mode.
 #[derive(Debug, Clone, Default)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct IssuesState {
     pub active: bool,
     pub issues: Vec<crate::domain::Issue>,
@@ -387,9 +316,7 @@ pub struct IssuesState {
     pub committed_filter: crate::domain::IssueFilter,
     pub draft_filter: crate::domain::IssueFilter,
     pub search_query: String,
-    pub list_loading: bool,
-    pub detail_loading: bool,
-    pub comments_loading: bool,
+    pub loading: IssueLoadingState,
     pub list_cursor: Option<String>,
     pub has_more_issues: bool,
     pub error: Option<String>,
@@ -397,73 +324,139 @@ pub struct IssuesState {
     pub detail_subfocus: DetailSubfocus,
     /// Scroll offset (in lines) for the detail pane viewport.
     pub detail_scroll_offset: usize,
+    /// Last rendered detail viewport height in rows.
+    pub detail_viewport_rows: usize,
     pub inline_state: InlineState,
     pub agent_chooser: Option<AgentChooserState>,
-    pub filter_controls_open: bool,
-    /// Index of the currently focused filter field (0=state, 1=author, 2=assignee, 3=labels, 4=query_text).
-    pub filter_field_index: usize,
-    /// Raw labels text while editing (preserves trailing commas). Parsed into Vec on apply.
-    pub draft_labels_text: String,
+    pub filter_ui: IssueFilterUiState,
     pub search_input_focused: bool,
     pub prior_agent_focus: Option<PriorAgentFocus>,
     pub draft_notice: Option<String>,
+    pub mutation_pending: Option<IssueMutationPending>,
+    pub next_mutation_id: u64,
+    pub list_reload_pending: Option<IssueListReloadPending>,
+    pub next_issue_list_request_id: u64,
+    pub list_page_pending: Option<IssueListPagePending>,
+    pub detail_pending: Option<IssueDetailPending>,
+    pub next_issue_detail_request_id: u64,
+    pub comments_page_pending: Option<IssueCommentsPagePending>,
+    pub next_comments_page_request_id: u64,
 }
 
-/// Layout constants matching issue_detail.rs.
-const DETAIL_HEADER_ROWS: usize = 5;
-const DETAIL_CHROME_ROWS: usize = 4;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueListReloadPending {
+    pub scope_repo_id: RepositoryId,
+    pub filter: crate::domain::IssueFilter,
+    pub request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueListPagePending {
+    pub scope_repo_id: RepositoryId,
+    pub filter: crate::domain::IssueFilter,
+    pub cursor: Option<String>,
+    pub request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueDetailPending {
+    pub scope_repo_id: RepositoryId,
+    pub issue_number: u64,
+    pub request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueCommentsPagePending {
+    pub scope_repo_id: RepositoryId,
+    pub issue_number: u64,
+    pub cursor: Option<String>,
+    pub request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueMutationPending {
+    pub scope_repo_id: RepositoryId,
+    pub id: u64,
+    pub target: InlineState,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct IssueLoadingState {
+    pub list: bool,
+    pub detail: bool,
+    pub comments: bool,
+}
+
+pub const ISSUE_FILTER_FIELD_COUNT: usize = 8;
+
+#[derive(Debug, Clone, Default)]
+pub struct IssueFilterUiState {
+    pub controls_open: bool,
+    /// Index of the currently focused filter field (0=state, 1=author, 2=assignee, 3=labels, 4=type, 5=milestone, 6=module, 7=query_text).
+    pub field_index: usize,
+    /// Raw labels text while editing (preserves trailing commas). Parsed into Vec on apply.
+    pub draft_labels_text: String,
+}
 
 impl IssuesState {
-    /// Compute the scroll viewport rows dynamically from terminal height,
-    /// matching the same formula used by `IssueDetailView`.
-    fn detail_viewport_rows() -> usize {
-        let term_rows = crossterm::terminal::size().map_or(40, |(_, h)| h as usize);
-        let workspace_rows = term_rows.saturating_sub(DETAIL_CHROME_ROWS);
-        let list_rows = workspace_rows * 3 / 10;
-        let detail_pane_rows = workspace_rows.saturating_sub(list_rows);
-        detail_pane_rows
-            .saturating_sub(DETAIL_HEADER_ROWS + 2)
-            .max(5)
+    /// Count the number of rendered content lines for the current detail view.
+    #[must_use]
+    pub fn detail_content_line_count(&self) -> usize {
+        let Some(detail) = &self.issue_detail else {
+            return 0;
+        };
+
+        crate::issue_detail_content::detail_content_line_count(
+            detail,
+            &self.inline_state,
+            self.loading.comments,
+        )
     }
 
     /// Maximum scroll offset so the last line of content sits at the bottom of the viewport.
     /// Returns 0 when content fits entirely within the viewport (no scrolling needed).
     #[must_use]
     pub fn max_detail_scroll_offset(&self) -> usize {
-        let Some(detail) = &self.issue_detail else {
+        let viewport_rows = if self.detail_viewport_rows == 0 {
+            crate::layout::detail_viewport_rows(40)
+        } else {
+            self.detail_viewport_rows
+        };
+        self.max_detail_scroll_offset_for_viewport(viewport_rows)
+    }
+
+    /// Maximum detail scroll offset for a caller-provided viewport row count.
+    #[must_use]
+    pub fn max_detail_scroll_offset_for_viewport(&self, viewport_rows: usize) -> usize {
+        if self.issue_detail.is_none() {
             return 0;
-        };
-
-        let viewport = Self::detail_viewport_rows();
-
-        // Estimate content lines to match build_detail_content() in issue_detail.rs:
-        //   Body section: 1 (label) + body lines + 1 (separator)
-        //   Comments section: 1 (header) + per-comment (1 author + body lines + 1 blank)
-        //   New Comment section: 1 (label) + 1 (hint)
-        let body_lines = if detail.body.is_empty() {
-            1
-        } else {
-            detail.body.lines().count()
-        };
-        let mut total = 1 + body_lines + 1; // body label + body + separator
-
-        total += 1; // "Comments" header
-        if detail.comments.is_empty() {
-            total += 1; // "No comments yet."
-        } else {
-            for c in &detail.comments {
-                let c_lines = if c.body.is_empty() {
-                    1
-                } else {
-                    c.body.lines().count()
-                };
-                total += 1 + c_lines + 1; // author + body + blank
-            }
         }
+        let composer_active = matches!(
+            self.inline_state,
+            InlineState::Composer {
+                target: ComposerTarget::NewComment | ComposerTarget::Reply { .. },
+                ..
+            }
+        );
+        self.detail_content_line_count().saturating_sub(
+            crate::layout::issue_detail_document_viewport_rows(viewport_rows, composer_active),
+        )
+    }
 
-        total += 2; // new comment label + hint
-
-        total.saturating_sub(viewport)
+    /// Maximum detail scroll offset for the Issues-mode layout bands currently
+    /// visible in the UI.
+    #[must_use]
+    pub fn max_detail_scroll_offset_for_layout(
+        &self,
+        term_rows: usize,
+        error_visible: bool,
+        filter_controls_open: bool,
+    ) -> usize {
+        self.max_detail_scroll_offset_for_viewport(crate::layout::issues_detail_viewport_rows(
+            term_rows,
+            error_visible,
+            filter_controls_open,
+        ))
     }
 }
 
@@ -494,6 +487,12 @@ pub enum AppEvent {
     GrabMoveDown,
     SetSplitFilter(Option<RepositoryId>),
 
+    // Dashboard reorder grab (Space to grab, arrows to move, Space/Enter to drop)
+    EnterDashboardGrab,
+    ExitDashboardGrab,
+    DashboardGrabMoveUp,
+    DashboardGrabMoveDown,
+
     // Modal/form actions
     OpenHelp,
     OpenSearch,
@@ -522,6 +521,9 @@ pub enum AppEvent {
     // Lifecycle
     KillAgent(AgentId),
     RelaunchAgent(AgentId),
+    /// Kill and relaunch an agent in one action (Ctrl-r). Surfaces an error
+    /// if any step fails rather than silently dropping the agent (issue #117).
+    RestartAgent(AgentId),
     AgentStatusChanged(AgentId, AgentStatus),
 
     // Persistence results
@@ -543,7 +545,7 @@ pub enum AppEvent {
     ThemePickerNavigateUp,
     ThemePickerNavigateDown,
     /// Confirm the current theme-picker selection. Payload: the selected slug.
-    ThemePickerConfirm(String),
+    ThemePickerConfirm,
     CloseThemePicker,
 
     // System
@@ -578,16 +580,24 @@ pub enum AppEvent {
     // Issue Data Loading
     IssueListLoaded {
         scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::IssueFilter>,
+        request_id: u64,
         issues: Vec<crate::domain::Issue>,
         cursor: Option<String>,
         has_more: bool,
     },
     IssueListLoadFailed {
         scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::IssueFilter>,
+        request_id: u64,
+        request_cursor: Option<String>,
         error: String,
     },
     IssueListPageLoaded {
         scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::IssueFilter>,
+        request_id: u64,
+        request_cursor: Option<String>,
         issues: Vec<crate::domain::Issue>,
         cursor: Option<String>,
         has_more: bool,
@@ -595,16 +605,20 @@ pub enum AppEvent {
     IssueDetailLoaded {
         scope_repo_id: RepositoryId,
         issue_number: u64,
+        request_id: u64,
         detail: Box<crate::domain::IssueDetail>,
     },
     IssueDetailLoadFailed {
         scope_repo_id: RepositoryId,
         issue_number: u64,
+        request_id: u64,
         error: String,
     },
     IssueCommentsPageLoaded {
         scope_repo_id: RepositoryId,
         issue_number: u64,
+        request_id: u64,
+        request_cursor: Option<String>,
         comments: Vec<crate::domain::IssueComment>,
         cursor: Option<String>,
         has_more: bool,
@@ -612,6 +626,8 @@ pub enum AppEvent {
     IssueCommentsPageFailed {
         scope_repo_id: RepositoryId,
         issue_number: u64,
+        request_id: u64,
+        request_cursor: Option<String>,
         error: String,
     },
 
@@ -620,6 +636,7 @@ pub enum AppEvent {
     CloseFilterControls,
     ApplyFilter,
     ClearFilter,
+    ClearDraftFilter,
     FilterNavigateNext,
     FilterNavigatePrev,
     CycleFilterState,
@@ -654,20 +671,46 @@ pub enum AppEvent {
     InlineCursorDown,
     InlineSubmit,
     InlineCancelOrEsc,
+    MutationSubmitted {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        target: InlineState,
+    },
+    IssueCreated {
+        scope_repo_id: RepositoryId,
+        mutation_id: u64,
+        issue_number: u64,
+    },
     CommentCreated {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
         comment: crate::domain::IssueComment,
     },
     CommentCreateFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
         error: String,
     },
     IssueBodyUpdated {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
         body: String,
     },
     CommentUpdated {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
+        comment_id: u64,
         comment_index: usize,
         body: String,
     },
     MutationFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: Option<u64>,
+        mutation_id: Option<u64>,
         error: String,
     },
 
@@ -679,6 +722,252 @@ pub enum AppEvent {
     AgentChooserCancel,
     SendToAgentCompleted,
     SendToAgentFailed {
+        error: String,
+    },
+
+    // ---- Pull Requests Mode events (additive) ----
+    // @plan PLAN-20260624-PR-MODE.P03
+    // @requirement REQ-PR-001
+
+    // PR Lifecycle
+    /// @pseudocode component-001 lines 66-87
+    EnterPrsMode,
+    ExitPrsMode,
+    RefocusPrList,
+
+    // PR Navigation / Focus
+    /// @pseudocode component-001 lines 99-162
+    PrNavigateUp,
+    PrNavigateDown,
+    PrNavigatePageUp,
+    PrNavigatePageDown,
+    PrNavigateHome,
+    PrNavigateEnd,
+    PrListEnter,
+    PrCycleFocus,
+    PrCycleFocusReverse,
+    PrScrollDetailUp,
+    PrScrollDetailDown,
+    PrScrollDetailPageUp,
+    PrScrollDetailPageDown,
+    PrDetailSubfocusNext,
+    PrDetailSubfocusPrev,
+
+    // PR Data Loading
+    /// @pseudocode component-001 lines 209-247
+    PrListLoaded {
+        scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::PrFilter>,
+        request_id: u64,
+        pull_requests: Vec<crate::domain::PullRequest>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    PrListLoadFailed {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+        error: String,
+    },
+    PrListPageLoaded {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+        pull_requests: Vec<crate::domain::PullRequest>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    /// Silent background refresh succeeded (issue #128). Like `PrListLoaded`
+    /// but preserves selection/scroll and does NOT flash the loading spinner.
+    PrListSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::PrFilter>,
+        request_id: u64,
+        pull_requests: Vec<crate::domain::PullRequest>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    /// Silent background refresh failed (issue #128). Clears the pending marker
+    /// WITHOUT surfacing an error (background failures are non-disruptive).
+    PrListSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+    },
+    PrDetailLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        detail: Box<crate::domain::PullRequestDetail>,
+    },
+    PrDetailLoadFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        error: String,
+    },
+    /// Silent background detail refresh succeeded (issue #128). Like
+    /// `PrDetailLoaded` but does NOT set `loading.detail` and preserves
+    /// `detail_subfocus` and `detail_scroll_offset`.
+    PrDetailSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        detail: Box<crate::domain::PullRequestDetail>,
+    },
+    /// Silent background detail refresh failed (issue #128). Clears
+    /// `detail_pending` silently WITHOUT setting `loading.detail` or an error.
+    PrDetailSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+    },
+    PrCommentsPageLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        comments: Vec<crate::domain::IssueComment>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    PrCommentsPageFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        request_id: u64,
+        error: String,
+    },
+
+    // PR Filter / Search
+    /// @pseudocode component-001 lines 249-291
+    PrOpenFilterControls,
+    PrCloseFilterControls,
+    PrApplyFilter,
+    PrClearFilter,
+    PrFilterNavigateNext,
+    PrFilterNavigatePrev,
+    PrCycleFilterState,
+    PrCycleDraftFilter,
+    PrCycleReviewFilter,
+    PrCycleChecksFilter,
+    PrUpdateDraftFilter {
+        field: String,
+        value: String,
+    },
+    PrFocusSearchInput,
+    PrBlurSearchInput,
+    PrSetSearchQuery {
+        query: String,
+    },
+    PrApplySearch,
+    PrClearSearch,
+
+    // PR Inline Mutation
+    /// @pseudocode component-001 lines 292-330
+    PrOpenNewCommentComposer,
+    PrOpenReplyComposer {
+        comment_index: usize,
+    },
+    PrInlineChar(char),
+    PrInlineNewline,
+    PrInlineBackspace,
+    PrInlineDelete,
+    PrInlineCursorLeft,
+    PrInlineCursorRight,
+    PrInlineCursorUp,
+    PrInlineCursorDown,
+    PrInlineSubmit,
+    PrInlineCancelOrEsc,
+    PrCommentCreated {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        comment: crate::domain::IssueComment,
+    },
+    PrCommentCreateFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        error: String,
+    },
+    PrMutationFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        error: String,
+    },
+
+    // PR Read-Only Notice (REQ-PR-010/012/013)
+    /// @pseudocode component-003 lines 83-89
+    PrShowNotice(ReadOnlyHintKind),
+
+    // PR Open-in-Browser (REQ-PR-012)
+    /// @pseudocode component-001 lines 349-365
+    PrOpenInBrowser,
+    PrOpenedInBrowser {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+    },
+    PrOpenInBrowserFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        error: String,
+    },
+
+    // PR In-App Merge (issue #92)
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-009
+    PrOpenMergeChooser,
+    PrMergeNavigateUp,
+    PrMergeNavigateDown,
+    PrMergeConfirm,
+    PrMergeCancel,
+    PrMerged {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        method: crate::domain::MergeMethod,
+    },
+    PrMergeFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        mutation_id: u64,
+        error: String,
+    },
+    PrMergeMethodsLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        allowed_methods: Vec<crate::domain::MergeMethod>,
+    },
+
+    // PR Send-to-Agent
+    /// @pseudocode component-001 lines 331-343
+    PrOpenAgentChooser,
+    PrAgentChooserNavigateUp,
+    PrAgentChooserNavigateDown,
+    PrAgentChooserConfirm,
+    PrAgentChooserCancel,
+    PrSendToAgentCompleted,
+    PrSendToAgentFailed {
+        error: String,
+    },
+
+    // PR Review Threads (issue #119)
+    /// Open the inline reply composer for a review thread.
+    PrOpenThreadReplyComposer {
+        thread_index: usize,
+    },
+    /// Toggle resolve/unresolve on a focused review thread.
+    PrToggleThreadResolve {
+        thread_index: usize,
+    },
+    /// A review-thread resolve/unresolve mutation succeeded.
+    PrThreadResolveSucceeded {
+        scope_repo_id: RepositoryId,
+        thread_index: usize,
+        is_resolved: bool,
+        request_id: u64,
+    },
+    /// A review-thread resolve/unresolve mutation failed.
+    PrThreadResolveFailed {
+        scope_repo_id: RepositoryId,
+        thread_index: usize,
+        request_id: u64,
         error: String,
     },
 }

@@ -4,6 +4,15 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      run_tui_smoke:
+        description: Run optional tmux-backed TUI smoke scenario
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -39,50 +48,25 @@ jobs:
       - name: Run clippy (warnings as errors)
         run: rustup run stable cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  clippy_allow_policy:
+    name: Clippy allow policy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Block untracked clippy allow attributes
+        run: scripts/check-clippy-allows.sh
+
   source_file_size:
     name: Source file length checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Enforce source file length policy
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          hard_limit=1000
-          warning_limit=750
-
-          errors=0
-          warnings=0
-          found=0
-
-          while IFS= read -r file; do
-            found=1
-            lines=$(wc -l < "$file")
-            if [ "$lines" -gt "$hard_limit" ]; then
-              echo "ERROR: $file has $lines lines (max $hard_limit)"
-              errors=$((errors + 1))
-            elif [ "$lines" -gt "$warning_limit" ]; then
-              echo "WARNING: $file has $lines lines (recommended max $warning_limit)"
-              warnings=$((warnings + 1))
-            fi
-          done < <(
-            find src tests -type f -name '*.rs' | sort
-          )
-
-          if [ "$found" -eq 0 ]; then
-            echo "No Rust source files found under src/ or tests/."
-            exit 0
-          fi
-
-          if [ "$warnings" -gt 0 ]; then
-            echo "Emitted $warnings file length warning(s)."
-          fi
-
-          if [ "$errors" -gt 0 ]; then
-            echo "Found $errors file(s) exceeding the hard limit."
-            exit 1
-          fi
+        run: scripts/check-source-file-size.sh
 
   complexity:
     name: Complexity checks
@@ -135,7 +119,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [fmt, lint, source_file_size, complexity, coverage]
+    needs: [fmt, lint, clippy_allow_policy, source_file_size, complexity, coverage]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -157,3 +141,45 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test --workspace --all-features --locked
+
+  tui_smoke:
+    name: Optional TUI smoke (tmux)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_tui_smoke == 'true' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install tmux
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! { sudo apt-get update && sudo apt-get install -y tmux; }; then
+            echo "WARNING: tmux installation failed; smoke scenario will be skipped"
+          fi
+      - name: Run startup TUI smoke scenario
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v tmux >/dev/null 2>&1; then
+            echo "tmux unavailable after install attempt; skipping optional TUI smoke"
+            exit 0
+          fi
+          cargo build --locked --all-features --bin jefe --bin jefe-tmux-harness
+          config_dir="$(mktemp -d)"
+          mkdir -p target/tmux-harness/ci-startup
+          target/debug/jefe-tmux-harness \
+            --scenario dev-docs/tmux-scenarios/startup-quit.json \
+            --jefe-bin target/debug/jefe \
+            --config "$config_dir" \
+            --out-dir target/tmux-harness/ci-startup
+      - name: Upload TUI smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-smoke-artifacts
+          path: target/tmux-harness
+          if-no-files-found: ignore

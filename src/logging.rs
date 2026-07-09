@@ -6,6 +6,7 @@
 //!   Defaults to `info,jefe=debug` when omitted.
 
 use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
 
 use tracing_subscriber::EnvFilter;
@@ -32,10 +33,7 @@ pub fn init() {
     }
 
     let Ok(file) = OpenOptions::new().create(true).append(true).open(&path) else {
-        #[allow(clippy::print_stderr)]
-        {
-            eprintln!("Warning: Could not open log file: {}", path.display());
-        }
+        write_log_open_warning(&path);
         return;
     };
 
@@ -55,4 +53,14 @@ pub fn init() {
         .with_file(true)
         .with_line_number(true)
         .try_init();
+}
+
+fn write_log_open_warning(path: &std::path::Path) {
+    let stderr = std::io::stderr();
+    let mut handle = stderr.lock();
+    let _ = writeln!(
+        handle,
+        "Warning: Could not open log file: {}",
+        path.display()
+    );
 }

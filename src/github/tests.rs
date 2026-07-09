@@ -2,10 +2,28 @@ use crate::domain::{Issue, IssueComment, IssueDetail, IssueFilter, IssueFilterSt
 use crate::github::{
     GhClient, GhError, build_list_issues_args, categorize_error, parse_comments_json,
     parse_created_comment_json, parse_created_issue_json, parse_issue_detail_json,
-    parse_issues_json, sort_issues,
+    parse_issue_search_json, parse_issues_json, sort_issues,
 };
 
+trait TestResultExt<T> {
+    fn value_or_panic(self, context: &str) -> T;
+}
+
+impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
+    fn value_or_panic(self, context: &str) -> T {
+        match self {
+            Ok(value) => value,
+            Err(error) => panic!("{context}: {error:?}"),
+        }
+    }
+}
+
 // =============================================================================
+
+fn state_arg_is_open(args: &[String]) -> bool {
+    args.windows(2)
+        .any(|window| window[0] == "--state" && window[1] == "open")
+}
 // Error Categorization Tests
 // =============================================================================
 
@@ -68,7 +86,7 @@ fn test_list_issues_parses_json() {
         }
     ]"#;
 
-    let issues = parse_issues_json(json).expect("should parse valid JSON");
+    let issues = parse_issues_json(json).value_or_panic("should parse valid JSON");
     assert_eq!(issues.len(), 2);
     assert_eq!(issues[0].number, 17);
     assert_eq!(issues[0].title, "Create a feature list");
@@ -92,8 +110,13 @@ fn test_list_issues_sorts_by_updated_desc() {
             state: IssueState::Open,
             author_login: "alice".to_string(),
             updated_at: "2026-03-25T10:00:00Z".to_string(),
-            assignee_summary: "".to_string(),
-            labels_summary: "".to_string(),
+            assignee_summary: String::new(),
+            labels_summary: String::new(),
+            assignees: Vec::new(),
+            labels: Vec::new(),
+            issue_type: String::new(),
+            milestone: String::new(),
+            module: String::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -103,8 +126,13 @@ fn test_list_issues_sorts_by_updated_desc() {
             state: IssueState::Open,
             author_login: "bob".to_string(),
             updated_at: "2026-03-29T10:00:00Z".to_string(),
-            assignee_summary: "".to_string(),
-            labels_summary: "".to_string(),
+            assignee_summary: String::new(),
+            labels_summary: String::new(),
+            assignees: Vec::new(),
+            labels: Vec::new(),
+            issue_type: String::new(),
+            milestone: String::new(),
+            module: String::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -114,8 +142,13 @@ fn test_list_issues_sorts_by_updated_desc() {
             state: IssueState::Open,
             author_login: "charlie".to_string(),
             updated_at: "2026-03-29T10:00:00Z".to_string(),
-            assignee_summary: "".to_string(),
-            labels_summary: "".to_string(),
+            assignee_summary: String::new(),
+            labels_summary: String::new(),
+            assignees: Vec::new(),
+            labels: Vec::new(),
+            issue_type: String::new(),
+            milestone: String::new(),
+            module: String::new(),
             comment_count: 0,
             body: String::new(),
         },
@@ -139,11 +172,9 @@ fn test_list_issues_filter_args_construction() {
         query_text: "bug".to_string(),
         state: Some(IssueFilterState::Open),
         author: "acoliver".to_string(),
-        assignee: "".to_string(),
+        assignee: String::new(),
         labels: vec!["critical".to_string()],
-        mentioned: "".to_string(),
-        updated_before: "".to_string(),
-        updated_after: "".to_string(),
+        ..IssueFilter::default()
     };
 
     let args = build_list_issues_args("owner", "repo", &filter, None, 30);
@@ -152,10 +183,101 @@ fn test_list_issues_filter_args_construction() {
     assert!(args.iter().any(|a| a.contains("owner/repo")));
     assert!(args.iter().any(|a| a == "--json"));
     assert!(
-        args.iter().any(|a| a == "--state"
-            && args[args.iter().position(|x| x == "--state").unwrap() + 1] == "open")
+        args.iter()
+            .any(|a| a == "--state" && state_arg_is_open(&args))
     );
     assert!(args.iter().any(|a| a.contains("limit") || a == "-L"));
+}
+
+#[test]
+fn test_list_issues_args_omit_body_for_fast_first_paint() {
+    let args = build_list_issues_args("owner", "repo", &IssueFilter::default(), None, 30);
+    let json_fields = args
+        .windows(2)
+        .find_map(|pair| (pair[0] == "--json").then_some(pair[1].as_str()))
+        .unwrap_or_else(|| panic!("missing --json fields in args: {args:?}"));
+
+    assert_eq!(
+        json_fields,
+        "number,title,state,author,updatedAt,assignees,labels,milestone,comments"
+    );
+}
+
+#[test]
+fn test_parse_issue_search_json_pagination() {
+    let json = r#"{
+        "data": {
+            "search": {
+                "nodes": [
+                    {
+                        "number": 17,
+                        "title": "Create a feature list",
+                        "state": "OPEN",
+                        "author": {"login": "acoliver"},
+                        "updatedAt": "2026-03-29T10:00:00Z",
+
+                        "assignees": {"nodes": [{"login": "acoliver"}]},
+                        "labels": {"nodes": [{"name": "enhancement"}]},
+                        "comments": {"totalCount": 3},
+                        "body": "Issue body"
+                    }
+                ],
+                "pageInfo": {
+                    "hasNextPage": true,
+                    "endCursor": "cursor-1"
+                }
+            }
+        }
+    }"#;
+
+    let response = parse_issue_search_json(json).value_or_panic("should parse issue search");
+
+    assert_eq!(response.issues.len(), 1);
+    assert_eq!(response.issues[0].number, 17);
+    assert_eq!(response.cursor, Some("cursor-1".to_string()));
+    assert!(response.has_more);
+}
+
+#[test]
+fn test_parse_repository_issues_json_pagination() {
+    let json = r#"{
+        "data": {
+            "repository": {
+                "issues": {
+                    "nodes": [
+                        {
+                            "number": 21,
+                            "title": "Repository filtered issue",
+                            "state": "OPEN",
+                            "author": {"login": "alice"},
+                            "updatedAt": "2026-03-30T10:00:00Z",
+                            "assignees": {"nodes": []},
+                            "labels": {"nodes": [{"name": "module:ui"}]},
+                            "issueType": {"name": "Bug"},
+                            "milestone": {"title": "Sprint 1"},
+                            "comments": {"totalCount": 2}
+                        }
+                    ],
+                    "pageInfo": {
+                        "hasNextPage": true,
+                        "endCursor": "repo-cursor-1"
+                    }
+                }
+            }
+        }
+    }"#;
+
+    let response =
+        parse_issue_search_json(json).value_or_panic("should parse repository issues JSON");
+
+    assert_eq!(response.issues.len(), 1);
+    assert_eq!(response.issues[0].number, 21);
+
+    assert_eq!(response.issues[0].issue_type, "Bug");
+    assert_eq!(response.issues[0].milestone, "Sprint 1");
+    assert_eq!(response.issues[0].module, "ui");
+    assert_eq!(response.cursor.as_deref(), Some("repo-cursor-1"));
+    assert!(response.has_more);
 }
 
 /// Test 6: parse_issues_json handles empty result.
@@ -165,7 +287,7 @@ fn test_list_issues_filter_args_construction() {
 #[test]
 fn test_list_issues_empty_result() {
     let json = "[]";
-    let issues = parse_issues_json(json).expect("should parse empty array");
+    let issues = parse_issues_json(json).value_or_panic("should parse empty array");
     assert!(issues.is_empty());
 }
 
@@ -192,12 +314,13 @@ fn test_get_issue_detail_parses_json() {
                 "id": "IC_123",
                 "author": {"login": "bob"},
                 "createdAt": "2026-03-29T11:00:00Z",
+
                 "body": "Comment body"
             }
         ]
     }"#;
 
-    let detail = parse_issue_detail_json(json).expect("should parse detail JSON");
+    let detail = parse_issue_detail_json(json).value_or_panic("should parse detail JSON");
     assert_eq!(detail.number, 17);
     assert_eq!(detail.title, "Create a feature list");
     assert_eq!(detail.state, IssueState::Open);
@@ -214,6 +337,28 @@ fn test_get_issue_detail_parses_json() {
     assert_eq!(detail.comments.len(), 1);
     assert_eq!(detail.comments[0].body, "Comment body");
 }
+#[test]
+fn test_parse_issue_detail_json_disables_pagination_until_graphql_comments_are_loaded() {
+    let json = r#"{
+        "number": 17,
+        "title": "Create a feature list",
+        "state": "OPEN",
+        "author": {"login": "acoliver"},
+        "createdAt": "2026-03-28T10:00:00Z",
+        "updatedAt": "2026-03-29T10:00:00Z",
+        "labels": [],
+        "assignees": [],
+        "milestone": null,
+        "body": "Issue body text here",
+        "url": "https://github.com/owner/repo/issues/17",
+        "comments": []
+    }"#;
+
+    let detail = parse_issue_detail_json(json).value_or_panic("should parse detail JSON");
+
+    assert!(!detail.has_more_comments);
+    assert_eq!(detail.comments_cursor, None);
+}
 
 /// Test 8: parse_issue_detail_json handles missing milestone.
 /// @plan PLAN-20260329-ISSUES-MODE.P08
@@ -228,6 +373,7 @@ fn test_get_issue_detail_optional_milestone() {
         "author": {"login": "alice"},
         "createdAt": "2026-03-28T10:00:00Z",
         "updatedAt": "2026-03-29T10:00:00Z",
+
         "labels": [],
         "assignees": [],
         "milestone": {"title": "v1.0"},
@@ -251,8 +397,9 @@ fn test_get_issue_detail_optional_milestone() {
         "comments": []
     }"#;
 
-    let detail_with = parse_issue_detail_json(json_with_milestone).expect("should parse");
-    let detail_without = parse_issue_detail_json(json_without_milestone).expect("should parse");
+    let detail_with = parse_issue_detail_json(json_with_milestone).value_or_panic("should parse");
+    let detail_without =
+        parse_issue_detail_json(json_without_milestone).value_or_panic("should parse");
 
     assert_eq!(detail_with.milestone, Some("v1.0".to_string()));
     assert_eq!(detail_without.milestone, None);
@@ -295,7 +442,8 @@ fn test_list_comments_parses_json() {
         }
     }"#;
 
-    let (comments, cursor, has_more) = parse_comments_json(json).expect("should parse comments");
+    let (comments, cursor, has_more) =
+        parse_comments_json(json).value_or_panic("should parse comments");
     assert_eq!(comments.len(), 2);
     assert_eq!(comments[0].comment_id, 123);
     assert_eq!(comments[0].author_login, "alice");
@@ -308,6 +456,74 @@ fn test_list_comments_parses_json() {
     );
     assert_eq!(cursor, None);
     assert!(!has_more);
+}
+
+#[test]
+fn test_list_comments_parses_opaque_graphql_node_ids_with_database_id() {
+    let json = r#"{
+        "data": {
+            "repository": {
+                "issue": {
+                    "comments": {
+                        "nodes": [
+                            {
+                                "id": "IC_kwDORSOxIM75naWC",
+                                "databaseId": 4187858306,
+                                "author": {"login": "coderabbitai"},
+                                "createdAt": "2026-04-04T22:35:31Z",
+                                "lastEditedAt": null,
+                                "body": "Real GitHub node ids are opaque"
+                            }
+                        ],
+                        "pageInfo": {
+                            "hasNextPage": false,
+                            "endCursor": null
+                        }
+                    }
+                }
+            }
+        }
+    }"#;
+
+    let (comments, cursor, has_more) =
+        parse_comments_json(json).value_or_panic("should parse comments");
+
+    assert_eq!(comments.len(), 1);
+    assert_eq!(comments[0].comment_id, 4_187_858_306);
+    assert_eq!(comments[0].author_login, "coderabbitai");
+    assert_eq!(cursor, None);
+    assert!(!has_more);
+}
+
+#[test]
+fn test_issue_detail_comments_parse_opaque_node_id_from_url_fragment() {
+    let json = r#"{
+        "number": 39,
+        "title": "Issue mode follow-ups",
+        "state": "OPEN",
+        "author": {"login": "acoliver"},
+        "createdAt": "2026-04-04T22:00:00Z",
+        "updatedAt": "2026-04-04T22:35:31Z",
+        "labels": [],
+        "assignees": [],
+        "milestone": null,
+        "body": "Issue body",
+        "url": "https://github.com/vybestack/llxprt-jefe/issues/39",
+        "comments": [
+            {
+                "id": "IC_kwDORSOxIM75naWC",
+                "url": "https://github.com/vybestack/llxprt-jefe/issues/39#issuecomment-4187858306",
+                "author": {"login": "coderabbitai"},
+                "createdAt": "2026-04-04T22:35:31Z",
+                "body": "Real gh issue view comments have opaque ids and URL fragments"
+            }
+        ]
+    }"#;
+
+    let detail = parse_issue_detail_json(json).value_or_panic("should parse detail JSON");
+
+    assert_eq!(detail.comments.len(), 1);
+    assert_eq!(detail.comments[0].comment_id, 4_187_858_306);
 }
 
 /// Test 10: parse_comments_json extracts pagination info.
@@ -340,7 +556,7 @@ fn test_list_comments_pagination() {
         }
     }"#;
 
-    let (comments, cursor, has_more) = parse_comments_json(json).expect("should parse");
+    let (comments, cursor, has_more) = parse_comments_json(json).value_or_panic("should parse");
     assert_eq!(comments.len(), 1);
     assert_eq!(cursor, Some("Y3Vyc29yOnYyOpHOABcd".to_string()));
     assert!(has_more);
@@ -360,7 +576,7 @@ fn test_create_comment_success() {
         "body": "This is a new comment"
     }"#;
 
-    let comment = parse_created_comment_json(json).expect("should parse created comment");
+    let comment = parse_created_comment_json(json).value_or_panic("should parse created comment");
     assert_eq!(comment.comment_id, 999);
     assert_eq!(comment.author_login, "acoliver");
     assert_eq!(comment.body, "This is a new comment");
@@ -377,7 +593,7 @@ fn test_create_issue_success() {
         "body": "Issue body details"
     }"#;
 
-    let issue = parse_created_issue_json(json).expect("should parse created issue");
+    let issue = parse_created_issue_json(json).value_or_panic("should parse created issue");
     assert_eq!(issue.number, 45);
     assert_eq!(issue.title, "Create issue from issues mode");
     assert_eq!(issue.body, "Issue body details");
@@ -397,7 +613,7 @@ fn test_create_comment_rest_format() {
         "body": "test from jefe"
     }"#;
 
-    let comment = parse_created_comment_json(json).expect("should parse REST format");
+    let comment = parse_created_comment_json(json).value_or_panic("should parse REST format");
     assert_eq!(comment.comment_id, 4_185_047_845);
     assert_eq!(comment.author_login, "acoliver");
     assert_eq!(comment.body, "test from jefe");
@@ -555,4 +771,134 @@ fn test_error_categorization_access_denied() {
     let stderr = "HTTP 403: Resource not accessible by personal access token";
     let error = categorize_error(1, stderr);
     assert!(matches!(error, GhError::AccessDenied(_)));
+}
+
+/// Test 19: parse_issues_json supports direct array format for assignees/labels.
+/// Some `gh` CLI responses return bare arrays instead of GraphQL `{nodes:[...]}`.
+#[test]
+fn test_parse_issues_json_direct_array_assignees_labels() {
+    let json = r#"[
+        {
+            "number": 1,
+            "title": "Test",
+            "state": "OPEN",
+            "author": {"login": "alice"},
+            "updatedAt": "2026-03-29T10:00:00Z",
+            "assignees": [{"login": "bob"}, {"login": "carol"}],
+            "labels": [{"name": "bug"}],
+            "comments": {"totalCount": 0}
+        }
+    ]"#;
+
+    let issues = parse_issues_json(json).value_or_panic("should parse direct-array JSON");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].assignee_summary, "bob, carol");
+    assert_eq!(issues[0].labels_summary, "bug");
+}
+
+/// Test 20: parse_issues_json supports GraphQL nodes format for assignees/labels.
+#[test]
+fn test_parse_issues_json_graphql_nodes_assignees_labels() {
+    let json = r#"[
+        {
+            "number": 2,
+            "title": "GraphQL",
+            "state": "OPEN",
+            "author": {"login": "alice"},
+            "updatedAt": "2026-03-29T10:00:00Z",
+            "assignees": {"nodes": [{"login": "dave"}]},
+            "labels": {"nodes": [{"name": "enhancement"}, {"name": "module:ui"}]},
+            "issueType": {"name": "Bug"},
+            "milestone": {"title": "Sprint 1"},
+            "comments": {"totalCount": 0}
+        }
+    ]"#;
+
+    let issues = parse_issues_json(json).value_or_panic("should parse graphql-nodes JSON");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].assignee_summary, "dave");
+    assert_eq!(issues[0].labels_summary, "enhancement, module:ui");
+    assert_eq!(issues[0].issue_type, "Bug");
+    assert_eq!(issues[0].milestone, "Sprint 1");
+    assert_eq!(issues[0].module, "ui");
+}
+
+#[test]
+fn test_parse_issues_json_module_skips_empty_module_label() {
+    let json = r#"[
+        {
+            "number": 3,
+            "title": "Module",
+            "state": "OPEN",
+            "author": {"login": "alice"},
+            "updatedAt": "2026-03-29T10:00:00Z",
+            "assignees": {"nodes": []},
+            "labels": {"nodes": [{"name": "module:"}, {"name": "module:ui"}]},
+            "comments": {"totalCount": 0}
+        }
+    ]"#;
+
+    let issues = parse_issues_json(json).value_or_panic("should parse module labels");
+
+    assert_eq!(issues[0].module, "ui");
+    assert_eq!(issues[0].labels_summary, "module:, module:ui");
+}
+
+#[test]
+fn test_issue_type_repository_args_preserve_module_none_as_manual_text() {
+    let filter = IssueFilter {
+        issue_type: "Bug".to_string(),
+        module: "none".to_string(),
+        ..IssueFilter::default()
+    };
+
+    let args = crate::github::build_issue_search_args("owner", "repo", &filter, None, 30);
+    let query = args
+        .windows(2)
+        .find_map(|pair| (pair[0] == "-f" && pair[1].starts_with("query=")).then_some(&pair[1]))
+        .unwrap_or_else(|| panic!("missing GraphQL query in args: {args:?}"));
+
+    assert!(query.contains("labels: [\"module:none\"]"));
+}
+
+/// Test 21: parse_issue_detail_json propagates comment parse errors instead of
+/// silently swallowing them.
+#[test]
+fn test_parse_issue_detail_json_propagates_comment_errors() {
+    let json = r#"{
+        "number": 17,
+        "title": "Bad comment",
+        "state": "OPEN",
+        "author": {"login": "acoliver"},
+        "createdAt": "2026-03-28T10:00:00Z",
+        "updatedAt": "2026-03-29T10:00:00Z",
+        "labels": [],
+        "assignees": [],
+        "milestone": null,
+        "body": "",
+        "url": "https://github.com/owner/repo/issues/17",
+        "comments": [
+            {
+                "author": {"login": "bob"},
+                "createdAt": "2026-03-29T11:00:00Z",
+                "body": "missing id field"
+            }
+        ]
+    }"#;
+
+    let result = parse_issue_detail_json(json);
+    assert!(
+        result.is_err(),
+        "should propagate parse error for malformed comment"
+    );
+    match result {
+        Err(GhError::ParseError(msg)) => {
+            assert!(
+                msg.contains("comment"),
+                "error message should mention comment: {msg}"
+            );
+        }
+        Err(e) => panic!("expected ParseError, got {e:?}"),
+        Ok(_) => panic!("should not succeed"),
+    }
 }

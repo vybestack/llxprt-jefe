@@ -3,9 +3,37 @@ use std::sync::Arc;
 mod issues;
 mod issues_dispatch;
 mod issues_filter;
+mod issues_list_dispatch;
+mod issues_mutation;
+mod issues_subfocus_dispatch;
 mod modal_handlers;
 mod normal;
+mod persist_focus;
 mod preflight;
+
+// PR-mode key-routing + dispatch surface.
+// @plan PLAN-20260624-PR-MODE.P11
+// @requirement REQ-PR-001
+// @requirement REQ-PR-002
+mod prs;
+mod prs_comments_dispatch;
+mod prs_dispatch;
+mod prs_filter;
+mod prs_list_dispatch;
+mod prs_mutation;
+// @plan PLAN-20260624-PR-MODE.P11
+mod prs_orchestration;
+
+mod gh_async;
+
+mod agent_runtime;
+mod issue_git_prep;
+mod issues_send;
+use agent_runtime::{
+    clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
+    mark_runtime_session_dead_if_present, pid_on_success, set_agent_runtime_binding,
+    worker_pid_for,
+};
 
 pub use modal_handlers::{
     handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key, handle_mode_theme_picker_key,
@@ -13,13 +41,17 @@ pub use modal_handlers::{
 
 pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
 
+// Re-export the background-refresh orchestration helper so `app_shell` can
+// import it from `app_input` (issue #128).
+pub use prs_orchestration::request_pr_background_refresh;
+
 use iocraft::hooks::State as HookState;
 use iocraft::prelude::*;
 use tracing::{debug, warn};
 
 use std::time::Duration;
 
-use jefe::domain::{AgentId, AgentStatus, LaunchSignature, Repository};
+use jefe::domain::{AgentId, LaunchSignature, Repository};
 
 const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
     ('¡', 1),
@@ -33,7 +65,8 @@ const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
     ('ª', 9),
 ];
 use jefe::input::{SearchKeyRoute, route_search_key};
-use jefe::persistence::{PersistenceManager, State as PersistedState};
+use jefe::messages::{AppMessage, IssuesMessage, RuntimeMessage, UiNavigationMessage};
+use jefe::persistence::State as PersistedState;
 const REMOTE_ATTACH_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
 use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_preflight, sandbox_ssh_agent_warning};
@@ -68,18 +101,24 @@ fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, s
             state.terminal_focused = false;
             state.pane_focus = PaneFocus::Agents;
             mark_agent_runtime_attached(&mut state, &agent_id, false);
-            persist_state_snapshot(ctx, &state);
+            let persisted = to_persisted_state(&state);
+            drop(state);
+            persist_state(ctx, &persisted);
             return false;
         }
 
         clear_agent_runtime_attachment(&mut state);
         mark_agent_runtime_attached(&mut state, &agent_id, true);
-        persist_state_snapshot(ctx, &state);
+        let persisted = to_persisted_state(&state);
+        drop(state);
+        persist_state(ctx, &persisted);
         true
     } else {
         state.terminal_focused = false;
         state.pane_focus = PaneFocus::Agents;
-        persist_state_snapshot(ctx, &state);
+        let persisted = to_persisted_state(&state);
+        drop(state);
+        persist_state(ctx, &persisted);
         false
     }
 }
@@ -98,6 +137,11 @@ pub type AppStateHandle = HookState<AppState>;
 pub type QuitHandle = HookState<bool>;
 pub type HelpScrollHandle = HookState<u32>;
 
+fn github_client(ctx: &SharedContext) -> Option<jefe::github::GhClient> {
+    let ctx_arc = ctx.as_ref()?;
+    let ctx_guard = ctx_arc.lock().ok()?;
+    Some(ctx_guard.gh_client)
+}
 pub fn to_persisted_state(state: &AppState) -> PersistedState {
     PersistedState {
         schema_version: jefe::persistence::STATE_SCHEMA_VERSION,
@@ -107,25 +151,12 @@ pub fn to_persisted_state(state: &AppState) -> PersistedState {
         selected_agent_index: state.selected_agent_index,
         hide_idle_repositories: state.hide_idle_repositories,
         last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
+        pane_focus: pane_focus_to_persisted(state.pane_focus),
+        terminal_focused: state.terminal_focused,
     }
 }
 
-pub fn persist_state_snapshot(ctx: &SharedContext, state: &AppState) {
-    if let Some(ctx_arc) = &ctx
-        && let Ok(ctx_guard) = ctx_arc.lock()
-        && let Err(e) = ctx_guard.persistence.save_state(&to_persisted_state(state))
-    {
-        warn!(error = %e, "could not save state");
-    }
-}
-
-fn clear_runtime_warning(state: &mut AppState) {
-    if state.warning_message.as_deref().is_some_and(|warning| {
-        warning.contains("SSH_AUTH_SOCK") || warning.contains("SSH agent socket")
-    }) {
-        state.warning_message = None;
-    }
-}
+pub use persist_focus::{pane_focus_from_persisted, pane_focus_to_persisted, persist_state};
 
 fn launch_signature_for_agent(
     agent: &jefe::domain::Agent,
@@ -158,51 +189,12 @@ fn agent_and_signature(
     Some((agent, signature))
 }
 
-fn set_agent_runtime_binding(
-    state: &mut AppState,
-    agent_id: &AgentId,
-    session_name: String,
-    signature: LaunchSignature,
-) {
-    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
-        agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
-            session_name,
-            launch_signature: signature,
-            attached: false,
-            last_seen: None,
-        });
-    }
-}
-
-fn mark_agent_runtime_attached(state: &mut AppState, agent_id: &AgentId, attached: bool) {
-    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id)
-        && let Some(binding) = agent.runtime_binding.as_mut()
-    {
-        binding.attached = attached;
-    }
-}
-
-fn clear_agent_runtime_attachment(state: &mut AppState) {
-    for agent in &mut state.agents {
-        if let Some(binding) = agent.runtime_binding.as_mut() {
-            binding.attached = false;
-        }
-    }
-}
-
-fn mark_runtime_session_dead_if_present(state: &mut AppState, agent_id: &AgentId) {
-    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
-        agent.status = AgentStatus::Dead;
-        if let Some(binding) = agent.runtime_binding.as_mut() {
-            binding.attached = false;
-        }
-    }
-}
-
 fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
     let mut state = app_state.write();
     *state = std::mem::take(&mut *state).apply(evt);
-    persist_state_snapshot(ctx, &state);
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
 }
 
 fn close_modal_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -231,7 +223,9 @@ fn preflight_or_prompt(
             issue,
             remaining_issues: Vec::new(),
         };
-        persist_state_snapshot(ctx, &state);
+        let persisted = to_persisted_state(&state);
+        drop(state);
+        persist_state(ctx, &persisted);
         return false;
     }
 
@@ -248,64 +242,102 @@ fn execute_agent_launch(
     signature: &LaunchSignature,
     is_relaunch: bool,
 ) {
-    let attach_result = if let Some(ctx_arc) = ctx {
-        if let Ok(mut ctx_guard) = ctx_arc.lock() {
-            let spawn_result = if is_relaunch {
-                ctx_guard
-                    .runtime
-                    .spawn_session_fresh(agent_id, work_dir, signature)
-            } else {
-                ctx_guard
-                    .runtime
-                    .spawn_session(agent_id, work_dir, signature)
-            };
-            match spawn_result {
-                Ok(()) => {
-                    std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
-                    ctx_guard.runtime.attach(agent_id)
-                }
-                Err(error) => Err(error),
-            }
-        } else {
-            Ok(())
-        }
-    } else {
-        Ok(())
-    };
+    let attach_result = spawn_and_attach(ctx, agent_id, work_dir, signature, is_relaunch);
 
     if let Err(e) = attach_result {
         warn!(error = %e, "could not spawn or attach session for agent");
-        let mut state = app_state.write();
-        state.terminal_focused = false;
-        state.pane_focus = PaneFocus::Agents;
-        state.error_message = Some(e.to_string());
-        if let Some(ctx_arc) = ctx
-            && let Ok(mut ctx_guard) = ctx_arc.lock()
-        {
-            let _ = ctx_guard.runtime.mark_session_dead(agent_id);
-        }
-        if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == *agent_id) {
-            agent.runtime_binding = None;
-        }
-        mark_runtime_session_dead_if_present(&mut state, agent_id);
-        persist_state_snapshot(ctx, &state);
+        mark_launch_failed(app_state, ctx, agent_id, e);
     } else {
-        let mut state = app_state.write();
-        set_agent_runtime_binding(
-            &mut state,
-            agent_id,
-            jefe::runtime::RuntimeSession::session_name_for(agent_id),
-            signature.clone(),
-        );
-        clear_agent_runtime_attachment(&mut state);
-        mark_agent_runtime_attached(&mut state, agent_id, true);
-        if let Some(warning) = sandbox_ssh_agent_warning() {
-            state.warning_message = Some(warning);
-        } else {
-            clear_runtime_warning(&mut state);
-        }
-        persist_state_snapshot(ctx, &state);
+        mark_launch_attached(app_state, ctx, agent_id, signature);
     }
+}
+
+fn spawn_and_attach(
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+    work_dir: &std::path::Path,
+    signature: &LaunchSignature,
+    is_relaunch: bool,
+) -> Result<(), RuntimeError> {
+    let Some(ctx_arc) = ctx else {
+        return Err(RuntimeError::SpawnFailed(
+            "runtime context unavailable".to_owned(),
+        ));
+    };
+    let Ok(mut ctx_guard) = ctx_arc.lock() else {
+        return Err(RuntimeError::SpawnFailed(
+            "runtime context lock unavailable".to_owned(),
+        ));
+    };
+
+    let spawn_result = if is_relaunch {
+        ctx_guard
+            .runtime
+            .spawn_session_fresh(agent_id, work_dir, signature)
+    } else {
+        ctx_guard
+            .runtime
+            .spawn_session(agent_id, work_dir, signature)
+    };
+    spawn_result.and_then(|()| {
+        std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
+        ctx_guard.runtime.attach(agent_id)
+    })
+}
+
+fn mark_launch_failed(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+    error: RuntimeError,
+) {
+    if let Some(ctx_arc) = ctx
+        && let Ok(mut ctx_guard) = ctx_arc.lock()
+    {
+        let _ = ctx_guard.runtime.mark_session_dead(agent_id);
+    }
+
+    let mut state = app_state.write();
+    state.terminal_focused = false;
+    state.pane_focus = PaneFocus::Agents;
+    state.error_message = Some(error.to_string());
+    if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == *agent_id) {
+        agent.runtime_binding = None;
+    }
+    mark_runtime_session_dead_if_present(&mut state, agent_id);
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
+}
+
+fn mark_launch_attached(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+    signature: &LaunchSignature,
+) {
+    // Query the runtime for the worker PID before taking the app-state write
+    // lock, so the persisted binding carries the PID-liveness fallback.
+    let pid = worker_pid_for(ctx, agent_id);
+
+    let mut state = app_state.write();
+    set_agent_runtime_binding(
+        &mut state,
+        agent_id,
+        jefe::runtime::RuntimeSession::session_name_for(agent_id),
+        signature.clone(),
+        pid,
+    );
+    clear_agent_runtime_attachment(&mut state);
+    mark_agent_runtime_attached(&mut state, agent_id, true);
+    if let Some(warning) = sandbox_ssh_agent_warning() {
+        state.warning_message = Some(warning);
+    } else {
+        clear_runtime_warning(&mut state);
+    }
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
 }
 
 pub fn handle_mode_help_key(
@@ -325,7 +357,22 @@ pub fn handle_mode_help_key(
             }
         }
         KeyCode::Down => {
-            help_scroll.set(help_scroll.get() + 1);
+            // `saturating_add` is required: `End` sets the sentinel `u32::MAX`
+            // (clamped by the renderer); plain `+ 1` would overflow-panic then.
+            help_scroll.set(help_scroll.get().saturating_add(1));
+        }
+        KeyCode::PageUp => {
+            let offset = help_scroll.get();
+            help_scroll.set(offset.saturating_sub(8));
+        }
+        KeyCode::PageDown => {
+            help_scroll.set(help_scroll.get().saturating_add(8));
+        }
+        KeyCode::Home => {
+            help_scroll.set(0);
+        }
+        KeyCode::End => {
+            help_scroll.set(u32::MAX);
         }
         _ => {}
     }
@@ -362,634 +409,417 @@ pub fn handle_mode_search_key(
     }
 }
 
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
-    debug!(event = ?evt, "dispatching app event");
+    dispatch_app_message(app_state, ctx, evt.into());
+}
 
-    match evt {
-        AppEvent::ToggleTerminalFocus => {
-            // Keep Enter-in-terminal-pane as a UI focus toggle only.
-            // Runtime attach/detach remains bound to F12.
+pub fn dispatch_app_message(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: AppMessage,
+) {
+    log_dispatch(&message);
+
+    match message {
+        AppMessage::UiNavigation(UiNavigationMessage::ToggleTerminalFocus) => {
             apply_and_persist(app_state, ctx, AppEvent::ToggleTerminalFocus);
         }
-        AppEvent::KillAgent(ref agent_id) => {
-            if let Some(ctx_arc) = &ctx
-                && let Ok(mut ctx_guard) = ctx_arc.lock()
-                && let Err(e) = ctx_guard.runtime.kill(agent_id)
-            {
-                warn!(agent_id = %agent_id.0, error = %e, "could not kill runtime session");
-            }
-
-            let mut state = app_state.write();
-            *state = std::mem::take(&mut *state).apply(evt);
-            state.terminal_focused = false;
-            persist_state_snapshot(ctx, &state);
+        AppMessage::Runtime(RuntimeMessage::KillAgent(agent_id)) => {
+            dispatch_kill_agent(app_state, ctx, agent_id);
         }
-        AppEvent::RelaunchAgent(agent_id) => {
-            // Run preflight before attempting the relaunch.
-            {
-                let state_ro = app_state.read();
-                if let Some((_agent, signature)) = agent_and_signature(&state_ro, &agent_id) {
-                    drop(state_ro);
-                    if !preflight_or_prompt(app_state, ctx, &agent_id, &signature) {
-                        return;
-                    }
-                }
-            }
-
-            let mut relaunched = false;
-            let relaunch_event = AppEvent::RelaunchAgent(agent_id.clone());
-            if let Some(ctx_arc) = &ctx
-                && let Ok(mut ctx_guard) = ctx_arc.lock()
-            {
-                // Always relaunch from current in-memory agent config so edits made
-                // before relaunch (e.g. LLXPRT_DEBUG changes) are applied.
-                let state_ro = app_state.read();
-                if let Some((agent, signature)) = agent_and_signature(&state_ro, &agent_id) {
-                    match ctx_guard.runtime.spawn_session_fresh(
-                        &agent_id,
-                        &agent.work_dir,
-                        &signature,
-                    ) {
-                        Ok(()) => {
-                            relaunched = true;
-                        }
-                        Err(e) => {
-                            // If the process-local mapping still exists, fall back to runtime relaunch.
-                            // This keeps behavior stable for edge cases while still preferring fresh config.
-                            match e {
-                                RuntimeError::AlreadyRunning(_) => {
-                                    match ctx_guard.runtime.relaunch(&agent_id) {
-                                        Ok(()) => {
-                                            relaunched = true;
-                                        }
-                                        Err(e2) => {
-                                            warn!(
-                                                agent_id = %agent_id.0,
-                                                error = %e2,
-                                                "could not relaunch runtime session"
-                                            );
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    warn!(
-                                        agent_id = %agent_id.0,
-                                        error = %e,
-                                        "could not spawn fresh runtime session for relaunch"
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if relaunched {
-                    // Relaunch should make output visible immediately; focus remains separate.
-                    std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
-                    match ctx_guard.runtime.attach(&agent_id) {
-                        Ok(()) => {}
-                        Err(e) => {
-                            warn!(
-                                agent_id = %agent_id.0,
-                                error = %e,
-                                "could not attach relaunched session"
-                            );
-                            let _ = ctx_guard.runtime.mark_session_dead(&agent_id);
-                            relaunched = false;
-                        }
-                    }
-                }
-            }
-
-            let mut state = app_state.write();
-            if relaunched {
-                if let Some((agent, signature)) = agent_and_signature(&state, &agent_id) {
-                    set_agent_runtime_binding(
-                        &mut state,
-                        &agent_id,
-                        jefe::runtime::RuntimeSession::session_name_for(&agent.id),
-                        signature,
-                    );
-                }
-                *state = std::mem::take(&mut *state).apply(relaunch_event);
-                state.terminal_focused = false;
-                clear_agent_runtime_attachment(&mut state);
-                mark_agent_runtime_attached(&mut state, &agent_id, true);
-                if let Some(warning) = sandbox_ssh_agent_warning() {
-                    state.warning_message = Some(warning);
-                } else {
-                    clear_runtime_warning(&mut state);
-                }
-            } else {
-                *state = std::mem::take(&mut *state).apply(relaunch_event);
-                state.terminal_focused = false;
-                state.pane_focus = PaneFocus::Agents;
-                mark_runtime_session_dead_if_present(&mut state, &agent_id);
-                if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) {
-                    agent.runtime_binding = None;
-                }
-            }
-            persist_state_snapshot(ctx, &state);
+        AppMessage::Runtime(RuntimeMessage::RelaunchAgent(agent_id)) => {
+            dispatch_relaunch_agent(app_state, ctx, agent_id);
         }
-
-        // ── Issue list / repo list navigation with auto-load ─────────────
-        // @plan PLAN-20260329-ISSUES-MODE.P15
-        // @requirement REQ-ISS-001, REQ-ISS-006, REQ-ISS-009
-        AppEvent::IssuesNavigateUp | AppEvent::IssuesNavigateDown => {
-            let (focus, prev_repo_idx, prev_issue_idx) = {
-                let state = app_state.read();
-                (
-                    state.issues_state.issue_focus,
-                    state.selected_repository_index,
-                    state.issues_state.selected_issue_index,
-                )
-            };
-
-            apply_and_persist(app_state, ctx, evt);
-
-            match focus {
-                jefe::state::IssueFocus::RepoList => {
-                    let new_repo_idx = app_state.read().selected_repository_index;
-                    if new_repo_idx != prev_repo_idx {
-                        {
-                            let mut state = app_state.write();
-                            state.issues_state.issues.clear();
-                            state.issues_state.selected_issue_index = None;
-                            state.issues_state.issue_detail = None;
-                            state.issues_state.list_cursor = None;
-                            state.issues_state.has_more_issues = false;
-                            state.issues_state.error = None;
-                            if state.issues_state.inline_state != jefe::state::InlineState::None {
-                                state.issues_state.draft_notice =
-                                    Some("Unsent draft discarded".to_string());
-                            }
-                            state.issues_state.inline_state = jefe::state::InlineState::None;
-                            state.issues_state.agent_chooser = None;
-                            state.issues_state.list_loading = true;
-                        }
-                        // Trigger issue list load; RefocusIssueList changes
-                        // focus to IssueList, so restore RepoList focus after.
-                        dispatch_app_event(app_state, ctx, AppEvent::RefocusIssueList);
-                        app_state.write().issues_state.issue_focus =
-                            jefe::state::IssueFocus::RepoList;
-                    }
-                }
-                jefe::state::IssueFocus::IssueList => {
-                    let new_issue_idx = app_state.read().issues_state.selected_issue_index;
-                    if new_issue_idx != prev_issue_idx {
-                        // Build a lightweight preview from list data (no I/O)
-                        issues_dispatch::preview_issue_from_list(app_state);
-                    }
-                }
-                jefe::state::IssueFocus::IssueDetail => {}
-            }
+        AppMessage::Runtime(RuntimeMessage::RestartAgent(agent_id)) => {
+            dispatch_restart_agent(app_state, ctx, agent_id);
         }
-
-        // ── Issues-mode events that require I/O ────────────────────────────
-        // @plan PLAN-20260329-ISSUES-MODE.P15
-        // @requirement REQ-ISS-006, REQ-ISS-013
-        AppEvent::EnterIssuesMode
-        | AppEvent::RefocusIssueList
-        | AppEvent::ApplyFilter
-        | AppEvent::ClearFilter => {
-            // Apply state transition first (sets list_loading = true, etc.)
-            apply_and_persist(app_state, ctx, evt);
-
-            // Now perform the actual issue list fetch
-            let (scope_repo_id, owner, repo, filter, cursor, page_size) = {
-                let state = app_state.read();
-                let gh_repo = issues_dispatch::resolve_gh_repo(&state);
-                let filter = state.issues_state.committed_filter.clone();
-                let cursor = state.issues_state.list_cursor.clone();
-                let scope_repo_id = issues_dispatch::current_scope_repo_id(&state);
-                (scope_repo_id, gh_repo.0, gh_repo.1, filter, cursor, 30u32)
-            };
-
-            if owner.is_empty() || repo.is_empty() {
-                let mut state = app_state.write();
-                state.issues_state.list_loading = false;
-                state.issues_state.error = Some(
-                    "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
-                );
-                persist_state_snapshot(ctx, &state);
-                return;
-            }
-
-            let result = if let Some(ctx_arc) = &ctx
-                && let Ok(ctx_guard) = ctx_arc.lock()
-            {
-                Some(ctx_guard.gh_client.list_issues(
-                    &owner,
-                    &repo,
-                    &filter,
-                    cursor.as_deref(),
-                    page_size,
-                ))
-            } else {
-                None
-            };
-
-            match result {
-                Some(Ok(response)) => {
-                    let has_issues = !response.issues.is_empty();
-                    let mut state = app_state.write();
-                    *state = std::mem::take(&mut *state).apply(AppEvent::IssueListLoaded {
-                        scope_repo_id: scope_repo_id.clone(),
-                        issues: response.issues,
-                        cursor: response.cursor,
-                        has_more: response.has_more,
-                    });
-                    drop(state);
-                    // Show preview for the first issue (no I/O)
-                    if has_issues {
-                        issues_dispatch::preview_issue_from_list(app_state);
-                    }
-                }
-                Some(Err(e)) => {
-                    let mut state = app_state.write();
-                    *state = std::mem::take(&mut *state).apply(AppEvent::IssueListLoadFailed {
-                        scope_repo_id: scope_repo_id.clone(),
-                        error: e.to_string(),
-                    });
-                }
-                None => {
-                    let mut state = app_state.write();
-                    *state = std::mem::take(&mut *state).apply(AppEvent::IssueListLoadFailed {
-                        scope_repo_id,
-                        error: "Application context unavailable".to_string(),
-                    });
-                }
-            }
+        AppMessage::Issues(
+            message @ (IssuesMessage::NavigateUp
+            | IssuesMessage::NavigateDown
+            | IssuesMessage::NavigatePageUp
+            | IssuesMessage::NavigatePageDown
+            | IssuesMessage::NavigateHome
+            | IssuesMessage::NavigateEnd),
+        ) => {
+            dispatch_issues_navigation(app_state, ctx, message);
         }
-
-        // @plan PLAN-20260329-ISSUES-MODE.P15
-        // @requirement REQ-ISS-009
-        AppEvent::IssuesEnter => {
+        AppMessage::Issues(
+            message @ (IssuesMessage::EnterMode
+            | IssuesMessage::RefocusList
+            | IssuesMessage::ApplyFilter
+            | IssuesMessage::ClearFilter
+            | IssuesMessage::ApplySearch),
+        ) => issues_list_dispatch::dispatch_issue_list_reload(app_state, ctx, message),
+        AppMessage::Issues(IssuesMessage::Enter) => {
             apply_and_persist(app_state, ctx, AppEvent::IssuesEnter);
             issues_dispatch::load_issue_detail_for_selection(app_state, ctx);
         }
+        AppMessage::Issues(
+            message @ (IssuesMessage::ScrollDetailDown
+            | IssuesMessage::ScrollDetailPageDown
+            | IssuesMessage::DetailSubfocusNext
+            | IssuesMessage::DetailSubfocusPrev),
+        ) => issues_subfocus_dispatch::dispatch_issues_detail_scroll_or_subfocus(
+            app_state, ctx, message,
+        ),
+        AppMessage::Issues(IssuesMessage::AgentChooserConfirm) => {
+            issues_send::dispatch_agent_chooser_confirm(app_state, ctx);
+        }
+        AppMessage::Issues(IssuesMessage::InlineSubmit) => {
+            issues_mutation::handle_inline_submit(app_state, ctx);
+        }
+        // ── PR-mode dispatch arms ───────────────────────────────────────────
+        // @plan PLAN-20260624-PR-MODE.P11
+        // @requirement REQ-PR-001
+        // @requirement REQ-PR-003
+        // @requirement REQ-PR-010
+        // @requirement REQ-PR-011
+        // @requirement REQ-PR-012
+        // @pseudocode component-004 lines 97-118
+        AppMessage::PullRequests(message) => {
+            prs_orchestration::dispatch_prs_message(app_state, ctx, message);
+        }
+        message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+    }
+}
 
-        // ── Send issue to agent ──────────────────────────────────────────
-        // @requirement REQ-ISS-011
-        AppEvent::AgentChooserConfirm => {
-            // Gather chosen agent and issue data before clearing the chooser
-            let send_info = {
-                let state = app_state.read();
-                let chooser = state.issues_state.agent_chooser.as_ref();
-                let detail = state.issues_state.issue_detail.as_ref();
-                let subfocus = state.issues_state.detail_subfocus;
+fn update_detail_viewport_rows(app_state: &mut AppStateHandle) {
+    let term_rows = crossterm::terminal::size().map_or(40, |(_, rows)| rows as usize);
+    let mut state = app_state.write();
+    state.issues_state.detail_viewport_rows = jefe::layout::issues_detail_viewport_rows(
+        term_rows,
+        state.issues_state.error.is_some(),
+        state.issues_state.filter_ui.controls_open,
+    );
+}
 
-                (|| -> Option<_> {
-                    let (ch, det) = chooser.zip(detail)?;
-                    let (agent_id, _) = ch.agents.get(ch.selected_index)?.clone();
-                    let agent = state.agents.iter().find(|a| a.id == agent_id)?.clone();
-                    let repo = state.repository_by_id(&agent.repository_id)?;
-                    let repo_slug = repo.slug.clone();
-                    let base_prompt = repo.issue_base_prompt.clone();
-                    let signature = launch_signature_for_agent(&agent, repo);
+fn log_dispatch(message: &AppMessage) {
+    let route = message.route();
+    debug!(
+        message_domain = ?route.domain,
+        message = route.name,
+        "dispatching app message"
+    );
+}
 
-                    let focused_comment = match subfocus {
-                        jefe::state::DetailSubfocus::Comment(idx) => det.comments.get(idx).cloned(),
-                        _ => None,
-                    };
-                    let payload = jefe::github::GhClient::build_send_payload(
-                        &repo_slug,
-                        det,
-                        focused_comment.as_ref(),
-                        &base_prompt,
-                    );
-                    Some((agent_id, agent.work_dir.clone(), signature, payload))
-                })()
-            };
+fn dispatch_kill_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {
+    if let Err(error) = kill_runtime_agent(ctx, &agent_id) {
+        warn!(agent_id = %agent_id.0, error = %error, "could not kill runtime session");
+        persist_error_message(app_state, ctx, error);
+        return;
+    }
 
-            // Clear the chooser regardless
-            apply_and_persist(app_state, ctx, evt);
+    let mut state = app_state.write();
+    *state = std::mem::take(&mut *state).apply(AppEvent::KillAgent(agent_id));
+    state.terminal_focused = false;
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
+}
 
-            let Some((agent_id, work_dir, signature, payload)) = send_info else {
-                return;
-            };
+fn kill_runtime_agent(ctx: &SharedContext, agent_id: &AgentId) -> Result<(), String> {
+    let Some(ctx_arc) = ctx else {
+        return Ok(());
+    };
+    match ctx_arc.lock() {
+        Ok(mut ctx_guard) => ctx_guard.runtime.kill(agent_id).map_err(|e| e.to_string()),
+        Err(error) => Err(format!("application context lock poisoned: {error}")),
+    }
+}
 
-            // Write the issue prompt to a file in the agent's work dir
-            let prompt_dir = work_dir.join(".jefe");
-            if let Err(e) = std::fs::create_dir_all(&prompt_dir) {
-                let mut state = app_state.write();
-                *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
-                    error: format!("Failed to create .jefe dir: {e}"),
-                });
-                return;
-            }
-            let prompt_path = prompt_dir.join("issue-prompt.md");
-            let prompt_content = issues_dispatch::format_issue_prompt(&payload);
-            if let Err(e) = std::fs::write(&prompt_path, &prompt_content) {
-                let mut state = app_state.write();
-                *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
-                    error: format!("Failed to write issue prompt: {e}"),
-                });
-                return;
-            }
+fn persist_error_message(app_state: &mut AppStateHandle, ctx: &SharedContext, error: String) {
+    let mut state = app_state.write();
+    state.error_message = Some(error);
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
+}
 
-            // Clone signature with -i flag for this launch only
-            let mut launch_sig = signature;
-            launch_sig.mode_flags.push("-i".to_owned());
-            launch_sig.mode_flags.push(
-                "Read and work on the GitHub issue described in .jefe/issue-prompt.md".to_owned(),
-            );
+/// Restart an agent: kill, wait for session teardown, then relaunch with fresh
+/// config/env (issue #117). Surfaces an error if any step fails.
+fn dispatch_restart_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {
+    // Only kill if the agent is currently running; dead agents skip straight
+    // to relaunch (tolerating Ctrl-r on already-dead agents).
+    let agent_is_running = app_state
+        .read()
+        .agents
+        .iter()
+        .find(|a| a.id == agent_id)
+        .is_some_and(jefe::domain::Agent::is_running);
 
-            if !preflight_or_prompt(app_state, ctx, &agent_id, &launch_sig) {
-                return;
-            }
+    if agent_is_running {
+        if let Err(error) = kill_runtime_agent(ctx, &agent_id) {
+            warn!(agent_id = %agent_id.0, error = %error, "restart: kill failed");
+            persist_error_message(app_state, ctx, error);
+            return;
+        }
 
-            // Launch the agent
-            let mut launched = false;
-            if let Some(ctx_arc) = &ctx
-                && let Ok(mut ctx_guard) = ctx_arc.lock()
-            {
-                match ctx_guard
-                    .runtime
-                    .spawn_session_fresh(&agent_id, &work_dir, &launch_sig)
-                {
-                    Ok(()) => {
-                        std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
-                        match ctx_guard.runtime.attach(&agent_id) {
-                            Ok(()) => {
-                                launched = true;
-                            }
-                            Err(e) => {
-                                warn!(
-                                    agent_id = %agent_id.0,
-                                    error = %e,
-                                    "could not attach agent after issue send"
-                                );
-                                let _ = ctx_guard.runtime.mark_session_dead(&agent_id);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        warn!(
-                            agent_id = %agent_id.0,
-                            error = %e,
-                            "could not spawn agent for issue send"
-                        );
-                    }
-                }
-            }
-
+        // Apply kill state transition so the UI reflects the kill immediately.
+        {
             let mut state = app_state.write();
-            if launched {
-                if let Some(agent) = state.agents.iter_mut().find(|a| a.id == agent_id) {
-                    agent.status = jefe::domain::AgentStatus::Running;
-                    let session_name = jefe::runtime::RuntimeSession::session_name_for(&agent_id);
-                    agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
-                        session_name,
-                        launch_signature: launch_sig,
-                        attached: false,
-                        last_seen: None,
-                    });
-                }
-                clear_agent_runtime_attachment(&mut state);
-                mark_agent_runtime_attached(&mut state, &agent_id, true);
-            } else {
-                *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
-                    error: "Failed to launch agent".to_string(),
-                });
-            }
-            persist_state_snapshot(ctx, &state);
+            *state = std::mem::take(&mut *state).apply(AppEvent::KillAgent(agent_id.clone()));
+            state.terminal_focused = false;
+            let persisted = to_persisted_state(&state);
+            drop(state);
+            persist_state(ctx, &persisted);
         }
 
-        // @plan PLAN-20260329-ISSUES-MODE.P15
-        // @requirement REQ-ISS-010
-        AppEvent::InlineSubmit => {
-            let submit_action = {
-                let state = app_state.read();
-                match &state.issues_state.inline_state {
-                    jefe::state::InlineState::Composer { target, text, .. } => {
-                        Some(InlineSubmitAction::Create {
-                            target: target.clone(),
-                            text: text.clone(),
-                        })
-                    }
-                    jefe::state::InlineState::Editor { target, text, .. } => {
-                        Some(InlineSubmitAction::Edit {
-                            target: target.clone(),
-                            text: text.clone(),
-                        })
-                    }
-                    jefe::state::InlineState::None => None,
-                }
-            };
+        // Wait for session teardown before relaunching (issue says 1-2s).
+        std::thread::sleep(Duration::from_millis(1500));
+    }
 
-            let Some(action) = submit_action else {
-                return;
-            };
+    // Relaunch with fresh config (reuses existing relaunch plumbing).
+    dispatch_relaunch_agent(app_state, ctx, agent_id);
+}
 
-            let (owner, repo) = {
-                let state = app_state.read();
-                issues_dispatch::resolve_gh_repo(&state)
-            };
+fn dispatch_relaunch_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {
+    if !relaunch_preflight_passed(app_state, ctx, &agent_id) {
+        return;
+    }
 
-            if owner.is_empty() || repo.is_empty() {
-                let mut state = app_state.write();
-                *state = std::mem::take(&mut *state).apply(AppEvent::MutationFailed {
-                    error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
-                });
-                return;
-            }
+    let relaunched = relaunch_runtime_session(app_state, ctx, &agent_id);
+    persist_relaunch_result(app_state, ctx, agent_id, relaunched);
+}
 
-            match action {
-                InlineSubmitAction::Create { target, text } => {
-                    if target == jefe::state::ComposerTarget::NewIssue {
-                        let (title, body) =
-                            if let Some((first, rest)) = text.split_once(char::from(0x0Au8)) {
-                                (first.trim().to_string(), rest.to_string())
-                            } else {
-                                (text.trim().to_string(), String::new())
-                            };
+fn relaunch_preflight_passed(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+) -> bool {
+    let state_ro = app_state.read();
+    let signature = agent_and_signature(&state_ro, agent_id).map(|(_, signature)| signature);
+    drop(state_ro);
+    match signature {
+        Some(signature) => preflight_or_prompt(app_state, ctx, agent_id, &signature),
+        None => true,
+    }
+}
 
-                        if title.is_empty() {
-                            let mut state = app_state.write();
-                            *state = std::mem::take(&mut *state).apply(AppEvent::MutationFailed {
-                                error: "Issue title cannot be empty".to_string(),
-                            });
-                            return;
-                        }
+fn relaunch_runtime_session(
+    app_state: &AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+) -> bool {
+    let Some(ctx_arc) = ctx else {
+        return false;
+    };
+    let Ok(mut ctx_guard) = ctx_arc.lock() else {
+        return false;
+    };
 
-                        let result = if let Some(ctx_arc) = &ctx
-                            && let Ok(ctx_guard) = ctx_arc.lock()
-                        {
-                            Some(
-                                ctx_guard
-                                    .gh_client
-                                    .create_issue(&owner, &repo, &title, &body),
-                            )
-                        } else {
-                            None
-                        };
+    let state_ro = app_state.read();
+    let Some((agent, signature)) = agent_and_signature(&state_ro, agent_id) else {
+        return false;
+    };
+    drop(state_ro);
 
-                        match result {
-                            Some(Ok(issue)) => {
-                                {
-                                    let mut state = app_state.write();
-                                    state.issues_state.inline_state =
-                                        jefe::state::InlineState::None;
-                                    state.issues_state.error = None;
-                                    state.issues_state.draft_notice =
-                                        Some(format!("Created issue #{}", issue.number));
-                                }
-                                dispatch_app_event(app_state, ctx, AppEvent::RefocusIssueList);
-                            }
-                            Some(Err(e)) => {
-                                let mut state = app_state.write();
-                                *state =
-                                    std::mem::take(&mut *state).apply(AppEvent::MutationFailed {
-                                        error: e.to_string(),
-                                    });
-                            }
-                            None => {
-                                let mut state = app_state.write();
-                                *state =
-                                    std::mem::take(&mut *state).apply(AppEvent::MutationFailed {
-                                        error: "Application context unavailable".to_string(),
-                                    });
-                            }
-                        }
-                    } else {
-                        let issue_number = {
-                            let state = app_state.read();
-                            state.issues_state.issue_detail.as_ref().map(|d| d.number)
-                        };
-                        let Some(number) = issue_number else { return };
+    if !spawn_relaunch_session(
+        &mut ctx_guard.runtime,
+        agent_id,
+        &agent.work_dir,
+        &signature,
+    ) {
+        return false;
+    }
+    std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
+    attach_relaunched_session(&mut ctx_guard.runtime, agent_id)
+}
 
-                        let result = if let Some(ctx_arc) = &ctx
-                            && let Ok(ctx_guard) = ctx_arc.lock()
-                        {
-                            Some(
-                                ctx_guard
-                                    .gh_client
-                                    .create_comment(&owner, &repo, number, &text),
-                            )
-                        } else {
-                            None
-                        };
-
-                        match result {
-                            Some(Ok(comment)) => {
-                                let mut state = app_state.write();
-                                *state = std::mem::take(&mut *state)
-                                    .apply(AppEvent::CommentCreated { comment });
-                            }
-                            Some(Err(e)) => {
-                                let mut state = app_state.write();
-                                *state = std::mem::take(&mut *state).apply(
-                                    AppEvent::CommentCreateFailed {
-                                        error: e.to_string(),
-                                    },
-                                );
-                            }
-                            None => {}
-                        }
-                    }
-                }
-                InlineSubmitAction::Edit { target, text } => match target {
-                    jefe::state::EditorTarget::IssueBody => {
-                        let issue_number = {
-                            let state = app_state.read();
-                            state.issues_state.issue_detail.as_ref().map(|d| d.number)
-                        };
-                        let Some(number) = issue_number else { return };
-
-                        let result = if let Some(ctx_arc) = &ctx
-                            && let Ok(ctx_guard) = ctx_arc.lock()
-                        {
-                            Some(
-                                ctx_guard
-                                    .gh_client
-                                    .update_issue_body(&owner, &repo, number, &text),
-                            )
-                        } else {
-                            None
-                        };
-
-                        match result {
-                            Some(Ok(())) => {
-                                let mut state = app_state.write();
-                                *state = std::mem::take(&mut *state)
-                                    .apply(AppEvent::IssueBodyUpdated { body: text });
-                            }
-                            Some(Err(e)) => {
-                                let mut state = app_state.write();
-                                *state =
-                                    std::mem::take(&mut *state).apply(AppEvent::MutationFailed {
-                                        error: e.to_string(),
-                                    });
-                            }
-                            None => {}
-                        }
-                    }
-                    jefe::state::EditorTarget::Comment { comment_index } => {
-                        let comment_id = {
-                            let state = app_state.read();
-                            state
-                                .issues_state
-                                .issue_detail
-                                .as_ref()
-                                .and_then(|d| d.comments.get(comment_index))
-                                .map(|c| c.comment_id)
-                        };
-                        let Some(cid) = comment_id else { return };
-
-                        let result = if let Some(ctx_arc) = &ctx
-                            && let Ok(ctx_guard) = ctx_arc.lock()
-                        {
-                            Some(
-                                ctx_guard
-                                    .gh_client
-                                    .update_comment(&owner, &repo, cid, &text),
-                            )
-                        } else {
-                            None
-                        };
-
-                        match result {
-                            Some(Ok(())) => {
-                                let mut state = app_state.write();
-                                *state =
-                                    std::mem::take(&mut *state).apply(AppEvent::CommentUpdated {
-                                        comment_index,
-                                        body: text,
-                                    });
-                            }
-                            Some(Err(e)) => {
-                                let mut state = app_state.write();
-                                *state =
-                                    std::mem::take(&mut *state).apply(AppEvent::MutationFailed {
-                                        error: e.to_string(),
-                                    });
-                            }
-                            None => {}
-                        }
-                    }
-                },
-            }
-        }
-
-        _ => {
-            apply_and_persist(app_state, ctx, evt);
+fn spawn_relaunch_session(
+    runtime: &mut jefe::runtime::TmuxRuntimeManager,
+    agent_id: &AgentId,
+    work_dir: &std::path::Path,
+    signature: &LaunchSignature,
+) -> bool {
+    match runtime.spawn_session_fresh(agent_id, work_dir, signature) {
+        Ok(()) => true,
+        Err(RuntimeError::AlreadyRunning(_)) => runtime.relaunch(agent_id).is_ok(),
+        Err(error) => {
+            warn!(
+                agent_id = %agent_id.0,
+                error = %error,
+                "could not spawn fresh runtime session for relaunch"
+            );
+            false
         }
     }
 }
 
-/// Helper enum for classifying inline submit actions.
-enum InlineSubmitAction {
-    Create {
-        target: jefe::state::ComposerTarget,
-        text: String,
-    },
-    Edit {
-        target: jefe::state::EditorTarget,
-        text: String,
-    },
+fn attach_relaunched_session(
+    runtime: &mut jefe::runtime::TmuxRuntimeManager,
+    agent_id: &AgentId,
+) -> bool {
+    match runtime.attach(agent_id) {
+        Ok(()) => true,
+        Err(error) => {
+            warn!(agent_id = %agent_id.0, error = %error, "could not attach relaunched session");
+            let _ = runtime.mark_session_dead(agent_id);
+            false
+        }
+    }
 }
+
+fn persist_relaunch_result(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: AgentId,
+    relaunched: bool,
+) {
+    let relaunch_event = AppEvent::RelaunchAgent(agent_id.clone());
+    // Query the PID BEFORE taking the app-state write lock: worker_pid_for
+    // acquires the ctx mutex, so app_state-lock → ctx-lock would be a
+    // lock-ordering hazard. `pid_on_success` skips the query on the failure
+    // path (no binding is persisted).
+    let pid = pid_on_success(ctx, &agent_id, relaunched);
+    let mut state = app_state.write();
+    if relaunched {
+        persist_relaunch_success(&mut state, &agent_id, relaunch_event, pid);
+    } else {
+        persist_relaunch_failure(&mut state, &agent_id, relaunch_event);
+    }
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
+}
+
+fn persist_relaunch_success(
+    state: &mut AppState,
+    agent_id: &AgentId,
+    relaunch_event: AppEvent,
+    pid: Option<u32>,
+) {
+    if let Some((agent, signature)) = agent_and_signature(state, agent_id) {
+        set_agent_runtime_binding(
+            state,
+            agent_id,
+            jefe::runtime::RuntimeSession::session_name_for(&agent.id),
+            signature,
+            pid,
+        );
+    }
+    *state = std::mem::take(state).apply(relaunch_event);
+    state.terminal_focused = false;
+    clear_agent_runtime_attachment(state);
+    mark_agent_runtime_attached(state, agent_id, true);
+    if let Some(warning) = sandbox_ssh_agent_warning() {
+        state.warning_message = Some(warning);
+    } else {
+        clear_runtime_warning(state);
+    }
+}
+
+fn persist_relaunch_failure(state: &mut AppState, agent_id: &AgentId, relaunch_event: AppEvent) {
+    *state = std::mem::take(state).apply(relaunch_event);
+    state.terminal_focused = false;
+    state.pane_focus = PaneFocus::Agents;
+    mark_runtime_session_dead_if_present(state, agent_id);
+    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
+        agent.runtime_binding = None;
+    }
+}
+
+fn dispatch_issues_navigation(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: IssuesMessage,
+) {
+    let (focus, prev_repo_idx, prev_issue_idx) = {
+        let state = app_state.read();
+        (
+            state.issues_state.issue_focus,
+            state.selected_repository_index,
+            state.issues_state.selected_issue_index,
+        )
+    };
+
+    apply_and_persist(app_state, ctx, AppEvent::from(message));
+    refresh_issue_navigation(app_state, ctx, focus, prev_repo_idx, prev_issue_idx);
+}
+
+fn refresh_issue_navigation(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    focus: jefe::state::IssueFocus,
+    prev_repo_idx: Option<usize>,
+    prev_issue_idx: Option<usize>,
+) {
+    match focus {
+        jefe::state::IssueFocus::RepoList => {
+            refresh_repo_scope_if_changed(app_state, ctx, prev_repo_idx);
+        }
+        jefe::state::IssueFocus::IssueList => {
+            refresh_issue_preview_if_changed(app_state, prev_issue_idx);
+            issues_list_dispatch::load_more_issues_if_at_end(app_state, ctx);
+        }
+        jefe::state::IssueFocus::IssueDetail => {}
+    }
+}
+
+fn refresh_repo_scope_if_changed(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    prev_repo_idx: Option<usize>,
+) {
+    let new_repo_idx = app_state.read().selected_repository_index;
+    if new_repo_idx == prev_repo_idx {
+        return;
+    }
+    reset_issue_list_for_repo_change(app_state);
+    dispatch_app_event(app_state, ctx, AppEvent::RefocusIssueList);
+    app_state.write().issues_state.issue_focus = jefe::state::IssueFocus::RepoList;
+    issues_list_dispatch::dispatch_issue_list_fetch(app_state, ctx, true);
+}
+
+fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
+    let mut state = app_state.write();
+    state.issues_state.issues.clear();
+    state.issues_state.selected_issue_index = None;
+    state.issues_state.issue_detail = None;
+    state.issues_state.list_cursor = None;
+    state.issues_state.has_more_issues = false;
+    state.issues_state.error = None;
+    if state.issues_state.inline_state != jefe::state::InlineState::None {
+        state.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
+    }
+    state.issues_state.inline_state = jefe::state::InlineState::None;
+    state.issues_state.mutation_pending = None;
+    state.issues_state.loading.detail = false;
+    state.issues_state.loading.comments = false;
+    state.issues_state.detail_pending = None;
+    state.issues_state.comments_page_pending = None;
+    state.issues_state.list_reload_pending = None;
+    state.issues_state.list_page_pending = None;
+    state.issues_state.agent_chooser = None;
+    state.issues_state.loading.list = true;
+}
+
+fn refresh_issue_preview_if_changed(app_state: &mut AppStateHandle, prev_issue_idx: Option<usize>) {
+    let new_issue_idx = app_state.read().issues_state.selected_issue_index;
+    if new_issue_idx != prev_issue_idx {
+        issues_dispatch::preview_issue_from_list(app_state);
+    }
+}
+
 #[cfg(test)]
 #[path = "app_input_tests.rs"]
 mod tests;
+
+// @plan PLAN-20260624-PR-MODE.P15
+// @requirement REQ-PR-001
+// @pseudocode component-001 lines 66-291
+#[cfg(test)]
+#[path = "prs_integration_tests.rs"]
+mod prs_integration_tests;
+
+// @plan PLAN-20260624-PR-MODE.P15
+// @requirement REQ-PR-004
+// @requirement REQ-PR-NFR-003
+#[cfg(test)]
+#[path = "prs_integration_tests_lifecycle.rs"]
+mod prs_integration_tests_lifecycle;
+
+// Extracted from `prs_dispatch.rs` to keep that handler module under the
+// per-file line limit.
+#[cfg(test)]
+#[path = "prs_dispatch_tests.rs"]
+mod prs_dispatch_tests;

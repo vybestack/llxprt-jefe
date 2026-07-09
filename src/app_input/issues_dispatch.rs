@@ -4,7 +4,7 @@
 
 use jefe::state::AppEvent;
 
-use super::{AppStateHandle, SharedContext, apply_and_persist};
+use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client};
 
 /// Resolve the GitHub owner/repo for the currently selected repository.
 /// Reads from the explicit `github_repo` field (format: `"owner/repo"`).
@@ -25,12 +25,11 @@ pub(super) fn resolve_gh_repo(state: &jefe::state::AppState) -> (String, String)
         return (String::new(), String::new());
     }
 
-    if let Some((owner, name)) = gh.split_once('/') {
-        let owner = owner.trim();
-        let name = name.trim();
-        if !owner.is_empty() && !name.is_empty() {
-            return (owner.to_owned(), name.to_owned());
-        }
+    let mut parts = gh.split('/');
+    let owner = parts.next().map(str::trim).unwrap_or_default();
+    let name = parts.next().map(str::trim).unwrap_or_default();
+    if parts.next().is_none() && !owner.is_empty() && !name.is_empty() {
+        return (owner.to_owned(), name.to_owned());
     }
 
     (String::new(), String::new())
@@ -61,24 +60,14 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
                     repo_owner_name: format!("{}/{}", gh_repo.0, gh_repo.1),
                     number: issue.number,
                     title: issue.title.clone(),
-                    state: issue.state.clone(),
+                    state: issue.state,
                     author_login: issue.author_login.clone(),
                     created_at: String::new(),
                     updated_at: issue.updated_at.clone(),
-                    labels: issue
-                        .labels_summary
-                        .split(", ")
-                        .filter(|s| !s.is_empty())
-                        .map(String::from)
-                        .collect(),
-                    assignees: issue
-                        .assignee_summary
-                        .split(", ")
-                        .filter(|s| !s.is_empty())
-                        .map(String::from)
-                        .collect(),
+                    labels: issue.labels.clone(),
+                    assignees: issue.assignees.clone(),
                     milestone: None,
-                    body: issue.body.clone(),
+                    body: preview_body_from_list(&issue.body),
                     external_url: String::new(),
                     comments: Vec::new(),
                     has_more_comments: false,
@@ -90,74 +79,295 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
     if let Some(detail) = preview {
         let mut state = app_state.write();
         state.issues_state.issue_detail = Some(detail);
-        state.issues_state.detail_loading = false;
-        state.issues_state.comments_loading = false;
+        state.issues_state.loading.detail = false;
+        state.issues_state.loading.comments = false;
+        state.issues_state.detail_pending = None;
+        state.issues_state.comments_page_pending = None;
         state.issues_state.detail_subfocus = jefe::state::DetailSubfocus::Body;
         state.issues_state.detail_scroll_offset = 0;
+    }
+}
+
+/// Body text for instant issue previews built from lightweight list rows.
+/// @plan PLAN-20260630-ISSUES-REGRESSION.P01
+/// @requirement REQ-ISS-006
+/// @pseudocode component-004 lines 1-5
+fn preview_body_from_list(body: &str) -> String {
+    if body.is_empty() {
+        "Press Enter to load issue body.".to_string()
+    } else {
+        body.to_string()
     }
 }
 
 /// Load issue detail for the currently selected issue in the list.
 /// Used by IssuesEnter to get the full detail with comments.
 pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let (issue_number, scope_repo_id, owner, repo) = {
-        let state = app_state.read();
-        let num = state
-            .issues_state
-            .selected_issue_index
-            .and_then(|idx| state.issues_state.issues.get(idx))
-            .map(|issue| issue.number);
-        let gh_repo = resolve_gh_repo(&state);
-        (num, current_scope_repo_id(&state), gh_repo.0, gh_repo.1)
+    let Some(mut params) = detail_load_params(app_state) else {
+        return;
     };
-
-    let Some(number) = issue_number else { return };
-    if owner.is_empty() || repo.is_empty() {
+    mark_detail_loading(app_state, &mut params);
+    if params.owner.is_empty() || params.repo.is_empty() {
+        apply_and_persist(app_state, ctx, missing_detail_repo_event(&params));
         return;
     }
 
-    // Mark detail as loading
-    {
-        let mut state = app_state.write();
-        state.issues_state.detail_loading = true;
-    }
+    let panic_params = params.clone();
+    gh_async::spawn_gh_task_with_panic(
+        app_state,
+        ctx,
+        move |mut app_state, ctx| {
+            let event = detail_load_event(&ctx, params);
+            apply_and_persist(&mut app_state, &ctx, event);
+        },
+        move |mut app_state, ctx, message| {
+            apply_and_persist(
+                &mut app_state,
+                &ctx,
+                detail_load_panic_event(&panic_params, message),
+            );
+        },
+    );
+}
 
-    let result = if let Some(ctx_arc) = &ctx
-        && let Ok(ctx_guard) = ctx_arc.lock()
-    {
-        Some(ctx_guard.gh_client.get_issue_detail(&owner, &repo, number))
-    } else {
-        None
+fn detail_load_params(app_state: &AppStateHandle) -> Option<DetailLoadParams> {
+    let state = app_state.read();
+    let issue_number = state
+        .issues_state
+        .selected_issue_index
+        .and_then(|idx| state.issues_state.issues.get(idx))
+        .map(|issue| issue.number)?;
+    let (owner, repo) = resolve_gh_repo(&state);
+    let params = DetailLoadParams {
+        scope_repo_id: current_scope_repo_id(&state),
+        issue_number,
+        owner,
+        repo,
+        request_id: 0,
+    };
+    drop(state);
+    Some(params)
+}
+
+fn mark_detail_loading(app_state: &mut AppStateHandle, params: &mut DetailLoadParams) {
+    let mut state = app_state.write();
+    let request_id = state.next_issue_detail_request_id();
+    state.mark_issue_detail_loading_with_request_id(
+        params.scope_repo_id.clone(),
+        params.issue_number,
+        request_id,
+    );
+    drop(state);
+    params.request_id = request_id;
+}
+
+fn detail_load_event(ctx: &SharedContext, params: DetailLoadParams) -> AppEvent {
+    let result = github_client(ctx)
+        .map(|client| client.get_issue_detail(&params.owner, &params.repo, params.issue_number));
+    match result {
+        Some(Ok(detail)) => AppEvent::IssueDetailLoaded {
+            scope_repo_id: params.scope_repo_id,
+            issue_number: params.issue_number,
+            request_id: params.request_id,
+            detail: std::boxed::Box::new(detail),
+        },
+        Some(Err(error)) => AppEvent::IssueDetailLoadFailed {
+            scope_repo_id: params.scope_repo_id,
+            issue_number: params.issue_number,
+            request_id: params.request_id,
+            error: error.to_string(),
+        },
+        None => AppEvent::IssueDetailLoadFailed {
+            scope_repo_id: params.scope_repo_id,
+            issue_number: params.issue_number,
+            request_id: params.request_id,
+            error: "Application context unavailable".to_string(),
+        },
+    }
+}
+
+fn missing_detail_repo_event(params: &DetailLoadParams) -> AppEvent {
+    AppEvent::IssueDetailLoadFailed {
+        scope_repo_id: params.scope_repo_id.clone(),
+        issue_number: params.issue_number,
+        request_id: params.request_id,
+        error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
+    }
+}
+
+fn detail_load_panic_event(params: &DetailLoadParams, message: String) -> AppEvent {
+    AppEvent::IssueDetailLoadFailed {
+        scope_repo_id: params.scope_repo_id.clone(),
+        issue_number: params.issue_number,
+        request_id: params.request_id,
+        error: format!("GitHub issue detail task panicked: {message}"),
+    }
+}
+
+#[derive(Clone)]
+struct DetailLoadParams {
+    scope_repo_id: jefe::domain::RepositoryId,
+    issue_number: u64,
+    owner: String,
+    repo: String,
+    request_id: u64,
+}
+
+/// Load the next comments page when the detail view is scrolled to the bottom.
+pub(super) fn load_more_comments(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let mut params = match comment_page_params(app_state) {
+        CommentPageRequest::Ready(params) => params,
+        CommentPageRequest::Fail(event) => {
+            mark_comment_failure_pending(app_state, &event);
+            apply_and_persist(app_state, ctx, event);
+            return;
+        }
+        CommentPageRequest::Skip => return,
     };
 
-    match result {
-        Some(Ok(detail)) => {
-            apply_and_persist(
-                app_state,
-                ctx,
-                AppEvent::IssueDetailLoaded {
-                    scope_repo_id,
-                    issue_number: number,
-                    detail: std::boxed::Box::new(detail),
-                },
-            );
-        }
-        Some(Err(e)) => {
-            apply_and_persist(
-                app_state,
-                ctx,
-                AppEvent::IssueDetailLoadFailed {
-                    scope_repo_id,
-                    issue_number: number,
-                    error: e.to_string(),
-                },
-            );
-        }
-        None => {
-            let mut state = app_state.write();
-            state.issues_state.detail_loading = false;
-        }
+    {
+        let mut state = app_state.write();
+        let request_id = state.next_comments_page_request_id();
+        state.mark_comments_page_loading_with_request_id(
+            params.scope_repo_id.clone(),
+            params.issue_number,
+            params.cursor.clone(),
+            request_id,
+        );
+        drop(state);
+        params.request_id = request_id;
     }
+
+    let panic_params = params.clone();
+    gh_async::spawn_gh_task_with_panic(
+        app_state,
+        ctx,
+        move |mut app_state, ctx| {
+            let event = comment_page_event(&ctx, &params);
+            apply_and_persist(&mut app_state, &ctx, event);
+        },
+        move |mut app_state, ctx, message| {
+            apply_and_persist(
+                &mut app_state,
+                &ctx,
+                AppEvent::IssueCommentsPageFailed {
+                    scope_repo_id: panic_params.scope_repo_id,
+                    issue_number: panic_params.issue_number,
+                    request_id: panic_params.request_id,
+                    request_cursor: panic_params.cursor,
+                    error: format!("GitHub comments task panicked: {message}"),
+                },
+            );
+        },
+    );
+}
+
+fn mark_comment_failure_pending(app_state: &mut AppStateHandle, event: &AppEvent) {
+    if let AppEvent::IssueCommentsPageFailed {
+        scope_repo_id,
+        issue_number,
+        request_cursor,
+        ..
+    } = event
+    {
+        let mut state = app_state.write();
+        state.mark_comments_page_loading(
+            scope_repo_id.clone(),
+            *issue_number,
+            request_cursor.clone(),
+        );
+    }
+}
+
+fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
+    let state = app_state.read();
+    let Some(detail) = state.issues_state.issue_detail.as_ref() else {
+        return CommentPageRequest::Skip;
+    };
+    if !detail.has_more_comments || state.issues_state.loading.comments {
+        return CommentPageRequest::Skip;
+    }
+    if state.issues_state.detail_scroll_offset < state.issues_state.max_detail_scroll_offset() {
+        return CommentPageRequest::Skip;
+    }
+    let scope_repo_id = current_scope_repo_id(&state);
+    let issue_number = detail.number;
+    let (owner, repo) = resolve_gh_repo(&state);
+    if owner.is_empty() || repo.is_empty() {
+        return CommentPageRequest::Fail(AppEvent::IssueCommentsPageFailed {
+            scope_repo_id,
+            issue_number,
+            request_id: 0,
+            request_cursor: detail.comments_cursor.clone(),
+            error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
+        });
+    }
+    let params = CommentPageParams {
+        scope_repo_id,
+        issue_number,
+        owner,
+        repo,
+        cursor: detail.comments_cursor.clone(),
+        page_size: 30,
+        request_id: 0,
+    };
+    drop(state);
+    CommentPageRequest::Ready(params)
+}
+
+fn comment_page_event(ctx: &SharedContext, params: &CommentPageParams) -> AppEvent {
+    let result = github_client(ctx).map(|client| {
+        client.list_comments(
+            &params.owner,
+            &params.repo,
+            params.issue_number,
+            params.cursor.as_deref(),
+            params.page_size,
+        )
+    });
+
+    match result {
+        Some(Ok(response)) => AppEvent::IssueCommentsPageLoaded {
+            scope_repo_id: params.scope_repo_id.clone(),
+            issue_number: params.issue_number,
+            request_id: params.request_id,
+            request_cursor: params.cursor.clone(),
+            comments: response.comments,
+            cursor: response.cursor,
+            has_more: response.has_more,
+        },
+        Some(Err(error)) => AppEvent::IssueCommentsPageFailed {
+            scope_repo_id: params.scope_repo_id.clone(),
+            issue_number: params.issue_number,
+            request_id: params.request_id,
+            request_cursor: params.cursor.clone(),
+            error: error.to_string(),
+        },
+        None => AppEvent::IssueCommentsPageFailed {
+            scope_repo_id: params.scope_repo_id.clone(),
+            issue_number: params.issue_number,
+            request_id: params.request_id,
+            request_cursor: params.cursor.clone(),
+            error: "Application context unavailable".to_string(),
+        },
+    }
+}
+
+#[derive(Clone)]
+struct CommentPageParams {
+    scope_repo_id: jefe::domain::RepositoryId,
+    issue_number: u64,
+    owner: String,
+    repo: String,
+    cursor: Option<String>,
+    page_size: u32,
+    request_id: u64,
+}
+
+enum CommentPageRequest {
+    Ready(CommentPageParams),
+    Fail(AppEvent),
+    Skip,
 }
 
 /// Format a `SendPayload` into a markdown issue prompt for the agent.
@@ -202,4 +412,22 @@ pub(super) fn format_issue_prompt(payload: &jefe::github::SendPayload) -> String
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::preview_body_from_list;
+
+    #[test]
+    fn empty_list_preview_body_prompts_for_detail_load() {
+        assert_eq!(
+            preview_body_from_list(""),
+            "Press Enter to load issue body."
+        );
+    }
+
+    #[test]
+    fn populated_list_preview_body_is_preserved() {
+        assert_eq!(preview_body_from_list("existing body"), "existing body");
+    }
 }

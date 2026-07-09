@@ -10,7 +10,7 @@
 //! - Theme management
 //! - Runtime orchestration
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+use crate::support::{TestOptionExt, TestResultExt};
 
 use jefe::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use jefe::persistence::{
@@ -152,7 +152,7 @@ fn full_terminal_focus_workflow() {
 fn persistence_roundtrip_preserves_state() {
     let temp = std::env::temp_dir().join("jefe_e2e_roundtrip");
     let _ = std::fs::remove_dir_all(&temp);
-    std::fs::create_dir_all(&temp).expect("create temp dir");
+    std::fs::create_dir_all(&temp).test_unwrap("create temp dir");
 
     let paths = PersistencePaths {
         settings_path: temp.join("settings.toml"),
@@ -182,13 +182,15 @@ fn persistence_roundtrip_preserves_state() {
         selected_agent_index: Some(0),
         hide_idle_repositories: false,
         last_selected_agent_by_repo: vec![],
+        pane_focus: String::new(),
+        terminal_focused: false,
     };
 
     // Save and reload
     persistence
         .save_state(&persisted_state)
-        .expect("save should work");
-    let loaded = persistence.load_state().expect("load should work");
+        .test_unwrap("save should work");
+    let loaded = persistence.load_state().test_unwrap("load should work");
 
     assert_eq!(loaded.repositories.len(), 1);
     assert_eq!(loaded.agents.len(), 1);
@@ -209,10 +211,10 @@ fn persistence_settings_theme_integration() {
     };
     persistence
         .save_settings(&settings)
-        .expect("save should work");
+        .test_unwrap("save should work");
 
     // Load and apply to theme manager
-    let loaded = persistence.load_settings().expect("load should work");
+    let loaded = persistence.load_settings().test_unwrap("load should work");
     let result = theme_mgr.set_active(&loaded.theme);
 
     assert!(result.is_ok());
@@ -288,7 +290,7 @@ fn error_messages_flow_through_state() {
         state
             .error_message
             .as_ref()
-            .unwrap()
+            .test_unwrap("test unwrap")
             .contains("File not found")
     );
 
@@ -332,7 +334,7 @@ fn state_transitions_never_panic() {
     // State should still be valid
     assert!(
         state.selected_agent_index.is_none()
-            || state.selected_agent_index.unwrap() < state.agents.len()
+            || state.selected_agent_index.test_unwrap("test unwrap") < state.agents.len()
     );
 }
 

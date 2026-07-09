@@ -47,7 +47,7 @@ pub fn ConfirmModal(props: &ConfirmModalProps) -> impl Into<AnyElement<'static>>
             }
 
             // Message
-            Box(flex_grow: 1.0, background_color: rc.bg) {
+            Box(flex_grow: 1.0_f32, background_color: rc.bg) {
                 Text(content: props.message.clone(), color: rc.fg)
             }
 

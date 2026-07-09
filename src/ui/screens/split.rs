@@ -6,6 +6,7 @@
 
 use iocraft::prelude::*;
 
+use crate::selection::{SelectablePane, row_highlight_range};
 use crate::state::{AppState, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
@@ -40,6 +41,7 @@ pub struct SplitScreenProps {
 #[component]
 pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
     let state = props.state.as_ref();
+    let selection = state.and_then(|s| s.selection);
 
     let visible_repo_indices = state.map_or_else(Vec::new, AppState::visible_repository_indices);
     let repo_count = visible_repo_indices.len();
@@ -94,12 +96,13 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                 version: crate::VERSION.to_owned(),
                 warning_message: state.and_then(|s| s.warning_message.clone()),
                 colors: colors.clone(),
+                selection: selection,
             )
 
             // Main content - repository list
             Box(
                 flex_direction: FlexDirection::Column,
-                flex_grow: 1.0,
+                flex_grow: 1.0_f32,
                 width: 100pct,
                 padding: 1u32,
                 background_color: rc.bg,
@@ -112,7 +115,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                 // Repository list
                 Box(
                     flex_direction: FlexDirection::Column,
-                    flex_grow: 1.0,
+                    flex_grow: 1.0_f32,
                     width: 100pct,
                     border_style: BorderStyle::Round,
                     border_color: rc.border,
@@ -124,19 +127,19 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                         let visible_count = agent_counts.get(i).copied()
                             .unwrap_or(repo.agent_ids.len());
                         let line = format!("{}{} ({} agents)", prefix, repo.name, visible_count);
-                        if selected {
-                            element! {
-                                Box(height: 1u32, background_color: rc.sel_bg) {
-                                    Text(content: line, color: rc.sel_fg, weight: Weight::Bold)
-                                }
-                            }
-                        } else {
-                            element! {
-                                Box(height: 1u32) {
-                                    Text(content: line, color: rc.fg)
-                                }
+                        let highlighted = selection
+                            .filter(|s| s.pane() == SelectablePane::Sidebar)
+                            .and_then(|s| row_highlight_range(&s, i))
+                            .is_some();
+                        let row_bg = if highlighted { rc.sel_bg } else { rc.bg };
+                        let fg = if highlighted { rc.sel_fg } else { rc.fg };
+                        let weight = if selected { Weight::Bold } else { Weight::Normal };
+                        element! {
+                            Box(height: 1u32, background_color: row_bg) {
+                                Text(content: line, color: fg, weight: weight)
                             }
                         }
+                        .into_any()
                     }))
                 }
             }

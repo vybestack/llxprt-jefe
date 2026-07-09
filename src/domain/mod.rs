@@ -230,7 +230,14 @@ pub struct Issue {
     pub updated_at: String,
     pub assignee_summary: String,
     pub labels_summary: String,
+    pub assignees: Vec<String>,
+    pub labels: Vec<String>,
+    pub issue_type: String,
+    pub milestone: String,
+    pub module: String,
     pub comment_count: u64,
+    /// Optional lightweight preview body; list/search fetches may leave this empty
+    /// so full body content is loaded through `IssueDetail` instead.
     pub body: String,
 }
 
@@ -279,19 +286,323 @@ pub enum IssueFilterState {
     All,
 }
 
+pub const FILTER_CHOICE_ANY: &str = "any";
+pub const FILTER_CHOICE_NONE: &str = "none";
+
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-008
 /// Issue list filter criteria.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IssueFilter {
     pub query_text: String,
     pub state: Option<IssueFilterState>,
     pub author: String,
     pub assignee: String,
     pub labels: Vec<String>,
+    pub issue_type: String,
+    pub milestone: String,
+    pub module: String,
     pub mentioned: String,
     pub updated_before: String,
     pub updated_after: String,
+}
+
+impl IssueFilter {
+    /// @plan PLAN-20260329-ISSUES-MODE.P03
+    /// @requirement REQ-ISS-008
+    /// @pseudocode component-011 lines 1-9
+    #[must_use]
+    pub fn has_active_non_default_filters(&self) -> bool {
+        matches!(
+            self.state,
+            Some(IssueFilterState::Closed | IssueFilterState::All)
+        ) || !self.query_text.trim().is_empty()
+            || sentinel_filter_is_active(&self.author)
+            || sentinel_filter_is_active(&self.assignee)
+            || !self.labels.is_empty()
+            || sentinel_filter_is_active(&self.issue_type)
+            || sentinel_filter_is_active(&self.milestone)
+            || sentinel_filter_is_active(&self.module)
+            || sentinel_filter_is_active(&self.mentioned)
+            || sentinel_filter_is_active(&self.updated_before)
+            || sentinel_filter_is_active(&self.updated_after)
+    }
+}
+
+fn sentinel_filter_is_active(value: &str) -> bool {
+    let trimmed = value.trim();
+    !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case(FILTER_CHOICE_ANY)
+}
+
+// =============================================================================
+// Pull Requests Mode domain entities
+//
+// @plan PLAN-20260624-PR-MODE.P03
+// @requirement REQ-PR-006
+// @requirement REQ-PR-008
+// @requirement REQ-PR-009
+// Non-serde transient types mirroring Issue/IssueDetail. Reuses IssueComment
+// for PR comments (GitHub PRs are issues for the conversation-comment API).
+// =============================================================================
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-006
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 74-101
+/// PR lifecycle state (derived from `gh pr` JSON `state` + `mergedAt`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrState {
+    Open,
+    Closed,
+    Merged,
+}
+
+/// Merge method for a pull request (mirrors GitHub's three merge types).
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 74-101
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeMethod {
+    /// Create a merge commit (`--merge`).
+    Merge,
+    /// Squash commits into one (`--squash`).
+    Squash,
+    /// Rebase commits onto base (`--rebase`).
+    Rebase,
+}
+
+/// All known merge methods in canonical display order.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 74-101
+pub const MERGE_METHODS: [MergeMethod; 3] =
+    [MergeMethod::Merge, MergeMethod::Squash, MergeMethod::Rebase];
+
+impl MergeMethod {
+    /// User-facing display label (mirrors GitHub's three merge-type buttons).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P03
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-002 lines 74-101
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Merge => "Create a merge commit",
+            Self::Squash => "Squash and merge",
+            Self::Rebase => "Rebase and merge",
+        }
+    }
+
+    /// The `gh pr merge` flag for this method.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P08
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-002 lines 115-122
+    #[must_use]
+    pub const fn gh_flag(self) -> &'static str {
+        match self {
+            Self::Merge => "--merge",
+            Self::Squash => "--squash",
+            Self::Rebase => "--rebase",
+        }
+    }
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 74-101
+/// Per-review and aggregate review-decision state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrReviewState {
+    Approved,
+    ChangesRequested,
+    Commented,
+    Pending,
+    Dismissed,
+    ReviewRequired,
+    None,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 74-101
+/// Per-check and aggregate CI rollup status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrCheckStatus {
+    Pending,
+    Success,
+    Failure,
+    Neutral,
+    None,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-006
+/// @pseudocode component-002 lines 22-34
+/// PR list-row entity.
+#[derive(Debug, Clone)]
+pub struct PullRequest {
+    pub number: u64,
+    pub title: String,
+    pub state: PrState,
+    pub author_login: String,
+    pub updated_at: String,
+    pub head_ref: String,
+    pub base_ref: String,
+    pub is_draft: bool,
+    pub review_decision: Option<PrReviewState>,
+    pub checks_status: PrCheckStatus,
+    pub assignee_summary: String,
+    pub labels_summary: String,
+    pub comment_count: u64,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 157-165
+/// Review summary item (read-only).
+#[derive(Debug, Clone)]
+pub struct PrReview {
+    pub author_login: String,
+    pub state: PrReviewState,
+    pub submitted_at: String,
+    pub body: Option<String>,
+    /// Line-level review threads attached to this review (issue #119).
+    /// Empty when no threads were fetched (graceful degradation).
+    pub review_threads: Vec<PrReviewThread>,
+}
+
+/// A review-thread conversation group with its line-level comments.
+///
+/// Each thread carries the GraphQL node id (for resolve/unresolve mutations),
+/// its resolved state, the file location it is attached to, and the nested
+/// reply comments. Reuses [`IssueComment`] for thread replies so the rendering
+/// and message-bus layers share one comment type across the app.
+///
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+#[derive(Debug, Clone)]
+pub struct PrReviewThread {
+    /// GraphQL node id used for resolve/unresolve mutations.
+    pub thread_id: String,
+    /// Whether the thread is currently resolved.
+    pub is_resolved: bool,
+    /// File path the thread is attached to (`None` for PR-level threads).
+    pub path: Option<String>,
+    /// Line number the thread is attached to (`None` for PR-level threads).
+    pub line: Option<u32>,
+    /// Nested thread reply comments (oldest first).
+    pub comments: Vec<IssueComment>,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 174-193
+/// CI/check summary item (read-only; `url` is display-only).
+#[derive(Debug, Clone)]
+pub struct PrCheck {
+    pub name: String,
+    pub status: PrCheckStatus,
+    pub conclusion: String,
+    pub url: Option<String>,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 74-101
+/// PR detail entity. Reuses [`IssueComment`] for comments.
+#[derive(Debug, Clone)]
+pub struct PullRequestDetail {
+    pub repo_owner_name: String,
+    pub number: u64,
+    pub title: String,
+    pub state: PrState,
+    pub is_draft: bool,
+    pub author_login: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub head_ref: String,
+    pub base_ref: String,
+    pub labels: Vec<String>,
+    pub assignees: Vec<String>,
+    pub milestone: Option<String>,
+    pub body: String,
+    pub external_url: String,
+    pub review_decision: Option<PrReviewState>,
+    pub checks_status: PrCheckStatus,
+    pub reviews: Vec<PrReview>,
+    pub checks: Vec<PrCheck>,
+    pub comments: Vec<IssueComment>,
+    pub has_more_comments: bool,
+    pub comments_cursor: Option<String>,
+    /// Whether the PR can be merged right now (GitHub `mergeable`).
+    /// `None` when not yet fetched (e.g. preview-from-list).
+    pub mergeable: Option<bool>,
+    /// Detailed mergeability status (GitHub `mergeStateStatus`, e.g. "CLEAN",
+    /// "BLOCKED", "BEHIND"). `None` when not yet fetched.
+    pub merge_state_status: Option<String>,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 259-263
+/// PR filter-state choice (Space cycles this on the state field).
+/// Default is `Open`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PrFilterState {
+    #[default]
+    Open,
+    Closed,
+    Merged,
+    All,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 264a-264d
+/// Review-decision filter choice (issue #20 review signal). `Any` emits no
+/// qualifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReviewDecisionFilter {
+    #[default]
+    Any,
+    Approved,
+    ChangesRequested,
+    ReviewRequired,
+    None,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 264e-264g
+/// CI/check-rollup filter choice (issue #20 workflow signal). `Any` emits no
+/// qualifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ChecksFilter {
+    #[default]
+    Any,
+    Success,
+    Failing,
+    Pending,
+}
+
+/// @plan PLAN-20260624-PR-MODE.P03
+/// @requirement REQ-PR-008
+/// @pseudocode component-001 lines 249-258
+/// PR filter criteria. Structured fields are AND-composed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PrFilter {
+    pub query_text: String,
+    pub state: Option<PrFilterState>,
+    pub author: String,
+    pub assignee: String,
+    pub reviewer: String,
+    pub is_draft: Option<bool>,
+    pub labels: Vec<String>,
+    pub review_decision: ReviewDecisionFilter,
+    pub checks_status: ChecksFilter,
 }
 
 /// Agent lifecycle status.
@@ -340,6 +651,18 @@ pub struct RuntimeBinding {
     pub launch_signature: LaunchSignature,
     pub attached: bool,
     pub last_seen: Option<u64>,
+    /// OS PID of the worker process (`llxprt`), used as a liveness fallback
+    /// when the tmux session is gone but the worker is still alive.
+    ///
+    /// PID-based liveness is a best-effort heuristic: OS PID reuse can in
+    /// principle produce a false positive (a recycled PID appearing alive).
+    /// The window is narrow because this check only fires when the tmux
+    /// session is *recently* gone, so a real crash is far more likely than a
+    /// collision with a recycled PID in that interval.
+    /// `#[serde(default)]` for backward-compatible loading of older state.json
+    /// files that predate this field.
+    #[serde(default)]
+    pub pid: Option<u32>,
 }
 
 /// Launch signature for recreating runtime sessions.
@@ -360,6 +683,11 @@ pub struct LaunchSignature {
 
 impl Agent {
     /// Create a new agent with default values.
+    ///
+    /// This domain constructor defaults to [`AgentStatus::Queued`] and is
+    /// intended for simple construction and testing. App-side creation should
+    /// go through [`crate::services::create_agent`], which is the canonical path
+    /// and sets `Running` (creation immediately triggers launch).
     ///
     /// Invariant: `pass_continue` defaults to true for new agents.
     #[must_use]
@@ -411,266 +739,4 @@ impl Repository {
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::unwrap_used)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn agent_pass_continue_defaults_true() {
-        let agent = Agent::new(
-            AgentId("test-1".into()),
-            RepositoryId("repo-1".into()),
-            "Test Agent".into(),
-            PathBuf::from("/tmp/test"),
-        );
-        assert!(agent.pass_continue);
-    }
-
-    #[test]
-    fn agent_status_defaults_to_queued() {
-        let agent = Agent::new(
-            AgentId("test-1".into()),
-            RepositoryId("repo-1".into()),
-            "Test Agent".into(),
-            PathBuf::from("/tmp/test"),
-        );
-        assert_eq!(agent.status, AgentStatus::Queued);
-    }
-
-    #[test]
-    fn agent_sandbox_defaults_match_requirement() {
-        let agent = Agent::new(
-            AgentId("test-1".into()),
-            RepositoryId("repo-1".into()),
-            "Test Agent".into(),
-            PathBuf::from("/tmp/test"),
-        );
-        assert!(agent.llxprt_debug.is_empty());
-        assert!(!agent.sandbox_enabled);
-        assert_eq!(agent.sandbox_engine, SandboxEngine::Podman);
-        assert_eq!(agent.sandbox_flags, DEFAULT_SANDBOX_FLAGS);
-    }
-
-    #[test]
-    fn agent_deserializes_missing_llxprt_debug_as_empty() {
-        let value = json!({
-            "id": "agent-1",
-            "display_id": "#1",
-            "repository_id": "repo-1",
-            "name": "Agent One",
-            "description": "",
-            "work_dir": "/tmp/agent-1",
-            "profile": "",
-            "mode_flags": ["--yolo"],
-            "pass_continue": true,
-            "sandbox_enabled": false,
-            "sandbox_engine": "podman",
-            "sandbox_flags": DEFAULT_SANDBOX_FLAGS,
-            "status": "Queued",
-            "runtime_binding": null
-        });
-
-        let Ok(agent) = serde_json::from_value::<Agent>(value) else {
-            panic!("agent should deserialize");
-        };
-        assert!(agent.llxprt_debug.is_empty());
-    }
-
-    #[test]
-    fn launch_signature_deserializes_missing_llxprt_debug_as_empty() {
-        let value = json!({
-            "work_dir": "/tmp/agent-1",
-            "profile": "",
-            "mode_flags": ["--yolo"],
-            "pass_continue": true,
-            "sandbox_enabled": true,
-            "sandbox_engine": "podman",
-            "sandbox_flags": DEFAULT_SANDBOX_FLAGS
-        });
-
-        let Ok(signature) = serde_json::from_value::<LaunchSignature>(value) else {
-            panic!("launch signature should deserialize");
-        };
-        assert!(signature.llxprt_debug.is_empty());
-        assert_eq!(signature.remote, RemoteRepositorySettings::default());
-    }
-
-    #[test]
-    fn repository_deserializes_missing_remote_settings_with_defaults() {
-        let value = json!({
-            "id": "repo-1",
-            "name": "Repo One",
-            "slug": "repo-one",
-            "base_dir": "/tmp/repo-one",
-            "default_profile": "",
-            "agent_ids": []
-        });
-
-        let Ok(repository) = serde_json::from_value::<Repository>(value) else {
-            panic!("repository should deserialize");
-        };
-        assert_eq!(repository.remote, RemoteRepositorySettings::default());
-    }
-
-    #[test]
-    fn platform_capabilities_macos_supports_all_engines() {
-        let caps = PlatformCapabilities::for_os("macos");
-        assert!(caps.is_engine_supported(SandboxEngine::Podman));
-        assert!(caps.is_engine_supported(SandboxEngine::Docker));
-        assert!(caps.is_engine_supported(SandboxEngine::Seatbelt));
-        assert_eq!(caps.supported_engines().len(), 3);
-    }
-
-    #[test]
-    fn platform_capabilities_linux_excludes_seatbelt() {
-        let caps = PlatformCapabilities::for_os("linux");
-        assert!(caps.is_engine_supported(SandboxEngine::Podman));
-        assert!(caps.is_engine_supported(SandboxEngine::Docker));
-        assert!(!caps.is_engine_supported(SandboxEngine::Seatbelt));
-        assert_eq!(caps.supported_engines().len(), 2);
-    }
-
-    #[test]
-    fn platform_capabilities_windows_has_no_supported_engines() {
-        let caps = PlatformCapabilities::for_os("windows");
-        assert!(!caps.is_engine_supported(SandboxEngine::Podman));
-        assert!(!caps.is_engine_supported(SandboxEngine::Docker));
-        assert!(!caps.is_engine_supported(SandboxEngine::Seatbelt));
-        assert!(caps.supported_engines().is_empty());
-    }
-
-    #[test]
-    fn normalize_engine_returns_none_when_platform_has_no_supported_engines() {
-        let caps = PlatformCapabilities::for_os("windows");
-        assert_eq!(caps.normalize_engine(SandboxEngine::Seatbelt), None);
-    }
-
-    #[test]
-    fn next_for_capabilities_returns_self_when_supported_engines_empty() {
-        let caps = PlatformCapabilities::for_os("windows");
-        assert_eq!(
-            SandboxEngine::Docker.next_for_capabilities(&caps),
-            SandboxEngine::Docker
-        );
-    }
-
-    #[test]
-    fn platform_capabilities_normalize_unsupported_engine_to_podman() {
-        let caps = PlatformCapabilities::for_os("linux");
-        assert_eq!(
-            caps.normalize_engine(SandboxEngine::Seatbelt),
-            Some(SandboxEngine::Podman)
-        );
-        assert_eq!(
-            caps.normalize_engine(SandboxEngine::Docker),
-            Some(SandboxEngine::Docker)
-        );
-    }
-
-    #[test]
-    fn platform_capabilities_normalize_is_noop_on_macos() {
-        let caps = PlatformCapabilities::for_os("macos");
-        assert_eq!(
-            caps.normalize_engine(SandboxEngine::Seatbelt),
-            Some(SandboxEngine::Seatbelt)
-        );
-    }
-
-    #[test]
-    fn platform_label_returns_readable_names() {
-        assert_eq!(
-            PlatformCapabilities::for_os("macos").platform_label(),
-            "macOS"
-        );
-        assert_eq!(
-            PlatformCapabilities::for_os("linux").platform_label(),
-            "Linux"
-        );
-        assert_eq!(
-            PlatformCapabilities::for_os("windows").platform_label(),
-            "Windows"
-        );
-        assert_eq!(
-            PlatformCapabilities::for_os("freebsd").platform_label(),
-            "Unknown"
-        );
-    }
-
-    #[test]
-    fn seatbelt_deserialization_still_works_across_platforms() {
-        // Seatbelt must always deserialize (for persisted state portability).
-        // Platform filtering happens at the capabilities layer, not serde.
-        let value = json!({
-            "id": "agent-seatbelt",
-            "display_id": "#1",
-            "repository_id": "repo-1",
-            "name": "Seatbelt Agent",
-            "description": "",
-            "work_dir": "/tmp/sb-agent",
-            "profile": "",
-            "mode_flags": ["--yolo"],
-            "pass_continue": true,
-            "sandbox_enabled": true,
-            "sandbox_engine": "seatbelt",
-            "sandbox_flags": DEFAULT_SANDBOX_FLAGS,
-            "status": "Queued",
-            "runtime_binding": null
-        });
-        let Ok(agent) = serde_json::from_value::<Agent>(value) else {
-            panic!("agent with seatbelt engine should deserialize");
-        };
-        assert_eq!(agent.sandbox_engine, SandboxEngine::Seatbelt);
-    }
-
-    /// Test 25: issue_base_prompt serializes and deserializes correctly.
-    /// @plan PLAN-20260329-ISSUES-MODE.P04
-    /// @requirement REQ-ISS-013
-    /// @pseudocode component-001 lines 190-195
-    #[test]
-    fn test_issue_base_prompt_serde_roundtrip() {
-        let repo = Repository {
-            id: RepositoryId("repo-1".to_string()),
-            name: "Test Repo".to_string(),
-            slug: "test-repo".to_string(),
-            base_dir: PathBuf::from("/tmp/test-repo"),
-            default_profile: String::new(),
-            github_repo: String::new(),
-            remote: RemoteRepositorySettings::default(),
-            issue_base_prompt: "Prioritize diagnosis".to_string(),
-            agent_ids: vec![],
-        };
-
-        let json = serde_json::to_value(&repo).expect("should serialize");
-        let repo2: Repository = serde_json::from_value(json).expect("should deserialize");
-
-        assert_eq!(repo2.issue_base_prompt, "Prioritize diagnosis");
-    }
-
-    /// Test 26: issue_base_prompt backward compatibility with missing field.
-    /// @plan PLAN-20260329-ISSUES-MODE.P04
-    /// @requirement REQ-ISS-013
-    /// @pseudocode component-001 lines 196-200
-    #[test]
-    fn test_issue_base_prompt_backward_compat() {
-        let value = json!({
-            "id": "repo-1",
-            "name": "Test Repo",
-            "slug": "test-repo",
-            "base_dir": "/tmp/test-repo",
-            "default_profile": "",
-            "remote": {
-                "enabled": false,
-                "login_user": "",
-                "host": "",
-                "run_as_user": "",
-                "setup_env_default": false
-            },
-            "agent_ids": []
-            // Note: no issue_base_prompt field
-        });
-
-        let repo: Repository = serde_json::from_value(value).expect("should deserialize");
-        assert_eq!(repo.issue_base_prompt, "");
-    }
-}
+mod tests;

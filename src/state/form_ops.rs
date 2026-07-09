@@ -2,8 +2,7 @@
 //! navigation, checkbox toggling, and form submission logic.
 
 use crate::domain::{
-    Agent, AgentStatus, PlatformCapabilities, RemoteRepositorySettings, Repository, RepositoryId,
-    SandboxEngine,
+    Agent, PlatformCapabilities, RemoteRepositorySettings, Repository, RepositoryId, SandboxEngine,
 };
 use tracing::warn;
 
@@ -12,10 +11,10 @@ use super::types::{
     AgentFormCursor, AgentFormFields, AgentFormFocus, ModalState, RepositoryFormCursor,
     RepositoryFormFields, RepositoryFormFocus,
 };
-use super::util::{
-    delete_char_at, delete_char_before, expand_tilde, generate_id, insert_char_at,
-    move_cursor_left, move_cursor_right, normalize_llxprt_debug, normalize_profile,
-    normalize_sandbox_flags,
+use super::util::{delete_char_at, delete_char_before, insert_char_at, move_cursor_left};
+use crate::services::{
+    self, CreateAgentParams, expand_tilde, generate_id, normalize_llxprt_debug, normalize_profile,
+    normalize_sandbox_flags, resolve_agent_work_dir,
 };
 
 impl AppState {
@@ -27,17 +26,34 @@ impl AppState {
             .collect::<String>()
     }
 
-    fn validated_agent_work_dir(repository: &Repository, value: &str) -> Option<String> {
+    /// Validate a `github_repo` field value.
+    ///
+    /// An empty value is valid (no GitHub integration). A non-empty value must
+    /// be exactly `"owner/repo"`: a single forward slash with non-empty parts on
+    /// both sides and no internal whitespace (GitHub owner/repo names never
+    /// contain spaces). Returns `false` for malformed values like `"foo"`,
+    /// `"owner/repo/extra"`, `"/repo"`, `"owner/"`, `"owner /repo"`, or
+    /// `"owner/ repo"`. Surrounding whitespace on the whole value is ignored,
+    /// matching the trimming performed when the value is persisted.
+    fn validate_github_repo(value: &str) -> bool {
         let trimmed = value.trim();
         if trimmed.is_empty() {
-            return None;
+            return true;
         }
+        match trimmed.split_once('/') {
+            Some((owner, repo)) => {
+                !owner.is_empty()
+                    && !repo.is_empty()
+                    && !repo.contains('/')
+                    && !owner.contains(char::is_whitespace)
+                    && !repo.contains(char::is_whitespace)
+            }
+            None => false,
+        }
+    }
 
-        if repository.remote.enabled {
-            Some(trimmed.to_owned())
-        } else {
-            Some(expand_tilde(trimmed))
-        }
+    fn validated_agent_work_dir(repository: &Repository, value: &str) -> Option<String> {
+        resolve_agent_work_dir(repository, value)
     }
 
     fn handle_agent_shortcut_char(fields: &mut AgentFormFields, c: char) {
@@ -121,13 +137,11 @@ impl AppState {
         }
     }
 
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     pub(super) fn handle_form_char(&mut self, c: char) {
-        let mut refresh_work_dir = false;
-
-        match &mut self.modal {
+        let refresh_work_dir = match &mut self.modal {
             ModalState::Search { query } => {
                 query.push(c);
+                false
             }
             ModalState::NewRepository {
                 fields,
@@ -140,38 +154,14 @@ impl AppState {
                 focus,
                 cursor,
                 ..
-            } => match focus {
-                RepositoryFormFocus::Name => {
-                    cursor.name = insert_char_at(&mut fields.name, cursor.name, c);
+            } => {
+                if crate::state::form_cursor::handle_repository_field_char(
+                    fields, cursor, *focus, c,
+                ) {
+                    Self::toggle_repository_checkbox(fields, *focus);
                 }
-                RepositoryFormFocus::BaseDir => {
-                    cursor.base_dir = insert_char_at(&mut fields.base_dir, cursor.base_dir, c);
-                }
-                RepositoryFormFocus::DefaultProfile => {
-                    cursor.default_profile =
-                        insert_char_at(&mut fields.default_profile, cursor.default_profile, c);
-                }
-                RepositoryFormFocus::GitHubRepo => {
-                    cursor.github_repo =
-                        insert_char_at(&mut fields.github_repo, cursor.github_repo, c);
-                }
-                RepositoryFormFocus::LoginUser => {
-                    cursor.login_user =
-                        insert_char_at(&mut fields.login_user, cursor.login_user, c);
-                }
-                RepositoryFormFocus::Host => {
-                    cursor.host = insert_char_at(&mut fields.host, cursor.host, c);
-                }
-                RepositoryFormFocus::RunAsUser => {
-                    cursor.run_as_user =
-                        insert_char_at(&mut fields.run_as_user, cursor.run_as_user, c);
-                }
-                RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {
-                    if c == ' ' || c == 'x' || c == 'X' {
-                        Self::toggle_repository_checkbox(fields, *focus);
-                    }
-                }
-            },
+                false
+            }
             ModalState::NewAgent {
                 fields,
                 focus,
@@ -182,11 +172,7 @@ impl AppState {
                 if *focus == AgentFormFocus::WorkDir {
                     *work_dir_manual = true;
                 }
-
-                let touched_name = Self::handle_agent_field_char(fields, cursor, *focus, c);
-                if touched_name && !*work_dir_manual {
-                    refresh_work_dir = true;
-                }
+                Self::handle_agent_field_char(fields, cursor, *focus, c) && !*work_dir_manual
             }
             ModalState::EditAgent {
                 fields,
@@ -195,9 +181,10 @@ impl AppState {
                 ..
             } => {
                 let _ = Self::handle_agent_field_char(fields, cursor, *focus, c);
+                false
             }
-            _ => {}
-        }
+            _ => false,
+        };
 
         if refresh_work_dir {
             self.update_agent_work_dir_from_name();
@@ -511,7 +498,6 @@ impl AppState {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
     pub(super) fn handle_form_move_cursor_right(&mut self) {
         match &mut self.modal {
             ModalState::NewRepository {
@@ -525,31 +511,9 @@ impl AppState {
                 focus,
                 cursor,
                 ..
-            } => match focus {
-                RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {}
-                RepositoryFormFocus::Name => {
-                    cursor.name = move_cursor_right(&fields.name, cursor.name);
-                }
-                RepositoryFormFocus::BaseDir => {
-                    cursor.base_dir = move_cursor_right(&fields.base_dir, cursor.base_dir);
-                }
-                RepositoryFormFocus::DefaultProfile => {
-                    cursor.default_profile =
-                        move_cursor_right(&fields.default_profile, cursor.default_profile);
-                }
-                RepositoryFormFocus::GitHubRepo => {
-                    cursor.github_repo = move_cursor_right(&fields.github_repo, cursor.github_repo);
-                }
-                RepositoryFormFocus::LoginUser => {
-                    cursor.login_user = move_cursor_right(&fields.login_user, cursor.login_user);
-                }
-                RepositoryFormFocus::Host => {
-                    cursor.host = move_cursor_right(&fields.host, cursor.host);
-                }
-                RepositoryFormFocus::RunAsUser => {
-                    cursor.run_as_user = move_cursor_right(&fields.run_as_user, cursor.run_as_user);
-                }
-            },
+            } => crate::state::form_cursor::move_repository_field_cursor_right(
+                fields, cursor, *focus,
+            ),
             ModalState::NewAgent {
                 fields,
                 focus,
@@ -561,35 +525,7 @@ impl AppState {
                 focus,
                 cursor,
                 ..
-            } => match focus {
-                AgentFormFocus::Shortcut
-                | AgentFormFocus::PassContinue
-                | AgentFormFocus::Sandbox
-                | AgentFormFocus::SandboxEngine => {}
-                AgentFormFocus::Name => {
-                    cursor.name = move_cursor_right(&fields.name, cursor.name);
-                }
-                AgentFormFocus::Description => {
-                    cursor.description = move_cursor_right(&fields.description, cursor.description);
-                }
-                AgentFormFocus::WorkDir => {
-                    cursor.work_dir = move_cursor_right(&fields.work_dir, cursor.work_dir);
-                }
-                AgentFormFocus::Profile => {
-                    cursor.profile = move_cursor_right(&fields.profile, cursor.profile);
-                }
-                AgentFormFocus::Mode => {
-                    cursor.mode = move_cursor_right(&fields.mode, cursor.mode);
-                }
-                AgentFormFocus::LlxprtDebug => {
-                    cursor.llxprt_debug =
-                        move_cursor_right(&fields.llxprt_debug, cursor.llxprt_debug);
-                }
-                AgentFormFocus::SandboxFlags => {
-                    cursor.sandbox_flags =
-                        move_cursor_right(&fields.sandbox_flags, cursor.sandbox_flags);
-                }
-            },
+            } => crate::state::form_cursor::move_agent_field_cursor_right(fields, cursor, *focus),
             _ => {}
         }
     }
@@ -749,6 +685,14 @@ impl AppState {
             return None;
         }
 
+        if !Self::validate_github_repo(&fields.github_repo) {
+            warn!(
+                github_repo = %fields.github_repo,
+                "rejecting repository create: github_repo must be 'owner/repo' or empty"
+            );
+            return None;
+        }
+
         let trimmed_base_dir = fields.base_dir.trim();
         let base_dir = if trimmed_base_dir.is_empty() {
             format!("/tmp/{slug}")
@@ -784,11 +728,19 @@ impl AppState {
     pub(super) fn update_repository_from_fields(
         repo: &mut Repository,
         fields: &RepositoryFormFields,
-    ) {
+    ) -> bool {
         let trimmed_name = fields.name.trim();
         let slug = Self::repository_slug_from_name(trimmed_name);
         if trimmed_name.is_empty() || slug.is_empty() {
-            return;
+            return false;
+        }
+
+        if !Self::validate_github_repo(&fields.github_repo) {
+            warn!(
+                github_repo = %fields.github_repo,
+                "rejecting repository update: github_repo must be 'owner/repo' or empty"
+            );
+            return false;
         }
 
         trimmed_name.clone_into(&mut repo.name);
@@ -806,58 +758,49 @@ impl AppState {
         repo.default_profile = normalize_profile(&fields.default_profile);
         fields.github_repo.trim().clone_into(&mut repo.github_repo);
         repo.remote = Self::remote_settings_from_fields(fields);
+        true
     }
 
+    /// Build an agent from New Agent form fields via the canonical
+    /// [`services::create_agent`] use-case.
+    ///
+    /// This is a thin state-layer adapter: it delegates all validation,
+    /// normalization, and lifecycle policy (including the `Running` initial
+    /// status) to the service, then performs the local filesystem side effect
+    /// of creating the work directory — which belongs in the state layer, not
+    /// the pure creation service.
     pub(super) fn create_agent_from_fields(
         repository: &Repository,
         fields: &AgentFormFields,
         next_display_index: usize,
     ) -> Option<Agent> {
-        let trimmed_name = fields.name.trim();
-        if trimmed_name.is_empty() {
-            return None;
-        }
+        let agent = services::create_agent(CreateAgentParams {
+            repository,
+            name: &fields.name,
+            description: &fields.description,
+            work_dir: &fields.work_dir,
+            profile: &fields.profile,
+            mode: &fields.mode,
+            llxprt_debug: &fields.llxprt_debug,
+            pass_continue: fields.pass_continue,
+            sandbox_enabled: fields.sandbox_enabled,
+            sandbox_engine: &fields.sandbox_engine,
+            sandbox_flags: &fields.sandbox_flags,
+            shortcut_slot: fields.shortcut_slot,
+            next_display_index,
+        })?;
 
-        let work_dir = Self::validated_agent_work_dir(repository, &fields.work_dir)?;
         if !repository.remote.enabled
-            && let Err(e) = std::fs::create_dir_all(&work_dir)
+            && let Err(e) = std::fs::create_dir_all(&agent.work_dir)
         {
             warn!(
-                work_dir = %work_dir,
+                work_dir = %agent.work_dir.display(),
                 error = %e,
                 "could not create local agent work directory"
             );
         }
 
-        let mode_flags: Vec<String> = if fields.mode.trim().is_empty() {
-            vec!["--yolo".to_owned()]
-        } else {
-            fields.mode.split_whitespace().map(String::from).collect()
-        };
-
-        let caps = PlatformCapabilities::current();
-        let sandbox_engine = SandboxEngine::from_form_value(&fields.sandbox_engine)
-            .and_then(|engine| caps.normalize_engine(engine))
-            .unwrap_or_default();
-
-        Some(Agent {
-            id: crate::domain::AgentId(generate_id("agent")),
-            display_id: format!("#{next_display_index}"),
-            repository_id: repository.id.clone(),
-            shortcut_slot: fields.shortcut_slot,
-            name: trimmed_name.to_owned(),
-            description: fields.description.clone(),
-            work_dir: std::path::PathBuf::from(&work_dir),
-            profile: normalize_profile(&fields.profile),
-            mode_flags,
-            llxprt_debug: normalize_llxprt_debug(&fields.llxprt_debug),
-            pass_continue: fields.pass_continue,
-            sandbox_enabled: fields.sandbox_enabled,
-            sandbox_engine,
-            sandbox_flags: normalize_sandbox_flags(&fields.sandbox_flags),
-            status: AgentStatus::Running,
-            runtime_binding: None,
-        })
+        Some(agent)
     }
 
     pub(super) fn update_agent_from_fields(
@@ -914,17 +857,12 @@ impl AppState {
                 }
             }
             ModalState::EditRepository { id, fields, .. } => {
-                let trimmed_name = fields.name.trim();
-                if trimmed_name.is_empty()
-                    || Self::repository_slug_from_name(trimmed_name).is_empty()
-                {
+                let Some(repo) = self.repositories.iter_mut().find(|r| r.id == id) else {
                     return;
+                };
+                if Self::update_repository_from_fields(repo, &fields) {
+                    self.modal = ModalState::None;
                 }
-
-                if let Some(repo) = self.repositories.iter_mut().find(|r| r.id == id) {
-                    Self::update_repository_from_fields(repo, &fields);
-                }
-                self.modal = ModalState::None;
             }
             ModalState::NewAgent {
                 repository_id,

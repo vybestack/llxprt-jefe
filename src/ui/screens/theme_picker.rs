@@ -9,7 +9,7 @@
 use iocraft::prelude::*;
 
 use crate::state::AppState;
-use crate::state::theme_picker_view::{ThemePickerRow, theme_picker_view};
+use crate::state::theme_picker_view::theme_picker_view;
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the theme picker screen.
@@ -32,17 +32,20 @@ pub fn ThemePickerScreen(props: &ThemePickerScreenProps) -> impl Into<AnyElement
     let rc = ResolvedColors::from_theme(Some(&colors));
 
     // Derive rows from the pure projection. Fall back to empty when no modal.
-    let (rows, _selected) = props
+    let rows = props
         .state
         .as_ref()
         .and_then(theme_picker_view)
-        .unwrap_or_else(|| (Vec::<ThemePickerRow>::new(), 0));
+        .unwrap_or_default();
 
     // Size the panel to fit available themes, capped at terminal height.
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let panel_width = term_cols.saturating_sub(20).clamp(40, 60);
-    let theme_count = u16::try_from(rows.len() + 6).unwrap_or(u16::MAX);
-    let panel_height = term_rows.saturating_sub(4).clamp(10, theme_count);
+    let content_rows = u16::try_from(rows.len() + 6).unwrap_or(u16::MAX);
+    let max_height = term_rows.saturating_sub(4);
+    // clamp(min, max) panics if min > max, so use min(max_height, max(content_rows, 10)).
+    let min_height = 10u16.min(max_height);
+    let panel_height = content_rows.clamp(min_height, max_height);
 
     element! {
         Box(

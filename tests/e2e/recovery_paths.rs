@@ -8,7 +8,7 @@
 //! - Invalid theme configurations
 //! - Runtime failures
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+use crate::support::TestResultExt;
 
 use jefe::persistence::{
     FilePersistenceManager, PersistenceManager, PersistencePaths, SETTINGS_SCHEMA_VERSION,
@@ -37,7 +37,7 @@ fn recovery_from_missing_settings_file() {
     let settings = mgr.load_settings();
     assert!(settings.is_ok());
 
-    let settings = settings.unwrap();
+    let settings = settings.test_unwrap("test unwrap");
     assert_eq!(settings.theme, "green-screen");
     assert_eq!(settings.schema_version, SETTINGS_SCHEMA_VERSION);
 }
@@ -57,7 +57,7 @@ fn recovery_from_missing_state_file() {
     let state = mgr.load_state();
     assert!(state.is_ok());
 
-    let state = state.unwrap();
+    let state = state.test_unwrap("test unwrap");
     assert!(state.repositories.is_empty());
     assert!(state.agents.is_empty());
     assert_eq!(state.schema_version, STATE_SCHEMA_VERSION);
@@ -71,11 +71,11 @@ fn recovery_from_missing_state_file() {
 fn recovery_from_corrupted_settings_file() {
     let temp = std::env::temp_dir().join("jefe_recovery_corrupt_settings");
     let _ = fs::remove_dir_all(&temp);
-    fs::create_dir_all(&temp).unwrap();
+    fs::create_dir_all(&temp).test_unwrap("test unwrap");
 
     let settings_path = temp.join("settings.toml");
-    let mut file = fs::File::create(&settings_path).unwrap();
-    writeln!(file, "this is not valid toml {{{{{{").unwrap();
+    let mut file = fs::File::create(&settings_path).test_unwrap("test unwrap");
+    writeln!(file, "this is not valid toml {{{{{{").test_unwrap("test unwrap");
 
     let paths = PersistencePaths {
         settings_path,
@@ -95,11 +95,11 @@ fn recovery_from_corrupted_settings_file() {
 fn recovery_from_corrupted_state_file() {
     let temp = std::env::temp_dir().join("jefe_recovery_corrupt_state");
     let _ = fs::remove_dir_all(&temp);
-    fs::create_dir_all(&temp).unwrap();
+    fs::create_dir_all(&temp).test_unwrap("test unwrap");
 
     let state_path = temp.join("state.json");
-    let mut file = fs::File::create(&state_path).unwrap();
-    writeln!(file, "{{{{not valid json").unwrap();
+    let mut file = fs::File::create(&state_path).test_unwrap("test unwrap");
+    writeln!(file, "{{{{not valid json").test_unwrap("test unwrap");
 
     let paths = PersistencePaths {
         settings_path: temp.join("settings.toml"),
@@ -123,12 +123,12 @@ fn recovery_from_corrupted_state_file() {
 fn recovery_from_empty_settings_file() {
     let temp = std::env::temp_dir().join("jefe_recovery_empty_settings");
     let _ = fs::remove_dir_all(&temp);
-    fs::create_dir_all(&temp).unwrap();
+    fs::create_dir_all(&temp).test_unwrap("test unwrap");
 
     let settings_path = temp.join("settings.toml");
     // Empty TOML parses but missing required fields cause deserialization error
     // This is expected behavior - corrupt/incomplete files should error
-    fs::write(&settings_path, "").unwrap();
+    fs::write(&settings_path, "").test_unwrap("test unwrap");
 
     let paths = PersistencePaths {
         settings_path,
@@ -173,7 +173,7 @@ fn recovery_chain_missing_settings_then_theme() {
     let mut theme_mgr = FileThemeManager::new();
 
     // Load settings (missing file -> defaults)
-    let settings = mgr.load_settings().expect("should get defaults");
+    let settings = mgr.load_settings().test_unwrap("should get defaults");
 
     // Apply theme from settings (should be green-screen)
     let result = theme_mgr.set_active(&settings.theme);
@@ -200,17 +200,17 @@ fn startup_recovery_fresh_install() {
     let mut theme_mgr = FileThemeManager::new();
 
     // Step 1: Load settings (defaults)
-    let settings = mgr.load_settings().expect("defaults");
+    let settings = mgr.load_settings().test_unwrap("defaults");
     assert_eq!(settings.theme, "green-screen");
 
     // Step 2: Apply theme
     theme_mgr
         .set_active(&settings.theme)
-        .expect("green-screen exists");
+        .test_unwrap("green-screen exists");
     assert_eq!(theme_mgr.active_theme().slug, "green-screen");
 
     // Step 3: Load state (defaults)
-    let state = mgr.load_state().expect("defaults");
+    let state = mgr.load_state().test_unwrap("defaults");
     assert!(state.repositories.is_empty());
 
     // Fresh install is fully operational with defaults
@@ -220,11 +220,11 @@ fn startup_recovery_fresh_install() {
 fn startup_recovery_corrupt_settings_valid_state() {
     let temp = std::env::temp_dir().join("jefe_recovery_mixed");
     let _ = fs::remove_dir_all(&temp);
-    fs::create_dir_all(&temp).unwrap();
+    fs::create_dir_all(&temp).test_unwrap("test unwrap");
 
     // Corrupt settings
     let settings_path = temp.join("settings.toml");
-    fs::write(&settings_path, "not valid {{{").unwrap();
+    fs::write(&settings_path, "not valid {{{").test_unwrap("test unwrap");
 
     // Valid state
     let state_path = temp.join("state.json");
@@ -236,9 +236,11 @@ fn startup_recovery_corrupt_settings_valid_state() {
         selected_agent_index: None,
         hide_idle_repositories: false,
         last_selected_agent_by_repo: vec![],
+        pane_focus: String::new(),
+        terminal_focused: false,
     };
-    let state_json = serde_json::to_string(&valid_state).unwrap();
-    fs::write(&state_path, state_json).unwrap();
+    let state_json = serde_json::to_string(&valid_state).test_unwrap("test unwrap");
+    fs::write(&state_path, state_json).test_unwrap("test unwrap");
 
     let paths = PersistencePaths {
         settings_path,
@@ -250,7 +252,7 @@ fn startup_recovery_corrupt_settings_valid_state() {
     assert!(mgr.load_settings().is_err());
 
     // State load succeeds
-    let state = mgr.load_state().expect("valid state");
+    let state = mgr.load_state().test_unwrap("valid state");
     assert_eq!(state.selected_repository_index, Some(5));
 
     // Cleanup
@@ -268,7 +270,7 @@ fn recovery_after_save_to_readonly_fails() {
 
     let temp = std::env::temp_dir().join("jefe_recovery_readonly");
     let _ = fs::remove_dir_all(&temp);
-    fs::create_dir_all(&temp).unwrap();
+    fs::create_dir_all(&temp).test_unwrap("test unwrap");
 
     let paths = PersistencePaths {
         settings_path: temp.join("settings.toml"),

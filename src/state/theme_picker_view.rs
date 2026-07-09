@@ -22,8 +22,10 @@ pub struct ThemePickerRow {
 /// Pure projection of the theme picker modal into renderable rows.
 ///
 /// Returns `None` when no theme picker modal is open.
+/// Each row's `selected` and `active` flags carry all rendering information;
+/// the raw index is intentionally excluded to avoid out-of-bounds hazards.
 #[must_use]
-pub fn theme_picker_view(state: &AppState) -> Option<(Vec<ThemePickerRow>, usize)> {
+pub fn theme_picker_view(state: &AppState) -> Option<Vec<ThemePickerRow>> {
     let ModalState::ThemePicker {
         available_themes,
         selected_index,
@@ -44,18 +46,24 @@ pub fn theme_picker_view(state: &AppState) -> Option<(Vec<ThemePickerRow>, usize
         })
         .collect();
 
-    Some((rows, *selected_index))
+    Some(rows)
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::field_reassign_with_default
-)]
 mod tests {
     use super::*;
     use crate::state::ModalState;
+
+    fn picker_state(themes: Vec<(String, String)>, selected: usize, active: &str) -> AppState {
+        AppState {
+            modal: ModalState::ThemePicker {
+                available_themes: themes,
+                selected_index: selected,
+                active_slug: active.to_owned(),
+            },
+            ..AppState::default()
+        }
+    }
 
     #[test]
     fn returns_none_when_picker_not_open() {
@@ -65,36 +73,32 @@ mod tests {
 
     #[test]
     fn returns_rows_when_picker_open() {
-        let mut state = AppState::default();
-        state.modal = ModalState::ThemePicker {
-            available_themes: vec![
+        let state = picker_state(
+            vec![
                 ("green-screen".into(), "Green Screen".into()),
                 ("dracula".into(), "Dracula".into()),
             ],
-            selected_index: 1,
-            active_slug: "green-screen".into(),
-        };
+            1,
+            "green-screen",
+        );
 
-        let (rows, selected) = theme_picker_view(&state).expect("picker open");
+        let rows = theme_picker_view(&state).unwrap_or_else(|| panic!("picker open"));
         assert_eq!(rows.len(), 2);
-        assert_eq!(selected, 1);
         assert!(rows[1].selected);
         assert!(!rows[0].selected);
-        // Active marker follows active_slug, not selection.
         assert!(rows[0].active);
         assert!(!rows[1].active);
     }
 
     #[test]
     fn rows_carry_slug_and_name() {
-        let mut state = AppState::default();
-        state.modal = ModalState::ThemePicker {
-            available_themes: vec![("atom-one-dark".into(), "Atom One Dark".into())],
-            selected_index: 0,
-            active_slug: "atom-one-dark".into(),
-        };
+        let state = picker_state(
+            vec![("atom-one-dark".into(), "Atom One Dark".into())],
+            0,
+            "atom-one-dark",
+        );
 
-        let (rows, _) = theme_picker_view(&state).expect("picker open");
+        let rows = theme_picker_view(&state).unwrap_or_else(|| panic!("picker open"));
         assert_eq!(rows[0].slug, "atom-one-dark");
         assert_eq!(rows[0].name, "Atom One Dark");
         assert!(rows[0].active);
@@ -102,14 +106,28 @@ mod tests {
 
     #[test]
     fn empty_picker_returns_empty_rows() {
-        let mut state = AppState::default();
-        state.modal = ModalState::ThemePicker {
-            available_themes: vec![],
-            selected_index: 0,
-            active_slug: String::new(),
-        };
+        let state = picker_state(vec![], 0, "");
 
-        let (rows, _) = theme_picker_view(&state).expect("picker open");
+        let rows = theme_picker_view(&state).unwrap_or_else(|| panic!("picker open"));
         assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn active_and_selected_are_independent() {
+        // Active slug is "b" but selection is on "a" — verify they don't overlap.
+        let state = picker_state(
+            vec![
+                ("a".into(), "Theme A".into()),
+                ("b".into(), "Theme B".into()),
+            ],
+            0,
+            "b",
+        );
+
+        let rows = theme_picker_view(&state).unwrap_or_else(|| panic!("picker open"));
+        assert!(rows[0].selected);
+        assert!(!rows[0].active);
+        assert!(!rows[1].selected);
+        assert!(rows[1].active);
     }
 }

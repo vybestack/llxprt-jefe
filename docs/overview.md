@@ -149,7 +149,7 @@ Destructive actions (delete agent, delete repository, kill agent) require explic
 | `/`        | Open search/command palette                   |
 | `?`/`h`/F1 | Help                                         |
 | `1`/`2`/`3`| Switch theme (Green Screen / Dracula / Dark) |
-| `q`        | Quit                                          |
+| `Ctrl-q` / `qqq` | Quit (triple-`q` within ~1s; portable fallback if a terminal swallows `Ctrl-Q` for XON/XOFF flow control) |
 
 ### Split View
 

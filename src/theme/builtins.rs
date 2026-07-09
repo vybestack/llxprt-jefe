@@ -42,36 +42,41 @@
 
 use super::{ThemeColors, ThemeDefinition, ThemeKind};
 
+/// llxprt palette fields used to build a jefe `ThemeColors`.
+///
+/// This struct carries the subset of `ColorsTheme` fields that the palette
+/// mapping (documented at the top of this module) consumes.
+struct LlxprtPalette {
+    background: &'static str,
+    foreground: &'static str,
+    accent_blue: &'static str,
+    dark_gray: &'static str,
+    accent_green: &'static str,
+    accent_yellow: &'static str,
+    accent_red: &'static str,
+    gray: &'static str,
+}
+
 /// Helper to build a `ThemeColors` from the llxprt palette fields.
-#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
-fn map_colors(
-    background: &str,
-    foreground: &str,
-    accent_blue: &str,
-    dark_gray: &str,
-    accent_green: &str,
-    accent_yellow: &str,
-    accent_red: &str,
-    gray: &str,
-) -> ThemeColors {
+fn map_colors(p: &LlxprtPalette) -> ThemeColors {
     // foreground falls back to accent_blue when empty (ANSI themes).
-    let fg = if foreground.is_empty() {
-        accent_blue.to_owned()
+    let fg = if p.foreground.is_empty() {
+        p.accent_blue.to_owned()
     } else {
-        foreground.to_owned()
+        p.foreground.to_owned()
     };
     ThemeColors {
-        background: background.to_owned(),
+        background: p.background.to_owned(),
         foreground: fg,
-        accent_primary: accent_blue.to_owned(),
-        accent_secondary: dark_gray.to_owned(),
-        accent_success: accent_green.to_owned(),
-        accent_warning: accent_yellow.to_owned(),
-        accent_error: accent_red.to_owned(),
-        border_default: gray.to_owned(),
-        border_focused: accent_blue.to_owned(),
-        selection_bg: accent_blue.to_owned(),
-        selection_fg: background.to_owned(),
+        accent_primary: p.accent_blue.to_owned(),
+        accent_secondary: p.dark_gray.to_owned(),
+        accent_success: p.accent_green.to_owned(),
+        accent_warning: p.accent_yellow.to_owned(),
+        accent_error: p.accent_red.to_owned(),
+        border_default: p.gray.to_owned(),
+        border_focused: p.accent_blue.to_owned(),
+        selection_bg: p.accent_blue.to_owned(),
+        selection_fg: p.background.to_owned(),
     }
 }
 
@@ -90,9 +95,16 @@ fn ayu_dark() -> ThemeDefinition {
         name: String::from("Ayu Dark"),
         slug: String::from("ayu-dark"),
         kind: ThemeKind::Dark,
-        colors: map_colors(
-            "#0b0e14", "#bfbdb6", "#39BAE6", "#24272e", "#AAD94C", "#FFB454", "#F26D78", "#3D4149",
-        ),
+        colors: map_colors(&LlxprtPalette {
+            background: "#0b0e14",
+            foreground: "#bfbdb6",
+            accent_blue: "#39BAE6",
+            dark_gray: "#24272e",
+            accent_green: "#AAD94C",
+            accent_yellow: "#FFB454",
+            accent_red: "#F26D78",
+            gray: "#3D4149",
+        }),
     }
 }
 
@@ -101,9 +113,16 @@ fn ayu_light() -> ThemeDefinition {
         name: String::from("Ayu Light"),
         slug: String::from("ayu-light"),
         kind: ThemeKind::Light,
-        colors: map_colors(
-            "#f8f9fa", "#5c6166", "#399ee6", "#cfd1d4", "#86b300", "#f2ae49", "#f07171", "#a6aaaf",
-        ),
+        colors: map_colors(&LlxprtPalette {
+            background: "#f8f9fa",
+            foreground: "#5c6166",
+            accent_blue: "#399ee6",
+            dark_gray: "#cfd1d4",
+            accent_green: "#86b300",
+            accent_yellow: "#f2ae49",
+            accent_red: "#f07171",
+            gray: "#a6aaaf",
+        }),
     }
 }
 
@@ -112,9 +131,16 @@ fn atom_one_dark() -> ThemeDefinition {
         name: String::from("Atom One Dark"),
         slug: String::from("atom-one-dark"),
         kind: ThemeKind::Dark,
-        colors: map_colors(
-            "#282c34", "#abb2bf", "#61aeee", "#424752", "#98c379", "#e6c07b", "#e06c75", "#5c6370",
-        ),
+        colors: map_colors(&LlxprtPalette {
+            background: "#282c34",
+            foreground: "#abb2bf",
+            accent_blue: "#61aeee",
+            dark_gray: "#424752",
+            accent_green: "#98c379",
+            accent_yellow: "#e6c07b",
+            accent_red: "#e06c75",
+            gray: "#5c6370",
+        }),
     }
 }
 
@@ -123,9 +149,16 @@ fn dracula() -> ThemeDefinition {
         name: String::from("Dracula"),
         slug: String::from("dracula"),
         kind: ThemeKind::Dark,
-        colors: map_colors(
-            "#282a36", "#f8f8f2", "#8be9fd", "#424752", "#50fa7b", "#f1fa8c", "#ff5555", "#6272a4",
-        ),
+        colors: map_colors(&LlxprtPalette {
+            background: "#282a36",
+            foreground: "#f8f8f2",
+            accent_blue: "#8be9fd",
+            dark_gray: "#424752",
+            accent_green: "#50fa7b",
+            accent_yellow: "#f1fa8c",
+            accent_red: "#ff5555",
+            gray: "#6272a4",
+        }),
     }
 }
 
@@ -134,9 +167,16 @@ fn default_dark() -> ThemeDefinition {
         name: String::from("Default Dark"),
         slug: String::from("default-dark"),
         kind: ThemeKind::Dark,
-        colors: map_colors(
-            "#1E1E2E", "", "#89B4FA", "#45475a", "#A6E3A1", "#F9E2AF", "#F38BA8", "#6C7086",
-        ),
+        colors: map_colors(&LlxprtPalette {
+            background: "#1E1E2E",
+            foreground: "",
+            accent_blue: "#89B4FA",
+            dark_gray: "#45475a",
+            accent_green: "#A6E3A1",
+            accent_yellow: "#F9E2AF",
+            accent_red: "#F38BA8",
+            gray: "#6C7086",
+        }),
     }
 }
 
@@ -145,9 +185,16 @@ fn default_light() -> ThemeDefinition {
         name: String::from("Default Light"),
         slug: String::from("default-light"),
         kind: ThemeKind::Light,
-        colors: map_colors(
-            "#FAFAFA", "", "#3B82F6", "#c8cdd5", "#3CA84B", "#D5A40A", "#DD4C4C", "#97a0b0",
-        ),
+        colors: map_colors(&LlxprtPalette {
+            background: "#FAFAFA",
+            foreground: "",
+            accent_blue: "#3B82F6",
+            dark_gray: "#c8cdd5",
+            accent_green: "#3CA84B",
+            accent_yellow: "#D5A40A",
+            accent_red: "#DD4C4C",
+            gray: "#97a0b0",
+        }),
     }
 }
 
@@ -156,9 +203,16 @@ fn github_dark() -> ThemeDefinition {
         name: String::from("GitHub Dark"),
         slug: String::from("github-dark"),
         kind: ThemeKind::Dark,
-        colors: map_colors(
-            "#24292e", "#d1d5da", "#79B8FF", "#474e55", "#85E89D", "#FFAB70", "#F97583", "#6A737D",
-        ),
+        colors: map_colors(&LlxprtPalette {
+            background: "#24292e",
+            foreground: "#d1d5da",
+            accent_blue: "#79B8FF",
+            dark_gray: "#474e55",
+            accent_green: "#85E89D",
+            accent_yellow: "#FFAB70",
+            accent_red: "#F97583",
+            gray: "#6A737D",
+        }),
     }
 }
 
@@ -167,9 +221,16 @@ fn github_light() -> ThemeDefinition {
         name: String::from("GitHub Light"),
         slug: String::from("github-light"),
         kind: ThemeKind::Light,
-        colors: map_colors(
-            "#f8f8f8", "#24292E", "#445588", "#c8c8c8", "#008080", "#990073", "#dd1144", "#999999",
-        ),
+        colors: map_colors(&LlxprtPalette {
+            background: "#f8f8f8",
+            foreground: "#24292E",
+            accent_blue: "#445588",
+            dark_gray: "#c8c8c8",
+            accent_green: "#008080",
+            accent_yellow: "#990073",
+            accent_red: "#dd1144",
+            gray: "#999999",
+        }),
     }
 }
 
@@ -178,9 +239,16 @@ fn google_code() -> ThemeDefinition {
         name: String::from("Google Code"),
         slug: String::from("google-code"),
         kind: ThemeKind::Light,
-        colors: map_colors(
-            "#ffffff", "#444444", "#000088", "#cbcfd7", "#008800", "#666600", "#880000", "#97a0b0",
-        ),
+        colors: map_colors(&LlxprtPalette {
+            background: "#ffffff",
+            foreground: "#444444",
+            accent_blue: "#000088",
+            dark_gray: "#cbcfd7",
+            accent_green: "#008800",
+            accent_yellow: "#666600",
+            accent_red: "#880000",
+            gray: "#97a0b0",
+        }),
     }
 }
 
@@ -189,9 +257,16 @@ fn shades_of_purple() -> ThemeDefinition {
         name: String::from("Shades of Purple"),
         slug: String::from("shades-of-purple"),
         kind: ThemeKind::Dark,
-        colors: map_colors(
-            "#1e1e3f", "#e3dfff", "#a599e9", "#4f4b6e", "#A5FF90", "#fad000", "#ff628c", "#726c86",
-        ),
+        colors: map_colors(&LlxprtPalette {
+            background: "#1e1e3f",
+            foreground: "#e3dfff",
+            accent_blue: "#a599e9",
+            dark_gray: "#4f4b6e",
+            accent_green: "#A5FF90",
+            accent_yellow: "#fad000",
+            accent_red: "#ff628c",
+            gray: "#726c86",
+        }),
     }
 }
 
@@ -200,9 +275,16 @@ fn xcode() -> ThemeDefinition {
         name: String::from("XCode"),
         slug: String::from("xcode"),
         kind: ThemeKind::Light,
-        colors: map_colors(
-            "#ffffff", "#444444", "#1c00cf", "#dfdfdf", "#007400", "#836C28", "#c41a16", "#c0c0c0",
-        ),
+        colors: map_colors(&LlxprtPalette {
+            background: "#ffffff",
+            foreground: "#444444",
+            accent_blue: "#1c00cf",
+            dark_gray: "#dfdfdf",
+            accent_green: "#007400",
+            accent_yellow: "#836C28",
+            accent_red: "#c41a16",
+            gray: "#c0c0c0",
+        }),
     }
 }
 
@@ -211,9 +293,16 @@ fn ansi() -> ThemeDefinition {
         name: String::from("ANSI"),
         slug: String::from("ansi"),
         kind: ThemeKind::Ansi,
-        colors: map_colors(
-            "#000000", "", "#0000ff", "#808080", "#008000", "#ffff00", "#ff0000", "#808080",
-        ),
+        colors: map_colors(&LlxprtPalette {
+            background: "#000000",
+            foreground: "",
+            accent_blue: "#0000ff",
+            dark_gray: "#808080",
+            accent_green: "#008000",
+            accent_yellow: "#ffff00",
+            accent_red: "#ff0000",
+            gray: "#808080",
+        }),
     }
 }
 
@@ -222,9 +311,19 @@ fn ansi_light() -> ThemeDefinition {
         name: String::from("ANSI Light"),
         slug: String::from("ansi-light"),
         kind: ThemeKind::Ansi,
-        colors: map_colors(
-            "#ffffff", "", "#0000ff", "#808080", "#008000", "#ffa500", "#ff0000", "#808080",
-        ),
+        colors: map_colors(&LlxprtPalette {
+            background: "#ffffff",
+            foreground: "",
+            accent_blue: "#0000ff",
+            dark_gray: "#808080",
+            accent_green: "#008000",
+            // Orange (#ffa500) is used instead of yellow because yellow is
+            // illegible on a white background. This matches the llxprt-code
+            // source (ansi-light.ts uses AccentYellow: 'orange').
+            accent_yellow: "#ffa500",
+            accent_red: "#ff0000",
+            gray: "#808080",
+        }),
     }
 }
 
@@ -253,7 +352,6 @@ pub fn builtin_themes() -> Vec<ThemeDefinition> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used, clippy::unwrap_used)]
     use super::*;
 
     #[test]
@@ -303,61 +401,28 @@ mod tests {
         // Every built-in color slot must parse to a valid Color.
         for theme in builtin_themes() {
             let c = &theme.colors;
-            assert!(
-                ThemeColors::parse_hex(&c.background).is_some(),
-                "{} bg",
-                theme.slug
-            );
-            assert!(
-                ThemeColors::parse_hex(&c.foreground).is_some(),
-                "{} fg",
-                theme.slug
-            );
-            assert!(
-                ThemeColors::parse_hex(&c.accent_primary).is_some(),
-                "{} p",
-                theme.slug
-            );
-            assert!(
-                ThemeColors::parse_hex(&c.accent_secondary).is_some(),
-                "{} s",
-                theme.slug
-            );
-            assert!(
-                ThemeColors::parse_hex(&c.accent_success).is_some(),
-                "{} ok",
-                theme.slug
-            );
-            assert!(
-                ThemeColors::parse_hex(&c.accent_warning).is_some(),
-                "{} warn",
-                theme.slug
-            );
-            assert!(
-                ThemeColors::parse_hex(&c.accent_error).is_some(),
-                "{} err",
-                theme.slug
-            );
-            assert!(
-                ThemeColors::parse_hex(&c.border_default).is_some(),
-                "{} bd",
-                theme.slug
-            );
-            assert!(
-                ThemeColors::parse_hex(&c.border_focused).is_some(),
-                "{} bf",
-                theme.slug
-            );
-            assert!(
-                ThemeColors::parse_hex(&c.selection_bg).is_some(),
-                "{} selbg",
-                theme.slug
-            );
-            assert!(
-                ThemeColors::parse_hex(&c.selection_fg).is_some(),
-                "{} selfg",
-                theme.slug
-            );
+            let all_colors = [
+                ("background", &c.background),
+                ("foreground", &c.foreground),
+                ("accent_primary", &c.accent_primary),
+                ("accent_secondary", &c.accent_secondary),
+                ("accent_success", &c.accent_success),
+                ("accent_warning", &c.accent_warning),
+                ("accent_error", &c.accent_error),
+                ("border_default", &c.border_default),
+                ("border_focused", &c.border_focused),
+                ("selection_bg", &c.selection_bg),
+                ("selection_fg", &c.selection_fg),
+            ];
+            for (label, color_str) in all_colors {
+                assert!(
+                    ThemeColors::parse_hex(color_str).is_some(),
+                    "{}: {} = {} did not parse",
+                    theme.slug,
+                    label,
+                    color_str
+                );
+            }
         }
     }
 

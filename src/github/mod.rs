@@ -9,12 +9,32 @@
 //! This module is intentionally isolated from `crate::ui` and `crate::state`.
 //! It depends only on `crate::domain` types for data transfer.
 
-use crate::domain::{Issue, IssueComment, IssueDetail, IssueFilter, IssueFilterState, IssueState};
-use serde_json::Value;
+use crate::domain::{
+    Issue, IssueComment, IssueDetail, IssueFilter, IssueState, PrCheck, PrFilter, PrReview,
+    PrReviewState, PrReviewThread, PrState, PullRequestDetail,
+};
 use std::process::Command;
 
 mod create_issue;
+mod pr_threads;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};
+
+mod parse;
+use parse::{active_issue_type_filter, issue_type_requires_search_filter};
+pub use parse::{
+    build_issue_search_args, build_list_issues_args, categorize_error, parse_comments_json,
+    parse_created_comment_json, parse_issue_detail_json, parse_issue_search_json,
+    parse_issues_json, sort_issues,
+};
+
+mod parse_pr;
+pub use parse_pr::{
+    build_pr_comments_query, build_pr_review_threads_query, build_pr_search_args,
+    build_pr_search_query, parse_check_status, parse_checks_rollup, parse_pr_check,
+    parse_pr_review, parse_pr_review_threads, parse_pr_state, parse_pull_request_detail_json,
+    parse_pull_requests_json, parse_review_decision, parse_thread_reply_json, rollup_nodes,
+    sort_pull_requests,
+};
 
 /// Error types for GitHub CLI operations.
 ///
@@ -55,6 +75,21 @@ pub struct IssueListResponse {
     pub has_more: bool,
 }
 
+/// Response from listing pull requests (mirrors [`IssueListResponse`]).
+///
+/// `#[derive(Default)]` is sound because `Vec`, `Option`, and `bool` all
+/// implement `Default`; the empty-vec default needs no `PullRequest: Default`.
+///
+/// @plan PLAN-20260624-PR-MODE.P06
+/// @requirement REQ-PR-006
+/// @pseudocode component-002 lines 05-06
+#[derive(Default)]
+pub struct PrListResponse {
+    pub pull_requests: Vec<crate::domain::PullRequest>,
+    pub cursor: Option<String>,
+    pub has_more: bool,
+}
+
 /// Response from listing comments.
 pub struct CommentsResponse {
     pub comments: Vec<IssueComment>,
@@ -62,11 +97,19 @@ pub struct CommentsResponse {
     pub has_more: bool,
 }
 
+const ISSUE_DETAIL_COMMENT_PAGE_SIZE: u32 = 30;
+/// Default page size for the PR list GraphQL search query.
+///
+/// @plan PLAN-20260624-PR-MODE.P08
+/// @requirement REQ-PR-006
+const PR_LIST_PAGE_SIZE: u32 = 30;
+
 /// Payload for sending issue context to an agent.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-011
 /// @pseudocode component-002 lines 70-83
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SendPayload {
     pub repository: String,
     pub issue_number: u64,
@@ -80,523 +123,34 @@ pub struct SendPayload {
     pub issue_base_prompt: String,
 }
 
-// GitHub CLI client wrapper
-// =============================================================================
-// Parsing and Building Helpers
-// =============================================================================
-
-/// Categorize a subprocess error into a GhError variant.
+/// Payload for sending PR context to an agent (mirrors [`SendPayload`]'s
+/// structured, owned-field design). Carries NO `prompt_markdown`/`work_dir`/
+/// `signature` — those are not payload concerns.
 ///
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-013
-/// @pseudocode component-002 lines 105-120
-#[must_use]
-pub fn categorize_error(exit_code: i32, stderr: &str) -> GhError {
-    // For exit code 0, return a benign error that won't match the error variants
-    // tested in test_update_comment_success and test_update_issue_body_success
-    if exit_code == 0 {
-        return GhError::ParseError("no error".to_string());
-    }
-
-    let stderr_lower = stderr.to_lowercase();
-
-    if stderr_lower.contains("rate limit") {
-        return GhError::RateLimited;
-    }
-
-    if stderr_lower.contains("401")
-        || stderr_lower.contains("not logged in")
-        || stderr_lower.contains("authentication")
-        || stderr_lower.contains("not authenticated")
-    {
-        return GhError::NotAuthenticated(stderr.to_string());
-    }
-
-    if stderr_lower.contains("403") || stderr_lower.contains("denied") {
-        return GhError::AccessDenied(stderr.to_string());
-    }
-
-    if stderr_lower.contains("could not resolve host") || stderr_lower.contains("unable to connect")
-    {
-        return GhError::NetworkError(stderr.to_string());
-    }
-
-    GhError::ApiError(stderr.to_string())
-}
-
-/// Parse JSON output from `gh issue list --json` into Issue vector.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-006
-/// @pseudocode component-002 lines 35-45
-#[allow(clippy::too_many_lines)]
-pub fn parse_issues_json(json_str: &str) -> Result<Vec<Issue>, GhError> {
-    let value: Value = serde_json::from_str(json_str)
-        .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
-
-    let array = value
-        .as_array()
-        .ok_or_else(|| GhError::ParseError("Expected JSON array".to_string()))?;
-
-    let mut issues = Vec::new();
-
-    for item in array {
-        let number = item
-            .get("number")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| GhError::ParseError("Missing or invalid number".to_string()))?;
-
-        let title = item
-            .get("title")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-
-        let state =
-            item.get("state")
-                .and_then(Value::as_str)
-                .map_or(IssueState::Open, |s| match s {
-                    "CLOSED" => IssueState::Closed,
-                    _ => IssueState::Open,
-                });
-
-        let author_login = item
-            .get("author")
-            .and_then(|a| a.get("login"))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-
-        let updated_at = item
-            .get("updatedAt")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-
-        // Parse assignees.nodes[*].login and join with ", "
-        let assignee_summary = item
-            .get("assignees")
-            .and_then(|a| a.get("nodes"))
-            .and_then(Value::as_array)
-            .map(|nodes| {
-                nodes
-                    .iter()
-                    .filter_map(|n| n.get("login").and_then(Value::as_str))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
-            .unwrap_or_default();
-
-        // Parse labels.nodes[*].name and join with ", "
-        let labels_summary = item
-            .get("labels")
-            .and_then(|l| l.get("nodes"))
-            .and_then(Value::as_array)
-            .map(|nodes| {
-                nodes
-                    .iter()
-                    .filter_map(|n| n.get("name").and_then(Value::as_str))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
-            .unwrap_or_default();
-
-        // Parse comments.totalCount
-        let comment_count = item
-            .get("comments")
-            .and_then(|c| c.get("totalCount"))
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-
-        let body = item
-            .get("body")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-
-        issues.push(Issue {
-            number,
-            title,
-            state,
-            author_login,
-            updated_at,
-            assignee_summary,
-            labels_summary,
-            comment_count,
-            body,
-        });
-    }
-
-    Ok(issues)
-}
-
-/// Sort issues by updated_at desc, then number asc.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-006
-/// @pseudocode component-002 lines 46-54
-pub fn sort_issues(issues: &mut [Issue]) {
-    issues.sort_by(|a, b| {
-        b.updated_at
-            .cmp(&a.updated_at)
-            .then(a.number.cmp(&b.number))
-    });
-}
-
-/// Parse JSON output from `gh issue view --json` into IssueDetail.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-009
-/// @pseudocode component-002 lines 55-65
-#[allow(clippy::too_many_lines)]
-pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
-    let value: Value = serde_json::from_str(json_str)
-        .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
-
-    let number = value
-        .get("number")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| GhError::ParseError("Missing or invalid number".to_string()))?;
-
-    let title = value
-        .get("title")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let state = value
-        .get("state")
-        .and_then(Value::as_str)
-        .map_or(IssueState::Open, |s| match s {
-            "CLOSED" => IssueState::Closed,
-            _ => IssueState::Open,
-        });
-
-    let author_login = value
-        .get("author")
-        .and_then(|a| a.get("login"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let created_at = value
-        .get("createdAt")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let updated_at = value
-        .get("updatedAt")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    // Parse labels as Vec<String>
-    let labels: Vec<String> = value
-        .get("labels")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|l| l.get("name").and_then(Value::as_str).map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Parse assignees as Vec<String>
-    let assignees: Vec<String> = value
-        .get("assignees")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|a| a.get("login").and_then(Value::as_str).map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Parse milestone
-    let milestone = value.get("milestone").and_then(|m| {
-        if m.is_null() {
-            None
-        } else {
-            m.get("title").and_then(Value::as_str).map(String::from)
-        }
-    });
-
-    let body = value
-        .get("body")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let external_url = value
-        .get("url")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    // Extract repo_owner_name from URL (format: https://github.com/owner/repo/issues/NUM)
-    let repo_owner_name = external_url
-        .strip_prefix("https://github.com/")
-        .and_then(|rest| rest.find("/issues/").map(|idx| rest[..idx].to_string()))
-        .unwrap_or_default();
-
-    // Parse comments - REST format for issue detail
-    let comments: Vec<IssueComment> = value
-        .get("comments")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|c| parse_rest_comment(c).ok())
-                .collect()
-        })
-        .unwrap_or_default();
-
-    Ok(IssueDetail {
-        repo_owner_name,
-        number,
-        title,
-        state,
-        author_login,
-        created_at,
-        updated_at,
-        labels,
-        assignees,
-        milestone,
-        body,
-        external_url,
-        comments,
-        has_more_comments: false,
-        comments_cursor: None,
-    })
-}
-
-/// Helper to parse a REST API format comment
-fn parse_rest_comment(value: &Value) -> Result<IssueComment, GhError> {
-    let id_str = value
-        .get("id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| GhError::ParseError("Missing comment id".to_string()))?;
-
-    // Extract numeric part from "IC_123" format
-    let comment_id = id_str
-        .split('_')
-        .nth(1)
-        .and_then(|s| s.parse::<u64>().ok())
-        .or_else(|| id_str.parse::<u64>().ok())
-        .ok_or_else(|| GhError::ParseError(format!("Invalid comment id: {id_str}")))?;
-
-    let author_login = value
-        .get("author")
-        .and_then(|a| a.get("login"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let created_at = value
-        .get("createdAt")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let edited_at = value.get("lastEditedAt").and_then(|e| {
-        if e.is_null() {
-            None
-        } else {
-            e.as_str().map(String::from)
-        }
-    });
-
-    let body = value
-        .get("body")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    Ok(IssueComment {
-        comment_id,
-        author_login,
-        created_at,
-        edited_at,
-        body,
-    })
-}
-
-/// Parse GraphQL JSON response from comments query.
-/// Returns (comments, cursor, has_more).
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-009
-/// @pseudocode component-002 lines 75-85
-#[allow(clippy::too_many_lines)]
-pub fn parse_comments_json(
-    json_str: &str,
-) -> Result<(Vec<IssueComment>, Option<String>, bool), GhError> {
-    let value: Value = serde_json::from_str(json_str)
-        .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
-
-    // Navigate to data.repository.issue.comments
-    let comments_data = value
-        .get("data")
-        .and_then(|d| d.get("repository"))
-        .and_then(|r| r.get("issue"))
-        .and_then(|i| i.get("comments"))
-        .ok_or_else(|| GhError::ParseError("Missing comments data".to_string()))?;
-
-    let nodes = comments_data
-        .get("nodes")
-        .and_then(Value::as_array)
-        .ok_or_else(|| GhError::ParseError("Missing comments nodes".to_string()))?;
-
-    let page_info = comments_data
-        .get("pageInfo")
-        .ok_or_else(|| GhError::ParseError("Missing pageInfo".to_string()))?;
-
-    let has_next_page = page_info
-        .get("hasNextPage")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-
-    let end_cursor = page_info.get("endCursor").and_then(|e| {
-        if e.is_null() {
-            None
-        } else {
-            e.as_str().map(String::from)
-        }
-    });
-
-    let mut comments = Vec::new();
-    for node in nodes {
-        comments.push(parse_rest_comment(node)?);
-    }
-
-    Ok((comments, end_cursor, has_next_page))
-}
-
-/// Parse JSON response from `gh api .../comments` POST (REST API format).
-///
-/// REST returns: `"id": 12345` (numeric), `"user": {"login": ...}`, `"created_at": ...`
-/// GraphQL returns: `"id": "IC_xxx"` (string), `"author": {"login": ...}`, `"createdAt": ...`
-/// This parser handles both formats.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-011
-/// @pseudocode component-002 lines 95-100
-pub fn parse_created_comment_json(json_str: &str) -> Result<IssueComment, GhError> {
-    let value: Value = serde_json::from_str(json_str)
-        .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
-
-    // REST returns numeric id, GraphQL returns string "IC_xxx"
-    let comment_id = if let Some(n) = value.get("id").and_then(Value::as_u64) {
-        n
-    } else if let Some(id_str) = value.get("id").and_then(Value::as_str) {
-        id_str
-            .split('_')
-            .nth(1)
-            .and_then(|s| s.parse::<u64>().ok())
-            .or_else(|| id_str.parse::<u64>().ok())
-            .ok_or_else(|| GhError::ParseError(format!("Invalid comment id: {id_str}")))?
-    } else {
-        return Err(GhError::ParseError("Missing comment id".to_string()));
-    };
-
-    // REST uses "user", GraphQL uses "author"
-    let author_login = value
-        .get("author")
-        .or_else(|| value.get("user"))
-        .and_then(|a| a.get("login"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    // REST uses "created_at", GraphQL uses "createdAt"
-    let created_at = value
-        .get("createdAt")
-        .or_else(|| value.get("created_at"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    let body = value
-        .get("body")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
-
-    Ok(IssueComment {
-        comment_id,
-        author_login,
-        created_at,
-        edited_at: None,
-        body,
-    })
-}
-
-#[must_use]
-pub fn build_list_issues_args(
-    owner: &str,
-    repo: &str,
-    filter: &IssueFilter,
-    _cursor: Option<&str>,
-    page_size: u32,
-) -> Vec<String> {
-    let mut args = vec![
-        "issue".to_string(),
-        "list".to_string(),
-        "--repo".to_string(),
-        format!("{owner}/{repo}"),
-        "--json".to_string(),
-        "number,title,state,author,updatedAt,assignees,labels,comments,body".to_string(),
-        "-L".to_string(),
-        page_size.to_string(),
-    ];
-
-    // Add state filter
-    if let Some(state) = &filter.state {
-        let state_arg = match state {
-            IssueFilterState::Open => "open",
-            IssueFilterState::Closed => "closed",
-            IssueFilterState::All => "all",
-        };
-        args.push("--state".to_string());
-        args.push(state_arg.to_string());
-    }
-
-    // Add labels
-    for label in &filter.labels {
-        args.push("--label".to_string());
-        args.push(label.clone());
-    }
-
-    // Add assignee
-    if !filter.assignee.is_empty() {
-        args.push("--assignee".to_string());
-        args.push(filter.assignee.clone());
-    }
-
-    // Add author
-    if !filter.author.is_empty() {
-        args.push("--author".to_string());
-        args.push(filter.author.clone());
-    }
-
-    // Add mentioned
-    if !filter.mentioned.is_empty() {
-        args.push("--mention".to_string());
-        args.push(filter.mentioned.clone());
-    }
-
-    // Add query text (search)
-    if !filter.query_text.is_empty() {
-        args.push("--search".to_string());
-        args.push(filter.query_text.clone());
-    }
-
-    args
+/// @plan PLAN-20260624-PR-MODE.P06
+/// @requirement REQ-PR-011
+/// @pseudocode component-002 lines 123-129
+#[derive(Default)]
+pub struct PrSendPayload {
+    pub repository: String,
+    pub pr_number: u64,
+    pub pr_title: String,
+    pub pr_body: String,
+    pub pr_state: String,
+    pub head_ref: String,
+    pub base_ref: String,
+    pub external_url: String,
+    pub review_summary: Vec<String>,
+    pub check_summary: Vec<String>,
+    pub focused_comment: Option<String>,
+    pub focused_comment_author: Option<String>,
+    pub pr_base_prompt: String,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P08
 /// @requirement REQ-ISS-013
 /// @pseudocode component-002 lines 01-03
+#[derive(Clone, Copy, Debug)]
 pub struct GhClient;
 
 impl GhClient {
@@ -644,32 +198,7 @@ impl GhClient {
         cursor: Option<&str>,
         page_size: u32,
     ) -> Result<IssueListResponse, GhError> {
-        let args = build_list_issues_args(owner, repo, filter, cursor, page_size);
-
-        let output = Command::new("gh").args(&args).output().map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                GhError::NotInstalled
-            } else {
-                GhError::NetworkError(e.to_string())
-            }
-        })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(categorize_error(output.status.code().unwrap_or(1), &stderr));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut issues = parse_issues_json(&stdout)?;
-        sort_issues(&mut issues);
-
-        // Note: gh CLI doesn't support cursor-based pagination directly for issue list
-        // We return has_more=false as a simplification
-        Ok(IssueListResponse {
-            issues,
-            cursor: None,
-            has_more: false,
-        })
+        fetch_issue_search_page(owner, repo, filter, cursor, page_size)
     }
 
     /// Get full issue detail.
@@ -708,7 +237,13 @@ impl GhClient {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_issue_detail_json(&stdout)
+        let mut detail = parse_issue_detail_json(&stdout)?;
+        let comments_response =
+            self.list_comments(owner, repo, number, None, ISSUE_DETAIL_COMMENT_PAGE_SIZE)?;
+        detail.comments = comments_response.comments;
+        detail.comments_cursor = comments_response.cursor;
+        detail.has_more_comments = comments_response.has_more;
+        Ok(detail)
     }
 
     /// List comments for an issue with pagination.
@@ -724,11 +259,13 @@ impl GhClient {
         cursor: Option<&str>,
         page_size: u32,
     ) -> Result<CommentsResponse, GhError> {
-        // Build GraphQL query using parameterized variables for safety
+        // Build GraphQL query using parameterized variables for safety.
+        // `databaseId` is the numeric REST comment id needed for update/delete
+        // operations; GraphQL `id` is an opaque node id and is not parseable.
         let query = if cursor.is_some() {
-            "query($owner: String!, $repo: String!, $number: Int!, $first: Int!, $after: String) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first, after: $after) { nodes { id author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }"
+            "query($owner: String!, $repo: String!, $number: Int!, $first: Int!, $after: String) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first, after: $after) { nodes { id databaseId author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }"
         } else {
-            "query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first) { nodes { id author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }"
+            "query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first) { nodes { id databaseId author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }"
         };
 
         let mut args = vec![
@@ -959,10 +496,454 @@ impl GhClient {
             issue_base_prompt: issue_base_prompt.to_string(),
         }
     }
+
+    /// List pull requests for a repository with filtering and pagination.
+    ///
+    /// Builds the GraphQL search args, runs `gh`, parses the response, sorts
+    /// by `updated_at` DESC, and returns the paginated response with the REAL
+    /// `endCursor`/`hasNextPage`.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P08
+    /// @requirement REQ-PR-006
+    /// @pseudocode component-002 lines 22-34
+    pub fn list_pull_requests(
+        &self,
+        owner: &str,
+        name: &str,
+        filter: &PrFilter,
+        cursor: Option<&str>,
+    ) -> Result<PrListResponse, GhError> {
+        let args = build_pr_search_args(owner, name, filter, cursor, PR_LIST_PAGE_SIZE);
+        let stdout = Self::run_gh(&args)?;
+        let mut response = parse_pull_requests_json(&stdout)?;
+        sort_pull_requests(&mut response.pull_requests);
+        Ok(response)
+    }
+
+    /// Get full pull-request detail.
+    ///
+    /// Fetches metadata via `gh pr view --json` (the `--json` set OMITS
+    /// `comments`), then sources the first comment page via a SEPARATE
+    /// `list_pr_comments` call (mirroring `get_issue_detail`'s
+    /// comments-sourcing, but via `repository.pullRequest` not
+    /// `repository.issue`).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P08
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-002 lines 74-101
+    pub fn get_pull_request_detail(
+        &self,
+        owner: &str,
+        name: &str,
+        number: u64,
+    ) -> Result<PullRequestDetail, GhError> {
+        let args = vec![
+            "pr".to_string(),
+            "view".to_string(),
+            number.to_string(),
+            "--repo".to_string(),
+            format!("{owner}/{name}"),
+            "--json".to_string(),
+            "number,title,state,mergedAt,author,createdAt,updatedAt,headRefName,baseRefName,isDraft,labels,assignees,milestone,body,url,reviewDecision,statusCheckRollup,reviews,mergeable,mergeStateStatus".to_string(),
+        ];
+        let stdout = Self::run_gh(&args)?;
+        let mut detail = parse_pull_request_detail_json(&stdout, &format!("{owner}/{name}"))?;
+        let comments_response =
+            self.list_pr_comments(owner, name, number, None, ISSUE_DETAIL_COMMENT_PAGE_SIZE)?;
+        detail.comments = comments_response.comments;
+        detail.comments_cursor = comments_response.cursor;
+        detail.has_more_comments = comments_response.has_more;
+        let threads = self.list_pr_review_threads(owner, name, number);
+        assign_threads_to_reviews(&mut detail.reviews, threads);
+        Ok(detail)
+    }
+
+    /// List comments for a pull request with pagination (PR-specific GraphQL
+    /// path querying `repository.pullRequest(number:).comments` — NOT
+    /// `repository.issue`, which is NULL for a PR number; P00A §2d). Reuses
+    /// `parse_comments_json` for nodes and the page-info helper for the cursor.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P08
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-002 lines 102-107
+    pub fn list_pr_comments(
+        &self,
+        owner: &str,
+        name: &str,
+        number: u64,
+        cursor: Option<&str>,
+        page_size: u32,
+    ) -> Result<CommentsResponse, GhError> {
+        let mut args = vec![
+            "api".to_string(),
+            "graphql".to_string(),
+            "-f".to_string(),
+            format!("query={}", build_pr_comments_query(cursor.is_some())),
+            "-F".to_string(),
+            format!("owner={owner}"),
+            "-F".to_string(),
+            format!("repo={name}"),
+            "-F".to_string(),
+            format!("number={number}"),
+            "-F".to_string(),
+            format!("first={page_size}"),
+        ];
+        if let Some(c) = cursor {
+            args.push("-F".to_string());
+            args.push(format!("after={c}"));
+        }
+        let stdout = Self::run_gh(&args)?;
+        let (comments, end_cursor, has_more) = parse_comments_json(&stdout)?;
+        Ok(CommentsResponse {
+            comments,
+            cursor: end_cursor,
+            has_more,
+        })
+    }
+
+    /// Create a new comment on a pull request (uses the issue comment REST
+    /// endpoint `/repos/{owner}/{repo}/issues/{number}/comments`, which
+    /// accepts a PR number). Reuses `parse_created_comment_json`.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P08
+    /// @requirement REQ-PR-010
+    /// @pseudocode component-002 lines 108-114
+    pub fn create_pr_comment(
+        &self,
+        owner: &str,
+        name: &str,
+        number: u64,
+        body: &str,
+    ) -> Result<IssueComment, GhError> {
+        let args = vec![
+            "api".to_string(),
+            "--method".to_string(),
+            "POST".to_string(),
+            format!("/repos/{owner}/{name}/issues/{number}/comments"),
+            "-f".to_string(),
+            format!("body={body}"),
+        ];
+        let stdout = Self::run_gh(&args)?;
+        parse_created_comment_json(&stdout)
+    }
+
+    /// Open a pull request in the default browser via `gh pr view --web`.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P08
+    /// @requirement REQ-PR-012
+    /// @pseudocode component-002 lines 115-122
+    pub fn open_pull_request_in_browser(
+        &self,
+        owner: &str,
+        name: &str,
+        number: u64,
+    ) -> Result<(), GhError> {
+        let args = vec![
+            "pr".to_string(),
+            "view".to_string(),
+            number.to_string(),
+            "--repo".to_string(),
+            format!("{owner}/{name}"),
+            "--web".to_string(),
+        ];
+        Self::run_gh(&args)?;
+        Ok(())
+    }
+
+    /// Merge a pull request via `gh pr merge` with the chosen method.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P08
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-002 lines 115-122
+    pub fn merge_pull_request(
+        &self,
+        owner: &str,
+        name: &str,
+        number: u64,
+        method: crate::domain::MergeMethod,
+    ) -> Result<(), GhError> {
+        let args = vec![
+            "pr".to_string(),
+            "merge".to_string(),
+            number.to_string(),
+            "--repo".to_string(),
+            format!("{owner}/{name}"),
+            method.gh_flag().to_string(),
+        ];
+        Self::run_gh(&args)?;
+        Ok(())
+    }
+
+    /// Fetch the repo's allowed merge methods via `gh api repos/{owner}/{repo}`.
+    ///
+    /// Returns the subset of [`MergeMethod`] allowed by the repository's merge
+    /// settings. On any error, returns an empty `Vec` (the chooser treats
+    /// unknown as "all available" — graceful degradation).
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P08
+    /// @requirement REQ-PR-009
+    /// @pseudocode component-002 lines 115-122
+    pub fn get_repo_merge_methods(
+        &self,
+        owner: &str,
+        name: &str,
+    ) -> Result<Vec<crate::domain::MergeMethod>, GhError> {
+        let args = vec![
+            "api".to_string(),
+            format!("repos/{owner}/{name}"),
+            "--jq".to_string(),
+            "{allow_merge_commit, allow_squash_merge, allow_rebase_merge}".to_string(),
+        ];
+        let stdout = Self::run_gh(&args)?;
+        Ok(parse_repo_merge_methods(&stdout))
+    }
+
+    /// Build a send-to-agent payload from PR context (mirrors
+    /// [`build_send_payload`]). Pure assembly; no I/O. Carries NO
+    /// `prompt_markdown`/`work_dir`/`signature` — those come from the agent.
+    ///
+    /// @plan PLAN-20260624-PR-MODE.P08
+    /// @requirement REQ-PR-011
+    /// @pseudocode component-002 lines 123-136
+    #[must_use]
+    pub fn build_pr_send_payload(
+        repo_slug: &str,
+        pr_detail: &PullRequestDetail,
+        focused_comment: Option<&IssueComment>,
+        pr_base_prompt: &str,
+    ) -> PrSendPayload {
+        PrSendPayload {
+            repository: repo_slug.to_string(),
+            pr_number: pr_detail.number,
+            pr_title: pr_detail.title.clone(),
+            pr_body: pr_detail.body.clone(),
+            pr_state: pr_state_str(pr_detail.state).to_string(),
+            head_ref: pr_detail.head_ref.clone(),
+            base_ref: pr_detail.base_ref.clone(),
+            external_url: pr_detail.external_url.clone(),
+            review_summary: summarize_pr_reviews(&pr_detail.reviews),
+            check_summary: summarize_pr_checks(&pr_detail.checks),
+            focused_comment: focused_comment.map(|c| c.body.clone()),
+            focused_comment_author: focused_comment.map(|c| c.author_login.clone()),
+            pr_base_prompt: pr_base_prompt.to_string(),
+        }
+    }
+
+    /// Run `gh` with the given args, returning stdout on success. Encapsulates
+    /// the established error idiom: `NotFound→NotInstalled` else
+    /// `NetworkError`; non-zero exit → `categorize_error`.
+    pub(super) fn run_gh(args: &[String]) -> Result<String, GhError> {
+        let output = Command::new("gh").args(args).output().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                GhError::NotInstalled
+            } else {
+                GhError::NetworkError(e.to_string())
+            }
+        })?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(categorize_error(output.status.code().unwrap_or(1), &stderr));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
 }
 
 impl Default for GhClient {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Distribute fetched review threads onto the review structs.
+///
+/// GitHub's `reviewThreads` connection is on `PullRequest`, not on each
+/// `Review`. Since the domain model stores threads under `PrReview`, all
+/// fetched threads are assigned to the first review (if any). When there are
+/// no reviews but threads exist, the threads are silently dropped (there is
+/// no review slot to hold them). The renderer flattens
+/// `reviews.iter().flat_map(|r| &r.review_threads)` so this preserves all
+/// threads for display.
+fn assign_threads_to_reviews(reviews: &mut [PrReview], threads: Vec<PrReviewThread>) {
+    if threads.is_empty() {
+        return;
+    }
+    let Some(first_review) = reviews.first_mut() else {
+        return;
+    };
+    first_review.review_threads = threads;
+}
+
+/// Map a [`PrState`] to its lowercase send-payload string.
+///
+/// @plan PLAN-20260624-PR-MODE.P08
+/// @requirement REQ-PR-011
+/// @pseudocode component-002 lines 130-136
+fn pr_state_str(state: PrState) -> &'static str {
+    match state {
+        PrState::Open => "open",
+        PrState::Closed => "closed",
+        PrState::Merged => "merged",
+    }
+}
+
+/// Build the display-only review-summary strings for the send payload.
+///
+/// @plan PLAN-20260624-PR-MODE.P08
+/// @requirement REQ-PR-011
+/// @pseudocode component-002 lines 130-136
+fn summarize_pr_reviews(reviews: &[PrReview]) -> Vec<String> {
+    reviews
+        .iter()
+        .map(|r| format!("{}: {}", r.author_login, review_state_str(r.state)))
+        .collect()
+}
+
+/// Map a [`PrReviewState`] to a display label.
+fn review_state_str(state: PrReviewState) -> &'static str {
+    match state {
+        PrReviewState::Approved => "approved",
+        PrReviewState::ChangesRequested => "changes_requested",
+        PrReviewState::Commented => "commented",
+        PrReviewState::Pending => "pending",
+        PrReviewState::Dismissed => "dismissed",
+        PrReviewState::ReviewRequired => "review_required",
+        PrReviewState::None => "none",
+    }
+}
+
+/// Build the display-only check-summary strings for the send payload.
+///
+/// @plan PLAN-20260624-PR-MODE.P08
+/// @requirement REQ-PR-011
+/// @pseudocode component-002 lines 130-136
+fn summarize_pr_checks(checks: &[PrCheck]) -> Vec<String> {
+    checks
+        .iter()
+        .map(|c| format!("{}: {}", c.name, c.conclusion))
+        .collect()
+}
+
+fn fetch_issue_search_page(
+    owner: &str,
+    repo: &str,
+    filter: &IssueFilter,
+    cursor: Option<&str>,
+    page_size: u32,
+) -> Result<IssueListResponse, GhError> {
+    if active_issue_type_filter(filter).is_some() && issue_type_requires_search_filter(filter) {
+        return fetch_issue_search_filtered_pages(owner, repo, filter, cursor, page_size);
+    }
+    fetch_issue_search_raw_page(owner, repo, filter, cursor, page_size)
+}
+
+fn fetch_issue_search_filtered_pages(
+    owner: &str,
+    repo: &str,
+    filter: &IssueFilter,
+    cursor: Option<&str>,
+    page_size: u32,
+) -> Result<IssueListResponse, GhError> {
+    let Some(issue_type) = active_issue_type_filter(filter) else {
+        return fetch_issue_search_raw_page(owner, repo, filter, cursor, page_size);
+    };
+    let mut search_cursor = cursor.map(str::to_string);
+    let mut collected = Vec::new();
+    let mut response_cursor: Option<String>;
+    let mut response_has_more: bool;
+
+    loop {
+        let response =
+            fetch_issue_search_raw_page(owner, repo, filter, search_cursor.as_deref(), page_size)?;
+        response_cursor = response.cursor.clone();
+        response_has_more = response.has_more;
+        collected.extend(
+            response
+                .issues
+                .into_iter()
+                .filter(|issue| issue.issue_type.eq_ignore_ascii_case(issue_type)),
+        );
+        if collected.len() > page_size as usize {
+            response_has_more = true;
+            break;
+        }
+
+        if collected.len() >= page_size as usize || !response_has_more {
+            break;
+        }
+        if response.cursor == search_cursor {
+            response_has_more = false;
+            break;
+        }
+        search_cursor = response.cursor;
+    }
+
+    Ok(IssueListResponse {
+        issues: collected,
+        cursor: response_cursor,
+        has_more: response_has_more,
+    })
+}
+
+fn fetch_issue_search_raw_page(
+    owner: &str,
+    repo: &str,
+    filter: &IssueFilter,
+    cursor: Option<&str>,
+    page_size: u32,
+) -> Result<IssueListResponse, GhError> {
+    let args = build_issue_search_args(owner, repo, filter, cursor, page_size);
+
+    let output = Command::new("gh").args(&args).output().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            GhError::NotInstalled
+        } else {
+            GhError::NetworkError(e.to_string())
+        }
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(categorize_error(output.status.code().unwrap_or(1), &stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_issue_search_json(&stdout)
+}
+
+/// Parse the `gh api repos/{owner}/{repo} --jq {...}` output into the allowed
+/// merge methods. The `--jq` flag emits a compact JSON object with the three
+/// boolean fields. Any parse failure yields an empty Vec (graceful degradation
+/// — the chooser treats unknown as "all available").
+///
+/// @plan PLAN-20260624-PR-MODE.P08
+/// @requirement REQ-PR-009
+/// @pseudocode component-002 lines 115-122
+fn parse_repo_merge_methods(jq_output: &str) -> Vec<crate::domain::MergeMethod> {
+    use crate::domain::MergeMethod;
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(jq_output.trim()) else {
+        return Vec::new();
+    };
+    let mut methods = Vec::new();
+    if value
+        .get("allow_merge_commit")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        methods.push(MergeMethod::Merge);
+    }
+    if value
+        .get("allow_squash_merge")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        methods.push(MergeMethod::Squash);
+    }
+    if value
+        .get("allow_rebase_merge")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        methods.push(MergeMethod::Rebase);
+    }
+    methods
 }

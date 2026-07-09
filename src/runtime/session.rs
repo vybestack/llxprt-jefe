@@ -20,6 +20,12 @@ pub struct RuntimeSession {
     pub launch_signature: LaunchSignature,
     /// Whether a viewer is currently attached to this session.
     pub attached: bool,
+    /// OS PID of the worker process (`llxprt`) backing this session, when
+    /// known. Captured via tmux `list-panes` (the pane PID *is* the worker
+    /// because the worker runs as the pane's direct command). Used as a
+    /// liveness fallback when the tmux session is gone but the worker process
+    /// is still alive.
+    pub pid: Option<u32>,
 }
 
 impl RuntimeSession {
@@ -31,13 +37,36 @@ impl RuntimeSession {
             session_name,
             launch_signature,
             attached: false,
+            pid: None,
         }
     }
 
     /// Generate a session name from an agent ID.
+    ///
+    /// tmux session names may only contain ASCII alphanumerics, hyphens, and
+    /// underscores. Any other character in the agent id (spaces, slashes, shell
+    /// metacharacters, non-ASCII code points) is replaced with `_` so the
+    /// resulting name is always safe to use as a tmux target.
+    ///
+    /// Because distinct characters collapse to `_`, two different raw ids could
+    /// in principle map to the same session name. This is acceptable in
+    /// practice: agent ids are unique nanosecond timestamps composed solely of
+    /// ASCII digits, which survive sanitization unchanged and therefore never
+    /// collide.
     #[must_use]
     pub fn session_name_for(agent_id: &AgentId) -> String {
-        format!("jefe-{}", agent_id.0)
+        let sanitized: String = agent_id
+            .0
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        format!("jefe-{sanitized}")
     }
 }
 
@@ -92,5 +121,80 @@ impl TerminalSnapshot {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.cells.is_empty() || self.cells.iter().all(Vec::is_empty)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_name_preserves_plain_alphanumeric() {
+        // ASCII letters and digits pass through unchanged.
+        assert_eq!(
+            RuntimeSession::session_name_for(&AgentId("abc123".into())),
+            "jefe-abc123"
+        );
+    }
+
+    #[test]
+    fn session_name_preserves_hyphen_and_underscore() {
+        // The existing contract: "my-agent" stays "jefe-my-agent".
+        assert_eq!(
+            RuntimeSession::session_name_for(&AgentId("my-agent".into())),
+            "jefe-my-agent"
+        );
+        assert_eq!(
+            RuntimeSession::session_name_for(&AgentId("my_agent".into())),
+            "jefe-my_agent"
+        );
+        assert_eq!(
+            RuntimeSession::session_name_for(&AgentId("a-b_c".into())),
+            "jefe-a-b_c"
+        );
+    }
+
+    #[test]
+    fn session_name_replaces_spaces_slashes_and_dots() {
+        assert_eq!(
+            RuntimeSession::session_name_for(&AgentId("a b/c.d".into())),
+            "jefe-a_b_c_d"
+        );
+    }
+
+    #[test]
+    fn session_name_replaces_shell_metacharacters() {
+        // Characters that would be dangerous in a tmux session name become '_'.
+        // Input "a*b;c`" keeps a/b/c and maps *, ;, $, ` each to '_'.
+        assert_eq!(
+            RuntimeSession::session_name_for(&AgentId("a*b;c$`".into())),
+            "jefe-a_b_c__"
+        );
+    }
+
+    #[test]
+    fn session_name_replaces_non_ascii_unicode() {
+        // Non-ASCII alphanumeric chars (here 'é') are NOT ascii_alphanumeric.
+        assert_eq!(
+            RuntimeSession::session_name_for(&AgentId("café".into())),
+            "jefe-caf_"
+        );
+    }
+
+    #[test]
+    fn session_name_empty_id_yields_bare_prefix() {
+        assert_eq!(
+            RuntimeSession::session_name_for(&AgentId(String::new())),
+            "jefe-"
+        );
+    }
+
+    #[test]
+    fn session_name_preserves_nanosecond_timestamp_like_id() {
+        // Realistic all-digit agent id (a nanosecond timestamp) is unchanged.
+        assert_eq!(
+            RuntimeSession::session_name_for(&AgentId("1718000000000000000".into())),
+            "jefe-1718000000000000000"
+        );
     }
 }

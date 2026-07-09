@@ -1,0 +1,39 @@
+{
+  "config": {
+    "cols": 160,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "Issues" },
+    { "key": "f" },
+    { "waitFor": "Filter:" },
+    { "waitFor": "Delete field" },
+    { "waitFor": "Ctrl-L clear all" },
+    { "waitFor": "type:" },
+    { "waitFor": "milestone:" },
+    { "waitFor": "module:" },
+    { "waitForNot": "Ctrl-c clear" },
+    { "key": "Tab" },
+    { "keys": ["a", "l", "i", "c", "e"] },
+    { "waitFor": "author:[alice]" },
+    { "key": "Delete" },
+    { "waitFor": "author:[any]" },
+    { "keys": ["a", "l", "i", "c", "e"] },
+    { "waitFor": "author:[alice]" },
+    { "key": "Tab" },
+    { "keys": ["b", "o", "b"] },
+    { "waitFor": "assignee:[bob]" },
+    { "key": "C-l" },
+    { "waitFor": "author:[any]" },
+    { "waitFor": "assignee:[any]" },
+    { "waitFor": "Filter:" },
+    { "key": "Escape" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

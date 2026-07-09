@@ -1,0 +1,20 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 32,
+    "history_limit": 2000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "?" },
+    { "waitFor": "Help - Keyboard Shortcuts" },
+    { "expect": "Esc/? close | Up/Down scroll" },
+    { "capture": "help-modal" },
+    { "key": "Escape" },
+    { "waitForNot": "Help - Keyboard Shortcuts" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

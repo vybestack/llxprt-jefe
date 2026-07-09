@@ -7,6 +7,7 @@ use iocraft::prelude::*;
 
 use crate::state::{AppState, ModalState, ScreenMode};
 use crate::theme::ThemeColors;
+use crate::ui::screens::{IssuesScreen, PullRequestsScreen};
 use crate::ui::{
     ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen,
     ThemePickerScreen,
@@ -68,6 +69,14 @@ pub fn derive_confirm_modal_data(
             show_delete_work_dir: false,
             delete_work_dir: false,
         }),
+        ModalState::ConfirmIssueDirtyCopy { .. } => Some(ConfirmModalData {
+            title: String::from("Dirty Working Copy"),
+            message: String::from(
+                "Working copy has uncommitted changes. Discard them (git reset --hard + git clean)?",
+            ),
+            show_delete_work_dir: false,
+            delete_work_dir: false,
+        }),
         _ => None,
     }
 }
@@ -81,12 +90,20 @@ pub fn build_screen_element(
     terminal_snapshot: Option<crate::runtime::TerminalSnapshot>,
 ) -> AnyElement<'static> {
     match snapshot.screen_mode {
-        ScreenMode::Dashboard | ScreenMode::DashboardIssues => element! {
+        ScreenMode::Dashboard => element! {
             Dashboard(
                 state: Some(snapshot.clone()),
                 colors: Some(colors.clone()),
                 theme_name: theme_name.to_owned(),
                 terminal_snapshot: terminal_snapshot,
+            )
+        }
+        .into_any(),
+        ScreenMode::DashboardIssues => element! {
+            IssuesScreen(
+                state: Some(snapshot.clone()),
+                colors: Some(colors.clone()),
+                theme_name: theme_name.to_owned(),
             )
         }
         .into_any(),
@@ -98,21 +115,40 @@ pub fn build_screen_element(
             )
         }
         .into_any(),
+        // @plan PLAN-20260624-PR-MODE.P12
+        // @requirement REQ-PR-001
+        ScreenMode::DashboardPullRequests => element! {
+            PullRequestsScreen(
+                state: Some(snapshot.clone()),
+                colors: Some(colors.clone()),
+                theme_name: theme_name.to_owned(),
+            )
+        }
+        .into_any(),
     }
 }
 
 /// Build the modal element for the current modal state, if any.
+///
+/// `help_scroll_offset` and `available_rows` are forwarded to the `HelpModal`
+/// so its `ScrollableText` viewport never overflows the screen.
 #[must_use]
 pub fn build_modal_element(
     snapshot: &AppState,
     modal: &ModalState,
     colors: &ThemeColors,
     confirm_data: Option<ConfirmModalData>,
+    help_scroll_offset: usize,
+    available_rows: u16,
 ) -> Option<AnyElement<'static>> {
     match modal {
         ModalState::Help => Some(
             element! {
-                HelpModal(colors: colors.clone())
+                HelpModal(
+                    colors: colors.clone(),
+                    scroll_offset: help_scroll_offset,
+                    available_rows: available_rows,
+                )
             }
             .into_any(),
         ),
@@ -145,7 +181,8 @@ pub fn build_modal_element(
         ),
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
-        | ModalState::PreflightPrompt { .. } => confirm_data.map(|data| {
+        | ModalState::PreflightPrompt { .. }
+        | ModalState::ConfirmIssueDirtyCopy { .. } => confirm_data.map(|data| {
             element! {
                 ConfirmModal(
                     title: data.title,

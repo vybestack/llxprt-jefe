@@ -1,118 +1,155 @@
-//! Filter controls component.
+//! Issue filter bar projection (pure, iocraft-free).
+//!
+//! Extracts the Issue filter field views, action hints, and full
+//! [`FilterBarProps`] for the generic [`super::filter_bar::FilterBar`] to
+//! render. This module owns NO iocraft types (`Color`, `Props`,
+//! `AnyElement`) — it is a pure projection per the pure-views pattern
+//! (see `dev-docs/standards/architecture.md`). The screen calls
+//! `filter_bar_element(issue_filter_props(...))`.
+//!
 //! @plan PLAN-20260329-ISSUES-MODE.P12
 //! @plan PLAN-20260329-ISSUES-MODE.P14
 //! @requirement REQ-ISS-008
 
-use iocraft::prelude::*;
+use crate::domain::{FILTER_CHOICE_ANY, IssueFilter, IssueFilterState};
+use crate::theme::ThemeColors;
 
-use crate::domain::{IssueFilter, IssueFilterState};
-use crate::theme::{ResolvedColors, ThemeColors};
+use super::filter_bar::{FilterBarProps, FilterFieldView};
 
-/// Props for the filter controls pane.
-#[derive(Default, Props)]
-pub struct FilterControlsProps {
-    /// Current draft filter values.
-    pub draft_filter: IssueFilter,
-    /// Whether the controls are visible.
-    pub visible: bool,
-    /// Theme colors.
-    pub colors: ThemeColors,
-    /// Index of the currently focused filter field.
-    pub active_field_index: usize,
-    /// Raw labels text for display during editing.
-    pub draft_labels_text: String,
+/// Row-1 prefix text before the first field (matches the pre-refactor
+/// `FilterControls` component exactly).
+const ROW_PREFIX: &str = "Filter: ";
+
+/// Row-2+ continuation prefix: 8 spaces (matches the pre-refactor Issues
+/// `FilterControls` component exactly — `"        "`).
+const CONTINUATION_PREFIX: &str = "        ";
+
+/// Number of fields per row (matches the pre-refactor two-row layout).
+const FIELDS_PER_ROW: usize = 4;
+
+// Compile-time invariant: the continuation prefix must align with the row
+// prefix so row-2+ fields line up under row-1 fields. Both are 8 chars.
+const _: () = assert!(ROW_PREFIX.len() == CONTINUATION_PREFIX.len());
+
+/// Render `value` if non-empty, otherwise the "any" sentinel (used for the
+/// text fields: author, assignee, labels, type, milestone, module, search).
+fn display_any(value: &str) -> String {
+    if value.is_empty() {
+        FILTER_CHOICE_ANY.to_string()
+    } else {
+        value.to_string()
+    }
 }
 
-/// Filter controls — compact horizontal band showing current filter values and action hints.
-/// @plan PLAN-20260329-ISSUES-MODE.P14
-/// @requirement REQ-ISS-008
-#[component]
-pub fn FilterControls(props: &FilterControlsProps) -> impl Into<AnyElement<'static>> {
-    if !props.visible {
-        return element! {
-            Box(width: 0u32, height: 0u32) {}
-        };
-    }
-
-    let rc = ResolvedColors::from_theme(Some(&props.colors));
-    let idx = props.active_field_index;
-
-    let state_label = match props.draft_filter.state {
+/// The display value for the state filter field (without brackets), matching
+/// the pre-refactor `state_label` match.
+fn state_label(state: Option<IssueFilterState>) -> &'static str {
+    match state {
         Some(IssueFilterState::Open) | None => "open",
         Some(IssueFilterState::Closed) => "closed",
         Some(IssueFilterState::All) => "all",
-    };
+    }
+}
 
-    let author_val = if props.draft_filter.author.is_empty() {
-        "any".to_string()
-    } else {
-        props.draft_filter.author.clone()
-    };
+/// Pure projection of the eight Issue filter fields (state, author, assignee,
+/// labels, type, milestone, module, search) with display values + active
+/// highlighting.
+///
+/// @plan PLAN-20260329-ISSUES-MODE.P14
+/// @requirement REQ-ISS-008
+#[must_use]
+pub fn issue_filter_fields(
+    filter: &IssueFilter,
+    draft_labels_text: &str,
+    active_index: usize,
+) -> Vec<FilterFieldView> {
+    vec![
+        FilterFieldView {
+            label: "state".to_string(),
+            value: state_label(filter.state).to_string(),
+            active: active_index == 0,
+        },
+        FilterFieldView {
+            label: "author".to_string(),
+            value: display_any(&filter.author),
+            active: active_index == 1,
+        },
+        FilterFieldView {
+            label: "assignee".to_string(),
+            value: display_any(&filter.assignee),
+            active: active_index == 2,
+        },
+        FilterFieldView {
+            label: "labels".to_string(),
+            value: display_any(draft_labels_text),
+            active: active_index == 3,
+        },
+        FilterFieldView {
+            label: "type".to_string(),
+            value: display_any(&filter.issue_type),
+            active: active_index == 4,
+        },
+        FilterFieldView {
+            label: "milestone".to_string(),
+            value: display_any(&filter.milestone),
+            active: active_index == 5,
+        },
+        FilterFieldView {
+            label: "module".to_string(),
+            value: display_any(&filter.module),
+            active: active_index == 6,
+        },
+        FilterFieldView {
+            label: "search".to_string(),
+            value: display_any(&filter.query_text),
+            active: active_index == 7,
+        },
+    ]
+}
 
-    let assignee_val = if props.draft_filter.assignee.is_empty() {
-        "any".to_string()
-    } else {
-        props.draft_filter.assignee.clone()
-    };
+/// Action-hint segments for the Issues filter bar (matches the pre-refactor
+/// `FilterControls` action-hints row exactly).
+///
+/// Returns a `&'static [&'static str]` slice to avoid per-render heap
+/// allocation — the hints are compile-time constants.
+///
+/// @plan PLAN-20260329-ISSUES-MODE.P14
+/// @requirement REQ-ISS-008
+#[must_use]
+pub fn issue_filter_action_hints() -> &'static [&'static str] {
+    &[
+        "Tab next  ",
+        "←/→ choices  ",
+        "Enter apply  ",
+        "Delete field  ",
+        "Ctrl-L clear all  ",
+        "Esc cancel",
+    ]
+}
 
-    let labels_val = if props.draft_labels_text.is_empty() {
-        "any".to_string()
-    } else {
-        props.draft_labels_text.clone()
-    };
-
-    let search_val = if props.draft_filter.query_text.is_empty() {
-        "any".to_string()
-    } else {
-        props.draft_filter.query_text.clone()
-    };
-
-    // Active field: inverted colors (bright bg, dark fg). Inactive: normal.
-    let val_color = |active: bool| if active { rc.bg } else { rc.fg };
-    let val_bg = |active: bool| if active { rc.bright } else { rc.bg };
-    let label_color = |active: bool| if active { rc.bright } else { rc.dim };
-
-    element! {
-        Box(
-            flex_direction: FlexDirection::Column,
-            width: 100pct,
-            border_style: BorderStyle::Round,
-            border_color: rc.bright,
-            background_color: rc.bg,
-            padding_left: 1u32,
-            padding_right: 1u32,
-        ) {
-            // Filter values row
-            Box(height: 1u32) {
-                Text(content: "Filter: ", color: rc.dim)
-                Text(content: "state:", color: label_color(idx == 0))
-                Box(background_color: val_bg(idx == 0)) {
-                    Text(content: format!("[{state_label}]"), color: val_color(idx == 0))
-                }
-                Text(content: "  author:", color: label_color(idx == 1))
-                Box(background_color: val_bg(idx == 1)) {
-                    Text(content: format!("[{author_val}]"), color: val_color(idx == 1))
-                }
-                Text(content: "  assignee:", color: label_color(idx == 2))
-                Box(background_color: val_bg(idx == 2)) {
-                    Text(content: format!("[{assignee_val}]"), color: val_color(idx == 2))
-                }
-                Text(content: "  labels:", color: label_color(idx == 3))
-                Box(background_color: val_bg(idx == 3)) {
-                    Text(content: format!("[{labels_val}]"), color: val_color(idx == 3))
-                }
-                Text(content: "  search:", color: label_color(idx == 4))
-                Box(background_color: val_bg(idx == 4)) {
-                    Text(content: format!("[{search_val}]"), color: val_color(idx == 4))
-                }
-            }
-            // Actions hint row
-            Box(height: 1u32) {
-                Text(content: "Tab next  ", color: rc.dim)
-                Text(content: "Enter apply  ", color: rc.dim)
-                Text(content: "Ctrl-c clear  ", color: rc.dim)
-                Text(content: "Esc cancel", color: rc.dim)
-            }
-        }
+/// Build the full [`FilterBarProps`] for the Issues filter bar.
+///
+/// The screen calls `filter_bar_element(issue_filter_props(...))` to render
+/// the generic component. This projection owns the field computation, the
+/// row-prefix text, the continuation-prefix alignment, and the action hints.
+///
+/// @plan PLAN-20260329-ISSUES-MODE.P14
+/// @requirement REQ-ISS-008
+#[must_use]
+pub fn issue_filter_props(
+    filter: &IssueFilter,
+    draft_labels_text: &str,
+    active_index: usize,
+    visible: bool,
+    colors: ThemeColors,
+) -> FilterBarProps {
+    FilterBarProps {
+        fields: issue_filter_fields(filter, draft_labels_text, active_index),
+        visible,
+        row_prefix: ROW_PREFIX,
+        continuation_prefix: CONTINUATION_PREFIX,
+        fields_per_row: FIELDS_PER_ROW,
+        action_hints: issue_filter_action_hints(),
+        colors,
     }
 }

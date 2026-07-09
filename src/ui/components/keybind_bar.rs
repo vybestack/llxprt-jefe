@@ -20,24 +20,38 @@ pub struct KeybindBarProps {
     pub colors: ThemeColors,
 }
 
+/// Context-sensitive keybind hint text for a screen mode (display-only; pure).
+///
+/// @plan PLAN-20260624-PR-MODE.P13
+/// @requirement REQ-PR-012
+/// @pseudocode component-001 lines 1-12
+#[must_use]
+pub fn keybind_hints_for(screen_mode: ScreenMode, terminal_focused: bool) -> &'static str {
+    if terminal_focused {
+        return "F12 unfocus";
+    }
+    match screen_mode {
+        ScreenMode::Dashboard => {
+            "^/v navigate | </> pane | t/f12 terminal focus | v active-only (repos+agents) | \u{2325}1-9 jump agent | n new-agent | N new-repo | ctrl-d delete | ctrl-k kill | ctrl-r restart | l relaunch-dead | Space reorder | s split | F11 theme | ? help | ctrl-q/qqq quit"
+        }
+        ScreenMode::Split => "^/v select | g grab | m move | Esc back | ? help | ctrl-q/qqq quit",
+        ScreenMode::DashboardIssues => {
+            "^/v items | </> panes | Enter detail | n new issue | f filter | / search | Tab detail focus (j/k) | i list | r reply | S send-to-agent | e edit | c comment | a exit | Esc back/exit"
+        }
+        // @plan PLAN-20260624-PR-MODE.P12
+        // @requirement REQ-PR-001
+        ScreenMode::DashboardPullRequests => {
+            "^/v items | </> panes | Enter detail | f filter | / search | Tab detail focus (j/k) | p list | r reply | R resolve | S send-to-agent | e edit | c comment | o open in browser | m merge | a exit | Esc back/exit"
+        }
+    }
+}
+
 /// Keybind bar showing context-sensitive keyboard shortcuts.
 #[component]
 pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
 
-    let hints = if props.terminal_focused {
-        "F12 unfocus"
-    } else {
-        match props.screen_mode {
-            ScreenMode::Dashboard => {
-                "^/v navigate | </> pane | t/f12 terminal focus | v active-only (repos+agents) | \u{2325}1-9 jump agent | n new-agent | N new-repo | P theme | ctrl-d delete | ctrl-k kill | l relaunch-dead | s split | ? help | q quit"
-            }
-            ScreenMode::Split => "^/v select | g grab | m move | Esc back | ? help",
-            ScreenMode::DashboardIssues => {
-                "^/v navigate | Enter open detail | n new issue | f filter | / search | Tab cycle focus | i issue list | r reply | S send-to-agent | e edit | c comment | a exit issues | Esc back/exit"
-            }
-        }
-    };
+    let hints = keybind_hints_for(props.screen_mode, props.terminal_focused);
 
     element! {
         Box(

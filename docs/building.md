@@ -34,6 +34,7 @@ This command runs:
 
 ```bash
 cargo fmt --all --check
+scripts/check-clippy-allows.sh
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo clippy --workspace --all-targets --all-features -- \
   -A clippy::all \
@@ -53,6 +54,8 @@ cargo llvm-cov \
 cargo build --workspace --all-features --locked
 cargo test --workspace --all-features --locked
 ```
+
+`scripts/check-clippy-allows.sh` enforces a **zero-tolerance** policy for first-party clippy allow attributes: no tracked Rust file outside `vendor/` may contain `#[allow(clippy::...)]`, `#![allow(clippy::...)]`, or `#[cfg_attr(..., allow(clippy::...))]` in any whitespace variant. The `vendor/` tree is ignored entirely. There is **no exception ledger** — if a suppression is genuinely needed it must be raised as a design discussion, not committed as silent debt. The gate fails closed: a scanner error is treated as a policy failure, never as a clean pass.
 
 Optional local-only speed pass while iterating:
 

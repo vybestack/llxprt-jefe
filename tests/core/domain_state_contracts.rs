@@ -6,8 +6,7 @@
 //!
 //! Pseudocode reference: component-001 lines 01-33
 
-#![allow(clippy::expect_used)]
-#![allow(clippy::unwrap_used)]
+use crate::support::TestOptionExt;
 
 use std::path::PathBuf;
 
@@ -578,7 +577,7 @@ fn agent_status_changed_updates_agent() {
         .agents
         .iter()
         .find(|a| a.id == agent_id)
-        .expect("agent should exist");
+        .test_unwrap("agent should exist");
     assert_eq!(
         agent.status,
         AgentStatus::Running,
@@ -605,7 +604,7 @@ fn kill_agent_sets_status_to_dead() {
         .agents
         .iter()
         .find(|a| a.id == agent_id)
-        .expect("agent should exist");
+        .test_unwrap("agent should exist");
     assert_eq!(
         agent.status,
         AgentStatus::Dead,
@@ -772,7 +771,7 @@ fn persistence_load_failed_sets_error() {
     assert!(
         next.error_message
             .as_ref()
-            .unwrap()
+            .test_unwrap("test unwrap")
             .contains("file not found"),
         "error_message should contain the error"
     );
@@ -802,5 +801,38 @@ fn theme_resolve_failed_sets_warning() {
     assert!(
         next.warning_message.is_some(),
         "ThemeResolveFailed should set warning_message"
+    );
+}
+
+#[test]
+fn form_created_agent_has_running_status() {
+    let repo = Repository::new(
+        RepositoryId("repo-1".into()),
+        "Repo One".into(),
+        "repo-one".into(),
+        PathBuf::from("/tmp/repo-one"),
+    );
+    let mut state = AppState {
+        repositories: vec![repo],
+        ..AppState::default()
+    };
+
+    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".into())));
+    if let ModalState::NewAgent { fields, .. } = &mut state.modal {
+        fields.name = "Form Agent".into();
+        fields.work_dir = "/tmp/repo-one/form-agent".into();
+    } else {
+        panic!("expected new-agent modal");
+    }
+
+    state = state.apply(AppEvent::SubmitForm);
+
+    let Some(created) = state.agents.iter().find(|a| a.name == "Form Agent") else {
+        panic!("form-created agent should exist");
+    };
+    assert_eq!(
+        created.status,
+        AgentStatus::Running,
+        "app-created agents start Running because creation triggers launch"
     );
 }

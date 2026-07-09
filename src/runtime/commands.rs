@@ -14,17 +14,69 @@ use crate::domain::LaunchSignature;
 
 use super::errors::RuntimeError;
 use super::preflight::sandbox_ssh_agent_warning;
+use super::socket::jefe_tmux_socket_path;
 
 const REMOTE_SSH_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// Build a local tmux `Command` that skips user config (`-f /dev/null`).
+/// tmux client environment variables that must NEVER propagate into an agent
+/// pane. tmux sets `TMUX=<socket>,<pid>,<n>` and `TMUX_PANE=%<n>` inside every
+/// pane, handing the llxprt child (and any tool it spawns) a live handle to
+/// jefe's private tmux server. A bare `tmux` inside such an agent then talks to
+/// jefe's server and can kill it — disconnecting every agent at once (#171).
+///
+/// `TMUX_TMPDIR` is also stripped so agent-side tmux activity cannot locate
+/// jefe's socket directory by convention. Stripping happens via `env -u` inside
+/// the pane command (the tmux server populates the pane env, so removing the
+/// vars from jefe's own process env would have no effect).
+const TMUX_ENV_VARS_TO_SCRUB: &[&str] = &["TMUX", "TMUX_PANE", "TMUX_TMPDIR"];
+
+/// Build the `env -u <VAR> ...` argv prefix that scrubs jefe's tmux client vars
+/// from the process running inside an agent pane. Returned as owned `String`s
+/// so callers can splice them into either a local `Command` argv list or a
+/// remote shell command string.
+///
+/// See [`TMUX_ENV_VARS_TO_SCRUB`] for why this is mandatory (#171).
+#[must_use]
+fn tmux_scrub_env_args() -> Vec<String> {
+    let mut args = vec!["env".to_owned()];
+    for var in TMUX_ENV_VARS_TO_SCRUB {
+        args.push("-u".to_owned());
+        args.push((*var).to_owned());
+    }
+    args
+}
+
+/// The fixed base arguments every jefe local tmux command starts with:
+/// `-f /dev/null` (skip user config) and `-S <jefe-socket>` (dedicated socket).
+///
+/// Factored out so tests can inspect the base arg composition deterministically
+/// without spawning tmux.
+#[must_use]
+pub fn tmux_base_args() -> Vec<String> {
+    let socket = jefe_tmux_socket_path();
+    vec![
+        "-f".to_owned(),
+        "/dev/null".to_owned(),
+        "-S".to_owned(),
+        socket.to_string_lossy().into_owned(),
+    ]
+}
+
+/// Build a local tmux `Command` that skips user config (`-f /dev/null`) and
+/// targets jefe's *private* socket (`-S <jefe-socket>`).
 ///
 /// Jefe sets all tmux options programmatically, so loading `~/.tmux.conf` is
 /// unnecessary and can cause errors (e.g., pane-scoped options in the user
 /// config fail with "no current pane" when the server starts headlessly).
+///
+/// The dedicated socket (`-S`) isolates jefe's sessions from any unrelated user
+/// tmux sessions that share the default socket. This prevents jefe from
+/// destroying unrelated sessions and means jefe is unaffected when the shared
+/// default server dies (e.g. an OS reboot of the default tmux server).
 pub fn tmux_command() -> Command {
     let mut cmd = Command::new("tmux");
-    cmd.args(["-f", "/dev/null"]);
+    let base = tmux_base_args();
+    cmd.args(&base);
     cmd
 }
 
@@ -47,10 +99,6 @@ fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
             String::from_utf8_lossy(&output.stderr)
         ))
     }
-}
-
-fn reset_tmux_server() {
-    let _ = tmux_cmd_status(["kill-server"].as_ref(), None);
 }
 
 fn apply_session_style(session_name: &str) {
@@ -128,7 +176,18 @@ fn remote_effective_user(remote: &crate::domain::RemoteRepositorySettings) -> St
     }
 }
 
-fn run_command_capture(mut cmd: Command, error_context: &str) -> Result<Output, RuntimeError> {
+fn run_command_capture(cmd: Command, error_context: &str) -> Result<Output, RuntimeError> {
+    run_command_capture_with_timeout(cmd, REMOTE_SSH_COMMAND_TIMEOUT, error_context)
+}
+
+/// [`run_command_capture`] with an injectable deadline so tests can drive the
+/// timeout branch with a sub-second value instead of the 20s production
+/// default (#173).
+fn run_command_capture_with_timeout(
+    mut cmd: Command,
+    timeout: Duration,
+    error_context: &str,
+) -> Result<Output, RuntimeError> {
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
@@ -136,7 +195,7 @@ fn run_command_capture(mut cmd: Command, error_context: &str) -> Result<Output, 
         .spawn()
         .map_err(|e| RuntimeError::RemoteExecutionFailed(format!("{error_context}: {e}")))?;
 
-    let deadline = Instant::now() + REMOTE_SSH_COMMAND_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     loop {
         match child.try_wait() {
             Ok(Some(_)) => {
@@ -150,7 +209,7 @@ fn run_command_capture(mut cmd: Command, error_context: &str) -> Result<Output, 
                     let _ = child.wait();
                     return Err(RuntimeError::RemoteExecutionFailed(format!(
                         "{error_context}: timed out after {}s",
-                        REMOTE_SSH_COMMAND_TIMEOUT.as_secs()
+                        timeout.as_secs_f64()
                     )));
                 }
                 std::thread::sleep(Duration::from_millis(50));
@@ -325,36 +384,31 @@ fn resolve_remote_llxprt_command(
     ))
 }
 
-#[allow(clippy::too_many_lines)]
-fn build_remote_launch_command(
-    session_name: &str,
-    work_dir: &Path,
-    signature: &LaunchSignature,
-) -> Result<String, RuntimeError> {
-    let remote = &signature.remote;
-    let work_dir_string = work_dir.to_string_lossy().into_owned();
-    let escaped_work_dir = shell_escape_single(&work_dir_string);
-    let llxprt_command = resolve_remote_llxprt_command(remote, work_dir, remote.setup_env_default)?;
-    let mut launch_args: Vec<String> = Vec::new();
-
+fn launch_args(signature: &LaunchSignature) -> Vec<String> {
+    let mut args = Vec::new();
     if !signature.profile.is_empty() {
-        launch_args.push("--profile-load".to_owned());
-        launch_args.push(signature.profile.clone());
+        args.push("--profile-load".to_owned());
+        args.push(signature.profile.clone());
     }
-    for flag in &signature.mode_flags {
-        if !flag.is_empty() {
-            launch_args.push(flag.clone());
-        }
-    }
+    args.extend(
+        signature
+            .mode_flags
+            .iter()
+            .filter(|flag| !flag.is_empty())
+            .cloned(),
+    );
     if signature.pass_continue {
-        launch_args.push("--continue".to_owned());
+        args.push("--continue".to_owned());
     }
     if signature.sandbox_enabled {
-        launch_args.push("--sandbox".to_owned());
-        launch_args.push("--sandbox-engine".to_owned());
-        launch_args.push(signature.sandbox_engine.as_llxprt_arg().to_owned());
+        args.push("--sandbox".to_owned());
+        args.push("--sandbox-engine".to_owned());
+        args.push(signature.sandbox_engine.as_llxprt_arg().to_owned());
     }
+    args
+}
 
+fn remote_env_exports(signature: &LaunchSignature) -> Vec<String> {
     let mut env_exports = Vec::new();
     if signature.sandbox_enabled {
         env_exports.push(format!(
@@ -374,29 +428,194 @@ fn build_remote_launch_command(
             shell_escape_single(&signature.llxprt_debug)
         ));
     }
+    env_exports
+}
 
-    let cli_command = if llxprt_command.contains(' ') {
-        format!("{} {}", llxprt_command, shell_join(&launch_args))
-    } else if launch_args.is_empty() {
-        llxprt_command
+fn remote_cli_command(llxprt_command: &str, launch_args: &[String]) -> String {
+    let executable = if llxprt_command == "llxprt" {
+        llxprt_command.to_owned()
     } else {
-        format!(
-            "{} {}",
-            shell_escape_single(&llxprt_command),
-            shell_join(&launch_args)
-        )
+        shell_escape_single(llxprt_command)
     };
 
-    let env_prefix = env_exports.join(" ");
-    let tmux_script = format!(
-        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {} -c {} {} \\; set-option -t {} remain-on-exit on",
-        shell_escape_single(session_name),
-        escaped_work_dir,
-        cli_command,
-        shell_escape_single(session_name),
+    if launch_args.is_empty() {
+        executable
+    } else {
+        format!("{} {}", executable, shell_join(launch_args))
+    }
+}
+
+fn build_remote_launch_command(
+    session_name: &str,
+    work_dir: &Path,
+    signature: &LaunchSignature,
+) -> Result<String, RuntimeError> {
+    let remote = &signature.remote;
+    let work_dir_string = work_dir.to_string_lossy().into_owned();
+    let escaped_work_dir = shell_escape_single(&work_dir_string);
+    let llxprt_command = resolve_remote_llxprt_command(remote, work_dir, remote.setup_env_default)?;
+    let args = launch_args(signature);
+    let cli_command = remote_cli_command(&llxprt_command, &args);
+    // Scrub jefe's tmux client vars from the remote agent pane for the same
+    // reason as the local path (#171): a bare `tmux` inside the agent must not
+    // reach the (remote) tmux server hosting the agent session.
+    let env_scrub = tmux_scrub_env_args().join(" ");
+    let pane_command = format!("{env_scrub} {cli_command}");
+    let env_prefix = remote_env_exports(signature).join(" ");
+    let escaped_session = shell_escape_single(session_name);
+    let tmux_script = build_remote_tmux_script(
+        &escaped_work_dir,
+        &env_prefix,
+        &escaped_session,
+        &pane_command,
     );
 
     Ok(remote_tmux_command(remote, &tmux_script))
+}
+
+/// Assemble the remote tmux startup script from its already-escaped parts.
+///
+/// Factored out of [`build_remote_launch_command`] so the script template —
+/// including the `env -u` scrub inside `pane_command` — is unit-testable
+/// without the SSH resolver side effect (#171).
+fn build_remote_tmux_script(
+    escaped_work_dir: &str,
+    env_prefix: &str,
+    escaped_session: &str,
+    pane_command: &str,
+) -> String {
+    format!(
+        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {pane_command} \\; set-option -t {escaped_session} remain-on-exit on"
+    )
+}
+
+struct LocalLaunchPlan {
+    args: Vec<String>,
+    env: Vec<(String, String)>,
+    warning: Option<String>,
+}
+
+fn local_launch_plan(signature: &LaunchSignature) -> LocalLaunchPlan {
+    let mut env = Vec::new();
+    let warning = if signature.sandbox_enabled {
+        env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
+        if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
+            env.push((
+                "LLXPRT_SANDBOX_IMAGE".to_owned(),
+                image_ref.to_string_lossy().into_owned(),
+            ));
+        }
+        sandbox_ssh_agent_warning()
+    } else {
+        None
+    };
+    if !signature.llxprt_debug.is_empty() {
+        env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
+    }
+    LocalLaunchPlan {
+        args: launch_args(signature),
+        env,
+        warning,
+    }
+}
+
+fn local_launch_command(session_name: &str, work_dir: &Path, plan: &LocalLaunchPlan) -> Command {
+    let mut cmd = tmux_command();
+    cmd.arg("new-session")
+        .arg("-d")
+        .arg("-s")
+        .arg(session_name)
+        .arg("-c")
+        .arg(work_dir);
+
+    // Wrap the pane command in `env -u TMUX -u TMUX_PANE -u TMUX_TMPDIR …` so
+    // the llxprt child (and any tool it spawns) cannot reach jefe's private
+    // tmux server via a bare `tmux` (#171). tmux's server populates the pane
+    // env, so the scrub MUST live in the pane command rather than jefe's own
+    // process env. The argv is built by the pure [`local_pane_command_args`]
+    // helper so it is directly unit-testable.
+    for arg in local_pane_command_args(plan) {
+        cmd.arg(arg);
+    }
+    cmd
+}
+
+/// Build the pane-command argv for a local agent session: the `env -u` scrub
+/// prefix, any `KEY=VALUE` env assignments, then `llxprt` and its launch args.
+///
+/// Factored out of [`local_launch_command`] so the scrub is unit-testable
+/// without spawning tmux or introspecting a `Command` (#171).
+fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
+    let mut args = tmux_scrub_env_args();
+    for (key, value) in &plan.env {
+        args.push(format!("{key}={value}"));
+    }
+    args.push("llxprt".to_owned());
+    args.extend(plan.args.iter().cloned());
+    args
+}
+
+fn finalize_local_session(session_name: &str, warning: Option<String>) {
+    enforce_clipboard_passthrough(session_name);
+    let _ = tmux_cmd_status(
+        ["set-option", "-t", session_name, "remain-on-exit", "on"].as_ref(),
+        None,
+    );
+    apply_session_style(session_name);
+
+    if let Some(warning) = warning {
+        debug!(session_name = %session_name, warning = %warning, "runtime launch preflight warning");
+        let _ = tmux_cmd_status(
+            [
+                "display-message",
+                "-t",
+                session_name,
+                &format!("[jefe] warning: {warning}"),
+            ]
+            .as_ref(),
+            None,
+        );
+    }
+}
+
+fn try_local_create_session(
+    session_name: &str,
+    work_dir: &Path,
+    signature: &LaunchSignature,
+    attempt: u8,
+) -> Result<(), String> {
+    let plan = local_launch_plan(signature);
+    let mut cmd = local_launch_command(session_name, work_dir, &plan);
+    debug!(session_name = %session_name, attempt, "create_session invoking tmux new-session");
+
+    let output = cmd.output().map_err(|e| format!("tmux new-session: {e}"))?;
+    if output.status.success() {
+        debug!(session_name = %session_name, attempt, "create_session tmux new-session succeeded");
+        finalize_local_session(session_name, plan.warning);
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+fn create_remote_session(
+    session_name: &str,
+    work_dir: &Path,
+    signature: &LaunchSignature,
+) -> Result<(), RuntimeError> {
+    let remote_command = build_remote_launch_command(session_name, work_dir, signature)?;
+    let output = run_remote_ssh(&signature.remote, &remote_command)?;
+    ensure_remote_success(&signature.remote, "remote tmux new-session", output)?;
+    Ok(())
+}
+
+fn is_tmux_fork_broken(stderr: &str) -> bool {
+    stderr.contains("fork failed") || stderr.contains("Device not configured")
+}
+
+fn local_spawn_error(session_name: &str, attempt: u8, stderr: String) -> RuntimeError {
+    debug!(session_name = %session_name, attempt, stderr = %stderr, "create_session tmux new-session failed");
+    RuntimeError::SpawnFailed(format!("tmux new-session failed: {stderr}"))
 }
 
 /// Create a new detached tmux session running llxprt.
@@ -405,158 +624,35 @@ fn build_remote_launch_command(
 /// the tmux session becomes "dead" until explicit relaunch.
 ///
 /// @pseudocode component-002 lines 01-06
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 pub fn create_session(
     session_name: &str,
     work_dir: &Path,
     signature: &LaunchSignature,
 ) -> Result<(), RuntimeError> {
     debug!(session_name = %session_name, work_dir = %work_dir.display(), "create_session start");
-
     if remote_is_enabled(&signature.remote) {
-        let remote_command = build_remote_launch_command(session_name, work_dir, signature)?;
-        let output = run_remote_ssh(&signature.remote, &remote_command)?;
-        ensure_remote_success(&signature.remote, "remote tmux new-session", output)?;
-        return Ok(());
+        return create_remote_session(session_name, work_dir, signature);
     }
 
-    // Kill any stale session with the same name first
     let _ = kill_session(session_name);
-
-    // Retry once if tmux server is in a fork-broken state.
-    for attempt in 0..=1 {
-        let mut llxprt_args: Vec<String> = Vec::new();
-
-        // Add profile if specified.
-        if !signature.profile.is_empty() {
-            llxprt_args.push("--profile-load".to_owned());
-            llxprt_args.push(signature.profile.clone());
+    match try_local_create_session(session_name, work_dir, signature, 0) {
+        Ok(()) => return Ok(()),
+        Err(stderr) if is_tmux_fork_broken(&stderr) => {
+            debug!(session_name = %session_name, attempt = 0, stderr = %stderr, "create_session retrying after tmux fork failure");
+            // Scoped recovery: kill only this one target session on the
+            // jefe-private socket, then retry. We must NOT call `tmux
+            // kill-server` here — that would nuke every jefe session (and,
+            // before the dedicated socket, every unrelated user session too)
+            // over a transient per-session fork error.
+            let _ = kill_session(session_name);
         }
-
-        // Add mode flags (e.g., --yolo).
-        for flag in &signature.mode_flags {
-            if !flag.is_empty() {
-                llxprt_args.push(flag.clone());
-            }
-        }
-
-        // Add --continue if pass_continue is true.
-        if signature.pass_continue {
-            llxprt_args.push("--continue".to_owned());
-        }
-
-        // Sandbox launch parity with llxprt-code: explicit --sandbox and engine,
-        // plus SANDBOX_FLAGS environment support.
-        let mut launch_env: Vec<(String, String)> = Vec::new();
-        let launch_warning: Option<String> = if signature.sandbox_enabled {
-            llxprt_args.push("--sandbox".to_owned());
-            llxprt_args.push("--sandbox-engine".to_owned());
-            llxprt_args.push(signature.sandbox_engine.as_llxprt_arg().to_owned());
-            launch_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
-
-            // Let llxprt resolve its own sandbox image — it knows its version
-            // and can give clear errors (e.g. "daemon not running") instead of
-            // the misleading "image missing" that results from jefe pre-resolving
-            // via `manifest inspect` (which queries the registry without a daemon).
-            // The user can still override via LLXPRT_SANDBOX_IMAGE in their env.
-            if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
-                launch_env.push((
-                    "LLXPRT_SANDBOX_IMAGE".to_owned(),
-                    image_ref.to_string_lossy().into_owned(),
-                ));
-            }
-
-            sandbox_ssh_agent_warning()
-        } else {
-            None
-        };
-
-        if !signature.llxprt_debug.is_empty() {
-            launch_env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
-        }
-
-        let mut cmd = tmux_command();
-        cmd.arg("new-session")
-            .arg("-d")
-            .arg("-s")
-            .arg(session_name)
-            .arg("-c")
-            .arg(work_dir.to_str().unwrap_or("."));
-
-        debug!(session_name = %session_name, attempt, "create_session invoking tmux new-session");
-
-        if !launch_env.is_empty() {
-            cmd.arg("env");
-            for (key, value) in &launch_env {
-                // Each .arg() is a single argv entry to tmux.  tmux internally
-                // escapes each argument when joining them for sh -c, so spaces
-                // inside the value are preserved without any extra quoting.
-                // Adding shell_escape_single() here would embed literal quote
-                // characters in the value (double-quoting), breaking consumers
-                // like llxprt's shell-quote parser.
-                cmd.arg(format!("{key}={value}"));
-            }
-        }
-
-        cmd.arg("llxprt");
-        for arg in &llxprt_args {
-            cmd.arg(arg);
-        }
-
-        let output = cmd
-            .output()
-            .map_err(|e| RuntimeError::SpawnFailed(format!("tmux new-session: {e}")))?;
-
-        if output.status.success() {
-            debug!(session_name = %session_name, attempt, "create_session tmux new-session succeeded");
-
-            // Enforce clipboard passthrough for each new session regardless of
-            // user/system tmux defaults.
-            enforce_clipboard_passthrough(session_name);
-
-            // Preserve dead pane output in tmux for post-mortem inspection/relaunch context.
-            let _ = tmux_cmd_status(
-                ["set-option", "-t", session_name, "remain-on-exit", "on"].as_ref(),
-                None,
-            );
-            apply_session_style(session_name);
-
-            if let Some(warning) = launch_warning {
-                debug!(session_name = %session_name, warning = %warning, "runtime launch preflight warning");
-                let _ = tmux_cmd_status(
-                    [
-                        "display-message",
-                        "-t",
-                        session_name,
-                        &format!("[jefe] warning: {warning}"),
-                    ]
-                    .as_ref(),
-                    None,
-                );
-            }
-
-            return Ok(());
-        }
-
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let fork_broken =
-            stderr.contains("fork failed") || stderr.contains("Device not configured");
-
-        if attempt == 0 && fork_broken {
-            debug!(session_name = %session_name, attempt, stderr = %stderr, "create_session retrying after tmux fork failure");
-            reset_tmux_server();
-            continue;
-        }
-
-        debug!(session_name = %session_name, attempt, stderr = %stderr, "create_session tmux new-session failed");
-        return Err(RuntimeError::SpawnFailed(format!(
-            "tmux new-session failed: {stderr}"
-        )));
+        Err(stderr) => return Err(local_spawn_error(session_name, 0, stderr)),
     }
 
-    Err(RuntimeError::SpawnFailed(
-        "tmux new-session failed after retry".to_owned(),
-    ))
+    match try_local_create_session(session_name, work_dir, signature, 1) {
+        Ok(()) => Ok(()),
+        Err(stderr) => Err(local_spawn_error(session_name, 1, stderr)),
+    }
 }
 
 /// Check if a tmux session exists.
@@ -593,6 +689,43 @@ pub fn capture_pane_lines(session_name: &str) -> Option<Vec<String>> {
 
     let text = String::from_utf8_lossy(&output.stdout);
     Some(text.lines().map(std::borrow::ToOwned::to_owned).collect())
+}
+
+/// Parse the stdout of `tmux list-panes -t <session> -F '#{pane_pid}'` into a
+/// single PID.
+///
+/// Returns the first non-empty trimmed line parsed as a `u32`, or `None` if the
+/// output is empty/garbage. Factored out of [`pane_pid`] so the parsing logic is
+/// unit-testable without spawning tmux.
+#[must_use]
+pub fn parse_pane_pid(stdout: &str) -> Option<u32> {
+    stdout
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .and_then(|line| line.parse::<u32>().ok())
+}
+
+/// Query the PID of the (first) pane in a local tmux session.
+///
+/// Runs `tmux list-panes -t <session> -F '#{pane_pid}'` against the jefe-private
+/// socket. Because `llxprt` runs as the pane's direct command (not a shell
+/// wrapper), the returned PID **is** the worker process itself. Local sessions
+/// only.
+///
+/// Returns `None` if tmux is unavailable, the session does not exist, or the
+/// output cannot be parsed. This is the PID-fallback input used to detect
+/// workers that are still alive after their tmux session is gone.
+#[must_use]
+pub fn pane_pid(session_name: &str) -> Option<u32> {
+    let output = tmux_command()
+        .args(["list-panes", "-t", session_name, "-F", "#{pane_pid}"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_pane_pid(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// Kill a tmux session.
@@ -643,120 +776,5 @@ pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::SandboxEngine;
-
-    fn base_signature() -> LaunchSignature {
-        LaunchSignature {
-            work_dir: std::path::PathBuf::from("/tmp"),
-            profile: String::new(),
-            mode_flags: Vec::new(),
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
-        }
-    }
-
-    #[test]
-    fn llxprt_debug_env_is_omitted_when_empty() {
-        let signature = base_signature();
-        let mut launch_env: Vec<(String, String)> = Vec::new();
-
-        if signature.sandbox_enabled {
-            launch_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
-        }
-        if !signature.llxprt_debug.is_empty() {
-            launch_env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
-        }
-
-        assert!(!launch_env.iter().any(|(key, _)| key == "LLXPRT_DEBUG"));
-    }
-
-    #[test]
-    fn remote_tmux_command_wraps_run_as_user_once() {
-        let remote = crate::domain::RemoteRepositorySettings {
-            enabled: true,
-            login_user: "ubuntu".to_owned(),
-            host: "example.com".to_owned(),
-            run_as_user: "acoliver".to_owned(),
-            setup_env_default: false,
-        };
-
-        let command = remote_tmux_command(&remote, "tmux has-session -t 'demo'");
-        assert_eq!(
-            command,
-            "sudo -n su - 'acoliver' -c 'tmux has-session -t '\\''demo'\\'''"
-        );
-    }
-
-    #[test]
-    fn remote_execution_timeout_returns_clear_error() {
-        let mut cmd = Command::new("python3");
-        cmd.args(["-c", "import time; time.sleep(30)"]);
-
-        let Err(RuntimeError::RemoteExecutionFailed(message)) =
-            run_command_capture(cmd, "timeout probe")
-        else {
-            panic!("expected remote timeout failure");
-        };
-
-        assert!(message.contains("timed out"));
-        assert!(message.contains("timeout probe"));
-    }
-
-    #[test]
-    fn llxprt_debug_env_is_included_when_non_empty() {
-        let mut signature = base_signature();
-        signature.llxprt_debug = "trace=1".to_owned();
-
-        let mut launch_env: Vec<(String, String)> = Vec::new();
-        if signature.sandbox_enabled {
-            launch_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
-        }
-        if !signature.llxprt_debug.is_empty() {
-            launch_env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
-        }
-
-        assert_eq!(
-            launch_env
-                .into_iter()
-                .find(|(key, _)| key == "LLXPRT_DEBUG")
-                .map(|(_, value)| value),
-            Some("trace=1".to_owned())
-        );
-    }
-
-    #[test]
-    fn remote_launch_command_enables_remain_on_exit() {
-        let session_name = shell_escape_single("jefe-agent-test");
-        let work_dir = shell_escape_single("/tmp/work");
-        let cli_command = shell_escape_single("/tmp/work/node_modules/.bin/llxprt");
-        let env_prefix = String::new();
-
-        let tmux_script = format!(
-            "set -e; mkdir -p {work_dir}; cd {work_dir}; {env_prefix} tmux new-session -d -s {session_name} -c {work_dir} {cli_command} \\; set-option -t {session_name} remain-on-exit on"
-        );
-
-        assert!(tmux_script.contains("tmux new-session -d -s 'jefe-agent-test'"));
-        assert!(tmux_script.contains("set-option -t 'jefe-agent-test' remain-on-exit on"));
-    }
-
-    #[test]
-    fn sandbox_flags_env_value_is_raw_for_tmux_argv() {
-        let key = "SANDBOX_FLAGS";
-        let value = "--cpus=2 --memory=12288m --pids-limit=256";
-        let arg = format!("{key}={value}");
-        // Rust's Command::arg() passes this as a single argv entry to tmux.
-        // tmux escapes each argument when constructing its sh -c command, so
-        // spaces survive without extra quoting.  Adding shell_escape_single()
-        // would embed literal quote characters in the env var value.
-        assert_eq!(
-            arg,
-            "SANDBOX_FLAGS=--cpus=2 --memory=12288m --pids-limit=256"
-        );
-    }
-}
+#[path = "commands_tests.rs"]
+mod tests;

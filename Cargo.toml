@@ -16,6 +16,11 @@ toml = "0.8"
 # Terminal UI
 iocraft = "0.5"
 crossterm = "0.28"
+# Layout + width measurement for the low-level terminal canvas component.
+# Versions are pinned to those iocraft already resolves so the `taffy::Style`
+# type unifies with iocraft's internal layout engine.
+taffy = "0.5"
+unicode-width = "0.2"
 
 # Terminal/PTY
 portable-pty = "0.8"
@@ -33,6 +38,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Directories (for platform-specific paths)
 dirs = "6.0"
+
+# Bounded cache for dead-session signatures (prevents unbounded memory growth
+# from repeated kill/recreate cycles of different agents).
+lru = "0.12"
 
 [patch.crates-io]
 iocraft = { path = "vendor/iocraft" }
