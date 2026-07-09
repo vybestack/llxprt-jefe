@@ -73,6 +73,16 @@ pub enum ModalState {
         /// Placeholder for future multi-issue handling.
         remaining_issues: Vec<PreflightIssue>,
     },
+    /// Issue send: the working copy has uncommitted changes (excluding
+    /// jefe/llxprt-owned paths). Prompt the user to discard them before
+    /// the issue-driven launch proceeds. The default is no/halt; the
+    /// user must explicitly opt in (Enter) before destructive cleanup.
+    /// Escape (or `n`) aborts and leaves the working copy untouched.
+    ConfirmIssueDirtyCopy {
+        agent_id: AgentId,
+        work_dir: std::path::PathBuf,
+        signature: LaunchSignature,
+    },
 }
 
 /// Screen mode variants.

@@ -857,4 +857,26 @@ mod tests {
         assert!(!is_tmux_fork_broken("session already exists"));
         assert!(!is_tmux_fork_broken(""));
     }
+
+    #[test]
+    fn launch_args_emits_continue_when_pass_continue_true() {
+        let signature = base_signature();
+        assert!(
+            launch_args(&signature)
+                .iter()
+                .any(|arg| arg == "--continue")
+        );
+    }
+
+    #[test]
+    fn launch_args_omits_continue_when_pass_continue_false() {
+        let mut signature = base_signature();
+        signature.pass_continue = false;
+        assert!(
+            !launch_args(&signature)
+                .iter()
+                .any(|arg| arg == "--continue"),
+            "issue-driven launches must never pass --continue"
+        );
+    }
 }

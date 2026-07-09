@@ -66,6 +66,14 @@ pub fn derive_confirm_modal_data(
             show_delete_work_dir: false,
             delete_work_dir: false,
         }),
+        ModalState::ConfirmIssueDirtyCopy { .. } => Some(ConfirmModalData {
+            title: String::from("Dirty Working Copy"),
+            message: String::from(
+                "Working copy has uncommitted changes. Discard them (git reset --hard + git clean)?",
+            ),
+            show_delete_work_dir: false,
+            delete_work_dir: false,
+        }),
         _ => None,
     }
 }
@@ -161,7 +169,8 @@ pub fn build_modal_element(
         ),
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
-        | ModalState::PreflightPrompt { .. } => confirm_data.map(|data| {
+        | ModalState::PreflightPrompt { .. }
+        | ModalState::ConfirmIssueDirtyCopy { .. } => confirm_data.map(|data| {
             element! {
                 ConfirmModal(
                     title: data.title,

@@ -70,7 +70,8 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
         | ModalState::ConfirmKillAgent { .. }
-        | ModalState::PreflightPrompt { .. } => return InputMode::Confirm,
+        | ModalState::PreflightPrompt { .. }
+        | ModalState::ConfirmIssueDirtyCopy { .. } => return InputMode::Confirm,
         ModalState::None => {}
     }
 

@@ -26,6 +26,8 @@ mod prs_orchestration;
 mod gh_async;
 
 mod agent_runtime;
+mod issue_git_prep;
+mod issues_send;
 use agent_runtime::{
     clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, pid_on_success, set_agent_runtime_binding,
@@ -457,7 +459,7 @@ pub fn dispatch_app_message(
             issues_dispatch::load_more_comments(app_state, ctx);
         }
         AppMessage::Issues(IssuesMessage::AgentChooserConfirm) => {
-            dispatch_agent_chooser_confirm(app_state, ctx);
+            issues_send::dispatch_agent_chooser_confirm(app_state, ctx);
         }
         AppMessage::Issues(IssuesMessage::InlineSubmit) => {
             issues_mutation::handle_inline_submit(app_state, ctx);
@@ -792,181 +794,6 @@ fn refresh_issue_preview_if_changed(app_state: &mut AppStateHandle, prev_issue_i
     if new_issue_idx != prev_issue_idx {
         issues_dispatch::preview_issue_from_list(app_state);
     }
-}
-
-fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let send_info = issue_send_info(app_state);
-    apply_and_persist(app_state, ctx, AppEvent::AgentChooserConfirm);
-
-    let Some(send_info) = send_info else {
-        return;
-    };
-    if let Err(error) = write_issue_prompt(&send_info.work_dir, &send_info.payload) {
-        apply_send_to_agent_failed(app_state, error);
-        return;
-    }
-
-    let mut launch_sig = send_info.signature;
-    launch_sig.mode_flags.push("-i".to_owned());
-    launch_sig
-        .mode_flags
-        .push("Read and work on the GitHub issue described in .jefe/issue-prompt.md".to_owned());
-    if preflight_or_prompt(app_state, ctx, &send_info.agent_id, &launch_sig) {
-        launch_issue_agent(
-            app_state,
-            ctx,
-            send_info.agent_id,
-            send_info.work_dir,
-            launch_sig,
-        );
-    }
-}
-
-struct IssueSendInfo {
-    agent_id: AgentId,
-    work_dir: std::path::PathBuf,
-    signature: LaunchSignature,
-    payload: jefe::github::SendPayload,
-}
-
-fn issue_send_info(app_state: &AppStateHandle) -> Option<IssueSendInfo> {
-    let state = app_state.read();
-    let chooser = state.issues_state.agent_chooser.as_ref()?;
-    let detail = state.issues_state.issue_detail.as_ref()?;
-    let (agent_id, _) = chooser.agents.get(chooser.selected_index)?.clone();
-    let agent = state
-        .agents
-        .iter()
-        .find(|agent| agent.id == agent_id)?
-        .clone();
-    let repo = state.repository_by_id(&agent.repository_id)?;
-    let focused_comment = focused_issue_comment(&state, detail);
-    let work_dir = agent.work_dir.clone();
-    let signature = launch_signature_for_agent(&agent, repo);
-    let payload = jefe::github::GhClient::build_send_payload(
-        &repo.slug,
-        detail,
-        focused_comment.as_ref(),
-        &repo.issue_base_prompt,
-    );
-    drop(state);
-
-    Some(IssueSendInfo {
-        agent_id,
-        work_dir,
-        signature,
-        payload,
-    })
-}
-
-fn focused_issue_comment(
-    state: &AppState,
-    detail: &jefe::domain::IssueDetail,
-) -> Option<jefe::domain::IssueComment> {
-    match state.issues_state.detail_subfocus {
-        jefe::state::DetailSubfocus::Comment(idx) => detail.comments.get(idx).cloned(),
-        _ => None,
-    }
-}
-
-fn write_issue_prompt(
-    work_dir: &std::path::Path,
-    payload: &jefe::github::SendPayload,
-) -> Result<(), String> {
-    let prompt_dir = work_dir.join(".jefe");
-    std::fs::create_dir_all(&prompt_dir)
-        .map_err(|error| format!("Failed to create .jefe dir: {error}"))?;
-    let prompt_path = prompt_dir.join("issue-prompt.md");
-    let prompt_content = issues_dispatch::format_issue_prompt(payload);
-    std::fs::write(&prompt_path, &prompt_content)
-        .map_err(|error| format!("Failed to write issue prompt: {error}"))
-}
-
-fn launch_issue_agent(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    agent_id: AgentId,
-    work_dir: std::path::PathBuf,
-    launch_sig: LaunchSignature,
-) {
-    let launched = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
-    // Resolve the worker PID for the persisted binding's PID-liveness
-    // fallback, before taking the app-state write lock (lock-ordering
-    // constraint). Skipped on the failure path (no binding persisted).
-    let pid = pid_on_success(ctx, &agent_id, launched);
-    let mut state = app_state.write();
-    if launched {
-        persist_issue_agent_launch_success(&mut state, &agent_id, launch_sig, pid);
-    } else {
-        *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
-            error: "Failed to launch agent".to_string(),
-        });
-    }
-    let persisted = to_persisted_state(&state);
-    drop(state);
-    persist_state(ctx, &persisted);
-}
-
-fn spawn_and_attach_fresh_for_issue(
-    ctx: &SharedContext,
-    agent_id: &AgentId,
-    work_dir: &std::path::Path,
-    launch_sig: &LaunchSignature,
-) -> bool {
-    let Some(ctx_arc) = ctx else {
-        return false;
-    };
-    let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return false;
-    };
-    match ctx_guard
-        .runtime
-        .spawn_session_fresh(agent_id, work_dir, launch_sig)
-    {
-        Ok(()) => attach_issue_agent(&mut ctx_guard.runtime, agent_id),
-        Err(error) => {
-            warn!(agent_id = %agent_id.0, error = %error, "could not spawn agent for issue send");
-            false
-        }
-    }
-}
-
-fn attach_issue_agent(runtime: &mut jefe::runtime::TmuxRuntimeManager, agent_id: &AgentId) -> bool {
-    std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
-    match runtime.attach(agent_id) {
-        Ok(()) => true,
-        Err(error) => {
-            warn!(agent_id = %agent_id.0, error = %error, "could not attach agent after issue send");
-            let _ = runtime.mark_session_dead(agent_id);
-            false
-        }
-    }
-}
-
-fn persist_issue_agent_launch_success(
-    state: &mut AppState,
-    agent_id: &AgentId,
-    launch_sig: LaunchSignature,
-    pid: Option<u32>,
-) {
-    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
-        agent.status = jefe::domain::AgentStatus::Running;
-        let session_name = jefe::runtime::RuntimeSession::session_name_for(agent_id);
-        agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
-            session_name,
-            launch_signature: launch_sig,
-            attached: false,
-            last_seen: None,
-            pid,
-        });
-    }
-    clear_agent_runtime_attachment(state);
-    mark_agent_runtime_attached(state, agent_id, true);
-}
-
-fn apply_send_to_agent_failed(app_state: &mut AppStateHandle, error: String) {
-    let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed { error });
 }
 
 #[cfg(test)]

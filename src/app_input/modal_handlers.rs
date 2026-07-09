@@ -111,6 +111,22 @@ pub fn handle_mode_confirm_key(
     ctx: &SharedContext,
     key_event: &KeyEvent,
 ) {
+    // The dirty-copy confirm only accepts Enter (discard + proceed) or
+    // Esc/n (halt). It must NOT toggle the delete-work-dir checkbox used by
+    // the agent/repository delete confirms.
+    if matches!(
+        app_state.read().modal,
+        ModalState::ConfirmIssueDirtyCopy { .. }
+    ) {
+        match key_event.code {
+            KeyCode::Enter => handle_confirm_enter(app_state, ctx),
+            KeyCode::Esc | KeyCode::Char('n' | 'N') => {
+                close_modal_and_persist(app_state, ctx);
+            }
+            _ => {}
+        }
+        return;
+    }
     match key_event.code {
         KeyCode::Esc => close_modal_and_persist(app_state, ctx),
         KeyCode::Enter => handle_confirm_enter(app_state, ctx),
@@ -140,6 +156,13 @@ fn handle_confirm_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {
             ..
         } => super::preflight::handle_preflight_prompt_enter(
             app_state, ctx, agent_id, signature, issue,
+        ),
+        ModalState::ConfirmIssueDirtyCopy {
+            agent_id,
+            work_dir,
+            signature,
+        } => super::issues_send::confirm_issue_dirty_copy_enter(
+            app_state, ctx, agent_id, work_dir, signature,
         ),
         _ => {}
     }
