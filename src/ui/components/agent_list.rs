@@ -25,7 +25,7 @@ use crate::ui::components::selectable_list::{
 /// Groups these related fields so [`agent_list_props`] stays under the
 /// clippy `too_many_arguments` threshold, mirroring the `IssueListWindow` /
 /// `PrListWindow` pattern.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AgentListSelection {
     /// Index of the keyboard-selected agent row.
     pub selected: usize,

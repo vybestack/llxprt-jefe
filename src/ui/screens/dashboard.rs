@@ -90,14 +90,15 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
             })
             .collect()
     });
-    let agents = state.map_or_else(Vec::new, |s| {
-        s.selected_repository()
-            .map_or_else(Vec::new, |repo| s.visible_agents_for_repository(&repo.id))
+    // Resolve the selected repository once — reused for agents, git info, and
+    // the preview pane (avoids redundant `selected_repository()` calls).
+    let selected_repo = state.and_then(|s| s.selected_repository());
+    let agents = selected_repo.map_or_else(Vec::new, |repo| {
+        state.map_or_else(Vec::new, |s| s.visible_agents_for_repository(&repo.id))
     });
 
     // Resolve git display info (origin shortform + branch) for each visible
     // agent, parallel to `agents` by index (issue #170).
-    let selected_repo = state.and_then(|s| s.selected_repository());
     let agent_git_infos: Vec<crate::git_info::GitRepoInfo> =
         selected_repo.map_or_else(Vec::new, |repo| {
             agents
@@ -114,16 +115,10 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
 
     let selected_agent_data = state.and_then(|s| s.selected_agent().cloned());
 
-    // Git info for the preview pane (selected agent).
-    let selected_agent_git_info = selected_repo.as_ref().and_then(|repo| {
-        selected_agent_data.as_ref().map(|agent| {
-            crate::git_info::GitRepoInfo::resolve(
-                &repo.github_repo,
-                repo.remote.enabled,
-                &agent.work_dir,
-            )
-        })
-    });
+    // Git info for the preview pane: reuse the already-resolved entry from
+    // `agent_git_infos` when the selected agent is visible (avoids a redundant
+    // `GitRepoInfo::resolve` call on every render frame).
+    let selected_agent_git_info = agent_git_infos.get(selected_agent_idx).cloned();
 
     // Whether the selected agent is Running with a live session. Threading this
     // to TerminalView lets the empty-state copy distinguish a healthy live

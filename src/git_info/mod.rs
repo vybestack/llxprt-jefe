@@ -1,9 +1,8 @@
 //! Git repository info for display: origin shortform and current branch.
 //!
-//! Provides cached, side-effect-free lookups of the git branch and origin
-//! shortform for an agent's work directory. The branch is dynamic (an agent may
-//! `git checkout` during its session), so it is probed live but cached with a
-//! time-based TTL to avoid spawning a git process on every render frame.
+//! Provides cached lookups of the git branch and origin shortform for an
+//! agent's work directory. Both are probed live but cached with a time-based
+//! TTL to avoid spawning git processes on every render frame.
 //!
 //! For remote repositories (SSH-backed), branch probing is skipped because it
 //! would require an SSH round-trip — only the origin shortform (from the
@@ -15,24 +14,32 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// Cache entry: branch string + the instant it was probed.
-struct CachedBranch {
+/// Cached git probe result for a single work directory.
+struct CacheEntry {
     branch: Option<String>,
+    origin: Option<String>,
     probed_at: Instant,
 }
 
-/// Thread-safe cache mapping work_dir → cached branch result.
+/// Thread-safe cache mapping work_dir → cached probe results.
 ///
 /// The cache is process-global so all render passes share the same TTL window.
-/// Entries expire after [`GIT_CACHE_TTL`] and are re-probed lazily on the next
-/// lookup.
-static BRANCH_CACHE: Mutex<Option<HashMap<PathBuf, CachedBranch>>> = Mutex::new(None);
+/// Entries expire after their respective TTL and are re-probed lazily on the
+/// next lookup. Stale entries are swept opportunistically on insertion to
+/// prevent unbounded growth.
+static GIT_CACHE: Mutex<Option<HashMap<PathBuf, CacheEntry>>> = Mutex::new(None);
 
 /// How long a cached branch result remains fresh before re-probing.
 ///
 /// Agents don't switch branches frequently, but they can (`git checkout`),
 /// so this is short enough to feel live without spawning git every frame.
-const GIT_CACHE_TTL: Duration = Duration::from_secs(5);
+const BRANCH_TTL: Duration = Duration::from_secs(5);
+
+/// How long a cached origin shortform remains fresh before re-probing.
+///
+/// The origin URL changes very rarely (essentially never during a session),
+/// so this is much longer than the branch TTL.
+const ORIGIN_TTL: Duration = Duration::from_secs(300);
 
 /// Resolved git display info for an agent's work directory.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -58,7 +65,7 @@ impl GitRepoInfo {
     #[must_use]
     pub fn resolve(github_repo: &str, is_remote: bool, work_dir: &Path) -> Self {
         let origin_shortform = if github_repo.trim().is_empty() {
-            detect_origin_shortform(work_dir)
+            cached_origin(work_dir)
         } else {
             Some(github_repo.trim().to_owned())
         };
@@ -93,17 +100,17 @@ impl GitRepoInfo {
 
 /// Get the cached branch for a work directory, re-probing if stale.
 ///
-/// Uses a global process cache with [`GIT_CACHE_TTL`]. If the git command
+/// Uses the global process cache with [`BRANCH_TTL`]. If the git command
 /// fails (non-git dir, git not installed), the result is cached as `None`
 /// to avoid repeated failed probes.
 fn cached_branch(work_dir: &Path) -> Option<String> {
     let now = Instant::now();
 
     // Fast path: check the cache under the lock.
-    if let Ok(mut guard) = BRANCH_CACHE.lock() {
+    if let Ok(mut guard) = GIT_CACHE.lock() {
         let cache = guard.get_or_insert_with(HashMap::new);
         if let Some(entry) = cache.get(work_dir)
-            && now.duration_since(entry.probed_at) < GIT_CACHE_TTL
+            && now.duration_since(entry.probed_at) < BRANCH_TTL
         {
             return entry.branch.clone();
         }
@@ -112,19 +119,77 @@ fn cached_branch(work_dir: &Path) -> Option<String> {
     // Slow path: probe git (outside the lock to avoid blocking other threads).
     let branch = probe_branch(work_dir);
 
-    // Store the result back in the cache.
-    if let Ok(mut guard) = BRANCH_CACHE.lock() {
+    // Store the result back in the cache, preserving the existing origin if
+    // it is still fresh.
+    if let Ok(mut guard) = GIT_CACHE.lock() {
         let cache = guard.get_or_insert_with(HashMap::new);
-        cache.insert(
-            work_dir.to_path_buf(),
-            CachedBranch {
-                branch: branch.clone(),
-                probed_at: now,
-            },
-        );
+        let entry = cache.entry(work_dir.to_path_buf()).or_insert(CacheEntry {
+            branch: None,
+            origin: None,
+            probed_at: now,
+        });
+        entry.branch.clone_from(&branch);
+        entry.probed_at = now;
+        sweep_stale(cache, now);
     }
 
     branch
+}
+
+/// Get the cached origin shortform for a work directory, re-probing if stale.
+///
+/// Uses the global process cache with [`ORIGIN_TTL`]. Since the origin URL
+/// rarely changes, the TTL is much longer than the branch TTL.
+fn cached_origin(work_dir: &Path) -> Option<String> {
+    let now = Instant::now();
+
+    // Fast path: check the cache under the lock.
+    if let Ok(mut guard) = GIT_CACHE.lock() {
+        let cache = guard.get_or_insert_with(HashMap::new);
+        if let Some(entry) = cache.get(work_dir)
+            && entry.origin.is_some()
+            && now.duration_since(entry.probed_at) < ORIGIN_TTL
+        {
+            return entry.origin.clone();
+        }
+    }
+
+    // Slow path: probe git (outside the lock to avoid blocking other threads).
+    let origin = detect_origin_shortform(work_dir);
+
+    // Store the result back in the cache, preserving the existing branch if
+    // it is still fresh.
+    if let Ok(mut guard) = GIT_CACHE.lock() {
+        let cache = guard.get_or_insert_with(HashMap::new);
+        let entry = cache.entry(work_dir.to_path_buf()).or_insert(CacheEntry {
+            branch: None,
+            origin: None,
+            probed_at: now,
+        });
+        // Only update origin and probed_at if this is a fresh probe or the
+        // origin was previously None.
+        entry.origin.clone_from(&origin);
+        // Don't clobber probed_at if branch was probed more recently.
+        if entry.branch.is_none() {
+            entry.probed_at = now;
+        }
+        sweep_stale(cache, now);
+    }
+
+    origin
+}
+
+/// Remove entries that are stale beyond a generous threshold (both branch and
+/// origin TTLs have elapsed). Called opportunistically on cache writes to
+/// prevent unbounded growth in long-running sessions.
+fn sweep_stale(cache: &mut HashMap<PathBuf, CacheEntry>, now: Instant) {
+    // Sweep at most every N insertions to amortize cost. Using the cache size
+    // as a heuristic: if it's small, no need to sweep.
+    if cache.len() < 32 {
+        return;
+    }
+    let max_age = ORIGIN_TTL * 2;
+    cache.retain(|_, entry| now.duration_since(entry.probed_at) < max_age);
 }
 
 /// Probe the current git branch for a work directory.
