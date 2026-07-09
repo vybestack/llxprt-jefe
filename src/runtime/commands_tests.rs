@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::domain::SandboxEngine;
+use std::time::Duration;
 
 fn base_signature() -> LaunchSignature {
     LaunchSignature {
@@ -18,19 +19,30 @@ fn base_signature() -> LaunchSignature {
     }
 }
 
+/// The local launch plan omits the `LLXPRT_DEBUG` env assignment when the
+/// signature's `llxprt_debug` is empty, and that absence propagates through
+/// [`local_pane_command_args`] so the llxprt child never sees a stale debug
+/// flag.
+///
+/// Drives the real production path (`local_launch_plan` →
+/// `local_pane_command_args`) rather than re-deriving the env vector inline,
+/// so a regression in the env-building logic (a new condition, a renamed key)
+/// is caught here (#173).
 #[test]
 fn llxprt_debug_env_is_omitted_when_empty() {
     let signature = base_signature();
-    let mut launch_env: Vec<(String, String)> = Vec::new();
+    let plan = local_launch_plan(&signature);
+    assert!(
+        !plan.env.iter().any(|(key, _)| key == "LLXPRT_DEBUG"),
+        "empty llxprt_debug must not produce an LLXPRT_DEBUG env entry: {:?}",
+        plan.env
+    );
 
-    if signature.sandbox_enabled {
-        launch_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
-    }
-    if !signature.llxprt_debug.is_empty() {
-        launch_env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
-    }
-
-    assert!(!launch_env.iter().any(|(key, _)| key == "LLXPRT_DEBUG"));
+    let args = local_pane_command_args(&plan);
+    assert!(
+        !args.iter().any(|arg| arg.starts_with("LLXPRT_DEBUG=")),
+        "local pane command must not carry an LLXPRT_DEBUG= arg when debug is empty: {args:?}"
+    );
 }
 
 #[test]
@@ -50,40 +62,67 @@ fn remote_tmux_command_wraps_run_as_user_once() {
     );
 }
 
+/// The remote-command timeout branch produces a `RuntimeError::RemoteExecutionFailed`
+/// whose message names the context and the timeout. Drives the real
+/// [`run_command_capture_with_timeout`] branch with a sub-second injectable
+/// deadline against a portable `sleep` probe, so the test is fast and hermetic
+/// (no `python3` dependency) (#173).
 #[test]
 fn remote_execution_timeout_returns_clear_error() {
-    let mut cmd = Command::new("python3");
-    cmd.args(["-c", "import time; time.sleep(30)"]);
+    // `sleep` is specified by POSIX and present on every CI platform jefe
+    // targets; a 2s sleep with a 1s deadline trips the timeout branch in well
+    // under the 20s production default, so this test runs in ~1s.
+    let mut cmd = Command::new("sleep");
+    cmd.arg("2");
 
     let Err(RuntimeError::RemoteExecutionFailed(message)) =
-        run_command_capture(cmd, "timeout probe")
+        run_command_capture_with_timeout(cmd, Duration::from_secs(1), "timeout probe")
     else {
         panic!("expected remote timeout failure");
     };
 
-    assert!(message.contains("timed out"));
-    assert!(message.contains("timeout probe"));
+    assert!(
+        message.contains("timed out"),
+        "message should name the timeout: {message}"
+    );
+    assert!(
+        message.contains("timeout probe"),
+        "message should name the context: {message}"
+    );
+    assert!(
+        message.contains("after 1s"),
+        "message should report the injected deadline: {message}"
+    );
 }
 
+/// A non-empty `llxprt_debug` signature produces an `LLXPRT_DEBUG=<value>`
+/// env entry in the launch plan, and that assignment flows through
+/// [`local_pane_command_args`] verbatim (single argv entry, no extra quoting),
+/// so the llxprt child inherits the intended debug level.
+///
+/// Drives the real production path (`local_launch_plan` →
+/// `local_pane_command_args`) instead of re-deriving the env vector inline
+/// (#173).
 #[test]
 fn llxprt_debug_env_is_included_when_non_empty() {
     let mut signature = base_signature();
     signature.llxprt_debug = "trace=1".to_owned();
 
-    let mut launch_env: Vec<(String, String)> = Vec::new();
-    if signature.sandbox_enabled {
-        launch_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
-    }
-    if !signature.llxprt_debug.is_empty() {
-        launch_env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
-    }
-
+    let plan = local_launch_plan(&signature);
     assert_eq!(
-        launch_env
-            .into_iter()
+        plan.env
+            .iter()
             .find(|(key, _)| key == "LLXPRT_DEBUG")
-            .map(|(_, value)| value),
-        Some("trace=1".to_owned())
+            .map(|(_, value)| value.clone()),
+        Some("trace=1".to_owned()),
+        "non-empty llxprt_debug must produce an LLXPRT_DEBUG env entry: {:?}",
+        plan.env
+    );
+
+    let args = local_pane_command_args(&plan);
+    assert!(
+        args.iter().any(|arg| arg == "LLXPRT_DEBUG=trace=1"),
+        "local pane command must carry the LLXPRT_DEBUG=trace=1 argv entry verbatim: {args:?}"
     );
 }
 
@@ -201,18 +240,39 @@ fn remote_launch_command_scrubs_tmux_env_from_pane() {
     );
 }
 
+/// `SANDBOX_FLAGS` must reach the local pane command as a single raw
+/// `SANDBOX_FLAGS=--cpus=2 --memory=12288m --pids-limit=256` argv entry (no
+/// shell quoting), because tmux passes each argv element to `sh -c` as one
+/// token — shell-quoting the value would embed literal quote chars in the env
+/// var the agent child sees.
+///
+/// Drives the real production path (`local_launch_plan` →
+/// `local_pane_command_args`) with `sandbox_enabled: true` and asserts the raw
+/// argv entry appears, rather than re-deriving `format!` output (#173).
 #[test]
 fn sandbox_flags_env_value_is_raw_for_tmux_argv() {
-    let key = "SANDBOX_FLAGS";
-    let value = "--cpus=2 --memory=12288m --pids-limit=256";
-    let arg = format!("{key}={value}");
-    // Rust's Command::arg() passes this as a single argv entry to tmux.
-    // tmux escapes each argument when constructing its sh -c command, so
-    // spaces survive without extra quoting.  Adding shell_escape_single()
-    // would embed literal quote characters in the env var value.
+    let mut signature = base_signature();
+    signature.sandbox_enabled = true;
+    // Use the exact default flags the issue calls out so the assertion locks
+    // the real value, not a hand-built literal.
+    signature.sandbox_flags = "--cpus=2 --memory=12288m --pids-limit=256".to_owned();
+
+    let plan = local_launch_plan(&signature);
     assert_eq!(
-        arg,
-        "SANDBOX_FLAGS=--cpus=2 --memory=12288m --pids-limit=256"
+        plan.env
+            .iter()
+            .find(|(key, _)| key == "SANDBOX_FLAGS")
+            .map(|(_, value)| value.clone()),
+        Some("--cpus=2 --memory=12288m --pids-limit=256".to_owned()),
+        "sandbox-enabled plan must carry the raw SANDBOX_FLAGS value: {:?}",
+        plan.env
+    );
+
+    let args = local_pane_command_args(&plan);
+    assert!(
+        args.iter()
+            .any(|arg| arg == "SANDBOX_FLAGS=--cpus=2 --memory=12288m --pids-limit=256"),
+        "local pane command must carry the raw SANDBOX_FLAGS=... argv entry (no shell quoting): {args:?}"
     );
 }
 

@@ -125,9 +125,50 @@ fn new_session_command_shell_escapes_argv_parts() {
     let args = new_session_args(&request);
     let socket = harness_socket_name();
     let expected = format!(
-        "tmux -f /dev/null -L {socket} set-option -pt \"$TMUX_PANE\" remain-on-exit on; tmux -f /dev/null -L {socket} set-option -wt \"$TMUX_PANE\" history-limit 1000; exec '/bin/echo' 'a b' 'quote'\\''it'"
+        "unset TMUX TMUX_PANE TMUX_TMPDIR; tmux -f /dev/null -L {socket} set-option -pt \"$TMUX_PANE\" remain-on-exit on; tmux -f /dev/null -L {socket} set-option -wt \"$TMUX_PANE\" history-limit 1000; exec '/bin/echo' 'a b' 'quote'\\''it'"
     );
     assert_eq!(args.last().map(String::as_str), Some(expected.as_str()));
+}
+
+/// Inner pane commands must scrub the tmux client env (`TMUX`, `TMUX_PANE`,
+/// `TMUX_TMPDIR`) so the inner `tmux -L {socket}` calls resolve the harness
+/// socket in the SAME directory as the outer `tmux_command()`. An inherited
+/// `$TMUX_TMPDIR` (the #171 scenario) would otherwise redirect the inner calls
+/// at the outer server's socket directory, leaving
+/// `remain-on-exit`/`history-limit` unconfigured on the harness session (#173).
+///
+/// This is a pure-string assertion over the builder output (no tmux spawn), so
+/// the regression locks the wrapper string shape: the `unset` prefix MUST
+/// precede the first `tmux -f /dev/null -L {socket}` segment.
+#[test]
+fn tmux_pane_wrapper_command_scrubs_tmux_env_before_inner_calls() {
+    let request = TmuxStartRequest::command(
+        "env-scrub",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    let unset_pos = wrapper
+        .find("unset TMUX TMUX_PANE TMUX_TMPDIR;")
+        .unwrap_or_else(|| panic!("unset prefix missing from wrapper: {wrapper}"));
+    let tmux_pos = wrapper
+        .find("tmux -f /dev/null -L")
+        .unwrap_or_else(|| panic!("inner tmux prefix missing from wrapper: {wrapper}"));
+
+    assert!(
+        unset_pos < tmux_pos,
+        "unset scrub must precede the inner tmux calls; got wrapper={wrapper}"
+    );
+    // The exec'd command must survive the scrub verbatim.
+    assert!(
+        wrapper.ends_with("exec '/bin/true'"),
+        "exec'd command must survive verbatim after the unset/inner calls; got {wrapper}"
+    );
 }
 
 /// Real jefe requests always include an isolated `--config` directory.
@@ -397,6 +438,8 @@ fn harness_socket_name_is_per_process_and_stable() {
 
 /// Every formatted harness tmux command must carry the dedicated `-L <socket>`
 /// flag so harness calls can never land on an inherited/outer server (#171).
+/// The shared prefix comes from [`harness_tmux_prefix_str`] so the `Command`
+/// builder and shell-string builders cannot drift (#173).
 #[test]
 fn format_command_carries_dedicated_socket_flag() {
     let socket = harness_socket_name();
@@ -408,6 +451,18 @@ fn format_command_carries_dedicated_socket_flag() {
         with_args,
         format!("tmux -f /dev/null -L {socket} has-session -t x")
     );
+}
+
+/// The shared `Command`-builder prefix and shell-string prefix must agree on
+/// the harness socket name so inline `tmux -L {socket}` calls and the spawned
+/// `Command` resolve the same server (#173 DRY guard).
+#[test]
+fn harness_tmux_prefix_args_and_str_resolve_same_socket() {
+    let args = harness_tmux_prefix_args();
+    assert_eq!(args, ["-f", "/dev/null", "-L", harness_socket_name()]);
+    let s = harness_tmux_prefix_str();
+    let expected = format!("tmux -f /dev/null -L {}", harness_socket_name());
+    assert_eq!(s, expected);
 }
 
 /// A harness session must run on the harness's dedicated `-L` socket, not on
@@ -461,13 +516,28 @@ fn harness_session_runs_on_dedicated_socket() {
         .env_remove("TMUX_PANE")
         .env_remove("TMUX_TMPDIR")
         .output();
-    if let Ok(out) = default_listing {
-        let listing = String::from_utf8_lossy(&out.stdout).to_string();
-        assert!(
-            !listing
-                .lines()
-                .any(|line| line.starts_with(&format!("{}:", guard.session.name))),
-            "harness session leaked onto the default/shared tmux server (#171); listing:\n{listing}"
-        );
-    }
+    let out = match default_listing {
+        Ok(out) => out,
+        Err(err) => {
+            // tmux was confirmed available above (`driver.is_available()`), so a
+            // spawn failure here is a genuine environment problem — NOT a pass.
+            // Surfacing it prevents the #171 isolation assertion from being
+            // skipped vacuously (#173).
+            panic!(
+                "tmux list-sessions probe failed to spawn even though tmux is available (#171 isolation assertion skipped): {err}"
+            );
+        }
+    };
+    let listing = String::from_utf8_lossy(&out.stdout).to_string();
+    // Two pass cases:
+    //  (a) no default server running → empty stdout (strongest pass).
+    //  (b) a default server is running but our harness session is not listed.
+    // A non-zero exit with empty stdout is the legitimate "no default server"
+    // case; only a non-empty listing containing our session name is a fail.
+    assert!(
+        !listing
+            .lines()
+            .any(|line| line.starts_with(&format!("{}:", guard.session.name))),
+        "harness session leaked onto the default/shared tmux server (#171); listing:\n{listing}"
+    );
 }

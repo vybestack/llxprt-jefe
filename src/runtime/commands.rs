@@ -176,7 +176,18 @@ fn remote_effective_user(remote: &crate::domain::RemoteRepositorySettings) -> St
     }
 }
 
-fn run_command_capture(mut cmd: Command, error_context: &str) -> Result<Output, RuntimeError> {
+fn run_command_capture(cmd: Command, error_context: &str) -> Result<Output, RuntimeError> {
+    run_command_capture_with_timeout(cmd, REMOTE_SSH_COMMAND_TIMEOUT, error_context)
+}
+
+/// [`run_command_capture`] with an injectable deadline so tests can drive the
+/// timeout branch with a sub-second value instead of the 20s production
+/// default (#173).
+fn run_command_capture_with_timeout(
+    mut cmd: Command,
+    timeout: Duration,
+    error_context: &str,
+) -> Result<Output, RuntimeError> {
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
@@ -184,7 +195,7 @@ fn run_command_capture(mut cmd: Command, error_context: &str) -> Result<Output, 
         .spawn()
         .map_err(|e| RuntimeError::RemoteExecutionFailed(format!("{error_context}: {e}")))?;
 
-    let deadline = Instant::now() + REMOTE_SSH_COMMAND_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     loop {
         match child.try_wait() {
             Ok(Some(_)) => {
@@ -198,7 +209,7 @@ fn run_command_capture(mut cmd: Command, error_context: &str) -> Result<Output, 
                     let _ = child.wait();
                     return Err(RuntimeError::RemoteExecutionFailed(format!(
                         "{error_context}: timed out after {}s",
-                        REMOTE_SSH_COMMAND_TIMEOUT.as_secs()
+                        timeout.as_secs()
                     )));
                 }
                 std::thread::sleep(Duration::from_millis(50));
