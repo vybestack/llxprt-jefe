@@ -106,13 +106,14 @@ pub fn issue_filter_fields(
 /// Action-hint segments for the Issues filter bar (matches the pre-refactor
 /// `FilterControls` action-hints row exactly).
 ///
-/// Returns `&'static str` slices to avoid per-render heap allocation.
+/// Returns a `&'static [&'static str]` slice to avoid per-render heap
+/// allocation — the hints are compile-time constants.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P14
 /// @requirement REQ-ISS-008
 #[must_use]
-pub fn issue_filter_action_hints() -> Vec<&'static str> {
-    vec![
+pub fn issue_filter_action_hints() -> &'static [&'static str] {
+    &[
         "Tab next  ",
         "←/→ choices  ",
         "Enter apply  ",

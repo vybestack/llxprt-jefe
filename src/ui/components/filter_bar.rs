@@ -62,7 +62,7 @@ pub struct FilterBarProps {
     /// Number of fields per row (both domains use 4).
     pub fields_per_row: usize,
     /// Action hint segments rendered in the final row.
-    pub action_hints: Vec<&'static str>,
+    pub action_hints: &'static [&'static str],
     /// Theme colors.
     pub colors: ThemeColors,
 }
@@ -77,7 +77,7 @@ impl Default for FilterBarProps {
             row_prefix: "",
             continuation_prefix: "",
             fields_per_row: 1,
-            action_hints: Vec::new(),
+            action_hints: &[],
             colors: ThemeColors::default(),
         }
     }
@@ -187,7 +187,7 @@ fn outer_children(props: &FilterBarProps, rc: ResolvedColors) -> Vec<AnyElement<
         };
         children.push(field_row_box(prefix, row_fields, rc));
     }
-    children.push(action_hints_row(&props.action_hints, rc));
+    children.push(action_hints_row(props.action_hints, rc));
     children
 }
 

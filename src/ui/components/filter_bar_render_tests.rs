@@ -82,7 +82,7 @@ fn base_props(row_prefix: &'static str, continuation_prefix: &'static str) -> Fi
         row_prefix,
         continuation_prefix,
         fields_per_row: 4,
-        action_hints: vec!["Tab next  ", "Esc cancel"],
+        action_hints: &["Tab next  ", "Esc cancel"],
         colors: ThemeColors::default(),
     }
 }
@@ -165,7 +165,7 @@ fn filter_bar_renders_continuation_prefix_on_second_row() {
         row_prefix: "Filter: ",
         continuation_prefix: "       ",
         fields_per_row: 4,
-        action_hints: vec![],
+        action_hints: &[],
         colors: ThemeColors::default(),
     };
     let ansi = render_ansi(props, 80, 6);
@@ -275,7 +275,7 @@ fn filter_bar_issues_continuation_prefix_is_eight_spaces() {
         row_prefix: "Filter: ",
         continuation_prefix: "        ",
         fields_per_row: 4,
-        action_hints: vec![],
+        action_hints: &[],
         colors: ThemeColors::default(),
     };
     let plain = render_plain(props, 80, 6);
@@ -310,7 +310,7 @@ fn filter_bar_pr_continuation_prefix_is_seven_spaces() {
         row_prefix: "Filter: ",
         continuation_prefix: "       ",
         fields_per_row: 4,
-        action_hints: vec![],
+        action_hints: &[],
         colors: ThemeColors::default(),
     };
     let plain = render_plain(props, 80, 6);
@@ -348,7 +348,7 @@ fn forwarding_test_props() -> FilterBarProps {
         row_prefix: "ROWMARKER ",
         continuation_prefix: "CONTMARKER ",
         fields_per_row: 1,
-        action_hints: vec!["HINTMARKER"],
+        action_hints: &["HINTMARKER"],
         colors: ThemeColors::default(),
     }
 }
@@ -384,7 +384,7 @@ fn filter_bar_element_forwards_all_props_fields() {
         row_prefix: "",
         continuation_prefix: "",
         fields_per_row: 4,
-        action_hints: vec![],
+        action_hints: &[],
         colors: ThemeColors::default(),
     };
     let ansi = render_ansi(highlight_props, 60, 4);

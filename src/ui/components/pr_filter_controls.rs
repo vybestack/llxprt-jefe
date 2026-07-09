@@ -156,13 +156,14 @@ pub fn pr_filter_field_views(
 /// Action-hint segments for the PR filter bar (matches the pre-refactor
 /// `PrFilterControls` action-hints row exactly).
 ///
-/// Returns `&'static str` slices to avoid per-render heap allocation.
+/// Returns a `&'static [&'static str]` slice to avoid per-render heap
+/// allocation — the hints are compile-time constants.
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-008
 #[must_use]
-pub fn pr_filter_action_hints() -> Vec<&'static str> {
-    vec![
+pub fn pr_filter_action_hints() -> &'static [&'static str] {
+    &[
         "Tab next  ",
         "Space cycle  ",
         "Enter apply  ",
