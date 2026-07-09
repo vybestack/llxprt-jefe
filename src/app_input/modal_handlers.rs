@@ -277,65 +277,71 @@ pub fn handle_mode_theme_picker_key(
             apply_and_persist(app_state, ctx, AppEvent::ThemePickerNavigateDown);
         }
         KeyCode::Enter => {
-            // Read the selected slug from state.
-            let selected_slug = {
-                let state = app_state.read();
-                match &state.modal {
-                    ModalState::ThemePicker {
-                        available_themes,
-                        selected_index,
-                        ..
-                    } => available_themes
-                        .get(*selected_index)
-                        .map(|(slug, _)| slug.clone()),
-                    _ => None,
-                }
-            };
-
-            // Apply the theme to the ThemeManager and read back the active slug
-            // + settings, all under a single short lock.
-            if let Some(slug) = selected_slug
-                && let Some(ctx_arc) = &ctx
-            {
-                let save_action = {
-                    let Ok(mut ctx_guard) = ctx_arc.lock() else {
-                        return;
-                    };
-                    if let Err(e) = ctx_guard.theme_manager.set_active(&slug) {
-                        warn!(error = %e, theme = %slug, "theme picker: invalid selection, fell back to Green Screen");
-                    }
-                    let active_slug = ctx_guard.theme_manager.active_theme().slug.clone();
-                    let path = ctx_guard.persistence.settings_path();
-                    match ctx_guard.persistence.load_settings() {
-                        Ok(mut settings) => {
-                            settings.theme = active_slug;
-                            Some((settings, path))
-                        }
-                        Err(e) => {
-                            // Don't save — writing defaults would destroy existing settings.
-                            warn!(error = %e, "could not load settings; skipping theme persistence");
-                            None
-                        }
-                    }
-                };
-                // File I/O outside the mutex lock.
-                if let Some((settings, path)) = save_action
-                    && let Err(e) = jefe::persistence::FilePersistenceManager::save_settings_to(
-                        &settings, &path,
-                    )
-                {
-                    warn!(error = %e, "could not persist theme selection");
-                }
-            }
-
-            // Close the picker.
-            apply_and_persist(app_state, ctx, AppEvent::ThemePickerConfirm);
+            apply_theme_picker_selection(app_state, ctx);
         }
         KeyCode::Esc => {
             apply_and_persist(app_state, ctx, AppEvent::CloseThemePicker);
         }
         _ => {}
     }
+}
+
+/// Apply the selected theme from the picker, persist to settings.toml, then close.
+fn apply_theme_picker_selection(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let selected_slug = {
+        let state = app_state.read();
+        match &state.modal {
+            ModalState::ThemePicker {
+                available_themes,
+                selected_index,
+                ..
+            } => available_themes
+                .get(*selected_index)
+                .map(|(slug, _)| slug.clone()),
+            _ => None,
+        }
+    };
+
+    // Apply the theme to the ThemeManager and read back the active slug
+    // + settings, all under a single short lock.
+    if let Some(slug) = selected_slug
+        && let Some(ctx_arc) = &ctx
+    {
+        let save_action = match ctx_arc.lock() {
+            Ok(mut ctx_guard) => {
+                if let Err(e) = ctx_guard.theme_manager.set_active(&slug) {
+                    warn!(error = %e, theme = %slug, "theme picker: invalid selection, fell back to Green Screen");
+                }
+                let active_slug = ctx_guard.theme_manager.active_theme().slug.clone();
+                let path = ctx_guard.persistence.settings_path();
+                match ctx_guard.persistence.load_settings() {
+                    Ok(mut settings) => {
+                        settings.theme = active_slug;
+                        Some((settings, path))
+                    }
+                    Err(e) => {
+                        // Don't save — writing defaults would destroy existing settings.
+                        warn!(error = %e, "could not load settings; skipping theme persistence");
+                        None
+                    }
+                }
+            }
+            Err(_) => {
+                // Lock failed — skip persistence but still close the picker below.
+                None
+            }
+        };
+        // File I/O outside the mutex lock.
+        if let Some((settings, path)) = save_action
+            && let Err(e) =
+                jefe::persistence::FilePersistenceManager::save_settings_to(&settings, &path)
+        {
+            warn!(error = %e, "could not persist theme selection");
+        }
+    }
+
+    // Close the picker regardless of persistence outcome.
+    apply_and_persist(app_state, ctx, AppEvent::ThemePickerConfirm);
 }
 
 fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
