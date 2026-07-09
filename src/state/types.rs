@@ -544,7 +544,9 @@ pub enum AppEvent {
     },
     ThemePickerNavigateUp,
     ThemePickerNavigateDown,
-    /// Confirm the current theme-picker selection. Payload: the selected slug.
+    /// Confirm the current theme-picker selection.
+    /// The slug is derived from the modal's `selected_index` at dispatch time
+    /// (see `modal_handlers::apply_theme_picker_selection`).
     ThemePickerConfirm,
     CloseThemePicker,
 
