@@ -1,19 +1,24 @@
-//! Unified PR detail + reviews + checks + comments view.
-//! @plan PLAN-20260624-PR-MODE.P12
-//! @requirement REQ-PR-009
+//! PR detail pane projection.
+//!
+//! The pure header projection ([`PrDetailHeaderView`] /
+//! [`pr_detail_header_view`]) is shared with the selection content provider.
+//! The full-pane projection ([`pr_detail_props`]) computes all layout math +
+//! semantic colors and builds a [`DetailPaneProps`] that the generic
+//! [`DetailPane`] renders via [`detail_pane_element`]. This module stays
+//! iocraft-free (pure-views pattern): it emits semantic [`DetailHeaderColor`]
+//! roles, never concrete `Color`.
 
-use iocraft::prelude::*;
-
-use crate::domain::PullRequestDetail;
+use crate::domain::{PrState, PullRequestDetail};
 use crate::layout::PR_DETAIL_HEADER_ROWS as HEADER_ROWS;
 use crate::pr_detail_content::{build_pr_detail_content, pr_state_tag};
 use crate::selection::{SelectablePane, TextSelection};
-use crate::state::{ComposerTarget, InlineState, PrDetailSubfocus};
-use crate::theme::{ResolvedColors, ThemeColors};
+use crate::state::{InlineState, PrDetailSubfocus};
+use crate::theme::ThemeColors;
 
-use super::issue_detail::header_row;
-use super::scrollable_text::ScrollableText;
-use super::text_box::TextBox;
+use super::detail_pane::{
+    DetailComposerProps, DetailHeaderColor, DetailHeaderRow, DetailPaneProps,
+    composer_from_inline_state,
+};
 
 /// Pure fallback term-rows constant used when no viewport height is supplied
 /// by the screen (the component never reads the terminal itself). Mirrors the
@@ -21,8 +26,7 @@ use super::text_box::TextBox;
 const DEFAULT_PR_DETAIL_TERM_ROWS: usize = 40;
 
 /// Projected PR detail header exactly as the component renders it (the four
-/// fixed metadata rows). The `#[component]` delegates to this so tests assert
-/// the SAME header the component renders (REQ-PR-009 / REQ-PR-012).
+/// fixed metadata rows). Tests assert the SAME header the renderer renders.
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-009
@@ -46,6 +50,7 @@ pub struct PrDetailHeaderView {
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-012
 /// @pseudocode component-001 lines 1-12
+#[must_use]
 pub fn pr_detail_header_view(detail: &PullRequestDetail) -> PrDetailHeaderView {
     let state_tag = pr_state_tag(detail.state);
     let draft_marker = if detail.is_draft { " [DRAFT]" } else { "" };
@@ -74,15 +79,16 @@ pub fn pr_detail_header_view(detail: &PullRequestDetail) -> PrDetailHeaderView {
     }
 }
 
-/// Props for the PR detail view.
+/// Inputs the PRs screen passes to [`pr_detail_props`], bundled to stay under
+/// the clippy::too_many-arguments threshold (max 6).
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
 /// @pseudocode component-001 lines 1-12
-#[derive(Default, Props)]
-pub struct PrDetailViewProps {
+#[derive(Clone)]
+pub struct PrDetailProjectionInputs<'a> {
     /// Full PR detail (metadata, body, reviews, checks, comments).
-    pub detail: Option<PullRequestDetail>,
+    pub detail: Option<&'a PullRequestDetail>,
     /// Which sub-element is focused within the detail view.
     pub subfocus: PrDetailSubfocus,
     /// Scroll offset for the content viewport.
@@ -91,7 +97,6 @@ pub struct PrDetailViewProps {
     ///
     /// @plan PLAN-20260624-PR-MODE.P12
     /// @requirement REQ-PR-009
-    /// @pseudocode component-001 lines 1-12
     pub viewport_rows: Option<u16>,
     /// Whether the full PR detail is loading (after instant list preview).
     pub detail_loading: bool,
@@ -100,205 +105,185 @@ pub struct PrDetailViewProps {
     /// Whether this pane is focused.
     pub focused: bool,
     /// Active inline editor/composer state.
-    pub inline_state: InlineState,
-    /// Content width (terminal cols) for truncating PR-detail text via the
-    /// ScrollableText `max_line_width`, supplied by the screen from the same
-    /// `crossterm::terminal::size()` read the screen already performs. The
-    /// reducer NEVER wraps — truncation is safe (it clips columns only, never
-    /// changing line counts or cursor line), mirroring Issues mode.
+    pub inline_state: &'a InlineState,
+    /// Content width (terminal cols) for truncating PR-detail text.
     ///
     /// @plan PLAN-20260624-PR-MODE.P14
     /// @requirement REQ-PR-009
-    /// @pseudocode component-001 lines 1-12
     pub detail_content_width: usize,
     /// Theme colors.
     pub colors: ThemeColors,
-    /// Active text selection, if any (and if it targets this pane). Passed
-    /// through to the `ScrollableText` so selected cells render inverse-video.
+    /// Active text selection, if any (and if it targets this pane).
     pub selection: Option<TextSelection>,
 }
 
-/// Extract the active PR composer `(text, byte_cursor, prefix)`.
-///
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-009
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 169-176
-fn active_pr_composer(inline_state: &InlineState) -> Option<(String, usize, &'static str)> {
-    match inline_state {
-        InlineState::Composer {
-            target: ComposerTarget::NewComment,
-            text,
-            cursor,
-        } => Some((
-            text.clone(),
-            *cursor,
-            crate::layout::NEW_COMMENT_COMPOSER_PREFIX,
-        )),
-        InlineState::Composer {
-            target: ComposerTarget::Reply { .. } | ComposerTarget::ReplyToReviewThread { .. },
-            text,
-            cursor,
-        } => Some((text.clone(), *cursor, crate::layout::REPLY_COMPOSER_PREFIX)),
-        InlineState::Composer {
-            target: ComposerTarget::NewIssue,
-            ..
-        }
-        | InlineState::Editor { .. }
-        | InlineState::None => None,
+/// Semantic state-row color for a PR: `Bright` when Open, `Dim` when Closed or
+/// Merged. Matches the pre-refactor component (`rc.bright` / `rc.dim`).
+fn pr_state_color(state: PrState) -> DetailHeaderColor {
+    match state {
+        PrState::Open => DetailHeaderColor::Bright,
+        PrState::Closed | PrState::Merged => DetailHeaderColor::Dim,
     }
 }
 
-/// PR detail view — fixed structure that NEVER changes layout.
+/// Compute the detail viewport rows (scrollable area) from the supplied pane
+/// height. Mirrors the pre-refactor component's height-derived viewport math.
+fn detail_viewport_rows(available_height: Option<u16>) -> usize {
+    if let Some(height) = available_height {
+        (height as usize).saturating_sub(HEADER_ROWS + 2)
+    } else {
+        crate::layout::prs_detail_viewport_rows(DEFAULT_PR_DETAIL_TERM_ROWS, false, false)
+    }
+}
+
+/// Build the five fixed header rows (title, state, branches, url, separator)
+/// with their semantic colors and selection-line indices.
+fn build_header_rows(
+    h_title: String,
+    h_state: String,
+    h_branches: String,
+    h_url: String,
+    state_color: DetailHeaderColor,
+) -> Vec<DetailHeaderRow> {
+    vec![
+        DetailHeaderRow {
+            content: h_title,
+            color: DetailHeaderColor::Fg,
+            line: 0,
+        },
+        DetailHeaderRow {
+            content: h_state,
+            color: state_color,
+            line: 1,
+        },
+        DetailHeaderRow {
+            content: h_branches,
+            color: DetailHeaderColor::Dim,
+            line: 2,
+        },
+        DetailHeaderRow {
+            content: h_url,
+            color: DetailHeaderColor::Dim,
+            line: 3,
+        },
+        DetailHeaderRow {
+            content: "─────────────────────────────────────────".to_string(),
+            color: DetailHeaderColor::Dim,
+            line: 4,
+        },
+    ]
+}
+
+/// Resolve the content + header for a loaded PR detail.
+fn loaded_pr_content(
+    detail: &PullRequestDetail,
+    subfocus: PrDetailSubfocus,
+    inline_state: &InlineState,
+    detail_loading: bool,
+    comments_loading: bool,
+) -> (
+    Vec<DetailHeaderRow>,
+    crate::issue_detail_content::DetailContent,
+) {
+    let header = pr_detail_header_view(detail);
+    let rows = build_header_rows(
+        header.title,
+        header.state,
+        header.branches,
+        header.url,
+        pr_state_color(detail.state),
+    );
+    (
+        rows,
+        build_pr_detail_content(
+            detail,
+            subfocus,
+            inline_state,
+            detail_loading,
+            comments_loading,
+        ),
+    )
+}
+
+/// Resolve the content + header for the "no PR selected" placeholder branch.
+fn empty_pr_content() -> (
+    Vec<DetailHeaderRow>,
+    crate::issue_detail_content::DetailContent,
+) {
+    let rows = build_header_rows(
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
+        DetailHeaderColor::Dim,
+    );
+    (
+        rows,
+        crate::issue_detail_content::DetailContent {
+            text: "No pull request selected".to_string(),
+            cursor: None,
+        },
+    )
+}
+
+/// Pure projection of the PR detail pane into a [`DetailPaneProps`].
 ///
-/// ALWAYS renders: border box → `HEADER_ROWS` header rows → fixed-row scrollable viewport.
-/// When no PR is selected, header rows are blank and viewport shows a message.
-/// When a NewComment composer is active, an embedded `TextBox` is rendered
-/// below the scroll viewport (the read-only document no longer flattens the
-/// composer text/cursor, so the document scroll offset stays stable while
-/// typing and the TextBox owns its own local caret viewport).
+/// Encapsulates ALL the logic the pre-refactor `PrDetailView` component body
+/// owned: the loaded-detail / empty branching, the viewport/composer row math,
+/// the semantic state color, and the composer extraction. The result is
+/// rendered byte-identically by the generic [`DetailPane`] via
+/// [`pr_detail_element`].
+///
+/// This function is iocraft-free: it emits semantic [`DetailHeaderColor`] roles
+/// (never concrete `Color`), keeping the pure-views invariant.
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 169-176
-#[component]
-pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>> {
-    let rc = ResolvedColors::from_theme(Some(&props.colors));
-    let border_style = if props.focused {
-        BorderStyle::Double
-    } else {
-        BorderStyle::Round
-    };
-
-    // Detect an active PR composer so we can reserve space for the embedded
-    // TextBox and reduce the scroll viewport accordingly.
-    let composer = active_pr_composer(&props.inline_state);
+#[must_use]
+pub fn pr_detail_props(inputs: PrDetailProjectionInputs<'_>) -> DetailPaneProps {
+    let detail_viewport_rows = detail_viewport_rows(inputs.viewport_rows);
+    let composer = composer_from_inline_state(inputs.inline_state);
     let text_box_active = composer.is_some();
 
-    // Compute viewport rows. Production screens pass the actual pane height;
-    // the fallback is a pure test/default path and intentionally avoids reading
-    // terminal size inside this component. Use the shared helper so the state
-    // scroll bounds and ScrollableText row count stay in the same coordinate
-    // system, including tiny panes where one read-only row is preserved.
-    let detail_viewport_rows = if let Some(height) = props.viewport_rows {
-        (height as usize).saturating_sub(HEADER_ROWS + 2)
-    } else {
-        crate::layout::prs_detail_viewport_rows(DEFAULT_PR_DETAIL_TERM_ROWS, false, false)
-    };
     let scroll_rows =
         crate::layout::pr_detail_document_viewport_rows(detail_viewport_rows, text_box_active);
     let composer_rows = detail_viewport_rows.saturating_sub(scroll_rows);
 
-    let (h_title, h_state, h_branches, h_url, detail_content, state_color) =
-        if let Some(detail) = props.detail.as_ref() {
-            let sc = match detail.state {
-                crate::domain::PrState::Open => rc.bright,
-                crate::domain::PrState::Closed | crate::domain::PrState::Merged => rc.dim,
-            };
-            let header = pr_detail_header_view(detail);
-            (
-                header.title,
-                header.state,
-                header.branches,
-                header.url,
-                build_pr_detail_content(
-                    detail,
-                    props.subfocus,
-                    &props.inline_state,
-                    props.detail_loading,
-                    props.comments_loading,
-                ),
-                sc,
-            )
-        } else {
-            (
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                crate::issue_detail_content::DetailContent {
-                    text: "No pull request selected".to_string(),
-                    cursor: None,
-                },
-                rc.dim,
-            )
-        };
+    let (header_rows, detail_content) = if let Some(detail) = inputs.detail {
+        loaded_pr_content(
+            detail,
+            inputs.subfocus,
+            inputs.inline_state,
+            inputs.detail_loading,
+            inputs.comments_loading,
+        )
+    } else {
+        empty_pr_content()
+    };
 
-    // Compute the TextBox props for the active PR composer (if any). The
-    // composer content width mirrors the detail content width so gutter-aligned
-    // text lines up with the read-only document.
-    let composer_element: Option<AnyElement<'static>> =
-        composer.map(|(text, byte_cursor, prefix)| {
-            element! {
-                Box(width: 100pct, padding_left: 1u32) {
-                    TextBox(
-                        text: text,
-                        byte_cursor: byte_cursor,
-                        viewport_rows: composer_rows,
-                        content_width: props.detail_content_width,
-                        prefix: prefix.to_string(),
-                        color: rc.fg,
-                        caret_color: rc.bg,
-                        caret_bg: rc.bright,
-                    )
-                }
-            }
-            .into()
-        });
+    let composer_props = composer.map(|(text, byte_cursor, prefix)| DetailComposerProps {
+        text,
+        byte_cursor,
+        content_width: inputs.detail_content_width,
+        prefix: prefix.to_string(),
+    });
 
-    element! {
-        Box(
-            flex_direction: FlexDirection::Column,
-            width: 100pct,
-            height: 100pct,
-            border_style: border_style,
-            border_color: rc.border,
-            background_color: rc.bg,
-        ) {
-            // ── Metadata header — always exactly HEADER_ROWS rows ─────────
-            Box(flex_direction: FlexDirection::Column, padding_left: 1u32, padding_right: 1u32) {
-                #(header_row(h_title, rc.fg, 0, props.selection.as_ref(), SelectablePane::PrDetail, &rc))
-                #(header_row(h_state, state_color, 1, props.selection.as_ref(), SelectablePane::PrDetail, &rc))
-                #(header_row(h_branches, rc.dim, 2, props.selection.as_ref(), SelectablePane::PrDetail, &rc))
-                #(header_row(h_url, rc.dim, 3, props.selection.as_ref(), SelectablePane::PrDetail, &rc))
-                #(header_row(
-                    "─────────────────────────────────────────".to_string(),
-                    rc.dim,
-                    4,
-                    props.selection.as_ref(),
-                    SelectablePane::PrDetail,
-                    &rc,
-                ))
-            }
-
-            // ── Scrollable viewport — always exactly scroll_rows rows ─────
-            Box(width: 100pct, padding_left: 1u32) {
-                ScrollableText(
-                    content: detail_content.text,
-                    scroll_offset: props.scroll_offset,
-                    viewport_rows: scroll_rows,
-                    max_line_width: props.detail_content_width,
-                    cursor_line: detail_content.cursor.map(|(l, _)| l),
-                    cursor_col: detail_content.cursor.map(|(_, c)| c),
-                    color: rc.fg,
-                    cursor_color: rc.bg,
-                    cursor_bg: rc.bright,
-                    track_color: rc.dim,
-                    thumb_color: rc.bright,
-                    selection: props
-                        .selection
-                        .filter(|s| s.pane() == crate::selection::SelectablePane::PrDetail),
-                    selection_bg: Some(rc.sel_bg),
-                    selection_fg: Some(rc.sel_fg),
-                    bg: Some(rc.bg),
-                    content_line_offset: HEADER_ROWS,
-                )
-            }
-
-            // ── Embedded NewComment TextBox composer (when active) ────────
-            #(composer_element)
-        }
+    DetailPaneProps {
+        header_rows,
+        content: detail_content.text,
+        content_cursor: detail_content.cursor,
+        scroll_offset: inputs.scroll_offset,
+        viewport_rows: scroll_rows,
+        content_line_offset: HEADER_ROWS,
+        max_line_width: inputs.detail_content_width,
+        focused: inputs.focused,
+        pane: SelectablePane::PrDetail,
+        colors: inputs.colors,
+        selection: inputs.selection,
+        composer: composer_props,
+        composer_rows,
     }
 }

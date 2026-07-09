@@ -1,28 +1,30 @@
-//! PR filter controls component.
+//! PR filter bar projection (pure, iocraft-free).
+//!
+//! Extracts the PR filter field views, action hints, and full
+//! [`FilterBarProps`] for the generic [`super::filter_bar::FilterBar`] to
+//! render. This module owns NO iocraft types (`Color`, `Props`,
+//! `AnyElement`) — it is a pure projection per the pure-views pattern
+//! (see `dev-docs/standards/architecture.md`). The screen calls
+//! `filter_bar_element(pr_filter_props(...))`.
+//!
 //! @plan PLAN-20260624-PR-MODE.P12
 //! @requirement REQ-PR-008
 
-use iocraft::prelude::*;
-
 use crate::domain::{ChecksFilter, PrFilter, PrFilterState, ReviewDecisionFilter};
-use crate::theme::{ResolvedColors, ThemeColors};
+use crate::theme::ThemeColors;
 
-/// Projected PR filter field exactly as the component renders it (label,
-/// display value, and active highlight state). The `#[component]` delegates
-/// to a list of these so tests assert the SAME fields the component renders
-/// (REQ-PR-008).
-///
-/// @plan PLAN-20260624-PR-MODE.P13
-/// @requirement REQ-PR-008
-/// @pseudocode component-001 lines 1-12
-pub struct PrFilterFieldView {
-    /// Field label ("state", "draft", ...).
-    pub label: &'static str,
-    /// Display value WITHOUT brackets (e.g. "open", "any", "approved").
-    pub value: String,
-    /// Whether this field is the active (highlighted) field.
-    pub active: bool,
-}
+use super::filter_bar::{FilterBarProps, FilterFieldView};
+
+/// Row-1 prefix text before the first field (matches the pre-refactor
+/// `PrFilterControls` component exactly).
+const ROW_PREFIX: &str = "Filter: ";
+
+/// Row-2+ continuation prefix: 7 spaces (matches the pre-refactor
+/// `PrFilterControls` component exactly — `"       "`).
+const CONTINUATION_PREFIX: &str = "       ";
+
+/// Number of fields per row (matches the pre-refactor two-row layout).
+const FIELDS_PER_ROW: usize = 4;
 
 /// The display value for the state filter field (without brackets).
 ///
@@ -94,166 +96,102 @@ fn text_or_any(value: &str) -> String {
     }
 }
 
-/// Pure projection of the eight PR filter fields exactly as the component
-/// renders them (labels + display values + active highlighting). Returns
-/// exactly 8 entries in field order: state, draft, review, checks, author,
-/// assignee, reviewer, labels.
+/// Pure projection of the eight PR filter fields (state, draft, review,
+/// checks, author, assignee, reviewer, labels) with display values + active
+/// highlighting.
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-008
 /// @pseudocode component-001 lines 1-12
+#[must_use]
 pub fn pr_filter_field_views(
     filter: &PrFilter,
     draft_labels_text: &str,
     active_index: usize,
-) -> Vec<PrFilterFieldView> {
+) -> Vec<FilterFieldView> {
     vec![
-        PrFilterFieldView {
-            label: "state",
+        FilterFieldView {
+            label: "state".to_string(),
             value: state_filter_value(filter.state).to_string(),
             active: active_index == 0,
         },
-        PrFilterFieldView {
-            label: "draft",
+        FilterFieldView {
+            label: "draft".to_string(),
             value: draft_filter_value(filter.is_draft).to_string(),
             active: active_index == 1,
         },
-        PrFilterFieldView {
-            label: "review",
+        FilterFieldView {
+            label: "review".to_string(),
             value: review_filter_value(filter.review_decision).to_string(),
             active: active_index == 2,
         },
-        PrFilterFieldView {
-            label: "checks",
+        FilterFieldView {
+            label: "checks".to_string(),
             value: checks_filter_value(filter.checks_status).to_string(),
             active: active_index == 3,
         },
-        PrFilterFieldView {
-            label: "author",
+        FilterFieldView {
+            label: "author".to_string(),
             value: text_or_any(&filter.author),
             active: active_index == 4,
         },
-        PrFilterFieldView {
-            label: "assignee",
+        FilterFieldView {
+            label: "assignee".to_string(),
             value: text_or_any(&filter.assignee),
             active: active_index == 5,
         },
-        PrFilterFieldView {
-            label: "reviewer",
+        FilterFieldView {
+            label: "reviewer".to_string(),
             value: text_or_any(&filter.reviewer),
             active: active_index == 6,
         },
-        PrFilterFieldView {
-            label: "labels",
+        FilterFieldView {
+            label: "labels".to_string(),
             value: text_or_any(draft_labels_text),
             active: active_index == 7,
         },
     ]
 }
 
-/// Props for the PR filter controls pane.
+/// Action-hint segments for the PR filter bar (matches the pre-refactor
+/// `PrFilterControls` action-hints row exactly).
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-008
-/// @pseudocode component-001 lines 1-12
-#[derive(Default, Props)]
-pub struct PrFilterControlsProps {
-    /// Current draft filter values.
-    pub draft_filter: PrFilter,
-    /// Whether the controls are visible.
-    pub visible: bool,
-    /// Theme colors.
-    pub colors: ThemeColors,
-    /// Index of the currently focused filter field.
-    pub active_field_index: usize,
-    /// Raw labels text for display during editing.
-    pub draft_labels_text: String,
+#[must_use]
+pub fn pr_filter_action_hints() -> Vec<String> {
+    vec![
+        "Tab next  ".to_string(),
+        "Space cycle  ".to_string(),
+        "Enter apply  ".to_string(),
+        "Ctrl-c clear  ".to_string(),
+        "Esc cancel".to_string(),
+    ]
 }
 
-/// PR filter controls — compact band showing the eight filter fields and action hints.
+/// Build the full [`FilterBarProps`] for the PR filter bar.
+///
+/// The screen calls `filter_bar_element(pr_filter_props(...))` to render
+/// the generic component. This projection owns the field computation, the
+/// row-prefix text, the continuation-prefix alignment, and the action hints.
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-008
-/// @pseudocode component-001 lines 1-12
-#[component]
-pub fn PrFilterControls(props: &PrFilterControlsProps) -> impl Into<AnyElement<'static>> {
-    if !props.visible {
-        return element! {
-            Box(width: 0u32, height: 0u32) {}
-        };
-    }
-
-    let rc = ResolvedColors::from_theme(Some(&props.colors));
-
-    let fields = pr_filter_field_views(
-        &props.draft_filter,
-        &props.draft_labels_text,
-        props.active_field_index,
-    );
-
-    // Active field: inverted colors (bright bg, dark fg). Inactive: normal.
-    let val_color = |active: bool| if active { rc.bg } else { rc.fg };
-    let val_bg = |active: bool| if active { rc.bright } else { rc.bg };
-    let label_color = |active: bool| if active { rc.bright } else { rc.dim };
-
-    element! {
-        Box(
-            flex_direction: FlexDirection::Column,
-            width: 100pct,
-            border_style: BorderStyle::Round,
-            border_color: rc.bright,
-            background_color: rc.bg,
-            padding_left: 1u32,
-            padding_right: 1u32,
-        ) {
-            // Filter values row 1: state, draft, review, checks
-            Box(height: 1u32) {
-                Text(content: "Filter: ", color: rc.dim)
-                Text(content: format!("{}:", fields[0].label), color: label_color(fields[0].active))
-                Box(background_color: val_bg(fields[0].active)) {
-                    Text(content: format!("[{}]", fields[0].value), color: val_color(fields[0].active))
-                }
-                Text(content: format!("  {}:", fields[1].label), color: label_color(fields[1].active))
-                Box(background_color: val_bg(fields[1].active)) {
-                    Text(content: format!("[{}]", fields[1].value), color: val_color(fields[1].active))
-                }
-                Text(content: format!("  {}:", fields[2].label), color: label_color(fields[2].active))
-                Box(background_color: val_bg(fields[2].active)) {
-                    Text(content: format!("[{}]", fields[2].value), color: val_color(fields[2].active))
-                }
-                Text(content: format!("  {}:", fields[3].label), color: label_color(fields[3].active))
-                Box(background_color: val_bg(fields[3].active)) {
-                    Text(content: format!("[{}]", fields[3].value), color: val_color(fields[3].active))
-                }
-            }
-            // Filter values row 2: author, assignee, reviewer, labels
-            Box(height: 1u32) {
-                Text(content: "       ", color: rc.dim)
-                Text(content: format!("{}:", fields[4].label), color: label_color(fields[4].active))
-                Box(background_color: val_bg(fields[4].active)) {
-                    Text(content: format!("[{}]", fields[4].value), color: val_color(fields[4].active))
-                }
-                Text(content: format!("  {}:", fields[5].label), color: label_color(fields[5].active))
-                Box(background_color: val_bg(fields[5].active)) {
-                    Text(content: format!("[{}]", fields[5].value), color: val_color(fields[5].active))
-                }
-                Text(content: format!("  {}:", fields[6].label), color: label_color(fields[6].active))
-                Box(background_color: val_bg(fields[6].active)) {
-                    Text(content: format!("[{}]", fields[6].value), color: val_color(fields[6].active))
-                }
-                Text(content: format!("  {}:", fields[7].label), color: label_color(fields[7].active))
-                Box(background_color: val_bg(fields[7].active)) {
-                    Text(content: format!("[{}]", fields[7].value), color: val_color(fields[7].active))
-                }
-            }
-            // Actions hint row
-            Box(height: 1u32) {
-                Text(content: "Tab next  ", color: rc.dim)
-                Text(content: "Space cycle  ", color: rc.dim)
-                Text(content: "Enter apply  ", color: rc.dim)
-                Text(content: "Ctrl-c clear  ", color: rc.dim)
-                Text(content: "Esc cancel", color: rc.dim)
-            }
-        }
+#[must_use]
+pub fn pr_filter_props(
+    filter: &PrFilter,
+    draft_labels_text: &str,
+    active_index: usize,
+    visible: bool,
+    colors: ThemeColors,
+) -> FilterBarProps {
+    FilterBarProps {
+        fields: pr_filter_field_views(filter, draft_labels_text, active_index),
+        visible,
+        row_prefix: ROW_PREFIX.to_string(),
+        continuation_prefix: CONTINUATION_PREFIX.to_string(),
+        fields_per_row: FIELDS_PER_ROW,
+        action_hints: pr_filter_action_hints(),
+        colors,
     }
 }
