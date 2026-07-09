@@ -91,7 +91,7 @@ fn remote_execution_timeout_returns_clear_error() {
     );
     assert!(
         message.contains("after 1s"),
-        "message should report the injected deadline: {message}"
+        "message should report the injected deadline as fractional seconds: {message}"
     );
 }
 

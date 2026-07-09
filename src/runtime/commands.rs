@@ -209,7 +209,7 @@ fn run_command_capture_with_timeout(
                     let _ = child.wait();
                     return Err(RuntimeError::RemoteExecutionFailed(format!(
                         "{error_context}: timed out after {}s",
-                        timeout.as_secs()
+                        timeout.as_secs_f64()
                     )));
                 }
                 std::thread::sleep(Duration::from_millis(50));
