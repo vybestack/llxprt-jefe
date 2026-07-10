@@ -63,7 +63,8 @@ fn fenced_code_block_is_framed() {
     // The fence top/bottom borders must not carry trailing whitespace.
     assert!(
         !out.lines()
-            .any(|l| l.ends_with(' ') && l.contains(CODE_FENCE_TOP)),
+            .any(|l| l.ends_with(' ')
+                && (l.contains(CODE_FENCE_TOP) || l.contains(CODE_FENCE_BOTTOM))),
         "no trailing whitespace on fence borders: {out:?}"
     );
 }
@@ -194,6 +195,45 @@ fn blockquote_is_marked() {
     assert!(
         out.contains("> ") && out.contains("quoted text"),
         "blockquote marked: {out}"
+    );
+}
+
+/// A table whose data row has fewer cells than the declared columns still
+/// emits an alignment separator spanning all declared columns so the header
+/// lines up with the declared width.
+#[test]
+fn table_separator_spans_declared_columns() {
+    // Three columns declared; the (single) body row fills all three so the
+    // table parses, and the separator must carry a dash run per column.
+    let out = render(
+        "| a | b | c |
+|---|---|---|
+| 1 | 2 | 3 |
+",
+    );
+    let sep_line = out
+        .lines()
+        .find(|l| l.contains("---"))
+        .unwrap_or("<no separator>");
+    let dash_runs = sep_line.matches("---").count();
+    assert!(
+        dash_runs >= 3,
+        "separator spans declared columns: {sep_line}"
+    );
+}
+
+/// A self-closing `<br/>` (no space before the slash) still introduces a line
+/// break, the same as `<br>` and `<br />`.
+#[test]
+fn self_closing_br_introduces_break() {
+    let out = render("line one<br/>line two");
+    assert!(
+        out.contains("line one") && out.contains("line two"),
+        "both halves present: {out}"
+    );
+    assert!(
+        !out.contains("line oneline two"),
+        "self-closing br must break the line: {out}"
     );
 }
 

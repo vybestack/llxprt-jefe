@@ -369,16 +369,18 @@ impl MarkdownRenderer {
                 out.push_str("  ");
             }
             self.push(out.trim_end().to_string());
-            // Emit an alignment separator after the header row.
+            // Emit an alignment separator after the header row. Iterate the
+            // declared column count (not the header row's cells) so a sparse
+            // header still aligns with wider data rows.
             if ri == 0 && is_header.first().is_some_and(|h| *h) {
                 let mut sep = String::from(&pad);
-                for (i, _) in row.iter().enumerate().take(num_cols) {
+                for (i, w) in widths.iter().enumerate().take(num_cols) {
                     let align = table
                         .alignments
                         .get(i)
                         .copied()
                         .unwrap_or(TableAlignment::None);
-                    sep.push_str(&dashes(widths[i], align));
+                    sep.push_str(&dashes(*w, align));
                     sep.push_str("  ");
                 }
                 self.push(sep.trim_end().to_string());
@@ -780,7 +782,9 @@ fn consume_entity(html: &str, start: usize) -> (usize, String) {
 fn html_tag_introduces_break(name: &str) -> bool {
     matches!(
         name,
-        "br" | "/br"
+        "br" | "br/"
+            | "/br"
+            | "/br/"
             | "/p"
             | "/li"
             | "/tr"

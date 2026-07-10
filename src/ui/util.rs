@@ -123,6 +123,12 @@ fn parse_hhmm(time: &str) -> Option<String> {
     let mut parts = t.split(':');
     let hh_s = parts.next()?.trim();
     let mm_s = parts.next()?.trim();
+    // An optional seconds component is allowed and dropped, but more than one
+    // extra component is malformed (mirrors parse_date's trailing guard).
+    match (parts.next(), parts.next()) {
+        (None, _) | (Some(_), None) => {}
+        _ => return None,
+    }
     // Enforce zero-padded 2-2 width, mirroring parse_date, so non-standard
     // time forms fall through to the raw fallback.
     if hh_s.len() != 2 || mm_s.len() != 2 {
@@ -358,5 +364,17 @@ mod tests {
     #[test]
     fn format_iso_date_rejects_non_zero_padded() {
         assert_eq!(format_iso_date("26-7-6"), "26-7-6");
+    }
+
+    /// An optional seconds component is accepted and dropped, but malformed
+    /// extra components fall through to the raw string (mirrors the date-side
+    /// trailing-component guard).
+    #[test]
+    fn format_iso_date_accepts_seconds_rejects_extra_components() {
+        // Seconds present, with offset stripped.
+        assert_eq!(format_iso_date("2026-07-06T15:26:53Z"), "Jul 6, 2026 15:26");
+        // Too many components after HH:MM is malformed: the time is rejected,
+        // leaving a date-only result.
+        assert_eq!(format_iso_date("2026-07-06T15:26:99:99"), "Jul 6, 2026");
     }
 }
