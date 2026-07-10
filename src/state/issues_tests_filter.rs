@@ -21,6 +21,7 @@ fn filter_open_state() -> AppState {
 fn make_test_issue(number: u64) -> Issue {
     Issue {
         number,
+        node_id: String::new(),
         title: format!("Test Issue #{number}"),
         state: IssueState::Open,
         author_login: "testuser".to_string(),

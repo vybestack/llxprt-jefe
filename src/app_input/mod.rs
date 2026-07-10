@@ -3,6 +3,7 @@ use std::sync::Arc;
 mod issues;
 mod issues_dispatch;
 mod issues_filter;
+mod issues_lifecycle;
 mod issues_list_dispatch;
 mod issues_mutation;
 mod issues_subfocus_dispatch;
@@ -468,6 +469,12 @@ pub fn dispatch_app_message(
         AppMessage::Issues(IssuesMessage::InlineSubmit) => {
             issues_mutation::handle_inline_submit(app_state, ctx);
         }
+        AppMessage::Issues(
+            message @ (IssuesMessage::CloseIssue
+            | IssuesMessage::OpenDeleteIssueConfirm
+            | IssuesMessage::IssueDeleteConfirm
+            | IssuesMessage::IssueDeleteCancel),
+        ) => dispatch_issues_lifecycle(app_state, ctx, message),
         // ── PR-mode dispatch arms ───────────────────────────────────────────
         // @plan PLAN-20260624-PR-MODE.P11
         // @requirement REQ-PR-001
@@ -480,6 +487,34 @@ pub fn dispatch_app_message(
             prs_orchestration::dispatch_prs_message(app_state, ctx, message);
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+    }
+}
+
+/// Dispatch issues close/delete lifecycle messages (issue #182).
+///
+/// Applies the reducer event first, then — for the action events that start an
+/// off-thread gh mutation — hands off to the lifecycle dispatch helper.
+fn dispatch_issues_lifecycle(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: IssuesMessage,
+) {
+    match message {
+        IssuesMessage::CloseIssue => {
+            apply_and_persist(app_state, ctx, AppEvent::CloseIssue);
+            issues_lifecycle::handle_issue_close(app_state, ctx);
+        }
+        IssuesMessage::OpenDeleteIssueConfirm => {
+            apply_and_persist(app_state, ctx, AppEvent::OpenDeleteIssueConfirm);
+        }
+        IssuesMessage::IssueDeleteConfirm => {
+            apply_and_persist(app_state, ctx, AppEvent::IssueDeleteConfirm);
+            issues_lifecycle::handle_issue_delete_confirm(app_state, ctx);
+        }
+        IssuesMessage::IssueDeleteCancel => {
+            apply_and_persist(app_state, ctx, AppEvent::IssueDeleteCancel);
+        }
+        _ => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
 }
 

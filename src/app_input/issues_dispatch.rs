@@ -59,6 +59,7 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
                 jefe::domain::IssueDetail {
                     repo_owner_name: format!("{}/{}", gh_repo.0, gh_repo.1),
                     number: issue.number,
+                    node_id: issue.node_id.clone(),
                     title: issue.title.clone(),
                     state: issue.state,
                     author_login: issue.author_login.clone(),

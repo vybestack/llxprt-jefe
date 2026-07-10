@@ -221,6 +221,12 @@ impl AppMessage {
                 | AppEvent::IssueBodyUpdated { .. }
                 | AppEvent::CommentUpdated { .. }
                 | AppEvent::MutationFailed { .. }
+                | AppEvent::CloseIssue
+                | AppEvent::OpenDeleteIssueConfirm
+                | AppEvent::IssueDeleteConfirm
+                | AppEvent::IssueDeleteCancel
+                | AppEvent::IssueClosed { .. }
+                | AppEvent::IssueDeleted { .. }
                 | AppEvent::OpenAgentChooser
                 | AppEvent::AgentChooserNavigateUp
                 | AppEvent::AgentChooserNavigateDown

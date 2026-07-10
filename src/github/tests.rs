@@ -106,6 +106,7 @@ fn test_list_issues_sorts_by_updated_desc() {
     let mut issues = vec![
         Issue {
             number: 3,
+            node_id: String::new(),
             title: "Old issue".to_string(),
             state: IssueState::Open,
             author_login: "alice".to_string(),
@@ -122,6 +123,7 @@ fn test_list_issues_sorts_by_updated_desc() {
         },
         Issue {
             number: 1,
+            node_id: String::new(),
             title: "Newer issue".to_string(),
             state: IssueState::Open,
             author_login: "bob".to_string(),
@@ -138,6 +140,7 @@ fn test_list_issues_sorts_by_updated_desc() {
         },
         Issue {
             number: 2,
+            node_id: String::new(),
             title: "Same time, lower number".to_string(),
             state: IssueState::Open,
             author_login: "charlie".to_string(),
@@ -664,6 +667,7 @@ fn test_build_send_payload_with_comment() {
     let detail = IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 17,
+        node_id: String::new(),
         title: "Test Issue".to_string(),
         state: IssueState::Open,
         author_login: "alice".to_string(),
@@ -717,6 +721,7 @@ fn test_build_send_payload_without_comment() {
     let detail = IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 5,
+        node_id: String::new(),
         title: "Another Issue".to_string(),
         state: IssueState::Closed,
         author_login: "dave".to_string(),
@@ -901,4 +906,56 @@ fn test_parse_issue_detail_json_propagates_comment_errors() {
         Err(e) => panic!("expected ParseError, got {e:?}"),
         Ok(_) => panic!("should not succeed"),
     }
+}
+
+/// parse_issue_from_item parses the GraphQL `id` field into `node_id`.
+#[test]
+fn test_parse_issue_from_item_node_id() {
+    let json = r#"[
+        {
+            "id": "I_kwDORSOxIM7sXe5_",
+            "number": 17,
+            "title": "Create a feature list",
+            "state": "OPEN",
+            "author": {"login": "acoliver"},
+            "updatedAt": "2026-03-29T10:00:00Z",
+            "assignees": {"nodes": [{"login": "acoliver"}]},
+            "labels": {"nodes": [{"name": "enhancement"}]},
+            "comments": {"totalCount": 3}
+        }
+    ]"#;
+
+    let issues = parse_issues_json(json).value_or_panic("should parse valid JSON");
+    assert_eq!(issues.len(), 1);
+    assert_eq!(
+        issues[0].node_id, "I_kwDORSOxIM7sXe5_",
+        "node_id should be parsed from the GraphQL id field"
+    );
+}
+
+/// parse_issue_detail_json parses the `id` field into `node_id`.
+#[test]
+fn test_parse_issue_detail_json_node_id() {
+    let json = r#"{
+        "id": "I_kwDORSOxIM7sXe5_",
+        "number": 42,
+        "title": "Detail node id test",
+        "state": "OPEN",
+        "author": {"login": "acoliver"},
+        "createdAt": "2026-03-29T10:00:00Z",
+        "updatedAt": "2026-03-29T11:00:00Z",
+        "labels": [],
+        "assignees": [],
+        "milestone": null,
+        "body": "",
+        "url": "https://github.com/owner/repo/issues/42",
+        "comments": []
+    }"#;
+
+    let detail = parse_issue_detail_json(json).value_or_panic("should parse detail JSON");
+    assert_eq!(
+        detail.node_id, "I_kwDORSOxIM7sXe5_",
+        "detail node_id should be parsed from the id field"
+    );
+    assert_eq!(detail.number, 42);
 }

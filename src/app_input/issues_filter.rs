@@ -288,6 +288,7 @@ mod tests {
     fn issue(number: u64, assignees: &str, labels: &str) -> Issue {
         Issue {
             number,
+            node_id: String::new(),
             title: format!("Issue {number}"),
             state: IssueState::Open,
             author_login: "octocat".to_string(),

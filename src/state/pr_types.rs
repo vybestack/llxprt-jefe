@@ -80,6 +80,10 @@ pub enum ReadOnlyHintKind {
     PrNotMergeable,
     /// `R` pressed outside a review thread (resolve only valid on a review thread).
     ReadOnlyResolveOnThread,
+    /// `C` pressed on an already-closed issue (issue #182).
+    IssueAlreadyClosed,
+    /// `C`/`D` pressed with no issue focused (issue #182).
+    NoIssueFocused,
 }
 
 /// @plan PLAN-20260624-PR-MODE.P03

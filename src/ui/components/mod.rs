@@ -25,6 +25,8 @@ pub(crate) mod filter_bar;
 /// @plan PLAN-20260329-ISSUES-MODE.P14
 /// @requirement REQ-ISS-008
 mod filter_controls;
+/// @requirement issue #182
+mod issue_delete_confirm;
 /// Issue detail pane projection. The pure header projection
 /// (`issue_detail_header_view`) is reused by the selection content provider so
 /// copied text matches the rendered rows; rendering is delegated to the generic
@@ -82,6 +84,7 @@ pub use detail_pane::{
 };
 pub use filter_bar::{FilterBar, FilterBarProps, FilterFieldView, filter_bar_element};
 pub use filter_controls::{issue_filter_action_hints, issue_filter_fields, issue_filter_props};
+pub use issue_delete_confirm::{IssueDeleteConfirmOverlay, IssueDeleteConfirmProps};
 pub use issue_detail::{IssueDetailProjectionInputs, issue_detail_props};
 pub use issue_list::{
     IssueListLayout, IssueListWindow, issue_list_props, issue_list_status_message,

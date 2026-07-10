@@ -721,6 +721,7 @@ fn state_for_issue_agent_chooser_send(
     let detail = IssueDetail {
         repo_owner_name: "owner/repo".to_owned(),
         number: 166,
+        node_id: String::new(),
         title: "Issue send should checkout+pull main".to_owned(),
         state: IssueState::Open,
         author_login: "reporter".to_owned(),

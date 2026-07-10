@@ -10,6 +10,11 @@ use crate::runtime::PreflightIssue;
 mod pr_types;
 pub use pr_types::*;
 
+// Issues-mode aggregate state extracted to keep this file under the length limit.
+#[path = "issues_types.rs"]
+mod issues_types;
+pub use issues_types::*;
+
 // Form-field types extracted to keep this file under the length limit.
 #[path = "form_types.rs"]
 mod form_types;
@@ -303,163 +308,6 @@ pub struct PriorAgentFocus {
     pub selected_agent_index: Option<usize>,
 }
 
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-001
-/// @pseudocode component-001 lines 33-40
-/// Aggregate state for Issues Mode.
-#[derive(Debug, Clone, Default)]
-pub struct IssuesState {
-    pub active: bool,
-    pub issues: Vec<crate::domain::Issue>,
-    pub selected_issue_index: Option<usize>,
-    pub issue_detail: Option<crate::domain::IssueDetail>,
-    pub committed_filter: crate::domain::IssueFilter,
-    pub draft_filter: crate::domain::IssueFilter,
-    pub search_query: String,
-    pub loading: IssueLoadingState,
-    pub list_cursor: Option<String>,
-    pub has_more_issues: bool,
-    pub error: Option<String>,
-    pub issue_focus: IssueFocus,
-    pub detail_subfocus: DetailSubfocus,
-    /// Scroll offset (in lines) for the detail pane viewport.
-    pub detail_scroll_offset: usize,
-    /// Last rendered detail viewport height in rows.
-    pub detail_viewport_rows: usize,
-    pub inline_state: InlineState,
-    pub agent_chooser: Option<AgentChooserState>,
-    pub filter_ui: IssueFilterUiState,
-    pub search_input_focused: bool,
-    pub prior_agent_focus: Option<PriorAgentFocus>,
-    pub draft_notice: Option<String>,
-    pub mutation_pending: Option<IssueMutationPending>,
-    pub next_mutation_id: u64,
-    pub list_reload_pending: Option<IssueListReloadPending>,
-    pub next_issue_list_request_id: u64,
-    pub list_page_pending: Option<IssueListPagePending>,
-    pub detail_pending: Option<IssueDetailPending>,
-    pub next_issue_detail_request_id: u64,
-    pub comments_page_pending: Option<IssueCommentsPagePending>,
-    pub next_comments_page_request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueListReloadPending {
-    pub scope_repo_id: RepositoryId,
-    pub filter: crate::domain::IssueFilter,
-    pub request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueListPagePending {
-    pub scope_repo_id: RepositoryId,
-    pub filter: crate::domain::IssueFilter,
-    pub cursor: Option<String>,
-    pub request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueDetailPending {
-    pub scope_repo_id: RepositoryId,
-    pub issue_number: u64,
-    pub request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueCommentsPagePending {
-    pub scope_repo_id: RepositoryId,
-    pub issue_number: u64,
-    pub cursor: Option<String>,
-    pub request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueMutationPending {
-    pub scope_repo_id: RepositoryId,
-    pub id: u64,
-    pub target: InlineState,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct IssueLoadingState {
-    pub list: bool,
-    pub detail: bool,
-    pub comments: bool,
-}
-
-pub const ISSUE_FILTER_FIELD_COUNT: usize = 8;
-
-#[derive(Debug, Clone, Default)]
-pub struct IssueFilterUiState {
-    pub controls_open: bool,
-    /// Index of the currently focused filter field (0=state, 1=author, 2=assignee, 3=labels, 4=type, 5=milestone, 6=module, 7=query_text).
-    pub field_index: usize,
-    /// Raw labels text while editing (preserves trailing commas). Parsed into Vec on apply.
-    pub draft_labels_text: String,
-}
-
-impl IssuesState {
-    /// Count the number of rendered content lines for the current detail view.
-    #[must_use]
-    pub fn detail_content_line_count(&self) -> usize {
-        let Some(detail) = &self.issue_detail else {
-            return 0;
-        };
-
-        crate::issue_detail_content::detail_content_line_count(
-            detail,
-            &self.inline_state,
-            self.loading.comments,
-        )
-    }
-
-    /// Maximum scroll offset so the last line of content sits at the bottom of the viewport.
-    /// Returns 0 when content fits entirely within the viewport (no scrolling needed).
-    #[must_use]
-    pub fn max_detail_scroll_offset(&self) -> usize {
-        let viewport_rows = if self.detail_viewport_rows == 0 {
-            crate::layout::detail_viewport_rows(40)
-        } else {
-            self.detail_viewport_rows
-        };
-        self.max_detail_scroll_offset_for_viewport(viewport_rows)
-    }
-
-    /// Maximum detail scroll offset for a caller-provided viewport row count.
-    #[must_use]
-    pub fn max_detail_scroll_offset_for_viewport(&self, viewport_rows: usize) -> usize {
-        if self.issue_detail.is_none() {
-            return 0;
-        }
-        let composer_active = matches!(
-            self.inline_state,
-            InlineState::Composer {
-                target: ComposerTarget::NewComment | ComposerTarget::Reply { .. },
-                ..
-            }
-        );
-        self.detail_content_line_count().saturating_sub(
-            crate::layout::issue_detail_document_viewport_rows(viewport_rows, composer_active),
-        )
-    }
-
-    /// Maximum detail scroll offset for the Issues-mode layout bands currently
-    /// visible in the UI.
-    #[must_use]
-    pub fn max_detail_scroll_offset_for_layout(
-        &self,
-        term_rows: usize,
-        error_visible: bool,
-        filter_controls_open: bool,
-    ) -> usize {
-        self.max_detail_scroll_offset_for_viewport(crate::layout::issues_detail_viewport_rows(
-            term_rows,
-            error_visible,
-            filter_controls_open,
-        ))
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     // Navigation
@@ -714,6 +562,28 @@ pub enum AppEvent {
         issue_number: Option<u64>,
         mutation_id: Option<u64>,
         error: String,
+    },
+
+    // Issue Close / Delete lifecycle (issue #182)
+    /// Key-layer request: close the focused issue (dispatch resolves context).
+    CloseIssue,
+    /// Key-layer request: open the delete confirm overlay.
+    OpenDeleteIssueConfirm,
+    /// Delete confirm overlay arm/confirm signal (two-step like merge chooser).
+    IssueDeleteConfirm,
+    /// Delete confirm overlay cancel.
+    IssueDeleteCancel,
+    /// Close mutation succeeded.
+    IssueClosed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
+    },
+    /// Delete mutation succeeded.
+    IssueDeleted {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
     },
 
     // Send-to-Agent

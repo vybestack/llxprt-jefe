@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 /// Stable identifier for a repository.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RepositoryId(pub String);
 
 /// Stable identifier for an agent.
@@ -224,6 +224,8 @@ pub enum IssueState {
 #[derive(Debug, Clone)]
 pub struct Issue {
     pub number: u64,
+    /// GraphQL node id (e.g. `I_kwDO...`); required for `deleteIssue`.
+    pub node_id: String,
     pub title: String,
     pub state: IssueState,
     pub author_login: String,
@@ -248,6 +250,8 @@ pub struct Issue {
 pub struct IssueDetail {
     pub repo_owner_name: String,
     pub number: u64,
+    /// GraphQL node id (e.g. `I_kwDO...`); required for `deleteIssue`.
+    pub node_id: String,
     pub title: String,
     pub state: IssueState,
     pub author_login: String,

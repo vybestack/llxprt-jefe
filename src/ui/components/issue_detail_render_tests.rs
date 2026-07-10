@@ -13,6 +13,7 @@ fn issue_detail_with_comment() -> IssueDetail {
     IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 94,
+        node_id: String::new(),
         title: "Migrate issue composers".to_string(),
         state: IssueState::Open,
         author_login: "octocat".to_string(),

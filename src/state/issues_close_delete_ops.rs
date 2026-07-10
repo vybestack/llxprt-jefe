@@ -1,0 +1,338 @@
+//! Issue close + delete lifecycle state operations (issue #182).
+//!
+//! Mirrors `prs_merge_ops.rs`. Owns the delete-confirm overlay transitions
+//! (open/arm/confirm/cancel) and the close/delete result lifecycle
+//! (IssueClosed/IssueDeleted/MutationFailed). All transitions are
+//! deterministic and side-effect-free.
+
+use super::{
+    AppEvent, AppState, InlineState, IssueDeleteConfirmState, IssueLifecycleMutationPending,
+    ReadOnlyHintKind,
+};
+use crate::domain::{IssueState, RepositoryId};
+
+impl AppState {
+    /// Apply an issue close/delete lifecycle event (returns handled).
+    pub(super) fn apply_issue_close_delete_event(&mut self, event: &AppEvent) -> bool {
+        match event {
+            AppEvent::CloseIssue => {
+                self.begin_issue_close();
+                true
+            }
+            AppEvent::OpenDeleteIssueConfirm => {
+                self.open_issue_delete_confirm();
+                true
+            }
+            AppEvent::IssueDeleteConfirm => {
+                self.confirm_issue_delete();
+                true
+            }
+            AppEvent::IssueDeleteCancel => {
+                self.issues_state.delete_confirm = None;
+                true
+            }
+            AppEvent::IssueClosed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            } => self.apply_issue_closed(scope_repo_id, *issue_number, *mutation_id),
+            AppEvent::IssueDeleted {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            } => self.apply_issue_deleted(scope_repo_id, *issue_number, *mutation_id),
+            AppEvent::MutationFailed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                error,
+            } => self.apply_lifecycle_mutation_failed(
+                scope_repo_id,
+                *issue_number,
+                *mutation_id,
+                error,
+            ),
+            _ => false,
+        }
+    }
+
+    /// Resolve the focused issue number (list selection or detail).
+    fn focused_issue_number(&self) -> Option<u64> {
+        if let Some(detail) = &self.issues_state.issue_detail {
+            return Some(detail.number);
+        }
+        self.issues_state
+            .selected_issue_index
+            .and_then(|idx| self.issues_state.issues.get(idx))
+            .map(|issue| issue.number)
+    }
+
+    /// Resolve the focused issue's state (list row or detail).
+    fn focused_issue_state(&self) -> Option<IssueState> {
+        if let Some(detail) = &self.issues_state.issue_detail {
+            return Some(detail.state);
+        }
+        self.issues_state
+            .selected_issue_index
+            .and_then(|idx| self.issues_state.issues.get(idx))
+            .map(|issue| issue.state)
+    }
+
+    /// Begin a close mutation on the focused issue.
+    fn begin_issue_close(&mut self) {
+        if self.issues_state.inline_state != InlineState::None
+            || self.issues_state.agent_chooser.is_some()
+            || self.issues_state.delete_confirm.is_some()
+            || self.issues_state.close_mutation_pending.is_some()
+            || self.issues_state.delete_mutation_pending.is_some()
+        {
+            return;
+        }
+        let Some(state) = self.focused_issue_state() else {
+            self.show_issue_notice(ReadOnlyHintKind::NoIssueFocused);
+            return;
+        };
+        if state == IssueState::Closed {
+            self.show_issue_notice(ReadOnlyHintKind::IssueAlreadyClosed);
+            return;
+        }
+        let Some(issue_number) = self.focused_issue_number() else {
+            self.show_issue_notice(ReadOnlyHintKind::NoIssueFocused);
+            return;
+        };
+        let scope = self.current_issue_scope_repo_id();
+        let mutation_id = self.next_issue_mutation_id();
+        self.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
+            scope_repo_id: scope,
+            mutation_id,
+            issue_number,
+            node_id: None,
+        });
+    }
+
+    /// Open the delete confirm overlay (precondition: issue focused, no overlays).
+    fn open_issue_delete_confirm(&mut self) {
+        if self.issues_state.inline_state != InlineState::None
+            || self.issues_state.agent_chooser.is_some()
+            || self.issues_state.delete_confirm.is_some()
+            || self.issues_state.close_mutation_pending.is_some()
+            || self.issues_state.delete_mutation_pending.is_some()
+        {
+            return;
+        }
+        let Some(issue_number) = self.focused_issue_number() else {
+            self.show_issue_notice(ReadOnlyHintKind::NoIssueFocused);
+            return;
+        };
+        self.issues_state.delete_confirm = Some(IssueDeleteConfirmState {
+            issue_number,
+            awaiting_confirmation: false,
+        });
+    }
+
+    /// Confirm the delete: first Enter arms confirmation; second Enter dispatches.
+    fn confirm_issue_delete(&mut self) {
+        let Some(confirm) = &mut self.issues_state.delete_confirm else {
+            return;
+        };
+        if !confirm.awaiting_confirmation {
+            confirm.awaiting_confirmation = true;
+            return;
+        }
+        let issue_number = confirm.issue_number;
+        let scope = self.current_issue_scope_repo_id();
+        let node_id = self.focused_issue_node_id(issue_number).unwrap_or_default();
+        if node_id.is_empty() {
+            self.issues_state.delete_confirm = None;
+            self.issues_state.error = Some("Cannot delete: issue node id unavailable".to_string());
+            return;
+        }
+        let mutation_id = self.next_issue_mutation_id();
+        self.issues_state.delete_confirm = None;
+        self.issues_state.delete_mutation_pending = Some(IssueLifecycleMutationPending {
+            scope_repo_id: scope,
+            mutation_id,
+            issue_number,
+            node_id: Some(node_id),
+        });
+    }
+
+    /// Resolve the node id for a given issue number (from list or detail).
+    fn focused_issue_node_id(&self, issue_number: u64) -> Option<String> {
+        if let Some(detail) = &self.issues_state.issue_detail
+            && detail.number == issue_number
+        {
+            return Some(detail.node_id.clone());
+        }
+        self.issues_state
+            .issues
+            .iter()
+            .find(|issue| issue.number == issue_number)
+            .map(|issue| issue.node_id.clone())
+    }
+
+    /// Apply a successful close: update list + detail state, clear pending.
+    /// Returns `true` (handled) even on mutation-id mismatch — a stale result is
+    /// gracefully ignored (the pending is kept) rather than treated as unhandled.
+    fn apply_issue_closed(
+        &mut self,
+        scope_repo_id: &RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
+    ) -> bool {
+        let pending_matches = self
+            .issues_state
+            .close_mutation_pending
+            .as_ref()
+            .is_some_and(|p| {
+                p.mutation_id == mutation_id
+                    && p.scope_repo_id == *scope_repo_id
+                    && p.issue_number == issue_number
+            });
+        if !pending_matches {
+            return true;
+        }
+        self.issues_state.close_mutation_pending = None;
+        if let Some(issue) = self
+            .issues_state
+            .issues
+            .iter_mut()
+            .find(|i| i.number == issue_number)
+        {
+            issue.state = IssueState::Closed;
+        }
+        if let Some(detail) = &mut self.issues_state.issue_detail
+            && detail.number == issue_number
+        {
+            detail.state = IssueState::Closed;
+        }
+        self.issues_state.draft_notice = Some(format!("Closed issue #{issue_number}"));
+        true
+    }
+
+    /// Apply a successful delete: remove from list, clear detail, clear pending.
+    /// Returns `true` (handled) even on mutation-id mismatch — a stale result is
+    /// gracefully ignored (the pending is kept) rather than treated as unhandled.
+    fn apply_issue_deleted(
+        &mut self,
+        scope_repo_id: &RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
+    ) -> bool {
+        let pending_matches = self
+            .issues_state
+            .delete_mutation_pending
+            .as_ref()
+            .is_some_and(|p| {
+                p.mutation_id == mutation_id
+                    && p.scope_repo_id == *scope_repo_id
+                    && p.issue_number == issue_number
+            });
+        if !pending_matches {
+            return true;
+        }
+        self.issues_state.delete_mutation_pending = None;
+        self.issues_state
+            .issues
+            .retain(|issue| issue.number != issue_number);
+        if self
+            .issues_state
+            .issue_detail
+            .as_ref()
+            .is_some_and(|detail| detail.number == issue_number)
+        {
+            self.issues_state.issue_detail = None;
+            self.issues_state.issue_focus = super::IssueFocus::IssueList;
+        }
+        self.fix_issue_selection_after_delete();
+        self.issues_state.draft_notice = Some(format!("Deleted issue #{issue_number}"));
+        true
+    }
+
+    /// Fix the selected issue index after a delete removes the focused row.
+    fn fix_issue_selection_after_delete(&mut self) {
+        if self.issues_state.issues.is_empty() {
+            self.issues_state.selected_issue_index = None;
+            return;
+        }
+        let max_idx = self.issues_state.issues.len() - 1;
+        if let Some(idx) = self.issues_state.selected_issue_index
+            && idx > max_idx
+        {
+            self.issues_state.selected_issue_index = Some(max_idx);
+        }
+    }
+
+    /// Apply a lifecycle mutation failure: clear the matching pending + set error.
+    ///
+    /// Matches on the FULL operation identity (mutation id + scope + issue
+    /// number) so an asynchronous failure for a different scope/issue cannot
+    /// clear a lifecycle pending or display a wrong scoped error.
+    fn apply_lifecycle_mutation_failed(
+        &mut self,
+        scope_repo_id: &RepositoryId,
+        issue_number: Option<u64>,
+        mutation_id: Option<u64>,
+        error: &str,
+    ) -> bool {
+        let Some(mid) = mutation_id else {
+            return false;
+        };
+        let close_matches = self
+            .issues_state
+            .close_mutation_pending
+            .as_ref()
+            .is_some_and(|p| {
+                p.mutation_id == mid
+                    && p.scope_repo_id == *scope_repo_id
+                    && issue_number == Some(p.issue_number)
+            });
+        let delete_matches = self
+            .issues_state
+            .delete_mutation_pending
+            .as_ref()
+            .is_some_and(|p| {
+                p.mutation_id == mid
+                    && p.scope_repo_id == *scope_repo_id
+                    && issue_number == Some(p.issue_number)
+            });
+        if !close_matches && !delete_matches {
+            return false;
+        }
+        if close_matches {
+            self.issues_state.close_mutation_pending = None;
+        }
+        if delete_matches {
+            self.issues_state.delete_mutation_pending = None;
+        }
+        let num_str = issue_number.map_or_else(String::new, |n| format!("#{n} "));
+        self.issues_state.error = Some(format!(
+            "Failed to mutate issue {num_str}for {}: {error}",
+            scope_repo_id.0
+        ));
+        true
+    }
+
+    /// Allocate the next monotonic mutation id (shared with inline mutations).
+    fn next_issue_mutation_id(&mut self) -> u64 {
+        self.issues_state.next_mutation_id = self.issues_state.next_mutation_id.saturating_add(1);
+        self.issues_state.next_mutation_id
+    }
+
+    /// Resolve the scope repository ID for the currently-selected repository.
+    fn current_issue_scope_repo_id(&self) -> RepositoryId {
+        self.selected_repository_index
+            .and_then(|idx| self.repositories.get(idx))
+            .map_or_else(|| RepositoryId(String::new()), |r| r.id.clone())
+    }
+
+    /// Set a draft_notice for a read-only hint kind.
+    fn show_issue_notice(&mut self, kind: ReadOnlyHintKind) {
+        let text = match kind {
+            ReadOnlyHintKind::IssueAlreadyClosed => "Issue is already closed".to_string(),
+            ReadOnlyHintKind::NoIssueFocused => "No issue selected".to_string(),
+            _ => "Action not available".to_string(),
+        };
+        self.issues_state.draft_notice = Some(text);
+    }
+}

@@ -426,6 +426,7 @@ mod tests {
         IssueDetail {
             repo_owner_name: "owner/repo".to_string(),
             number: 1,
+            node_id: String::new(),
             title: "Title".to_string(),
             state: IssueState::Open,
             author_login: "octocat".to_string(),
