@@ -7,7 +7,6 @@ research/
 # Build artifacts and local runtime scratch
 /target/
 /tmp/
-/.llxprt/
 # Coverage instrumentation artifacts (cargo-llvm-cov / --profraw)
 *.profraw
 *.profdata
