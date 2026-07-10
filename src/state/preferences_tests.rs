@@ -9,6 +9,7 @@ use crate::domain::{
 };
 use crate::state::AppState;
 use crate::state::types::{AppEvent, ScreenMode};
+use crate::state::{ISSUE_FILTER_FIELD_COUNT, PR_FILTER_FIELD_COUNT};
 
 use super::prs_test_fixtures::prs_state_with_detail;
 
@@ -146,12 +147,25 @@ fn pr_clear_filter_persists_open_default() {
     let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
     state.screen_mode = ScreenMode::DashboardPullRequests;
     state.prs_state.active = true;
+    // Seed a search query so we can prove ClearFilter also clears it.
+    state.prs_state.search_query = "stale query".to_string();
 
     let state = state.apply(AppEvent::PrClearFilter);
     let stored = state
         .user_preferences
         .for_repo(&RepositoryId("repo-1".to_string()));
     assert_eq!(stored.pr_filter.state, Some(PrFilterState::Open));
+    // Clearing all filters must also clear the persisted search query so the
+    // restored state stays consistent (issue #163).
+    assert!(
+        stored.pr_search_query.is_empty(),
+        "PrClearFilter must clear the search query, got: {}",
+        stored.pr_search_query
+    );
+    assert!(
+        state.prs_state.search_query.is_empty(),
+        "live search_query must be cleared by PrClearFilter"
+    );
 }
 
 #[test]
@@ -283,6 +297,8 @@ fn issue_clear_filter_persists() {
     let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
     state.screen_mode = ScreenMode::DashboardIssues;
     state.issues_state.active = true;
+    // Seed a search query so we can prove ClearFilter also clears it.
+    state.issues_state.search_query = "stale query".to_string();
 
     let state = state.apply(AppEvent::ClearFilter);
     let stored = state
@@ -295,6 +311,34 @@ fn issue_clear_filter_persists() {
             state: Some(IssueFilterState::Open),
             ..IssueFilter::default()
         }
+    );
+    // Clearing all filters must also clear the persisted search query so the
+    // restored state stays consistent (issue #163).
+    assert!(
+        stored.issue_search_query.is_empty(),
+        "ClearFilter must clear the search query, got: {}",
+        stored.issue_search_query
+    );
+    assert!(
+        state.issues_state.search_query.is_empty(),
+        "live search_query must be cleared by ClearFilter"
+    );
+}
+
+#[test]
+fn issue_clear_draft_filter_defaults_to_open() {
+    // ClearDraftFilter resets the in-progress draft to the Open default (issue
+    // #163: the filter-state default is Open, matching ClearFilter).
+    let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
+    state.screen_mode = ScreenMode::DashboardIssues;
+    state.issues_state.active = true;
+    state.issues_state.draft_filter.state = Some(IssueFilterState::Closed);
+
+    let state = state.apply(AppEvent::ClearDraftFilter);
+    assert_eq!(
+        state.issues_state.draft_filter.state,
+        Some(IssueFilterState::Open),
+        "ClearDraftFilter must reset the draft state to the Open default"
     );
 }
 
@@ -576,7 +620,7 @@ fn pr_repo_switch_persists_old_search_before_switch() {
 /// on mode entry so it cannot drive the filter cursor out of bounds.
 #[test]
 fn restore_clamps_stale_pr_filter_field_index() {
-    // Seed an out-of-range pr_filter_field_index (well beyond 8 fields).
+    // Seed an out-of-range pr_filter_field_index (well beyond the field count).
     let prefs = RepoPreferences {
         pr_filter_field_index: 999,
         ..RepoPreferences::default()
@@ -584,7 +628,7 @@ fn restore_clamps_stale_pr_filter_field_index() {
     let state = state_with_repo_and_prefs("repo-1", prefs);
     let state = state.apply(AppEvent::EnterPrsMode);
     assert!(
-        state.prs_state.filter_ui.field_index < 8,
+        state.prs_state.filter_ui.field_index < PR_FILTER_FIELD_COUNT,
         "restored field_index must be clamped within the valid field range"
     );
 }
@@ -599,7 +643,7 @@ fn restore_clamps_stale_issue_filter_field_index() {
     let state = state_with_repo_and_prefs("repo-1", prefs);
     let state = state.apply(AppEvent::EnterIssuesMode);
     assert!(
-        state.issues_state.filter_ui.field_index < 8,
+        state.issues_state.filter_ui.field_index < ISSUE_FILTER_FIELD_COUNT,
         "restored field_index must be clamped within the valid field range"
     );
 }

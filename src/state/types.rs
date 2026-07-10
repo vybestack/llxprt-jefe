@@ -396,6 +396,9 @@ pub struct IssueLoadingState {
 
 pub const ISSUE_FILTER_FIELD_COUNT: usize = 8;
 
+/// Number of PR filter fields for FilterNavigate wrap (issue #163).
+pub const PR_FILTER_FIELD_COUNT: usize = 8;
+
 #[derive(Debug, Clone, Default)]
 pub struct IssueFilterUiState {
     pub controls_open: bool,

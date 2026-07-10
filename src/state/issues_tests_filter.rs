@@ -253,7 +253,14 @@ fn test_clear_draft_filter_keeps_controls_open_and_resets_draft() {
 
     let state = populated.apply(AppEvent::ClearDraftFilter);
 
-    assert_eq!(state.issues_state.draft_filter, IssueFilter::default());
+    // ClearDraftFilter resets the draft to the Open default (issue #163).
+    assert_eq!(
+        state.issues_state.draft_filter,
+        IssueFilter {
+            state: Some(IssueFilterState::Open),
+            ..IssueFilter::default()
+        }
+    );
     assert_eq!(
         state.issues_state.committed_filter.author,
         "committed-author"

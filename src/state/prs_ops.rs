@@ -18,8 +18,7 @@ use super::{
 use crate::domain::{PrFilter, PrFilterState};
 use crate::messages::PullRequestsMessage;
 
-/// Number of PR filter fields for FilterNavigate wrap.
-const PR_FILTER_FIELD_COUNT: usize = 8;
+use crate::state::PR_FILTER_FIELD_COUNT;
 
 impl AppState {
     /// Enter PR mode: save prior focus, set active, clear data, set default filter.
@@ -270,15 +269,25 @@ impl AppState {
                 true
             }
             AppEvent::PrClearFilter => {
-                self.prs_state.committed_filter = PrFilter::default();
-                self.prs_state.committed_filter.state = Some(PrFilterState::Open);
-                self.prs_state.draft_filter = self.prs_state.committed_filter.clone();
-                self.reload_pr_list_for_filter_change();
-                self.remember_pr_preferences();
+                self.clear_pr_filter();
                 true
             }
             _ => false,
         }
+    }
+
+    /// Reset the committed/draft PR filters to the Open default, clear the
+    /// search query, and persist the result (issue #163).
+    fn clear_pr_filter(&mut self) {
+        self.prs_state.committed_filter = PrFilter::default();
+        self.prs_state.committed_filter.state = Some(PrFilterState::Open);
+        self.prs_state.draft_filter = self.prs_state.committed_filter.clone();
+        // Clearing all filters also clears the search query so the persisted
+        // state stays consistent.
+        self.prs_state.search_query.clear();
+        self.prs_state.search_input_focused = false;
+        self.reload_pr_list_for_filter_change();
+        self.remember_pr_preferences();
     }
 
     /// Handle draft filter field updates.

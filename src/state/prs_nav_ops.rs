@@ -50,7 +50,6 @@ impl AppState {
         // Persist the OLD repo's filter/search/cursor before move_repo_selection
         // changes the selected index (issue #163). Idempotent on a no-op move.
         self.remember_pr_preferences();
-        self.remember_pr_filter_field_index();
         if self.move_repo_selection(crate::messages::NavDir::Up) {
             self.reset_prs_for_repo_change();
         }
@@ -65,7 +64,6 @@ impl AppState {
         // Persist the OLD repo's filter/search/cursor before move_repo_selection
         // changes the selected index (issue #163). Idempotent on a no-op move.
         self.remember_pr_preferences();
-        self.remember_pr_filter_field_index();
         if self.move_repo_selection(crate::messages::NavDir::Down) {
             self.reset_prs_for_repo_change();
         }

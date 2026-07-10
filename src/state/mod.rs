@@ -120,37 +120,44 @@ impl AppState {
     /// Snapshot the current issue filter/search/field-index into per-repo
     /// preferences (issue #163). No-op when no repo is selected.
     pub(super) fn remember_issue_preferences(&mut self) {
-        if let Some(repo_id) = self.current_repo_id() {
-            let mut prefs = self.user_preferences.for_repo(&repo_id);
-            prefs.issue_filter = self.issues_state.committed_filter.clone();
-            prefs
-                .issue_search_query
-                .clone_from(&self.issues_state.search_query);
-            prefs.issue_filter_field_index = self.issues_state.filter_ui.field_index;
-            self.user_preferences.update_for_repo(&repo_id, prefs);
-        }
+        let Some(repo_id) = self.current_repo_id() else {
+            return;
+        };
+        let filter = self.issues_state.committed_filter.clone();
+        let search_query = self.issues_state.search_query.clone();
+        let field_index = self.issues_state.filter_ui.field_index;
+        self.user_preferences
+            .update_field_for_repo(&repo_id, |prefs| {
+                prefs.issue_filter = filter;
+                prefs.issue_search_query = search_query;
+                prefs.issue_filter_field_index = field_index;
+            });
     }
 
     /// Snapshot the current PR filter/search/field-index into per-repo
     /// preferences (issue #163). No-op when no repo is selected.
     pub(super) fn remember_pr_preferences(&mut self) {
-        if let Some(repo_id) = self.current_repo_id() {
-            let mut prefs = self.user_preferences.for_repo(&repo_id);
-            prefs.pr_filter = self.prs_state.committed_filter.clone();
-            prefs
-                .pr_search_query
-                .clone_from(&self.prs_state.search_query);
-            prefs.pr_filter_field_index = self.prs_state.filter_ui.field_index;
-            self.user_preferences.update_for_repo(&repo_id, prefs);
-        }
+        let Some(repo_id) = self.current_repo_id() else {
+            return;
+        };
+        let filter = self.prs_state.committed_filter.clone();
+        let search_query = self.prs_state.search_query.clone();
+        let field_index = self.prs_state.filter_ui.field_index;
+        self.user_preferences
+            .update_field_for_repo(&repo_id, |prefs| {
+                prefs.pr_filter = filter;
+                prefs.pr_search_query = search_query;
+                prefs.pr_filter_field_index = field_index;
+            });
     }
 
     /// Record the confirmed merge method for the current repo (issue #163).
     pub(super) fn remember_merge_method(&mut self, method: MergeMethod) {
         if let Some(repo_id) = self.current_repo_id() {
-            let mut prefs = self.user_preferences.for_repo(&repo_id);
-            prefs.last_merge_method = method;
-            self.user_preferences.update_for_repo(&repo_id, prefs);
+            self.user_preferences
+                .update_field_for_repo(&repo_id, |prefs| {
+                    prefs.last_merge_method = method;
+                });
         }
     }
 
