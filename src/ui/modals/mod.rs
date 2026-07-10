@@ -7,4 +7,7 @@ mod confirm;
 mod help;
 
 pub use confirm::{ConfirmModal, ConfirmModalProps};
-pub use help::{HelpModal, HelpModalProps, help_content_lines, help_viewport_rows};
+pub use help::{
+    HELP_CHROME_ROWS, HELP_MODAL_WIDTH, HELP_TITLE, HelpModal, HelpModalProps, help_content_lines,
+    help_viewport_rows,
+};

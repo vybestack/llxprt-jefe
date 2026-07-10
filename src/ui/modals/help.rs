@@ -79,7 +79,12 @@ pub struct HelpModalProps {
 
 /// Vertical chrome consumed outside the scroll viewport: border (2) + padding
 /// (2) + title (2) + footer (1).
-const HELP_CHROME_ROWS: u16 = 7;
+pub const HELP_CHROME_ROWS: u16 = 7;
+/// Modal width (columns). Used by both the renderer and the selection geometry.
+pub const HELP_MODAL_WIDTH: u16 = 60;
+/// Title displayed at the top of the help modal. Used by both the renderer
+/// and the selection content projection so they never drift.
+pub const HELP_TITLE: &str = "Help - Keyboard Shortcuts";
 /// Minimum lines shown at once (keeps the modal usable on short terminals).
 const HELP_MIN_VIEWPORT: usize = 8;
 /// Maximum lines shown at once even on very tall terminals.
@@ -141,7 +146,7 @@ pub fn HelpModal(props: &HelpModalProps) -> impl Into<AnyElement<'static>> {
             // Title
             Box(height: 2u32, background_color: rc.bg) {
                 Text(
-                    content: "Help - Keyboard Shortcuts",
+                    content: HELP_TITLE,
                     weight: Weight::Bold,
                     color: rc.fg,
                 )

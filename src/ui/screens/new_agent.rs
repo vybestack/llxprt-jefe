@@ -11,6 +11,7 @@ use crate::selection::SelectablePane;
 use crate::state::{AgentFormCursor, AgentFormFocus, AppState, ModalState};
 use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
 use crate::ui::components::selectable_line;
+use crate::ui::util::text_with_caret;
 
 /// Props for the new agent form.
 #[derive(Default, Props)]
@@ -19,22 +20,6 @@ pub struct NewAgentFormProps {
     pub state: Option<AppState>,
     /// Theme colors.
     pub colors: Option<ThemeColors>,
-}
-
-fn render_text_with_caret(value: &str, cursor: usize) -> String {
-    let char_len = value.chars().count();
-    let clamped = cursor.min(char_len);
-
-    let byte_idx = if clamped == 0 {
-        0
-    } else {
-        value
-            .char_indices()
-            .nth(clamped)
-            .map_or_else(|| value.len(), |(idx, _)| idx)
-    };
-
-    format!("{}▏{}", &value[..byte_idx], &value[byte_idx..])
 }
 
 /// Form for creating/editing an agent.
@@ -156,7 +141,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     {
         let is_focused = focus == *field_focus;
         let rendered_value = if is_focused && *field_focus != AgentFormFocus::Shortcut {
-            render_text_with_caret(value, *field_cursor)
+            text_with_caret(value, *field_cursor)
         } else {
             (*value).to_owned()
         };
@@ -250,7 +235,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     let flags_focused = focus == AgentFormFocus::SandboxFlags;
     let flags_color = if flags_focused { rc.bright } else { rc.fg };
     let flags_value = if flags_focused {
-        render_text_with_caret(&fields.sandbox_flags, cursor.sandbox_flags)
+        text_with_caret(&fields.sandbox_flags, cursor.sandbox_flags)
     } else {
         fields.sandbox_flags.clone()
     };

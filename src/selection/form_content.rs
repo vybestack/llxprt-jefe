@@ -14,25 +14,10 @@ use crate::state::{
     AgentFormCursor, AgentFormFields, AgentFormFocus, AppState, ModalState, RepositoryFormCursor,
     RepositoryFormFields, RepositoryFormFocus,
 };
+use crate::ui::util::text_with_caret;
 
 const AGENT_HINT: &str = "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles/cycles checkboxes  Enter submit  Esc cancel";
 const REPO_HINT: &str = "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles remote options  Enter submit  Esc cancel";
-
-/// Insert the caret character `▏` at `cursor` position in `value`, mirroring
-/// the `render_text_with_caret` function used by the iocraft form components.
-fn text_with_caret(value: &str, cursor: usize) -> String {
-    let char_len = value.chars().count();
-    let clamped = cursor.min(char_len);
-    let byte_idx = if clamped == 0 {
-        0
-    } else {
-        value
-            .char_indices()
-            .nth(clamped)
-            .map_or_else(|| value.len(), |(idx, _)| idx)
-    };
-    format!("{}▏{}", &value[..byte_idx], &value[byte_idx..])
-}
 
 /// Render a single form field row: `  {label:<16} [{value}]`.
 fn render_field(label: &str, value: &str) -> String {

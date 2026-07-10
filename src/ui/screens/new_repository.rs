@@ -10,6 +10,7 @@ use crate::selection::SelectablePane;
 use crate::state::{AppState, ModalState, RepositoryFormCursor, RepositoryFormFocus};
 use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
 use crate::ui::components::selectable_line;
+use crate::ui::util::text_with_caret;
 
 /// Props for the new repository form.
 #[derive(Default, Props)]
@@ -18,22 +19,6 @@ pub struct NewRepositoryFormProps {
     pub state: Option<AppState>,
     /// Theme colors.
     pub colors: Option<ThemeColors>,
-}
-
-fn render_text_with_caret(value: &str, cursor: usize) -> String {
-    let char_len = value.chars().count();
-    let clamped = cursor.min(char_len);
-
-    let byte_idx = if clamped == 0 {
-        0
-    } else {
-        value
-            .char_indices()
-            .nth(clamped)
-            .map_or_else(|| value.len(), |(idx, _)| idx)
-    };
-
-    format!("{}▏{}", &value[..byte_idx], &value[byte_idx..])
 }
 
 /// Form for creating/editing a repository.
@@ -132,7 +117,7 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
     {
         let is_focused = focus == *field_focus;
         let rendered_value = if is_focused {
-            render_text_with_caret(value, *field_cursor)
+            text_with_caret(value, *field_cursor)
         } else {
             (*value).to_owned()
         };
@@ -190,7 +175,7 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
     {
         let is_focused = focus == *field_focus;
         let rendered_value = if is_focused {
-            render_text_with_caret(value, *field_cursor)
+            text_with_caret(value, *field_cursor)
         } else {
             (*value).to_owned()
         };

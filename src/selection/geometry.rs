@@ -460,20 +460,13 @@ fn terminal_view(
     )
 }
 
-/// Help modal fixed width (matches the renderer's `width: 60u32` in
-/// `src/ui/modals/help.rs`). If the renderer width changes, update this too.
-const HELP_MODAL_WIDTH: u16 = 60;
-/// Help modal vertical chrome: border(2) + padding(2) + title(2) + footer(1).
-/// Duplicates `HELP_CHROME_ROWS` in `src/ui/modals/help.rs` — keep in sync.
-const HELP_CHROME_ROWS: u16 = 7;
-
 /// Compute the help modal height for a given terminal row count.
 ///
 /// Delegates to the renderer's `help_viewport_rows` (single source of truth)
 /// and adds the chrome rows, so the geometry matches exactly.
 fn help_modal_height(render_rows: u16) -> u16 {
     let viewport = crate::ui::modals::help_viewport_rows(render_rows);
-    let total = viewport.saturating_add(usize::from(HELP_CHROME_ROWS));
+    let total = viewport.saturating_add(usize::from(crate::ui::modals::HELP_CHROME_ROWS));
     u16::try_from(total.min(usize::from(render_rows)).max(1)).unwrap_or(1)
 }
 
@@ -493,7 +486,7 @@ fn full_screen_overlay_pane(
     let geo = match overlay {
         crate::selection::OverlayPane::HelpModal => {
             let height = help_modal_height(render_rows);
-            PaneGeometry::new(0, 0, HELP_MODAL_WIDTH, height, 2, 2)
+            PaneGeometry::new(0, 0, crate::ui::modals::HELP_MODAL_WIDTH, height, 2, 2)
         }
         crate::selection::OverlayPane::ConfirmModal => PaneGeometry::new(0, 0, 50, 10, 2, 2),
         // AgentForm and RepositoryForm — truly full-screen.
