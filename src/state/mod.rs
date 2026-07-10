@@ -14,6 +14,8 @@ mod issues_load_ops;
 mod issues_mutation_ops;
 mod issues_ops;
 mod modal_ops;
+// Per-repository user-preference snapshot/restore operations (issue #163).
+mod preferences_ops;
 // @plan PLAN-20260624-PR-MODE.P03
 // @requirement REQ-PR-001
 mod prs_inline_ops;
@@ -35,7 +37,7 @@ pub use types::*;
 use tracing::{debug, trace};
 
 use crate::domain::{Agent, AgentId, AgentStatus};
-use crate::domain::{MergeMethod, Repository, RepositoryId};
+use crate::domain::{Repository, RepositoryId};
 use crate::messages::{
     AppMessage, MessageRoute, PersistenceMessage, RuntimeMessage, SystemMessage, ThemeMessage,
     UiNavigationMessage,
@@ -108,84 +110,6 @@ impl AppState {
     fn selected_repository_id(&self) -> Option<&RepositoryId> {
         self.selected_repository_index
             .and_then(|idx| self.repositories.get(idx).map(|repo| &repo.id))
-    }
-
-    /// Clone the currently-selected repository id (issue #163). Thin wrapper
-    /// over `selected_repository_id` for the `remember_*` helpers, which need
-    /// an owned id to resolve the borrow conflict between reading
-    /// `self.repositories` and mutating `self.user_preferences`.
-    pub(super) fn current_repo_id(&self) -> Option<RepositoryId> {
-        self.selected_repository_id().cloned()
-    }
-
-    /// Snapshot the current issue filter/search/field-index into per-repo
-    /// preferences (issue #163). No-op when no repo is selected.
-    pub(super) fn remember_issue_preferences(&mut self) {
-        let Some(repo_id) = self.current_repo_id() else {
-            return;
-        };
-        let filter = self.issues_state.committed_filter.clone();
-        let search_query = self.issues_state.search_query.clone();
-        let field_index = self.issues_state.filter_ui.field_index;
-        self.user_preferences
-            .update_field_for_repo(&repo_id, |prefs| {
-                prefs.issue_filter = filter;
-                prefs.issue_search_query = search_query;
-                prefs.issue_filter_field_index = field_index;
-            });
-    }
-
-    /// Snapshot the current PR filter/search/field-index into per-repo
-    /// preferences (issue #163). No-op when no repo is selected.
-    pub(super) fn remember_pr_preferences(&mut self) {
-        let Some(repo_id) = self.current_repo_id() else {
-            return;
-        };
-        let filter = self.prs_state.committed_filter.clone();
-        let search_query = self.prs_state.search_query.clone();
-        let field_index = self.prs_state.filter_ui.field_index;
-        self.user_preferences
-            .update_field_for_repo(&repo_id, |prefs| {
-                prefs.pr_filter = filter;
-                prefs.pr_search_query = search_query;
-                prefs.pr_filter_field_index = field_index;
-            });
-    }
-
-    /// Record the confirmed merge method for the current repo (issue #163).
-    pub(super) fn remember_merge_method(&mut self, method: MergeMethod) {
-        if let Some(repo_id) = self.current_repo_id() {
-            self.user_preferences
-                .update_field_for_repo(&repo_id, |prefs| {
-                    prefs.last_merge_method = Some(method);
-                });
-        }
-    }
-
-    /// Snapshot the current PR filter field-index into per-repo preferences
-    /// (issue #163). Uses in-place mutation since this fires on every cursor
-    /// keystroke. No-op when no repo is selected.
-    pub(super) fn remember_pr_filter_field_index(&mut self) {
-        if let Some(repo_id) = self.current_repo_id() {
-            let idx = self.prs_state.filter_ui.field_index;
-            self.user_preferences
-                .update_field_for_repo(&repo_id, |prefs| {
-                    prefs.pr_filter_field_index = idx;
-                });
-        }
-    }
-
-    /// Snapshot the current issue filter field-index into per-repo preferences
-    /// (issue #163). Uses in-place mutation since this fires on every cursor
-    /// keystroke. No-op when no repo is selected.
-    pub(super) fn remember_issue_filter_field_index(&mut self) {
-        if let Some(repo_id) = self.current_repo_id() {
-            let idx = self.issues_state.filter_ui.field_index;
-            self.user_preferences
-                .update_field_for_repo(&repo_id, |prefs| {
-                    prefs.issue_filter_field_index = idx;
-                });
-        }
     }
 
     #[must_use]
@@ -568,18 +492,11 @@ impl AppState {
         if idx < self.repositories.len()
             && (!self.hide_idle_repositories || self.visible_repository_indices().contains(&idx))
         {
+            let prev_repo_id = self.current_repo_id();
             self.remember_selected_agent_for_current_repo();
             self.selected_repository_index = Some(idx);
             self.restore_selected_agent_for_current_repo();
-
-            if self.issues_state.active {
-                self.reset_issues_for_repo_change();
-            }
-            // @plan PLAN-20260624-PR-MODE.P05
-            // @requirement REQ-PR-003
-            if self.prs_state.active {
-                self.reset_prs_for_repo_change();
-            }
+            self.sync_preferences_for_repo_change(prev_repo_id);
         }
     }
 
@@ -657,12 +574,14 @@ impl AppState {
             && (!self.hide_idle_repositories
                 || self.visible_repository_indices().contains(&target_repo_idx))
         {
+            let prev_repo_id = self.current_repo_id();
             self.remember_selected_agent_for_current_repo();
             self.selected_repository_index = Some(target_repo_idx);
             self.selected_agent_index = Some(agent_idx);
             self.pane_focus = PaneFocus::Agents;
             self.terminal_focused = false;
             self.remember_selected_agent_for_current_repo();
+            self.sync_preferences_for_repo_change(prev_repo_id);
         }
     }
 

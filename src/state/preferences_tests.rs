@@ -646,3 +646,250 @@ fn restore_clamps_stale_issue_filter_field_index() {
         "restored field_index must be clamped within the valid field range"
     );
 }
+
+// ── Dashboard repo selection must not leak filters across repos (issue #163).
+//    select_repository_by_index (the dashboard / jump-to-agent path) flips the
+//    selected index and then restores the NEW repo's prefs. It must persist
+//    the OLD repo's live filter first, otherwise the OLD repo's selection is
+//    lost AND the live prs_state/issues_state filter is wrongly carried over.
+
+/// Switching repos from the dashboard while PR mode is active must save the
+/// old repo's applied PR filter before restoring the new repo's filter, so
+/// the filter does NOT leak across repos.
+#[test]
+fn pr_dashboard_repo_switch_does_not_leak_filter() {
+    let mut state = state_with_two_repos(
+        "llxprt-code",
+        RepoPreferences::default(),
+        "jefe",
+        RepoPreferences::default(),
+    );
+    // Enter PR mode on repo-1 (llxprt-code).
+    state = state.apply(AppEvent::EnterPrsMode);
+    // Apply a Closed filter on repo-1.
+    state = state.apply(AppEvent::PrOpenFilterControls);
+    state = state.apply(AppEvent::PrCycleFilterState); // Open -> Closed
+    state = state.apply(AppEvent::PrApplyFilter);
+    assert_eq!(
+        state.prs_state.committed_filter.state,
+        Some(PrFilterState::Closed)
+    );
+
+    // Switch to repo-2 (jefe) via the dashboard selection path.
+    state = state.apply(AppEvent::SelectRepository(1));
+
+    // repo-2 must NOT carry repo-1's Closed filter — it must be Open (default).
+    assert_eq!(
+        state.prs_state.committed_filter.state,
+        Some(PrFilterState::Open),
+        "repo-2 (jefe) must not inherit repo-1's (llxprt-code) filter"
+    );
+    // repo-1's filter must have been persisted before the switch.
+    let repo1_prefs = state
+        .user_preferences
+        .for_repo(&RepositoryId("llxprt-code".to_string()));
+    assert_eq!(
+        repo1_prefs.pr_filter.state,
+        Some(PrFilterState::Closed),
+        "repo-1's applied filter must be persisted before the repo switch"
+    );
+}
+
+/// Switching repos from the dashboard while issues mode is active must save
+/// the old repo's applied issue filter before restoring the new repo's.
+#[test]
+fn issue_dashboard_repo_switch_does_not_leak_filter() {
+    let mut state = state_with_two_repos(
+        "llxprt-code",
+        RepoPreferences::default(),
+        "jefe",
+        RepoPreferences::default(),
+    );
+    // Enter issues mode on repo-1 (llxprt-code).
+    state = state.apply(AppEvent::EnterIssuesMode);
+    // Apply a Closed filter on repo-1.
+    state = state.apply(AppEvent::OpenFilterControls);
+    state = state.apply(AppEvent::CycleFilterState); // Open -> Closed
+    state = state.apply(AppEvent::ApplyFilter);
+    assert_eq!(
+        state.issues_state.committed_filter.state,
+        Some(IssueFilterState::Closed)
+    );
+
+    // Switch to repo-2 (jefe) via the dashboard selection path.
+    state = state.apply(AppEvent::SelectRepository(1));
+
+    // repo-2 must NOT carry repo-1's Closed filter.
+    assert_eq!(
+        state.issues_state.committed_filter.state,
+        Some(IssueFilterState::Open),
+        "repo-2 (jefe) must not inherit repo-1's (llxprt-code) filter"
+    );
+    let repo1_prefs = state
+        .user_preferences
+        .for_repo(&RepositoryId("llxprt-code".to_string()));
+    assert_eq!(
+        repo1_prefs.issue_filter.state,
+        Some(IssueFilterState::Closed),
+        "repo-1's applied filter must be persisted before the repo switch"
+    );
+}
+
+/// Switching repos via in-mode RepoList navigation (arrow keys) while PR mode
+/// is active must not leak repo-1's applied filter into repo-2.
+#[test]
+fn pr_inmode_repo_switch_does_not_leak_applied_filter() {
+    use crate::state::PrFocus;
+
+    let mut state = state_with_two_repos(
+        "llxprt-code",
+        RepoPreferences::default(),
+        "jefe",
+        RepoPreferences::default(),
+    );
+    state = state.apply(AppEvent::EnterPrsMode);
+    state.prs_state.pr_focus = PrFocus::RepoList;
+    // Apply a Closed filter on repo-1.
+    state = state.apply(AppEvent::PrOpenFilterControls);
+    state = state.apply(AppEvent::PrCycleFilterState); // Open -> Closed
+    state = state.apply(AppEvent::PrApplyFilter);
+    state.prs_state.pr_focus = PrFocus::RepoList;
+
+    // Switch down to repo-2 (jefe) via in-mode repo navigation.
+    state = state.apply(AppEvent::PrNavigateDown);
+
+    assert_eq!(
+        state.prs_state.committed_filter.state,
+        Some(PrFilterState::Open),
+        "repo-2 (jefe) must not inherit repo-1's (llxprt-code) Closed filter"
+    );
+}
+
+/// Exit PR mode on repo-1, switch to repo-2, re-enter PR mode: repo-2 must
+/// restore its OWN prefs, not repo-1's filter (issue #163 per-repo isolation).
+#[test]
+fn pr_exit_switch_reenter_does_not_leak_filter() {
+    let mut state = state_with_two_repos(
+        "llxprt-code",
+        RepoPreferences::default(),
+        "jefe",
+        RepoPreferences::default(),
+    );
+    // Enter PR mode on repo-1, apply a Closed filter, exit.
+    state = state.apply(AppEvent::EnterPrsMode);
+    state = state.apply(AppEvent::PrOpenFilterControls);
+    state = state.apply(AppEvent::PrCycleFilterState); // Open -> Closed
+    state = state.apply(AppEvent::PrApplyFilter);
+    state = state.apply(AppEvent::ExitPrsMode);
+
+    // Switch to repo-2 (jefe) from the dashboard.
+    state = state.apply(AppEvent::SelectRepository(1));
+    // Re-enter PR mode on repo-2.
+    state = state.apply(AppEvent::EnterPrsMode);
+
+    assert_eq!(
+        state.prs_state.committed_filter.state,
+        Some(PrFilterState::Open),
+        "repo-2 (jefe) must restore its own Open default, not repo-1's Closed"
+    );
+}
+
+/// Jumping to an agent in a different repo while PR mode is active must save
+/// the old repo's filter and restore the new repo's filter — the filter must
+/// NOT leak across repos via the shortcut-jump path (issue #163).
+#[test]
+fn pr_jump_to_agent_in_other_repo_does_not_leak_filter() {
+    use crate::domain::{Agent, AgentId};
+
+    let mut state = state_with_two_repos(
+        "llxprt-code",
+        RepoPreferences::default(),
+        "jefe",
+        RepoPreferences::default(),
+    );
+    // Add an agent in repo-2 (jefe) on shortcut slot 1.
+    state.agents.push(Agent::new(
+        AgentId("jefe-agent".to_string()),
+        RepositoryId("jefe".to_string()),
+        "Jefe Agent".to_string(),
+        std::path::PathBuf::from("/tmp/jefe"),
+    ));
+    state.agents[0].shortcut_slot = Some(1);
+
+    // Enter PR mode on repo-1 (llxprt-code) and apply a Closed filter.
+    state = state.apply(AppEvent::EnterPrsMode);
+    state = state.apply(AppEvent::PrOpenFilterControls);
+    state = state.apply(AppEvent::PrCycleFilterState); // Open -> Closed
+    state = state.apply(AppEvent::PrApplyFilter);
+    assert_eq!(
+        state.prs_state.committed_filter.state,
+        Some(PrFilterState::Closed)
+    );
+
+    // Jump to the jefe agent (slot 1), which switches the selected repo.
+    state = state.apply(AppEvent::JumpToAgentByShortcut(1));
+
+    // repo-2 (jefe) must NOT carry repo-1's Closed filter.
+    assert_eq!(
+        state.prs_state.committed_filter.state,
+        Some(PrFilterState::Open),
+        "repo-2 (jefe) must not inherit repo-1's (llxprt-code) filter via jump"
+    );
+    // repo-1's filter must have been persisted before the jump.
+    let repo1_prefs = state
+        .user_preferences
+        .for_repo(&RepositoryId("llxprt-code".to_string()));
+    assert_eq!(
+        repo1_prefs.pr_filter.state,
+        Some(PrFilterState::Closed),
+        "repo-1's applied filter must be persisted before the jump"
+    );
+}
+
+/// Jumping to an agent in a different repo while issues mode is active must
+/// save the old repo's issue filter and restore the new repo's filter (issue #163).
+#[test]
+fn issue_jump_to_agent_in_other_repo_does_not_leak_filter() {
+    use crate::domain::{Agent, AgentId};
+
+    let mut state = state_with_two_repos(
+        "llxprt-code",
+        RepoPreferences::default(),
+        "jefe",
+        RepoPreferences::default(),
+    );
+    state.agents.push(Agent::new(
+        AgentId("jefe-agent".to_string()),
+        RepositoryId("jefe".to_string()),
+        "Jefe Agent".to_string(),
+        std::path::PathBuf::from("/tmp/jefe"),
+    ));
+    state.agents[0].shortcut_slot = Some(1);
+
+    // Enter issues mode on repo-1 (llxprt-code) and apply a Closed filter.
+    state = state.apply(AppEvent::EnterIssuesMode);
+    state = state.apply(AppEvent::OpenFilterControls);
+    state = state.apply(AppEvent::CycleFilterState); // Open -> Closed
+    state = state.apply(AppEvent::ApplyFilter);
+    assert_eq!(
+        state.issues_state.committed_filter.state,
+        Some(IssueFilterState::Closed)
+    );
+
+    // Jump to the jefe agent (slot 1), which switches the selected repo.
+    state = state.apply(AppEvent::JumpToAgentByShortcut(1));
+
+    assert_eq!(
+        state.issues_state.committed_filter.state,
+        Some(IssueFilterState::Open),
+        "repo-2 (jefe) must not inherit repo-1's (llxprt-code) issue filter via jump"
+    );
+    let repo1_prefs = state
+        .user_preferences
+        .for_repo(&RepositoryId("llxprt-code".to_string()));
+    assert_eq!(
+        repo1_prefs.issue_filter.state,
+        Some(IssueFilterState::Closed),
+        "repo-1's applied issue filter must be persisted before the jump"
+    );
+}
