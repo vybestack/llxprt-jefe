@@ -414,6 +414,53 @@ fn resolve_state_path() -> PathBuf {
     platform_default_state_dir().join("state.json")
 }
 
+/// The config directory used for settings.toml (honors JEFE_SETTINGS_PATH /
+/// JEFE_CONFIG_DIR, falling back to the platform default).
+///
+/// Precedence mirrors `resolve_settings_path()`: JEFE_SETTINGS_PATH's parent
+/// takes priority, then JEFE_CONFIG_DIR, then platform default.
+///
+/// Used by callers (e.g. theme loading) that need to locate sibling
+/// subdirectories like `themes/`.
+#[must_use]
+pub fn default_config_dir() -> PathBuf {
+    resolve_config_dir_from_env(
+        std::env::var("JEFE_SETTINGS_PATH").ok(),
+        std::env::var("JEFE_CONFIG_DIR").ok(),
+    )
+}
+
+/// Pure config-dir resolver from explicit env values (testable without env mutation).
+///
+/// Precedence mirrors `resolve_settings_path()`:
+/// 1. `jefe_settings_path`'s parent directory
+/// 2. `jefe_config_dir`
+/// 3. Platform default
+#[must_use]
+fn resolve_config_dir_from_env(
+    jefe_settings_path: Option<String>,
+    jefe_config_dir: Option<String>,
+) -> PathBuf {
+    if let Some(path) = jefe_settings_path.filter(|s| !s.is_empty())
+        && let Some(parent) = PathBuf::from(path).parent()
+        && !parent.as_os_str().is_empty()
+    {
+        return parent.to_path_buf();
+    }
+    if let Some(dir) = jefe_config_dir.filter(|s| !s.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    platform_default_config_dir()
+}
+
+/// The default themes directory: `<config_dir>/themes`.
+///
+/// This is where custom JSON theme files are loaded from.
+#[must_use]
+pub fn default_themes_dir() -> PathBuf {
+    default_config_dir().join("themes")
+}
+
 /// Platform-specific config directory.
 ///
 /// - macOS: ~/Library/Application Support/jefe
@@ -446,6 +493,9 @@ pub trait PersistenceManager {
 
     /// Save state atomically.
     fn save_state(&self, state: &State) -> Result<(), PersistenceError>;
+
+    /// Return the path where settings are stored.
+    fn settings_path(&self) -> PathBuf;
 }
 
 /// Stub implementation of PersistenceManager for testing.
@@ -484,6 +534,13 @@ impl PersistenceManager for StubPersistenceManager {
         // Stub: no-op
         Ok(())
     }
+
+    fn settings_path(&self) -> PathBuf {
+        self.paths.as_ref().map_or_else(
+            || PathBuf::from("settings.toml"),
+            |p| p.settings_path.clone(),
+        )
+    }
 }
 
 /// Real file-based implementation of PersistenceManager.
@@ -519,6 +576,17 @@ impl FilePersistenceManager {
     #[must_use]
     pub fn paths_ref(&self) -> &PersistencePaths {
         &self.paths
+    }
+
+    /// Serialize and save settings to a specific path (static helper for
+    /// use outside a mutex lock).
+    pub fn save_settings_to(
+        settings: &Settings,
+        path: &std::path::Path,
+    ) -> Result<(), PersistenceError> {
+        let content = toml::to_string_pretty(settings)
+            .map_err(|e| PersistenceError::SerializeError(format!("serialize settings: {e}")))?;
+        Self::atomic_write(path, &content)
     }
 
     /// Atomic write: write to temp file, then rename.
@@ -607,6 +675,10 @@ impl PersistenceManager for FilePersistenceManager {
             .map_err(|e| PersistenceError::SerializeError(format!("serialize state: {e}")))?;
 
         Self::atomic_write(&self.paths.state_path, &content)
+    }
+
+    fn settings_path(&self) -> PathBuf {
+        self.paths.settings_path.clone()
     }
 }
 

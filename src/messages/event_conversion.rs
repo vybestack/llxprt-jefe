@@ -116,6 +116,17 @@ impl AppMessage {
             }
             AppEvent::SetTheme(theme) => Self::Theme(ThemeMessage::SetTheme(theme)),
             AppEvent::ThemeResolveFailed(error) => Self::Theme(ThemeMessage::ResolveFailed(error)),
+            AppEvent::OpenThemePicker {
+                available_themes,
+                active_slug,
+            } => Self::Theme(ThemeMessage::OpenThemePicker {
+                available_themes,
+                active_slug,
+            }),
+            AppEvent::ThemePickerNavigateUp => Self::Theme(ThemeMessage::PickerNavigateUp),
+            AppEvent::ThemePickerNavigateDown => Self::Theme(ThemeMessage::PickerNavigateDown),
+            AppEvent::ThemePickerConfirm => Self::Theme(ThemeMessage::PickerConfirm),
+            AppEvent::CloseThemePicker => Self::Theme(ThemeMessage::PickerCancel),
             AppEvent::Quit => Self::System(SystemMessage::Quit),
             AppEvent::ClearError => Self::System(SystemMessage::ClearError),
             AppEvent::ClearWarning => Self::System(SystemMessage::ClearWarning),
@@ -334,6 +345,17 @@ impl From<ThemeMessage> for AppEvent {
         match message {
             ThemeMessage::SetTheme(theme) => Self::SetTheme(theme),
             ThemeMessage::ResolveFailed(error) => Self::ThemeResolveFailed(error),
+            ThemeMessage::OpenThemePicker {
+                available_themes,
+                active_slug,
+            } => Self::OpenThemePicker {
+                available_themes,
+                active_slug,
+            },
+            ThemeMessage::PickerNavigateUp => Self::ThemePickerNavigateUp,
+            ThemeMessage::PickerNavigateDown => Self::ThemePickerNavigateDown,
+            ThemeMessage::PickerConfirm => Self::ThemePickerConfirm,
+            ThemeMessage::PickerCancel => Self::CloseThemePicker,
         }
     }
 }

@@ -35,7 +35,9 @@ use agent_runtime::{
     worker_pid_for,
 };
 
-pub use modal_handlers::{handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key};
+pub use modal_handlers::{
+    handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key, handle_mode_theme_picker_key,
+};
 
 pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
 

@@ -147,7 +147,7 @@ pub fn handle_normal_key_event(
     if let KeyHandling::Handled(event) = resolve_enter_key(key_event, &snapshot) {
         return event;
     }
-    if let KeyHandling::Handled(event) = handle_theme_key(ctx, key_event) {
+    if let KeyHandling::Handled(event) = handle_theme_key(app_state, ctx, key_event, screen_mode) {
         return event;
     }
 
@@ -572,19 +572,33 @@ fn resolve_enter_key(key_event: &KeyEvent, snapshot: &NormalKeySnapshot) -> KeyH
     KeyHandling::Handled(event)
 }
 
-fn handle_theme_key(ctx: &SharedContext, key_event: &KeyEvent) -> KeyHandling {
-    let theme = match key_event.code {
-        KeyCode::Char('1') => "green-screen",
-        KeyCode::Char('2') => "dracula",
-        KeyCode::Char('3') => "default-dark",
-        _ => return KeyHandling::Unhandled,
+fn handle_theme_key(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    key_event: &KeyEvent,
+    screen_mode: ScreenMode,
+) -> KeyHandling {
+    // F9 opens the theme picker (Dashboard mode only). F11 is avoided because
+    // macOS (and several Linux DEs) intercept it for Show Desktop / fullscreen.
+    if key_event.code != KeyCode::F(9) || screen_mode != ScreenMode::Dashboard {
+        return KeyHandling::Unhandled;
+    }
+
+    let event = if let Some(ctx_arc) = &ctx
+        && let Ok(ctx_guard) = ctx_arc.lock()
+    {
+        let available = ctx_guard.theme_manager.themes_with_names();
+        let active = ctx_guard.theme_manager.active_theme().slug.clone();
+        AppEvent::OpenThemePicker {
+            available_themes: available,
+            active_slug: active,
+        }
+    } else {
+        return KeyHandling::Unhandled;
     };
 
-    if let Some(ctx_arc) = &ctx
-        && let Ok(mut ctx_guard) = ctx_arc.lock()
-    {
-        let _ = ctx_guard.theme_manager.set_active(theme);
-    }
+    // apply_and_persist internally locks ctx, so the guard above must be dropped.
+    super::apply_and_persist(app_state, ctx, event);
     KeyHandling::Handled(None)
 }
 

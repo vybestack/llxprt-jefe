@@ -25,6 +25,7 @@ mod prs_ops;
 mod prs_thread_ops;
 mod selectors;
 pub mod state_ops;
+pub mod theme_picker_view;
 mod types;
 mod util;
 
@@ -675,6 +676,41 @@ impl AppState {
         match message {
             ThemeMessage::ResolveFailed(msg) => self.warning_message = Some(msg),
             ThemeMessage::SetTheme(_) => {}
+            ThemeMessage::OpenThemePicker {
+                available_themes,
+                active_slug,
+            } => {
+                let selected_index = available_themes
+                    .iter()
+                    .position(|(slug, _)| *slug == active_slug)
+                    .unwrap_or(0);
+                self.modal = ModalState::ThemePicker {
+                    available_themes,
+                    selected_index,
+                    active_slug,
+                };
+            }
+            ThemeMessage::PickerNavigateUp => {
+                if let ModalState::ThemePicker { selected_index, .. } = &mut self.modal
+                    && *selected_index > 0
+                {
+                    *selected_index -= 1;
+                }
+            }
+            ThemeMessage::PickerNavigateDown => {
+                if let ModalState::ThemePicker {
+                    available_themes,
+                    selected_index,
+                    ..
+                } = &mut self.modal
+                    && *selected_index + 1 < available_themes.len()
+                {
+                    *selected_index += 1;
+                }
+            }
+            ThemeMessage::PickerConfirm | ThemeMessage::PickerCancel => {
+                self.modal = ModalState::None;
+            }
         }
     }
 

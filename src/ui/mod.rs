@@ -16,5 +16,5 @@ pub mod util;
 // Re-export commonly used types
 pub use components::{KeybindBar, Preview, SelectableList, Sidebar, StatusBar, TerminalView};
 pub use modals::{ConfirmModal, HelpModal};
-pub use screens::{Dashboard, NewAgentForm, NewRepositoryForm, SplitScreen};
+pub use screens::{Dashboard, NewAgentForm, NewRepositoryForm, SplitScreen, ThemePickerScreen};
 pub use util::{ELLIPSIS, truncate_with_ellipsis};

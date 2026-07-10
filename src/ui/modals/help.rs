@@ -56,7 +56,7 @@ pub fn help_content_lines() -> &'static [&'static str] {
         "  \u{2325}1-\u{2325}9       Jump to agent shortcut",
         "",
         "Other:",
-        "  1/2/3       Switch theme",
+        "  F9          Theme picker",
         "  ?/h/F1      This help",
         "  Ctrl-q/qqq  Quit",
     ]
@@ -205,7 +205,7 @@ mod tests {
         // Previously-valid bindings must remain present (no regression).
         assert!(joined.contains("Space       Grab/move/drop reorder"));
         assert!(joined.contains("v           Toggle active-only"));
-        assert!(joined.contains("1/2/3       Switch theme"));
+        assert!(joined.contains("F9          Theme picker"));
     }
 
     /// `help_viewport_rows` honors the preferred minimum on normal terminals and

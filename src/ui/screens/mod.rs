@@ -11,6 +11,7 @@ mod new_repository;
 /// @requirement REQ-PR-001
 mod pull_requests;
 mod split;
+mod theme_picker;
 
 pub use dashboard::{Dashboard, DashboardProps};
 pub use issues::{IssuesScreen, IssuesScreenProps};
@@ -21,3 +22,4 @@ pub use new_repository::{NewRepositoryForm, NewRepositoryFormProps};
 /// @requirement REQ-PR-NFR-003
 pub use pull_requests::{PullRequestsScreen, PullRequestsScreenProps};
 pub use split::{SplitScreen, SplitScreenProps};
+pub use theme_picker::{ThemePickerScreen, ThemePickerScreenProps};
