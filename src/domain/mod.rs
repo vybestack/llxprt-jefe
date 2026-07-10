@@ -708,6 +708,18 @@ impl UserPreferences {
             .map_or_else(RepoPreferences::default, |(_, prefs)| prefs.clone())
     }
 
+    /// Return only the remembered merge method for `repo_id` (issue #163).
+    /// Narrower than `for_repo` so the merge-chooser open path does not clone
+    /// the full `RepoPreferences` (with its many `String` filter fields) just
+    /// to read a single `Option<MergeMethod>`.
+    #[must_use]
+    pub fn last_merge_method_for(&self, repo_id: &RepositoryId) -> Option<MergeMethod> {
+        self.by_repo
+            .iter()
+            .find(|(id, _)| id == repo_id)
+            .and_then(|(_, prefs)| prefs.last_merge_method)
+    }
+
     /// Upsert preferences for `repo_id`: replace an existing entry or push a
     /// new one.
     pub fn update_for_repo(&mut self, repo_id: &RepositoryId, prefs: RepoPreferences) {

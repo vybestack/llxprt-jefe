@@ -87,7 +87,7 @@ impl AppState {
             return;
         }
         let repo_id = self.current_pr_scope_repo_id();
-        let last_method = self.user_preferences.for_repo(&repo_id).last_merge_method;
+        let last_method = self.user_preferences.last_merge_method_for(&repo_id);
         let selected_index = last_method
             .and_then(|method| MERGE_METHODS.iter().position(|m| *m == method))
             .unwrap_or(0);
