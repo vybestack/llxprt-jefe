@@ -466,8 +466,15 @@ fn build_single_review(
     if let Some(body) = review.body.as_deref()
         && !body.trim().is_empty()
     {
-        for line in crate::markdown_render::render_markdown_lines(body) {
-            builder.lines.push(format!("    {line}"));
+        let rendered = crate::markdown_render::render_markdown_lines(body);
+        if rendered.is_empty() {
+            // Non-empty source that renders to nothing (e.g. only an HTML
+            // comment) still gets a placeholder so the review is not a gap.
+            builder.lines.push("    (no body)".to_string());
+        } else {
+            for line in rendered {
+                builder.lines.push(format!("    {line}"));
+            }
         }
         builder.lines.push(String::new());
     }

@@ -32,7 +32,11 @@ use comrak::{Arena, Options, parse_document};
 /// `ContentBuilder`. Empty input yields an empty vector.
 #[must_use]
 pub fn render_markdown_lines(markdown: &str) -> Vec<String> {
-    if markdown.is_empty() {
+    // Short-circuit on empty OR whitespace-only input: comrak parses the latter
+    // into blank-line paragraphs, so without this guard callers would see a
+    // non-empty vector of blank lines instead of nothing (breaking the
+    // "(no body)" / "(no description)" placeholders).
+    if markdown.trim().is_empty() {
         return Vec::new();
     }
     let arena = Arena::new();
@@ -237,7 +241,12 @@ impl MarkdownRenderer {
     /// Render a single list item: first line carries the marker, nested blocks
     /// and sub-lists are indented under it.
     fn render_list_item<'a>(&mut self, item: &'a AstNode<'a>, marker: &str, indent: usize) {
-        let marker_pad = marker.len() + 1;
+        // Continuation lines align under the first line's content, which starts
+        // after the marker and one space (a raw column count, NOT indent
+        // levels — using indent_str here would multiply by LIST_INDENT width
+        // and over-indent continuation lines).
+        let cont_cols = indent * LIST_INDENT.len() + marker.len() + 1;
+        let cont_pad = " ".repeat(cont_cols);
         let mut first = true;
         for child in item.children() {
             let value = &child.data().value;
@@ -258,10 +267,12 @@ impl MarkdownRenderer {
                             *first_line = format!("{pad}{marker} {first_line}");
                         }
                         first = false;
+                        for line in lines.iter_mut().skip(1) {
+                            *line = format!("{cont_pad}{line}");
+                        }
                     } else {
                         for line in &mut lines {
-                            let pad = indent_str(indent + marker_pad, line);
-                            *line = pad;
+                            *line = format!("{cont_pad}{line}");
                         }
                     }
                     for line in lines {
@@ -368,14 +379,18 @@ impl MarkdownRenderer {
         let stripped = strip_html_to_text(literal);
         let lower = literal.to_ascii_lowercase();
         let is_toggle = lower.contains("<summary") || lower.contains("<details");
+        // Only the first rendered line of a <details> block is the summary, so
+        // only it gets the toggle glyph; subsequent lines render as plain text.
+        let mut first_toggle_line = is_toggle;
         for line in stripped.split('\n') {
             if line.trim().is_empty() {
                 continue;
             }
-            if is_toggle {
+            if first_toggle_line {
                 self.push(format!("{pad}▶ {}", line.trim()));
+                first_toggle_line = false;
             } else {
-                self.push(format!("{pad}{line}"));
+                self.push(format!("{pad}{}", line.trim()));
             }
         }
     }
@@ -666,11 +681,19 @@ const MAX_ENTITY_LEN: usize = 12;
 /// entirely with no text emitted; an unterminated tag consumes to end-of-input.
 fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usize {
     // Comment or declaration: drop everything through the matching close.
+    // An unterminated comment/declaration consumes to end-of-input (otherwise
+    // the main loop would never advance `i` and hang).
     if html[start..].starts_with("<!--") {
-        return start + html[start..].find("-->").map_or(0, |p| p + "-->".len());
+        return match html[start..].find("-->") {
+            Some(p) => start + p + "-->".len(),
+            None => bytes.len(),
+        };
     }
     if start + 1 < bytes.len() && bytes[start + 1] == b'!' {
-        return start + html[start..].find('>').map_or(0, |p| p + 1);
+        return match html[start..].find('>') {
+            Some(p) => start + p + 1,
+            None => bytes.len(),
+        };
     }
 
     // Scan the tag name + attributes, respecting quoted attribute values so a
@@ -730,7 +753,17 @@ fn consume_entity(html: &str, start: usize) -> (usize, String) {
 fn html_tag_introduces_break(name: &str) -> bool {
     matches!(
         name,
-        "br" | "/br" | "/p" | "/li" | "/tr" | "/h1" | "/h2" | "/h3" | "/h4" | "/h5" | "/h6"
+        "br" | "/br"
+            | "/p"
+            | "/li"
+            | "/tr"
+            | "/summary"
+            | "/h1"
+            | "/h2"
+            | "/h3"
+            | "/h4"
+            | "/h5"
+            | "/h6"
     )
 }
 

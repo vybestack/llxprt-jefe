@@ -56,15 +56,28 @@ pub fn format_iso_date(iso: &str) -> String {
     base
 }
 
-/// Parse a `YYYY-MM-DD` date into `(year, month, day)` with a valid month and
-/// a day that fits the month (including leap-year February), so invalid dates
-/// like `2026-02-31` fall through to the raw-string fallback.
+/// Parse a strict `YYYY-MM-DD` date into `(year, month, day)` with a valid
+/// month and a day that fits the month (including leap-year February). Each
+/// component must have the expected zero-padded width (4-2-2) and no trailing
+/// junk, so non-standard forms like `26-7-6` or `2026-07-06-extra` fall through
+/// to the raw-string fallback rather than producing a misleading date.
 fn parse_date(s: &str) -> Option<(i32, usize, u32)> {
     let s = s.trim();
     let mut parts = s.split('-');
-    let year: i32 = parts.next()?.trim().parse().ok()?;
-    let month: usize = parts.next()?.trim().parse().ok()?;
-    let day: u32 = parts.next()?.trim().parse().ok()?;
+    let year_s = parts.next()?.trim();
+    let month_s = parts.next()?.trim();
+    let day_s = parts.next()?.trim();
+    // No trailing components allowed.
+    if parts.next().is_some() {
+        return None;
+    }
+    // Enforce zero-padded widths (4-2-2) so non-standard forms are rejected.
+    if year_s.len() != 4 || month_s.len() != 2 || day_s.len() != 2 {
+        return None;
+    }
+    let year: i32 = year_s.parse().ok()?;
+    let month: usize = month_s.parse().ok()?;
+    let day: u32 = day_s.parse().ok()?;
     if !(1..=12).contains(&month) {
         return None;
     }

@@ -12,6 +12,14 @@ fn empty_input_yields_no_lines() {
 }
 
 #[test]
+fn whitespace_only_input_yields_no_lines() {
+    // Whitespace-only must short-circuit so callers' "(no body)" placeholders
+    // trigger (comrak would otherwise parse it into blank-line paragraphs).
+    assert!(render_markdown_lines("   ").is_empty());
+    assert!(render_markdown_lines("\n\n").is_empty());
+}
+
+#[test]
 fn heading_gets_rule_and_no_markers() {
     let out = render("# Title\n");
     let lines: Vec<&str> = out.lines().collect();
@@ -85,6 +93,24 @@ fn raw_html_is_stripped() {
     assert!(out.contains("Click me"), "summary text kept: {out}");
 }
 
+/// A `<details>` block prefixes only the summary (first line) with the toggle
+/// glyph; subsequent body lines render as plain text.
+#[test]
+fn details_toggle_glyph_only_on_summary() {
+    let out = render("<details><summary>Title</summary>body1<br>body2</details>");
+    let toggle_count = out.lines().filter(|l| l.starts_with("▶")).count();
+    assert_eq!(toggle_count, 1, "only one toggle glyph: {out}");
+    assert!(out.contains("Title"), "summary present: {out}");
+    assert!(out.contains("body1"), "body1 present: {out}");
+    assert!(out.contains("body2"), "body2 present: {out}");
+    // The body lines must NOT carry the toggle glyph.
+    assert!(
+        !out.lines()
+            .any(|l| l.starts_with("▶") && l.contains("body")),
+        "body lines must not have the toggle glyph: {out}"
+    );
+}
+
 #[test]
 fn html_entities_decoded() {
     let out = render("a &amp; b &lt;tag&gt;");
@@ -109,7 +135,6 @@ fn image_uses_alt_text() {
 #[test]
 fn table_renders_aligned_columns() {
     let out = render("| a | b |\n|---|---|\n| c | d |\n");
-    // Header and body rows render their cell text with column separators.
     assert!(out.contains("a  b"), "table header: {out}");
     assert!(out.contains("c  d"), "table body: {out}");
     assert!(
@@ -132,21 +157,15 @@ fn paragraph_breaks_preserved() {
     let out = render("first paragraph\n\nsecond paragraph");
     assert!(out.contains("first paragraph"));
     assert!(out.contains("second paragraph"));
-    // A blank line separates the two paragraphs.
     assert!(out.contains("\n\n"), "paragraph break preserved: {out:?}");
 }
 
 #[test]
 fn soft_breaks_preserve_author_line_structure() {
-    // Consecutive plain lines (no blank line between) form a single
-    // paragraph with soft breaks, but the author's line structure must be
-    // preserved — NOT collapsed onto one line (issue #155 regression
-    // guard: a multi-line plain-text body must keep its line count).
     let out = render("body line 0\nbody line 1\nbody line 2");
     assert!(out.contains("body line 0"));
     assert!(out.contains("body line 1"));
     assert!(out.contains("body line 2"));
-    // Each line must be on its own rendered line (no collapse to one row).
     assert!(
         out.lines().filter(|l| l.contains("body line")).count() >= 3,
         "soft breaks must preserve line structure, got: {out:?}"
@@ -158,7 +177,6 @@ fn nested_list_indented() {
     let out = render("- top\n  - nested\n");
     assert!(out.contains("* top"), "top item: {out}");
     assert!(out.contains("nested"), "nested item present: {out}");
-    // The nested item must be more indented than the top item.
     let leading = |needle: &str| -> usize {
         out.lines()
             .find(|l| l.contains(needle))
@@ -180,18 +198,13 @@ fn tight_list_has_no_inter_item_blank_lines() {
     let lines: Vec<&str> = out.lines().collect();
     let item_count = lines.iter().filter(|l| l.contains("* ")).count();
     assert_eq!(item_count, 3, "three items rendered: {out}");
-    let first = lines.iter().position(|l| *l == "* a").unwrap_or(usize::MAX);
-    assert_ne!(first, usize::MAX, "first item present: {out}");
-    assert_eq!(
-        lines[first + 1],
-        "* b",
-        "no blank between tight items: {out}"
-    );
-    assert_eq!(
-        lines[first + 2],
-        "* c",
-        "no blank between tight items: {out}"
-    );
+    let Some(first) = lines.iter().position(|l| *l == "* a") else {
+        panic!("first item present: {out}");
+    };
+    let second = lines.get(first + 1).copied().unwrap_or("<missing>");
+    let third = lines.get(first + 2).copied().unwrap_or("<missing>");
+    assert_eq!(second, "* b", "no blank between tight items: {out}");
+    assert_eq!(third, "* c", "no blank between tight items: {out}");
 }
 
 /// A loose list (blank line between items in the source) separates items with
@@ -200,14 +213,13 @@ fn tight_list_has_no_inter_item_blank_lines() {
 fn loose_list_has_inter_item_blank_lines() {
     let out = render("- a\n\n- b");
     let lines: Vec<&str> = out.lines().collect();
-    let a = lines.iter().position(|l| *l == "* a").unwrap_or(usize::MAX);
-    assert_ne!(a, usize::MAX, "first item present: {out}");
-    assert_eq!(
-        lines[a + 1],
-        "",
-        "loose list has a blank between items: {out}"
-    );
-    assert_eq!(lines[a + 2], "* b", "second item after blank: {out}");
+    let Some(a) = lines.iter().position(|l| *l == "* a") else {
+        panic!("first item present: {out}");
+    };
+    let blank = lines.get(a + 1).copied().unwrap_or("<missing>");
+    let second = lines.get(a + 2).copied().unwrap_or("<missing>");
+    assert_eq!(blank, "", "loose list has a blank between items: {out}");
+    assert_eq!(second, "* b", "second item after blank: {out}");
 }
 
 /// Multibyte text must be measured in display columns (char count), not bytes,
@@ -229,12 +241,8 @@ fn multibyte_text_not_wrapped_prematurely() {
 // ── Invariant: one element = one screen line (issue #155 review) ──────
 
 /// The renderer's central invariant: no returned line may contain an
-/// embedded newline. A single `Vec` element with a newline would desync
-/// the `pr_detail_content_line_count`/`detail_content_line_count` scroll
-/// bounds (which count builder elements) from the rendered physical lines,
-/// and could spoof the structural subfocus predicates. HTML block-boundary
-/// tags (`</p>`, `<br>`, `</li>`) and inline HTML are the main source of
-/// newlines, so they are exercised here.
+/// embedded newline. HTML block-boundary tags (`</p>`, `<br>`, `</li>`) and
+/// inline HTML are the main source of newlines, so they are exercised here.
 #[test]
 fn no_line_contains_embedded_newline() {
     for input in [
@@ -254,8 +262,8 @@ fn no_line_contains_embedded_newline() {
     }
 }
 
-/// `<p>`/`<br>` boundaries must produce SEPARATE lines (not a single line
-/// with embedded text), so the line count matches the rendered output.
+/// `<p>`/`<br>` boundaries must produce SEPARATE lines, so the line count
+/// matches the rendered output.
 #[test]
 fn html_block_boundaries_produce_separate_lines() {
     let lines = render_markdown_lines("<p>first</p><p>second</p>");
@@ -267,7 +275,6 @@ fn html_block_boundaries_produce_separate_lines() {
         lines.iter().any(|l| l.contains("second")),
         "second paragraph present: {lines:?}"
     );
-    // The two paragraphs must be on different elements.
     let first_line = lines.iter().find(|l| l.contains("first"));
     let second_line = lines.iter().find(|l| l.contains("second"));
     assert!(
@@ -276,14 +283,12 @@ fn html_block_boundaries_produce_separate_lines() {
     );
 }
 
-/// A `>` inside a quoted attribute value must NOT terminate the tag early
-/// (regression for the original scanner's first-`>` bug).
+/// A `>` inside a quoted attribute value must NOT terminate the tag early.
 #[test]
 fn gt_inside_quoted_attribute_does_not_close_tag() {
     let out = render(r#"<span title="1 > 0">ok</span>"#);
     assert!(out.contains("ok"), "tag inner text kept: {out}");
     assert!(!out.contains('"'), "attribute garbage must not leak: {out}");
-    // The attribute's `0` after a `>` must not appear as leaked markup.
     assert!(!out.contains('>'), "no raw angle brackets leak: {out}");
 }
 
@@ -304,11 +309,40 @@ fn html_comments_are_dropped() {
 }
 
 /// Unmatched `<` (long runs from malformed/bot content) must be handled
-/// without quadratic blowup or panicking. comrak treats a bare run of `<`
-/// with no closing `>` as literal text (not an HTML tag), so it survives —
-/// the guarantee is that this never hangs and the trailing text is intact.
+/// without quadratic blowup or panicking.
 #[test]
 fn unmatched_angle_brackets_do_not_hang() {
     let out = render("<<<<<<<<<<<<<<<<<<<<<<<<text");
     assert!(out.contains("text"), "text survives: {out}");
+}
+
+/// An unterminated HTML comment or declaration that comrak routes to the
+/// HTML-stripper must consume to end-of-input (NOT loop forever). For
+/// free-form text like `before<!-- never closed`, comrak treats the
+/// unterminated comment as literal text (so it survives), but the guarantee
+/// under test is that rendering ALWAYS terminates — never hangs.
+#[test]
+fn unterminated_html_comment_does_not_hang() {
+    // Free-form input: must terminate (no infinite loop), text survives.
+    let out = render("before<!-- never closed");
+    assert!(
+        out.contains("before"),
+        "text before comment survives: {out}"
+    );
+    // An unterminated declaration must also terminate.
+    let out2 = render("x<!DOCTYPE html");
+    assert!(
+        out2.contains('x'),
+        "text before declaration survives: {out2}"
+    );
+    // A block-level unterminated comment (comrak routes to the HTML stripper)
+    // must also terminate, not hang.
+    let out3 = render(
+        "<!-- never closed
+",
+    );
+    assert!(
+        out3.lines().count() < 100,
+        "terminated without hang: {out3}"
+    );
 }
