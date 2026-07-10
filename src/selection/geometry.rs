@@ -511,8 +511,10 @@ const CHOOSER_OFFSET_ROW: u16 = 2;
 /// Chooser widget width: 41-char separator + 2 border + 2 padding columns.
 /// Must stay in sync with the AgentChooser/MergeChooser separator length
 /// (src/ui/components/agent_chooser.rs). Changes there require updating
-/// CHOOSER_INNER_WIDTH here.
-const CHOOSER_INNER_WIDTH: u16 = 45;
+/// Full outer width of the chooser widget: 41-char separator + 2 border + 2
+/// padding. Duplicates the width implied by the separator string in
+/// `agent_chooser.rs` / `merge_chooser.rs` — keep in sync.
+const CHOOSER_WIDTH: u16 = 45;
 /// Maximum chooser height (prevents the overlay from exceeding the workspace).
 const CHOOSER_MAX_HEIGHT: u16 = 30;
 
@@ -540,7 +542,7 @@ fn chooser_pane_if_inside(
     let chooser_origin_col = workspace_col0.saturating_add(CHOOSER_OFFSET_COL);
     // Workspace starts at row 1 (below the status bar); chooser offset adds 2.
     let chooser_origin_row = 1u16.saturating_add(CHOOSER_OFFSET_ROW);
-    let chooser_width = CHOOSER_INNER_WIDTH;
+    let chooser_width = CHOOSER_WIDTH;
     // Use a generous height so the whole overlay is selectable; the content
     // provider clips to actual rendered lines.
     let chooser_height = CHOOSER_MAX_HEIGHT;

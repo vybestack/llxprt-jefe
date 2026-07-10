@@ -28,6 +28,10 @@ use crate::ui::components::issue_list::{IssueListLayout, issue_list_visible_rows
 use crate::ui::components::pr_detail::pr_detail_header_view;
 use crate::ui::components::pr_list::pr_list_visible_rows;
 use crate::ui::components::terminal_empty_message;
+use crate::ui::modals::help_content_lines;
+
+use crate::selection::form_content;
+use crate::selection::overlay_content;
 
 /// Separator line rendered between the fixed detail header and the scrollable
 /// content, mirroring the components' `"─────…"` row.
@@ -99,15 +103,9 @@ pub fn pane_content_lines(
         SelectablePane::KeybindBar => keybind_bar_lines(state),
         SelectablePane::AgentForm => agent_form_lines(state),
         SelectablePane::RepositoryForm => repository_form_lines(state),
-        SelectablePane::AgentChooser => {
-            crate::selection::overlay_content::agent_chooser_lines(state)
-        }
-        SelectablePane::MergeChooser => {
-            crate::selection::overlay_content::merge_chooser_lines(state)
-        }
-        SelectablePane::ConfirmModal => {
-            crate::selection::overlay_content::confirm_modal_lines(state)
-        }
+        SelectablePane::AgentChooser => overlay_content::agent_chooser_lines(state),
+        SelectablePane::MergeChooser => overlay_content::merge_chooser_lines(state),
+        SelectablePane::ConfirmModal => overlay_content::confirm_modal_lines(state),
     }
 }
 
@@ -317,12 +315,7 @@ fn help_lines() -> PaneContent {
     // Title string mirrors src/ui/modals/help.rs; if it changes there, update
     // this literal too (extracting a shared constant would require making the
     // help component's title public, deferred to a future refactor).
-    lines.extend(
-        crate::ui::modals::help_content_lines()
-            .iter()
-            .copied()
-            .map(str::to_string),
-    );
+    lines.extend(help_content_lines().iter().copied().map(str::to_string));
     PaneContent::new(SelectablePane::HelpModal, lines)
 }
 
@@ -353,7 +346,7 @@ fn keybind_bar_lines(state: &AppState) -> PaneContent {
 
 /// Agent-definition form lines that match the rendered field layout.
 fn agent_form_lines(state: &AppState) -> PaneContent {
-    match crate::selection::form_content::agent_form_content_lines(state) {
+    match form_content::agent_form_content_lines(state) {
         Some(lines) => PaneContent::new(SelectablePane::AgentForm, lines),
         None => PaneContent::empty(SelectablePane::AgentForm),
     }
@@ -361,7 +354,7 @@ fn agent_form_lines(state: &AppState) -> PaneContent {
 
 /// Repository-definition form lines that match the rendered field layout.
 fn repository_form_lines(state: &AppState) -> PaneContent {
-    match crate::selection::form_content::repository_form_content_lines(state) {
+    match form_content::repository_form_content_lines(state) {
         Some(lines) => PaneContent::new(SelectablePane::RepositoryForm, lines),
         None => PaneContent::empty(SelectablePane::RepositoryForm),
     }
