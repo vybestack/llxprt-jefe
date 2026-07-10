@@ -373,10 +373,9 @@ pub enum PrState {
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-009
 /// @pseudocode component-002 lines 74-101
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MergeMethod {
     /// Create a merge commit (`--merge`).
-    #[default]
     Merge,
     /// Squash commits into one (`--squash`).
     Squash,
@@ -667,9 +666,10 @@ pub struct RepoPreferences {
     /// Last-focused PR filter field index (0-based).
     #[serde(default)]
     pub pr_filter_field_index: usize,
-    /// Last-selected merge method for the merge chooser.
+    /// Last-selected merge method for the merge chooser (`None` until the user
+    /// confirms a merge; the chooser then defaults to Merge).
     #[serde(default)]
-    pub last_merge_method: MergeMethod,
+    pub last_merge_method: Option<MergeMethod>,
 }
 
 impl Default for RepoPreferences {
@@ -681,7 +681,7 @@ impl Default for RepoPreferences {
             pr_search_query: String::new(),
             issue_filter_field_index: 0,
             pr_filter_field_index: 0,
-            last_merge_method: MergeMethod::default(),
+            last_merge_method: None,
         }
     }
 }

@@ -62,6 +62,21 @@ fn test_open_filter_preserves_field_index() {
     assert_eq!(state.issues_state.filter_ui.field_index, 3);
 }
 
+/// OpenFilterControls clamps an out-of-range field_index back into bounds.
+#[test]
+fn test_open_filter_clamps_out_of_range_field_index() {
+    let mut state = dashboard_issues_state();
+    state.issues_state.active = true;
+    state.issues_state.filter_ui.field_index = ISSUE_FILTER_FIELD_COUNT + 5;
+
+    let state = state.apply(AppEvent::OpenFilterControls);
+    assert_eq!(
+        state.issues_state.filter_ui.field_index,
+        ISSUE_FILTER_FIELD_COUNT - 1,
+        "out-of-range field_index must clamp to the last valid index"
+    );
+}
+
 /// FilterNavigateNext cycles through every configured filter field.
 #[test]
 fn test_filter_navigate_next_cycles() {

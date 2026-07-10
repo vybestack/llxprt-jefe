@@ -110,11 +110,12 @@ impl AppState {
             .and_then(|idx| self.repositories.get(idx).map(|repo| &repo.id))
     }
 
-    /// Clone the currently-selected repository id (issue #163).
+    /// Clone the currently-selected repository id (issue #163). Thin wrapper
+    /// over `selected_repository_id` for the `remember_*` helpers, which need
+    /// an owned id to resolve the borrow conflict between reading
+    /// `self.repositories` and mutating `self.user_preferences`.
     pub(super) fn current_repo_id(&self) -> Option<RepositoryId> {
-        self.selected_repository_index
-            .and_then(|idx| self.repositories.get(idx))
-            .map(|r| r.id.clone())
+        self.selected_repository_id().cloned()
     }
 
     /// Snapshot the current issue filter/search/field-index into per-repo
@@ -156,7 +157,7 @@ impl AppState {
         if let Some(repo_id) = self.current_repo_id() {
             self.user_preferences
                 .update_field_for_repo(&repo_id, |prefs| {
-                    prefs.last_merge_method = method;
+                    prefs.last_merge_method = Some(method);
                 });
         }
     }

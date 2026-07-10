@@ -88,9 +88,8 @@ impl AppState {
         }
         let repo_id = self.current_pr_scope_repo_id();
         let last_method = self.user_preferences.for_repo(&repo_id).last_merge_method;
-        let selected_index = MERGE_METHODS
-            .iter()
-            .position(|m| *m == last_method)
+        let selected_index = last_method
+            .and_then(|method| MERGE_METHODS.iter().position(|m| *m == method))
             .unwrap_or(0);
         self.prs_state.merge_chooser = Some(PrMergeChooserState {
             selected_index,

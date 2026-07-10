@@ -714,7 +714,7 @@ fn user_preferences_roundtrip() {
                 pr_search_query: "pr-search".to_string(),
                 issue_filter_field_index: 3,
                 pr_filter_field_index: 5,
-                last_merge_method: MergeMethod::Squash,
+                last_merge_method: Some(MergeMethod::Squash),
             },
         )],
     };

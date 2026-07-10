@@ -304,7 +304,6 @@ fn issue_clear_filter_persists() {
     let stored = state
         .user_preferences
         .for_repo(&RepositoryId("repo-1".to_string()));
-    assert_eq!(stored.issue_filter.state, Some(IssueFilterState::Open));
     assert_eq!(
         stored.issue_filter,
         IssueFilter {
@@ -347,7 +346,7 @@ fn issue_clear_draft_filter_defaults_to_open() {
 #[test]
 fn merge_chooser_restores_last_method() {
     let prefs = RepoPreferences {
-        last_merge_method: MergeMethod::Squash,
+        last_merge_method: Some(MergeMethod::Squash),
         ..RepoPreferences::default()
     };
     let mut state = prs_state_with_detail("repo-1", 42);
@@ -390,13 +389,13 @@ fn merge_confirm_persists_method() {
     let stored = state
         .user_preferences
         .for_repo(&RepositoryId("repo-1".to_string()));
-    assert_eq!(stored.last_merge_method, MergeMethod::Rebase);
+    assert_eq!(stored.last_merge_method, Some(MergeMethod::Rebase));
 }
 
 #[test]
 fn merge_methods_loaded_clamps_disabled_last_method() {
     let prefs = RepoPreferences {
-        last_merge_method: MergeMethod::Squash,
+        last_merge_method: Some(MergeMethod::Squash),
         ..RepoPreferences::default()
     };
     let mut state = prs_state_with_detail("repo-1", 42);
@@ -424,7 +423,7 @@ fn merge_methods_loaded_clamps_disabled_last_method() {
 #[test]
 fn merge_methods_loaded_keeps_last_method_when_allowed() {
     let prefs = RepoPreferences {
-        last_merge_method: MergeMethod::Squash,
+        last_merge_method: Some(MergeMethod::Squash),
         ..RepoPreferences::default()
     };
     let mut state = prs_state_with_detail("repo-1", 42);
