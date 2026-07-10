@@ -153,6 +153,7 @@ pub fn to_persisted_state(state: &AppState) -> PersistedState {
         last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
         pane_focus: pane_focus_to_persisted(state.pane_focus),
         terminal_focused: state.terminal_focused,
+        user_preferences: state.user_preferences.clone(),
     }
 }
 

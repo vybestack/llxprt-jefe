@@ -55,13 +55,24 @@ impl AppState {
         self.prs_state.merge_mutation_pending = None;
         self.prs_state.filter_ui.controls_open = false;
         self.prs_state.search_input_focused = false;
-        self.prs_state.search_query.clear();
+        self.restore_pr_preferences();
         self.prs_state.detail_subfocus = super::PrDetailSubfocus::Body;
         self.prs_state.draft_notice = None;
         self.prs_state.mutation_pending = None;
-        self.prs_state.committed_filter = PrFilter::default();
-        self.prs_state.committed_filter.state = Some(PrFilterState::Open);
+    }
+
+    /// Restore the current repo's PR filter/search/field-index from per-repo
+    /// preferences (issue #163). Falls back to Open defaults for unknown repos.
+    fn restore_pr_preferences(&mut self) {
+        let repo_id = self.current_repo_id();
+        let prefs = match &repo_id {
+            Some(id) => self.user_preferences.for_repo(id),
+            None => crate::domain::RepoPreferences::with_open_defaults(),
+        };
+        self.prs_state.committed_filter = prefs.pr_filter;
         self.prs_state.draft_filter = self.prs_state.committed_filter.clone();
+        self.prs_state.search_query = prefs.pr_search_query;
+        self.prs_state.filter_ui.field_index = prefs.pr_filter_field_index;
     }
 
     /// Exit PR mode: restore prior focus with bounds fallback.
@@ -129,6 +140,7 @@ impl AppState {
         self.prs_state.mutation_pending = None;
         self.prs_state.merge_chooser = None;
         self.prs_state.merge_mutation_pending = None;
+        self.restore_pr_preferences();
     }
 
     // ---- Filter controls ----
@@ -160,7 +172,13 @@ impl AppState {
         match event {
             AppEvent::PrOpenFilterControls => {
                 self.prs_state.filter_ui.controls_open = true;
-                self.prs_state.filter_ui.field_index = 0;
+                let repo_id = self.current_repo_id();
+                let field_index = match &repo_id {
+                    Some(id) => self.user_preferences.for_repo(id).pr_filter_field_index,
+                    None => 0,
+                };
+                self.prs_state.filter_ui.field_index =
+                    field_index.min(PR_FILTER_FIELD_COUNT.saturating_sub(1));
                 self.prs_state.draft_filter = self.prs_state.committed_filter.clone();
                 true
             }
@@ -239,6 +257,7 @@ impl AppState {
                 self.prs_state.committed_filter = self.prs_state.draft_filter.clone();
                 self.prs_state.filter_ui.controls_open = false;
                 self.reload_pr_list_for_filter_change();
+                self.remember_pr_preferences();
                 true
             }
             AppEvent::PrClearFilter => {
@@ -246,6 +265,7 @@ impl AppState {
                 self.prs_state.committed_filter.state = Some(PrFilterState::Open);
                 self.prs_state.draft_filter = self.prs_state.committed_filter.clone();
                 self.reload_pr_list_for_filter_change();
+                self.remember_pr_preferences();
                 true
             }
             _ => false,
@@ -311,6 +331,7 @@ impl AppState {
                 self.prs_state.committed_filter.query_text = trimmed;
                 self.prs_state.search_input_focused = false;
                 self.reload_pr_list_for_filter_change();
+                self.remember_pr_preferences();
                 true
             }
             AppEvent::PrClearSearch => {
@@ -318,6 +339,7 @@ impl AppState {
                 self.prs_state.committed_filter.query_text.clear();
                 self.prs_state.search_input_focused = false;
                 self.reload_pr_list_for_filter_change();
+                self.remember_pr_preferences();
                 true
             }
             _ => false,
@@ -536,6 +558,7 @@ impl AppState {
             self.prs_state.committed_filter.query_text = trimmed;
             self.prs_state.search_input_focused = false;
             self.reload_pr_list_for_filter_change();
+            self.remember_pr_preferences();
             return true;
         }
         let event: AppEvent = message.into();

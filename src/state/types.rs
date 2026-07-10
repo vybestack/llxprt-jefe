@@ -202,6 +202,13 @@ pub struct AppState {
     /// @requirement REQ-PR-001
     pub prs_state: PullRequestsState,
 
+    /// Per-repository remembered user preferences (issue #163).
+    ///
+    /// Runtime copy of the persisted DTO — mirror of
+    /// `persistence::State.user_preferences`. The reducer reads/writes this
+    /// in memory; the app-shell persists it via `to_persisted_state`.
+    pub user_preferences: crate::domain::UserPreferences,
+
     /// Rapid `qqq` quit-sequence bookkeeping. Runtime-only — never persisted.
     pub quit_sequence: QuitSequenceState,
 

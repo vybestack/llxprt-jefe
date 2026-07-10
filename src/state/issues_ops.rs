@@ -34,10 +34,24 @@ impl AppState {
         self.issues_state.agent_chooser = None;
         self.issues_state.filter_ui.controls_open = false;
         self.issues_state.search_input_focused = false;
-        self.issues_state.search_query.clear();
+        self.restore_issue_preferences();
         self.issues_state.detail_subfocus = DetailSubfocus::Body;
         self.issues_state.draft_notice = None;
         self.issues_state.loading.list = true;
+    }
+
+    /// Restore the current repo's issue filter/search/field-index from
+    /// per-repo preferences (issue #163). Falls back to Open defaults.
+    fn restore_issue_preferences(&mut self) {
+        let repo_id = self.current_repo_id();
+        let prefs = match &repo_id {
+            Some(id) => self.user_preferences.for_repo(id),
+            None => crate::domain::RepoPreferences::with_open_defaults(),
+        };
+        self.issues_state.committed_filter = prefs.issue_filter;
+        self.issues_state.draft_filter = self.issues_state.committed_filter.clone();
+        self.issues_state.search_query = prefs.issue_search_query;
+        self.issues_state.filter_ui.field_index = prefs.issue_filter_field_index;
     }
 
     /// Exit issues mode, restoring prior focus state.
@@ -206,6 +220,7 @@ impl AppState {
         self.issues_state.list_page_pending = None;
         self.issues_state.detail_pending = None;
         self.issues_state.comments_page_pending = None;
+        self.restore_issue_preferences();
     }
 
     fn navigate_issue_list_up(&mut self) {
@@ -366,6 +381,7 @@ impl AppState {
                 self.issues_state.list_page_pending = None;
                 self.issues_state.mutation_pending = None;
                 self.issues_state.inline_state = InlineState::None;
+                self.remember_issue_preferences();
                 true
             }
             message => self.apply_issues_event(message.into()),
@@ -417,7 +433,13 @@ impl AppState {
         match event {
             AppEvent::OpenFilterControls => {
                 self.issues_state.filter_ui.controls_open = true;
-                self.issues_state.filter_ui.field_index = 0;
+                let repo_id = self.current_repo_id();
+                let field_index = match &repo_id {
+                    Some(id) => self.user_preferences.for_repo(id).issue_filter_field_index,
+                    None => 0,
+                };
+                self.issues_state.filter_ui.field_index =
+                    field_index.min(ISSUE_FILTER_FIELD_COUNT.saturating_sub(1));
                 self.issues_state.filter_ui.draft_labels_text =
                     self.issues_state.draft_filter.labels.join(",");
             }
@@ -426,6 +448,7 @@ impl AppState {
                 self.issues_state.committed_filter = self.issues_state.draft_filter.clone();
                 self.issues_state.filter_ui.controls_open = false;
                 self.reload_issue_list_for_filter_change();
+                self.remember_issue_preferences();
             }
             AppEvent::ClearFilter => {
                 self.issues_state.committed_filter = IssueFilter::default();
@@ -433,6 +456,7 @@ impl AppState {
                 self.issues_state.filter_ui.draft_labels_text.clear();
                 self.issues_state.filter_ui.controls_open = false;
                 self.reload_issue_list_for_filter_change();
+                self.remember_issue_preferences();
             }
             AppEvent::ClearDraftFilter => {
                 self.issues_state.draft_filter = IssueFilter::default();
@@ -527,7 +551,10 @@ impl AppState {
             }
             AppEvent::FocusSearchInput => self.issues_state.search_input_focused = true,
             AppEvent::BlurSearchInput => self.issues_state.search_input_focused = false,
-            AppEvent::ClearSearch => self.issues_state.search_query.clear(),
+            AppEvent::ClearSearch => {
+                self.issues_state.search_query.clear();
+                self.remember_issue_preferences();
+            }
             AppEvent::IssueListLoaded { .. }
             | AppEvent::IssueListPageLoaded { .. }
             | AppEvent::IssueDetailLoaded { .. }

@@ -54,6 +54,7 @@ fn seed_reorder_state(config_dir: &Path) {
         last_selected_agent_by_repo: vec![],
         pane_focus: String::new(),
         terminal_focused: false,
+        user_preferences: jefe::domain::UserPreferences::default(),
     };
 
     let paths = PersistencePaths {

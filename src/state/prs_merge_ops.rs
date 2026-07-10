@@ -86,8 +86,14 @@ impl AppState {
             self.apply_pr_show_notice(ReadOnlyHintKind::PrNotMergeable);
             return;
         }
+        let repo_id = self.current_pr_scope_repo_id();
+        let last_method = self.user_preferences.for_repo(&repo_id).last_merge_method;
+        let selected_index = MERGE_METHODS
+            .iter()
+            .position(|m| *m == last_method)
+            .unwrap_or(0);
         self.prs_state.merge_chooser = Some(PrMergeChooserState {
-            selected_index: 0,
+            selected_index,
             allowed_methods: None,
             awaiting_confirmation: false,
         });
@@ -133,6 +139,7 @@ impl AppState {
             .get(selected)
             .copied()
             .unwrap_or(MergeMethod::Merge);
+        self.remember_merge_method(method);
         let scope = self.current_pr_scope_repo_id();
         let pr_number = self.prs_state.pr_detail.as_ref().map_or(0, |d| d.number);
         let mutation_id = self.next_merge_mutation_id();
@@ -221,6 +228,10 @@ impl AppState {
         }
         if let Some(chooser) = &mut self.prs_state.merge_chooser {
             chooser.allowed_methods = Some(allowed_methods.to_vec());
+            let enabled = enabled_method_indices(chooser.allowed_methods.as_deref());
+            if !enabled.contains(&chooser.selected_index) {
+                chooser.selected_index = enabled.first().copied().unwrap_or(0);
+            }
         }
         true
     }

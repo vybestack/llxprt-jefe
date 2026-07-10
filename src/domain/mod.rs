@@ -278,7 +278,7 @@ pub struct IssueComment {
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-008
 /// Filter state options.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum IssueFilterState {
     #[default]
     Open,
@@ -292,18 +292,29 @@ pub const FILTER_CHOICE_NONE: &str = "none";
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-008
 /// Issue list filter criteria.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IssueFilter {
+    #[serde(default)]
     pub query_text: String,
+    #[serde(default)]
     pub state: Option<IssueFilterState>,
+    #[serde(default)]
     pub author: String,
+    #[serde(default)]
     pub assignee: String,
+    #[serde(default)]
     pub labels: Vec<String>,
+    #[serde(default)]
     pub issue_type: String,
+    #[serde(default)]
     pub milestone: String,
+    #[serde(default)]
     pub module: String,
+    #[serde(default)]
     pub mentioned: String,
+    #[serde(default)]
     pub updated_before: String,
+    #[serde(default)]
     pub updated_after: String,
 }
 
@@ -362,9 +373,10 @@ pub enum PrState {
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-009
 /// @pseudocode component-002 lines 74-101
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum MergeMethod {
     /// Create a merge commit (`--merge`).
+    #[default]
     Merge,
     /// Squash commits into one (`--squash`).
     Squash,
@@ -550,7 +562,7 @@ pub struct PullRequestDetail {
 /// @pseudocode component-001 lines 259-263
 /// PR filter-state choice (Space cycles this on the state field).
 /// Default is `Open`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum PrFilterState {
     #[default]
     Open,
@@ -564,7 +576,7 @@ pub enum PrFilterState {
 /// @pseudocode component-001 lines 264a-264d
 /// Review-decision filter choice (issue #20 review signal). `Any` emits no
 /// qualifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ReviewDecisionFilter {
     #[default]
     Any,
@@ -579,7 +591,7 @@ pub enum ReviewDecisionFilter {
 /// @pseudocode component-001 lines 264e-264g
 /// CI/check-rollup filter choice (issue #20 workflow signal). `Any` emits no
 /// qualifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ChecksFilter {
     #[default]
     Any,
@@ -592,17 +604,124 @@ pub enum ChecksFilter {
 /// @requirement REQ-PR-008
 /// @pseudocode component-001 lines 249-258
 /// PR filter criteria. Structured fields are AND-composed.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrFilter {
+    #[serde(default)]
     pub query_text: String,
+    #[serde(default)]
     pub state: Option<PrFilterState>,
+    #[serde(default)]
     pub author: String,
+    #[serde(default)]
     pub assignee: String,
+    #[serde(default)]
     pub reviewer: String,
+    #[serde(default)]
     pub is_draft: Option<bool>,
+    #[serde(default)]
     pub labels: Vec<String>,
+    #[serde(default)]
     pub review_decision: ReviewDecisionFilter,
+    #[serde(default)]
     pub checks_status: ChecksFilter,
+}
+
+/// Per-repository remembered user preferences (issue #163).
+///
+/// All remembered selections are scoped per-repository so filter/merge
+/// choices made in one repo never leak into another. Persisted as part of
+/// `persistence::State` and restored on startup.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepoPreferences {
+    /// Last committed issue-list filter (state defaults to Open on first use).
+    #[serde(default)]
+    pub issue_filter: IssueFilter,
+    /// Last committed PR-list filter (state defaults to Open on first use).
+    #[serde(default)]
+    pub pr_filter: PrFilter,
+    /// Last issue search query text (session+restart persisted).
+    #[serde(default)]
+    pub issue_search_query: String,
+    /// Last PR search query text (session+restart persisted).
+    #[serde(default)]
+    pub pr_search_query: String,
+    /// Last-focused issue filter field index (0-based).
+    #[serde(default)]
+    pub issue_filter_field_index: usize,
+    /// Last-focused PR filter field index (0-based).
+    #[serde(default)]
+    pub pr_filter_field_index: usize,
+    /// Last-selected merge method for the merge chooser.
+    #[serde(default)]
+    pub last_merge_method: MergeMethod,
+}
+
+impl RepoPreferences {
+    /// Return a fresh preferences set with both filters' state set to `Open`,
+    /// matching the documented default-on-first-use behavior (issue #163).
+    #[must_use]
+    pub fn with_open_defaults() -> Self {
+        Self {
+            issue_filter: IssueFilter {
+                state: Some(IssueFilterState::Open),
+                ..IssueFilter::default()
+            },
+            pr_filter: PrFilter {
+                state: Some(PrFilterState::Open),
+                ..PrFilter::default()
+            },
+            ..Self::default()
+        }
+    }
+}
+
+/// Aggregate per-repository user preferences (issue #163).
+///
+/// Mirrors the `last_selected_agent_by_repo` `Vec<(RepositoryId, _)>` pattern:
+/// a small vec keyed by repository id. Methods keep the entry for the
+/// current repo in sync with the live Issues/PR state.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserPreferences {
+    #[serde(default)]
+    pub by_repo: Vec<(RepositoryId, RepoPreferences)>,
+}
+
+impl UserPreferences {
+    /// Return the stored preferences for `repo_id`, or the Open-default set if
+    /// the repo has no stored entry yet (issue #163).
+    #[must_use]
+    pub fn for_repo(&self, repo_id: &RepositoryId) -> RepoPreferences {
+        self.by_repo
+            .iter()
+            .find(|(id, _)| id == repo_id)
+            .map_or_else(RepoPreferences::with_open_defaults, |(_, prefs)| {
+                prefs.clone()
+            })
+    }
+
+    /// Upsert preferences for `repo_id`: replace an existing entry or push a
+    /// new one.
+    pub fn update_for_repo(&mut self, repo_id: RepositoryId, prefs: RepoPreferences) {
+        if let Some(entry) = self.by_repo.iter_mut().find(|(id, _)| *id == repo_id) {
+            entry.1 = prefs;
+        } else {
+            self.by_repo.push((repo_id, prefs));
+        }
+    }
+
+    /// Convenience: return the stored PR filter for `repo_id`, or the
+    /// Open-default filter.
+    #[must_use]
+    pub fn pr_filter_for(&self, repo_id: &RepositoryId) -> PrFilter {
+        self.for_repo(repo_id).pr_filter
+    }
+
+    /// Convenience: return the stored issue filter for `repo_id`, or the
+    /// Open-default filter.
+    #[must_use]
+    pub fn issue_filter_for(&self, repo_id: &RepositoryId) -> IssueFilter {
+        self.for_repo(repo_id).issue_filter
+    }
 }
 
 /// Agent lifecycle status.

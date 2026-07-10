@@ -161,6 +161,7 @@ fn file_persistence_roundtrip_state() {
         last_selected_agent_by_repo: vec![],
         pane_focus: String::new(),
         terminal_focused: false,
+        user_preferences: crate::domain::UserPreferences::default(),
     };
     mgr.save_state(&state).value_or_panic("should save");
     let loaded = mgr.load_state().value_or_panic("should load");
@@ -193,6 +194,7 @@ fn file_persistence_roundtrip_pane_focus_and_terminal_focused() {
         last_selected_agent_by_repo: vec![],
         pane_focus: "terminal".to_string(),
         terminal_focused: true,
+        user_preferences: crate::domain::UserPreferences::default(),
     };
     mgr.save_state(&state).value_or_panic("should save");
     let loaded = mgr.load_state().value_or_panic("should load");
@@ -259,6 +261,7 @@ fn test_issue_base_prompt_state_round_trip() {
         last_selected_agent_by_repo: vec![],
         pane_focus: String::new(),
         terminal_focused: false,
+        user_preferences: crate::domain::UserPreferences::default(),
     };
     let temp = std::env::temp_dir().join("jefe_test_p13_issue_base_prompt_roundtrip");
     let _ = std::fs::remove_dir_all(&temp);
@@ -674,4 +677,60 @@ fn resolve_config_dir_falls_back_to_platform_default() {
 fn resolve_config_dir_ignores_empty_env_values() {
     let dir = resolve_config_dir_from_env(Some(String::new()), Some(String::new()));
     assert!(dir.ends_with("jefe"));
+}
+
+// ── Issue #163: user_preferences round-trip + backward compat ─────────────
+
+#[test]
+fn user_preferences_roundtrip() {
+    use crate::domain::{
+        IssueFilter, IssueFilterState, MergeMethod, PrFilter, PrFilterState, RepoPreferences,
+        RepositoryId, UserPreferences,
+    };
+
+    let prefs = UserPreferences {
+        by_repo: vec![(
+            RepositoryId("repo-1".to_string()),
+            RepoPreferences {
+                issue_filter: IssueFilter {
+                    state: Some(IssueFilterState::Closed),
+                    author: "alice".to_string(),
+                    ..IssueFilter::default()
+                },
+                pr_filter: PrFilter {
+                    state: Some(PrFilterState::Merged),
+                    ..PrFilter::default()
+                },
+                issue_search_query: "issue-search".to_string(),
+                pr_search_query: "pr-search".to_string(),
+                issue_filter_field_index: 3,
+                pr_filter_field_index: 5,
+                last_merge_method: MergeMethod::Squash,
+            },
+        )],
+    };
+
+    let state = State {
+        user_preferences: prefs,
+        ..State::default_with_version()
+    };
+
+    let json = serde_json::to_string(&state).value_or_panic("serialize state");
+    let restored: State = serde_json::from_str(&json).value_or_panic("deserialize state");
+    assert_eq!(restored.user_preferences, state.user_preferences);
+}
+
+#[test]
+fn legacy_state_without_preferences_deserializes_to_default() {
+    // A legacy state.json that predates the user_preferences field must
+    // deserialize cleanly, yielding default (empty) preferences.
+    let legacy_json = r#"{
+        "schema_version": 1,
+        "repositories": [],
+        "agents": [],
+        "selected_repository_index": null,
+        "selected_agent_index": null
+    }"#;
+    let state: State = serde_json::from_str(legacy_json).value_or_panic("deserialize legacy state");
+    assert!(state.user_preferences.by_repo.is_empty());
 }
