@@ -434,7 +434,7 @@ fn test_pr_detail_renders_metadata_body_review_summary_check_summary() {
 fn test_pr_detail_shows_branches_and_external_url() {
     let detail = detail_with_reviews_and_checks(77);
     let h = pr_detail_header_view(&detail);
-    let expected_branch = format!("{} -> {}", detail.head_ref, detail.base_ref);
+    let expected_branch = format!("{} --> {}", detail.head_ref, detail.base_ref);
     assert!(
         h.branches.contains(&expected_branch),
         "rendered header branches must contain '{expected_branch}', got: {}",

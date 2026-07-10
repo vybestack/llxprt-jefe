@@ -392,11 +392,19 @@ fn build_body_section(
     builder.lines.push("Description".to_string());
     if detail_loading {
         builder.lines.push("  Loading pull request...".to_string());
-    } else if detail.body.is_empty() {
+    } else if detail.body.trim().is_empty() {
         builder.lines.push("  (no description)".to_string());
     } else {
-        for body_line in detail.body.lines() {
-            builder.lines.push(format!("  {body_line}"));
+        // Render the markdown body through comrak instead of dumping it raw
+        // (issue #155): headings/rules/lists/code fences/HTML are converted to
+        // plain text, indented two spaces to sit under the section label.
+        let mut rendered = false;
+        for line in crate::markdown_render::render_markdown_lines(&detail.body) {
+            builder.lines.push(format!("  {line}"));
+            rendered = true;
+        }
+        if !rendered {
+            builder.lines.push("  (no description)".to_string());
         }
     }
 }
@@ -430,7 +438,10 @@ fn build_reviews_section(
     }
 }
 
-/// Render a single review header line (author, state, submitted_at, body).
+/// Render a single review: a one-line header (author, state, submitted_at)
+/// followed by the review body rendered as markdown (issue #155). The previous
+/// implementation appended the ENTIRE body as a quoted excerpt onto the header
+/// line, turning a multi-paragraph review into one wrapped "header" line.
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
@@ -446,15 +457,20 @@ fn build_single_review(
         "- "
     };
     let state_label = review_state_label(review.state);
-    let body_excerpt = review
-        .body
-        .as_deref()
-        .filter(|b| !b.is_empty())
-        .map_or_else(String::new, |b| format!("  \"{b}\""));
+    // Header line = author + state badge + date ONLY (no body excerpt).
     builder.lines.push(format!(
-        "{prefix}{:<8} {:<18} {}{}",
-        review.author_login, state_label, review.submitted_at, body_excerpt
+        "{prefix}{:<8} {:<18} {}",
+        review.author_login, state_label, review.submitted_at
     ));
+    // Render the review body as markdown below the header, indented under it.
+    if let Some(body) = review.body.as_deref()
+        && !body.trim().is_empty()
+    {
+        for line in crate::markdown_render::render_markdown_lines(body) {
+            builder.lines.push(format!("    {line}"));
+        }
+        builder.lines.push(String::new());
+    }
 }
 
 /// Render a review thread with its comments (indented under the review).
@@ -487,8 +503,8 @@ fn build_review_thread(
             "      {}  {}",
             comment.author_login, comment.created_at
         ));
-        for body_line in comment.body.lines() {
-            builder.lines.push(format!("        {body_line}"));
+        for line in crate::markdown_render::render_markdown_lines(&comment.body) {
+            builder.lines.push(format!("        {line}"));
         }
     }
     if focused {
@@ -573,8 +589,8 @@ fn build_single_comment(
         "{}{}  {}",
         prefix, comment.author_login, comment.created_at
     ));
-    for body_line in comment.body.lines() {
-        builder.lines.push(format!("    {body_line}"));
+    for line in crate::markdown_render::render_markdown_lines(&comment.body) {
+        builder.lines.push(format!("    {line}"));
     }
 
     if let InlineState::Composer {

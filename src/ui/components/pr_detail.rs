@@ -46,6 +46,13 @@ pub struct PrDetailHeaderView {
 /// Pure projection of the PR detail's four fixed header rows exactly as the
 /// component renders them.
 ///
+/// Issue #155 redesign: the previous header was a leaky key=value run-on (raw
+/// ISO timestamps, `-` placeholders, a single-arrow branch line). The state
+/// row now uses human dates (`Jul 6, 2026`) instead of raw ISO, the branch
+/// line uses a double arrow (`-->`) and `—` for empty fields. The four-row
+/// structure is preserved so the fixed `PR_DETAIL_HEADER_ROWS` layout
+/// invariant (and the scroll viewport math it drives) is unchanged.
+///
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-012
@@ -54,29 +61,36 @@ pub struct PrDetailHeaderView {
 pub fn pr_detail_header_view(detail: &PullRequestDetail) -> PrDetailHeaderView {
     let state_tag = pr_state_tag(detail.state);
     let draft_marker = if detail.is_draft { " [DRAFT]" } else { "" };
-    let labels_str = if detail.labels.is_empty() {
-        "-".to_string()
-    } else {
-        detail.labels.join(", ")
-    };
-    let assignees_str = if detail.assignees.is_empty() {
-        "-".to_string()
-    } else {
-        detail.assignees.join(", ")
-    };
-    let milestone_str = detail.milestone.as_deref().unwrap_or("-").to_string();
+    let created = crate::ui::util::format_iso_date(&detail.created_at);
+    let updated = crate::ui::util::format_iso_date(&detail.updated_at);
+    let labels_str = field_list(&detail.labels);
+    let assignees_str = field_list(&detail.assignees);
+    let milestone_str = detail
+        .milestone
+        .as_deref()
+        .filter(|m| !m.is_empty())
+        .map_or_else(|| crate::ui::util::EMPTY_FIELD.to_string(), str::to_string);
     PrDetailHeaderView {
         title: format!("#{} {}{}", detail.number, detail.title, draft_marker),
         state: format!(
-            "{}  author: {}  created: {}  updated: {}",
-            state_tag, detail.author_login, detail.created_at, detail.updated_at
+            "{state_tag}  by @{}  created: {created}  updated: {updated}",
+            detail.author_login
         ),
         branches: format!(
-            "{} -> {}  labels: {}  assignees: {}  milestone: {}",
-            detail.head_ref, detail.base_ref, labels_str, assignees_str, milestone_str
+            "{} --> {}  labels: {labels_str}  assignees: {assignees_str}  milestone: {milestone_str}",
+            detail.head_ref, detail.base_ref
         ),
         url: detail.external_url.clone(),
     }
+}
+
+/// Join a list of field values into a display string, or `—` when empty
+/// (issue #155: replace the leaky `-` placeholder with a clean em-dash).
+fn field_list(values: &[String]) -> String {
+    if values.is_empty() {
+        return crate::ui::util::EMPTY_FIELD.to_string();
+    }
+    values.join(", ")
 }
 
 /// Inputs the PRs screen passes to [`pr_detail_props`], bundled to stay under

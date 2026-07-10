@@ -294,7 +294,22 @@ fn build_body_section(
     if body_editing {
         builder.lines.push("[editing]".to_string());
     }
-    builder.push_editor_lines(body_text, body_cursor, body_editing, "  │ ", "    ");
+    if body_editing {
+        // While editing, render the raw composer text with a gutter so the
+        // caret projection matches the live TextBox.
+        builder.push_editor_lines(body_text, body_cursor, true, "  │ ", "    ");
+    } else {
+        // View mode: render the markdown body through comrak instead of
+        // dumping it raw (issue #155 — shared with the PR detail bug).
+        let mut rendered = false;
+        for line in crate::markdown_render::render_markdown_lines(body_text) {
+            builder.lines.push(format!("    {line}"));
+            rendered = true;
+        }
+        if !rendered {
+            builder.lines.push("    (no description)".to_string());
+        }
+    }
     if body_editing {
         builder
             .lines
@@ -350,13 +365,14 @@ fn build_single_comment(
     if comment_editing {
         builder.lines.push("  [editing]".to_string());
     }
-    builder.push_editor_lines(
-        comment_text,
-        comment_cursor,
-        comment_editing,
-        "    │ ",
-        "      ",
-    );
+    if comment_editing {
+        builder.push_editor_lines(comment_text, comment_cursor, true, "    │ ", "      ");
+    } else {
+        // View mode: render the comment body as markdown (issue #155).
+        for line in crate::markdown_render::render_markdown_lines(comment_text) {
+            builder.lines.push(format!("      {line}"));
+        }
+    }
     if comment_editing {
         builder
             .lines

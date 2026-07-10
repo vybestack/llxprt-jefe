@@ -588,7 +588,7 @@ mod tests {
         assert_eq!(content.lines[0], "#7 My PR");
         assert!(content.lines[1].contains("OPEN"));
         assert!(content.lines[1].contains("octocat"));
-        assert!(content.lines[2].contains("feature -> main"));
+        assert!(content.lines[2].contains("feature --> main"));
         assert!(content.lines[2].contains("labels: enhancement"));
         assert!(content.lines[2].contains("assignees: bob"));
         assert_eq!(content.lines[3], "https://example.com/pull/7");
