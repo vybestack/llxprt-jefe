@@ -244,6 +244,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                                     agents: chooser_agents.clone(),
                                     selected_index: chooser_selected,
                                     colors: colors.clone(),
+                                    selection: selection,
                                 )
                             }
                         }]

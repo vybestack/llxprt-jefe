@@ -11,6 +11,7 @@
 
 use iocraft::prelude::*;
 
+use crate::selection::TextSelection;
 use crate::theme::{ResolvedColors, ThemeColors};
 use crate::ui::components::ScrollableText;
 
@@ -72,6 +73,8 @@ pub struct HelpModalProps {
     /// Terminal rows available, used to size the scroll viewport so the modal
     /// never overflows the screen.
     pub available_rows: u16,
+    /// Active text selection for drag-highlight (issue #178).
+    pub selection: Option<TextSelection>,
 }
 
 /// Vertical chrome consumed outside the scroll viewport: border (2) + padding
@@ -158,6 +161,10 @@ pub fn HelpModal(props: &HelpModalProps) -> impl Into<AnyElement<'static>> {
                     max_line_width: HELP_MAX_LINE_WIDTH,
                     color: Some(rc.fg),
                     bg: Some(rc.bg),
+                    selection: props.selection,
+                    selection_bg: Some(rc.sel_bg),
+                    selection_fg: Some(rc.sel_fg),
+                    content_line_offset: 2usize,
                 )
             }
 

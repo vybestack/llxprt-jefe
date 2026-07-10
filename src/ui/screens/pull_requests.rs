@@ -277,6 +277,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                                     agents: chooser_agents.clone(),
                                     selected_index: chooser_selected,
                                     colors: colors.clone(),
+                                    selection: selection,
                                 )
                             }
                         }]
@@ -299,6 +300,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                                     allowed_methods: merge_allowed.clone(),
                                     awaiting_confirmation: merge_confirming,
                                     colors: colors.clone(),
+                                    selection: selection,
                                 )
                             }
                         }]

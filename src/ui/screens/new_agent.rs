@@ -7,8 +7,10 @@
 use iocraft::prelude::*;
 
 use crate::domain::PlatformCapabilities;
+use crate::selection::SelectablePane;
 use crate::state::{AgentFormCursor, AgentFormFocus, AppState, ModalState};
-use crate::theme::{ResolvedColors, ThemeColors};
+use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
+use crate::ui::components::selectable_line;
 
 /// Props for the new agent form.
 #[derive(Default, Props)]
@@ -39,6 +41,7 @@ fn render_text_with_caret(value: &str, cursor: usize) -> String {
 #[component]
 pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(props.colors.as_ref());
+    let sel = SelectionColors::from_resolved(&rc);
 
     // Extract form state from modal
     let (title, fields, focus, cursor) = props.state.as_ref().map_or_else(
@@ -71,6 +74,9 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
             ),
         },
     );
+    let selection = props.state.as_ref().and_then(|s| s.selection);
+    let pane = SelectablePane::AgentForm;
+    let mut line_idx: usize = 0;
 
     // Build field lines with cursor indicator for focused field.
     let shortcut_display = fields
@@ -114,63 +120,102 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         cursor.llxprt_debug,
     ];
 
-    let mut field_lines: Vec<AnyElement<'static>> = labels
+    // Content line 0: title, line 1: blank.
+    let mut all_lines: Vec<AnyElement<'static>> = Vec::new();
+    all_lines.push(selectable_line(
+        &format!(" {title}"),
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.fg,
+        sel,
+    ));
+    all_lines.push(selectable_line(
+        "",
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.fg,
+        sel,
+    ));
+
+    // Content lines 2-8: text fields.
+    for (((label, value), field_focus), field_cursor) in labels
         .iter()
         .zip(values.iter())
         .zip(focuses.iter())
         .zip(cursors.iter())
-        .map(|(((label, value), field_focus), field_cursor)| {
-            let is_focused = focus == *field_focus;
-            let rendered_value = if is_focused && *field_focus != AgentFormFocus::Shortcut {
-                render_text_with_caret(value, *field_cursor)
-            } else {
-                (*value).to_owned()
-            };
-            let display = format!("  {label:<16} [{rendered_value}]");
-            let color = if is_focused { rc.bright } else { rc.fg };
-            element! {
-                Box(height: 1u32) {
-                    Text(content: display, color: color)
-                }
-            }
-            .into()
-        })
-        .collect();
+    {
+        let is_focused = focus == *field_focus;
+        let rendered_value = if is_focused && *field_focus != AgentFormFocus::Shortcut {
+            render_text_with_caret(value, *field_cursor)
+        } else {
+            (*value).to_owned()
+        };
+        let display = format!("  {label:<16} [{rendered_value}]");
+        let color = if is_focused { rc.bright } else { rc.fg };
+        all_lines.push(selectable_line(
+            &display,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            color,
+            sel,
+        ));
+    }
 
-    // Pass/continue checkbox.
+    // Content line 9: Pass --continue checkbox.
     let continue_focused = focus == AgentFormFocus::PassContinue;
     let continue_mark = if fields.pass_continue { "x" } else { " " };
     let continue_color = if continue_focused { rc.bright } else { rc.fg };
     let continue_line = format!(
         "  {:<16} [{}]  (space toggles)",
-        "Pass --continue", continue_mark,
+        "Pass --continue", continue_mark
     );
-    field_lines.push(
-        element! {
-            Box(height: 1u32) {
-                Text(content: continue_line, color: continue_color)
-            }
-        }
-        .into(),
-    );
+    all_lines.push(selectable_line(
+        &continue_line,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        continue_color,
+        sel,
+    ));
 
-    // Sandbox checkbox.
+    // Content line 10: Sandbox checkbox.
     let sandbox_focused = focus == AgentFormFocus::Sandbox;
     let sandbox_mark = if fields.sandbox_enabled { "x" } else { " " };
     let sandbox_color = if sandbox_focused { rc.bright } else { rc.fg };
-    field_lines.push(
-        element! {
-            Box(height: 1u32) {
-                Text(
-                    content: format!("  {:<16} [{}]  (space toggles)", "Sandbox", sandbox_mark),
-                    color: sandbox_color
-                )
-            }
-        }
-        .into(),
-    );
+    let sandbox_line = format!("  {:<16} [{}]  (space toggles)", "Sandbox", sandbox_mark);
+    all_lines.push(selectable_line(
+        &sandbox_line,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        sandbox_color,
+        sel,
+    ));
 
-    // Sandbox engine pseudo-dropdown.
+    // Content line 11: Sandbox engine pseudo-dropdown.
     let engine_focused = focus == AgentFormFocus::SandboxEngine;
     let engine_color = if engine_focused { rc.bright } else { rc.fg };
     let caps = PlatformCapabilities::current();
@@ -184,19 +229,24 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     } else {
         String::from("disabled")
     };
-    field_lines.push(
-        element! {
-            Box(height: 1u32) {
-                Text(
-                    content: format!("  {:<16} [{}]  ({engine_hint})", "Sandbox Engine", fields.sandbox_engine),
-                    color: engine_color
-                )
-            }
-        }
-        .into(),
+    let engine_line = format!(
+        "  {:<16} [{}]  ({engine_hint})",
+        "Sandbox Engine", fields.sandbox_engine
     );
+    all_lines.push(selectable_line(
+        &engine_line,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        engine_color,
+        sel,
+    ));
 
-    // Sandbox flags field.
+    // Content line 12: Sandbox flags field.
     let flags_focused = focus == AgentFormFocus::SandboxFlags;
     let flags_color = if flags_focused { rc.bright } else { rc.fg };
     let flags_value = if flags_focused {
@@ -205,14 +255,40 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         fields.sandbox_flags.clone()
     };
     let flags_display = format!("  {:<16} [{}]", "Sandbox Flags", flags_value);
-    field_lines.push(
-        element! {
-            Box(height: 1u32) {
-                Text(content: flags_display, color: flags_color)
-            }
-        }
-        .into(),
-    );
+    all_lines.push(selectable_line(
+        &flags_display,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        flags_color,
+        sel,
+    ));
+
+    // Content line 13: blank, line 14: hints.
+    all_lines.push(selectable_line(
+        "",
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.fg,
+        sel,
+    ));
+    all_lines.push(selectable_line(
+        "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles/cycles checkboxes  Enter submit  Esc cancel",
+        line_idx,
+        selection,
+        pane,
+        rc.dim,
+        sel,
+    ));
 
     element! {
         Box(
@@ -229,21 +305,7 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
                 flex_grow: 1.0_f32,
                 padding: 1i32,
             ) {
-                Box(height: 1u32) {
-                    Text(content: format!(" {}", title), color: rc.fg, weight: Weight::Bold)
-                }
-                Box(height: 1u32) {
-                    Text(content: String::new(), color: rc.fg)
-                }
-
-                #(field_lines)
-
-                Box(height: 1u32) {
-                    Text(content: String::new(), color: rc.fg)
-                }
-                Box(height: 1u32) {
-                    Text(content: "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles/cycles checkboxes  Enter submit  Esc cancel".to_owned(), color: rc.dim)
-                }
+                #(all_lines)
             }
         }
     }
