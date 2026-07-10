@@ -183,7 +183,9 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
         | jefe::state::ModalState::ConfirmIssueDirtyCopy { .. } => {
             return OverlayPane::ConfirmModal;
         }
-        _ => {}
+        // Explicit match (not wildcard) so new ModalState variants force a
+        // conscious overlay-routing decision here (issue #178 z-order).
+        jefe::state::ModalState::None | jefe::state::ModalState::Search { .. } => {}
     }
     // Positioned overlays (choosers) — checked only when no full-screen modal.
     if state.issues_state.agent_chooser.is_some() || state.prs_state.agent_chooser.is_some() {
@@ -313,6 +315,10 @@ fn finalize_and_copy_selection(ctx: Option<&CtxArc>, app_state: &HookState<AppSt
     }
 }
 
+/// HelpModal title rows (title text + blank): not affected by scroll offset,
+/// mirroring the renderer's title Box(height: 2) above ScrollableText.
+const HELP_TITLE_ROWS: usize = 2;
+
 /// For detail panes, headers occupy content lines `0..DETAIL_HEADER_ROWS` and
 /// are not affected by scroll offset. Scrollable content starts at line
 /// `DETAIL_HEADER_ROWS`. Return 0 when the click is in the header area,
@@ -340,7 +346,11 @@ fn effective_scroll_for_detail(
         SelectablePane::HelpModal => {
             let content_row = usize::from(row.saturating_sub(geometry.content_origin_row));
             // Title Box is height 2 (title text + blank) — not scrolled.
-            if content_row < 2 { 0 } else { scroll_offset }
+            if content_row < HELP_TITLE_ROWS {
+                0
+            } else {
+                scroll_offset
+            }
         }
         _ => scroll_offset,
     }

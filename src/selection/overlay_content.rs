@@ -92,6 +92,11 @@ pub fn merge_chooser_lines(state: &AppState) -> PaneContent {
 /// uses flex_grow, an optional checkbox is height 1, and the buttons box is
 /// height 2 (1 text + 1 blank). This projection mirrors those exact rows so
 /// selection coordinates map to what the user sees.
+///
+/// Known limitation: the message is projected as a single line. If the
+/// rendered message exceeds the 48-column inner width, iocraft wraps it to
+/// additional rows that this projection does not account for. Selection of
+/// the wrapped portion will be slightly misaligned.
 #[must_use]
 pub fn confirm_modal_lines(state: &AppState) -> PaneContent {
     let Some(data) = confirm_modal_data(state) else {
@@ -119,6 +124,10 @@ struct ConfirmModalData {
 }
 
 /// Derive confirm-modal display data from the active modal state.
+///
+/// This mirrors `derive_confirm_modal_data` in `src/ui/orchestration.rs` so
+/// the selection projection stays iocraft-free. If modal display logic changes,
+/// update both functions (or extract a shared pure helper in a future refactor).
 fn confirm_modal_data(state: &AppState) -> Option<ConfirmModalData> {
     match &state.modal {
         crate::state::ModalState::ConfirmDeleteAgent {

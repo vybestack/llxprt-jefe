@@ -145,7 +145,7 @@ pub fn pane_at(
     }
 
     // Positioned overlays (choosers) intercept coordinates inside their bounds.
-    if let Some(chooser) = chooser_pane_if_inside(col, row, *layout, render_cols, render_rows) {
+    if let Some(chooser) = chooser_pane_if_inside(col, row, *layout) {
         return Some(chooser);
     }
 
@@ -467,16 +467,11 @@ const HELP_CHROME_ROWS: u16 = 7;
 
 /// Compute the help modal height for a given terminal row count.
 ///
-/// Mirrors `help_viewport_rows` + `HELP_CHROME_ROWS` from the renderer so
-/// the geometry matches exactly.
+/// Delegates to the renderer's `help_viewport_rows` (single source of truth)
+/// and adds the chrome rows, so the geometry matches exactly.
 fn help_modal_height(render_rows: u16) -> u16 {
-    let available = usize::from(render_rows).saturating_sub(usize::from(HELP_CHROME_ROWS));
-    let viewport = if available >= 8 {
-        available.min(22)
-    } else {
-        available
-    };
-    let total = viewport + usize::from(HELP_CHROME_ROWS);
+    let viewport = crate::ui::modals::help_viewport_rows(render_rows);
+    let total = viewport.saturating_add(usize::from(HELP_CHROME_ROWS));
     u16::try_from(total.min(usize::from(render_rows)).max(1)).unwrap_or(1)
 }
 
@@ -512,6 +507,9 @@ fn full_screen_overlay_pane(
 const CHOOSER_OFFSET_COL: u16 = 4;
 const CHOOSER_OFFSET_ROW: u16 = 2;
 /// Chooser widget width: 41-char separator + 2 border + 2 padding columns.
+/// Must stay in sync with the AgentChooser/MergeChooser separator length
+/// (src/ui/components/agent_chooser.rs). Changes there require updating
+/// CHOOSER_INNER_WIDTH here.
 const CHOOSER_INNER_WIDTH: u16 = 45;
 /// Maximum chooser height (prevents the overlay from exceeding the workspace).
 const CHOOSER_MAX_HEIGHT: u16 = 30;
@@ -529,8 +527,6 @@ fn chooser_pane_if_inside(
     col: u16,
     row: u16,
     layout: ScreenLayout,
-    _render_cols: u16,
-    _render_rows: u16,
 ) -> Option<(SelectablePane, PaneGeometry)> {
     let pane = layout.overlay.to_pane()?;
     if layout.overlay.is_full_screen() {
