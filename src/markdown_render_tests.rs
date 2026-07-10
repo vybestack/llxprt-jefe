@@ -124,6 +124,17 @@ fn html_entities_decoded() {
     assert!(out.contains("<tag>"), "lt/gt decoded: {out}");
 }
 
+/// Numeric character references (decimal and hex) must decode to their
+/// characters, not leak as raw markup.
+#[test]
+fn numeric_html_entities_decoded() {
+    let out = render("&#39; &#10003; &#x41;");
+    assert!(out.contains('\''), "decimal 39 decoded: {out}");
+    assert!(out.contains('\u{2713}'), "decimal checkmark decoded: {out}");
+    assert!(out.contains('A'), "hex 41 decoded: {out}");
+    assert!(!out.contains("&#"), "no raw numeric entities: {out}");
+}
+
 #[test]
 fn link_keeps_url_when_distinct() {
     let out = render("[text](https://example.com)");
@@ -249,6 +260,37 @@ fn loose_list_has_inter_item_blank_lines() {
     let second = lines.get(a + 2).copied().unwrap_or("<missing>");
     assert_eq!(blank, "", "loose list has a blank between items: {out}");
     assert_eq!(second, "* b", "second item after blank: {out}");
+}
+
+/// A wrapped list item's continuation lines must align under the marker's
+/// content (NOT double-indent at nesting levels > 0). Regression for the
+/// wrap_indent + cont_pad double-prefix bug.
+#[test]
+fn wrapped_list_continuation_aligns_under_content() {
+    // A long first item that wraps; the wrapped tail must align under the
+    // text after the "* " marker, and must NOT exceed the marker column.
+    let md = "- alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu
+";
+    let out = render(md);
+    let lines: Vec<&str> = out.lines().filter(|l| !l.is_empty()).collect();
+    let first = lines.first().copied().unwrap_or("<missing>");
+    assert!(first.starts_with("* "), "first line has bullet: {out}");
+    // Find the wrapped continuation (a non-bulleted line that contains one of
+    // the later words).
+    let cont = lines
+        .iter()
+        .find(|l| {
+            !l.starts_with('*') && (l.contains("kappa") || l.contains("lambda") || l.contains("mu"))
+        })
+        .copied();
+    if let Some(cont_line) = cont {
+        let cont_lead = cont_line.chars().take_while(|c| *c == ' ').count();
+        // Continuation aligns at column 2 (under the text after "* ").
+        assert_eq!(
+            cont_lead, 2,
+            "continuation aligns under marker content: {out}"
+        );
+    }
 }
 
 /// Multibyte text must be measured in display columns (char count), not bytes,

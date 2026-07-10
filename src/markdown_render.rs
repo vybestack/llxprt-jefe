@@ -246,11 +246,12 @@ impl MarkdownRenderer {
     /// and sub-lists are indented under it.
     fn render_list_item<'a>(&mut self, item: &'a AstNode<'a>, marker: &str, indent: usize) {
         // Continuation lines align under the first line's content, which starts
-        // after the marker and one space (a raw column count, NOT indent
-        // levels — using indent_str here would multiply by LIST_INDENT width
-        // and over-indent continuation lines).
+        // after the marker and one space. This is a raw column count (NOT
+        // indent levels) and is passed to wrap_indent as the target pad so the
+        // wrapper produces the full prefix in one step (previously wrap_indent
+        // added its own indent on top of cont_pad, double-indenting wrapped
+        // continuation lines at nesting levels > 0).
         let cont_cols = indent * LIST_INDENT.len() + marker.len() + 1;
-        let cont_pad = " ".repeat(cont_cols);
         let mut first = true;
         for child in item.children() {
             let value = &child.data().value;
@@ -263,21 +264,18 @@ impl MarkdownRenderer {
                     let collected = self.collect_inline(child);
                     let mut lines = Vec::new();
                     for src in collected {
-                        lines.extend(wrap_indent(&src, indent));
+                        lines.extend(wrap_indent_cols(&src, cont_cols));
                     }
                     if first {
                         if let Some(first_line) = lines.first_mut() {
+                            // wrap_indent_cols already prefixed every line
+                            // with `cont_cols` spaces; replace that prefix on
+                            // the first line with the list indent + marker.
                             let pad = LIST_INDENT.repeat(indent);
-                            *first_line = format!("{pad}{marker} {first_line}");
+                            let rest = first_line.split_off(cont_cols);
+                            *first_line = format!("{pad}{marker} {rest}");
                         }
                         first = false;
-                        for line in lines.iter_mut().skip(1) {
-                            *line = format!("{cont_pad}{line}");
-                        }
-                    } else {
-                        for line in &mut lines {
-                            *line = format!("{cont_pad}{line}");
-                        }
                     }
                     for line in lines {
                         self.push(line);
@@ -570,10 +568,17 @@ fn indent_str(indent: usize, content: &str) -> String {
 /// (`ScrollableText`) hard-truncates over-wide lines, so wrapping here only
 /// improves readability and never breaks scroll math.
 fn wrap_indent(text: &str, indent: usize) -> Vec<String> {
+    wrap_indent_cols(text, indent * LIST_INDENT.len())
+}
+
+/// Word-wrap a single logical line of text to a soft width and prefix each
+/// output line with `pad_cols` raw space columns (used by list rendering,
+/// which aligns continuation content under the marker at a raw column count
+/// rather than an indent level).
+fn wrap_indent_cols(text: &str, pad_cols: usize) -> Vec<String> {
     const SOFT_WIDTH: usize = 78;
-    let pad_len = indent * LIST_INDENT.len();
-    let max = SOFT_WIDTH.saturating_sub(pad_len).max(20);
-    let pad = " ".repeat(pad_len);
+    let max = SOFT_WIDTH.saturating_sub(pad_cols).max(20);
+    let pad = " ".repeat(pad_cols);
     let mut out = Vec::new();
     for source_line in text.split('\n') {
         if source_line.is_empty() {
@@ -792,21 +797,35 @@ fn utf8_len(byte: u8) -> usize {
 
 /// Decode the handful of HTML entities bots commonly emit.
 fn decode_entity(entity: &str) -> Option<String> {
-    Some(match entity {
-        "&amp;" => "&".to_string(),
-        "&lt;" => "<".to_string(),
-        "&gt;" => ">".to_string(),
-        "&quot;" => "\"".to_string(),
-        "&#39;" | "&apos;" => "'".to_string(),
-        "&nbsp;" => " ".to_string(),
-        "&mdash;" => "—".to_string(),
-        "&ndash;" => "–".to_string(),
-        "&hellip;" => "…".to_string(),
-        "&bullet;" => "•".to_string(),
-        "&check;" | "&#10003;" => "✓".to_string(),
-        "&times;" => "×".to_string(),
-        _ => return None,
-    })
+    // Named entities with explicit mappings.
+    if let Some(named) = match entity {
+        "&amp;" => Some("&"),
+        "&lt;" => Some("<"),
+        "&gt;" => Some(">"),
+        "&quot;" => Some("\""),
+        "&apos;" => Some("'"),
+        "&nbsp;" => Some(" "),
+        "&mdash;" => Some("\u{2014}"),
+        "&ndash;" => Some("\u{2013}"),
+        "&hellip;" => Some("\u{2026}"),
+        "&bullet;" => Some("\u{2022}"),
+        "&check;" => Some("\u{2713}"),
+        "&times;" => Some("\u{00d7}"),
+        _ => None,
+    } {
+        return Some(named.to_string());
+    }
+    // Numeric character references: decimal (&#NNN;) or hex (&#xHH;).
+    let inner = entity.strip_prefix('&')?.strip_suffix(';')?;
+    let code = if let Some(hex) = inner
+        .strip_prefix("#x")
+        .or_else(|| inner.strip_prefix("#X"))
+    {
+        u32::from_str_radix(hex, 16).ok()?
+    } else {
+        inner.strip_prefix('#')?.parse::<u32>().ok()?
+    };
+    char::from_u32(code).map(|c| c.to_string())
 }
 
 #[cfg(test)]

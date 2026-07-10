@@ -121,8 +121,15 @@ fn parse_hhmm(time: &str) -> Option<String> {
     }
     t = t.trim_end_matches('Z');
     let mut parts = t.split(':');
-    let hh: u32 = parts.next()?.trim().parse().ok()?;
-    let mm: u32 = parts.next()?.trim().parse().ok()?;
+    let hh_s = parts.next()?.trim();
+    let mm_s = parts.next()?.trim();
+    // Enforce zero-padded 2-2 width, mirroring parse_date, so non-standard
+    // time forms fall through to the raw fallback.
+    if hh_s.len() != 2 || mm_s.len() != 2 {
+        return None;
+    }
+    let hh: u32 = hh_s.parse().ok()?;
+    let mm: u32 = mm_s.parse().ok()?;
     if hh > 23 || mm > 59 {
         return None;
     }
