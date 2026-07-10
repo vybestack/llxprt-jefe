@@ -219,6 +219,8 @@ impl MarkdownRenderer {
     /// Build the marker string (`*`, `1.`, `[x]`) for a list item and advance
     /// the ordinal for ordered lists.
     fn list_marker<'a>(item: &'a AstNode<'a>, list: &NodeList, ordinal: &mut usize) -> String {
+        // A task item in an ordered list still consumes an ordinal slot so
+        // subsequent items keep their correct numbers.
         if let NodeValue::TaskItem(NodeTaskItem { symbol, .. }) = &item.data().value {
             let box_char = symbol.map_or_else(
                 || "[ ]",
@@ -230,6 +232,11 @@ impl MarkdownRenderer {
                     }
                 },
             );
+            if matches!(list.list_type, ListType::Ordered) {
+                let m = format!("{ordinal}.");
+                *ordinal += 1;
+                return format!("{m} {box_char}");
+            }
             return box_char.to_string();
         }
         match list.list_type {
@@ -282,8 +289,16 @@ impl MarkdownRenderer {
                     }
                 }
                 _ => {
-                    // Any other block under a list item: render with the
-                    // marker's continuation indent so it stays visually nested.
+                    // A non-Paragraph first block (e.g. a code block or
+                    // blockquote) still needs the marker emitted so the item
+                    // is recognizably a list entry.
+                    if first {
+                        let pad = LIST_INDENT.repeat(indent);
+                        self.push(format!("{pad}{marker}"));
+                        first = false;
+                    }
+                    // Render the block with the marker's continuation indent so
+                    // it stays visually nested.
                     self.render_block(child, indent + 1);
                 }
             }

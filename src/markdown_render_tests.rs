@@ -89,6 +89,34 @@ fn task_list_uses_boxes() {
     assert!(out.contains("[ ] todo"), "unchecked task: {out}");
 }
 
+/// A task item in an ordered list keeps its ordinal so subsequent items number
+/// correctly.
+#[test]
+fn ordered_task_list_increments_ordinal() {
+    let out = render("1. [ ] first\n2. [x] second\n3. [ ] third\n");
+    assert!(out.contains("1. [ ] first"), "first item: {out}");
+    assert!(
+        out.contains("2. [x] second"),
+        "second item keeps number 2: {out}"
+    );
+    assert!(
+        out.contains("3. [ ] third"),
+        "third item keeps number 3: {out}"
+    );
+}
+
+/// A list item whose first child is not a paragraph (e.g. a code block) still
+/// emits its marker so the item is recognizably a list entry.
+#[test]
+fn list_item_with_code_block_first_child_emits_marker() {
+    let out = render("- ```bash\ncargo test\n```\n");
+    assert!(
+        out.lines().any(|l| l.starts_with('*')),
+        "bullet marker emitted before the code block: {out}"
+    );
+    assert!(out.contains("cargo test"), "code body present: {out}");
+}
+
 #[test]
 fn raw_html_is_stripped() {
     let out = render("<details><summary>Click me</summary>body</details>");
@@ -267,30 +295,30 @@ fn loose_list_has_inter_item_blank_lines() {
 /// wrap_indent + cont_pad double-prefix bug.
 #[test]
 fn wrapped_list_continuation_aligns_under_content() {
-    // A long first item that wraps; the wrapped tail must align under the
-    // text after the "* " marker, and must NOT exceed the marker column.
-    let md = "- alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu
+    // A long first item that exceeds the soft width so it actually wraps; the
+    // wrapped tail must align under the text after the "* " marker.
+    let md = "- alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi
 ";
     let out = render(md);
     let lines: Vec<&str> = out.lines().filter(|l| !l.is_empty()).collect();
     let first = lines.first().copied().unwrap_or("<missing>");
     assert!(first.starts_with("* "), "first line has bullet: {out}");
-    // Find the wrapped continuation (a non-bulleted line that contains one of
-    // the later words).
-    let cont = lines
+    // There must be a wrapped continuation line carrying a later word.
+    let Some(cont_line) = lines
         .iter()
         .find(|l| {
-            !l.starts_with('*') && (l.contains("kappa") || l.contains("lambda") || l.contains("mu"))
+            !l.starts_with('*') && (l.contains("sigma") || l.contains("phi") || l.contains("tau"))
         })
-        .copied();
-    if let Some(cont_line) = cont {
-        let cont_lead = cont_line.chars().take_while(|c| *c == ' ').count();
-        // Continuation aligns at column 2 (under the text after "* ").
-        assert_eq!(
-            cont_lead, 2,
-            "continuation aligns under marker content: {out}"
-        );
-    }
+        .copied()
+    else {
+        panic!("a wrapped continuation line must exist: {out}");
+    };
+    let cont_lead = cont_line.chars().take_while(|c| *c == ' ').count();
+    // Continuation aligns at column 2 (under the text after "* ").
+    assert_eq!(
+        cont_lead, 2,
+        "continuation aligns under marker content: {out}"
+    );
 }
 
 /// Multibyte text must be measured in display columns (char count), not bytes,
