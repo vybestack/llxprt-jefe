@@ -535,6 +535,7 @@ fn pane_at_help_modal_resolves_within_bounds() {
             "expected HelpModal at ({c}, {r}), got {pane:?}"
         );
         assert_eq!(geo.width, 60, "help modal width should be 60");
+        assert_eq!(geo.height, 29, "help modal height should be 29 at 40 rows");
     }
 }
 

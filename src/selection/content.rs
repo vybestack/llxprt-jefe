@@ -314,10 +314,14 @@ fn help_lines() -> PaneContent {
     // and its trailing blank are included as content lines 0-1 so the (2,2)
     // content origin maps to the title text.
     let mut lines: Vec<String> = vec!["Help - Keyboard Shortcuts".to_string(), String::new()];
+    // Title string mirrors src/ui/modals/help.rs; if it changes there, update
+    // this literal too (extracting a shared constant would require making the
+    // help component's title public, deferred to a future refactor).
     lines.extend(
         crate::ui::modals::help_content_lines()
             .iter()
-            .map(|s| (*s).to_string()),
+            .copied()
+            .map(str::to_string),
     );
     PaneContent::new(SelectablePane::HelpModal, lines)
 }

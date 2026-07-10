@@ -460,9 +460,11 @@ fn terminal_view(
     )
 }
 
-/// Help modal fixed width (matches the renderer's `width: 60u32`).
+/// Help modal fixed width (matches the renderer's `width: 60u32` in
+/// `src/ui/modals/help.rs`). If the renderer width changes, update this too.
 const HELP_MODAL_WIDTH: u16 = 60;
 /// Help modal vertical chrome: border(2) + padding(2) + title(2) + footer(1).
+/// Duplicates `HELP_CHROME_ROWS` in `src/ui/modals/help.rs` — keep in sync.
 const HELP_CHROME_ROWS: u16 = 7;
 
 /// Compute the help modal height for a given terminal row count.
