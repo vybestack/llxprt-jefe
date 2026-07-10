@@ -72,7 +72,11 @@ impl AppState {
         self.prs_state.committed_filter = prefs.pr_filter;
         self.prs_state.draft_filter = self.prs_state.committed_filter.clone();
         self.prs_state.search_query = prefs.pr_search_query;
-        self.prs_state.filter_ui.field_index = prefs.pr_filter_field_index;
+        // Clamp against the current field count so a stale/corrupted persisted
+        // index cannot drive the cursor out of bounds (issue #163).
+        self.prs_state.filter_ui.field_index = prefs
+            .pr_filter_field_index
+            .min(PR_FILTER_FIELD_COUNT.saturating_sub(1));
     }
 
     /// Exit PR mode: restore prior focus with bounds fallback.

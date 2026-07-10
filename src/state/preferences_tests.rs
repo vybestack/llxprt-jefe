@@ -466,12 +466,9 @@ fn deleted_repo_prunes_its_preferences() {
     };
     let mut state = state_with_two_repos("repo-1", prefs1, "repo-2", prefs2);
 
-    // Delete repo-1. delete_selected_repository removes it from self.repositories.
+    // Delete repo-1. delete_selected_repository removes it from self.repositories
+    // AND prunes its stored preferences (issue #163).
     delete_selected_repository(&mut state, &RepositoryId("repo-1".to_string()));
-
-    // finalize_message (run after any apply_message) prunes stale prefs.
-    // Drive it with a benign selection event.
-    let state = state.apply(AppEvent::SelectRepository(0));
 
     // repo-1 prefs should be gone, repo-2 prefs should remain.
     assert!(
@@ -485,4 +482,116 @@ fn deleted_repo_prunes_its_preferences() {
         .user_preferences
         .for_repo(&RepositoryId("repo-2".to_string()));
     assert_eq!(repo2_prefs.issue_search_query, "repo2-search");
+}
+
+// ── Save-before-switch: uncommitted selections must persist before the
+//    repo index changes (issue #163). Without this, move_repo_selection
+//    changes the selected repo and reset_*_for_repo_change overwrites the
+//    live filter/search with the NEW repo's prefs, silently discarding the
+//    OLD repo's uncommitted state.
+
+/// Switching repos in issues mode must persist the OLD repo's current
+/// search query before the new repo's preferences are restored.
+#[test]
+fn issue_repo_switch_persists_old_search_before_switch() {
+    use crate::state::IssueFocus;
+
+    // repo-1 has empty prefs; repo-2 has empty prefs. Enter issues mode on
+    // repo-1, type a search query (not yet applied), then switch down to
+    // repo-2 — the typed query must be saved for repo-1.
+    let mut state = state_with_two_repos(
+        "repo-1",
+        RepoPreferences::default(),
+        "repo-2",
+        RepoPreferences::default(),
+    );
+    state = state.apply(AppEvent::EnterIssuesMode);
+    state.issues_state.issue_focus = IssueFocus::RepoList;
+    state = state.apply(AppEvent::SetSearchQuery {
+        query: "rust-bug".to_string(),
+    });
+
+    // Switch down to repo-2.
+    state = state.apply(AppEvent::IssuesNavigateDown);
+
+    // repo-1's typed search query must now be in its stored prefs.
+    let repo1_prefs = state
+        .user_preferences
+        .for_repo(&RepositoryId("repo-1".to_string()));
+    assert_eq!(
+        repo1_prefs.issue_search_query, "rust-bug",
+        "old repo's search query must be persisted before the repo switch"
+    );
+
+    // Switch back up to repo-1 and re-enter mode to confirm it restores.
+    state = state.apply(AppEvent::IssuesNavigateUp);
+    state = state.apply(AppEvent::RefocusIssueList);
+    assert_eq!(state.issues_state.search_query, "rust-bug");
+}
+
+/// Switching repos in PR mode must persist the OLD repo's current search
+/// query before the new repo's preferences are restored.
+#[test]
+fn pr_repo_switch_persists_old_search_before_switch() {
+    use crate::state::PrFocus;
+
+    let mut state = state_with_two_repos(
+        "repo-1",
+        RepoPreferences::default(),
+        "repo-2",
+        RepoPreferences::default(),
+    );
+    state = state.apply(AppEvent::EnterPrsMode);
+    state.prs_state.pr_focus = PrFocus::RepoList;
+    state = state.apply(AppEvent::PrSetSearchQuery {
+        query: "draft-prs".to_string(),
+    });
+
+    // Switch down to repo-2.
+    state = state.apply(AppEvent::PrNavigateDown);
+
+    let repo1_prefs = state
+        .user_preferences
+        .for_repo(&RepositoryId("repo-1".to_string()));
+    assert_eq!(
+        repo1_prefs.pr_search_query, "draft-prs",
+        "old repo's search query must be persisted before the repo switch"
+    );
+
+    // Switch back up to repo-1 and confirm it restores.
+    state = state.apply(AppEvent::PrNavigateUp);
+    state = state.apply(AppEvent::RefocusPrList);
+    assert_eq!(state.prs_state.search_query, "draft-prs");
+}
+
+/// A stale/corrupted persisted field_index beyond the valid range is clamped
+/// on mode entry so it cannot drive the filter cursor out of bounds.
+#[test]
+fn restore_clamps_stale_pr_filter_field_index() {
+    // Seed an out-of-range pr_filter_field_index (well beyond 8 fields).
+    let prefs = RepoPreferences {
+        pr_filter_field_index: 999,
+        ..RepoPreferences::default()
+    };
+    let state = state_with_repo_and_prefs("repo-1", prefs);
+    let state = state.apply(AppEvent::EnterPrsMode);
+    assert!(
+        state.prs_state.filter_ui.field_index < 8,
+        "restored field_index must be clamped within the valid field range"
+    );
+}
+
+/// A stale/corrupted persisted issue filter field_index is clamped on entry.
+#[test]
+fn restore_clamps_stale_issue_filter_field_index() {
+    let prefs = RepoPreferences {
+        issue_filter_field_index: 999,
+        ..RepoPreferences::default()
+    };
+    let state = state_with_repo_and_prefs("repo-1", prefs);
+    let state = state.apply(AppEvent::EnterIssuesMode);
+    assert!(
+        state.issues_state.filter_ui.field_index < 8,
+        "restored field_index must be clamped within the valid field range"
+    );
 }

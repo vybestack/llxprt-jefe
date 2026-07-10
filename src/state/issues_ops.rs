@@ -51,7 +51,11 @@ impl AppState {
         self.issues_state.committed_filter = prefs.issue_filter;
         self.issues_state.draft_filter = self.issues_state.committed_filter.clone();
         self.issues_state.search_query = prefs.issue_search_query;
-        self.issues_state.filter_ui.field_index = prefs.issue_filter_field_index;
+        // Clamp against the current field count so a stale/corrupted persisted
+        // index cannot drive the cursor out of bounds (issue #163).
+        self.issues_state.filter_ui.field_index = prefs
+            .issue_filter_field_index
+            .min(ISSUE_FILTER_FIELD_COUNT.saturating_sub(1));
     }
 
     /// Exit issues mode, restoring prior focus state.
@@ -182,6 +186,10 @@ impl AppState {
     /// @requirement REQ-PR-003
     /// @pseudocode component-001 lines 152-153
     fn navigate_repo_up_in_issues_mode(&mut self) {
+        // Persist the OLD repo's filter/search/cursor before move_repo_selection
+        // changes the selected index (issue #163). Idempotent on a no-op move.
+        self.remember_issue_preferences();
+        self.remember_issue_filter_field_index();
         if self.move_repo_selection(crate::messages::NavDir::Up) {
             self.reset_issues_for_repo_change();
         }
@@ -196,6 +204,10 @@ impl AppState {
     /// @requirement REQ-PR-003
     /// @pseudocode component-001 lines 152-153
     fn navigate_repo_down_in_issues_mode(&mut self) {
+        // Persist the OLD repo's filter/search/cursor before move_repo_selection
+        // changes the selected index (issue #163). Idempotent on a no-op move.
+        self.remember_issue_preferences();
+        self.remember_issue_filter_field_index();
         if self.move_repo_selection(crate::messages::NavDir::Down) {
             self.reset_issues_for_repo_change();
         }

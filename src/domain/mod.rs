@@ -717,6 +717,31 @@ impl UserPreferences {
             self.by_repo.push((repo_id.clone(), prefs));
         }
     }
+
+    /// Mutate a single repo's preferences in place via `f`, inserting a fresh
+    /// Open-default entry when the repo has no stored entry yet (issue #163).
+    /// Avoids the full clone-and-replace of `for_repo`/`update_for_repo` when
+    /// only one field changes (e.g. cursor navigation).
+    pub fn update_field_for_repo(
+        &mut self,
+        repo_id: &RepositoryId,
+        f: impl FnOnce(&mut RepoPreferences),
+    ) {
+        if let Some((_, prefs)) = self.by_repo.iter_mut().find(|(id, _)| id == repo_id) {
+            f(prefs);
+        } else {
+            let mut prefs = RepoPreferences::default();
+            f(&mut prefs);
+            self.by_repo.push((repo_id.clone(), prefs));
+        }
+    }
+
+    /// Remove the stored preferences entry for `repo_id`, if any (issue #163).
+    /// Called when a repository is deleted so its preferences do not linger
+    /// or get restored if the id is ever reused.
+    pub fn remove_for_repo(&mut self, repo_id: &RepositoryId) {
+        self.by_repo.retain(|(id, _)| id != repo_id);
+    }
 }
 
 /// Agent lifecycle status.

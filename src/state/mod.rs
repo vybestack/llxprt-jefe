@@ -155,22 +155,28 @@ impl AppState {
     }
 
     /// Snapshot the current PR filter field-index into per-repo preferences
-    /// (issue #163). No-op when no repo is selected.
+    /// (issue #163). Uses in-place mutation since this fires on every cursor
+    /// keystroke. No-op when no repo is selected.
     pub(super) fn remember_pr_filter_field_index(&mut self) {
         if let Some(repo_id) = self.current_repo_id() {
-            let mut prefs = self.user_preferences.for_repo(&repo_id);
-            prefs.pr_filter_field_index = self.prs_state.filter_ui.field_index;
-            self.user_preferences.update_for_repo(&repo_id, prefs);
+            let idx = self.prs_state.filter_ui.field_index;
+            self.user_preferences
+                .update_field_for_repo(&repo_id, |prefs| {
+                    prefs.pr_filter_field_index = idx;
+                });
         }
     }
 
     /// Snapshot the current issue filter field-index into per-repo preferences
-    /// (issue #163). No-op when no repo is selected.
+    /// (issue #163). Uses in-place mutation since this fires on every cursor
+    /// keystroke. No-op when no repo is selected.
     pub(super) fn remember_issue_filter_field_index(&mut self) {
         if let Some(repo_id) = self.current_repo_id() {
-            let mut prefs = self.user_preferences.for_repo(&repo_id);
-            prefs.issue_filter_field_index = self.issues_state.filter_ui.field_index;
-            self.user_preferences.update_for_repo(&repo_id, prefs);
+            let idx = self.issues_state.filter_ui.field_index;
+            self.user_preferences
+                .update_field_for_repo(&repo_id, |prefs| {
+                    prefs.issue_filter_field_index = idx;
+                });
         }
     }
 
@@ -437,10 +443,6 @@ impl AppState {
                         .iter()
                         .any(|agent| agent.id == *agent_id && agent.repository_id == *repo_id)
             });
-
-        self.user_preferences
-            .by_repo
-            .retain(|(repo_id, _)| self.repositories.iter().any(|repo| repo.id == *repo_id));
 
         trace!(
             message_domain = ?route.domain,
