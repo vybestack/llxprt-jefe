@@ -734,3 +734,173 @@ fn legacy_state_without_preferences_deserializes_to_default() {
     let state: State = serde_json::from_str(legacy_json).value_or_panic("deserialize legacy state");
     assert!(state.user_preferences.by_repo.is_empty());
 }
+
+// ── Issue #163 FIX 8: Full restart-hydration integration test ─────────────
+
+/// End-to-end restart test: save → load → restore → enter-mode proves no
+/// cross-repo leakage through the real persistence layer.
+#[test]
+fn restart_hydration_preserves_per_repo_preferences() {
+    use crate::domain::{
+        IssueFilter, IssueFilterState, PrFilter, PrFilterState, RepoPreferences, Repository,
+        RepositoryId, UserPreferences,
+    };
+
+    let repo1 = Repository::new(
+        RepositoryId("repo-1".to_string()),
+        "Repo 1".to_string(),
+        "repo-1".to_string(),
+        std::path::PathBuf::from("/tmp/repo1"),
+    );
+    let repo2 = Repository::new(
+        RepositoryId("repo-2".to_string()),
+        "Repo 2".to_string(),
+        "repo-2".to_string(),
+        std::path::PathBuf::from("/tmp/repo2"),
+    );
+
+    let prefs1 = RepoPreferences {
+        issue_filter: IssueFilter {
+            state: Some(IssueFilterState::Closed),
+            ..IssueFilter::default()
+        },
+        pr_filter: PrFilter {
+            state: Some(PrFilterState::Merged),
+            ..PrFilter::default()
+        },
+        pr_search_query: "alpha".to_string(),
+        ..RepoPreferences::default()
+    };
+    let prefs2 = RepoPreferences {
+        issue_filter: IssueFilter {
+            state: Some(IssueFilterState::All),
+            ..IssueFilter::default()
+        },
+        ..RepoPreferences::default()
+    };
+
+    let persisted = State {
+        schema_version: STATE_SCHEMA_VERSION,
+        repositories: vec![repo1, repo2],
+        user_preferences: UserPreferences {
+            by_repo: vec![
+                (RepositoryId("repo-1".to_string()), prefs1),
+                (RepositoryId("repo-2".to_string()), prefs2),
+            ],
+        },
+        ..State::default_with_version()
+    };
+
+    let loaded = save_load_roundtrip(&persisted, "jefe_test_restart_hydration_prefs");
+
+    // Round-trip: both repos' prefs intact with correct states + search query.
+    let r1 = loaded
+        .user_preferences
+        .for_repo(&RepositoryId("repo-1".to_string()));
+    assert_eq!(r1.issue_filter.state, Some(IssueFilterState::Closed));
+    assert_eq!(r1.pr_filter.state, Some(PrFilterState::Merged));
+    assert_eq!(r1.pr_search_query, "alpha");
+
+    let r2 = loaded
+        .user_preferences
+        .for_repo(&RepositoryId("repo-2".to_string()));
+    assert_eq!(r2.issue_filter.state, Some(IssueFilterState::All));
+
+    // Simulate init_app_state's restore: copy loaded prefs onto fresh AppState.
+    verify_mode_entry_restore(&loaded);
+}
+
+/// Save and load a State through the real FilePersistenceManager into a temp
+/// dir tagged with `label`. Returns the deserialized State.
+fn save_load_roundtrip(persisted: &State, label: &str) -> State {
+    let temp = std::env::temp_dir().join(label);
+    let _ = std::fs::remove_dir_all(&temp);
+    let paths = PersistencePaths {
+        settings_path: temp.join("settings.toml"),
+        state_path: temp.join("state.json"),
+    };
+    let mgr = FilePersistenceManager::with_paths(paths);
+
+    mgr.save_state(persisted).value_or_panic("should save");
+    let loaded = mgr.load_state().value_or_panic("should load");
+
+    let _ = std::fs::remove_dir_all(&temp);
+    loaded
+}
+
+/// Given a loaded persistence::State, simulate init_app_state's restore onto a
+/// fresh AppState, then verify entering issues mode for each repo restores the
+/// correct per-repo filter state without cross-repo leakage.
+fn verify_mode_entry_restore(loaded: &State) {
+    use crate::domain::IssueFilterState;
+    use crate::state::{AppEvent, AppState};
+
+    let state = AppState {
+        repositories: loaded.repositories.clone(),
+        user_preferences: loaded.user_preferences.clone(),
+        selected_repository_index: Some(0),
+        ..AppState::default()
+    };
+
+    // repo-1 → Closed.
+    let state = state.apply(AppEvent::EnterIssuesMode);
+    assert_eq!(
+        state.issues_state.committed_filter.state,
+        Some(IssueFilterState::Closed)
+    );
+
+    // repo-2 → All (no leakage from repo-1).
+    let state = state.apply(AppEvent::ExitIssuesMode);
+    let state = state.apply(AppEvent::SelectRepository(1));
+    let state = state.apply(AppEvent::EnterIssuesMode);
+    assert_eq!(
+        state.issues_state.committed_filter.state,
+        Some(IssueFilterState::All)
+    );
+}
+
+/// A legacy state.json (without user_preferences) deserializes and then
+/// entering a mode gives Open defaults.
+#[test]
+fn restart_hydration_legacy_state_gives_open_defaults_on_mode_entry() {
+    use crate::domain::{IssueFilterState, RepositoryId};
+    use crate::state::{AppEvent, AppState};
+
+    let legacy_json = r#"{
+        "schema_version": 1,
+        "repositories": [
+            {
+                "id": "legacy-repo",
+                "name": "Legacy",
+                "slug": "legacy",
+                "base_dir": "/tmp/legacy",
+                "default_profile": "",
+                "agent_ids": []
+            }
+        ],
+        "agents": [],
+        "selected_repository_index": 0,
+        "selected_agent_index": null
+    }"#;
+    let loaded: State =
+        serde_json::from_str(legacy_json).value_or_panic("deserialize legacy state");
+
+    let state = AppState {
+        repositories: loaded.repositories.clone(),
+        user_preferences: loaded.user_preferences.clone(),
+        selected_repository_index: Some(0),
+        ..AppState::default()
+    };
+
+    let state = state.apply(AppEvent::EnterIssuesMode);
+    assert_eq!(
+        state.issues_state.committed_filter.state,
+        Some(IssueFilterState::Open)
+    );
+
+    // Ensure the repo is actually the one we loaded.
+    assert_eq!(
+        state.repositories[0].id,
+        RepositoryId("legacy-repo".to_string())
+    );
+}

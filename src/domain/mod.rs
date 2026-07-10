@@ -626,18 +626,34 @@ pub struct PrFilter {
     pub checks_status: ChecksFilter,
 }
 
+/// Serde default function producing an `IssueFilter` with `state = Open`.
+fn default_open_issue_filter() -> IssueFilter {
+    IssueFilter {
+        state: Some(IssueFilterState::Open),
+        ..IssueFilter::default()
+    }
+}
+
+/// Serde default function producing a `PrFilter` with `state = Open`.
+fn default_open_pr_filter() -> PrFilter {
+    PrFilter {
+        state: Some(PrFilterState::Open),
+        ..PrFilter::default()
+    }
+}
+
 /// Per-repository remembered user preferences (issue #163).
 ///
 /// All remembered selections are scoped per-repository so filter/merge
 /// choices made in one repo never leak into another. Persisted as part of
 /// `persistence::State` and restored on startup.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepoPreferences {
     /// Last committed issue-list filter (state defaults to Open on first use).
-    #[serde(default)]
+    #[serde(default = "default_open_issue_filter")]
     pub issue_filter: IssueFilter,
     /// Last committed PR-list filter (state defaults to Open on first use).
-    #[serde(default)]
+    #[serde(default = "default_open_pr_filter")]
     pub pr_filter: PrFilter,
     /// Last issue search query text (session+restart persisted).
     #[serde(default)]
@@ -656,21 +672,16 @@ pub struct RepoPreferences {
     pub last_merge_method: MergeMethod,
 }
 
-impl RepoPreferences {
-    /// Return a fresh preferences set with both filters' state set to `Open`,
-    /// matching the documented default-on-first-use behavior (issue #163).
-    #[must_use]
-    pub fn with_open_defaults() -> Self {
+impl Default for RepoPreferences {
+    fn default() -> Self {
         Self {
-            issue_filter: IssueFilter {
-                state: Some(IssueFilterState::Open),
-                ..IssueFilter::default()
-            },
-            pr_filter: PrFilter {
-                state: Some(PrFilterState::Open),
-                ..PrFilter::default()
-            },
-            ..Self::default()
+            issue_filter: default_open_issue_filter(),
+            pr_filter: default_open_pr_filter(),
+            issue_search_query: String::new(),
+            pr_search_query: String::new(),
+            issue_filter_field_index: 0,
+            pr_filter_field_index: 0,
+            last_merge_method: MergeMethod::default(),
         }
     }
 }
@@ -694,33 +705,17 @@ impl UserPreferences {
         self.by_repo
             .iter()
             .find(|(id, _)| id == repo_id)
-            .map_or_else(RepoPreferences::with_open_defaults, |(_, prefs)| {
-                prefs.clone()
-            })
+            .map_or_else(RepoPreferences::default, |(_, prefs)| prefs.clone())
     }
 
     /// Upsert preferences for `repo_id`: replace an existing entry or push a
     /// new one.
-    pub fn update_for_repo(&mut self, repo_id: RepositoryId, prefs: RepoPreferences) {
-        if let Some(entry) = self.by_repo.iter_mut().find(|(id, _)| *id == repo_id) {
+    pub fn update_for_repo(&mut self, repo_id: &RepositoryId, prefs: RepoPreferences) {
+        if let Some(entry) = self.by_repo.iter_mut().find(|(id, _)| id == repo_id) {
             entry.1 = prefs;
         } else {
-            self.by_repo.push((repo_id, prefs));
+            self.by_repo.push((repo_id.clone(), prefs));
         }
-    }
-
-    /// Convenience: return the stored PR filter for `repo_id`, or the
-    /// Open-default filter.
-    #[must_use]
-    pub fn pr_filter_for(&self, repo_id: &RepositoryId) -> PrFilter {
-        self.for_repo(repo_id).pr_filter
-    }
-
-    /// Convenience: return the stored issue filter for `repo_id`, or the
-    /// Open-default filter.
-    #[must_use]
-    pub fn issue_filter_for(&self, repo_id: &RepositoryId) -> IssueFilter {
-        self.for_repo(repo_id).issue_filter
     }
 }
 

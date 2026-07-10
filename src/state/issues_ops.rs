@@ -46,7 +46,7 @@ impl AppState {
         let repo_id = self.current_repo_id();
         let prefs = match &repo_id {
             Some(id) => self.user_preferences.for_repo(id),
-            None => crate::domain::RepoPreferences::with_open_defaults(),
+            None => crate::domain::RepoPreferences::default(),
         };
         self.issues_state.committed_filter = prefs.issue_filter;
         self.issues_state.draft_filter = self.issues_state.committed_filter.clone();
@@ -443,7 +443,10 @@ impl AppState {
                 self.issues_state.filter_ui.draft_labels_text =
                     self.issues_state.draft_filter.labels.join(",");
             }
-            AppEvent::CloseFilterControls => self.issues_state.filter_ui.controls_open = false,
+            AppEvent::CloseFilterControls => {
+                self.issues_state.filter_ui.controls_open = false;
+                self.remember_issue_filter_field_index();
+            }
             AppEvent::ApplyFilter => {
                 self.issues_state.committed_filter = self.issues_state.draft_filter.clone();
                 self.issues_state.filter_ui.controls_open = false;
@@ -451,8 +454,11 @@ impl AppState {
                 self.remember_issue_preferences();
             }
             AppEvent::ClearFilter => {
-                self.issues_state.committed_filter = IssueFilter::default();
-                self.issues_state.draft_filter = IssueFilter::default();
+                self.issues_state.committed_filter = IssueFilter {
+                    state: Some(IssueFilterState::Open),
+                    ..IssueFilter::default()
+                };
+                self.issues_state.draft_filter = self.issues_state.committed_filter.clone();
                 self.issues_state.filter_ui.draft_labels_text.clear();
                 self.issues_state.filter_ui.controls_open = false;
                 self.reload_issue_list_for_filter_change();
@@ -465,11 +471,13 @@ impl AppState {
             AppEvent::FilterNavigateNext => {
                 let idx = self.issues_state.filter_ui.field_index;
                 self.issues_state.filter_ui.field_index = (idx + 1) % ISSUE_FILTER_FIELD_COUNT;
+                self.remember_issue_filter_field_index();
             }
             AppEvent::FilterNavigatePrev => {
                 let idx = self.issues_state.filter_ui.field_index;
                 self.issues_state.filter_ui.field_index =
                     (idx + ISSUE_FILTER_FIELD_COUNT - 1) % ISSUE_FILTER_FIELD_COUNT;
+                self.remember_issue_filter_field_index();
             }
             AppEvent::CycleFilterState => {
                 let current = self.issues_state.draft_filter.state;

@@ -26,7 +26,7 @@ fn state_with_repo_and_prefs(repo_id: &str, prefs: RepoPreferences) -> AppState 
     state.selected_repository_index = Some(0);
     state
         .user_preferences
-        .update_for_repo(RepositoryId(repo_id.to_string()), prefs);
+        .update_for_repo(&RepositoryId(repo_id.to_string()), prefs);
     state
 }
 
@@ -53,10 +53,10 @@ fn state_with_two_repos(
     state.selected_repository_index = Some(0);
     state
         .user_preferences
-        .update_for_repo(RepositoryId(repo1.to_string()), prefs1);
+        .update_for_repo(&RepositoryId(repo1.to_string()), prefs1);
     state
         .user_preferences
-        .update_for_repo(RepositoryId(repo2.to_string()), prefs2);
+        .update_for_repo(&RepositoryId(repo2.to_string()), prefs2);
     state
 }
 
@@ -137,7 +137,8 @@ fn pr_apply_filter_persists_to_prefs() {
     let stored = state
         .user_preferences
         .for_repo(&RepositoryId("repo-1".to_string()));
-    assert_eq!(stored.pr_filter, state.prs_state.committed_filter);
+    assert_eq!(stored.pr_filter.state, Some(PrFilterState::Closed));
+    assert_eq!(stored.pr_filter.author, "alice");
 }
 
 #[test]
@@ -266,7 +267,7 @@ fn issue_apply_filter_persists() {
     let stored = state
         .user_preferences
         .for_repo(&RepositoryId("repo-1".to_string()));
-    assert_eq!(stored.issue_filter, state.issues_state.committed_filter);
+    assert_eq!(stored.issue_filter.author, "alice");
 }
 
 #[test]
@@ -279,7 +280,14 @@ fn issue_clear_filter_persists() {
     let stored = state
         .user_preferences
         .for_repo(&RepositoryId("repo-1".to_string()));
-    assert_eq!(stored.issue_filter, state.issues_state.committed_filter);
+    assert_eq!(stored.issue_filter.state, Some(IssueFilterState::Open));
+    assert_eq!(
+        stored.issue_filter,
+        IssueFilter {
+            state: Some(IssueFilterState::Open),
+            ..IssueFilter::default()
+        }
+    );
 }
 
 // ── Merge chooser restore + persist ──────────────────────────────────────
@@ -293,7 +301,7 @@ fn merge_chooser_restores_last_method() {
     let mut state = prs_state_with_detail("repo-1", 42);
     state
         .user_preferences
-        .update_for_repo(RepositoryId("repo-1".to_string()), prefs);
+        .update_for_repo(&RepositoryId("repo-1".to_string()), prefs);
 
     let state = state.apply(AppEvent::PrOpenMergeChooser);
     let selected = state
@@ -342,7 +350,7 @@ fn merge_methods_loaded_clamps_disabled_last_method() {
     let mut state = prs_state_with_detail("repo-1", 42);
     state
         .user_preferences
-        .update_for_repo(RepositoryId("repo-1".to_string()), prefs);
+        .update_for_repo(&RepositoryId("repo-1".to_string()), prefs);
 
     let state = state.apply(AppEvent::PrOpenMergeChooser);
     let state = state.apply(AppEvent::PrMergeMethodsLoaded {
@@ -370,7 +378,7 @@ fn merge_methods_loaded_keeps_last_method_when_allowed() {
     let mut state = prs_state_with_detail("repo-1", 42);
     state
         .user_preferences
-        .update_for_repo(RepositoryId("repo-1".to_string()), prefs);
+        .update_for_repo(&RepositoryId("repo-1".to_string()), prefs);
 
     let state = state.apply(AppEvent::PrOpenMergeChooser);
     let state = state.apply(AppEvent::PrMergeMethodsLoaded {
@@ -401,7 +409,7 @@ fn user_preferences_update_for_repo_upserts() {
     let mut prefs = UserPreferences::default();
     let repo = RepositoryId("repo-1".to_string());
     prefs.update_for_repo(
-        repo.clone(),
+        &repo,
         RepoPreferences {
             pr_search_query: "first".to_string(),
             ..RepoPreferences::default()
@@ -411,7 +419,7 @@ fn user_preferences_update_for_repo_upserts() {
 
     // Upsert replaces existing entry.
     prefs.update_for_repo(
-        repo.clone(),
+        &repo,
         RepoPreferences {
             pr_search_query: "second".to_string(),
             ..RepoPreferences::default()
@@ -419,4 +427,62 @@ fn user_preferences_update_for_repo_upserts() {
     );
     assert_eq!(prefs.by_repo.len(), 1);
     assert_eq!(prefs.for_repo(&repo).pr_search_query, "second");
+}
+
+// ── FIX 5: RepoPreferences Default produces Open filters ─────────────────
+
+#[test]
+fn repo_preferences_default_has_open_filters() {
+    let prefs = RepoPreferences::default();
+    assert_eq!(prefs.issue_filter.state, Some(IssueFilterState::Open));
+    assert_eq!(prefs.pr_filter.state, Some(PrFilterState::Open));
+}
+
+#[test]
+fn partial_repo_preferences_deserializes_to_open_filters() {
+    let json = serde_json::json!({
+        "issue_search_query": "needle",
+    });
+    let prefs: RepoPreferences =
+        serde_json::from_value(json).unwrap_or_else(|e| panic!("deserialize partial: {e:?}"));
+    assert_eq!(prefs.issue_filter.state, Some(IssueFilterState::Open));
+    assert_eq!(prefs.pr_filter.state, Some(PrFilterState::Open));
+    assert_eq!(prefs.issue_search_query, "needle");
+}
+
+// ── FIX 6: Deleted repo prunes its preferences ───────────────────────────
+
+#[test]
+fn deleted_repo_prunes_its_preferences() {
+    use crate::state::delete_selected_repository;
+
+    let prefs1 = RepoPreferences {
+        issue_search_query: "repo1-search".to_string(),
+        ..RepoPreferences::default()
+    };
+    let prefs2 = RepoPreferences {
+        issue_search_query: "repo2-search".to_string(),
+        ..RepoPreferences::default()
+    };
+    let mut state = state_with_two_repos("repo-1", prefs1, "repo-2", prefs2);
+
+    // Delete repo-1. delete_selected_repository removes it from self.repositories.
+    delete_selected_repository(&mut state, &RepositoryId("repo-1".to_string()));
+
+    // finalize_message (run after any apply_message) prunes stale prefs.
+    // Drive it with a benign selection event.
+    let state = state.apply(AppEvent::SelectRepository(0));
+
+    // repo-1 prefs should be gone, repo-2 prefs should remain.
+    assert!(
+        state
+            .user_preferences
+            .by_repo
+            .iter()
+            .all(|(id, _)| id != &RepositoryId("repo-1".to_string()))
+    );
+    let repo2_prefs = state
+        .user_preferences
+        .for_repo(&RepositoryId("repo-2".to_string()));
+    assert_eq!(repo2_prefs.issue_search_query, "repo2-search");
 }

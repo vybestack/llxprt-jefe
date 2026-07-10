@@ -298,11 +298,20 @@ fn test_clear_filter_fresh_list_loaded_selects_first_issue() {
 
     let state = state.apply(AppEvent::ClearFilter);
     assert!(state.issues_state.loading.list);
-    assert_eq!(state.issues_state.committed_filter, IssueFilter::default());
+    assert_eq!(
+        state.issues_state.committed_filter,
+        IssueFilter {
+            state: Some(IssueFilterState::Open),
+            ..IssueFilter::default()
+        }
+    );
 
     let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
+        filter: Box::new(IssueFilter {
+            state: Some(IssueFilterState::Open),
+            ..IssueFilter::default()
+        }),
         request_id: 0,
         issues: vec![make_test_issue(3)],
         cursor: None,

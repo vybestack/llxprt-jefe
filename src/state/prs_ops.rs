@@ -67,7 +67,7 @@ impl AppState {
         let repo_id = self.current_repo_id();
         let prefs = match &repo_id {
             Some(id) => self.user_preferences.for_repo(id),
-            None => crate::domain::RepoPreferences::with_open_defaults(),
+            None => crate::domain::RepoPreferences::default(),
         };
         self.prs_state.committed_filter = prefs.pr_filter;
         self.prs_state.draft_filter = self.prs_state.committed_filter.clone();
@@ -184,11 +184,13 @@ impl AppState {
             }
             AppEvent::PrCloseFilterControls => {
                 self.prs_state.filter_ui.controls_open = false;
+                self.remember_pr_filter_field_index();
                 true
             }
             AppEvent::PrFilterNavigateNext => {
                 self.prs_state.filter_ui.field_index =
                     (self.prs_state.filter_ui.field_index + 1) % PR_FILTER_FIELD_COUNT;
+                self.remember_pr_filter_field_index();
                 true
             }
             AppEvent::PrFilterNavigatePrev => {
@@ -198,6 +200,7 @@ impl AppState {
                 } else {
                     self.prs_state.filter_ui.field_index - 1
                 };
+                self.remember_pr_filter_field_index();
                 true
             }
             _ => false,
