@@ -301,13 +301,13 @@ fn build_body_section(
     } else {
         // View mode: render the markdown body through comrak instead of
         // dumping it raw (issue #155 — shared with the PR detail bug).
-        let mut rendered = false;
-        for line in crate::markdown_render::render_markdown_lines(body_text) {
-            builder.lines.push(format!("    {line}"));
-            rendered = true;
-        }
-        if !rendered {
+        let lines = crate::markdown_render::render_markdown_lines(body_text);
+        if lines.is_empty() {
             builder.lines.push("    (no description)".to_string());
+        } else {
+            for line in lines {
+                builder.lines.push(format!("    {line}"));
+            }
         }
     }
     if body_editing {

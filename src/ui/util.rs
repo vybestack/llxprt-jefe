@@ -106,7 +106,20 @@ fn is_leap_year(year: i32) -> bool {
 /// returning the `HH:MM` string. Seconds and the trailing `Z`/offset are
 /// dropped so only the hour/minute is shown.
 fn parse_hhmm(time: &str) -> Option<String> {
-    let t = time.trim().trim_end_matches('Z');
+    // Strip a trailing UTC indicator or a timezone offset (e.g. `+02:00`,
+    // `-07:00`, `+0530`) so offset timestamps parse to the same HH:MM as a
+    // `Z` timestamp. Offset signs only appear after the seconds, so split at
+    // the first `+`/`-` following the start of the time string.
+    let mut t = time.trim();
+    if let Some(pos) = t
+        .char_indices()
+        .skip(1)
+        .find(|(_, c)| *c == '+' || *c == '-')
+        .map(|(p, _)| p)
+    {
+        t = &t[..pos];
+    }
+    t = t.trim_end_matches('Z');
     let mut parts = t.split(':');
     let hh: u32 = parts.next()?.trim().parse().ok()?;
     let mm: u32 = parts.next()?.trim().parse().ok()?;
@@ -311,5 +324,32 @@ mod tests {
             let iso = format!("2026-{m:02}-15");
             assert_eq!(format_iso_date(&iso), format!("{abbr} 15, 2026"));
         }
+    }
+
+    /// A timezone offset (e.g. `+02:00`) must be stripped so the HH:MM is the
+    /// same as a `Z` timestamp.
+    #[test]
+    fn format_iso_date_strips_timezone_offset() {
+        assert_eq!(
+            format_iso_date("2026-07-06T15:26:53+02:00"),
+            "Jul 6, 2026 15:26"
+        );
+        assert_eq!(
+            format_iso_date("2026-07-06T15:26:53-07:00"),
+            "Jul 6, 2026 15:26"
+        );
+    }
+
+    /// Trailing junk after the date (e.g. `-extra`) must fall through to the
+    /// raw string rather than producing a misleading date.
+    #[test]
+    fn format_iso_date_rejects_trailing_components() {
+        assert_eq!(format_iso_date("2026-07-06-extra"), "2026-07-06-extra");
+    }
+
+    /// Non-zero-padded components must fall through to the raw string.
+    #[test]
+    fn format_iso_date_rejects_non_zero_padded() {
+        assert_eq!(format_iso_date("26-7-6"), "26-7-6");
     }
 }

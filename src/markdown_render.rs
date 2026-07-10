@@ -10,11 +10,15 @@
 //! - comrak parses (with GFM extensions + `render.r#unsafe` so raw HTML is
 //!   surfaced as `HtmlBlock`/`HtmlInline` nodes instead of silently dropped);
 //!   a thin renderer walks the AST into indented plain-text lines.
-//! - **v1 ships NO color** (see the theme policy in issue #155): ASCII glyphs
-//!   only (`*` bullets, `--` rules, `[x]`/`[ ]` task lists, framed code
-//!   blocks). Every color would have to be sourced from theme tokens — never a
-//!   literal — and that requires upgrading `DetailContent` to iocraft
-//!   `MixedText`, which is a separate follow-up.
+//! - **v1 ships NO color** (see the theme policy in issue #155): glyphs are
+//!   plain text only (`*` bullets, `--`/`─` rules, `[x]`/`[ ]` task lists,
+//!   rule-framed code blocks using the box-drawing chars `┌└│─` that the rest
+//!   of the detail UI already uses, and a `▶` toggle for `<details>`).
+//!   "No color" is the actual constraint — non-ASCII box-drawing glyphs match
+//!   the existing project convention (separators and `│` gutters are used
+//!   throughout the detail panes). Every color would have to be sourced from
+//!   theme tokens — never a literal — and that requires upgrading
+//!   `DetailContent` to iocraft `MixedText`, which is a separate follow-up.
 //! - No raw angle-brackets or triple-backticks ever reach the screen: HTML
 //!   `<details>`/`<summary>` become a toggle/label line, `<a>`/`<img>`/etc.
 //!   collapse to their text/alt, and everything else is stripped.
@@ -297,13 +301,13 @@ impl MarkdownRenderer {
         } else {
             format!(" {info}")
         };
-        let top = format!("{pad}{CODE_FENCE_TOP}{lang_label} ");
-        let bottom = format!("{pad}{CODE_FENCE_BOTTOM} ");
-        self.push(top);
+        let top = format!("{pad}{CODE_FENCE_TOP}{lang_label}");
+        let bottom = format!("{pad}{CODE_FENCE_BOTTOM}");
+        self.push(top.trim_end().to_string());
         for line in code.literal.lines() {
             self.push(format!("{pad}{CODE_FENCE_SIDE} {line}"));
         }
-        self.push(bottom);
+        self.push(bottom.trim_end().to_string());
         self.push_blank();
     }
 
@@ -393,6 +397,9 @@ impl MarkdownRenderer {
                 self.push(format!("{pad}{}", line.trim()));
             }
         }
+        // Match the trailing blank separator every other block renderer emits
+        // so content following an HTML block composes cleanly.
+        self.push_blank();
     }
 
     /// Collect the inline children of `node` into trimmed text lines,
