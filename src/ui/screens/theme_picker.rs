@@ -1,7 +1,8 @@
 //! Theme picker screen — full overlay listing available themes.
 //!
 //! Pure projection lives in `state::theme_picker_view`; this is the thin
-//! iocraft rendering layer that consumes the `(rows, selected_index)` pair.
+//! iocraft rendering layer that consumes the `Vec<ThemePickerRow>` projection
+//! (each row carries its own `selected`/`active` flags).
 //!
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P09
 //! @requirement REQ-FUNC-009
