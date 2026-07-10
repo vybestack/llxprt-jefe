@@ -172,6 +172,60 @@ fn nested_list_indented() {
     );
 }
 
+/// A tight list (no blank lines between items in the source) renders its items
+/// with NO inter-item blank line, matching GFM tight-list semantics.
+#[test]
+fn tight_list_has_no_inter_item_blank_lines() {
+    let out = render("- a\n- b\n- c");
+    let lines: Vec<&str> = out.lines().collect();
+    let item_count = lines.iter().filter(|l| l.contains("* ")).count();
+    assert_eq!(item_count, 3, "three items rendered: {out}");
+    let first = lines.iter().position(|l| *l == "* a").unwrap_or(usize::MAX);
+    assert_ne!(first, usize::MAX, "first item present: {out}");
+    assert_eq!(
+        lines[first + 1],
+        "* b",
+        "no blank between tight items: {out}"
+    );
+    assert_eq!(
+        lines[first + 2],
+        "* c",
+        "no blank between tight items: {out}"
+    );
+}
+
+/// A loose list (blank line between items in the source) separates items with
+/// a blank line.
+#[test]
+fn loose_list_has_inter_item_blank_lines() {
+    let out = render("- a\n\n- b");
+    let lines: Vec<&str> = out.lines().collect();
+    let a = lines.iter().position(|l| *l == "* a").unwrap_or(usize::MAX);
+    assert_ne!(a, usize::MAX, "first item present: {out}");
+    assert_eq!(
+        lines[a + 1],
+        "",
+        "loose list has a blank between items: {out}"
+    );
+    assert_eq!(lines[a + 2], "* b", "second item after blank: {out}");
+}
+
+/// Multibyte text must be measured in display columns (char count), not bytes,
+/// so it is not wrapped prematurely. A short CJK run well under the soft width
+/// stays on one line.
+#[test]
+fn multibyte_text_not_wrapped_prematurely() {
+    // 10 CJK chars = 30 bytes but 10 display columns; well under width 78.
+    let md = "中文测试中文测试中";
+    let out = render(md);
+    let non_empty = out.lines().filter(|l| !l.is_empty()).count();
+    assert_eq!(
+        non_empty, 1,
+        "short multibyte text stays on one line: {out}"
+    );
+    assert!(out.contains("中文测试中文测试中"));
+}
+
 // ── Invariant: one element = one screen line (issue #155 review) ──────
 
 /// The renderer's central invariant: no returned line may contain an

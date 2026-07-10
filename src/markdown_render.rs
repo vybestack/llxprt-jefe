@@ -188,11 +188,18 @@ impl MarkdownRenderer {
     /// Render an ordered or unordered list, tracking item ordinals.
     fn render_list<'a>(&mut self, node: &'a AstNode<'a>, list: &NodeList, indent: usize) {
         let mut ordinal = list.start.max(1);
+        let mut rendered_any = false;
         for item in node.children() {
             match &item.data().value {
                 NodeValue::Item(_) | NodeValue::TaskItem(_) => {
                     let marker = Self::list_marker(item, list, &mut ordinal);
+                    // Loose lists separate items with a blank line; tight lists
+                    // (per GFM) do not. Only emit a separator BETWEEN items.
+                    if rendered_any && !list.tight {
+                        self.push_blank();
+                    }
                     self.render_list_item(item, &marker, indent);
+                    rendered_any = true;
                 }
                 // A nested list nested directly (rare) — render its block form.
                 NodeValue::List(nested) => self.render_list(item, nested, indent + 1),
@@ -268,10 +275,6 @@ impl MarkdownRenderer {
                 }
             }
         }
-        // Tight lists (per GFM) omit the inter-item blank line; loose lists add one.
-        let tight = matches!(&item.data().value, NodeValue::Item(n) if n.tight)
-            | matches!(&item.data().value, NodeValue::TaskItem(_));
-        let _ = tight; // marker-based; spacing handled by paragraph renderer.
     }
 
     /// Render a fenced/indented code block as a rule-framed box.
@@ -557,9 +560,13 @@ fn wrap_indent(text: &str, indent: usize) -> Vec<String> {
         }
         let mut current = String::new();
         for word in source_line.split_whitespace() {
+            // Compare in display columns (char count), not bytes, so
+            // multibyte text (CJK, emoji) does not wrap prematurely.
+            let current_cols = current.chars().count();
+            let word_cols = word.chars().count();
             if current.is_empty() {
                 current.push_str(word);
-            } else if current.len() + 1 + word.len() <= max {
+            } else if current_cols + 1 + word_cols <= max {
                 current.push(' ');
                 current.push_str(word);
             } else {
@@ -622,7 +629,8 @@ fn dashes(width: usize, align: TableAlignment) -> String {
 ///   `&` never triggers a full-suffix scan.
 ///
 /// The output may contain `\n` (one per block boundary); callers MUST split on
-/// `\n` before emitting screen lines (see [`MarkdownRenderer::push_multiline`]).
+/// `\n` before emitting screen lines (see [`MarkdownRenderer::render_html_block`]
+/// and [`InlineLines::push_str`], which both split on `\n`).
 fn strip_html_to_text(html: &str) -> String {
     let bytes = html.as_bytes();
     let mut out = String::with_capacity(html.len());

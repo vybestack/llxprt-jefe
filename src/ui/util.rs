@@ -56,7 +56,9 @@ pub fn format_iso_date(iso: &str) -> String {
     base
 }
 
-/// Parse a `YYYY-MM-DD` date into `(year, month, day)` with month in `1..=12`.
+/// Parse a `YYYY-MM-DD` date into `(year, month, day)` with a valid month and
+/// a day that fits the month (including leap-year February), so invalid dates
+/// like `2026-02-31` fall through to the raw-string fallback.
 fn parse_date(s: &str) -> Option<(i32, usize, u32)> {
     let s = s.trim();
     let mut parts = s.split('-');
@@ -66,10 +68,31 @@ fn parse_date(s: &str) -> Option<(i32, usize, u32)> {
     if !(1..=12).contains(&month) {
         return None;
     }
-    if day == 0 {
+    if day == 0 || day > days_in_month(year, month) {
         return None;
     }
     Some((year, month, day))
+}
+
+/// Number of days in a month, accounting for leap-year February.
+fn days_in_month(year: i32, month: usize) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if is_leap_year(year) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => 28,
+    }
+}
+
+/// Proleptic Gregorian leap-year test.
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
 /// Parse an `HH:MM` prefix out of a time component like `15:26:53Z`,
@@ -258,6 +281,21 @@ mod tests {
     #[test]
     fn format_iso_date_invalid_day_returned_unchanged() {
         assert_eq!(format_iso_date("2026-07-00"), "2026-07-00");
+    }
+
+    /// An impossible day-of-month (e.g. Feb 31) must fall through to the raw
+    /// string, not be rendered as a plausible-but-invalid date.
+    #[test]
+    fn format_iso_date_impossible_day_returned_unchanged() {
+        assert_eq!(format_iso_date("2026-02-31"), "2026-02-31");
+        assert_eq!(format_iso_date("2026-04-31"), "2026-04-31");
+    }
+
+    /// Leap-year February accepts the 29th; a common year does not.
+    #[test]
+    fn format_iso_date_leap_year_february() {
+        assert_eq!(format_iso_date("2024-02-29"), "Feb 29, 2024");
+        assert_eq!(format_iso_date("2025-02-29"), "2025-02-29");
     }
 
     #[test]

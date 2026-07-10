@@ -503,8 +503,13 @@ fn build_review_thread(
             "      {}  {}",
             comment.author_login, comment.created_at
         ));
-        for line in crate::markdown_render::render_markdown_lines(&comment.body) {
-            builder.lines.push(format!("        {line}"));
+        let rendered = crate::markdown_render::render_markdown_lines(&comment.body);
+        if rendered.is_empty() {
+            builder.lines.push("        (no body)".to_string());
+        } else {
+            for line in rendered {
+                builder.lines.push(format!("        {line}"));
+            }
         }
     }
     if focused {
@@ -589,8 +594,13 @@ fn build_single_comment(
         "{}{}  {}",
         prefix, comment.author_login, comment.created_at
     ));
-    for line in crate::markdown_render::render_markdown_lines(&comment.body) {
-        builder.lines.push(format!("    {line}"));
+    let rendered = crate::markdown_render::render_markdown_lines(&comment.body);
+    if rendered.is_empty() {
+        builder.lines.push("    (no body)".to_string());
+    } else {
+        for line in rendered {
+            builder.lines.push(format!("    {line}"));
+        }
     }
 
     if let InlineState::Composer {

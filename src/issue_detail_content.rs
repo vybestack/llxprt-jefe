@@ -368,9 +368,16 @@ fn build_single_comment(
     if comment_editing {
         builder.push_editor_lines(comment_text, comment_cursor, true, "    │ ", "      ");
     } else {
-        // View mode: render the comment body as markdown (issue #155).
-        for line in crate::markdown_render::render_markdown_lines(comment_text) {
-            builder.lines.push(format!("      {line}"));
+        // View mode: render the comment body as markdown (issue #155). An
+        // empty/whitespace-only body renders a placeholder so the comment is
+        // never a visually empty gap.
+        let rendered = crate::markdown_render::render_markdown_lines(comment_text);
+        if rendered.is_empty() {
+            builder.lines.push("      (no body)".to_string());
+        } else {
+            for line in rendered {
+                builder.lines.push(format!("      {line}"));
+            }
         }
     }
     if comment_editing {
