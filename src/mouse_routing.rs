@@ -185,7 +185,12 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
         }
         // Explicit match (not wildcard) so new ModalState variants force a
         // conscious overlay-routing decision here (issue #178 z-order).
-        jefe::state::ModalState::None | jefe::state::ModalState::Search { .. } => {}
+        // ThemePicker renders as a full-screen modal but does not yet have a
+        // content projection — no selection, but no PTY forwarding either
+        // (pre-existing behavior; the base screen is not visible behind it).
+        jefe::state::ModalState::None
+        | jefe::state::ModalState::Search { .. }
+        | jefe::state::ModalState::ThemePicker { .. } => {}
     }
     // Positioned overlays (choosers) — checked only when no full-screen modal.
     if state.issues_state.agent_chooser.is_some() || state.prs_state.agent_chooser.is_some() {
