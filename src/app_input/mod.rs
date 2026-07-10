@@ -374,6 +374,11 @@ pub fn handle_mode_help_key(
         }
         _ => {}
     }
+    // Mirror the help scroll offset to AppState so the selection content
+    // projection can map screen coordinates to the correct help content
+    // line (issue #178). The hook state is the rendering source of truth;
+    // AppState is read by the pure selection layer.
+    app_state.write().help_scroll_offset = usize::try_from(help_scroll.get()).unwrap_or(0);
 }
 
 pub fn handle_mode_search_key(

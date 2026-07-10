@@ -97,6 +97,17 @@ pub fn pane_content_lines(
         SelectablePane::HelpModal => help_lines(),
         SelectablePane::StatusBar => status_bar_lines(state),
         SelectablePane::KeybindBar => keybind_bar_lines(state),
+        SelectablePane::AgentForm => agent_form_lines(state),
+        SelectablePane::RepositoryForm => repository_form_lines(state),
+        SelectablePane::AgentChooser => {
+            crate::selection::overlay_content::agent_chooser_lines(state)
+        }
+        SelectablePane::MergeChooser => {
+            crate::selection::overlay_content::merge_chooser_lines(state)
+        }
+        SelectablePane::ConfirmModal => {
+            crate::selection::overlay_content::confirm_modal_lines(state)
+        }
     }
 }
 
@@ -297,7 +308,18 @@ fn terminal_lines(snapshot: Option<&TerminalSnapshot>, state: &AppState) -> Pane
 }
 
 fn help_lines() -> PaneContent {
-    PaneContent::new(SelectablePane::HelpModal, Vec::<String>::new())
+    // Issue #178: project the actual help content instead of an empty Vec so
+    // select-to-copy works inside the help modal. Reuses the single source of
+    // truth (`help_content_lines`) that the renderer windows. The title row
+    // and its trailing blank are included as content lines 0-1 so the (2,2)
+    // content origin maps to the title text.
+    let mut lines: Vec<String> = vec!["Help - Keyboard Shortcuts".to_string(), String::new()];
+    lines.extend(
+        crate::ui::modals::help_content_lines()
+            .iter()
+            .map(|s| (*s).to_string()),
+    );
+    PaneContent::new(SelectablePane::HelpModal, lines)
 }
 
 /// Status bar line that matches the rendered format:
@@ -321,6 +343,24 @@ fn status_bar_lines(state: &AppState) -> PaneContent {
 fn keybind_bar_lines(state: &AppState) -> PaneContent {
     let hints = crate::ui::components::keybind_bar::keybind_hints_for(state.screen_mode, false);
     PaneContent::new(SelectablePane::KeybindBar, vec![hints.to_string()])
+}
+
+// ── Issue #178: overlay content providers (delegated to submodules) ──────
+
+/// Agent-definition form lines that match the rendered field layout.
+fn agent_form_lines(state: &AppState) -> PaneContent {
+    match crate::selection::form_content::agent_form_content_lines(state) {
+        Some(lines) => PaneContent::new(SelectablePane::AgentForm, lines),
+        None => PaneContent::empty(SelectablePane::AgentForm),
+    }
+}
+
+/// Repository-definition form lines that match the rendered field layout.
+fn repository_form_lines(state: &AppState) -> PaneContent {
+    match crate::selection::form_content::repository_form_content_lines(state) {
+        Some(lines) => PaneContent::new(SelectablePane::RepositoryForm, lines),
+        None => PaneContent::empty(SelectablePane::RepositoryForm),
+    }
 }
 
 #[cfg(test)]
@@ -593,5 +633,226 @@ mod tests {
         assert!(content.lines[2].contains("assignees: bob"));
         assert_eq!(content.lines[3], "https://example.com/pull/7");
         assert!(content.lines[4].starts_with('─'));
+    }
+
+    // ── Issue #178: select-to-copy for forms, choosers, confirm, and help ──
+
+    #[test]
+    fn help_modal_lines_match_help_content_projection() {
+        let content = pane_content_lines(
+            SelectablePane::HelpModal,
+            &AppState::default(),
+            None,
+            120,
+            40,
+        );
+        // help_lines() must project the actual help content (issue #178: it
+        // was returning an empty Vec).
+        assert!(
+            !content.lines.is_empty(),
+            "help modal must have copyable content"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("Navigation")),
+            "help modal content must include the Navigation section"
+        );
+    }
+
+    #[test]
+    fn agent_form_lines_include_title_and_fields() {
+        use crate::domain::RepositoryId;
+        use crate::state::{AgentFormFields, ModalState};
+        let mut state = AppState::default();
+        state.modal = ModalState::NewAgent {
+            repository_id: RepositoryId("r1".to_string()),
+            fields: AgentFormFields {
+                name: "my-agent".to_string(),
+                ..Default::default()
+            },
+            focus: crate::state::AgentFormFocus::Name,
+            cursor: crate::state::AgentFormCursor::default(),
+            work_dir_manual: false,
+        };
+        let content = pane_content_lines(SelectablePane::AgentForm, &state, None, 120, 40);
+        assert!(
+            content.lines.iter().any(|l| l.contains("New Agent")),
+            "agent form must include the title"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("my-agent")),
+            "agent form must include the agent name field value"
+        );
+    }
+
+    #[test]
+    fn agent_form_lines_empty_when_no_modal() {
+        let state = AppState::default();
+        let content = pane_content_lines(SelectablePane::AgentForm, &state, None, 120, 40);
+        assert!(
+            content.lines.is_empty(),
+            "agent form with no modal should have no content"
+        );
+    }
+
+    #[test]
+    fn repository_form_lines_include_title_and_fields() {
+        use crate::state::{ModalState, RepositoryFormFields};
+        let mut state = AppState::default();
+        state.modal = ModalState::NewRepository {
+            fields: RepositoryFormFields {
+                name: "my-repo".to_string(),
+                ..Default::default()
+            },
+            focus: crate::state::RepositoryFormFocus::Name,
+            cursor: crate::state::RepositoryFormCursor::default(),
+        };
+        let content = pane_content_lines(SelectablePane::RepositoryForm, &state, None, 120, 40);
+        assert!(
+            content.lines.iter().any(|l| l.contains("New Repository")),
+            "repository form must include the title"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("my-repo")),
+            "repository form must include the repo name field value"
+        );
+    }
+
+    #[test]
+    fn agent_chooser_lines_include_header_and_agent_names() {
+        use crate::domain::{Agent, AgentId, Repository, RepositoryId};
+        let mut state = AppState::default();
+        // Add a repository and two agents so the chooser has entries.
+        let repo_id = RepositoryId("r1".to_string());
+        state.repositories.push(Repository::new(
+            repo_id.clone(),
+            "repo".to_string(),
+            "repo".to_string(),
+            std::path::PathBuf::from("/tmp/repo"),
+        ));
+        state.agents.push(Agent::new(
+            AgentId("a1".to_string()),
+            repo_id.clone(),
+            "alpha".to_string(),
+            std::path::PathBuf::from("/tmp/a1"),
+        ));
+        state.agents.push(Agent::new(
+            AgentId("a2".to_string()),
+            repo_id,
+            "beta".to_string(),
+            std::path::PathBuf::from("/tmp/a2"),
+        ));
+        state.selected_repository_index = Some(0);
+        // Open the agent chooser from issues state.
+        state.issues_state.agent_chooser = Some(crate::state::AgentChooserState {
+            selected_index: 0,
+            agents: vec![
+                (AgentId("a1".to_string()), "alpha".to_string()),
+                (AgentId("a2".to_string()), "beta".to_string()),
+            ],
+        });
+        let content = pane_content_lines(SelectablePane::AgentChooser, &state, None, 120, 40);
+        assert!(
+            content.lines.iter().any(|l| l.contains("Send to Agent")),
+            "agent chooser must include header"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("alpha")),
+            "agent chooser must list agent names"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("beta")),
+            "agent chooser must list agent names"
+        );
+    }
+
+    #[test]
+    fn merge_chooser_lines_include_header_and_methods() {
+        use crate::domain::{PrCheckStatus, PrState, PullRequestDetail};
+        let mut state = AppState::default();
+        state.prs_state.merge_chooser = Some(crate::state::PrMergeChooserState {
+            selected_index: 0,
+            allowed_methods: None,
+            awaiting_confirmation: false,
+        });
+        // Merge chooser needs a PR number for the header.
+        state.prs_state.pr_detail = Some(PullRequestDetail {
+            repo_owner_name: "o/r".to_string(),
+            number: 42,
+            title: "T".to_string(),
+            state: PrState::Open,
+            is_draft: false,
+            author_login: "x".to_string(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            head_ref: String::new(),
+            base_ref: String::new(),
+            labels: Vec::new(),
+            assignees: Vec::new(),
+            milestone: None,
+            body: String::new(),
+            external_url: String::new(),
+            review_decision: None,
+            checks_status: PrCheckStatus::None,
+            reviews: Vec::new(),
+            checks: Vec::new(),
+            comments: Vec::new(),
+            has_more_comments: false,
+            comments_cursor: None,
+            mergeable: None,
+            merge_state_status: None,
+        });
+        let content = pane_content_lines(SelectablePane::MergeChooser, &state, None, 120, 40);
+        assert!(
+            content
+                .lines
+                .iter()
+                .any(|l| l.contains("Merge Pull Request #42")),
+            "merge chooser must include PR number header"
+        );
+        assert!(
+            content
+                .lines
+                .iter()
+                .any(|l| l.contains("Create a merge commit")),
+            "merge chooser must list merge methods"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("Squash and merge")),
+            "merge chooser must list merge methods"
+        );
+    }
+
+    #[test]
+    fn confirm_modal_lines_include_title_and_message() {
+        use crate::domain::{Agent, AgentId, Repository, RepositoryId};
+        use crate::state::ModalState;
+        let mut state = AppState::default();
+        let repo_id = RepositoryId("r1".to_string());
+        state.repositories.push(Repository::new(
+            repo_id.clone(),
+            "repo".to_string(),
+            "repo".to_string(),
+            std::path::PathBuf::from("/tmp/repo"),
+        ));
+        let agent_id = AgentId("a1".to_string());
+        state.agents.push(Agent::new(
+            agent_id.clone(),
+            repo_id,
+            "my-agent".to_string(),
+            std::path::PathBuf::from("/tmp/a1"),
+        ));
+        state.modal = ModalState::ConfirmDeleteAgent {
+            id: agent_id,
+            delete_work_dir: false,
+        };
+        let content = pane_content_lines(SelectablePane::ConfirmModal, &state, None, 120, 40);
+        assert!(
+            content.lines.iter().any(|l| l.contains("Delete Agent")),
+            "confirm modal must include the title"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("my-agent")),
+            "confirm modal must include the message with the agent name"
+        );
     }
 }

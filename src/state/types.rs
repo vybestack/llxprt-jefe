@@ -199,6 +199,12 @@ pub struct AppState {
     /// when a new selection begins. Used by the renderers to paint an
     /// inverse-video highlight over the selected cells.
     pub selection: Option<crate::selection::TextSelection>,
+
+    /// Help modal scroll offset (lines scrolled from the top). Mirrored from
+    /// the app-shell hook state so the selection content projection can map
+    /// screen coordinates to the correct help content line (issue #178).
+    /// Runtime-only — never persisted.
+    pub help_scroll_offset: usize,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

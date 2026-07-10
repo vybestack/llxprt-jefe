@@ -7,4 +7,4 @@ mod confirm;
 mod help;
 
 pub use confirm::{ConfirmModal, ConfirmModalProps};
-pub use help::{HelpModal, HelpModalProps};
+pub use help::{HelpModal, HelpModalProps, help_content_lines};

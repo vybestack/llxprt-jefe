@@ -36,6 +36,16 @@ pub enum SelectablePane {
     StatusBar,
     /// Bottom keybind hint bar (low priority, but selectable).
     KeybindBar,
+    /// Agent-definition form (full-screen modal). Issue #178.
+    AgentForm,
+    /// Repository-definition form (full-screen modal). Issue #178.
+    RepositoryForm,
+    /// Send-to-agent chooser overlay (issues/PR mode). Issue #178.
+    AgentChooser,
+    /// Merge-method chooser overlay (PR mode). Issue #178.
+    MergeChooser,
+    /// Confirmation modal (delete/kill/preflight/dirty-copy). Issue #178.
+    ConfirmModal,
 }
 
 /// A single point within a selection, expressed in *content* coordinates.

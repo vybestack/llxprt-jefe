@@ -49,7 +49,12 @@ pub fn handle_fullscreen_mouse(
 
     let terminal_input_enabled = {
         let state = app_state.read();
-        state.terminal_focused && state.pane_focus == PaneFocus::Terminal
+        // Suppress PTY forwarding when an overlay (modal/form/chooser) is
+        // active so mouse selection targets the top-most overlay instead of
+        // the terminal underneath (issue #178 z-order fix).
+        state.terminal_focused
+            && state.pane_focus == PaneFocus::Terminal
+            && active_overlay_for(&state) == jefe::selection::OverlayPane::None
     };
 
     // When the terminal is focused, mouse events within the terminal pane go to
@@ -152,7 +157,42 @@ fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
         || state.prs_state.error.is_some();
     let filter_open =
         state.issues_state.filter_ui.controls_open || state.prs_state.filter_ui.controls_open;
+    let overlay = active_overlay_for(state);
     ScreenLayout::new(cols, rows, state.screen_mode, error_visible, filter_open)
+        .with_overlay(overlay)
+}
+
+/// Determine which overlay (modal/form/chooser) is currently active, if any.
+///
+/// Full-screen modals take priority over positioned choosers. Returns
+/// [`OverlayPane::None`] when no overlay is active so normal pane geometry
+/// applies.
+fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
+    use jefe::selection::OverlayPane;
+    match &state.modal {
+        jefe::state::ModalState::Help => return OverlayPane::HelpModal,
+        jefe::state::ModalState::NewAgent { .. } | jefe::state::ModalState::EditAgent { .. } => {
+            return OverlayPane::AgentForm;
+        }
+        jefe::state::ModalState::NewRepository { .. }
+        | jefe::state::ModalState::EditRepository { .. } => return OverlayPane::RepositoryForm,
+        jefe::state::ModalState::ConfirmDeleteRepository { .. }
+        | jefe::state::ModalState::ConfirmDeleteAgent { .. }
+        | jefe::state::ModalState::ConfirmKillAgent { .. }
+        | jefe::state::ModalState::PreflightPrompt { .. }
+        | jefe::state::ModalState::ConfirmIssueDirtyCopy { .. } => {
+            return OverlayPane::ConfirmModal;
+        }
+        _ => {}
+    }
+    // Positioned overlays (choosers) — checked only when no full-screen modal.
+    if state.issues_state.agent_chooser.is_some() || state.prs_state.agent_chooser.is_some() {
+        return OverlayPane::AgentChooser;
+    }
+    if state.prs_state.merge_chooser.is_some() {
+        return OverlayPane::MergeChooser;
+    }
+    OverlayPane::None
 }
 
 /// Resolve which pane + geometry a screen coordinate maps to, given app state.
@@ -277,6 +317,10 @@ fn finalize_and_copy_selection(ctx: Option<&CtxArc>, app_state: &HookState<AppSt
 /// are not affected by scroll offset. Scrollable content starts at line
 /// `DETAIL_HEADER_ROWS`. Return 0 when the click is in the header area,
 /// otherwise the real scroll offset.
+///
+/// The HelpModal also has fixed header rows (title + blank = 2 rows) that are
+/// not affected by the scroll offset; the scrollable help content starts at
+/// line 2.
 fn effective_scroll_for_detail(
     pane: SelectablePane,
     row: u16,
@@ -293,6 +337,11 @@ fn effective_scroll_for_detail(
                 scroll_offset
             }
         }
+        SelectablePane::HelpModal => {
+            let content_row = usize::from(row.saturating_sub(geometry.content_origin_row));
+            // Title Box is height 2 (title text + blank) — not scrolled.
+            if content_row < 2 { 0 } else { scroll_offset }
+        }
         _ => scroll_offset,
     }
 }
@@ -302,6 +351,7 @@ fn scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
     match pane {
         SelectablePane::IssueDetail => state.issues_state.detail_scroll_offset,
         SelectablePane::PrDetail => state.prs_state.detail_scroll_offset,
+        SelectablePane::HelpModal => state.help_scroll_offset,
         _ => 0,
     }
 }
