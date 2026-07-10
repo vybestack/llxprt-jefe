@@ -684,8 +684,8 @@ fn resolve_config_dir_ignores_empty_env_values() {
 #[test]
 fn user_preferences_roundtrip() {
     use crate::domain::{
-        IssueFilter, IssueFilterState, MergeMethod, PrFilter, PrFilterState, RepoPreferences,
-        RepositoryId, UserPreferences,
+        ChecksFilter, IssueFilter, IssueFilterState, MergeMethod, PrFilter, PrFilterState,
+        RepoPreferences, RepositoryId, ReviewDecisionFilter, UserPreferences,
     };
 
     let prefs = UserPreferences {
@@ -695,10 +695,19 @@ fn user_preferences_roundtrip() {
                 issue_filter: IssueFilter {
                     state: Some(IssueFilterState::Closed),
                     author: "alice".to_string(),
+                    assignee: "bob".to_string(),
+                    labels: vec!["bug".to_string(), "ui".to_string()],
+                    milestone: "v1".to_string(),
                     ..IssueFilter::default()
                 },
                 pr_filter: PrFilter {
                     state: Some(PrFilterState::Merged),
+                    author: "carol".to_string(),
+                    reviewer: "dave".to_string(),
+                    is_draft: Some(true),
+                    review_decision: ReviewDecisionFilter::Approved,
+                    checks_status: ChecksFilter::Success,
+                    labels: vec!["needs-review".to_string()],
                     ..PrFilter::default()
                 },
                 issue_search_query: "issue-search".to_string(),
@@ -811,9 +820,11 @@ fn restart_hydration_preserves_per_repo_preferences() {
 }
 
 /// Save and load a State through the real FilePersistenceManager into a temp
-/// dir tagged with `label`. Returns the deserialized State.
+/// dir tagged with `label` and the current process id (so parallel test
+/// invocations never collide and a crash never leaves stale data for the next
+/// run). Returns the deserialized State.
 fn save_load_roundtrip(persisted: &State, label: &str) -> State {
-    let temp = std::env::temp_dir().join(label);
+    let temp = std::env::temp_dir().join(format!("{label}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&temp);
     let paths = PersistencePaths {
         settings_path: temp.join("settings.toml"),

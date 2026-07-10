@@ -155,7 +155,7 @@ fn pr_clear_filter_persists_open_default() {
 }
 
 #[test]
-fn pr_open_filter_controls_restores_field_index() {
+fn pr_open_filter_controls_keeps_restored_field_index() {
     let prefs = RepoPreferences {
         pr_filter_field_index: 2,
         ..RepoPreferences::default()
@@ -164,6 +164,10 @@ fn pr_open_filter_controls_restores_field_index() {
     state.screen_mode = ScreenMode::DashboardPullRequests;
     state.prs_state.active = true;
 
+    // Enter mode restores field_index=2 into live state; opening filter
+    // controls must preserve it (not reset to 0).
+    let state = state.apply(AppEvent::EnterPrsMode);
+    assert_eq!(state.prs_state.filter_ui.field_index, 2);
     let state = state.apply(AppEvent::PrOpenFilterControls);
     assert_eq!(state.prs_state.filter_ui.field_index, 2);
 }
@@ -242,7 +246,7 @@ fn enter_issues_mode_defaults_to_open() {
 }
 
 #[test]
-fn issue_open_filter_controls_restores_field_index() {
+fn issue_open_filter_controls_keeps_restored_field_index() {
     let prefs = RepoPreferences {
         issue_filter_field_index: 4,
         ..RepoPreferences::default()
@@ -251,6 +255,10 @@ fn issue_open_filter_controls_restores_field_index() {
     state.screen_mode = ScreenMode::DashboardIssues;
     state.issues_state.active = true;
 
+    // Enter mode restores field_index=4 into live state; opening filter
+    // controls must preserve it (not reset to 0).
+    let state = state.apply(AppEvent::EnterIssuesMode);
+    assert_eq!(state.issues_state.filter_ui.field_index, 4);
     let state = state.apply(AppEvent::OpenFilterControls);
     assert_eq!(state.issues_state.filter_ui.field_index, 4);
 }

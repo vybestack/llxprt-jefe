@@ -445,13 +445,15 @@ impl AppState {
         match event {
             AppEvent::OpenFilterControls => {
                 self.issues_state.filter_ui.controls_open = true;
-                let repo_id = self.current_repo_id();
-                let field_index = match &repo_id {
-                    Some(id) => self.user_preferences.for_repo(id).issue_filter_field_index,
-                    None => 0,
-                };
-                self.issues_state.filter_ui.field_index =
-                    field_index.min(ISSUE_FILTER_FIELD_COUNT.saturating_sub(1));
+                // field_index is kept in sync with per-repo prefs by
+                // restore_issue_preferences (mode entry) and
+                // remember_issue_filter_field_index (navigation), so the live
+                // value is already the persisted value; just clamp it.
+                self.issues_state.filter_ui.field_index = self
+                    .issues_state
+                    .filter_ui
+                    .field_index
+                    .min(ISSUE_FILTER_FIELD_COUNT.saturating_sub(1));
                 self.issues_state.filter_ui.draft_labels_text =
                     self.issues_state.draft_filter.labels.join(",");
             }

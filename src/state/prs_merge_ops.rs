@@ -228,7 +228,7 @@ impl AppState {
         }
         if let Some(chooser) = &mut self.prs_state.merge_chooser {
             chooser.allowed_methods = Some(allowed_methods.to_vec());
-            let enabled = enabled_method_indices(chooser.allowed_methods.as_deref());
+            let enabled = enabled_method_indices(Some(allowed_methods));
             if !enabled.contains(&chooser.selected_index) {
                 chooser.selected_index = enabled.first().copied().unwrap_or(0);
             }

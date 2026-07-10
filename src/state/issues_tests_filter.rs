@@ -49,16 +49,17 @@ fn state_with_repo() -> AppState {
     state
 }
 
-/// OpenFilterControls resets filter_field_index to 0.
+/// OpenFilterControls preserves the live filter_field_index (issue #163: the
+/// cursor remembers its last position, clamped to the valid field range).
 #[test]
-fn test_open_filter_resets_field_index() {
+fn test_open_filter_preserves_field_index() {
     let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.filter_ui.field_index = 3;
 
     let state = state.apply(AppEvent::OpenFilterControls);
     assert!(state.issues_state.filter_ui.controls_open);
-    assert_eq!(state.issues_state.filter_ui.field_index, 0);
+    assert_eq!(state.issues_state.filter_ui.field_index, 3);
 }
 
 /// FilterNavigateNext cycles through every configured filter field.

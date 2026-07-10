@@ -176,13 +176,15 @@ impl AppState {
         match event {
             AppEvent::PrOpenFilterControls => {
                 self.prs_state.filter_ui.controls_open = true;
-                let repo_id = self.current_repo_id();
-                let field_index = match &repo_id {
-                    Some(id) => self.user_preferences.for_repo(id).pr_filter_field_index,
-                    None => 0,
-                };
-                self.prs_state.filter_ui.field_index =
-                    field_index.min(PR_FILTER_FIELD_COUNT.saturating_sub(1));
+                // field_index is kept in sync with per-repo prefs by
+                // restore_pr_preferences (mode entry) and
+                // remember_pr_filter_field_index (navigation), so the live
+                // value is already the persisted value; just clamp it.
+                self.prs_state.filter_ui.field_index = self
+                    .prs_state
+                    .filter_ui
+                    .field_index
+                    .min(PR_FILTER_FIELD_COUNT.saturating_sub(1));
                 self.prs_state.draft_filter = self.prs_state.committed_filter.clone();
                 true
             }
