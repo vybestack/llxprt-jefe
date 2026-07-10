@@ -691,10 +691,10 @@ impl AppState {
                 };
             }
             ThemeMessage::PickerNavigateUp => {
-                if let ModalState::ThemePicker { selected_index, .. } = &mut self.modal {
-                    if *selected_index > 0 {
-                        *selected_index -= 1;
-                    }
+                if let ModalState::ThemePicker { selected_index, .. } = &mut self.modal
+                    && *selected_index > 0
+                {
+                    *selected_index -= 1;
                 }
             }
             ThemeMessage::PickerNavigateDown => {
@@ -703,10 +703,9 @@ impl AppState {
                     selected_index,
                     ..
                 } = &mut self.modal
+                    && *selected_index + 1 < available_themes.len()
                 {
-                    if *selected_index + 1 < available_themes.len() {
-                        *selected_index += 1;
-                    }
+                    *selected_index += 1;
                 }
             }
             ThemeMessage::PickerConfirm | ThemeMessage::PickerCancel => {

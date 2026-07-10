@@ -259,11 +259,14 @@ pub fn handle_mode_form_key(
 
 /// Handle keys while the theme picker modal is open.
 ///
-/// - Up/Down: move the selection cursor (via reducer).
-/// - Enter: apply the selected theme to the `ThemeManager` and persist the
-///   choice to `settings.toml`, then close the picker. Falls back to Green
-///   Screen if the slug is invalid (the manager handles the fallback).
-/// - Esc: close without applying.
+/// - Up/Down: move the selection cursor (via reducer) and **live-preview** the
+///   newly-selected theme by applying it to the `ThemeManager` in memory (no
+///   persistence). The render loop reads the manager each frame, so colors
+///   update instantly as the user navigates.
+/// - Enter: persist the previewed theme to `settings.toml` and close the
+///   picker. Falls back to Green Screen if the slug is invalid.
+/// - Esc: revert the manager back to the theme that was active when the
+///   picker opened (`active_slug`), then close without persisting.
 pub fn handle_mode_theme_picker_key(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -272,17 +275,71 @@ pub fn handle_mode_theme_picker_key(
     match key_event.code {
         KeyCode::Up => {
             apply_and_persist(app_state, ctx, AppEvent::ThemePickerNavigateUp);
+            preview_theme_selection(app_state, ctx);
         }
         KeyCode::Down => {
             apply_and_persist(app_state, ctx, AppEvent::ThemePickerNavigateDown);
+            preview_theme_selection(app_state, ctx);
         }
         KeyCode::Enter => {
             apply_theme_picker_selection(app_state, ctx);
         }
         KeyCode::Esc => {
+            revert_theme_to_active(app_state, ctx);
             apply_and_persist(app_state, ctx, AppEvent::CloseThemePicker);
         }
         _ => {}
+    }
+}
+
+/// Apply the currently-selected theme to the `ThemeManager` **in memory only**
+/// (no persistence), so the user can live-preview themes as they navigate.
+///
+/// Called after each Up/Down navigation moves `selected_index`. The render
+/// loop reads `theme_manager.active_theme()` each frame, so the new colors
+/// take effect on the next render. Persistence only happens on Enter.
+fn preview_theme_selection(app_state: &AppStateHandle, ctx: &SharedContext) {
+    let selected_slug = {
+        let state = app_state.read();
+        match &state.modal {
+            ModalState::ThemePicker {
+                available_themes,
+                selected_index,
+                ..
+            } => available_themes
+                .get(*selected_index)
+                .map(|(slug, _)| slug.clone()),
+            _ => None,
+        }
+    };
+
+    if let Some(slug) = selected_slug
+        && let Some(ctx_arc) = ctx
+        && let Ok(mut ctx_guard) = ctx_arc.lock()
+        && let Err(e) = ctx_guard.theme_manager.set_active(&slug)
+    {
+        warn!(error = %e, theme = %slug, "theme picker: preview fell back to Green Screen");
+    }
+}
+
+/// Restore the `ThemeManager` to the theme that was active when the picker
+/// opened (`active_slug`), discarding any live-preview changes. Called on Esc
+/// so cancelling reverts the visible colors to what the user had before.
+fn revert_theme_to_active(app_state: &AppStateHandle, ctx: &SharedContext) {
+    let active_slug = {
+        let state = app_state.read();
+        match &state.modal {
+            ModalState::ThemePicker { active_slug, .. } => Some(active_slug.clone()),
+            _ => None,
+        }
+    };
+
+    if let Some(slug) = active_slug
+        && let Some(ctx_arc) = ctx
+        && let Ok(mut ctx_guard) = ctx_arc.lock()
+        && let Err(e) = ctx_guard.theme_manager.set_active(&slug)
+    {
+        warn!(error = %e, theme = %slug, "theme picker: could not revert preview on cancel");
     }
 }
 

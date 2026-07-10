@@ -104,7 +104,7 @@ pub fn ThemePickerScreen(props: &ThemePickerScreenProps) -> impl Into<AnyElement
                 // Footer
                 Box(height: 1u32, background_color: rc.bg) {
                     Text(
-                        content: "↑/↓ navigate | Enter apply | Esc cancel",
+                        content: "↑/↓ preview | Enter apply | Esc cancel",
                         color: rc.dim,
                     )
                 }
