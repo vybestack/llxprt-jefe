@@ -99,7 +99,10 @@ pub fn merge_chooser_lines(state: &AppState) -> PaneContent {
 /// the wrapped portion will be slightly misaligned.
 #[must_use]
 pub fn confirm_modal_lines(state: &AppState) -> PaneContent {
-    let Some(data) = confirm_modal_data(state) else {
+    // Reuse the single source of truth from the orchestration layer so the
+    // projected text can never drift from the rendered modal.
+    let Some(data) = crate::ui::orchestration::derive_confirm_modal_data(state, &state.modal)
+    else {
         return PaneContent::empty(SelectablePane::ConfirmModal);
     };
     let mut lines = vec![data.title, String::new()];
@@ -113,87 +116,6 @@ pub fn confirm_modal_lines(state: &AppState) -> PaneContent {
     lines.push("[ Cancel ]  [ Confirm ]".to_string());
     lines.push(String::new());
     PaneContent::new(SelectablePane::ConfirmModal, lines)
-}
-
-/// Data extracted from `ModalState` for the confirm modal content projection.
-struct ConfirmModalData {
-    title: String,
-    message: String,
-    show_delete_work_dir: bool,
-    delete_work_dir: bool,
-}
-
-/// Derive confirm-modal display data from the active modal state.
-///
-/// This mirrors `derive_confirm_modal_data` in `src/ui/orchestration.rs` so
-/// the selection projection stays iocraft-free. If modal display logic changes,
-/// update both functions (or extract a shared pure helper in a future refactor).
-fn confirm_modal_data(state: &AppState) -> Option<ConfirmModalData> {
-    match &state.modal {
-        crate::state::ModalState::ConfirmDeleteAgent {
-            id,
-            delete_work_dir,
-        } => {
-            let name = agent_display_name(state, id);
-            Some(ConfirmModalData {
-                title: "Delete Agent".to_string(),
-                message: format!("Delete {name}?"),
-                show_delete_work_dir: true,
-                delete_work_dir: *delete_work_dir,
-            })
-        }
-        crate::state::ModalState::ConfirmDeleteRepository { id } => {
-            let name = repo_display_name(state, id);
-            Some(ConfirmModalData {
-                title: "Delete Repository".to_string(),
-                message: format!("Delete {name} and all its agents?"),
-                show_delete_work_dir: false,
-                delete_work_dir: false,
-            })
-        }
-        crate::state::ModalState::ConfirmKillAgent { id } => {
-            let name = agent_display_name(state, id);
-            Some(ConfirmModalData {
-                title: "Kill Agent".to_string(),
-                message: format!("Kill {name}?"),
-                show_delete_work_dir: false,
-                delete_work_dir: false,
-            })
-        }
-        crate::state::ModalState::PreflightPrompt { issue, .. } => Some(ConfirmModalData {
-            title: issue.prompt_title(),
-            message: issue.prompt_message(),
-            show_delete_work_dir: false,
-            delete_work_dir: false,
-        }),
-        crate::state::ModalState::ConfirmIssueDirtyCopy { .. } => Some(ConfirmModalData {
-            title: "Dirty Working Copy".to_string(),
-            message:
-                "Working copy has uncommitted changes. Discard them (git reset --hard + git clean)?"
-                    .to_string(),
-            show_delete_work_dir: false,
-            delete_work_dir: false,
-        }),
-        _ => None,
-    }
-}
-
-/// Resolve an agent's display name, falling back to a generic label.
-fn agent_display_name(state: &AppState, id: &crate::domain::AgentId) -> String {
-    state
-        .agents
-        .iter()
-        .find(|a| &a.id == id)
-        .map_or_else(|| "selected agent".to_string(), |a| a.name.clone())
-}
-
-/// Resolve a repository's display name, falling back to a generic label.
-fn repo_display_name(state: &AppState, id: &crate::domain::RepositoryId) -> String {
-    state
-        .repositories
-        .iter()
-        .find(|r| &r.id == id)
-        .map_or_else(|| "selected repository".to_string(), |r| r.name.clone())
 }
 
 #[cfg(test)]

@@ -53,10 +53,12 @@ impl OverlayPane {
     /// (choosers) only intercept coordinates inside their bounds.
     #[must_use]
     pub const fn is_full_screen(self) -> bool {
-        matches!(
-            self,
-            Self::HelpModal | Self::AgentForm | Self::RepositoryForm | Self::ConfirmModal
-        )
+        // Exhaustive match so adding a new OverlayPane variant forces a
+        // conscious decision here (issue #178 z-order correctness).
+        match self {
+            Self::HelpModal | Self::AgentForm | Self::RepositoryForm | Self::ConfirmModal => true,
+            Self::None | Self::AgentChooser | Self::MergeChooser => false,
+        }
     }
 }
 
