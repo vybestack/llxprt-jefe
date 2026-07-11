@@ -175,9 +175,12 @@ impl MarkdownRenderer {
     }
 
     /// Push a blank separator line, collapsing consecutive blanks so paragraph
-    /// breaks stay single.
+    /// breaks stay single. A blank never OPENS the document either — a
+    /// separator before any content separates nothing (e.g. a leading
+    /// HTML-comment block that strips to nothing must not leave a stray
+    /// blank first line).
     fn push_blank(&mut self) {
-        if !self.lines.last().is_some_and(String::is_empty) {
+        if !self.lines.is_empty() && !self.lines.last().is_some_and(String::is_empty) {
             self.lines.push(String::new());
         }
     }
@@ -193,9 +196,12 @@ impl MarkdownRenderer {
     fn render_block<'a>(&mut self, node: &'a AstNode<'a>, indent: usize) {
         let value = &node.data().value;
         match value {
+            // Paragraphs share the unknown-block shape: render inline text
+            // ONLY when non-empty (a paragraph that strips to nothing — e.g.
+            // emphasis around an HTML comment — must not leave a stray blank
+            // line), then a trailing blank separator.
             NodeValue::Paragraph | NodeValue::FootnoteReference(_) => {
-                self.render_inline_block(node, indent);
-                self.push_blank();
+                self.render_unknown_block(node, indent);
             }
             // Footnote definitions contain nested BLOCK content (lists,
             // multiple paragraphs, code blocks), so render their children as

@@ -968,3 +968,26 @@ fn whitespace_free_run_wraps_at_display_width() {
         "all 60 CJK chars preserved: {out:?}"
     );
 }
+
+/// A paragraph that strips to nothing (an HTML comment, or emphasis around
+/// one) must not leave a stray leading blank line before the following
+/// content — empty paragraphs render nothing at all.
+#[test]
+fn empty_paragraph_leaves_no_stray_blank() {
+    assert_eq!(
+        render_markdown_lines("<!-- c -->\n\nafter\n"),
+        vec!["after"],
+        "comment-only paragraph renders nothing"
+    );
+    assert_eq!(
+        render_markdown_lines("*<!-- c -->*\n\nafter\n"),
+        vec!["after"],
+        "emphasis around a comment renders nothing"
+    );
+    // A non-empty paragraph keeps its separator.
+    assert_eq!(
+        render_markdown_lines("x<!-- c -->y\n\nafter\n"),
+        vec!["xy", "", "after"],
+        "non-empty paragraph keeps its blank separator"
+    );
+}
