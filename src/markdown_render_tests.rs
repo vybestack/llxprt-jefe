@@ -373,9 +373,50 @@ fn multi_paragraph_list_item_keeps_paragraph_break() {
 #[test]
 fn html_div_boundaries_break_lines() {
     let out = render("<div>alpha</div><div>beta</div>");
+    let alpha = out.lines().position(|l| l.trim() == "alpha");
+    let beta = out.lines().position(|l| l.trim() == "beta");
     assert!(
-        out.lines().any(|l| l.trim() == "alpha") && out.lines().any(|l| l.trim() == "beta"),
-        "div contents split onto separate lines: {out}"
+        alpha.is_some() && beta.is_some() && alpha != beta,
+        "div contents must land on distinct lines: {out}"
+    );
+}
+
+/// An item whose first child is a sub-list still emits the parent marker so
+/// the parent item never renders markerless.
+#[test]
+fn item_with_leading_sublist_keeps_parent_marker() {
+    // comrak parses the indented dash as a sub-list that is the parent
+    // item's first child when there is no leading paragraph text.
+    let out = render(
+        "-
+  - nested",
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    let Some(parent) = lines.iter().position(|l| l.trim() == "*") else {
+        panic!("parent marker emitted: {out:?}");
+    };
+    assert!(
+        lines
+            .iter()
+            .skip(parent + 1)
+            .any(|l| l.contains("* nested")),
+        "nested item renders under the parent marker: {out:?}"
+    );
+}
+
+/// Prose merely *mentioning* details/summary-like text must not trigger the
+/// toggle glyph; a real `<details>` open tag must.
+#[test]
+fn details_toggle_requires_real_open_tag() {
+    let real = render("<details><summary>More</summary>body</details>");
+    assert!(
+        real.lines().any(|l| l.trim_start().starts_with('▶')),
+        "real <details> gets the toggle glyph: {real:?}"
+    );
+    let fake = render("<div>&lt;detailsish thing&gt; explained</div>");
+    assert!(
+        !fake.lines().any(|l| l.trim_start().starts_with('▶')),
+        "non-tag mention must not toggle: {fake:?}"
     );
 }
 

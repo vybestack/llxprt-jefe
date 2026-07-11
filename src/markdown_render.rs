@@ -265,6 +265,13 @@ impl MarkdownRenderer {
             let value = &child.data().value;
             match value {
                 NodeValue::List(nested) => {
+                    // An item whose FIRST child is a sub-list still needs its
+                    // own marker emitted, or the parent renders markerless.
+                    if first {
+                        let pad = LIST_INDENT.repeat(indent);
+                        self.push(format!("{pad}{marker}"));
+                        first = false;
+                    }
                     // Sub-lists indent one level deeper.
                     self.render_list(child, nested, indent + 1);
                 }
@@ -409,7 +416,8 @@ impl MarkdownRenderer {
         let pad = indent_str(indent, "");
         let stripped = strip_html_to_text(literal);
         let lower = literal.to_ascii_lowercase();
-        let is_toggle = lower.contains("<summary") || lower.contains("<details");
+        let is_toggle =
+            contains_open_tag(&lower, "summary") || contains_open_tag(&lower, "details");
         // Only the first rendered line of a <details> block is the summary, so
         // only it gets the toggle glyph; subsequent lines render as plain text.
         let mut first_toggle_line = is_toggle;
@@ -553,8 +561,9 @@ impl InlineLines {
             *line = line.trim_end().to_string();
         }
         self.current = self.current.trim_end().to_string();
-        if self.current.is_empty() && !self.prev.is_empty() {
-            // Drop the now-empty trailing current line.
+        // Drop ALL trailing empty lines (consecutive trailing breaks produce
+        // several), not just one, so no stray blank separators leak out.
+        while self.current.is_empty() && !self.prev.is_empty() {
             self.current = self.prev.pop().unwrap_or_default();
         }
     }
@@ -790,6 +799,24 @@ fn consume_entity(html: &str, start: usize) -> (usize, String) {
     } else {
         (start + 1, "&".to_string())
     }
+}
+
+/// True when `haystack` (already lowercased) contains a real opening tag for
+/// `name` — i.e. `<name` followed by whitespace, `>`, or `/` — rather than a
+/// mere substring like `<summary-widget>` or prose mentioning `<detailsish`.
+fn contains_open_tag(haystack: &str, name: &str) -> bool {
+    let needle = format!("<{name}");
+    let mut search_from = 0;
+    while let Some(rel) = haystack[search_from..].find(&needle) {
+        let after = search_from + rel + needle.len();
+        match haystack.as_bytes().get(after) {
+            None => return false,
+            Some(b'>' | b'/') => return true,
+            Some(c) if c.is_ascii_whitespace() => return true,
+            _ => search_from = after,
+        }
+    }
+    false
 }
 
 /// True for the block-level closing tags and `<br>`/`<hr>` whose removal
