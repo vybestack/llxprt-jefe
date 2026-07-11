@@ -276,8 +276,8 @@ impl AppState {
 
     /// Fix the selected issue index after a delete.
     ///
-    /// - An earlier row removed (`deleted < sel`): shift the selection down by
-    ///   one so it still points at the same issue.
+    /// - An earlier row removed (`deleted < sel`): decrement the selection
+    ///   index so it still points at the same issue (which shifted up one slot).
     /// - The selected row itself removed (`deleted == sel`): keep the index,
     ///   which now points at the next issue (standard list-delete semantics);
     ///   if it was the final row, the clamp below moves it to the new last row.
