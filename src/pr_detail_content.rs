@@ -462,6 +462,9 @@ fn build_single_review(
         review.author_login, state_label, review.submitted_at
     ));
     // Render the review body as markdown below the header, indented under it.
+    // Empty review bodies are SUPPRESSED here (unlike comments/thread comments):
+    // plain approvals typically have no body, and rendering "(no body)" under
+    // every approval would be pure noise.
     if let Some(body) = review.body.as_deref()
         && !body.trim().is_empty()
     {
@@ -554,6 +557,9 @@ fn build_review_thread_comments(
             "      {}  {}",
             comment.author_login, comment.created_at
         ));
+        // Bodies are passed unconditionally: thread comments virtually always
+        // have content, and a bare author/date header with nothing under it
+        // would look broken. An empty body renders the "(no body)" placeholder.
         builder
             .lines
             .extend(crate::markdown_render::render_markdown_block(
@@ -638,6 +644,9 @@ fn build_single_comment(
         "{}{}  {}",
         prefix, comment.author_login, comment.created_at
     ));
+    // Bodies are passed unconditionally: comments virtually always have
+    // content, and a bare author/date header with nothing under it would look
+    // broken. An empty body renders the "(no body)" placeholder.
     builder
         .lines
         .extend(crate::markdown_render::render_markdown_block(

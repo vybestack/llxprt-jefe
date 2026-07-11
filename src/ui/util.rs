@@ -43,11 +43,13 @@ pub fn field_opt(value: Option<&str>) -> String {
 ///
 /// Accepts the forms `gh` returns (`2026-07-06T15:26:53Z` and the date-only
 /// `2026-07-06`) and renders `Jul 6, 2026` (or `Jul 6, 2026 15:26` when a time
-/// component is present). Anything that does not parse falls back to the
-/// trimmed input so a surprising timestamp never blanks out the header — the
-/// raw (whitespace-trimmed) value is the fallback (issue #155: raw ISO
-/// timestamps are the defect being fixed, but a parse failure must degrade to
-/// the original text, not to an empty field).
+/// component is present). When the DATE does not parse the function falls
+/// back to the trimmed input so a surprising timestamp never blanks out the
+/// header (issue #155: raw ISO timestamps are the defect being fixed, but a
+/// DATE parse failure must degrade to the original text, not to an empty
+/// field). When the date parses but the TIME component is malformed or
+/// out-of-range, the time is silently dropped and a date-only string is
+/// returned (e.g. `"Jul 6, 2026"`) rather than falling back to the raw input.
 ///
 /// This is dependency-free (no `chrono`/`time` crate) to keep comrak the only
 /// new dependency introduced by the detail redesign.
@@ -150,9 +152,10 @@ fn parse_hhmm(time: &str) -> Option<String> {
     let mm_s = parts.next()?.trim();
     // An optional seconds component is allowed and dropped, but it must still
     // be a valid zero-padded 00-60 value (60 = leap second) — a malformed or
-    // out-of-range seconds field means the whole timestamp is suspect, so it
-    // falls through to the raw fallback like parse_date. More than one extra
-    // component is malformed outright.
+    // out-of-range seconds field means the time component is suspect, so the
+    // whole time is dropped (parse_hhmm returns None), causing format_iso_date
+    // to yield a date-only result. More than one extra component is malformed
+    // outright.
     match (parts.next(), parts.next()) {
         (None, _) => {}
         (Some(ss_s), None) => {

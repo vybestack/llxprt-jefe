@@ -112,6 +112,19 @@ const CODE_FENCE_H: char = '─';
 /// Indentation applied per nested list level (two spaces).
 const LIST_INDENT: &str = "  ";
 
+/// Characters that must never reach the terminal screen: ASCII/C1 control
+/// characters (except tab) and Unicode bidi override/format characters usable
+/// for Trojan Source display spoofing. Legitimate Format chars like ZWJ
+/// (U+200D), ZWNJ (U+200C), and variation selectors are NOT banned so emoji
+/// sequences survive intact.
+fn banned_on_screen(c: char) -> bool {
+    (c.is_control() && c != '\t')
+        || matches!(
+            c,
+            '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{200E}' | '\u{200F}' | '\u{061C}'
+        )
+}
+
 /// Accumulating plain-text markdown renderer.
 struct MarkdownRenderer {
     lines: Vec<String>,
@@ -136,18 +149,18 @@ impl MarkdownRenderer {
     fn push(&mut self, line: impl Into<String>) {
         let line = line.into();
         // Central sanitization chokepoint: every emitted screen line passes
-        // through here, so control characters (ESC/CSI/NUL/BS…) can never
-        // reach the terminal regardless of their source — comrak decodes
-        // numeric entities like &#27; in ordinary text nodes itself, and code
-        // blocks/raw HTML carry author bytes verbatim. Untrusted GitHub
-        // content must not be able to smuggle escape sequences. Tab is kept
-        // (meaningful in code blocks, benign on screen).
-        if line.chars().any(|c| c.is_control() && c != '\t') {
-            self.lines.push(
-                line.chars()
-                    .filter(|c| !c.is_control() || *c == '\t')
-                    .collect(),
-            );
+        // through here, so control characters (ESC/CSI/NUL/BS…) and Unicode
+        // bidi override/format chars (Trojan Source display-spoofing vectors)
+        // can never reach the terminal regardless of their source — comrak
+        // decodes numeric entities like &#27; in ordinary text nodes itself,
+        // and code blocks/raw HTML carry author bytes verbatim. Untrusted
+        // GitHub content must not be able to smuggle escape sequences or
+        // bidi overrides. Tab is kept (meaningful in code blocks, benign on
+        // screen). ZWJ/ZWNJ and variation selectors are kept so emoji
+        // sequences survive.
+        if line.chars().any(banned_on_screen) {
+            self.lines
+                .push(line.chars().filter(|c| !banned_on_screen(*c)).collect());
         } else {
             self.lines.push(line);
         }

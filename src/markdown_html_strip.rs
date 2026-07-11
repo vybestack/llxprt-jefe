@@ -39,8 +39,17 @@ pub fn strip_html_to_text(html: &str) -> String {
                 i = next;
             }
             _ => {
+                // Decode the char at this position so the control-character
+                // filter covers multi-byte C1 controls (U+0080–U+009F), not
+                // just ASCII control bytes. Newlines (block boundaries) and
+                // tabs are meaningful and must survive; all other control
+                // chars are dropped (defense-in-depth: the module's own
+                // contract promises no control characters survive).
                 let ch_len = utf8_len(bytes[i]);
-                if let Some(slice) = html.get(i..i + ch_len) {
+                if let Some(ch) = html[i..].chars().next()
+                    && (ch == '\n' || ch == '\t' || !ch.is_control())
+                    && let Some(slice) = html.get(i..i + ch_len)
+                {
                     out.push_str(slice);
                 }
                 i += ch_len;
@@ -192,6 +201,15 @@ fn html_tag_introduces_break(name: &str) -> bool {
             | "/h4"
             | "/h5"
             | "/h6"
+            | "/section"
+            | "/article"
+            | "/header"
+            | "/footer"
+            | "/main"
+            | "/aside"
+            | "/nav"
+            | "/figure"
+            | "/figcaption"
     )
 }
 

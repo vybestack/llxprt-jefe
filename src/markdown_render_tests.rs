@@ -770,3 +770,73 @@ fn unterminated_html_comment_does_not_hang() {
         "terminated without hang: {out3}"
     );
 }
+
+// ── CHANGE 1: raw control characters in strip_html_to_text (issue #155) ──
+
+/// The HTML strip state machine must not pass through literal control
+/// characters (ESC, NUL, C1 CSI) from raw text — defense-in-depth so the
+/// module's own guarantee holds independently of MarkdownRenderer::push.
+#[test]
+fn strip_html_drops_raw_control_characters() {
+    let out = crate::markdown_html_strip::strip_html_to_text("a\u{1b}[31mred\u{0}b\u{9b}c");
+    assert_eq!(out, "a[31mredbc", "ESC/NUL/C1-CSI removed: {out:?}");
+    // Newlines (block boundaries) and tabs are meaningful and must survive.
+    assert_eq!(
+        crate::markdown_html_strip::strip_html_to_text("line1\nline2"),
+        "line1\nline2",
+        "newlines preserved"
+    );
+    assert!(
+        crate::markdown_html_strip::strip_html_to_text("a\tb").contains('\t'),
+        "tabs preserved"
+    );
+}
+
+// ── CHANGE 2: HTML5 semantic block elements (issue #155) ──────────────
+
+/// Closing tags for HTML5 semantic block elements (`</section>`, `</article>`,
+/// …) must introduce a line break so adjacent sections don't fuse.
+#[test]
+fn html5_semantic_block_tags_break_lines() {
+    let out = render("<section>alpha</section><section>beta</section>");
+    let alpha = out.lines().position(|l| l.trim() == "alpha");
+    let beta = out.lines().position(|l| l.trim() == "beta");
+    assert!(
+        alpha.is_some() && beta.is_some() && alpha != beta,
+        "section contents must land on distinct lines: {out}"
+    );
+}
+
+// ── CHANGE 3: Unicode bidi control characters in push (issue #155) ────
+
+/// The sanitization chokepoint (`MarkdownRenderer::push`) must strip Unicode
+/// bidi override/format characters (Trojan Source attack vectors) while
+/// preserving legitimate Format chars like ZWJ used in emoji sequences.
+#[test]
+fn bidi_control_chars_stripped_zwj_preserved() {
+    // Bidi overrides in a paragraph: the rendered output must not contain the
+    // bidi chars but must keep the surrounding visible text.
+    let out = render("user\u{202E}txt.exe\u{202C}");
+    assert!(!out.contains('\u{202E}'), "RLO stripped: {out:?}");
+    assert!(!out.contains('\u{202C}'), "PDF stripped: {out:?}");
+    assert!(out.contains("user"), "text before bidi preserved: {out:?}");
+    assert!(
+        out.contains("txt.exe"),
+        "text after bidi preserved: {out:?}"
+    );
+
+    // Other bidi/format chars from the ban list:
+    let out2 = render("\u{2066}data\u{2069}\u{200E}\u{200F}\u{061C}");
+    for c in ['\u{2066}', '\u{2069}', '\u{200E}', '\u{200F}', '\u{061C}'] {
+        assert!(!out2.contains(c), "bidi char {c:?} stripped: {out2:?}");
+    }
+    assert!(out2.contains("data"), "text preserved: {out2:?}");
+
+    // ZWJ (U+200D) must survive so emoji sequences are not broken.
+    let emoji = "\u{1F469}\u{200D}\u{1F4BB}"; // 👩‍💻
+    let out3 = render(emoji);
+    assert!(
+        out3.contains('\u{200D}'),
+        "ZWJ preserved for emoji: {out3:?}"
+    );
+}
