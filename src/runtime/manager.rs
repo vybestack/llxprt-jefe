@@ -411,9 +411,20 @@ impl TmuxRuntimeManager {
             return;
         }
         let command = commands::remote_disable_prefix_command(remote, session_name);
+        // run_remote_ssh returns Ok(Output) whenever SSH ran to completion — a
+        // non-zero remote exit (session gone, set-option rejected, sudo denied)
+        // must NOT be memoized as enforced, or future attaches skip the retry.
         match commands::run_remote_ssh(remote, &command) {
-            Ok(_) => {
+            Ok(output) if output.status.success() => {
                 self.prefix_enforced.insert(session_name.to_owned());
+            }
+            Ok(output) => {
+                debug!(
+                    session_name = %session_name,
+                    status = %output.status,
+                    stderr = %String::from_utf8_lossy(&output.stderr),
+                    "remote prefix passthrough command exited non-zero; will retry next attach"
+                );
             }
             Err(error) => {
                 debug!(session_name = %session_name, error = %error, "remote prefix passthrough failed on attach; will retry next attach");
@@ -431,15 +442,7 @@ impl TmuxRuntimeManager {
     /// Test-only setter for recording prefix passthrough without invoking tmux.
     #[cfg(test)]
     fn record_prefix_passthrough(&mut self, session: &str) {
-        self.mark_prefix_passthrough_enforced(session);
-    }
-
-    /// Record that prefix passthrough has been enforced for `session_name`
-    /// without issuing tmux commands. Used after the local create path, where
-    /// [`commands::finalize_local_session`] already disabled the prefix inside
-    /// `create_session`, so we only need to memoize it for the attach path.
-    fn mark_prefix_passthrough_enforced(&mut self, session_name: &str) {
-        self.prefix_enforced.insert(session_name.to_owned());
+        self.prefix_enforced.insert(session.to_owned());
     }
 
     /// Collect liveness check metadata for all tracked sessions.
@@ -487,6 +490,13 @@ impl TmuxRuntimeManager {
             self.attached_agent_id = None;
             drop_viewer_in_background(&mut self.viewer);
         }
+
+        // The tmux session is gone, so its memoized passthrough state is stale.
+        // Clear both sets so a recreated session with the same name re-enforces
+        // on the next attach, and so the sets do not grow across natural
+        // session exits (#200; parity with the explicit kill() path).
+        self.clipboard_enforced.remove(&session.session_name);
+        self.prefix_enforced.remove(&session.session_name);
 
         let _ = self
             .dead_signatures
@@ -561,8 +571,12 @@ impl TmuxRuntimeManager {
             if !signature.remote.enabled {
                 self.ensure_clipboard_passthrough(&session_name);
                 // finalize_local_session also disabled the tmux prefix
-                // (#200); memoize it so the attach path does not re-apply it.
-                self.mark_prefix_passthrough_enforced(&session_name);
+                // (#200). Re-run the result-aware enforcer instead of blindly
+                // memoizing: if the create-path prefix setup failed,
+                // ensure_prefix_passthrough retries it now and memoizes only
+                // on success. If it already succeeded this is an idempotent
+                // no-op that just records the state.
+                self.ensure_prefix_passthrough(&session_name);
             }
         }
 

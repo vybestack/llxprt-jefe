@@ -316,15 +316,20 @@ fn send_through_attach_client(tmux: &IsolatedTmux, bytes: &[u8]) -> String {
 }
 
 /// Poll [`IsolatedTmux::capture`] until every byte we sent that `cat -v`
-/// renders as a caret token has appeared, or until a bounded timeout. This
-/// replaces a fixed post-send sleep with behavior-driven waiting so the test is
-/// resilient to CI load (#200 review).
+/// renders as a caret token has appeared **in order**, or until a bounded
+/// timeout. This is more robust on loaded CI than a single fixed sleep.
 ///
-/// Only caret-rendered control bytes (those `cat -v` turns into `^X`/`^B`/`^C`)
-/// are waitable; plain bytes are not observable via capture, so callers sending
-/// only plain bytes get a single capture after a short settle.
+/// We build the exact ordered caret representation of the control bytes sent
+/// (e.g. `b"\x18\x18"` -> `"^X^X"`) and wait for that contiguous substring to
+/// appear. Matching on the full ordered string — rather than checking each
+/// token independently — correctly handles repeated tokens: a single `^X` is
+/// not enough when two were sent.
+///
+/// Non-control bytes are not observable via `cat -v` caret echoes, so callers
+/// sending only plain bytes get a single immediate capture (there is nothing to
+/// poll for).
 fn poll_for_caret_echo(tmux: &IsolatedTmux, bytes: &[u8]) -> String {
-    let expected: Vec<&str> = bytes
+    let expected: String = bytes
         .iter()
         .filter_map(|&b| match b {
             0x18 => Some("^X"),
@@ -336,14 +341,12 @@ fn poll_for_caret_echo(tmux: &IsolatedTmux, bytes: &[u8]) -> String {
 
     let deadline = std::time::Instant::now() + Duration::from_millis(1500);
     let mut last = tmux.capture();
-    for token in &expected {
-        while !last.contains(token) {
-            if std::time::Instant::now() >= deadline {
-                return last;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-            last = tmux.capture();
+    while !last.contains(&expected) {
+        if std::time::Instant::now() >= deadline || expected.is_empty() {
+            return last;
         }
+        std::thread::sleep(Duration::from_millis(50));
+        last = tmux.capture();
     }
     last
 }
