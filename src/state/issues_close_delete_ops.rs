@@ -78,14 +78,20 @@ impl AppState {
             .map(|issue| issue.state)
     }
 
-    /// Begin a close mutation on the focused issue.
-    fn begin_issue_close(&mut self) {
-        if self.issues_state.inline_state != InlineState::None
+    /// Whether any overlay or in-flight lifecycle mutation would block starting
+    /// a new close/delete. Extracted so the guard cannot drift between the two
+    /// entry points.
+    fn lifecycle_overlay_active(&self) -> bool {
+        self.issues_state.inline_state != InlineState::None
             || self.issues_state.agent_chooser.is_some()
             || self.issues_state.delete_confirm.is_some()
             || self.issues_state.close_mutation_pending.is_some()
             || self.issues_state.delete_mutation_pending.is_some()
-        {
+    }
+
+    /// Begin a close mutation on the focused issue.
+    fn begin_issue_close(&mut self) {
+        if self.lifecycle_overlay_active() {
             return;
         }
         let Some(state) = self.focused_issue_state() else {
@@ -117,12 +123,7 @@ impl AppState {
 
     /// Open the delete confirm overlay (precondition: issue focused, no overlays).
     fn open_issue_delete_confirm(&mut self) {
-        if self.issues_state.inline_state != InlineState::None
-            || self.issues_state.agent_chooser.is_some()
-            || self.issues_state.delete_confirm.is_some()
-            || self.issues_state.close_mutation_pending.is_some()
-            || self.issues_state.delete_mutation_pending.is_some()
-        {
+        if self.lifecycle_overlay_active() {
             return;
         }
         let Some(issue_number) = self.focused_issue_number() else {
@@ -307,7 +308,10 @@ impl AppState {
     ///
     /// Matches on the FULL operation identity (mutation id + scope + issue
     /// number) so an asynchronous failure for a different scope/issue cannot
-    /// clear a lifecycle pending or display a wrong scoped error.
+    /// clear a lifecycle pending or display a wrong scoped error. When the
+    /// failure event carries no issue number (`None`), matching falls back to
+    /// mutation id + scope only so the shared `MutationFailed` variant cannot
+    /// leave a lifecycle pending permanently stuck.
     fn apply_lifecycle_mutation_failed(
         &mut self,
         scope_repo_id: &RepositoryId,
@@ -325,7 +329,7 @@ impl AppState {
             .is_some_and(|p| {
                 p.mutation_id == mid
                     && p.scope_repo_id == *scope_repo_id
-                    && issue_number == Some(p.issue_number)
+                    && issue_number.is_none_or(|n| n == p.issue_number)
             });
         let delete_matches = self
             .issues_state
@@ -334,7 +338,7 @@ impl AppState {
             .is_some_and(|p| {
                 p.mutation_id == mid
                     && p.scope_repo_id == *scope_repo_id
-                    && issue_number == Some(p.issue_number)
+                    && issue_number.is_none_or(|n| n == p.issue_number)
             });
         if !close_matches && !delete_matches {
             return false;

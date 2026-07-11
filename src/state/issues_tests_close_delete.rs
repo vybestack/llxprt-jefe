@@ -390,6 +390,21 @@ fn issue_deleted_removes_from_list_and_clears_detail() {
         IssueFocus::IssueList,
         "should refocus to list after delete"
     );
+    // Deleting the selected (index 0) non-final issue keeps the index at 0,
+    // which now points at the next issue (#2).
+    assert_eq!(
+        state.issues_state.selected_issue_index,
+        Some(0),
+        "selection index should stay at 0 (now pointing at the next issue)"
+    );
+    assert!(
+        state
+            .issues_state
+            .issues
+            .first()
+            .is_some_and(|i| i.number == 2),
+        "issue #2 should now be at index 0"
+    );
     assert!(state.issues_state.delete_mutation_pending.is_none());
     let notice = state.issues_state.draft_notice.as_deref();
     assert!(
