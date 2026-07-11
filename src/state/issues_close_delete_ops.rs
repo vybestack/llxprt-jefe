@@ -275,11 +275,12 @@ impl AppState {
 
     /// Fix the selected issue index after a delete.
     ///
-    /// If the deleted row was at or before the selection, the selection shifts
-    /// down by one to keep pointing at the same issue; if the deleted row WAS
-    /// the selection (or the list is now empty), the selection is clamped to the
-    /// new bounds (or cleared). This preserves keyboard-navigation continuity
-    /// instead of silently jumping focus to a different issue.
+    /// - An earlier row removed (`deleted < sel`): shift the selection down by
+    ///   one so it still points at the same issue.
+    /// - The selected row itself removed (`deleted == sel`): keep the index,
+    ///   which now points at the next issue (standard list-delete semantics);
+    ///   if it was the final row, the clamp below moves it to the new last row.
+    /// - List empty: clear the selection.
     fn fix_issue_selection_after_delete(&mut self, deleted_index: Option<usize>) {
         if self.issues_state.issues.is_empty() {
             self.issues_state.selected_issue_index = None;

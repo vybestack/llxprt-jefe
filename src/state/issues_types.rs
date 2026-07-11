@@ -15,7 +15,9 @@
 
 use crate::domain::RepositoryId;
 
-use super::{AgentChooserState, ComposerTarget, DetailSubfocus, InlineState, IssueFocus};
+use super::{
+    AgentChooserState, ComposerTarget, DetailSubfocus, InlineState, IssueFocus, PriorAgentFocus,
+};
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-001
@@ -44,7 +46,7 @@ pub struct IssuesState {
     pub agent_chooser: Option<AgentChooserState>,
     pub filter_ui: IssueFilterUiState,
     pub search_input_focused: bool,
-    pub prior_agent_focus: Option<super::PriorAgentFocus>,
+    pub prior_agent_focus: Option<PriorAgentFocus>,
     pub draft_notice: Option<String>,
     pub mutation_pending: Option<IssueMutationPending>,
     pub next_mutation_id: u64,

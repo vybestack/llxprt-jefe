@@ -53,13 +53,9 @@ fn delete_confirm_header_is_emoji_free() {
 #[test]
 fn delete_confirm_hint_unarmed_prompts_enter_to_confirm() {
     let hint = delete_confirm_hint(false);
-    assert!(
-        hint.contains("confirm") && hint.contains("cancel"),
-        "unarmed hint should mention confirm + cancel, got: {hint}"
-    );
-    assert!(
-        !hint.contains("Press Enter to confirm delete"),
-        "unarmed hint should NOT show the armed wording, got: {hint}"
+    assert_eq!(
+        hint, "Enter confirm, Esc cancel",
+        "unarmed hint should use the exact unarmed wording, got: {hint}"
     );
 }
 

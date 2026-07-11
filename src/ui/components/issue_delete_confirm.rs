@@ -35,7 +35,7 @@ pub fn delete_confirm_hint(awaiting_confirmation: bool) -> &'static str {
     if awaiting_confirmation {
         "Press Enter to confirm delete, Esc to cancel"
     } else {
-        "Enter confirm  Esc cancel"
+        "Enter confirm, Esc cancel"
     }
 }
 

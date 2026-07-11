@@ -630,6 +630,31 @@ fn delete_failure_with_wrong_scope_is_ignored_by_lifecycle() {
     );
 }
 
+#[test]
+fn delete_failure_with_wrong_issue_number_is_ignored_by_lifecycle() {
+    let mut state = issues_state_with_list("repo-1");
+    state.issues_state.delete_mutation_pending = Some(IssueLifecycleMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 71,
+        issue_number: 2,
+        node_id: None,
+    });
+    let state = state.apply(AppEvent::MutationFailed {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        issue_number: Some(999),
+        mutation_id: Some(71),
+        error: "wrong issue".to_string(),
+    });
+    assert!(
+        state.issues_state.delete_mutation_pending.is_some(),
+        "wrong-issue-number failure should NOT clear delete pending"
+    );
+    assert!(
+        state.issues_state.error.is_none(),
+        "wrong-issue-number failure should NOT surface an error"
+    );
+}
+
 // ── Exclusivity guards (issue #182) ───────────────────────────────────────
 // While a close or delete mutation is in flight, beginning another close or
 // opening the delete overlay is suppressed to avoid overwriting the pending

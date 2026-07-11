@@ -956,3 +956,20 @@ fn shift_d_blocked_when_composer_active() {
         "Shift-D should route to the inline composer when active, got {result:?}"
     );
 }
+
+#[test]
+fn shift_c_blocked_when_composer_active() {
+    let mut state = issues_state_with_issue_list();
+    state.issues_state.inline_state = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: String::new(),
+        cursor: 0,
+    };
+    // When a composer is active, Shift-C routes to the inline composer (as a
+    // typed 'C' char), NOT to the close-issue handler.
+    let result = resolve_issues_key_event(&state, &key(KeyCode::Char('C')));
+    assert!(
+        matches!(result, Some(AppEvent::InlineChar('C'))),
+        "Shift-C should route to the inline composer when active, got {result:?}"
+    );
+}

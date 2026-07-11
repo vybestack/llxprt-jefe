@@ -413,6 +413,11 @@ impl AppState {
         self.issues_state.comments_page_pending = None;
         self.issues_state.list_reload_pending = None;
         self.issues_state.list_page_pending = None;
+        // A filter change reloads the list; dismiss the transient delete-confirm
+        // overlay (it targets a specific list row that may no longer be present).
+        // In-flight close/delete mutations are intentionally KEPT — their result
+        // still carries the original scope+issue and matches the pending.
+        self.issues_state.delete_confirm = None;
         self.issues_state.loading.list = true;
     }
 
