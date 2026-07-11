@@ -168,6 +168,11 @@ fn consume_entity(html: &str, start: usize) -> (usize, String) {
 /// `<summary-widget>` or prose mentioning `<detailsish`. Taking the prefixed
 /// needle as a static literal avoids a per-call `String` allocation.
 pub fn contains_open_tag(haystack: &str, needle: &str) -> bool {
+    // find("") returns Some(0) and would never advance the cursor — guard
+    // against an empty needle so the loop below cannot spin forever.
+    if needle.is_empty() {
+        return false;
+    }
     let mut search_from = 0;
     while let Some(rel) = haystack[search_from..].find(needle) {
         let after = search_from + rel + needle.len();

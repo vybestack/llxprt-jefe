@@ -873,3 +873,13 @@ fn multiple_spaces_before_tag_name_still_break() {
         "four-space `<    br>` must break"
     );
 }
+
+// ── CHANGE B: empty-needle guard for contains_open_tag (issue #155) ──
+
+/// An empty needle must return `false` immediately rather than infinite-loop.
+/// `find("")` returns `Some(0)` without advancing the search cursor, so
+/// without this guard the loop spins forever.
+#[test]
+fn contains_open_tag_empty_needle_terminates() {
+    assert!(!crate::markdown_html_strip::contains_open_tag("abc", ""));
+}

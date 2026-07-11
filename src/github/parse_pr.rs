@@ -785,16 +785,30 @@ fn parse_single_review_thread(node: &Value) -> PrReviewThread {
 /// the review that opened the thread, so its `pullRequestReview` id is the
 /// thread's parent review. `None` when unavailable (degraded thread).
 fn parse_thread_review_id(thread_node: &Value) -> Option<String> {
-    thread_node
-        .get("comments")?
-        .get("nodes")?
-        .as_array()?
-        .first()?
-        .get("pullRequestReview")?
-        .get("id")?
-        .as_str()
+    let review_id = thread_node
+        .get("comments")
+        .and_then(|c| c.get("nodes"))
+        .and_then(Value::as_array)
+        .and_then(|nodes| nodes.first())
+        .and_then(|first| first.get("pullRequestReview"))
+        .and_then(|review| review.get("id"))
+        .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-        .map(String::from)
+        .map(String::from);
+    if review_id.is_none() {
+        // Surface the data-quality gap: an ungroupable thread falls back to
+        // the first review in the UI, which is wrong grouping — make that
+        // diagnosable instead of silent.
+        let thread_id = thread_node
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("(unknown)");
+        tracing::warn!(
+            thread_id,
+            "review thread missing parent review id; thread will be ungrouped"
+        );
+    }
+    review_id
 }
 
 /// Parse the `comments.nodes` array of a thread node into [`IssueComment`]s.
