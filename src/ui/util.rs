@@ -5,6 +5,30 @@
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+/// Caret character inserted into editable form fields to show the cursor.
+pub const CARET_CHAR: char = '▏';
+
+/// Insert the caret character at `cursor` position in `value`.
+///
+/// The cursor column is clamped to `value`'s character length, and the
+/// insertion is byte-safe (uses `char_indices` so multi-byte chars are never
+/// split). Used by both the iocraft form components and the pure selection
+/// content projection so copied text matches what is displayed.
+#[must_use]
+pub fn text_with_caret(value: &str, cursor: usize) -> String {
+    let char_len = value.chars().count();
+    let clamped = cursor.min(char_len);
+    let byte_idx = if clamped == 0 {
+        0
+    } else {
+        value
+            .char_indices()
+            .nth(clamped)
+            .map_or_else(|| value.len(), |(idx, _)| idx)
+    };
+    format!("{}{CARET_CHAR}{}", &value[..byte_idx], &value[byte_idx..])
+}
+
 /// Ellipsis character appended when text is truncated to fit a width budget.
 pub const ELLIPSIS: char = '…';
 

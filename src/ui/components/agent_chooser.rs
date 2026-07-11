@@ -6,7 +6,9 @@
 use iocraft::prelude::*;
 
 use crate::domain::AgentId;
-use crate::theme::{ResolvedColors, ThemeColors};
+use crate::selection::{SelectablePane, TextSelection};
+use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
+use crate::ui::components::selectable_line;
 
 /// Props for the agent chooser overlay.
 #[derive(Default, Props)]
@@ -19,6 +21,8 @@ pub struct AgentChooserProps {
     pub selected_index: usize,
     /// Theme colors.
     pub colors: ThemeColors,
+    /// Active text selection for drag-highlight (issue #178).
+    pub selection: Option<TextSelection>,
 }
 
 /// Agent chooser overlay — lists existing agents with selection; Enter confirms, Esc cancels.
@@ -33,6 +37,107 @@ pub fn AgentChooser(props: &AgentChooserProps) -> impl Into<AnyElement<'static>>
     }
 
     let rc = ResolvedColors::from_theme(Some(&props.colors));
+    let sel = SelectionColors::from_resolved(&rc);
+    let pane = SelectablePane::AgentChooser;
+    let selection = props.selection;
+    let mut line_idx: usize = 0;
+
+    let mut lines: Vec<AnyElement<'static>> = Vec::new();
+
+    // Header + separator
+    lines.push(selectable_line(
+        "Send to Agent",
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.bright,
+        sel,
+    ));
+    lines.push(selectable_line(
+        super::SEPARATOR_LINE,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.dim,
+        sel,
+    ));
+
+    // Agent list or empty state
+    if props.agents.is_empty() {
+        lines.push(selectable_line(
+            "No agents available. Create an agent in Agents Mode.",
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            rc.dim,
+            sel,
+        ));
+        lines.push(selectable_line(
+            "",
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            rc.fg,
+            sel,
+        ));
+    } else {
+        for (i, (_id, name)) in props.agents.iter().enumerate() {
+            let selected = i == props.selected_index;
+            let marker = if selected { "(x)" } else { "( )" };
+            let label = format!("{marker} {name}");
+            let color = if selected { rc.bright } else { rc.fg };
+            lines.push(selectable_line(
+                &label,
+                {
+                    let li = line_idx;
+                    line_idx += 1;
+                    li
+                },
+                selection,
+                pane,
+                color,
+                sel,
+            ));
+        }
+    }
+
+    // Separator + hints
+    lines.push(selectable_line(
+        super::SEPARATOR_LINE,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.dim,
+        sel,
+    ));
+    lines.push(selectable_line(
+        "Enter send  Esc cancel",
+        line_idx,
+        selection,
+        pane,
+        rc.dim,
+        sel,
+    ));
 
     element! {
         Box(
@@ -45,57 +150,7 @@ pub fn AgentChooser(props: &AgentChooserProps) -> impl Into<AnyElement<'static>>
             padding_top: 0u32,
             padding_bottom: 0u32,
         ) {
-            // Header
-            Box(height: 1u32) {
-                Text(
-                    content: "Send to Agent",
-                    weight: Weight::Bold,
-                    color: rc.bright,
-                )
-            }
-            Box(height: 1u32) {
-                Text(content: super::SEPARATOR_LINE, color: rc.dim)
-            }
-
-            // Agent list or empty state
-            #(if props.agents.is_empty() {
-                vec![element! {
-                    Box(height: 2u32, padding_left: 1u32) {
-                        Text(
-                            content: "No agents available. Create an agent in Agents Mode.",
-                            color: rc.dim,
-                        )
-                    }
-                }]
-            } else {
-                props.agents.iter().enumerate().map(|(i, (_id, name))| {
-                    let selected = i == props.selected_index;
-                    let marker = if selected { "(x)" } else { "( )" };
-                    let label = format!("{marker} {name}");
-                    if selected {
-                        element! {
-                            Box(height: 1u32, background_color: rc.sel_bg) {
-                                Text(content: label, color: rc.sel_fg, weight: Weight::Bold)
-                            }
-                        }
-                    } else {
-                        element! {
-                            Box(height: 1u32) {
-                                Text(content: label, color: rc.fg)
-                            }
-                        }
-                    }
-                }).collect()
-            })
-
-            // Action hints
-            Box(height: 1u32) {
-                Text(content: super::SEPARATOR_LINE, color: rc.dim)
-            }
-            Box(height: 1u32) {
-                Text(content: "Enter send  ", color: rc.dim)
-                Text(content: "Esc cancel", color: rc.dim)
-            }
+            #(lines)
         }
     }
 }

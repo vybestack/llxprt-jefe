@@ -357,16 +357,16 @@ fn test_scope_change_invalidation() {
     state.selected_repository_index = Some(0);
 
     // Enter issues mode and load some issues for repo-1
-    let state = state
-        .apply(AppEvent::EnterIssuesMode)
-        .apply(AppEvent::IssueListLoaded {
-            scope_repo_id: RepositoryId("repo-1".to_string()),
-            filter: Box::new(IssueFilter::default()),
-            request_id: 0,
-            issues: vec![make_test_issue(1), make_test_issue(2)],
-            cursor: Some("cur".to_string()),
-            has_more: true,
-        });
+    let state = state.apply(AppEvent::EnterIssuesMode);
+    let filter = state.issues_state.committed_filter.clone();
+    let state = state.apply(AppEvent::IssueListLoaded {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(filter),
+        request_id: 0,
+        issues: vec![make_test_issue(1), make_test_issue(2)],
+        cursor: Some("cur".to_string()),
+        has_more: true,
+    });
     assert_eq!(state.issues_state.issues.len(), 2);
     assert!(state.issues_state.has_more_issues);
     assert!(!state.issues_state.loading.list);

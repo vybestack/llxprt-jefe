@@ -207,6 +207,13 @@ pub struct AppState {
     /// @requirement REQ-PR-001
     pub prs_state: PullRequestsState,
 
+    /// Per-repository remembered user preferences (issue #163).
+    ///
+    /// Runtime copy of the persisted DTO — mirror of
+    /// `persistence::State.user_preferences`. The reducer reads/writes this
+    /// in memory; the app-shell persists it via `to_persisted_state`.
+    pub user_preferences: crate::domain::UserPreferences,
+
     /// Rapid `qqq` quit-sequence bookkeeping. Runtime-only — never persisted.
     pub quit_sequence: QuitSequenceState,
 
@@ -217,6 +224,12 @@ pub struct AppState {
     /// when a new selection begins. Used by the renderers to paint an
     /// inverse-video highlight over the selected cells.
     pub selection: Option<crate::selection::TextSelection>,
+
+    /// Help modal scroll offset (lines scrolled from the top). Mirrored from
+    /// the app-shell hook state so the selection content projection can map
+    /// screen coordinates to the correct help content line (issue #178).
+    /// Runtime-only — never persisted.
+    pub help_scroll_offset: usize,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -307,6 +320,13 @@ pub struct PriorAgentFocus {
     pub selected_repository_index: Option<usize>,
     pub selected_agent_index: Option<usize>,
 }
+
+// IssuesState and its helper structs live in issues_types.rs (extracted to keep
+// this file under the source-length limit). The PR_FILTER_FIELD_COUNT constant
+// (issue #163) is re-declared here alongside ISSUE_FILTER_FIELD_COUNT so both
+// mode filters reference sibling constants in one place.
+/// Number of PR filter fields for FilterNavigate wrap (issue #163).
+pub const PR_FILTER_FIELD_COUNT: usize = 8;
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {

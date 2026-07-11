@@ -154,6 +154,7 @@ pub fn to_persisted_state(state: &AppState) -> PersistedState {
         last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
         pane_focus: pane_focus_to_persisted(state.pane_focus),
         terminal_focused: state.terminal_focused,
+        user_preferences: state.user_preferences.clone(),
     }
 }
 
@@ -377,6 +378,21 @@ pub fn handle_mode_help_key(
         }
         _ => {}
     }
+    // Mirror the help scroll offset to AppState so the selection content
+    // projection can map screen coordinates to the correct help content
+    // line (issue #178). The hook state may hold a sentinel (u32::MAX for
+    // the End key) that the renderer clamps via ScrollableText; clamp here
+    // using the same viewport math so the selection layer reads the actual
+    // visible offset, not the raw sentinel.
+    let (_, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let viewport_rows = jefe::ui::modals::help_viewport_rows(term_rows);
+    let max_scroll = jefe::ui::modals::help_content_lines()
+        .len()
+        .saturating_sub(viewport_rows);
+    let clamped = help_scroll
+        .get()
+        .min(u32::try_from(max_scroll).unwrap_or(u32::MAX));
+    app_state.write().help_scroll_offset = usize::try_from(clamped).unwrap_or(0);
 }
 
 pub fn handle_mode_search_key(

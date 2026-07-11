@@ -110,6 +110,12 @@ impl PaneGeometry {
 /// is focused, mouse events over the terminal pane are forwarded to the PTY
 /// and should not start an app selection, so [`SelectablePane::TerminalView`]
 /// is excluded from the result in that case.
+///
+/// When `layout.overlay` is active (issue #178), full-screen overlays
+/// (Help/AgentForm/RepositoryForm/ConfirmModal) intercept coordinates within
+/// their rendered bounds, and positioned overlays (AgentChooser/MergeChooser)
+/// intercept coordinates inside their bounds before falling through to the
+/// underlying pane.
 #[must_use]
 pub fn pane_at(
     col: u16,
@@ -121,6 +127,26 @@ pub fn pane_at(
     let (render_cols, render_rows) = effective_render_size(layout.term_cols, layout.term_rows);
     if col >= render_cols || row >= render_rows {
         return None;
+    }
+
+    // Full-screen overlays (modals/forms) intercept coordinates within
+    // their actual rendered bounds (not necessarily the entire screen —
+    // ConfirmModal is 50×10, HelpModal is 60 wide with variable height).
+    if layout.overlay.is_full_screen()
+        && let Some((pane, geo)) =
+            full_screen_overlay_pane(layout.overlay, render_cols, render_rows)
+    {
+        if geo.contains(col, row) {
+            return Some((pane, geo));
+        }
+        // Point is outside the modal's rendered bounds — no pane to select
+        // (the modal replaced the screen, so the base layout is not visible).
+        return None;
+    }
+
+    // Positioned overlays (choosers) intercept coordinates inside their bounds.
+    if let Some(chooser) = chooser_pane_if_inside(col, row, *layout) {
+        return Some(chooser);
     }
 
     // Outer bars span the full width.
@@ -432,6 +458,103 @@ fn terminal_view(
             TERMINAL_VIEW_CHROME_ROWS,
         ),
     )
+}
+
+/// Compute the help modal height for a given terminal row count.
+///
+/// Delegates to the renderer's `help_viewport_rows` (single source of truth)
+/// and adds the chrome rows, so the geometry matches exactly.
+fn help_modal_height(render_rows: u16) -> u16 {
+    let viewport = crate::ui::modals::help_viewport_rows(render_rows);
+    let total = viewport.saturating_add(usize::from(crate::ui::modals::HELP_CHROME_ROWS));
+    u16::try_from(total.min(usize::from(render_rows)).max(1)).unwrap_or(1)
+}
+
+/// Full-screen overlay geometry for each overlay type.
+///
+/// AgentForm and RepositoryForm render at `width: 100pct, height: 100pct` so
+/// they fill the entire render area. HelpModal renders at `width: 60` with a
+/// variable height, and ConfirmModal renders at `width: 50, height: 10`. All
+/// use a bordered Box with `padding: 1`, so the content origin is always
+/// `(2, 2)` (1 border + 1 padding on each axis).
+fn full_screen_overlay_pane(
+    overlay: crate::selection::OverlayPane,
+    render_cols: u16,
+    render_rows: u16,
+) -> Option<(SelectablePane, PaneGeometry)> {
+    let pane = overlay.to_pane()?;
+    let geo = match overlay {
+        crate::selection::OverlayPane::HelpModal => {
+            let height = help_modal_height(render_rows);
+            PaneGeometry::new(0, 0, crate::ui::modals::HELP_MODAL_WIDTH, height, 2, 2)
+        }
+        crate::selection::OverlayPane::ConfirmModal => PaneGeometry::new(0, 0, 50, 10, 2, 2),
+        // AgentForm and RepositoryForm — truly full-screen.
+        _ => PaneGeometry::new(0, 0, render_cols, render_rows, 2, 2),
+    };
+    Some((pane, geo))
+}
+
+/// Chooser overlay position constants (issue #178).
+///
+/// The agent/merge choosers are rendered with `position: Absolute, top: 2,
+/// left: 4` inside the workspace column (which starts after the sidebar).
+const CHOOSER_OFFSET_COL: u16 = 4;
+const CHOOSER_OFFSET_ROW: u16 = 2;
+/// Chooser widget width: 41-char separator + 2 border + 2 padding columns.
+/// Must stay in sync with the AgentChooser/MergeChooser separator length
+/// (src/ui/components/agent_chooser.rs). Changes there require updating
+/// Full outer width of the chooser widget: 41-char separator + 2 border + 2
+/// padding. Duplicates the width implied by the separator string in
+/// `agent_chooser.rs` / `merge_chooser.rs` — keep in sync.
+const CHOOSER_WIDTH: u16 = 45;
+/// Maximum chooser height (prevents the overlay from exceeding the workspace).
+const CHOOSER_MAX_HEIGHT: u16 = 30;
+
+/// Resolve a chooser overlay pane if `(col, row)` falls inside the chooser's
+/// bounds.
+///
+/// The chooser is positioned at `top: 2, left: 4` relative to the workspace
+/// column (which starts after the sidebar). The workspace starts at
+/// `LEFT_COL_WIDTH` (issues) or `prs_main_columns().sidebar_width` (PRs);
+/// both resolve to `LEFT_COL_WIDTH` in the common 120-col case. Since
+/// `prs_main_columns` is a runtime function, we use `LEFT_COL_WIDTH` as the
+/// baseline and let the caller's screen mode disambiguate if needed.
+fn chooser_pane_if_inside(
+    col: u16,
+    row: u16,
+    layout: ScreenLayout,
+) -> Option<(SelectablePane, PaneGeometry)> {
+    let pane = layout.overlay.to_pane()?;
+    if layout.overlay.is_full_screen() {
+        return None;
+    }
+
+    // Workspace starts after the sidebar.
+    let workspace_col0 = crate::layout::LEFT_COL_WIDTH;
+    let chooser_origin_col = workspace_col0.saturating_add(CHOOSER_OFFSET_COL);
+    // Workspace starts at row 1 (below the status bar); chooser offset adds 2.
+    let chooser_origin_row = 1u16.saturating_add(CHOOSER_OFFSET_ROW);
+    let chooser_width = CHOOSER_WIDTH;
+    // Use a generous height so the whole overlay is selectable; the content
+    // provider clips to actual rendered lines.
+    let chooser_height = CHOOSER_MAX_HEIGHT;
+
+    let geo = PaneGeometry::new(
+        chooser_origin_col,
+        chooser_origin_row,
+        chooser_width,
+        chooser_height,
+        // Content starts after border (1) + padding_left (1) = 2 cols, and
+        // after the top border (1 row, no padding_top).
+        chooser_origin_col.saturating_add(2),
+        chooser_origin_row.saturating_add(1),
+    );
+    if geo.contains(col, row) {
+        Some((pane, geo))
+    } else {
+        None
+    }
 }
 
 /// Dashboard middle-row split for a given *render* row count.

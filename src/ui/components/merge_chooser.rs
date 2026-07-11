@@ -9,7 +9,9 @@
 use iocraft::prelude::*;
 
 use crate::domain::{MERGE_METHODS, MergeMethod};
-use crate::theme::{ResolvedColors, ThemeColors};
+use crate::selection::{SelectablePane, TextSelection};
+use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
+use crate::ui::components::selectable_line;
 
 /// Props for the merge chooser overlay.
 #[derive(Default, Props)]
@@ -26,6 +28,8 @@ pub struct MergeChooserProps {
     pub awaiting_confirmation: bool,
     /// Theme colors.
     pub colors: ThemeColors,
+    /// Active text selection for drag-highlight (issue #178).
+    pub selection: Option<TextSelection>,
 }
 
 fn is_method_enabled(method: MergeMethod, allowed: Option<&[MergeMethod]>) -> bool {
@@ -48,6 +52,96 @@ pub fn MergeChooser(props: &MergeChooserProps) -> impl Into<AnyElement<'static>>
     }
 
     let rc = ResolvedColors::from_theme(Some(&props.colors));
+    let sel = SelectionColors::from_resolved(&rc);
+    let pane = SelectablePane::MergeChooser;
+    let selection = props.selection;
+    let mut line_idx: usize = 0;
+
+    let mut lines: Vec<AnyElement<'static>> = Vec::new();
+
+    // Header + separator
+    lines.push(selectable_line(
+        &format!("Merge Pull Request #{}", props.pr_number),
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.bright,
+        sel,
+    ));
+    lines.push(selectable_line(
+        super::SEPARATOR_LINE,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.dim,
+        sel,
+    ));
+
+    // Method list
+    for (i, method) in MERGE_METHODS.iter().enumerate() {
+        let selected = i == props.selected_index;
+        let enabled = is_method_enabled(*method, props.allowed_methods.as_deref());
+        let label = if enabled {
+            let marker = if selected { "(x)" } else { "( )" };
+            format!("{marker} {}", method.label())
+        } else {
+            format!("    {} (not enabled)", method.label())
+        };
+        let color = if !enabled {
+            rc.dim
+        } else if selected {
+            rc.bright
+        } else {
+            rc.fg
+        };
+        lines.push(selectable_line(
+            &label,
+            {
+                let li = line_idx;
+                line_idx += 1;
+                li
+            },
+            selection,
+            pane,
+            color,
+            sel,
+        ));
+    }
+
+    // Separator + hints
+    lines.push(selectable_line(
+        super::SEPARATOR_LINE,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.dim,
+        sel,
+    ));
+    let hint = if props.awaiting_confirmation {
+        "Press Enter to confirm merge, Esc to cancel"
+    } else {
+        "Up/Down select  Enter confirm  Esc cancel"
+    };
+    let hint_color = if props.awaiting_confirmation {
+        rc.bright
+    } else {
+        rc.dim
+    };
+    lines.push(selectable_line(
+        hint, line_idx, selection, pane, hint_color, sel,
+    ));
 
     element! {
         Box(
@@ -60,76 +154,7 @@ pub fn MergeChooser(props: &MergeChooserProps) -> impl Into<AnyElement<'static>>
             padding_top: 0u32,
             padding_bottom: 0u32,
         ) {
-            // Header
-            Box(height: 1u32) {
-                Text(
-                    content: format!("Merge Pull Request #{}", props.pr_number),
-                    weight: Weight::Bold,
-                    color: rc.bright,
-                )
-            }
-            Box(height: 1u32) {
-                Text(content: super::SEPARATOR_LINE, color: rc.dim)
-            }
-
-            // Method list
-            #(
-                MERGE_METHODS.iter().enumerate().map(|(i, method)| {
-                    let selected = i == props.selected_index;
-                    let enabled = is_method_enabled(*method, props.allowed_methods.as_deref());
-                    let label = if enabled {
-                        let marker = if selected { "(x)" } else { "( )" };
-                        format!("{marker} {}", method.label())
-                    } else {
-                        format!("    {} (not enabled)", method.label())
-                    };
-                    if selected && enabled {
-                        element! {
-                            Box(height: 1u32, background_color: rc.sel_bg) {
-                                Text(content: label, color: rc.sel_fg, weight: Weight::Bold)
-                            }
-                        }
-                    } else if enabled {
-                        element! {
-                            Box(height: 1u32) {
-                                Text(content: label, color: rc.fg)
-                            }
-                        }
-                    } else {
-                        element! {
-                            Box(height: 1u32) {
-                                Text(content: label, color: rc.dim)
-                            }
-                        }
-                    }
-                }).collect::<Vec<_>>()
-            )
-
-            // Separator
-            Box(height: 1u32) {
-                Text(content: super::SEPARATOR_LINE, color: rc.dim)
-            }
-
-            // Confirmation or navigation hint
-            #(if props.awaiting_confirmation {
-                vec![element! {
-                    Box(height: 1u32) {
-                        Text(
-                            content: "Press Enter to confirm merge, Esc to cancel",
-                            color: rc.bright,
-                            weight: Weight::Bold,
-                        )
-                    }
-                }]
-            } else {
-                vec![element! {
-                    Box(height: 1u32) {
-                        Text(content: "Up/Down select  ", color: rc.dim)
-                        Text(content: "Enter confirm  ", color: rc.dim)
-                        Text(content: "Esc cancel", color: rc.dim)
-                    }
-                }]
-            })
+            #(lines)
         }
     }
 }

@@ -15,6 +15,8 @@ mod issues_load_ops;
 mod issues_mutation_ops;
 mod issues_ops;
 mod modal_ops;
+// Per-repository user-preference snapshot/restore operations (issue #163).
+mod preferences_ops;
 // @plan PLAN-20260624-PR-MODE.P03
 // @requirement REQ-PR-001
 mod prs_inline_ops;
@@ -491,18 +493,11 @@ impl AppState {
         if idx < self.repositories.len()
             && (!self.hide_idle_repositories || self.visible_repository_indices().contains(&idx))
         {
+            let prev_repo_id = self.current_repo_id();
             self.remember_selected_agent_for_current_repo();
             self.selected_repository_index = Some(idx);
             self.restore_selected_agent_for_current_repo();
-
-            if self.issues_state.active {
-                self.reset_issues_for_repo_change();
-            }
-            // @plan PLAN-20260624-PR-MODE.P05
-            // @requirement REQ-PR-003
-            if self.prs_state.active {
-                self.reset_prs_for_repo_change();
-            }
+            self.sync_preferences_for_repo_change(prev_repo_id);
         }
     }
 
@@ -580,12 +575,14 @@ impl AppState {
             && (!self.hide_idle_repositories
                 || self.visible_repository_indices().contains(&target_repo_idx))
         {
+            let prev_repo_id = self.current_repo_id();
             self.remember_selected_agent_for_current_repo();
             self.selected_repository_index = Some(target_repo_idx);
             self.selected_agent_index = Some(agent_idx);
             self.pane_focus = PaneFocus::Agents;
             self.terminal_focused = false;
             self.remember_selected_agent_for_current_repo();
+            self.sync_preferences_for_repo_change(prev_repo_id);
         }
     }
 
@@ -867,6 +864,11 @@ mod prs_tests_merge;
 #[cfg(test)]
 #[path = "prs_tests_filter.rs"]
 mod prs_tests_filter;
+
+// Per-repository user-preference persistence tests (issue #163).
+#[cfg(test)]
+#[path = "preferences_tests.rs"]
+mod preferences_tests;
 
 #[cfg(test)]
 #[path = "prs_tests_repo_nav.rs"]

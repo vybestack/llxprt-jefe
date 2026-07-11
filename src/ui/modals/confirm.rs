@@ -5,7 +5,9 @@
 
 use iocraft::prelude::*;
 
-use crate::theme::{ResolvedColors, ThemeColors};
+use crate::selection::{SelectablePane, TextSelection};
+use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
+use crate::ui::components::selectable_line;
 
 /// Props for the confirm modal.
 #[derive(Default, Props)]
@@ -20,12 +22,33 @@ pub struct ConfirmModalProps {
     pub delete_work_dir: bool,
     /// Theme colors.
     pub colors: ThemeColors,
+    /// Active text selection for drag-highlight (issue #178).
+    pub selection: Option<TextSelection>,
 }
 
 /// Confirm modal for destructive actions (delete, kill).
 #[component]
 pub fn ConfirmModal(props: &ConfirmModalProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
+    let sel = SelectionColors::from_resolved(&rc);
+    let pane = SelectablePane::ConfirmModal;
+    let selection = props.selection;
+
+    let checkbox_line = if props.show_delete_work_dir {
+        let mark = if props.delete_work_dir { "x" } else { " " };
+        format!("[{mark}] Delete work directory")
+    } else {
+        String::new()
+    };
+
+    let lines: Vec<AnyElement<'static>> = vec![
+        selectable_line(&props.title, 0, selection, pane, rc.fg, sel),
+        selectable_line("", 1, selection, pane, rc.fg, sel),
+        selectable_line(&props.message, 2, selection, pane, rc.fg, sel),
+        selectable_line(&checkbox_line, 3, selection, pane, rc.fg, sel),
+        selectable_line("[ Cancel ]  [ Confirm ]", 4, selection, pane, rc.fg, sel),
+        selectable_line("", 5, selection, pane, rc.fg, sel),
+    ];
 
     element! {
         Box(
@@ -37,44 +60,7 @@ pub fn ConfirmModal(props: &ConfirmModalProps) -> impl Into<AnyElement<'static>>
             background_color: rc.bg,
             padding: 1u32,
         ) {
-            // Title
-            Box(height: 2u32, background_color: rc.bg) {
-                Text(
-                    content: props.title.clone(),
-                    weight: Weight::Bold,
-                    color: rc.fg,
-                )
-            }
-
-            // Message
-            Box(flex_grow: 1.0_f32, background_color: rc.bg) {
-                Text(content: props.message.clone(), color: rc.fg)
-            }
-
-            // Delete work dir option (conditional)
-            #(if props.show_delete_work_dir {
-                let checkbox = if props.delete_work_dir { "[x]" } else { "[ ]" };
-                element! {
-                    Box(height: 1u32, background_color: rc.bg) {
-                        Text(content: format!("{checkbox} Delete work directory"), color: rc.fg)
-                    }
-                }
-            } else {
-                element! {
-                    Box {}
-                }
-            })
-
-            // Buttons
-            Box(
-                flex_direction: FlexDirection::Row,
-                height: 2u32,
-                justify_content: JustifyContent::Center,
-                background_color: rc.bg,
-            ) {
-                Text(content: "[ Cancel ]  ", color: rc.dim)
-                Text(content: "[ Confirm ]", color: rc.bright)
-            }
+            #(lines)
         }
     }
 }

@@ -66,6 +66,7 @@ pub(crate) mod pr_filter_controls;
 pub(crate) mod pr_list;
 mod preview;
 mod scrollable_text;
+mod selectable_line;
 /// Generic bordered, scrollable, selectable list used by the Issue, PR, and
 /// Agent list panes. Domain layers project into [`SelectableRow`]s; this
 /// component owns the iocraft rendering once.
@@ -108,6 +109,7 @@ pub use pr_filter_controls::{pr_filter_action_hints, pr_filter_field_views, pr_f
 pub use pr_list::{PrListLayout, PrListWindow, pr_list_props, pr_list_status_message};
 pub use preview::{Preview, PreviewProps};
 pub use scrollable_text::{ScrollableText, ScrollableTextProps};
+pub use selectable_line::selectable_line;
 pub use selectable_list::{
     ListBorder, SelectableList, SelectableListProps, SelectableRow, SelectableSpan, SelectionStyle,
     SpanColor, SpanRole, selectable_list_element,

@@ -1,6 +1,4 @@
-use crate::domain::{
-    Issue, IssueComment, IssueDetail, IssueFilter, IssueState, Repository, RepositoryId,
-};
+use crate::domain::{Issue, IssueComment, IssueDetail, IssueState, Repository, RepositoryId};
 use crate::state::AppState;
 use crate::state::types::{
     AppEvent, ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueFocus, ScreenMode,
@@ -137,9 +135,10 @@ fn test_mode_lifecycle_enter_browse_exit() {
     assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
 
     // Load issues
+    let filter = state.issues_state.committed_filter.clone();
     let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
+        filter: Box::new(filter),
         request_id: 0,
         issues: vec![make_test_issue(1), make_test_issue(2), make_test_issue(3)],
         cursor: None,
@@ -168,10 +167,11 @@ fn test_mode_lifecycle_enter_interact_exit() {
     let state = issues_mode_state_with_repo("repo-1");
 
     // Load issues and open detail
+    let filter = state.issues_state.committed_filter.clone();
     let state = state
         .apply(AppEvent::IssueListLoaded {
             scope_repo_id: RepositoryId("repo-1".to_string()),
-            filter: Box::new(IssueFilter::default()),
+            filter: Box::new(filter),
             request_id: 0,
             issues: vec![make_test_issue(10)],
             cursor: None,
@@ -375,9 +375,10 @@ fn test_error_handling_auth_failure_blocks_ops() {
     let state = issues_mode_state_with_repo("repo-1");
     assert!(state.issues_state.active);
 
+    let filter = state.issues_state.committed_filter.clone();
     let state = state.apply(AppEvent::IssueListLoadFailed {
         scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
+        filter: Box::new(filter),
         request_id: 0,
         request_cursor: None,
         error: "authentication required: token expired".to_string(),
@@ -407,9 +408,10 @@ fn test_error_handling_network_error_stable_mode() {
     let state = issues_mode_state_with_repo("repo-1");
     let focus_before = state.issues_state.issue_focus;
 
+    let filter = state.issues_state.committed_filter.clone();
     let state = state.apply(AppEvent::IssueListLoadFailed {
         scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
+        filter: Box::new(filter),
         request_id: 0,
         request_cursor: None,
         error: "network timeout: connection refused".to_string(),
@@ -430,9 +432,11 @@ fn test_error_handling_network_error_stable_mode() {
 /// @requirement REQ-ISS-007
 #[test]
 fn test_pagination_issue_list_auto_load() {
-    let state = issues_mode_state_with_repo("repo-1").apply(AppEvent::IssueListLoaded {
+    let state = issues_mode_state_with_repo("repo-1");
+    let filter = state.issues_state.committed_filter.clone();
+    let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
+        filter: Box::new(filter),
         request_id: 0,
         issues: vec![make_test_issue(1), make_test_issue(2)],
         cursor: Some("cursor-abc".to_string()),

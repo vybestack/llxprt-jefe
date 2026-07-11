@@ -31,38 +31,27 @@ pub fn derive_confirm_modal_data(
         ModalState::ConfirmDeleteAgent {
             id,
             delete_work_dir,
-        } => {
-            let agent_name = snapshot
-                .agents
-                .iter()
-                .find(|agent| &agent.id == id)
-                .map_or_else(
-                    || String::from("selected agent"),
-                    |agent| agent.name.clone(),
-                );
-            Some(ConfirmModalData {
-                title: String::from("Delete Agent"),
-                message: format!("Delete {agent_name}?"),
-                show_delete_work_dir: true,
-                delete_work_dir: *delete_work_dir,
-            })
-        }
-        ModalState::ConfirmDeleteRepository { id } => {
-            let repo_name = snapshot
-                .repositories
-                .iter()
-                .find(|repo| &repo.id == id)
-                .map_or_else(
-                    || String::from("selected repository"),
-                    |repo| repo.name.clone(),
-                );
-            Some(ConfirmModalData {
-                title: String::from("Delete Repository"),
-                message: format!("Delete {repo_name} and all its agents?"),
-                show_delete_work_dir: false,
-                delete_work_dir: false,
-            })
-        }
+        } => Some(ConfirmModalData {
+            title: String::from("Delete Agent"),
+            message: format!("Delete {}?", agent_display_name(snapshot, id)),
+            show_delete_work_dir: true,
+            delete_work_dir: *delete_work_dir,
+        }),
+        ModalState::ConfirmKillAgent { id } => Some(ConfirmModalData {
+            title: String::from("Kill Agent"),
+            message: format!("Kill {}?", agent_display_name(snapshot, id)),
+            show_delete_work_dir: false,
+            delete_work_dir: false,
+        }),
+        ModalState::ConfirmDeleteRepository { id } => Some(ConfirmModalData {
+            title: String::from("Delete Repository"),
+            message: format!(
+                "Delete {} and all its agents?",
+                repo_display_name(snapshot, id)
+            ),
+            show_delete_work_dir: false,
+            delete_work_dir: false,
+        }),
         ModalState::PreflightPrompt { issue, .. } => Some(ConfirmModalData {
             title: issue.prompt_title(),
             message: issue.prompt_message(),
@@ -79,6 +68,24 @@ pub fn derive_confirm_modal_data(
         }),
         _ => None,
     }
+}
+
+/// Resolve an agent's display name, falling back to a generic label.
+fn agent_display_name(snapshot: &AppState, id: &crate::domain::AgentId) -> String {
+    snapshot
+        .agents
+        .iter()
+        .find(|a| &a.id == id)
+        .map_or_else(|| String::from("selected agent"), |a| a.name.clone())
+}
+
+/// Resolve a repository's display name, falling back to a generic label.
+fn repo_display_name(snapshot: &AppState, id: &crate::domain::RepositoryId) -> String {
+    snapshot
+        .repositories
+        .iter()
+        .find(|r| &r.id == id)
+        .map_or_else(|| String::from("selected repository"), |r| r.name.clone())
 }
 
 /// Build the screen element for the current screen mode.
@@ -148,6 +155,7 @@ pub fn build_modal_element(
                     colors: colors.clone(),
                     scroll_offset: help_scroll_offset,
                     available_rows: available_rows,
+                    selection: snapshot.selection,
                 )
             }
             .into_any(),
@@ -181,6 +189,7 @@ pub fn build_modal_element(
         ),
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
+        | ModalState::ConfirmKillAgent { .. }
         | ModalState::PreflightPrompt { .. }
         | ModalState::ConfirmIssueDirtyCopy { .. } => confirm_data.map(|data| {
             element! {
@@ -190,6 +199,7 @@ pub fn build_modal_element(
                     show_delete_work_dir: data.show_delete_work_dir,
                     delete_work_dir: data.delete_work_dir,
                     colors: colors.clone(),
+                    selection: snapshot.selection,
                 )
             }
             .into_any()

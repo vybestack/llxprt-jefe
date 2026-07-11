@@ -108,6 +108,10 @@ pub struct State {
     /// consistency with `pane_focus` during restore.
     #[serde(default)]
     pub terminal_focused: bool,
+    /// Per-repository remembered user preferences (issue #163). Restored on
+    /// startup so filter/merge/search selections survive restarts.
+    #[serde(default)]
+    pub user_preferences: crate::domain::UserPreferences,
 }
 
 impl State {
@@ -123,6 +127,7 @@ impl State {
             last_selected_agent_by_repo: Vec::new(),
             pane_focus: String::new(),
             terminal_focused: false,
+            user_preferences: crate::domain::UserPreferences::default(),
         }
     }
 }

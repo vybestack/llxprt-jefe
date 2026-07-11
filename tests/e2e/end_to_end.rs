@@ -184,6 +184,7 @@ fn persistence_roundtrip_preserves_state() {
         last_selected_agent_by_repo: vec![],
         pane_focus: String::new(),
         terminal_focused: false,
+        user_preferences: jefe::domain::UserPreferences::default(),
     };
 
     // Save and reload

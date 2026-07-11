@@ -17,4 +17,4 @@ pub mod util;
 pub use components::{KeybindBar, Preview, SelectableList, Sidebar, StatusBar, TerminalView};
 pub use modals::{ConfirmModal, HelpModal};
 pub use screens::{Dashboard, NewAgentForm, NewRepositoryForm, SplitScreen, ThemePickerScreen};
-pub use util::{ELLIPSIS, truncate_with_ellipsis};
+pub use util::{CARET_CHAR, ELLIPSIS, text_with_caret, truncate_with_ellipsis};
