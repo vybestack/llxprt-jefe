@@ -326,20 +326,12 @@ impl AppState {
             .issues_state
             .close_mutation_pending
             .as_ref()
-            .is_some_and(|p| {
-                p.mutation_id == mid
-                    && p.scope_repo_id == *scope_repo_id
-                    && issue_number.is_none_or(|n| n == p.issue_number)
-            });
+            .is_some_and(|p| pending_matches(p, mid, scope_repo_id, issue_number));
         let delete_matches = self
             .issues_state
             .delete_mutation_pending
             .as_ref()
-            .is_some_and(|p| {
-                p.mutation_id == mid
-                    && p.scope_repo_id == *scope_repo_id
-                    && issue_number.is_none_or(|n| n == p.issue_number)
-            });
+            .is_some_and(|p| pending_matches(p, mid, scope_repo_id, issue_number));
         if !close_matches && !delete_matches {
             return false;
         }
@@ -393,4 +385,24 @@ impl AppState {
         };
         self.issues_state.draft_notice = Some(text);
     }
+}
+
+/// Match a lifecycle pending against a failure event's operation identity.
+///
+/// Matches mutation id + scope, and issue number when present. An absent issue
+/// number (`None`) matches any pending (fallback so the shared `MutationFailed`
+/// variant can never leave a lifecycle pending stuck). Uses an explicit match
+/// to stay MSRV-clean (no `Option::is_none_or`, stable only since 1.82).
+fn pending_matches(
+    pending: &IssueLifecycleMutationPending,
+    mutation_id: u64,
+    scope_repo_id: &RepositoryId,
+    issue_number: Option<u64>,
+) -> bool {
+    pending.mutation_id == mutation_id
+        && pending.scope_repo_id == *scope_repo_id
+        && match issue_number {
+            Some(n) => n == pending.issue_number,
+            None => true,
+        }
 }
