@@ -11,6 +11,7 @@
     { "key": "F9" },
     { "waitFor": "Select Theme" },
     { "expect": "Apply theme to agent" },
+    { "expect": "[ ]" },
     { "key": "Tab" },
     { "expect": "[x]" },
     { "key": "Enter" },
