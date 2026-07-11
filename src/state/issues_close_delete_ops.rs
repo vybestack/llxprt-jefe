@@ -316,8 +316,8 @@ impl AppState {
         if delete_matches {
             self.issues_state.delete_mutation_pending = None;
         }
-        let issue_ref = issue_number
-            .map_or_else(|| "an issue".to_string(), |n| format!("issue #{n}"));
+        let issue_ref =
+            issue_number.map_or_else(|| "an issue".to_string(), |n| format!("issue #{n}"));
         self.issues_state.error = Some(format!(
             "Failed to mutate {issue_ref} for {}: {error}",
             scope_repo_id.0
