@@ -565,13 +565,20 @@ impl GhClient {
 
             let detail = detail_handle
                 .join()
-                .map_err(|_| GhError::ApiError("detail fetch worker panicked".to_string()))??;
+                .map_err(|_| GhError::ApiError("metadata fetch worker panicked".to_string()))??;
             let comments = comments_handle
                 .join()
-                .map_err(|_| GhError::ApiError("detail fetch worker panicked".to_string()))??;
-            // Threads are best-effort (infallible): a join failure is treated
-            // as "no threads" rather than failing the whole load.
-            let threads = threads_handle.join().unwrap_or_default();
+                .map_err(|_| GhError::ApiError("comments fetch worker panicked".to_string()))??;
+            // Threads are best-effort: a worker panic degrades to "no
+            // threads" rather than failing the whole load, but is logged so
+            // the missing section is diagnosable instead of silent.
+            let threads = threads_handle.join().unwrap_or_else(|_| {
+                tracing::warn!(
+                    "review-threads fetch worker panicked for {owner}/{name}#{number}; \
+                     rendering detail without threads"
+                );
+                Vec::new()
+            });
             Ok::<_, GhError>((detail, comments, threads))
         })?;
 

@@ -880,50 +880,95 @@ fn pr_subfocus_line_range_returns_none_for_out_of_bounds_index() {
     );
 }
 
-/// Consecutive bodyless reviews (e.g. bot reviews whose content lives in
-/// threads) still get a blank separator line between their headers so they
-/// never render visually glued together.
-#[test]
-fn bodyless_reviews_are_separated_by_blank_lines() {
-    let mut detail = sample_detail();
-    detail.reviews = vec![
-        PrReview {
-            review_id: Some("PRR_kw001".to_string()),
-            author_login: "bot".to_string(),
-            state: PrReviewState::Commented,
-            submitted_at: "2026-06-23".to_string(),
-            body: None,
-            review_threads: vec![],
-        },
-        PrReview {
-            review_id: Some("PRR_kw002".to_string()),
-            author_login: "bot".to_string(),
-            state: PrReviewState::Commented,
-            submitted_at: "2026-06-24".to_string(),
-            body: None,
-            review_threads: vec![],
-        },
-    ];
+/// Build a bodyless bot review for separator tests.
+fn bodyless_review(id: &str, date: &str) -> PrReview {
+    PrReview {
+        review_id: Some(id.to_string()),
+        author_login: "bot".to_string(),
+        state: PrReviewState::Commented,
+        submitted_at: date.to_string(),
+        body: None,
+        review_threads: vec![],
+    }
+}
+
+/// Render `detail` and return the content lines plus the index of the line
+/// containing `anchor` (panics when absent).
+fn rendered_lines_at(detail: &PullRequestDetail, anchor: &str) -> (Vec<String>, usize) {
     let content = build_pr_detail_content(
-        &detail,
+        detail,
         PrDetailSubfocus::Body,
         &InlineState::None,
         false,
         false,
     );
-    let lines: Vec<&str> = content.text.lines().collect();
-    let Some(first) = lines.iter().position(|l| l.contains("2026-06-23")) else {
-        panic!("first review header present");
+    let lines: Vec<String> = content.text.lines().map(str::to_string).collect();
+    let Some(first) = lines.iter().position(|l| l.contains(anchor)) else {
+        panic!("anchor line {anchor:?} present");
     };
+    (lines, first)
+}
+
+/// Consecutive bodyless reviews (e.g. bot reviews whose content lives in
+/// threads) still get a blank separator line between their headers so they
+/// never render visually glued together — including runs of three or more.
+#[test]
+fn bodyless_reviews_are_separated_by_blank_lines() {
+    let mut detail = sample_detail();
+    detail.reviews = vec![
+        bodyless_review("PRR_kw001", "2026-06-23"),
+        bodyless_review("PRR_kw002", "2026-06-24"),
+        bodyless_review("PRR_kw003", "2026-06-25"),
+    ];
+    let (lines, first) = rendered_lines_at(&detail, "2026-06-23");
+    // header, blank, header, blank, header (no doubled blanks, no glue).
+    for (offset, expected_date) in [(2usize, "2026-06-24"), (4usize, "2026-06-25")] {
+        assert_eq!(
+            lines.get(first + offset - 1).map(String::as_str),
+            Some(""),
+            "blank separator before the header at offset {offset}"
+        );
+        assert!(
+            lines
+                .get(first + offset)
+                .is_some_and(|l| l.contains(expected_date)),
+            "bodyless review header at offset {offset} follows a single separator"
+        );
+    }
+}
+
+/// A bodyless review followed by a body-bearing review keeps the same
+/// single-separator shape, and the body renders under its own header.
+#[test]
+fn bodyless_review_followed_by_body_review_keeps_single_separator() {
+    let mut detail = sample_detail();
+    detail.reviews = vec![
+        bodyless_review("PRR_kw001", "2026-06-25"),
+        PrReview {
+            review_id: Some("PRR_kw004".to_string()),
+            author_login: "human".to_string(),
+            state: PrReviewState::Approved,
+            submitted_at: "2026-06-26".to_string(),
+            body: Some("Looks good".to_string()),
+            review_threads: vec![],
+        },
+    ];
+    let (lines, first) = rendered_lines_at(&detail, "2026-06-25");
     assert_eq!(
-        lines.get(first + 1).copied(),
+        lines.get(first + 1).map(String::as_str),
         Some(""),
-        "blank separator after a bodyless review header"
+        "blank separator between the bodyless review and the body-bearing one"
     );
     assert!(
         lines
             .get(first + 2)
-            .is_some_and(|l| l.contains("2026-06-24")),
-        "second review header follows the separator"
+            .is_some_and(|l| l.contains("2026-06-26")),
+        "body-bearing review header follows the separator"
+    );
+    assert!(
+        lines
+            .get(first + 3)
+            .is_some_and(|l| l.contains("Looks good")),
+        "review body renders under its header"
     );
 }

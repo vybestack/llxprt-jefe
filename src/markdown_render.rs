@@ -80,11 +80,17 @@ pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) ->
         prefix.to_string(),
         placeholder.to_string(),
     );
+    // Hold the lock only for the map lookup — never across the comrak parse —
+    // so concurrent callers are not serialized behind an expensive render.
+    // (Two threads may race to compute the same body; both produce identical
+    // output, so the duplicate work is harmless.)
+    if let Ok(cache) = MARKDOWN_RENDER_CACHE.lock()
+        && let Some(cached) = cache.get(&key)
+    {
+        return cached.clone();
+    }
+    let result = compute_markdown_block(markdown, prefix, placeholder);
     if let Ok(mut cache) = MARKDOWN_RENDER_CACHE.lock() {
-        if let Some(cached) = cache.get(&key) {
-            return cached.clone();
-        }
-        let result = compute_markdown_block(markdown, prefix, placeholder);
         // Epoch clearing: bodies are gh-bounded (~65KB) and a detail view has
         // at most a few hundred unique bodies, so 512 covers a whole view;
         // clearing on overflow keeps worst-case memory bounded while
@@ -93,11 +99,9 @@ pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) ->
             cache.clear();
         }
         cache.insert(key, result.clone());
-        result
-    } else {
-        // Poisoned lock: fall back to computing without caching (never panic).
-        compute_markdown_block(markdown, prefix, placeholder)
     }
+    // Poisoned lock: computed without caching (never panic).
+    result
 }
 
 /// Maximum number of entries retained in [`MARKDOWN_RENDER_CACHE`] before an
@@ -507,7 +511,7 @@ impl MarkdownRenderer {
         let first_row_is_header = node
             .children()
             .find(|row| matches!(&row.data().value, NodeValue::TableRow(_)))
-            .is_some_and(|row| row.data().value == NodeValue::TableRow(true));
+            .is_some_and(|row| matches!(row.data().value, NodeValue::TableRow(true)));
         let mut rows: Vec<Vec<String>> = Vec::new();
         for row in node.children() {
             if !matches!(&row.data().value, NodeValue::TableRow(_)) {
