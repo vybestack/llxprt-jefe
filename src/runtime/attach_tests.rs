@@ -145,6 +145,118 @@ fn default_cell_produces_reset_colors() {
     );
 }
 
+/// A DIM default-colored cell keeps a transparent foreground (Reset) but must
+/// carry `dim: true` so the renderer applies `Weight::Light` (ANSI SGR 2).
+/// Without the separate flag, `to_terminal` would discard the dimmed RGB as
+/// Reset and the dimming would be silently lost (issue #179 regression).
+#[test]
+fn dim_default_cell_keeps_transparent_fg_but_sets_dim_flag() {
+    let cell = Cell {
+        c: 'x',
+        fg: ansi::Color::Named(ansi::NamedColor::Foreground),
+        bg: ansi::Color::Named(ansi::NamedColor::Background),
+        flags: Flags::DIM,
+        extra: None,
+    };
+    let indexed = indexed_cell(&cell);
+    let style = snapshot_cell_style(&indexed, None, hidden_cursor(), &Colors::default());
+
+    assert_eq!(
+        style.fg,
+        iocraft::Color::Reset,
+        "DIM default fg must stay Reset (transparent)"
+    );
+    assert!(
+        style.dim,
+        "DIM default cell must set dim=true so the renderer applies Weight::Light"
+    );
+    assert!(!style.bold, "DIM (not DIM_BOLD) must not set bold");
+}
+
+/// An explicitly-colored DIM cell bakes the dimming into the concrete RGB via
+/// `dim_rgb`, so the `dim` flag stays false to avoid double-dimming in the
+/// renderer (Weight::Light on top of an already-darkened color).
+#[test]
+fn dim_explicit_cell_bakes_dimming_into_color_not_flag() {
+    let cell = Cell {
+        c: 'x',
+        fg: ansi::Color::Spec(ansi::Rgb {
+            r: 0xff,
+            g: 0xff,
+            b: 0xff,
+        }),
+        bg: ansi::Color::Named(ansi::NamedColor::Background),
+        flags: Flags::DIM,
+        extra: None,
+    };
+    let indexed = indexed_cell(&cell);
+    let style = snapshot_cell_style(&indexed, None, hidden_cursor(), &Colors::default());
+
+    assert_eq!(
+        style.fg,
+        iocraft::Color::Rgb {
+            r: 0x7f,
+            g: 0x7f,
+            b: 0x7f
+        },
+        "explicit DIM fg must be dimmed RGB (halved)"
+    );
+    assert!(!style.dim, "explicit-colored DIM must not set the dim flag");
+}
+
+/// A DIM_BOLD plain default cell carries both flags: bold=true (BOLD bit is set
+/// in DIM_BOLD) and dim=true (default-colored, so the dim must survive as a
+/// renderer hint). The renderer resolves bold-over-dim precedence.
+#[test]
+fn dim_bold_default_cell_sets_both_bold_and_dim_flags() {
+    let cell = Cell {
+        c: 'x',
+        fg: ansi::Color::Named(ansi::NamedColor::Foreground),
+        bg: ansi::Color::Named(ansi::NamedColor::Background),
+        flags: Flags::DIM_BOLD,
+        extra: None,
+    };
+    let indexed = indexed_cell(&cell);
+    let style = snapshot_cell_style(&indexed, None, hidden_cursor(), &Colors::default());
+
+    assert_eq!(
+        style.fg,
+        iocraft::Color::Reset,
+        "DIM_BOLD default fg must stay Reset (transparent)"
+    );
+    assert!(style.bold, "DIM_BOLD includes the BOLD bit -> bold=true");
+    assert!(
+        style.dim,
+        "DIM_BOLD default-colored cell must set dim=true for the renderer"
+    );
+}
+
+/// Non-regression matrix for the `bold` flag across the Alacritty bit layout:
+/// only cells whose flags contain the BOLD bit render bold. DIM-only must NOT
+/// be bold (the old `intersects(BOLD | DIM_BOLD)` wrongly matched it because
+/// DIM and DIM_BOLD share the DIM bit).
+#[test]
+fn bold_flag_matrix_matches_only_bold_bit() {
+    fn bold_for(flags: Flags) -> bool {
+        let cell = Cell {
+            c: 'x',
+            fg: ansi::Color::Spec(ansi::Rgb { r: 1, g: 1, b: 1 }),
+            bg: ansi::Color::Named(ansi::NamedColor::Background),
+            flags,
+            extra: None,
+        };
+        let indexed = indexed_cell(&cell);
+        let style = snapshot_cell_style(&indexed, None, hidden_cursor(), &Colors::default());
+        style.bold
+    }
+
+    assert!(bold_for(Flags::BOLD), "BOLD -> bold");
+    assert!(bold_for(Flags::DIM_BOLD), "DIM_BOLD -> bold");
+    assert!(bold_for(Flags::BOLD_ITALIC), "BOLD_ITALIC -> bold");
+    assert!(!bold_for(Flags::DIM), "DIM-only must NOT be bold");
+    assert!(!bold_for(Flags::empty()), "no flags -> not bold");
+}
+
 /// A cell with an explicit `Spec(rgb)` bg must keep that concrete bg.
 #[test]
 fn explicit_spec_bg_is_preserved() {

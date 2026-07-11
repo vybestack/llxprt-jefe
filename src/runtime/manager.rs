@@ -228,6 +228,7 @@ impl RuntimeManager for StubRuntimeManager {
                 },
                 bg: iocraft::Color::Rgb { r: 0, g: 0, b: 0 },
                 bold: false,
+                dim: false,
                 underline: false,
             };
             TerminalSnapshot::blank(1, 1, style)
@@ -772,6 +773,7 @@ impl RuntimeManager for TmuxRuntimeManager {
             fg: iocraft::Color::White,
             bg: iocraft::Color::Black,
             bold: false,
+            dim: false,
             underline: false,
         };
 

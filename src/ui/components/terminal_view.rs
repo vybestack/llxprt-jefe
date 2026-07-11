@@ -276,6 +276,24 @@ impl Default for TerminalThemeOverride {
     }
 }
 
+/// Resolve a cell style's intensity into iocraft's exclusive `Weight` enum.
+///
+/// iocraft's `Weight` cannot represent bold+dim simultaneously, so when both
+/// are set (ANSI `DIM_BOLD`, which carries both the BOLD and DIM bits) bold
+/// takes precedence — losing dim is less harmful than losing bold. A dim-only
+/// style maps to `Weight::Light` (ANSI SGR 2) so dimming survives even on a
+/// transparent default foreground (issue #179).
+#[must_use]
+fn terminal_weight(style: &crate::runtime::TerminalCellStyle) -> Weight {
+    if style.bold {
+        Weight::Bold
+    } else if style.dim {
+        Weight::Light
+    } else {
+        Weight::Normal
+    }
+}
+
 /// Background fill for the agent terminal *content* area (issue #179).
 ///
 /// Override OFF: `Color::Reset` (transparent). The embedded agent's default
@@ -413,11 +431,7 @@ fn paint_terminal_cells(
             // CanvasTextStyle is #[non_exhaustive]; build via Default then set fields.
             let mut style = CanvasTextStyle::default();
             style.color = Some(text_color);
-            style.weight = if run.style.bold {
-                Weight::Bold
-            } else {
-                Weight::Normal
-            };
+            style.weight = terminal_weight(&run.style);
             style.underline = run.style.underline;
 
             if let Some(fill) = fill_color {
@@ -593,6 +607,7 @@ mod tests {
             fg: Color::AnsiValue(fg),
             bg: Color::Black,
             bold: false,
+            dim: false,
             underline: false,
         }
     }
@@ -710,6 +725,56 @@ mod tests {
         );
     }
 
+    #[test]
+    fn content_background_passes_reset_theme_bg_through_when_override_on() {
+        // The container fill does NOT normalize a Reset theme bg: it returns it
+        // unchanged. Opaqueness for default cells is handled per-cell by
+        // resolve_run_colors (see resolve_override_normalizes_reset_theme_bg_*).
+        // If the container itself tried to fill with Reset while override is ON,
+        // run-trimmed blank regions would render transparent, so the helper
+        // deliberately forwards the supplied (possibly Reset) theme bg.
+        assert_eq!(
+            terminal_content_background(true, Color::Reset),
+            Color::Reset
+        );
+    }
+
+    // --- terminal_weight (issue #179 DIM preservation) ---
+
+    fn cell_style(bold: bool, dim: bool) -> crate::runtime::TerminalCellStyle {
+        crate::runtime::TerminalCellStyle {
+            fg: Color::Reset,
+            bg: Color::Reset,
+            bold,
+            dim,
+            underline: false,
+        }
+    }
+
+    #[test]
+    fn weight_normal_when_neither_bold_nor_dim() {
+        assert_eq!(terminal_weight(&cell_style(false, false)), Weight::Normal);
+    }
+
+    #[test]
+    fn weight_bold_for_bold_only() {
+        assert_eq!(terminal_weight(&cell_style(true, false)), Weight::Bold);
+    }
+
+    #[test]
+    fn weight_light_for_dim_only() {
+        // Dim-only maps to Light (ANSI SGR 2) so dimming survives on a
+        // transparent default foreground.
+        assert_eq!(terminal_weight(&cell_style(false, true)), Weight::Light);
+    }
+
+    #[test]
+    fn weight_bold_wins_over_dim() {
+        // DIM_BOLD: iocraft Weight is exclusive, so bold takes precedence over
+        // dim (losing dim is less harmful than losing bold).
+        assert_eq!(terminal_weight(&cell_style(true, true)), Weight::Bold);
+    }
+
     // --- is_default_bg / is_default_fg (issue #179) ---
 
     #[test]
@@ -747,6 +812,7 @@ mod tests {
             fg,
             bg,
             bold: false,
+            dim: false,
             underline: false,
         }
     }

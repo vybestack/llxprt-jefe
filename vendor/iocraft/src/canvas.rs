@@ -239,6 +239,18 @@ impl Canvas {
                         }
 
                         if c.style.weight != text_style.weight {
+                            // Weight (Normal/Bold/Light) is an exclusive enum,
+                            // but the underlying SGR attributes (bold=1,
+                            // dim=2) are cumulative. When transitioning
+                            // between two non-normal weights (Bold<->Light),
+                            // clear the previous intensity with SGR 22
+                            // (NormalIntensity) before emitting the new one,
+                            // otherwise both attributes stay active.
+                            if matches!(text_style.weight, Weight::Bold | Weight::Light)
+                                && matches!(c.style.weight, Weight::Bold | Weight::Light)
+                            {
+                                write!(w, csi!("{}m"), Attribute::NormalIntensity.sgr())?;
+                            }
                             match c.style.weight {
                                 Weight::Bold => write!(w, csi!("{}m"), Attribute::Bold.sgr())?,
                                 Weight::Normal => {}
@@ -539,6 +551,9 @@ mod tests {
         write!(expected, csi!("{}m"), Attribute::Bold.sgr()).unwrap();
         write!(expected, ".").unwrap();
 
+        // Bold -> Light: clear intensity (SGR 22) before emitting dim (SGR 2)
+        // so the two non-normal weights don't accumulate.
+        write!(expected, csi!("{}m"), Attribute::NormalIntensity.sgr()).unwrap();
         write!(expected, csi!("{}m"), Attribute::Dim.sgr()).unwrap();
         write!(expected, ".").unwrap();
 

@@ -390,6 +390,7 @@ mod tests {
             fg: Color::White,
             bg: Color::Black,
             bold: false,
+            dim: false,
             underline: false,
         };
         let cells = vec![

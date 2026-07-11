@@ -326,6 +326,7 @@ fn base_terminal_style() -> TerminalCellStyle {
         fg: iocraft::Color::Reset,
         bg: iocraft::Color::Reset,
         bold: false,
+        dim: false,
         underline: false,
     }
 }
@@ -418,7 +419,20 @@ fn snapshot_cell_style(
     TerminalCellStyle {
         fg: to_terminal(fg_is_default, channels[0]),
         bg: to_terminal(bg_is_default, channels[1]),
-        bold: indexed.cell.flags.intersects(Flags::BOLD | Flags::DIM_BOLD),
+        // BOLD bit covers both BOLD-only and DIM_BOLD cells (DIM_BOLD includes
+        // the BOLD bit). Do NOT OR in DIM_BOLD here: that would also match
+        // DIM-only cells (DIM and DIM_BOLD share the DIM bit) and wrongly mark
+        // dim text as bold.
+        bold: indexed.cell.flags.contains(Flags::BOLD),
+        // DIM/DIM_BOLD on a *plain default-colored* cell would otherwise be
+        // lost: `to_terminal` discards the dimmed foreground as `Reset`, so
+        // the RGB dimming baked in by `dim_rgb` never reaches the renderer.
+        // Carry the flag separately so the renderer can apply `Weight::Light`
+        // (ANSI SGR 2) on top of the transparent default foreground. For
+        // explicitly-colored or transformed (inverse/selection/cursor) cells,
+        // `dim_rgb` already baked the intensity into the concrete RGB, so the
+        // flag stays false to avoid double-dimming (issue #179).
+        dim: indexed.cell.flags.intersects(Flags::DIM | Flags::DIM_BOLD) && plain && fg_is_default,
         underline: indexed.cell.flags.intersects(Flags::ALL_UNDERLINES),
     }
 }
