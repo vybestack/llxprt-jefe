@@ -28,7 +28,7 @@ use comrak::nodes::{
     TableAlignment,
 };
 use comrak::{Arena, Options, parse_document};
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::markdown_html_strip::{contains_open_tag, strip_html_to_text};
 
@@ -196,14 +196,21 @@ impl MarkdownRenderer {
                 self.render_inline_block(node, indent);
                 self.push_blank();
             }
-            // Footnote definitions and GFM alerts contain nested BLOCK
-            // content (lists, multiple paragraphs, code blocks), so render
-            // their children as blocks instead of flattening to inline text
-            // (which would fuse paragraphs and drop code-block literals).
+            // Footnote definitions contain nested BLOCK content (lists,
+            // multiple paragraphs, code blocks), so render their children as
+            // blocks. Emit a `[^name]:` label line first so the reader sees
+            // the footnote's identity before its body.
+            NodeValue::FootnoteDefinition(def) => {
+                self.push(indent_str(indent, &format!("[^{}]:", def.name)));
+                self.render_block_children(node, indent);
+                self.push_blank();
+            }
+            // GFM alerts contain nested BLOCK content, so render their
+            // children as blocks instead of flattening to inline text.
             // Alert is currently unreachable — the alerts extension is off,
             // so GitHub `> [!NOTE]` syntax parses as a plain blockquote —
             // but routed correctly in case the extension is ever enabled.
-            NodeValue::FootnoteDefinition(_) | NodeValue::Alert(_) => {
+            NodeValue::Alert(_) => {
                 self.render_block_children(node, indent);
                 self.push_blank();
             }
@@ -383,7 +390,14 @@ impl MarkdownRenderer {
                             // line), so clamp the split to its length —
                             // split_off past the end panics on crafted input.
                             let rest = first_line.split_off(cont_cols.min(first_line.len()));
-                            *first_line = format!("{pad}{marker} {rest}");
+                            // When rest is empty (leading break tag yields an
+                            // empty first line), emit just the marker without
+                            // a trailing space.
+                            if rest.is_empty() {
+                                *first_line = format!("{pad}{marker}");
+                            } else {
+                                *first_line = format!("{pad}{marker} {rest}");
+                            }
                         } else {
                             // First paragraph rendered to nothing (e.g. only
                             // an HTML comment): still emit the bare marker so
@@ -566,8 +580,13 @@ impl MarkdownRenderer {
             NodeValue::Text(t) => lines.push_str(t.as_ref()),
             NodeValue::Code(code) => lines.push_str(code.literal.as_str()),
             NodeValue::SoftBreak | NodeValue::LineBreak => lines.new_line(),
-            // Dropped inline content (footnotes, math, raw): emit nothing.
-            NodeValue::FootnoteReference(_) | NodeValue::Math(_) | NodeValue::Raw(_) => {}
+            // Footnote reference: render as a visible marker so the reader
+            // can see the note linkage (comrak strips the brackets otherwise).
+            NodeValue::FootnoteReference(fr) => {
+                lines.push_str(&format!("[^{}]", fr.name));
+            }
+            // Dropped inline content (math, raw): emit nothing.
+            NodeValue::Math(_) | NodeValue::Raw(_) => {}
             // Link: render text + URL via its dedicated helper.
             NodeValue::Link(link) => self.render_link_lines(link, node, lines),
             // Image: keep the alt text, drop the image itself.
@@ -742,7 +761,24 @@ fn wrap_indent_cols(text: &str, pad_cols: usize) -> Vec<String> {
             // or codepoints, so CJK/emoji (2 columns each) wrap correctly.
             let current_cols = current.width();
             let word_cols = word.width();
-            if current.is_empty() {
+            if word_cols > max {
+                // Character-level fallback: a single whitespace-free word
+                // (long CJK run, long URL) wider than `max` must be broken
+                // into chunks of at most `max` display columns so the
+                // downstream hard-truncator never fires.
+                if !current.is_empty() {
+                    out.push(format!("{pad}{current}"));
+                    current.clear();
+                }
+                let chunks: Vec<String> = chunk_word(word, max);
+                for (i, chunk) in chunks.iter().enumerate() {
+                    if i + 1 < chunks.len() {
+                        out.push(format!("{pad}{chunk}"));
+                    } else {
+                        current.clone_from(chunk);
+                    }
+                }
+            } else if current.is_empty() {
                 current.push_str(word);
             } else if current_cols + 1 + word_cols <= max {
                 current.push(' ');
@@ -761,6 +797,31 @@ fn wrap_indent_cols(text: &str, pad_cols: usize) -> Vec<String> {
         }
     }
     out
+}
+
+/// Break a whitespace-free word into chunks of at most `max` display columns,
+/// measuring each character's width with `UnicodeWidthChar`. Never splits a
+/// character (works on grapheme-ish boundaries = char boundaries). A zero-
+/// width control char contributes 0 columns so it never starts a chunk alone;
+/// the loop tracks accumulated width and flushes when adding the next char
+/// would exceed `max`.
+fn chunk_word(word: &str, max: usize) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut buf = String::new();
+    let mut cols = 0usize;
+    for ch in word.chars() {
+        let w = ch.width().unwrap_or(0);
+        if cols + w > max && !buf.is_empty() {
+            chunks.push(std::mem::take(&mut buf));
+            cols = 0;
+        }
+        buf.push(ch);
+        cols += w;
+    }
+    if !buf.is_empty() || chunks.is_empty() {
+        chunks.push(buf);
+    }
+    chunks
 }
 
 /// Pad/align a single table cell to the column width (terminal display

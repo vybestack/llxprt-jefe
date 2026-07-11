@@ -318,10 +318,9 @@ fn table_separator_spans_declared_columns() {
 | 1 | 2 | 3 |
 ",
     );
-    let sep_line = out
-        .lines()
-        .find(|l| l.contains("---"))
-        .unwrap_or("<no separator>");
+    let Some(sep_line) = out.lines().find(|l| l.contains("---")) else {
+        panic!("alignment separator line missing: {out}");
+    };
     let dash_runs = sep_line.matches("---").count();
     assert!(
         dash_runs >= 3,
@@ -609,15 +608,28 @@ fn table_columns_align_by_display_width() {
 /// A list item whose first paragraph BEGINS with a break tag renders without
 /// panicking: the wrapped first line is empty, and the marker splice must not
 /// `split_off` past its length (crafted untrusted markdown must never panic).
+/// Each input is checked independently so one failure cannot mask another.
 #[test]
 fn list_item_starting_with_break_does_not_panic() {
-    for md in ["- <br>after", "- <br><br>x", "1. <br>y"] {
+    for (md, expected) in [
+        ("- <br>after", "after"),
+        ("- <br><br>x", "x"),
+        ("1. <br>y", "y"),
+    ] {
         let out = render(md);
         assert!(
-            out.contains("after") || out.contains('x') || out.contains('y'),
-            "content after the break renders: {out:?}"
+            out.contains(expected),
+            "content {expected:?} after the break renders for {md:?}: {out:?}"
         );
     }
+    // No output line may end with a trailing space (CHANGE 6: the marker
+    // splice `format!("{pad}{marker} {rest}")` left a trailing space when
+    // `rest` was empty after a leading break tag).
+    let out = render("- <br>after");
+    assert!(
+        out.lines().all(|l| !l.ends_with(' ')),
+        "no output line ends with a trailing space: {out:?}"
+    );
 }
 
 /// Consecutive `<br>` tags inside an HTML block render a paragraph gap (one
@@ -890,5 +902,63 @@ fn zero_width_space_stripped_zwj_preserved() {
     assert!(
         out2.contains('\u{200D}'),
         "ZWJ preserved for emoji: {out2:?}"
+    );
+}
+
+/// Footnote references (`[^1]`) must render as a visible marker, and footnote
+/// definitions (`[^1]: body`) must render with their label before the body.
+/// Regression: `render_inline_lines` dropped FootnoteReference entirely and
+/// `render_block` rendered FootnoteDefinition children without a label.
+#[test]
+fn footnote_reference_and_definition_render() {
+    let out = render("text with a note[^1]\n\n[^1]: the footnote body\n");
+    // Reference marker on the first line.
+    assert!(
+        out.lines().any(|l| l.contains("[^1]")),
+        "footnote reference marker visible: {out:?}"
+    );
+    // Definition label before its body content.
+    let label_line = out.lines().position(|l| l.contains("[^1]:"));
+    let body_line = out.lines().position(|l| l.contains("the footnote body"));
+    assert!(
+        label_line.is_some(),
+        "footnote definition label rendered: {out:?}"
+    );
+    assert!(
+        body_line.is_some(),
+        "footnote definition body rendered: {out:?}"
+    );
+    assert!(
+        label_line.is_some_and(|l| body_line.is_some_and(|b| l <= b)),
+        "label appears before (or on) body content: {out:?}"
+    );
+}
+
+/// A long whitespace-free run (CJK text, long URL) must wrap at the soft
+/// display width instead of exceeding it and getting hard-truncated
+/// downstream. Regression: wrap_indent_cols only split on whitespace, so a
+/// single word wider than the max width was emitted as one over-wide line.
+#[test]
+fn whitespace_free_run_wraps_at_display_width() {
+    let md = "中".repeat(60); // 60 × 2 = 120 display columns
+    let out = render(&md);
+    let non_blank: Vec<&str> = out.lines().filter(|l| !l.is_empty()).collect();
+    assert!(
+        non_blank.len() >= 2,
+        "long CJK run must wrap to multiple lines: {out:?}"
+    );
+    for line in &non_blank {
+        assert!(
+            UnicodeWidthStr::width(*line) <= 78,
+            "every line within soft width (got {}): {out:?}",
+            UnicodeWidthStr::width(*line)
+        );
+    }
+    // All 60 chars must survive wrapping.
+    let total: String = non_blank.iter().map(|l| l.trim()).collect::<String>();
+    assert_eq!(
+        total.chars().filter(|c| *c == '中').count(),
+        60,
+        "all 60 CJK chars preserved: {out:?}"
     );
 }

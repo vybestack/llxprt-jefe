@@ -222,9 +222,7 @@ struct ContentBuilder {
 }
 
 impl ContentBuilder {
-    /// Push a rendered markdown line under an indent prefix. Blank rendered
-    /// lines (paragraph separators) stay truly empty instead of becoming
-    /// indent-only whitespace lines.
+    /// Create an empty builder.
     fn new() -> Self {
         Self {
             lines: Vec::new(),

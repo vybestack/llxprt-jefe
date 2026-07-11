@@ -79,25 +79,7 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
         };
     }
     if start + 1 < bytes.len() && bytes[start + 1] == b'!' {
-        // Declarations can carry quoted values containing `>` (e.g.
-        // `<!DOCTYPE html "foo>bar">`), so scan with quote awareness like
-        // the tag path below instead of stopping at the first `>`.
-        let mut j = start + 2;
-        while j < bytes.len() {
-            match bytes[j] {
-                b'>' => return j + 1,
-                b'"' | b'\'' => {
-                    let quote = bytes[j];
-                    j += 1;
-                    while j < bytes.len() && bytes[j] != quote {
-                        j += 1;
-                    }
-                }
-                _ => {}
-            }
-            j += 1;
-        }
-        return bytes.len();
+        return consume_declaration(bytes, start);
     }
 
     // Scan the tag name + attributes, respecting quoted attribute values so a
@@ -107,6 +89,18 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
     let mut j = start + 1;
     while j < bytes.len() && bytes[j].is_ascii_whitespace() {
         j += 1;
+    }
+    // If the first non-whitespace char is '/', this is a closing tag. Skip
+    // past the slash AND any following whitespace so `</ p>` or `< / p >`
+    // scans the bare name "p" (not just "/"). We prepend "/" back when
+    // building the lookup name so html_tag_introduces_break still matches
+    // "/p".
+    let closing = j < bytes.len() && bytes[j] == b'/';
+    if closing {
+        j += 1;
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
     }
     let name_start = j;
     let mut name_end = j;
@@ -138,13 +132,38 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
     let name_end = name_end.min(bytes.len());
     // Trim so markup with whitespace after `<` (e.g. `< br>`, `< /p >`) still
     // matches its tag name and introduces the block boundary.
-    let name = html[name_start..name_end].trim().to_ascii_lowercase();
+    let bare = html[name_start..name_end].trim().to_ascii_lowercase();
+    let name = if closing { format!("/{bare}") } else { bare };
     if html_tag_introduces_break(&name) {
         out.push('\n');
     }
     // Advance past the closing '>' if one was found. Clamp to bytes.len() so
     // an unterminated tag consumes to end-of-input as documented.
     j.min(bytes.len()) + usize::from(j < bytes.len() && bytes[j] == b'>')
+}
+
+/// Consume a declaration (`<!…>`) starting at `bytes[start]`, returning the
+/// index just past its closing `>`. Declarations can carry quoted values
+/// containing `>` (e.g. `<!DOCTYPE html "foo>bar">`), so scan with quote
+/// awareness instead of stopping at the first `>`; an unterminated
+/// declaration consumes to end-of-input.
+fn consume_declaration(bytes: &[u8], start: usize) -> usize {
+    let mut j = start + 2;
+    while j < bytes.len() {
+        match bytes[j] {
+            b'>' => return j + 1,
+            b'"' | b'\'' => {
+                let quote = bytes[j];
+                j += 1;
+                while j < bytes.len() && bytes[j] != quote {
+                    j += 1;
+                }
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    bytes.len()
 }
 
 /// Consume an entity starting at `bytes[start]` (`&`). Returns `(next_index,
@@ -280,11 +299,14 @@ fn decode_entity(entity: &str) -> Option<String> {
     let c = char::from_u32(code)?;
     // Returns None for control characters (&#27; ESC, &#0; NUL, C1 set…) so
     // they never decode to output; consume_entity treats None as a literal
-    // `&`. Tab is not meaningful mid-line here either, so only fully printable
-    // characters pass through. Unicode noncharacters (U+FDD0–U+FDEF, and
-    // U+xFFFE/U+xFFFF in every plane) are also rejected — they are not useful
-    // visible text and char::from_u32 admits them while is_control() does not.
-    if c.is_control() {
+    // `&`. Tab and newline are the two control chars that ARE meaningful
+    // (newline = block boundary, tab = visible alignment), matching the
+    // literal-character policy in strip_html_to_text's main loop; CR and
+    // all other control chars stay rejected. Unicode noncharacters
+    // (U+FDD0–U+FDEF, and U+xFFFE/U+FFFF in every plane) are also rejected —
+    // they are not useful visible text and char::from_u32 admits them while
+    // is_control() does not.
+    if c.is_control() && c != '\t' && c != '\n' {
         return None;
     }
     let cp = c as u32;

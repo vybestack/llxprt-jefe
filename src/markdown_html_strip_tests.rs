@@ -102,3 +102,39 @@ fn numeric_entity_noncharacters_rejected() {
     let out4 = strip_html_to_text("&#65;");
     assert_eq!(out4, "A", "normal entity still decodes: {out4:?}");
 }
+
+/// Whitespace between the `/` and the tag name in a closing tag (e.g.
+/// `</ p>` or `< / p >`) must still produce a block boundary. Regression:
+/// the name scan stopped at the whitespace after `/`, yielding a name of
+/// just `"/"`, which `html_tag_introduces_break` rejected.
+#[test]
+fn whitespace_after_slash_still_breaks() {
+    assert_eq!(
+        strip_html_to_text("alpha</ p>"),
+        "alpha\n",
+        "`</ p>` must introduce a block boundary"
+    );
+    assert_eq!(
+        strip_html_to_text("alpha< / p >"),
+        "alpha\n",
+        "`< / p >` must introduce a block boundary"
+    );
+}
+
+/// `&#10;` (LF) and `&#9;` (TAB) must decode the same way their literal
+/// counterparts do — `strip_html_to_text` preserves literal `\n`/`\t`, so the
+/// entity forms should too. `\r` (`&#13;`) must NOT decode (it is not a
+/// meaningful block boundary; callers split on `\n` only).
+#[test]
+fn newline_and_tab_entities_decode() {
+    assert_eq!(
+        strip_html_to_text("a&#10;b"),
+        "a\nb",
+        "&#10; decodes to newline (block boundary)"
+    );
+    assert_eq!(strip_html_to_text("a&#9;b"), "a\tb", "&#9; decodes to tab");
+    assert!(
+        !strip_html_to_text("a&#13;b").contains('\r'),
+        "&#13; (CR) must NOT decode"
+    );
+}
