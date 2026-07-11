@@ -132,14 +132,19 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
     if name_end == name_start {
         name_end = j;
     }
+    // Clamp name_end to bytes.len(): an unmatched quote can advance j past
+    // end-of-input (j == bytes.len() + 1 after the trailing increment), so
+    // the slice would panic on unterminated tags like `<ahref="foo`.
+    let name_end = name_end.min(bytes.len());
     // Trim so markup with whitespace after `<` (e.g. `< br>`, `< /p >`) still
     // matches its tag name and introduces the block boundary.
     let name = html[name_start..name_end].trim().to_ascii_lowercase();
     if html_tag_introduces_break(&name) {
         out.push('\n');
     }
-    // Advance past the closing '>' if one was found.
-    j + usize::from(j < bytes.len() && bytes[j] == b'>')
+    // Advance past the closing '>' if one was found. Clamp to bytes.len() so
+    // an unterminated tag consumes to end-of-input as documented.
+    j.min(bytes.len()) + usize::from(j < bytes.len() && bytes[j] == b'>')
 }
 
 /// Consume an entity starting at `bytes[start]` (`&`). Returns `(next_index,
@@ -276,8 +281,14 @@ fn decode_entity(entity: &str) -> Option<String> {
     // Returns None for control characters (&#27; ESC, &#0; NUL, C1 set…) so
     // they never decode to output; consume_entity treats None as a literal
     // `&`. Tab is not meaningful mid-line here either, so only fully printable
-    // characters pass through.
+    // characters pass through. Unicode noncharacters (U+FDD0–U+FDEF, and
+    // U+xFFFE/U+xFFFF in every plane) are also rejected — they are not useful
+    // visible text and char::from_u32 admits them while is_control() does not.
     if c.is_control() {
+        return None;
+    }
+    let cp = c as u32;
+    if (0xFDD0..=0xFDEF).contains(&cp) || (cp & 0xFFFE) == 0xFFFE {
         return None;
     }
     Some(c.to_string())

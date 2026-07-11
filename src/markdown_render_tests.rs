@@ -883,3 +883,114 @@ fn multiple_spaces_before_tag_name_still_break() {
 fn contains_open_tag_empty_needle_terminates() {
     assert!(!crate::markdown_html_strip::contains_open_tag("abc", ""));
 }
+
+// ── CHANGE 1: consume_tag OOB panic on unmatched quote (issue #155) ──
+
+/// A tag with an unmatched quote and no whitespace before it must not panic.
+#[test]
+fn unmatched_quote_in_tag_does_not_panic() {
+    // Unmatched quote, no whitespace → unterminated tag → empty output.
+    let out = crate::markdown_html_strip::strip_html_to_text("<ahref=\"foo");
+    assert_eq!(
+        out, "",
+        "unterminated tag with unmatched quote yields empty: {out:?}"
+    );
+    // Text before the unterminated tag survives.
+    let out2 = crate::markdown_html_strip::strip_html_to_text("text<div class=\"x");
+    assert_eq!(
+        out2, "text",
+        "text before unterminated tag survives: {out2:?}"
+    );
+}
+
+// ── CHANGE 3: list followed by paragraph needs blank separator ───────
+
+/// A list followed by a paragraph must have a blank separator line between
+/// the last list item and the paragraph text (every other block renderer
+/// pushes a trailing blank).
+#[test]
+fn list_followed_by_paragraph_gets_blank_separator() {
+    let out = render("- a\n- b\n\nafter text\n");
+    let lines: Vec<&str> = out.lines().collect();
+    // Find the line containing "b" (the last list item).
+    let i = lines
+        .iter()
+        .position(|l| l.contains('b') && l.contains('*'))
+        .unwrap_or(usize::MAX);
+    assert_ne!(i, usize::MAX, "last list item line found: {out:?}");
+    assert!(
+        i + 1 < lines.len() && lines[i + 1].is_empty(),
+        "blank line after last list item: {out:?}"
+    );
+    assert!(
+        i + 2 < lines.len() && lines[i + 2].contains("after text"),
+        "paragraph after blank separator: {out:?}"
+    );
+}
+
+/// A nested sub-list inside a tight list item must NOT have a blank between
+/// the sub-list item and the next sibling item (tight list semantics).
+#[test]
+fn nested_list_in_tight_list_stays_tight() {
+    let out = render("- a\n  - sub\n- b\n");
+    let lines: Vec<&str> = out.lines().collect();
+    let i = lines
+        .iter()
+        .position(|l| l.contains("sub"))
+        .unwrap_or(usize::MAX);
+    assert_ne!(i, usize::MAX, "sub-list item found: {out:?}");
+    // The line after "sub" must NOT be blank (tight list).
+    if i + 1 < lines.len() {
+        assert!(
+            !lines[i + 1].is_empty(),
+            "no blank between nested item and next sibling in tight list: {out:?}"
+        );
+    }
+}
+
+// ── CHANGE 4: ban U+200B (zero-width space) ──────────────────────────
+
+/// Zero-width space (U+200B) must be stripped from rendered output (it
+/// enables invisible-text spoofing and is not needed for emoji sequences),
+/// while ZWJ (U+200D) must survive for emoji.
+#[test]
+fn zero_width_space_stripped_zwj_preserved() {
+    // ZWSP between letters is removed.
+    let out = render("ab\u{200B}cd");
+    assert!(!out.contains('\u{200B}'), "ZWSP stripped: {out:?}");
+    assert!(out.contains("abcd"), "visible text preserved: {out:?}");
+
+    // ZWJ emoji still survives (not banned).
+    let emoji = "\u{1F469}\u{200D}\u{1F4BB}"; // 👩‍💻
+    let out2 = render(emoji);
+    assert!(
+        out2.contains('\u{200D}'),
+        "ZWJ preserved for emoji: {out2:?}"
+    );
+}
+
+// ── CHANGE 5: reject Unicode noncharacters in decode_entity ──────────
+
+/// Numeric character references that resolve to Unicode noncharacters
+/// (U+FFFF, U+FFFE, U+FDD0–U+FDEF, U+xFFFE/U+xFFFF in every plane) must NOT
+/// decode. An unrecognized entity decodes to a literal `&` so the output
+/// equals the original input string for these cases. Normal entities like
+/// `&#65;` still decode to their characters.
+#[test]
+fn numeric_entity_noncharacters_rejected() {
+    // U+FFFF → noncharacter, decode_entity returns None → literal '&'.
+    let out = crate::markdown_html_strip::strip_html_to_text("a&#xFFFF;b");
+    assert_eq!(out, "a&#xFFFF;b", "U+FFFF noncharacter rejected: {out:?}");
+
+    // U+FDD0 → noncharacter.
+    let out2 = crate::markdown_html_strip::strip_html_to_text("a&#xFDD0;b");
+    assert_eq!(out2, "a&#xFDD0;b", "U+FDD0 noncharacter rejected: {out2:?}");
+
+    // U+FFFE → noncharacter (decimal form).
+    let out3 = crate::markdown_html_strip::strip_html_to_text("a&#65534;b");
+    assert_eq!(out3, "a&#65534;b", "U+FFFE noncharacter rejected: {out3:?}");
+
+    // Normal entity still decodes.
+    let out4 = crate::markdown_html_strip::strip_html_to_text("&#65;");
+    assert_eq!(out4, "A", "normal entity still decodes: {out4:?}");
+}

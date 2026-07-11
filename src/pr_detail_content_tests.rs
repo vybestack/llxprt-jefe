@@ -520,7 +520,7 @@ fn resolved_thread_flat_idx(detail: &PullRequestDetail) -> usize {
 /// silently retarget.
 fn thread_flat_idx(
     detail: &PullRequestDetail,
-    pred: fn(&crate::domain::PrReviewThread) -> bool,
+    pred: impl Fn(&crate::domain::PrReviewThread) -> bool,
     label: &str,
 ) -> usize {
     let Some(idx) = detail
@@ -580,7 +580,21 @@ fn unresolved_thread_stays_expanded_when_unfocused() {
 #[test]
 fn outdated_thread_collapses_and_shows_outdated_tag() {
     let mut detail = detail_with_threads();
-    detail.reviews[0].review_threads[0].is_outdated = true;
+    // Locate the unresolved thread structurally instead of hardcoding [0][0]:
+    // the assertions below assume the mutated thread is the UNRESOLVED one
+    // whose body is "This unwrap can panic.".
+    let (review_idx, thread_idx) = detail
+        .reviews
+        .iter()
+        .enumerate()
+        .find_map(|(ri, r)| {
+            r.review_threads
+                .iter()
+                .position(|t| !t.is_resolved)
+                .map(|ti| (ri, ti))
+        })
+        .unwrap_or_else(|| panic!("fixture must contain an unresolved thread"));
+    detail.reviews[review_idx].review_threads[thread_idx].is_outdated = true;
     let content = build_pr_detail_content(
         &detail,
         PrDetailSubfocus::Body,

@@ -770,15 +770,19 @@ pub(crate) fn assign_threads_to_reviews(reviews: &mut [PrReview], threads: Vec<P
     if threads.is_empty() || reviews.is_empty() {
         return;
     }
+    // Build a review_id → index map once (O(N)) instead of a per-thread
+    // linear scan (O(N×M)). Cloning the ids into owned Strings avoids holding
+    // &str borrows of `reviews` while we mutably push into it below.
+    let id_to_idx: std::collections::HashMap<String, usize> = reviews
+        .iter()
+        .enumerate()
+        .filter_map(|(i, r)| r.review_id.as_ref().map(|id| (id.clone(), i)))
+        .collect();
     for thread in threads {
         let parent_idx = thread
             .review_id
             .as_deref()
-            .and_then(|tid| {
-                reviews
-                    .iter()
-                    .position(|r| r.review_id.as_deref() == Some(tid))
-            })
+            .and_then(|tid| id_to_idx.get(tid).copied())
             .unwrap_or(0);
         reviews[parent_idx].review_threads.push(thread);
     }

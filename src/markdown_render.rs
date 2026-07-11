@@ -113,15 +113,22 @@ const CODE_FENCE_H: char = '─';
 const LIST_INDENT: &str = "  ";
 
 /// Characters that must never reach the terminal screen: ASCII/C1 control
-/// characters (except tab) and Unicode bidi override/format characters usable
-/// for Trojan Source display spoofing. Legitimate Format chars like ZWJ
-/// (U+200D), ZWNJ (U+200C), and variation selectors are NOT banned so emoji
-/// sequences survive intact.
+/// characters (except tab), Unicode bidi override/format characters usable
+/// for Trojan Source display spoofing, and U+200B (zero-width space, which
+/// enables invisible-text spoofing and is not needed for emoji sequences —
+/// ZWJ/ZWNJ and variation selectors stay allowed). Legitimate Format chars
+/// like ZWJ (U+200D), ZWNJ (U+200C), and variation selectors are NOT banned
+/// so emoji sequences survive intact.
 fn banned_on_screen(c: char) -> bool {
     (c.is_control() && c != '\t')
         || matches!(
             c,
-            '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{200E}' | '\u{200F}' | '\u{061C}'
+            '\u{202A}'..='\u{202E}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{200E}'
+                | '\u{200F}'
+                | '\u{061C}'
+                | '\u{200B}'
         )
 }
 
@@ -205,7 +212,10 @@ impl MarkdownRenderer {
                 self.push(rule_line(indent));
                 self.push_blank();
             }
-            NodeValue::List(list) => self.render_list(node, list, indent),
+            NodeValue::List(list) => {
+                self.render_list(node, list, indent);
+                self.push_blank();
+            }
             NodeValue::CodeBlock(code) => self.render_code_block(code, indent),
             NodeValue::BlockQuote => self.render_block_quote(node, indent),
             NodeValue::HtmlBlock(html) => self.render_html_block(&html.literal, indent),
