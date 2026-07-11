@@ -85,6 +85,16 @@ impl AppState {
             .then_some(agent)
     }
 
+    /// Whether the currently selected agent is a Kennel-mode (Code Puppy) agent.
+    ///
+    /// Centralizes the `kennel_mode` projection shared by all screen renderers
+    /// (split, issues, pull_requests) so the derivation cannot drift.
+    #[must_use]
+    pub fn is_kennel_mode(&self) -> bool {
+        self.selected_agent()
+            .is_some_and(|a| a.agent_kind.is_kennel())
+    }
+
     /// Build the list of selectable agents for the issue/PR agent chooser.
     ///
     /// Filters to non-running agents in the specified repository, hiding

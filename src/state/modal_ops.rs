@@ -137,6 +137,15 @@ impl AppState {
         let work_dir_len = base_dir.chars().count();
         let profile_len = default_profile.chars().count();
 
+        // Default mode string: LLxprt agents launch with `--yolo`; others
+        // start empty. Computed once and reused for both the field value and
+        // the cursor length to keep them in sync.
+        let default_mode = if agent_kind == crate::domain::AgentKind::Llxprt {
+            "--yolo"
+        } else {
+            ""
+        };
+
         self.modal = ModalState::NewAgent {
             repository_id,
             fields: AgentFormFields {
@@ -146,11 +155,7 @@ impl AppState {
                 work_dir: base_dir,
                 profile: default_profile,
                 agent_kind: agent_kind.label().to_owned(),
-                mode: if agent_kind == crate::domain::AgentKind::Llxprt {
-                    "--yolo".to_owned()
-                } else {
-                    String::new()
-                },
+                mode: default_mode.to_owned(),
                 llxprt_debug: String::new(),
                 pass_continue: true,
                 sandbox_enabled: false,
@@ -160,11 +165,7 @@ impl AppState {
             cursor: AgentFormCursor {
                 work_dir: work_dir_len,
                 profile: profile_len,
-                mode: if agent_kind == crate::domain::AgentKind::Llxprt {
-                    "--yolo".chars().count()
-                } else {
-                    0
-                },
+                mode: default_mode.chars().count(),
                 sandbox_flags: DEFAULT_SANDBOX_FLAGS.chars().count(),
                 ..AgentFormCursor::default()
             },

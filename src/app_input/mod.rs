@@ -745,8 +745,9 @@ fn persist_relaunch_success(
     // Capture agent_kind before `apply` consumes the state snapshot, so the
     // SSH-agent warning can be gated: only LLxprt uses the sandbox subsystem,
     // and CodePuppy must not trigger it from stale persisted sandbox flags.
-    let relaunch_kind = agent_and_signature(state, agent_id).map(|(_, sig)| sig.agent_kind);
-    if let Some((agent, signature)) = agent_and_signature(state, agent_id) {
+    let agent_sig = agent_and_signature(state, agent_id);
+    let relaunch_kind = agent_sig.as_ref().map(|(_, sig)| sig.agent_kind);
+    if let Some((agent, signature)) = agent_sig {
         set_agent_runtime_binding(
             state,
             agent_id,

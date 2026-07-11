@@ -399,11 +399,14 @@ fn clone_origin(origin: &Path, label: &str) -> PathBuf {
 }
 
 fn rand_label() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
-    format!("{nanos}")
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{nanos}-{seq}")
 }
 
 fn run_git(cwd: &Path, args: &[&str]) {
@@ -422,6 +425,8 @@ fn run_git(cwd: &Path, args: &[&str]) {
 }
 
 fn cleanup(path: &Path) {
+    // Best-effort cleanup; failures are silently ignored because this runs at
+    // the end of every test and a missing/non-empty dir is not actionable.
     let _ = std::fs::remove_dir_all(path);
 }
 
@@ -490,7 +495,18 @@ fn local_linked_worktree_on_non_default_branch_fails_safely() {
         std::process::id(),
         rand_label()
     ));
-    run_git(&primary, &["worktree", "add", &linked.to_string_lossy()]);
+    // Explicitly create the linked worktree on a non-default branch so the
+    // scenario is unambiguous and self-documenting.
+    run_git(
+        &primary,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "feature-branch",
+            &linked.to_string_lossy(),
+        ],
+    );
     run_git(&linked, &["remote", "set-head", "origin", "-a"]);
 
     let result = prepare_local(&linked, None, DirtyPolicy::Stop, "prompt");
@@ -637,7 +653,7 @@ fn local_owned_metadata_jefe_llxprt_ignored_as_dirty() {
 }
 
 #[test]
-fn local_clone_when_missing_with_identity() {
+fn local_clone_when_missing_with_url() {
     // Build a local bare origin, then prove prep clones it when given an
     // identity whose clone_url points at the local bare repo.
     let origin = bare_origin_with_commit("clonemissing");

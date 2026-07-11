@@ -90,6 +90,18 @@ const ALL_ENGINES: [SandboxEngine; 3] = [
 /// Linux-supported engine variants in canonical order.
 const LINUX_ENGINES: [SandboxEngine; 2] = [SandboxEngine::Podman, SandboxEngine::Docker];
 
+/// Check whether a single GitHub owner/repo component contains only valid
+/// characters: ASCII alphanumerics, hyphens, underscores, and dots.
+///
+/// Shared by the clone-identity layer (`app_input::clone_identity`) and the
+/// repository form layer (`state::form_build`) so validation cannot drift.
+#[must_use]
+pub fn is_valid_github_component(component: &str) -> bool {
+    component
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
 impl SandboxEngine {
     /// Convert to llxprt CLI `--sandbox-engine` argument.
     #[must_use]

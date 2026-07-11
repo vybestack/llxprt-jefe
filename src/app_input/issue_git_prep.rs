@@ -87,10 +87,15 @@ fn clone_repository(work_dir: &Path, clone_url: &str) -> PrepResult {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create parent directory for clone: {e}"))?;
     }
-    let output = git_capture(
-        work_dir.parent().unwrap_or_else(|| Path::new(".")),
-        ["clone", clone_url, &work_dir.to_string_lossy()],
-    )?;
+    // Normalize the clone working directory: when work_dir is a bare relative
+    // path like "repo", parent() yields Some("") (not None). An empty CWD is
+    // platform-dependent, so explicitly fall back to "." so git_capture always
+    // receives a concrete directory.
+    let clone_cwd = match work_dir.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
+    let output = git_capture(clone_cwd, ["clone", clone_url, &work_dir.to_string_lossy()])?;
     require_success(&output, &format!("git clone {clone_url}"))?;
     Ok(())
 }
@@ -267,6 +272,8 @@ fn checkout_and_pull(work_dir: &Path, branch: &str) -> Result<(), String> {
             // branch; otherwise resetting would move the wrong branch ref
             // and risk discarding commits on an unrelated branch.
             let stderr = String::from_utf8_lossy(&output.stderr);
+            // Locale-independent: git_capture sets LC_ALL=C, so this English
+            // fragment is reliable regardless of the user's locale.
             if stderr.contains("already used by worktree") {
                 let current = current_branch_name(work_dir)?;
                 if current == branch {
@@ -382,6 +389,10 @@ where
         // Fail fast instead of hanging on an interactive credential prompt
         // for private repos over HTTPS (stdout/stderr are piped, not a TTY).
         .env("GIT_TERMINAL_PROMPT", "0")
+        // Force C locale so git emits English messages — stderr is parsed for
+        // the linked-worktree fallback in checkout_and_pull, and localized
+        // messages would break the contains() check.
+        .env("LC_ALL", "C")
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

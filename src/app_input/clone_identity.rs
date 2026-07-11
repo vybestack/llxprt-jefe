@@ -68,10 +68,11 @@ impl CloneIdentity {
         }
         // Enforce valid GitHub component characters: alphanumerics, hyphens,
         // underscores, and dots. This rejects `@` and other shell/URL
-        // metacharacters that have no place in a GitHub owner/repo name and
-        // keeps this validator consistent with
-        // `AppState::validate_github_repo`.
-        if !is_valid_github_component(owner) || !is_valid_github_component(repo) {
+        // metacharacters that have no place in a GitHub owner/repo name.
+        // Uses the shared `domain::is_valid_github_component`.
+        if !jefe::domain::is_valid_github_component(owner)
+            || !jefe::domain::is_valid_github_component(repo)
+        {
             return None;
         }
         Some(Self {
@@ -112,15 +113,6 @@ fn is_url_or_ssh_form(value: &str) -> bool {
         || value.starts_with("git@")
         || value.starts_with("ssh://")
         || value.starts_with("git://")
-}
-
-/// Check whether a single GitHub owner/repo component contains only valid
-/// characters: ASCII alphanumerics, hyphens, underscores, and dots. GitHub
-/// names never contain `@`, `/`, spaces, or other shell/URL metacharacters.
-fn is_valid_github_component(component: &str) -> bool {
-    component
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
 #[cfg(test)]

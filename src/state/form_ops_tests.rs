@@ -52,6 +52,77 @@ fn open_new_agent_initializes_llxprt_debug_blank() {
 }
 
 #[test]
+fn open_new_agent_defaults_to_repo_kind_when_installed() {
+    let mut repo = seed_repository();
+    repo.default_agent_kind = crate::domain::AgentKind::CodePuppy;
+    let mut state = AppState {
+        repositories: vec![repo],
+        installed_agent_kinds: vec![
+            crate::domain::AgentKind::Llxprt,
+            crate::domain::AgentKind::CodePuppy,
+        ],
+        ..AppState::default()
+    };
+
+    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+
+    let ModalState::NewAgent { fields, .. } = state.modal else {
+        panic!("expected new-agent modal, got {:?}", state.modal);
+    };
+    // Repository default is CodePuppy and it is installed → modal starts CP.
+    assert_eq!(fields.agent_kind, "code_puppy");
+    // CodePuppy agents do not get the LLxprt --yolo default mode.
+    assert_eq!(fields.mode, "");
+}
+
+#[test]
+fn open_new_agent_falls_back_to_first_installed_when_repo_default_not_installed() {
+    let mut repo = seed_repository();
+    repo.default_agent_kind = crate::domain::AgentKind::CodePuppy;
+    let mut state = AppState {
+        repositories: vec![repo],
+        // Only LLxprt is installed locally.
+        installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
+        ..AppState::default()
+    };
+
+    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+
+    let ModalState::NewAgent { fields, .. } = state.modal else {
+        panic!("expected new-agent modal, got {:?}", state.modal);
+    };
+    // Repo default is CodePuppy but it's not installed → fall back to Llxprt.
+    assert_eq!(fields.agent_kind, "LLxprt");
+    assert_eq!(fields.mode, "--yolo");
+}
+
+#[test]
+fn open_new_agent_uses_repo_default_kind_for_remote_even_when_not_locally_installed() {
+    let mut repo = seed_repository();
+    repo.default_agent_kind = crate::domain::AgentKind::CodePuppy;
+    repo.remote = RemoteRepositorySettings {
+        enabled: true,
+        login_user: "ubuntu".to_owned(),
+        host: "build.example.com".to_owned(),
+        ..Default::default()
+    };
+    let mut state = AppState {
+        repositories: vec![repo],
+        // Only LLxprt installed locally, but remote is authoritative.
+        installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
+        ..AppState::default()
+    };
+
+    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+
+    let ModalState::NewAgent { fields, .. } = state.modal else {
+        panic!("expected new-agent modal, got {:?}", state.modal);
+    };
+    // Remote repos offer repo default kind regardless of local install.
+    assert_eq!(fields.agent_kind, "code_puppy");
+}
+
+#[test]
 fn llxprt_debug_is_trimmed_when_creating_agent() {
     let mut state = AppState {
         repositories: vec![seed_repository()],
@@ -282,20 +353,20 @@ fn repository_checkbox_toggle_updates_remote_fields() {
     state = state.apply(AppEvent::OpenNewRepository);
     state = state.apply(AppEvent::FormNextField); // Name → BaseDir
     state = state.apply(AppEvent::FormNextField); // BaseDir → DefaultProfile
-    state = state.apply(AppEvent::FormNextField); // DefaultProfile → GitHubRepo
-    state = state.apply(AppEvent::FormNextField); // GitHubRepo → RemoteEnabled
+    state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultAgentKind
     state = state.apply(AppEvent::FormNextField); // DefaultAgentKind → GitHubRepo
-    state = state.apply(AppEvent::FormToggleCheckbox);
-    state = state.apply(AppEvent::FormNextField);
+    state = state.apply(AppEvent::FormNextField); // GitHubRepo → RemoteEnabled
+    state = state.apply(AppEvent::FormToggleCheckbox); // toggle remote_enabled
+    state = state.apply(AppEvent::FormNextField); // RemoteEnabled → LoginUser
     state = state.apply(AppEvent::FormChar('u'));
     state = state.apply(AppEvent::FormChar('b'));
-    state = state.apply(AppEvent::FormNextField);
+    state = state.apply(AppEvent::FormNextField); // LoginUser → Host
     state = state.apply(AppEvent::FormChar('1'));
     state = state.apply(AppEvent::FormChar('.'));
-    state = state.apply(AppEvent::FormNextField);
+    state = state.apply(AppEvent::FormNextField); // Host → RunAsUser
     state = state.apply(AppEvent::FormChar('a'));
-    state = state.apply(AppEvent::FormNextField);
-    state = state.apply(AppEvent::FormToggleCheckbox);
+    state = state.apply(AppEvent::FormNextField); // RunAsUser → SetupEnvDefault
+    state = state.apply(AppEvent::FormToggleCheckbox); // toggle setup_env_default
 
     let ModalState::NewRepository {
         fields,

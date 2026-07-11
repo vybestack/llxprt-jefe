@@ -9,6 +9,11 @@
 //! When no runtime at all is installed the modal stays usable (the user can
 //! still fill in fields) but submit is rejected with a visible state error.
 //!
+//! **Valid** remote targets (enabled + valid `login_user` + valid `host`)
+//! bypass the local availability check because remote PATH resolution is
+//! authoritative. An enabled-but-incomplete remote (missing `login_user` or
+//! `host`) is explicitly rejected — it never silently falls back to local.
+//!
 //! All checks use the [`AppState::installed_agent_kinds`] snapshot captured
 //! once at startup ([`crate::app_init`]). No PATH I/O happens during input
 //! handling — the helper accepts either an explicit slice or derives the list
@@ -100,7 +105,6 @@ pub(super) fn local_kind_available_or_error(
         Err(message) => {
             let mut state = app_state.write();
             state.error_message = Some(message);
-            drop(state);
             false
         }
     }

@@ -207,9 +207,9 @@ mod tests {
     #[test]
     fn code_puppy_next_focus_skips_hidden_fields() {
         let vis = agent_form_visibility(AgentKind::CodePuppy);
-        // Profile → Mode is hidden, so next_visible from Profile should skip
+        // Profile → Mode is hidden, so next_visible from Profile skips
         // Mode, LlxprtDebug, PassContinue, Sandbox, SandboxEngine, SandboxFlags
-        // and land on Shortcut (wrapping past all hidden fields).
+        // and lands on AgentKind (the next visible field after Profile).
         let next = next_visible_focus(F::Profile, vis);
         assert_eq!(next, F::AgentKind);
     }

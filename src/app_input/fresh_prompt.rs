@@ -96,6 +96,7 @@ mod tests {
             FreshPromptKind::Issue,
             ".jefe/issue-prompt.md",
         );
+        assert!(!result.pass_continue);
         assert_eq!(
             result.mode_flags,
             vec!["Read and work on the GitHub issue described in .jefe/issue-prompt.md"]
@@ -109,6 +110,7 @@ mod tests {
             FreshPromptKind::PullRequest,
             ".jefe/pr-prompt.md",
         );
+        assert!(!result.pass_continue);
         assert_eq!(
             result.mode_flags,
             vec![

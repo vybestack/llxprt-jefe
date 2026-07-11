@@ -122,24 +122,18 @@ pub fn agent_form_content_lines(state: &AppState) -> Option<Vec<String>> {
             fields.pass_continue,
             "space toggles",
         ));
-    }
-    if visibility.shows_llxprt_fields() {
         lines.push(render_checkbox(
             "Sandbox",
             fields.sandbox_enabled,
             "space toggles",
         ));
-    }
 
-    if visibility.shows_llxprt_fields() {
         let engine_hint = sandbox_engine_hint(fields.sandbox_enabled);
         lines.push(format!(
             "  {:<16} [{}]  ({engine_hint})",
             "Sandbox Engine", fields.sandbox_engine
         ));
-    }
 
-    if visibility.shows_llxprt_fields() {
         let flags_value = if focus == AgentFormFocus::SandboxFlags {
             text_with_caret(&fields.sandbox_flags, cursor.sandbox_flags)
         } else {

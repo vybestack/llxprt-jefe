@@ -331,6 +331,11 @@ fn repository_form_toggles_remote_fields() {
         panic!("expected new-repository modal, got {:?}", state.modal);
     };
     assert_eq!(focus, RepositoryFormFocus::SetupEnvDefault);
+    assert!(!fields.default_agent_kind.is_empty());
+    assert_eq!(
+        fields.default_agent_kind,
+        jefe::domain::AgentKind::Llxprt.label()
+    );
     assert!(fields.remote_enabled);
     assert_eq!(fields.login_user, "op");
     assert_eq!(fields.host, "10");

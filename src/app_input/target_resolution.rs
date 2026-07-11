@@ -16,7 +16,7 @@
 //!    indication. This module makes that a hard error at every boundary.
 //!
 //! Every layer that needs to know "local or remote?" goes through
-//! [`resolve_target`] or [`validate_remote_settings`]:
+//! [`resolve_target`]:
 //!
 //! - **Availability checks** (`availability.rs`): a local launch requires the
 //!   runtime kind to be locally installed; a remote launch always passes.

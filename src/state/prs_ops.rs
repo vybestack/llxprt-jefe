@@ -360,7 +360,7 @@ impl AppState {
             }
             AppEvent::PrAgentChooserNavigateDown => {
                 if let Some(chooser) = &mut self.prs_state.agent_chooser {
-                    let max = self.agents.len().saturating_sub(1);
+                    let max = chooser.agents.len().saturating_sub(1);
                     if chooser.selected_index < max {
                         chooser.selected_index += 1;
                     }

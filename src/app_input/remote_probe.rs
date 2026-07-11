@@ -201,12 +201,15 @@ pub(super) fn plan_remote_probe(
         )
     };
     // Defense in depth: validate SSH identity before constructing the
+    // Runtime defense-in-depth: validate SSH identity before constructing the
     // destination. The authoritative validation is at form/persistence
     // boundaries (domain::target::validate_remote), but every SSH command
-    // site re-checks so stale data can never reach the shell.
+    // site re-checks at runtime (not just debug builds) so stale data can
+    // never reach the shell. The `--` separator below is the final structural
+    // guard.
     let user = remote.login_user.trim();
     let host = remote.host.trim();
-    debug_assert!(
+    assert!(
         jefe::domain::target::is_valid_ssh_identity(user)
             && jefe::domain::target::is_valid_ssh_identity(host),
         "SSH identity fields must be validated before reaching plan_remote_probe"
@@ -216,6 +219,16 @@ pub(super) fn plan_remote_probe(
         "BatchMode=yes".to_owned(),
         "-o".to_owned(),
         "ConnectTimeout=10".to_owned(),
+        // Auto-accept the host key on first connect (TOFU) and verify it on
+        // subsequent connections. Without this, OpenSSH prompts interactively
+        // to accept an unknown host key — but these probes run non-interactively
+        // (no PTY), so the prompt would hang indefinitely.
+        "-o".to_owned(),
+        "StrictHostKeyChecking=accept-new".to_owned(),
+        "-o".to_owned(),
+        "ServerAliveInterval=5".to_owned(),
+        "-o".to_owned(),
+        "ServerAliveCountMax=3".to_owned(),
         "-T".to_owned(),
         // `--` ends option parsing so a destination starting with '-' cannot
         // be misinterpreted as an ssh option (defense in depth; validation
@@ -482,6 +495,14 @@ pub(super) fn plan_remote_prompt_write(
         "BatchMode=yes".to_owned(),
         "-o".to_owned(),
         "ConnectTimeout=10".to_owned(),
+        // Non-interactive host-key policy and post-connect keepalive (see
+        // plan_remote_probe for rationale).
+        "-o".to_owned(),
+        "StrictHostKeyChecking=accept-new".to_owned(),
+        "-o".to_owned(),
+        "ServerAliveInterval=5".to_owned(),
+        "-o".to_owned(),
+        "ServerAliveCountMax=3".to_owned(),
         "-T".to_owned(),
         // `--` ends option parsing (defense in depth; validation is primary).
         "--".to_owned(),
@@ -489,11 +510,10 @@ pub(super) fn plan_remote_prompt_write(
         command,
     ];
     // Adversarial content safety: prompt bytes are in stdin, NOT argv.
-    // Verify no prompt content leaked into argv.
-    for arg in &ssh_argv {
-        if arg.contains(prompt) && !prompt.is_empty() {
-            return Err("prompt content leaked into ssh argv — must be stdin only".to_owned());
-        }
+    // Compare whole tokens to avoid false positives when a short prompt is a
+    // coincidental substring of a fixed ssh option (e.g. "yes" ⊂ "BatchMode=yes").
+    if !prompt.is_empty() && ssh_argv.iter().any(|arg| arg == prompt) {
+        return Err("prompt content leaked into ssh argv — must be stdin only".to_owned());
     }
     Ok(PlannedPromptWrite {
         ssh_argv,

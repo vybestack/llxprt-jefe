@@ -13,7 +13,7 @@
 
 use crate::domain::{
     Agent, AgentKind, PlatformCapabilities, RemoteRepositorySettings, Repository, RepositoryId,
-    SandboxEngine,
+    SandboxEngine, is_valid_github_component,
 };
 use tracing::warn;
 
@@ -25,16 +25,6 @@ use crate::services::{
 use super::AppState;
 use super::form_runtime;
 use super::types::{AgentFormFields, RepositoryFormFields};
-
-/// Check whether a single GitHub owner/repo component contains only valid
-/// characters: ASCII alphanumerics, hyphens, underscores, and dots. Kept
-/// consistent with the component validation in
-/// `app_input::clone_identity::is_valid_github_component`.
-fn is_valid_github_component(component: &str) -> bool {
-    component
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-}
 
 impl AppState {
     /// Validate a `github_repo` field value.

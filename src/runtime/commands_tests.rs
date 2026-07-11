@@ -428,6 +428,7 @@ fn code_puppy_empty_mode_flags_outputs_only_interactive_flag() {
 fn code_puppy_discards_unrecognized_positional_flags() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
+    signature.pass_continue = false;
     signature.mode_flags = vec![
         "first instruction".to_owned(),
         "second instruction".to_owned(),

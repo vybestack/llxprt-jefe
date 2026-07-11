@@ -56,6 +56,8 @@ pub fn is_valid_remote(remote: &RemoteRepositorySettings) -> bool {
 ///
 /// This is the **single** validation gate — every SSH command construction
 /// site relies on `is_valid_remote` / `validate_remote` having run first.
+/// `validate_remote` additionally validates `run_as_user` (when non-empty)
+/// because it flows into `sudo -n su - <user> -c '...'`.
 #[must_use]
 pub fn is_valid_ssh_identity(value: &str) -> bool {
     let trimmed = value.trim();
@@ -117,6 +119,13 @@ pub fn validate_remote(remote: &RemoteRepositorySettings) -> Result<(), String> 
         return Err(invalid_remote_message());
     }
     if !is_valid_ssh_identity(&remote.login_user) || !is_valid_ssh_identity(&remote.host) {
+        return Err(ssh_identity_validation_message());
+    }
+    // run_as_user is optional (empty = use login_user), but when set it flows
+    // into `sudo -n su - <user> -c '...'`. Validate it against the same
+    // identity rules so a malicious or mistyped value cannot inject options
+    // into `su` or smuggle arguments past the shell-escaped command.
+    if !remote.run_as_user.trim().is_empty() && !is_valid_ssh_identity(&remote.run_as_user) {
         return Err(ssh_identity_validation_message());
     }
     Ok(())
@@ -298,7 +307,7 @@ mod tests {
         assert!(result.is_err());
         let err = result.err().unwrap_or_default();
         assert!(
-            err.contains("invalid characters") || err.contains("ProxyCommand"),
+            err.contains("invalid characters"),
             "error should explain the rejection: {err}"
         );
     }
@@ -326,5 +335,29 @@ mod tests {
         // A disabled remote never reaches SSH, so identity validation is moot.
         let disabled = remote(false, r"-oProxyCommand=evil", "host");
         assert!(validate_remote(&disabled).is_ok());
+    }
+
+    #[test]
+    fn validate_remote_rejects_injection_in_run_as_user() {
+        let mut bad = remote(true, "ubuntu", "build.example.com");
+        bad.run_as_user = r"-oProxyCommand=evil".to_owned();
+        assert!(
+            validate_remote(&bad).is_err(),
+            "proxycommand injection in run_as_user must be rejected"
+        );
+    }
+
+    #[test]
+    fn validate_remote_accepts_valid_run_as_user() {
+        let mut good = remote(true, "ubuntu", "build.example.com");
+        good.run_as_user = "deploy".to_owned();
+        assert!(validate_remote(&good).is_ok());
+    }
+
+    #[test]
+    fn validate_remote_accepts_empty_run_as_user() {
+        // Empty run_as_user is valid — it means "use login_user".
+        let good = remote(true, "ubuntu", "build.example.com");
+        assert!(validate_remote(&good).is_ok());
     }
 }

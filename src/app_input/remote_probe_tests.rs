@@ -241,6 +241,13 @@ fn probe_plan_uses_batch_mode_and_connect_timeout() {
     );
     assert!(argv.iter().any(|a| a == "BatchMode=yes"));
     assert!(argv.iter().any(|a| a == "ConnectTimeout=10"));
+    // Non-interactive host-key policy: auto-accept on first connect so the
+    // probe never hangs waiting for user input.
+    assert!(argv.iter().any(|a| a == "StrictHostKeyChecking=accept-new"));
+    // Post-connect keepalive so a hung remote session is detected within
+    // ~15s instead of blocking indefinitely.
+    assert!(argv.iter().any(|a| a == "ServerAliveInterval=5"));
+    assert!(argv.iter().any(|a| a == "ServerAliveCountMax=3"));
 }
 
 #[test]
@@ -824,11 +831,9 @@ fn pr_prompt_plan_rejects_non_jefe_path() {
 }
 
 #[test]
-fn pr_prompt_plan_rejects_issue_prompt_path() {
+fn pr_prompt_relative_path_constant_has_correct_value() {
     // The PR seam must target .jefe/pr-prompt.md, NOT the issue path.
-    // Using the issue path should still be valid syntactically (it starts
-    // with .jefe/), but the PR writer must always pass PR_PROMPT_RELATIVE_PATH.
-    // Here we just verify the constant is correct.
+    // Verify the constant value that all PR prompt writes use.
     assert_eq!(PR_PROMPT_RELATIVE_PATH, ".jefe/pr-prompt.md");
 }
 

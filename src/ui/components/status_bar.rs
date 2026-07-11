@@ -21,7 +21,7 @@ pub struct StatusBarProps {
     pub theme_name: String,
     /// App version string.
     pub version: String,
-    /// Whether the selected agent is a code_puppy agent.
+    /// Whether to show "(Kennel mode)" branding for a code_puppy agent.
     pub kennel_mode: bool,
     /// Optional warning text shown in the center status area.
     pub warning_message: Option<String>,
