@@ -27,7 +27,7 @@ use jefe::runtime::{
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
 use jefe::theme::{ThemeColors, ThemeManager};
 use jefe::ui::orchestration::{
-    build_modal_element, build_screen_element, derive_confirm_modal_data,
+    TerminalRenderData, build_modal_element, build_screen_element, derive_confirm_modal_data,
 };
 
 use std::sync::Arc;
@@ -399,14 +399,17 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // again), starving the input loop (qqq never processed). The geometry is
     // refreshed at dispatch time instead — see refresh_terminal_scroll_geometry
     // (mirrors the detail-pane viewport-refresh pattern).
-
-    // Build screen and modal elements using orchestration helpers.
+    let pty_layout = compute_pty_layout(term_cols, term_rows);
     let screen_el = build_screen_element(
         &snapshot,
         &colors,
         &theme_name,
-        terminal_snapshot,
-        history_lines,
+        TerminalRenderData {
+            snapshot: terminal_snapshot,
+            history_lines,
+            pane_rows: usize::from(pty_layout.pty_rows).max(1),
+            pane_cols: usize::from(pty_layout.pty_cols).max(1),
+        },
     );
     let confirm_data = derive_confirm_modal_data(&snapshot, &modal);
     let modal_el = build_modal_element(

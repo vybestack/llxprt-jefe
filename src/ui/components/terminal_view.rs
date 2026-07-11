@@ -55,6 +55,12 @@ pub struct TerminalViewProps {
     /// default (transparent) cells, while explicitly-styled cells pass through
     /// unchanged (issue #179 override toggle).
     pub override_theme: bool,
+    /// Actual embedded-terminal pane dimensions (PTY layout). Used as the
+    /// viewport projection size when the live snapshot is absent/empty so
+    /// follow-tail/scroll/selection math reflects the physical pane, not the
+    /// whole retained history (issue #198 follow-up).
+    pub pane_rows: usize,
+    pub pane_cols: usize,
 }
 
 /// Empty-state message for the terminal pane when no snapshot is available.
@@ -69,20 +75,6 @@ pub fn terminal_empty_message(session_live: bool) -> &'static str {
     } else {
         "No terminal attached"
     }
-}
-
-/// Maximum display width (char count) across the retained history lines.
-///
-/// Used to derive the viewport column count when no live snapshot is available
-/// so the history projection reflects the actual retained output instead of a
-/// hardcoded constant. Returns 0 for empty history.
-#[must_use]
-fn max_history_width(history_lines: &[String]) -> usize {
-    history_lines
-        .iter()
-        .map(|line| line.chars().count())
-        .max()
-        .unwrap_or(0)
 }
 
 /// Terminal view showing the PTY output for the attached agent.
@@ -122,17 +114,16 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
         // pane resized or the snapshot was cleared).
         //
         // Borrow the live snapshot directly when present (avoiding a clone);
-        // only synthesize a blank snapshot when absent. When the live
-        // snapshot is absent, derive the viewport dimensions from the history
-        // content rather than a hardcoded constant so the projection reflects
-        // the actual retained output instead of a 1x80 default.
+        // synthesize a blank snapshot only when absent. The viewport
+        // dimensions come from the live snapshot when present, otherwise from
+        // the actual PTY pane size threaded in via props — never from the
+        // retained history line count, which would make follow-tail/scroll
+        // math span the whole (up to 2000-line) history instead of the
+        // physical pane.
         let blank = crate::runtime::TerminalSnapshot::default();
         let live_ref = live.unwrap_or(&blank);
         let (viewport_rows, viewport_cols) = if live_ref.rows == 0 {
-            (
-                props.history_lines.len().max(1),
-                max_history_width(&props.history_lines).max(1),
-            )
+            (props.pane_rows.max(1), props.pane_cols.max(1))
         } else {
             (live_ref.rows, live_ref.cols)
         };
@@ -699,18 +690,5 @@ mod tests {
     #[test]
     fn empty_message_no_terminal_when_not_live() {
         assert_eq!(terminal_empty_message(false), "No terminal attached");
-    }
-
-    // --- max_history_width ---
-
-    #[test]
-    fn max_history_width_returns_zero_for_empty_history() {
-        assert_eq!(max_history_width(&[]), 0);
-    }
-
-    #[test]
-    fn max_history_width_returns_widest_line_char_count() {
-        let history: Vec<String> = vec!["hi".to_owned(), "world!".to_owned(), "x".to_owned()];
-        assert_eq!(max_history_width(&history), 6);
     }
 }

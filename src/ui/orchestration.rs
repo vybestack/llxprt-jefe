@@ -21,6 +21,24 @@ pub struct ConfirmModalData {
     pub delete_work_dir: bool,
 }
 
+/// Terminal render data threaded from the app shell into the dashboard.
+///
+/// Bundles the live snapshot, retained scrollback history, and the actual PTY
+/// pane dimensions so `build_screen_element` stays under the argument-count
+/// limit and the projection always knows the real pane size even when the live
+/// snapshot is absent/empty (issue #198 follow-up).
+#[must_use]
+pub struct TerminalRenderData {
+    /// Live PTY snapshot (styled grid), if available.
+    pub snapshot: Option<crate::runtime::TerminalSnapshot>,
+    /// Retained scrollback history lines (plain text).
+    pub history_lines: Vec<String>,
+    /// Actual embedded-terminal pane row count (PTY layout).
+    pub pane_rows: usize,
+    /// Actual embedded-terminal pane column count (PTY layout).
+    pub pane_cols: usize,
+}
+
 /// Derive confirmation modal data from current state, if applicable.
 #[must_use]
 pub fn derive_confirm_modal_data(
@@ -94,8 +112,7 @@ pub fn build_screen_element(
     snapshot: &AppState,
     colors: &ThemeColors,
     theme_name: &str,
-    terminal_snapshot: Option<crate::runtime::TerminalSnapshot>,
-    history_lines: Vec<String>,
+    terminal: TerminalRenderData,
 ) -> AnyElement<'static> {
     match snapshot.screen_mode {
         ScreenMode::Dashboard => element! {
@@ -103,8 +120,10 @@ pub fn build_screen_element(
                 state: Some(snapshot.clone()),
                 colors: Some(colors.clone()),
                 theme_name: theme_name.to_owned(),
-                terminal_snapshot: terminal_snapshot,
-                history_lines: history_lines,
+                terminal_snapshot: terminal.snapshot,
+                history_lines: terminal.history_lines,
+                terminal_pane_rows: terminal.pane_rows,
+                terminal_pane_cols: terminal.pane_cols,
             )
         }
         .into_any(),
