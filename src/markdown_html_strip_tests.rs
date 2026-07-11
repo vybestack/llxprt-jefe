@@ -20,7 +20,7 @@ fn strip_html_drops_raw_control_characters() {
         "line1\nline2",
         "newlines preserved"
     );
-    assert!(strip_html_to_text("a\tb").contains('\t'), "tabs preserved");
+    assert_eq!(strip_html_to_text("a\tb"), "a\tb", "tabs preserved exactly");
 }
 
 /// Multiple spaces between `<` and the tag name must still produce a block
@@ -134,9 +134,12 @@ fn newline_and_tab_entities_decode() {
         "&#10; decodes to newline (block boundary)"
     );
     assert_eq!(strip_html_to_text("a&#9;b"), "a\tb", "&#9; decodes to tab");
-    assert!(
-        !strip_html_to_text("a&#13;b").contains('\r'),
-        "&#13; (CR) must NOT decode"
+    // A rejected entity passes through literally (consume_entity emits the
+    // `&` and the rest is copied as text), so the exact output IS the input.
+    assert_eq!(
+        strip_html_to_text("a&#13;b"),
+        "a&#13;b",
+        "&#13; (CR) must NOT decode; the entity stays literal"
     );
 }
 

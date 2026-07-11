@@ -20,13 +20,21 @@ const MONTH_ABBR: [&str; 13] = [
 /// Join field values for display, or [`EMPTY_FIELD`] when empty.
 ///
 /// Issue #155: replaces the leaky `-` placeholder with a clean em-dash.
+/// Blank/whitespace-only entries are dropped (matching [`field_opt`]'s
+/// normalization) so a stray empty label never renders as `a, , b`.
 /// Shared by the Issue and PR detail header projections.
 #[must_use]
 pub fn field_list(values: &[String]) -> String {
-    if values.is_empty() {
+    let joined = values
+        .iter()
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
+    if joined.is_empty() {
         return EMPTY_FIELD.to_string();
     }
-    values.join(", ")
+    joined
 }
 
 /// An optional field value for display, or [`EMPTY_FIELD`] when absent or
@@ -150,8 +158,10 @@ fn parse_hhmm(time: &str) -> Option<String> {
     }
     t = t.trim_end_matches('Z');
     let mut parts = t.split(':');
-    let hh_s = parts.next()?.trim();
-    let mm_s = parts.next()?.trim();
+    // Components are NOT trimmed: internal whitespace (`15 : 26`) must fail
+    // the strict 2-2 width check below, mirroring parse_date's strictness.
+    let hh_s = parts.next()?;
+    let mm_s = parts.next()?;
     // An optional seconds component is allowed and dropped, but it must still
     // be a valid zero-padded 00-60 value (60 = leap second) — a malformed or
     // out-of-range seconds field means the time component is suspect, so the
@@ -164,8 +174,9 @@ fn parse_hhmm(time: &str) -> Option<String> {
             // Fractional seconds (`53.123`) are valid ISO-8601; validate the
             // whole field (all-digit, non-empty fraction) and drop the
             // fraction like the seconds themselves — `53.foo`/`53.` mean the
-            // timestamp is suspect, so the time component drops.
-            let seconds = ss_s.trim();
+            // timestamp is suspect, so the time component drops. No trimming
+            // here either: `: 53` fails the width check like the others.
+            let seconds = ss_s;
             let ss_s = match seconds.split_once('.') {
                 Some((integer, fraction))
                     if !fraction.is_empty()

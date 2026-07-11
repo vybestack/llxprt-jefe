@@ -427,6 +427,46 @@ fn test_parse_pr_review_threads_cursor_follows_has_next_page() {
     );
 }
 
+/// `hasNextPage=true` with a missing or empty `endCursor` must stop
+/// pagination (None) rather than loop or panic — the truncation is logged.
+#[test]
+fn test_parse_pr_review_threads_cursor_next_page_without_cursor_stops() {
+    let no_cursor = r#"{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [], "pageInfo": {"hasNextPage": true}}}}}}"#;
+    let value: serde_json::Value =
+        serde_json::from_str(no_cursor).value_or_panic("valid no-cursor JSON");
+    assert!(
+        parse_pr_review_threads_cursor(&value).is_none(),
+        "hasNextPage=true without endCursor must stop pagination"
+    );
+
+    let empty_cursor = r#"{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [], "pageInfo": {"hasNextPage": true, "endCursor": ""}}}}}}"#;
+    let value: serde_json::Value =
+        serde_json::from_str(empty_cursor).value_or_panic("valid empty-cursor JSON");
+    assert!(
+        parse_pr_review_threads_cursor(&value).is_none(),
+        "hasNextPage=true with empty endCursor must stop pagination"
+    );
+}
+
+/// A thread node with an empty `comments.nodes` array parses without
+/// panicking: no comments, no parent review id (falls back at grouping).
+#[test]
+fn test_parse_pr_review_threads_empty_comments_array() {
+    let json = r#"{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [
+        {"id": "T1", "isResolved": false, "isOutdated": false, "path": "a.rs", "line": 1,
+         "comments": {"nodes": []}}
+    ]}}}}}"#;
+    let value: serde_json::Value =
+        serde_json::from_str(json).value_or_panic("valid empty-comments JSON");
+    let threads = parse_pr_review_threads(&value);
+    assert_eq!(threads.len(), 1, "commentless thread still parses");
+    assert!(threads[0].comments.is_empty(), "no comments");
+    assert!(
+        threads[0].review_id.is_none(),
+        "no first comment means no parent review id"
+    );
+}
+
 // ── assign_threads_to_reviews grouping (issue #155 follow-up) ────────────
 
 use crate::domain::{PrReview, PrReviewState, PrReviewThread};
