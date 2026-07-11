@@ -364,17 +364,6 @@ impl ContentBuilder {
         Self { lines: Vec::new() }
     }
 
-    /// Push a rendered markdown line under an indent prefix. Blank rendered
-    /// lines (paragraph separators) stay truly empty instead of becoming
-    /// indent-only whitespace lines.
-    fn push_indented(&mut self, prefix: &str, line: &str) {
-        if line.is_empty() {
-            self.lines.push(String::new());
-        } else {
-            self.lines.push(format!("{prefix}{line}"));
-        }
-    }
-
     /// Join the accumulated read-only lines into the final content.
     ///
     /// PR composer cursors belong to the embedded TextBox, so this always
@@ -409,16 +398,13 @@ fn build_body_section(
         // Render the markdown body through comrak instead of dumping it raw
         // (issue #155): headings/rules/lists/code fences/HTML are converted to
         // plain text, indented two spaces to sit under the section label.
-        let rendered = crate::markdown_render::render_markdown_lines(&detail.body);
-        if rendered.is_empty() {
-            // Non-whitespace source that renders to nothing (e.g. only an
-            // HTML comment) still gets the placeholder.
-            builder.lines.push("  (no description)".to_string());
-        } else {
-            for line in rendered {
-                builder.push_indented("  ", &line);
-            }
-        }
+        builder
+            .lines
+            .extend(crate::markdown_render::render_markdown_block(
+                &detail.body,
+                "  ",
+                "(no description)",
+            ));
     }
 }
 
@@ -479,16 +465,13 @@ fn build_single_review(
     if let Some(body) = review.body.as_deref()
         && !body.trim().is_empty()
     {
-        let rendered = crate::markdown_render::render_markdown_lines(body);
-        if rendered.is_empty() {
-            // Non-empty source that renders to nothing (e.g. only an HTML
-            // comment) still gets a placeholder so the review is not a gap.
-            builder.lines.push("    (no body)".to_string());
-        } else {
-            for line in rendered {
-                builder.push_indented("    ", &line);
-            }
-        }
+        builder
+            .lines
+            .extend(crate::markdown_render::render_markdown_block(
+                body,
+                "    ",
+                "(no body)",
+            ));
     }
     // Every review ends with a blank separator (with or without a body) so
     // consecutive reviews never render visually glued together.
@@ -571,14 +554,13 @@ fn build_review_thread_comments(
             "      {}  {}",
             comment.author_login, comment.created_at
         ));
-        let rendered = crate::markdown_render::render_markdown_lines(&comment.body);
-        if rendered.is_empty() {
-            builder.lines.push("        (no body)".to_string());
-        } else {
-            for line in rendered {
-                builder.push_indented("        ", &line);
-            }
-        }
+        builder
+            .lines
+            .extend(crate::markdown_render::render_markdown_block(
+                &comment.body,
+                "        ",
+                "(no body)",
+            ));
     }
 }
 
@@ -656,14 +638,13 @@ fn build_single_comment(
         "{}{}  {}",
         prefix, comment.author_login, comment.created_at
     ));
-    let rendered = crate::markdown_render::render_markdown_lines(&comment.body);
-    if rendered.is_empty() {
-        builder.lines.push("    (no body)".to_string());
-    } else {
-        for line in rendered {
-            builder.push_indented("    ", &line);
-        }
-    }
+    builder
+        .lines
+        .extend(crate::markdown_render::render_markdown_block(
+            &comment.body,
+            "    ",
+            "(no body)",
+        ));
 
     if let InlineState::Composer {
         target: ComposerTarget::Reply { comment_index, .. },

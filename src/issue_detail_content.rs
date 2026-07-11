@@ -225,14 +225,6 @@ impl ContentBuilder {
     /// Push a rendered markdown line under an indent prefix. Blank rendered
     /// lines (paragraph separators) stay truly empty instead of becoming
     /// indent-only whitespace lines.
-    fn push_indented(&mut self, prefix: &str, line: &str) {
-        if line.is_empty() {
-            self.lines.push(String::new());
-        } else {
-            self.lines.push(format!("{prefix}{line}"));
-        }
-    }
-
     fn new() -> Self {
         Self {
             lines: Vec::new(),
@@ -312,14 +304,13 @@ fn build_body_section(
     } else {
         // View mode: render the markdown body through comrak instead of
         // dumping it raw (issue #155 — shared with the PR detail bug).
-        let lines = crate::markdown_render::render_markdown_lines(body_text);
-        if lines.is_empty() {
-            builder.lines.push("    (no description)".to_string());
-        } else {
-            for line in lines {
-                builder.push_indented("    ", &line);
-            }
-        }
+        builder
+            .lines
+            .extend(crate::markdown_render::render_markdown_block(
+                body_text,
+                "    ",
+                "(no description)",
+            ));
     }
     if body_editing {
         builder
@@ -382,14 +373,13 @@ fn build_single_comment(
         // View mode: render the comment body as markdown (issue #155). An
         // empty/whitespace-only body renders a placeholder so the comment is
         // never a visually empty gap.
-        let rendered = crate::markdown_render::render_markdown_lines(comment_text);
-        if rendered.is_empty() {
-            builder.lines.push("      (no body)".to_string());
-        } else {
-            for line in rendered {
-                builder.push_indented("      ", &line);
-            }
-        }
+        builder
+            .lines
+            .extend(crate::markdown_render::render_markdown_block(
+                comment_text,
+                "      ",
+                "(no body)",
+            ));
     }
     if comment_editing {
         builder

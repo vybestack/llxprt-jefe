@@ -52,6 +52,33 @@ pub fn render_markdown_lines(markdown: &str) -> Vec<String> {
     renderer.finish()
 }
 
+/// Render a markdown body into indented screen lines with a placeholder
+/// fallback.
+///
+/// This is the shared shape every detail-content builder uses (issue #155):
+/// blank rendered lines stay truly empty (no indent-only whitespace rows),
+/// non-blank lines get `prefix`, and a body that renders to nothing (empty,
+/// whitespace-only, or stripped-to-nothing such as a lone HTML comment)
+/// yields exactly one `{prefix}{placeholder}` line so the section is never a
+/// silent gap. Centralized here so the PR and Issue builders cannot drift.
+#[must_use]
+pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) -> Vec<String> {
+    let rendered = render_markdown_lines(markdown);
+    if rendered.is_empty() {
+        return vec![format!("{prefix}{placeholder}")];
+    }
+    rendered
+        .into_iter()
+        .map(|line| {
+            if line.is_empty() {
+                line
+            } else {
+                format!("{prefix}{line}")
+            }
+        })
+        .collect()
+}
+
 /// Build the comrak options used everywhere in jefe: GFM extensions
 /// (strikethrough, tables, task lists, autolinks, footnotes) plus
 /// `render.r#unsafe` so raw-HTML nodes appear in the AST and can be converted
@@ -353,6 +380,12 @@ impl MarkdownRenderer {
                     self.render_block(child, indent + 1);
                 }
             }
+        }
+        if first {
+            // A childless item (e.g. a bare `-` line) still emits its marker
+            // so the entry stays visible instead of vanishing from the list.
+            let pad = LIST_INDENT.repeat(indent);
+            self.push(format!("{pad}{marker}"));
         }
     }
 
@@ -710,16 +743,17 @@ fn pad_cell(cell: &str, width: usize, align: TableAlignment) -> String {
     }
 }
 
-/// Build the dashed separator for a table column.
+/// Build the dashed separator for a table column. Every alignment spans
+/// exactly `max(width, 3)` display columns and mirrors the GFM source shape
+/// (`:---:` center, `---:` right, `---` left/none) so the separator reads as
+/// the alignment it declares.
 fn dashes(width: usize, align: TableAlignment) -> String {
     let min = width.max(3);
     match align {
         TableAlignment::Center => {
-            let left = min / 2;
-            let right = min - left;
-            format!(":{}:{}", "-".repeat(left), "-".repeat(right))
+            format!(":{}:", "-".repeat(min.saturating_sub(2)))
         }
-        TableAlignment::Right => format!("{}:", "-".repeat(min)),
+        TableAlignment::Right => format!("{}:", "-".repeat(min.saturating_sub(1))),
         TableAlignment::Left | TableAlignment::None => "-".repeat(min),
     }
 }

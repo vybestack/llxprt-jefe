@@ -33,10 +33,11 @@ pub fn field_list(values: &[String]) -> String {
 ///
 /// Accepts the forms `gh` returns (`2026-07-06T15:26:53Z` and the date-only
 /// `2026-07-06`) and renders `Jul 6, 2026` (or `Jul 6, 2026 15:26` when a time
-/// component is present). Anything that does not parse is returned unchanged so
-/// a surprising timestamp never blanks out the header — the raw value is the
-/// fallback (issue #155: raw ISO timestamps are the defect being fixed, but a
-/// parse failure must degrade to the original, not to an empty field).
+/// component is present). Anything that does not parse falls back to the
+/// trimmed input so a surprising timestamp never blanks out the header — the
+/// raw (whitespace-trimmed) value is the fallback (issue #155: raw ISO
+/// timestamps are the defect being fixed, but a parse failure must degrade to
+/// the original text, not to an empty field).
 ///
 /// This is dependency-free (no `chrono`/`time` crate) to keep comrak the only
 /// new dependency introduced by the detail redesign.
@@ -145,7 +146,9 @@ fn parse_hhmm(time: &str) -> Option<String> {
     match (parts.next(), parts.next()) {
         (None, _) => {}
         (Some(ss_s), None) => {
-            let ss_s = ss_s.trim();
+            // Fractional seconds (`53.123`) are valid ISO-8601; validate the
+            // integer part and drop the fraction like the seconds themselves.
+            let ss_s = ss_s.trim().split('.').next().unwrap_or_default();
             if ss_s.len() != 2 {
                 return None;
             }
@@ -450,5 +453,19 @@ mod tests {
         assert_eq!(format_iso_date("2026-07-06T15:26:99Z"), "Jul 6, 2026");
         assert_eq!(format_iso_date("2026-07-06T15:26:5Z"), "Jul 6, 2026");
         assert_eq!(format_iso_date("2026-07-06T15:26:60Z"), "Jul 6, 2026 15:26");
+    }
+
+    /// Fractional seconds are valid ISO-8601 and must not defeat the HH:MM
+    /// extraction (the integer part validates; the fraction drops).
+    #[test]
+    fn format_iso_date_fractional_seconds() {
+        assert_eq!(
+            format_iso_date("2026-07-06T15:26:53.123Z"),
+            "Jul 6, 2026 15:26"
+        );
+        assert_eq!(
+            format_iso_date("2026-07-06T15:26:53.123+02:00"),
+            "Jul 6, 2026 15:26"
+        );
     }
 }

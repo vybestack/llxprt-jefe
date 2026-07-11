@@ -221,6 +221,51 @@ fn table_renders_aligned_columns() {
     );
 }
 
+/// Center/right alignment separators mirror the GFM source shape and span
+/// the full column width (`:---:` / `---:`), never a misplaced mid-colon.
+#[test]
+fn table_alignment_separators_match_gfm_shape() {
+    let out = render(
+        "| a | b | c |
+|:-:|--:|---|
+| x | y | z |
+",
+    );
+    assert!(
+        out.contains(":-:") || out.contains(":--"),
+        "center separator has colons on both ends: {out}"
+    );
+    let Some(sep_line) = out.lines().find(|l| l.contains(':')) else {
+        panic!("alignment separator line missing: {out}");
+    };
+    for part in sep_line.split_whitespace() {
+        let inner = part.trim_start_matches(':').trim_end_matches(':');
+        assert!(
+            inner.chars().all(|c| c == '-'),
+            "separator segment is colons around dashes only: {part:?} in {out}"
+        );
+    }
+}
+
+/// A childless list item (bare `-` with nothing after it, no children in the
+/// AST) still emits its marker instead of vanishing from the list.
+#[test]
+fn childless_list_item_emits_marker() {
+    let out = render(
+        "- first
+-
+- third",
+    );
+    let marker_lines = out
+        .lines()
+        .filter(|l| l.trim_start().starts_with('*'))
+        .count();
+    assert!(
+        marker_lines >= 3,
+        "all three items render markers (childless included): {out:?}"
+    );
+}
+
 #[test]
 fn blockquote_is_marked() {
     let out = render("> quoted text");

@@ -512,13 +512,24 @@ fn resolved_thread_collapses_body_when_not_focused() {
 /// `detail`, so tests target the resolved thread structurally instead of via
 /// a hardcoded index that fixture edits could silently retarget.
 fn resolved_thread_flat_idx(detail: &PullRequestDetail) -> usize {
+    thread_flat_idx(detail, |t| t.is_resolved, "resolved")
+}
+
+/// Flat index of the first thread matching `pred`, so tests target threads
+/// structurally instead of via hardcoded indices that fixture edits could
+/// silently retarget.
+fn thread_flat_idx(
+    detail: &PullRequestDetail,
+    pred: fn(&crate::domain::PrReviewThread) -> bool,
+    label: &str,
+) -> usize {
     let Some(idx) = detail
         .reviews
         .iter()
         .flat_map(|r| r.review_threads.iter())
-        .position(|t| t.is_resolved)
+        .position(pred)
     else {
-        panic!("fixture must contain a resolved thread");
+        panic!("fixture must contain a {label} thread");
     };
     idx
 }
@@ -589,7 +600,7 @@ fn outdated_thread_collapses_and_shows_outdated_tag() {
     // Focus expands it, tag stays.
     let focused = build_pr_detail_content(
         &detail,
-        PrDetailSubfocus::ReviewThread(0),
+        PrDetailSubfocus::ReviewThread(thread_flat_idx(&detail, |t| t.is_outdated, "outdated")),
         &InlineState::None,
         false,
         false,
