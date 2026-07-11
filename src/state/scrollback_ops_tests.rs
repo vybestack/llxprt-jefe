@@ -267,6 +267,7 @@ fn reconcile_preserves_absolute_viewport_position() {
         fg: Color::White,
         bg: Color::Black,
         bold: false,
+        dim: false,
         underline: false,
     };
     let make_history = |n: usize| (0..n).map(|i| format!("row{i}")).collect::<Vec<_>>();

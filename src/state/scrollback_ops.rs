@@ -222,6 +222,41 @@ pub fn terminal_follow_indicator(offset: Option<usize>) -> Option<FollowIndicato
     })
 }
 
+/// Map a terminal-scroll `UiNavigationMessage` to a [`ScrollRequest`] and apply
+/// it, writing the resulting offset back through `offset`.
+///
+/// `message` values that are not terminal-scroll messages are a no-op. This
+/// keeps the message→request translation in the pure policy module so the
+/// reducer stays small.
+pub fn apply_terminal_scroll_message(
+    offset: &mut Option<usize>,
+    total_lines: usize,
+    viewport_rows: usize,
+    message: crate::messages::UiNavigationMessage,
+) {
+    let Some(request) = scroll_request_for_message(message) else {
+        return;
+    };
+    *offset = apply_scroll_request(*offset, total_lines, viewport_rows, request);
+}
+
+/// Translate a terminal-scroll message into its [`ScrollRequest`], or `None`
+/// for non-scroll messages.
+fn scroll_request_for_message(
+    message: crate::messages::UiNavigationMessage,
+) -> Option<ScrollRequest> {
+    use crate::messages::UiNavigationMessage as M;
+    Some(match message {
+        M::TerminalScrollUp => ScrollRequest::Up,
+        M::TerminalScrollDown => ScrollRequest::Down,
+        M::TerminalScrollPageUp => ScrollRequest::PageUp,
+        M::TerminalScrollPageDown => ScrollRequest::PageDown,
+        M::TerminalFollowTail => ScrollRequest::FollowTail,
+        M::TerminalScrollToTop => ScrollRequest::ToTop,
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 #[path = "scrollback_ops_tests.rs"]
 mod tests;

@@ -21,6 +21,10 @@ use super::liveness;
 use super::session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 use crate::domain::{AgentId, LaunchSignature, RemoteRepositorySettings};
 
+#[path = "history_cache.rs"]
+mod history_cache;
+use history_cache::{HistoryCache, strip_trailing_rows};
+
 /// Maximum number of dead-session launch signatures retained for relaunch.
 ///
 /// Repeated kill/recreate cycles of *different* agents would otherwise grow
@@ -268,6 +272,7 @@ impl RuntimeManager for StubRuntimeManager {
                 },
                 bg: iocraft::Color::Rgb { r: 0, g: 0, b: 0 },
                 bold: false,
+                dim: false,
                 underline: false,
             };
             TerminalSnapshot::blank(1, 1, style)
@@ -326,69 +331,6 @@ impl RuntimeManager for StubRuntimeManager {
     fn capture_history(&mut self) -> Option<Vec<String>> {
         None
     }
-}
-
-/// Cached scrollback history for the currently attached session (issue #198).
-///
-/// Invalidated (re-captured) only when the output generation advances or the
-/// attached session changes. `lines` is `Option<Vec<String>>`:
-/// - `None` = no cache (never captured or invalidated).
-/// - `Some(vec![])` = cached empty capture (review fix #7).
-/// - `Some(non-empty)` = cached lines.
-///
-/// Caching the empty result avoids shelling out to `capture-pane` every render
-/// frame for a session with no scrollback.
-#[derive(Debug, Clone, Default)]
-struct HistoryCache {
-    cached_agent: Option<AgentId>,
-    generation: u64,
-    lines: Option<Vec<String>>,
-}
-
-impl HistoryCache {
-    fn get(&self, agent_id: &AgentId, generation: u64) -> Option<&Vec<String>> {
-        if self.cached_agent.as_ref() == Some(agent_id)
-            && self.generation == generation
-            && let Some(ref lines) = self.lines
-        {
-            Some(lines)
-        } else {
-            None
-        }
-    }
-
-    fn get_fallback(&self, agent_id: &AgentId) -> Option<&Vec<String>> {
-        if self.cached_agent.as_ref() == Some(agent_id)
-            && let Some(ref lines) = self.lines
-        {
-            Some(lines)
-        } else {
-            None
-        }
-    }
-
-    fn store(&mut self, agent_id: &AgentId, generation: u64, lines: Option<Vec<String>>) {
-        self.cached_agent = Some(agent_id.clone());
-        self.generation = generation;
-        self.lines = lines;
-    }
-
-    /// Invalidate the cache for `agent_id` (review fix #8).
-    fn clear(&mut self, agent_id: &AgentId) {
-        if self.cached_agent.as_ref() == Some(agent_id) {
-            self.lines = None;
-            self.cached_agent = None;
-        }
-    }
-}
-
-/// Strip the last `n` lines from `lines`, returning the remaining prefix
-/// (issue #198 review fix #1). The live snapshot already represents the
-/// visible pane, so the history capture must exclude those rows.
-#[must_use]
-fn strip_trailing_rows(lines: Vec<String>, n: usize) -> Vec<String> {
-    let keep = lines.len().saturating_sub(n);
-    lines.into_iter().take(keep).collect()
 }
 
 /// Real tmux-based runtime manager.
@@ -922,6 +864,7 @@ impl RuntimeManager for TmuxRuntimeManager {
             fg: iocraft::Color::White,
             bg: iocraft::Color::Black,
             bold: false,
+            dim: false,
             underline: false,
         };
 

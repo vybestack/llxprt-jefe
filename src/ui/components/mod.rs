@@ -71,6 +71,8 @@ mod selectable_line;
 pub(crate) mod selectable_list;
 mod sidebar;
 mod status_bar;
+/// Jefe-theme override logic for the embedded agent terminal (issue #179).
+mod terminal_theme;
 mod terminal_view;
 /// Pure viewport projection for terminal scrollback (issue #198).
 /// iocraft-free, `#[must_use]`, unit-testable directly.

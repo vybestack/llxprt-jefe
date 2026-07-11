@@ -90,6 +90,8 @@ pub enum AppEvent {
     /// The slug is derived from the modal's `selected_index` at dispatch time
     /// (see `modal_handlers::apply_theme_picker_selection`).
     ThemePickerConfirm,
+    /// Toggle the "Apply jefe theme to agent" theme-picker checkbox (issue #179).
+    ThemePickerToggleOverride,
     CloseThemePicker,
 
     // System

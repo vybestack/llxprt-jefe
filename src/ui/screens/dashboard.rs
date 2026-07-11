@@ -209,6 +209,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                             session_live: session_live,
                             history_lines: props.history_lines.clone(),
                             terminal_history_offset: state.and_then(|s| s.terminal_history_offset),
+                            override_theme: state.is_some_and(|s| s.override_agent_theme),
                         )
                     }
                 }

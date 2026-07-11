@@ -281,6 +281,11 @@ pub fn handle_mode_theme_picker_key(
             apply_and_persist(app_state, ctx, AppEvent::ThemePickerNavigateDown);
             preview_theme_selection(app_state, ctx);
         }
+        KeyCode::Tab => {
+            // Pure modal-flag toggle (issue #179). The runtime mirror is only
+            // committed on Enter via the reducer, so no preview/restore needed.
+            apply_and_persist(app_state, ctx, AppEvent::ThemePickerToggleOverride);
+        }
         KeyCode::Enter => {
             apply_theme_picker_selection(app_state, ctx);
         }
@@ -334,6 +339,9 @@ fn revert_theme_to_active(app_state: &AppStateHandle, ctx: &SharedContext) {
         }
     };
 
+    // Only the theme selection was live-previewed (into the ThemeManager), so
+    // reverting it is sufficient. The override toggle lives entirely in the
+    // modal and is discarded on cancel (issue #179) — no restore needed.
     if let Some(slug) = active_slug
         && let Some(ctx_arc) = ctx
         && let Ok(mut ctx_guard) = ctx_arc.lock()
@@ -345,17 +353,23 @@ fn revert_theme_to_active(app_state: &AppStateHandle, ctx: &SharedContext) {
 
 /// Apply the selected theme from the picker, persist to settings.toml, then close.
 fn apply_theme_picker_selection(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let selected_slug = {
+    // Read both the selected slug and the in-dialog override toggle in a single
+    // short read lock (issue #179).
+    let (selected_slug, override_theme) = {
         let state = app_state.read();
         match &state.modal {
             ModalState::ThemePicker {
                 available_themes,
                 selected_index,
+                override_theme,
                 ..
-            } => available_themes
-                .get(*selected_index)
-                .map(|(slug, _)| slug.clone()),
-            _ => None,
+            } => (
+                available_themes
+                    .get(*selected_index)
+                    .map(|(slug, _)| slug.clone()),
+                *override_theme,
+            ),
+            _ => (None, state.override_agent_theme),
         }
     };
 
@@ -374,6 +388,7 @@ fn apply_theme_picker_selection(app_state: &mut AppStateHandle, ctx: &SharedCont
                 match ctx_guard.persistence.load_settings() {
                     Ok(mut settings) => {
                         settings.theme = active_slug;
+                        settings.override_agent_theme = override_theme;
                         Some((settings, path))
                     }
                     Err(e) => {
@@ -400,7 +415,6 @@ fn apply_theme_picker_selection(app_state: &mut AppStateHandle, ctx: &SharedCont
     // Close the picker regardless of persistence outcome.
     apply_and_persist(app_state, ctx, AppEvent::ThemePickerConfirm);
 }
-
 fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     // Check if this is a WorkflowDispatch modal submit — route it through
     // the Actions orchestration so the dispatch actually happens.

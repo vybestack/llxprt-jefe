@@ -160,6 +160,9 @@ impl AppMessage {
             AppEvent::ThemePickerNavigateUp => Self::Theme(ThemeMessage::PickerNavigateUp),
             AppEvent::ThemePickerNavigateDown => Self::Theme(ThemeMessage::PickerNavigateDown),
             AppEvent::ThemePickerConfirm => Self::Theme(ThemeMessage::PickerConfirm),
+            AppEvent::ThemePickerToggleOverride => {
+                Self::Theme(ThemeMessage::ToggleAgentThemeOverride)
+            }
             AppEvent::CloseThemePicker => Self::Theme(ThemeMessage::PickerCancel),
             AppEvent::Quit => Self::System(SystemMessage::Quit),
             AppEvent::ClearError => Self::System(SystemMessage::ClearError),
@@ -450,6 +453,7 @@ impl From<ThemeMessage> for AppEvent {
             ThemeMessage::PickerNavigateUp => Self::ThemePickerNavigateUp,
             ThemeMessage::PickerNavigateDown => Self::ThemePickerNavigateDown,
             ThemeMessage::PickerConfirm => Self::ThemePickerConfirm,
+            ThemeMessage::ToggleAgentThemeOverride => Self::ThemePickerToggleOverride,
             ThemeMessage::PickerCancel => Self::CloseThemePicker,
         }
     }

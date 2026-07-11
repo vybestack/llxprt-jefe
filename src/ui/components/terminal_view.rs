@@ -22,6 +22,9 @@
 
 use iocraft::prelude::*;
 
+use super::terminal_theme::{
+    TerminalThemeOverride, resolve_run_colors, terminal_content_background, terminal_weight,
+};
 use crate::runtime::{TerminalCell, TerminalSnapshot};
 use crate::selection::{SelectablePane, TextSelection, row_highlight_range};
 use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
@@ -48,6 +51,10 @@ pub struct TerminalViewProps {
     /// Terminal scrollback offset: `None` = follow-tail (live), `Some(n)` =
     /// scrolled back `n` lines. Drives the viewport projection + indicator.
     pub terminal_history_offset: Option<usize>,
+    /// When true, jefe's theme fg/bg is force-applied to the agent terminal's
+    /// default (transparent) cells, while explicitly-styled cells pass through
+    /// unchanged (issue #179 override toggle).
+    pub override_theme: bool,
 }
 
 /// Empty-state message for the terminal pane when no snapshot is available.
@@ -87,6 +94,7 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
         fg: iocraft::Color::White,
         bg: rc.bg,
         bold: false,
+        dim: false,
         underline: false,
     };
 
@@ -133,13 +141,20 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
 
             // Terminal content. A single low-level canvas node draws the whole
             // grid; see module docs for why this is not a flex tree.
+            //
             // The follow indicator is overlaid on the last grid row by the
             // canvas draw, NOT as a separate flex Box, so it does not consume
             // a content row (issue #198 review fix #6).
+            //
+            // The content-area fill is transparent (Color::Reset) when theme
+            // override is OFF, so the embedded agent's default cells let the
+            // host terminal's real background show through instead of jefe's
+            // theme bg bleeding in (issue #179). Override ON fills with jefe's
+            // theme bg. Chrome (border, title bar) always carries rc.bg.
             Box(
                 flex_direction: FlexDirection::Column,
                 flex_grow: 1.0_f32,
-                background_color: rc.bg,
+                background_color: terminal_content_background(props.override_theme, rc.bg),
             ) {
                 #(if let Some(snapshot) = projected_snapshot {
                     element! {
@@ -151,12 +166,20 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
                             indicator_text: indicator.as_ref().map(|ind| ind.text.clone()),
                             dim_color: rc.dim,
                             bg_color: rc.bg,
+                            theme_override: TerminalThemeOverride {
+                                enabled: props.override_theme,
+                                fg: rc.fg,
+                                bg: rc.bg,
+                            },
                         )
                     }
                     .into_any()
                 } else {
                     element! {
-                        Box {
+                        Box(background_color: terminal_content_background(
+                            props.override_theme,
+                            rc.bg,
+                        )) {
                             Text(content: terminal_empty_message(props.session_live), color: rc.dim)
                         }
                     }
@@ -190,6 +213,8 @@ struct TerminalGridProps {
     dim_color: iocraft::Color,
     /// Background color for the indicator overlay.
     bg_color: iocraft::Color,
+    /// Jefe-theme override for the agent's default cells (issue #179).
+    theme_override: TerminalThemeOverride,
 }
 
 impl Default for TerminalGridProps {
@@ -205,6 +230,7 @@ impl Default for TerminalGridProps {
             indicator_text: None,
             dim_color: Color::Reset,
             bg_color: Color::Reset,
+            theme_override: TerminalThemeOverride::default(),
         }
     }
 }
@@ -223,6 +249,7 @@ struct TerminalGrid {
     indicator_text: Option<String>,
     dim_color: iocraft::Color,
     bg_color: iocraft::Color,
+    theme_override: TerminalThemeOverride,
 }
 
 impl Default for TerminalGrid {
@@ -238,6 +265,7 @@ impl Default for TerminalGrid {
             indicator_text: None,
             dim_color: Color::Reset,
             bg_color: Color::Reset,
+            theme_override: TerminalThemeOverride::default(),
         }
     }
 }
@@ -262,6 +290,7 @@ impl Component for TerminalGrid {
         self.indicator_text.clone_from(&props.indicator_text);
         self.dim_color = props.dim_color;
         self.bg_color = props.bg_color;
+        self.theme_override = props.theme_override;
 
         // Fill the available space; the parent Box constrains us to the pane.
         // Build the taffy style directly so node count stays at one leaf.
@@ -283,7 +312,13 @@ impl Component for TerminalGrid {
         }
 
         let mut canvas = drawer.canvas();
-        paint_terminal_cells(&mut canvas, &self.snapshot, max_rows, max_cols);
+        paint_terminal_cells(
+            &mut canvas,
+            &self.snapshot,
+            max_rows,
+            max_cols,
+            self.theme_override,
+        );
         let overlay = SelectionOverlay {
             selection: self.selection,
             content_start_line: self.content_start_line,
@@ -307,6 +342,7 @@ fn paint_terminal_cells(
     snapshot: &TerminalSnapshot,
     max_rows: usize,
     max_cols: usize,
+    theme_override: TerminalThemeOverride,
 ) {
     for (row_idx, row) in snapshot
         .cells
@@ -321,19 +357,16 @@ fn paint_terminal_cells(
             let Some(x) = canvas_coord(run.start_col) else {
                 continue;
             };
+            let (text_color, fill_color) = resolve_run_colors(&run.style, theme_override);
             // CanvasTextStyle is #[non_exhaustive]; build via Default then set fields.
             let mut style = CanvasTextStyle::default();
-            style.color = Some(run.style.fg);
-            style.weight = if run.style.bold {
-                Weight::Bold
-            } else {
-                Weight::Normal
-            };
+            style.color = Some(text_color);
+            style.weight = terminal_weight(&run.style);
             style.underline = run.style.underline;
 
-            // Background is painted as a filled region under the run so that
-            // per-cell background colors are preserved.
-            canvas.set_background_color(x, y, run.width, 1, run.style.bg);
+            if let Some(fill) = fill_color {
+                canvas.set_background_color(x, y, run.width, 1, fill);
+            }
             canvas.set_text(x, y, &run.text, style);
         }
     }
@@ -552,6 +585,7 @@ mod tests {
             fg: Color::AnsiValue(fg),
             bg: Color::Black,
             bold: false,
+            dim: false,
             underline: false,
         }
     }

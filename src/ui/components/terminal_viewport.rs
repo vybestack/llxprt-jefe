@@ -171,6 +171,7 @@ mod tests {
             fg: Color::White,
             bg: Color::Black,
             bold: false,
+            dim: false,
             underline: false,
         }
     }
@@ -294,6 +295,7 @@ mod tests {
             fg: Color::Red,
             bg: Color::Blue,
             bold: true,
+            dim: false,
             underline: true,
         };
         let live_cell = TerminalCell {

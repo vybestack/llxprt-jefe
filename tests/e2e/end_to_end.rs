@@ -209,6 +209,7 @@ fn persistence_settings_theme_integration() {
     let settings = Settings {
         schema_version: 1,
         theme: "green-screen".into(),
+        override_agent_theme: false,
     };
     persistence
         .save_settings(&settings)

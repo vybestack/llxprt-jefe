@@ -283,6 +283,7 @@ fn recovery_after_save_to_readonly_fails() {
     let settings = Settings {
         schema_version: SETTINGS_SCHEMA_VERSION,
         theme: "green-screen".into(),
+        override_agent_theme: false,
     };
     let result = mgr.save_settings(&settings);
     assert!(result.is_ok());

@@ -73,6 +73,12 @@ pub const STATE_SCHEMA_VERSION: u32 = 1;
 pub struct Settings {
     pub schema_version: u32,
     pub theme: String,
+    /// When true, jefe applies its theme fg/bg to the embedded agent CLI's
+    /// default (transparent) cells, while leaving the agent's explicit ANSI
+    /// styling alone. Off by default (issue #179). Uses `#[serde(default)]`
+    /// so old settings.toml files without this field deserialize cleanly.
+    #[serde(default)]
+    pub override_agent_theme: bool,
 }
 
 impl Settings {
@@ -81,6 +87,7 @@ impl Settings {
         Self {
             schema_version: SETTINGS_SCHEMA_VERSION,
             theme: String::from("green-screen"),
+            override_agent_theme: false,
         }
     }
 }

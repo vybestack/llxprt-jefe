@@ -79,6 +79,10 @@ pub struct TerminalCellStyle {
     pub bg: iocraft::Color,
     /// Bold weight.
     pub bold: bool,
+    /// Dim/faint intensity (ANSI SGR 2). Tracked separately from the color so
+    /// a default-colored (transparent) cell can still render dimmed — the
+    /// foreground stays `Color::Reset` and the renderer applies `Weight::Light`.
+    pub dim: bool,
     /// Underline decoration.
     pub underline: bool,
 }

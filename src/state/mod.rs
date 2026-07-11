@@ -43,11 +43,7 @@ mod types;
 mod util;
 
 pub use events::*;
-pub use scrollback_ops::{
-    FollowIndicator, max_scroll_offset, reconcile_offset_for_new_content, terminal_at_bottom,
-    terminal_content_start_line, terminal_follow_indicator, terminal_scroll_down,
-    terminal_scroll_page_down, terminal_scroll_page_up, terminal_scroll_up,
-};
+pub use scrollback_ops::{FollowIndicator, terminal_follow_indicator};
 pub use state_ops::{delete_selected_agent, delete_selected_repository};
 pub use types::*;
 
@@ -58,8 +54,7 @@ pub use form_projection::{
 
 use tracing::{debug, trace};
 
-use crate::domain::{Agent, AgentId, AgentStatus};
-use crate::domain::{Repository, RepositoryId};
+use crate::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use crate::messages::{
     AppMessage, MessageRoute, PersistenceMessage, RuntimeMessage, SystemMessage, ThemeMessage,
     UiNavigationMessage,
@@ -490,28 +485,15 @@ impl AppState {
             | UiNavigationMessage::TerminalScrollPageUp
             | UiNavigationMessage::TerminalScrollPageDown
             | UiNavigationMessage::TerminalFollowTail
-            | UiNavigationMessage::TerminalScrollToTop => self.apply_terminal_scroll(message),
+            | UiNavigationMessage::TerminalScrollToTop => {
+                scrollback_ops::apply_terminal_scroll_message(
+                    &mut self.terminal_history_offset,
+                    self.terminal_total_lines,
+                    self.terminal_viewport_rows,
+                    message,
+                );
+            }
         }
-    }
-
-    /// Apply a terminal scrollback event (issue #198). Extracted to stay
-    /// within the line budget.
-    fn apply_terminal_scroll(&mut self, message: UiNavigationMessage) {
-        let request = match message {
-            UiNavigationMessage::TerminalScrollUp => scrollback_ops::ScrollRequest::Up,
-            UiNavigationMessage::TerminalScrollDown => scrollback_ops::ScrollRequest::Down,
-            UiNavigationMessage::TerminalScrollPageUp => scrollback_ops::ScrollRequest::PageUp,
-            UiNavigationMessage::TerminalScrollPageDown => scrollback_ops::ScrollRequest::PageDown,
-            UiNavigationMessage::TerminalFollowTail => scrollback_ops::ScrollRequest::FollowTail,
-            UiNavigationMessage::TerminalScrollToTop => scrollback_ops::ScrollRequest::ToTop,
-            _ => return,
-        };
-        self.terminal_history_offset = scrollback_ops::apply_scroll_request(
-            self.terminal_history_offset,
-            self.terminal_total_lines,
-            self.terminal_viewport_rows,
-            request,
-        );
     }
 
     fn cycle_pane_focus(&mut self) {
@@ -766,6 +748,7 @@ impl AppState {
                     available_themes,
                     selected_index,
                     active_slug,
+                    override_theme: self.override_agent_theme,
                 };
             }
             ThemeMessage::PickerNavigateUp => {
@@ -786,7 +769,21 @@ impl AppState {
                     *selected_index += 1;
                 }
             }
-            ThemeMessage::PickerConfirm | ThemeMessage::PickerCancel => {
+            ThemeMessage::ToggleAgentThemeOverride => {
+                if let ModalState::ThemePicker { override_theme, .. } = &mut self.modal {
+                    *override_theme = !*override_theme;
+                }
+            }
+            ThemeMessage::PickerConfirm => {
+                // Commit the in-dialog override toggle to the runtime mirror
+                // before closing (issue #179). Persistence is applied by the
+                // input layer; this keeps the state transition deterministic.
+                if let ModalState::ThemePicker { override_theme, .. } = &self.modal {
+                    self.override_agent_theme = *override_theme;
+                }
+                self.modal = ModalState::None;
+            }
+            ThemeMessage::PickerCancel => {
                 self.modal = ModalState::None;
             }
         }
