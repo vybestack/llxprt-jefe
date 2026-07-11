@@ -231,9 +231,16 @@ fn table_alignment_separators_match_gfm_shape() {
 | x | y | z |
 ",
     );
+    // The fixture's columns are all width 3, so the separators are exactly
+    // `:-:` (center), `--:` (right), and `---` (left) — assert each shape
+    // so a flipped colon on any alignment fails the test.
     assert!(
-        out.contains(":-:") || out.contains(":--"),
+        out.contains(":-:"),
         "center separator has colons on both ends: {out}"
+    );
+    assert!(
+        out.contains("--:"),
+        "right separator has its colon on the right: {out}"
     );
     let Some(sep_line) = out.lines().find(|l| l.contains(':')) else {
         panic!("alignment separator line missing: {out}");
