@@ -293,3 +293,7 @@ fn decode_entity(entity: &str) -> Option<String> {
     }
     Some(c.to_string())
 }
+
+#[cfg(test)]
+#[path = "markdown_html_strip_tests.rs"]
+mod tests;
