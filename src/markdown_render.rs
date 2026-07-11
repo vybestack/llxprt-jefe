@@ -281,13 +281,18 @@ impl MarkdownRenderer {
                         lines.extend(wrap_indent_cols(&src, cont_cols));
                     }
                     if first {
+                        let pad = LIST_INDENT.repeat(indent);
                         if let Some(first_line) = lines.first_mut() {
                             // wrap_indent_cols already prefixed every line
                             // with `cont_cols` spaces; replace that prefix on
                             // the first line with the list indent + marker.
-                            let pad = LIST_INDENT.repeat(indent);
                             let rest = first_line.split_off(cont_cols);
                             *first_line = format!("{pad}{marker} {rest}");
+                        } else {
+                            // First paragraph rendered to nothing (e.g. only
+                            // an HTML comment): still emit the bare marker so
+                            // the item stays recognizably a list entry.
+                            self.push(format!("{pad}{marker}"));
                         }
                         first = false;
                     }

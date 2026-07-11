@@ -60,12 +60,16 @@ fn fenced_code_block_is_framed() {
         out.contains(CODE_FENCE_SIDE),
         "code block is rule-framed: {out}"
     );
-    // The fence top/bottom borders must not carry trailing whitespace.
+    // Both fence borders must be present and free of trailing whitespace.
+    let top = out.lines().find(|l| l.contains(CODE_FENCE_TOP));
+    let bottom = out.lines().find(|l| l.contains(CODE_FENCE_BOTTOM));
     assert!(
-        !out.lines()
-            .any(|l| l.ends_with(' ')
-                && (l.contains(CODE_FENCE_TOP) || l.contains(CODE_FENCE_BOTTOM))),
-        "no trailing whitespace on fence borders: {out:?}"
+        top.is_some_and(|l| !l.ends_with(' ')),
+        "fence top present without trailing whitespace: {out:?}"
+    );
+    assert!(
+        bottom.is_some_and(|l| !l.ends_with(' ')),
+        "fence bottom present without trailing whitespace: {out:?}"
     );
 }
 
@@ -252,7 +256,8 @@ fn paragraph_breaks_preserved() {
 fn content_after_html_block_is_separated() {
     let out = render("<details><summary>S</summary>body</details>\n\nafter");
     assert!(out.contains("after"), "trailing paragraph present: {out}");
-    // A blank line must separate the HTML block from the following paragraph.
+    // The line immediately before the following paragraph must be blank so
+    // the HTML block never renders glued to trailing content.
     let after_idx = out
         .lines()
         .position(|l| l.contains("after"))
@@ -263,7 +268,7 @@ fn content_after_html_block_is_separated() {
         .nth(after_idx.saturating_sub(1))
         .unwrap_or("<missing>");
     assert!(
-        prev.is_empty() || out.lines().take(after_idx).any(str::is_empty),
+        prev.is_empty(),
         "HTML block separated from trailing content by a blank: {out}"
     );
 }
