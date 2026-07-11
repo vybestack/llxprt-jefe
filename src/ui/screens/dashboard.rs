@@ -204,6 +204,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                             colors: colors.clone(),
                             selection: selection,
                             session_live: session_live,
+                            override_theme: state.is_some_and(|s| s.override_agent_theme),
                         )
                     }
                 }

@@ -43,6 +43,10 @@ pub struct TerminalViewProps {
     /// attaching). When true the empty-state copy distinguishes a healthy live
     /// session from a genuinely unattached terminal (issue #160).
     pub session_live: bool,
+    /// When true, jefe's theme fg/bg is force-applied to the agent terminal's
+    /// default (transparent) cells, while explicitly-styled cells pass through
+    /// unchanged (issue #179 override toggle).
+    pub override_theme: bool,
 }
 
 /// Empty-state message for the terminal pane when no snapshot is available.
@@ -108,6 +112,11 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
                             snapshot: snapshot,
                             selection: props.selection,
                             sel_colors: SelectionColors::from_resolved(&rc),
+                            theme_override: TerminalThemeOverride {
+                                enabled: props.override_theme,
+                                fg: rc.fg,
+                                bg: rc.bg,
+                            },
                         )
                     }
                     .into_any()
@@ -134,6 +143,8 @@ struct TerminalGridProps {
     selection: Option<TextSelection>,
     /// Selection foreground + background colors (inverse-video).
     sel_colors: SelectionColors,
+    /// Jefe-theme override for the agent's default cells (issue #179).
+    theme_override: TerminalThemeOverride,
 }
 
 impl Default for TerminalGridProps {
@@ -145,6 +156,7 @@ impl Default for TerminalGridProps {
                 fg: Color::Reset,
                 bg: Color::Reset,
             },
+            theme_override: TerminalThemeOverride::default(),
         }
     }
 }
@@ -159,6 +171,7 @@ struct TerminalGrid {
     snapshot: TerminalSnapshot,
     selection: Option<TextSelection>,
     sel_colors: SelectionColors,
+    theme_override: TerminalThemeOverride,
 }
 
 impl Default for TerminalGrid {
@@ -170,6 +183,7 @@ impl Default for TerminalGrid {
                 fg: Color::Reset,
                 bg: Color::Reset,
             },
+            theme_override: TerminalThemeOverride::default(),
         }
     }
 }
@@ -190,6 +204,7 @@ impl Component for TerminalGrid {
         self.snapshot = props.snapshot.clone();
         self.selection = props.selection;
         self.sel_colors = props.sel_colors;
+        self.theme_override = props.theme_override;
 
         // Fill the available space; the parent Box constrains us to the pane.
         // Build the taffy style directly so node count stays at one leaf.
@@ -211,7 +226,13 @@ impl Component for TerminalGrid {
         }
 
         let mut canvas = drawer.canvas();
-        paint_terminal_cells(&mut canvas, &self.snapshot, max_rows, max_cols);
+        paint_terminal_cells(
+            &mut canvas,
+            &self.snapshot,
+            max_rows,
+            max_cols,
+            self.theme_override,
+        );
         paint_selection_overlay(
             &mut canvas,
             &self.snapshot,
@@ -223,12 +244,86 @@ impl Component for TerminalGrid {
     }
 }
 
+/// Bundled jefe-theme override for the embedded agent terminal (issue #179).
+///
+/// When `enabled` is true, runs whose fg/bg is `Color::Reset` (terminal
+/// default) are repainted with `fg`/`bg` so the agent pane matches jefe's
+/// theme. Explicitly-styled cells pass through unchanged. Carried as a single
+/// value to keep `paint_terminal_cells` under the argument-count limit.
+#[derive(Debug, Clone, Copy)]
+struct TerminalThemeOverride {
+    enabled: bool,
+    fg: iocraft::Color,
+    bg: iocraft::Color,
+}
+
+impl Default for TerminalThemeOverride {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            fg: Color::Reset,
+            bg: Color::Reset,
+        }
+    }
+}
+
+/// Whether a color represents the terminal default (transparent) background.
+///
+/// When `paint_terminal_cells` encounters a run whose bg is `Color::Reset`,
+/// it skips `set_background_color` so the parent container's fill (or the host
+/// terminal default) shows through (issue #179).
+fn is_default_bg(color: iocraft::Color) -> bool {
+    matches!(color, iocraft::Color::Reset)
+}
+
+/// Whether a color represents the terminal default (transparent) foreground.
+fn is_default_fg(color: iocraft::Color) -> bool {
+    matches!(color, iocraft::Color::Reset)
+}
+
+/// Resolve a run's effective foreground and background colors for painting.
+///
+/// Returns `(fg, bg)` where `bg` is `None` when the run should NOT paint a
+/// background (the container/host-terminal default shows through).
+///
+/// - Override OFF (default): terminal-default channels (`Color::Reset`) pass
+///   through unchanged. A `Reset` background yields `None` so it stays
+///   transparent (issue #179 bug fix).
+/// - Override ON: terminal-default channels are replaced with jefe's theme
+///   colors (`theme_fg`/`theme_bg`); explicitly-colored channels pass through.
+///   A run whose effective background is still `Reset` after resolution yields
+///   `None` (transparent).
+///
+/// Transformed cells (inverse, selection, cursor) already carry concrete ANSI
+/// contrast colors from the runtime layer, so they are never `Reset` and thus
+/// retain their high-contrast appearance in both modes — cursors and selection
+/// highlights stay visible against any themed background.
+#[must_use]
+fn resolve_run_colors(
+    style: &crate::runtime::TerminalCellStyle,
+    theme_override: TerminalThemeOverride,
+) -> (iocraft::Color, Option<iocraft::Color>) {
+    let fg = if theme_override.enabled && is_default_fg(style.fg) {
+        theme_override.fg
+    } else {
+        style.fg
+    };
+    let bg = if theme_override.enabled && is_default_bg(style.bg) {
+        theme_override.bg
+    } else {
+        style.bg
+    };
+    let bg = if is_default_bg(bg) { None } else { Some(bg) };
+    (fg, bg)
+}
+
 /// Paint the styled terminal cells onto the canvas as style-runs.
 fn paint_terminal_cells(
     canvas: &mut CanvasSubviewMut<'_>,
     snapshot: &TerminalSnapshot,
     max_rows: usize,
     max_cols: usize,
+    theme_override: TerminalThemeOverride,
 ) {
     for (row_idx, row) in snapshot
         .cells
@@ -243,9 +338,10 @@ fn paint_terminal_cells(
             let Some(x) = canvas_coord(run.start_col) else {
                 continue;
             };
+            let (text_color, fill_color) = resolve_run_colors(&run.style, theme_override);
             // CanvasTextStyle is #[non_exhaustive]; build via Default then set fields.
             let mut style = CanvasTextStyle::default();
-            style.color = Some(run.style.fg);
+            style.color = Some(text_color);
             style.weight = if run.style.bold {
                 Weight::Bold
             } else {
@@ -253,9 +349,9 @@ fn paint_terminal_cells(
             };
             style.underline = run.style.underline;
 
-            // Background is painted as a filled region under the run so that
-            // per-cell background colors are preserved.
-            canvas.set_background_color(x, y, run.width, 1, run.style.bg);
+            if let Some(fill) = fill_color {
+                canvas.set_background_color(x, y, run.width, 1, fill);
+            }
             canvas.set_text(x, y, &run.text, style);
         }
     }
@@ -507,5 +603,106 @@ mod tests {
     #[test]
     fn empty_message_no_terminal_when_not_live() {
         assert_eq!(terminal_empty_message(false), "No terminal attached");
+    }
+
+    // --- is_default_bg / is_default_fg (issue #179) ---
+
+    #[test]
+    fn is_default_bg_true_for_reset() {
+        assert!(is_default_bg(Color::Reset));
+    }
+
+    #[test]
+    fn is_default_bg_false_for_concrete_colors() {
+        assert!(!is_default_bg(Color::Black));
+        assert!(!is_default_bg(Color::White));
+        assert!(!is_default_bg(Color::Rgb { r: 0, g: 0, b: 0 }));
+        assert!(!is_default_bg(Color::AnsiValue(0)));
+    }
+
+    #[test]
+    fn is_default_fg_true_for_reset() {
+        assert!(is_default_fg(Color::Reset));
+    }
+
+    #[test]
+    fn is_default_fg_false_for_concrete_colors() {
+        assert!(!is_default_fg(Color::White));
+        assert!(!is_default_fg(Color::Rgb {
+            r: 255,
+            g: 255,
+            b: 255
+        }));
+    }
+
+    // --- resolve_run_colors off/on matrix (issue #179) ---
+
+    fn run_style(fg: Color, bg: Color) -> crate::runtime::TerminalCellStyle {
+        crate::runtime::TerminalCellStyle {
+            fg,
+            bg,
+            bold: false,
+            underline: false,
+        }
+    }
+
+    fn override_on(fg: Color, bg: Color) -> TerminalThemeOverride {
+        TerminalThemeOverride {
+            enabled: true,
+            fg,
+            bg,
+        }
+    }
+
+    fn override_off() -> TerminalThemeOverride {
+        TerminalThemeOverride::default()
+    }
+
+    #[test]
+    fn resolve_default_bg_is_transparent_when_override_off() {
+        // Default-bg cell does not paint a background; container shows through.
+        let (fg, bg) = resolve_run_colors(&run_style(Color::White, Color::Reset), override_off());
+        assert_eq!(fg, Color::White);
+        assert!(bg.is_none(), "default bg must be transparent (None)");
+    }
+
+    #[test]
+    fn resolve_explicit_colors_pass_through_when_override_off() {
+        let (fg, bg) = resolve_run_colors(&run_style(Color::White, Color::Black), override_off());
+        assert_eq!(fg, Color::White);
+        assert_eq!(bg, Some(Color::Black));
+    }
+
+    #[test]
+    fn resolve_override_maps_default_channels_to_theme() {
+        // Override ON: default fg/bg become jefe's theme fg/bg.
+        let (fg, bg) = resolve_run_colors(
+            &run_style(Color::Reset, Color::Reset),
+            override_on(Color::Green, Color::Blue),
+        );
+        assert_eq!(fg, Color::Green);
+        assert_eq!(bg, Some(Color::Blue));
+    }
+
+    #[test]
+    fn resolve_override_leaves_explicit_channels_unchanged() {
+        // Override ON but cell has explicit colors -> pass through unchanged.
+        let (fg, bg) = resolve_run_colors(
+            &run_style(Color::Red, Color::Yellow),
+            override_on(Color::Green, Color::Blue),
+        );
+        assert_eq!(fg, Color::Red);
+        assert_eq!(bg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn resolve_override_maps_only_default_bg_with_explicit_fg() {
+        // Mixed: explicit fg passes through; default bg becomes theme bg.
+        let (fg, bg) = resolve_run_colors(
+            &run_style(Color::Red, Color::Reset),
+            override_on(Color::Green, Color::Blue),
+        );
+        assert_eq!(fg, Color::Red);
+        assert_eq!(bg, Some(Color::Blue));
     }
 }

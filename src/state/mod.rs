@@ -685,6 +685,7 @@ impl AppState {
                     available_themes,
                     selected_index,
                     active_slug,
+                    override_theme: self.override_agent_theme,
                 };
             }
             ThemeMessage::PickerNavigateUp => {
@@ -705,7 +706,21 @@ impl AppState {
                     *selected_index += 1;
                 }
             }
-            ThemeMessage::PickerConfirm | ThemeMessage::PickerCancel => {
+            ThemeMessage::ToggleAgentThemeOverride => {
+                if let ModalState::ThemePicker { override_theme, .. } = &mut self.modal {
+                    *override_theme = !*override_theme;
+                }
+            }
+            ThemeMessage::PickerConfirm => {
+                // Commit the in-dialog override toggle to the runtime mirror
+                // before closing (issue #179). Persistence is applied by the
+                // input layer; this keeps the state transition deterministic.
+                if let ModalState::ThemePicker { override_theme, .. } = &self.modal {
+                    self.override_agent_theme = *override_theme;
+                }
+                self.modal = ModalState::None;
+            }
+            ThemeMessage::PickerCancel => {
                 self.modal = ModalState::None;
             }
         }

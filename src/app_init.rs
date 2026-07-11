@@ -108,6 +108,10 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     state.terminal_focused =
         persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;
     state.user_preferences = persisted.user_preferences;
+    // Mirror the persisted "apply jefe theme to agent" toggle (issue #179).
+    // settings.toml is the source of truth; this runtime copy is read every
+    // render frame by the terminal view.
+    state.override_agent_theme = settings.override_agent_theme;
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
 

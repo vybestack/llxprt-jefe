@@ -7,7 +7,7 @@
 //! confirm, cancel, fallback) and the pure `theme_picker_view` projection.
 //! The state-transition layer is deterministic per REQ-TECH-003.
 
-use jefe::state::theme_picker_view::theme_picker_view;
+use jefe::state::theme_picker_view::{theme_picker_override_view, theme_picker_view};
 use jefe::state::{AppEvent, AppState, ModalState};
 
 fn picker_state(themes: &[&str], selected: usize) -> AppState {
@@ -19,6 +19,7 @@ fn picker_state(themes: &[&str], selected: usize) -> AppState {
                 .collect(),
             selected_index: selected,
             active_slug: String::new(),
+            override_theme: false,
         },
         ..AppState::default()
     }
@@ -33,6 +34,7 @@ fn picker_state_with_active(themes: &[&str], selected: usize, active: &str) -> A
                 .collect(),
             selected_index: selected,
             active_slug: active.to_string(),
+            override_theme: false,
         },
         ..AppState::default()
     }
@@ -164,4 +166,98 @@ fn view_marks_active_theme_independently_of_selection() {
     assert!(!rows[0].active, "row 0 should not be active");
     assert!(!rows[1].selected, "row 1 should not be selected");
     assert!(rows[1].active, "row 1 should be active");
+}
+
+// ============================================================================
+// Override theme toggle (issue #179)
+// ============================================================================
+
+#[test]
+fn toggle_override_flips_modal_flag() {
+    let state = picker_state(&["a", "b"], 0).apply(AppEvent::ThemePickerToggleOverride);
+    let override_val = theme_picker_override_view(&state)
+        .unwrap_or_else(|| panic!("picker should be open with override field"));
+    assert!(
+        override_val,
+        "toggle should flip override_theme from false to true"
+    );
+}
+
+#[test]
+fn toggle_override_twice_returns_to_false() {
+    let state = picker_state(&["a", "b"], 0)
+        .apply(AppEvent::ThemePickerToggleOverride)
+        .apply(AppEvent::ThemePickerToggleOverride);
+    let override_val =
+        theme_picker_override_view(&state).unwrap_or_else(|| panic!("picker should still be open"));
+    assert!(
+        !override_val,
+        "double toggle should return override_theme to false"
+    );
+}
+
+#[test]
+fn toggle_override_is_noop_when_picker_not_open() {
+    let state = AppState::default().apply(AppEvent::ThemePickerToggleOverride);
+    assert_eq!(
+        state.modal,
+        ModalState::None,
+        "toggle should be a no-op when picker is not open"
+    );
+}
+
+#[test]
+fn open_picker_initializes_override_from_app_state() {
+    // AppState.override_agent_theme is the runtime mirror. When the picker
+    // opens, its override_theme should be initialized from it.
+    let base = AppState {
+        override_agent_theme: true,
+        ..AppState::default()
+    };
+    let state = base.apply(AppEvent::OpenThemePicker {
+        available_themes: vec![("a".to_string(), "A".to_string())],
+        active_slug: "a".to_string(),
+    });
+    let override_val =
+        theme_picker_override_view(&state).unwrap_or_else(|| panic!("picker should be open"));
+    assert!(
+        override_val,
+        "picker override_theme must be initialized from AppState.override_agent_theme"
+    );
+}
+
+#[test]
+fn confirm_closes_picker_after_override_toggle() {
+    // Toggling override then confirming still closes the modal (existing
+    // behavior unchanged by the new field).
+    let state = picker_state(&["a", "b"], 0)
+        .apply(AppEvent::ThemePickerToggleOverride)
+        .apply(AppEvent::ThemePickerConfirm);
+    assert_eq!(state.modal, ModalState::None);
+}
+
+#[test]
+fn confirm_commits_override_to_app_state() {
+    // The in-dialog override toggle is committed to the runtime mirror on
+    // confirm (issue #179). The reducer owns this transition deterministically.
+    let state = picker_state(&["a", "b"], 0)
+        .apply(AppEvent::ThemePickerToggleOverride)
+        .apply(AppEvent::ThemePickerConfirm);
+    assert!(
+        state.override_agent_theme,
+        "confirm must commit the toggled override to AppState"
+    );
+}
+
+#[test]
+fn cancel_does_not_commit_override_toggle() {
+    // Cancel discards the in-dialog toggle; the runtime mirror is unchanged.
+    let state = picker_state(&["a", "b"], 0)
+        .apply(AppEvent::ThemePickerToggleOverride)
+        .apply(AppEvent::CloseThemePicker);
+    assert_eq!(state.modal, ModalState::None);
+    assert!(
+        !state.override_agent_theme,
+        "cancel must not commit the in-dialog override toggle"
+    );
 }

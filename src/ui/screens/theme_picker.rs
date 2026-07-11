@@ -10,7 +10,7 @@
 use iocraft::prelude::*;
 
 use crate::state::AppState;
-use crate::state::theme_picker_view::theme_picker_view;
+use crate::state::theme_picker_view::{theme_picker_override_view, theme_picker_view};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 /// Props for the theme picker screen.
@@ -39,10 +39,18 @@ pub fn ThemePickerScreen(props: &ThemePickerScreenProps) -> impl Into<AnyElement
         .and_then(theme_picker_view)
         .unwrap_or_default();
 
+    // Derive the override checkbox state (issue #179).
+    let override_checked = props
+        .state
+        .as_ref()
+        .and_then(theme_picker_override_view)
+        .unwrap_or(false);
+    let checkbox = if override_checked { "[x]" } else { "[ ]" };
+
     // Size the panel to fit available themes, capped at terminal height.
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let panel_width = term_cols.saturating_sub(20).clamp(40, 60);
-    let content_rows = u16::try_from(rows.len() + 6).unwrap_or(u16::MAX);
+    let content_rows = u16::try_from(rows.len() + 7).unwrap_or(u16::MAX);
     let max_height = term_rows.saturating_sub(4);
     // Ensure min ≤ max for clamp safety: min(10, max_height) caps the floor
     // so clamp can never panic. If max_height is 0 (tiny terminal), both
@@ -102,10 +110,19 @@ pub fn ThemePickerScreen(props: &ThemePickerScreenProps) -> impl Into<AnyElement
                     }))
                 }
 
+                // Override checkbox (issue #179): toggles whether jefe's theme
+                // is force-applied to embedded agent terminal content.
+                Box(height: 1u32, background_color: rc.bg) {
+                    Text(
+                        content: format!("{checkbox} Apply theme to agent"),
+                        color: rc.fg,
+                    )
+                }
+
                 // Footer
                 Box(height: 1u32, background_color: rc.bg) {
                     Text(
-                        content: "↑/↓ preview | Enter apply | Esc cancel",
+                        content: "Up/Down preview | Tab toggle override | Enter apply | Esc cancel",
                         color: rc.dim,
                     )
                 }

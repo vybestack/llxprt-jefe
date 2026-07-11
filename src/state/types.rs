@@ -36,6 +36,9 @@ pub enum ModalState {
         selected_index: usize,
         /// Slug of the currently-applied theme (for the active marker).
         active_slug: String,
+        /// In-dialog "Apply jefe theme to agent" toggle (issue #179).
+        /// Initialized from `AppState.override_agent_theme`; persisted on Enter.
+        override_theme: bool,
     },
     NewRepository {
         fields: RepositoryFormFields,
@@ -225,6 +228,10 @@ pub struct AppState {
     /// screen coordinates to the correct help content line (issue #178).
     /// Runtime-only — never persisted.
     pub help_scroll_offset: usize,
+
+    /// Runtime mirror of `persistence::Settings.override_agent_theme` (issue
+    /// #179). settings.toml is the source of truth; the render path reads this.
+    pub override_agent_theme: bool,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -564,6 +571,8 @@ pub enum AppEvent {
     /// The slug is derived from the modal's `selected_index` at dispatch time
     /// (see `modal_handlers::apply_theme_picker_selection`).
     ThemePickerConfirm,
+    /// Toggle the "Apply jefe theme to agent" theme-picker checkbox (issue #179).
+    ThemePickerToggleOverride,
     CloseThemePicker,
 
     // System

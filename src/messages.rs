@@ -136,6 +136,9 @@ pub enum ThemeMessage {
     PickerNavigateDown,
     PickerConfirm,
     PickerCancel,
+    /// Toggle the in-dialog "Apply jefe theme to agent" override checkbox
+    /// (issue #179). Flips `ModalState::ThemePicker.override_theme`.
+    ToggleAgentThemeOverride,
 }
 
 /// Issues-mode messages.
@@ -753,6 +756,7 @@ message_names!(ThemeMessage {
     Self::PickerNavigateDown => "ThemePickerNavigateDown",
     Self::PickerConfirm => "ThemePickerConfirm",
     Self::PickerCancel => "CloseThemePicker",
+    Self::ToggleAgentThemeOverride => "ThemePickerToggleOverride",
 });
 
 message_names!(SystemMessage {
