@@ -144,7 +144,7 @@ fn build_header_rows(
             line: 3,
         },
         DetailHeaderRow {
-            content: "─────────────────────────────────────────".to_string(),
+            content: super::SEPARATOR_LINE.to_string(),
             color: DetailHeaderColor::Dim,
             line: 4,
         },

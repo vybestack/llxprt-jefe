@@ -54,7 +54,7 @@ pub fn AgentChooser(props: &AgentChooserProps) -> impl Into<AnyElement<'static>>
                 )
             }
             Box(height: 1u32) {
-                Text(content: "─────────────────────────────────────────", color: rc.dim)
+                Text(content: super::SEPARATOR_LINE, color: rc.dim)
             }
 
             // Agent list or empty state
@@ -90,7 +90,7 @@ pub fn AgentChooser(props: &AgentChooserProps) -> impl Into<AnyElement<'static>>
 
             // Action hints
             Box(height: 1u32) {
-                Text(content: "─────────────────────────────────────────", color: rc.dim)
+                Text(content: super::SEPARATOR_LINE, color: rc.dim)
             }
             Box(height: 1u32) {
                 Text(content: "Enter send  ", color: rc.dim)

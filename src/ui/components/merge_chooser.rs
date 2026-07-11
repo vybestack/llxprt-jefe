@@ -69,7 +69,7 @@ pub fn MergeChooser(props: &MergeChooserProps) -> impl Into<AnyElement<'static>>
                 )
             }
             Box(height: 1u32) {
-                Text(content: "─────────────────────────────────────────", color: rc.dim)
+                Text(content: super::SEPARATOR_LINE, color: rc.dim)
             }
 
             // Method list
@@ -107,7 +107,7 @@ pub fn MergeChooser(props: &MergeChooserProps) -> impl Into<AnyElement<'static>>
 
             // Separator
             Box(height: 1u32) {
-                Text(content: "─────────────────────────────────────────", color: rc.dim)
+                Text(content: super::SEPARATOR_LINE, color: rc.dim)
             }
 
             // Confirmation or navigation hint

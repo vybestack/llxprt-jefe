@@ -82,7 +82,7 @@ pub fn IssueDeleteConfirmOverlay(
                 Text(content: "This action cannot be undone.", color: rc.bright)
             }
             Box(height: 1u32) {
-                Text(content: "─────────────────────────────────────────", color: rc.dim)
+                Text(content: super::SEPARATOR_LINE, color: rc.dim)
             }
             Box(height: 1u32) {
                 Text(content: hint, color: rc.bright, weight: hint_weight)

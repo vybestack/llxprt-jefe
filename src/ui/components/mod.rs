@@ -3,6 +3,11 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P09
 //! @requirement REQ-TECH-010
 
+/// Horizontal divider rendered between header/body sections of overlays and
+/// detail panes. Shared so the visual width stays consistent across the merge
+/// chooser, agent chooser, delete-confirm overlay, and detail panes.
+pub(crate) const SEPARATOR_LINE: &str = "─────────────────────────────────────────";
+
 mod agent_chooser;
 mod agent_list;
 /// Generic bordered, header + scrollable + optional-composer detail pane.
