@@ -186,20 +186,20 @@ pub fn route_search_key(key: &KeyEvent) -> SearchKeyRoute {
 /// Returns the `AppEvent` to dispatch, or `None` when the key should be
 /// forwarded to the PTY as normal terminal input.
 ///
-/// ## Modifier policy (review fix #1)
+/// ## Modifier policy
 ///
 /// Scroll keys are ONLY intercepted when the key has NO modifiers
 /// (`KeyModifiers::NONE`). Any modifier chord (Ctrl, Alt, Shift, or a
 /// combination) is forwarded to the PTY so child TUIs that bind those chords
 /// (e.g. Ctrl+End, Alt+PageUp) are not broken.
 ///
-/// ## End key (review fix #1)
+/// ## End key
 ///
 /// `End` ONLY intercepts when the viewport is scrolled back
 /// (`offset_is_some == true`): it returns the user to follow-tail. At
 /// follow-tail, `End` is forwarded to the PTY (so shell line editing works).
 ///
-/// ## Home key (review fix #2)
+/// ## Home key
 ///
 /// `Home` intercepts from BOTH states (follow-tail and scrolled-back): it
 /// jumps to the top of history, matching PageUp's "enter scrollback from
@@ -209,7 +209,7 @@ pub fn should_intercept_for_scrollback(
     key_event: &KeyEvent,
     offset_is_some: bool,
 ) -> Option<AppEvent> {
-    // Modifier chords always go to the PTY (review fix #1).
+    // Modifier chords always go to the PTY (so child TUI key bindings work).
     if key_event.modifiers != KeyModifiers::NONE {
         return None;
     }
@@ -224,7 +224,7 @@ pub fn should_intercept_for_scrollback(
         // When at follow-tail, arrows go to the PTY (so the child TUI works).
         KeyCode::Up if offset_is_some => Some(AppEvent::TerminalScrollUp),
         KeyCode::Down if offset_is_some => Some(AppEvent::TerminalScrollDown),
-        // Home scrolls to the top of history from BOTH states (review fix #2).
+        // Home scrolls to the top of history from BOTH states.
         KeyCode::Home => Some(AppEvent::TerminalScrollToTop),
         _ => None,
     }
@@ -600,7 +600,7 @@ mod tests {
         assert!(matches!(evt, Some(AppEvent::TerminalScrollPageDown)));
     }
 
-    // ── review fix #1: modifier chords go to the PTY ─────────────────────
+    // ── Modifier chords go to the PTY ─────────────────────────
 
     #[test]
     fn scrollback_ctrl_end_forwards_to_pty() {
@@ -649,7 +649,7 @@ mod tests {
         );
     }
 
-    // ── review fix #1: End only intercepts when scrolled back ────────────
+    // ── End only intercepts when scrolled back ────────────────
 
     #[test]
     fn scrollback_end_at_follow_tail_forwards_to_pty() {
@@ -666,7 +666,7 @@ mod tests {
         assert!(matches!(evt, Some(AppEvent::TerminalFollowTail)));
     }
 
-    // ── review fix #2: Home intercepts from BOTH states ──────────────────
+    // ── Home intercepts from BOTH states ──────────────────────
 
     #[test]
     fn scrollback_home_intercepts_when_scrolled_back() {

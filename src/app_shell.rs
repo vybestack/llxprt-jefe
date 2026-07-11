@@ -24,7 +24,7 @@ use jefe::layout::{compute_pty_layout, effective_render_size};
 use jefe::runtime::{
     AttachAction, AttachScheduler, DEFAULT_DEBOUNCE, RuntimeError, RuntimeManager, TerminalSnapshot,
 };
-use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
+use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
 use jefe::theme::{ThemeColors, ThemeManager};
 use jefe::ui::orchestration::{
     build_modal_element, build_screen_element, derive_confirm_modal_data,
@@ -376,18 +376,22 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let (render_cols, render_rows) = effective_render_size(term_cols, term_rows);
 
     // Capture scrollback history lines for the terminal pane (issue #198).
-    // Uses the runtime cache (no shell-out on non-dirty frames). The cache uses
-    // the non-consuming is_dirty() so it never steals the dirty flag out from
-    // under the render-decision path.
-    let history_lines: Vec<String> = ctx
-        .as_ref()
-        .and_then(|ctx_arc| {
-            ctx_arc
-                .try_lock()
-                .ok()
-                .and_then(|mut guard| guard.runtime.capture_history())
-        })
-        .unwrap_or_default();
+    // Only Dashboard mode renders the embedded terminal, so gate the (cloning)
+    // cache capture to that mode — other modes waste the clone every frame.
+    // Uses the runtime cache (non-consuming is_dirty() so it never steals the
+    // dirty flag from the render-decision path).
+    let history_lines: Vec<String> = if snapshot.screen_mode == ScreenMode::Dashboard {
+        ctx.as_ref()
+            .and_then(|ctx_arc| {
+                ctx_arc
+                    .try_lock()
+                    .ok()
+                    .and_then(|mut guard| guard.runtime.capture_history())
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
 
     // NOTE: scroll-geometry (terminal_viewport_rows / terminal_total_lines) is
     // NOT written here. Mutating AppState during render causes an infinite

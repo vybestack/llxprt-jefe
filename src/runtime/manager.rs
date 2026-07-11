@@ -38,7 +38,9 @@ const MAX_DEAD_SIGNATURES: NonZeroUsize = match NonZeroUsize::new(100) {
 };
 
 /// Maximum number of scrollback history lines retained for an embedded
-/// terminal session (issue #198). Matches the harness `history_limit`.
+/// terminal session (issue #198). Matches the `terminal-scrollback.json` test
+/// scenario's `history_limit` (2000), intentionally smaller than the harness
+/// default (10000) to bound render/capture cost.
 const HISTORY_LINE_CAP: usize = 2000;
 
 /// Lightweight metadata for checking session liveness without holding the runtime lock.
@@ -915,7 +917,7 @@ impl RuntimeManager for TmuxRuntimeManager {
         }
 
         // Cache miss / dirty: re-capture. On transient failure, return prior
-        // cache (issue #198 review fix #9).
+        // cache so a momentary tmux hiccup doesn't wipe retained history.
         let Some(raw_lines) = commands::capture_pane_history(&session_name, HISTORY_LINE_CAP)
         else {
             if let Some(prior) = self.history_cache.get_fallback(&agent_id) {
@@ -929,10 +931,9 @@ impl RuntimeManager for TmuxRuntimeManager {
         let live_rows = self.snapshot().map_or(0, |s| s.rows);
         let lines = strip_trailing_rows(raw_lines, live_rows);
 
-        // Review fix #9: do NOT strip trailing blank lines — they may be real
-        // blank output, not tmux padding.
-        // Review fix #7: cache the result (including an empty capture) so we
-        // don't shell out every frame. Return `Some(lines)` consistently so
+        // Do NOT strip trailing blank lines — they may be real blank output,
+        // not tmux padding. Cache the result (including an empty capture) so
+        // we don't shell out every frame. Return `Some(lines)` consistently so
         // the current frame and subsequent cache-hit frames agree (an empty
         // capture returns `Some(vec![])`, not `None` — callers normalize via
         // `map_or(0, Vec::len)`, and `None` is reserved for "no session /

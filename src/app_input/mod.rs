@@ -502,7 +502,8 @@ pub fn try_intercept_terminal_scrollback(
 
 /// Refresh cached terminal scrollback geometry (issue #198). Computes
 /// viewport rows from PTY layout and total lines from history + snapshot.
-/// When ctx is None, preserves existing geometry (fix #3).
+/// When ctx is None or the lock is contended, preserves existing geometry
+/// instead of zeroing it (zeroing would clear the scroll offset).
 pub fn refresh_terminal_scroll_geometry(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let pty_layout = jefe::layout::compute_pty_layout(term_cols, term_rows);
@@ -520,31 +521,30 @@ pub fn refresh_terminal_scroll_geometry(app_state: &mut AppStateHandle, ctx: &Sh
             }
             Err(_) => {
                 // Lock contention: preserve existing geometry instead of
-                // zeroing it (issue #198 review fix #5). Zeroing would clear
-                // the scroll offset and jump to follow-tail during attach.
+                // zeroing it. Zeroing would clear the scroll offset and jump
+                // to follow-tail during attach.
                 return;
             }
         },
         None => {
-            // No context: preserve existing geometry instead of zeroing it
-            // (fix #3). Zeroing would clear the scroll offset.
+            // No context: preserve existing geometry instead of zeroing it.
+            // Zeroing would clear the scroll offset.
             return;
         }
     };
 
     let mut state = app_state.write();
-    let new_total = history_count + live_rows;
     let old_total = state.terminal_total_lines;
     let viewport_rows = usize::from(pty_layout.pty_rows);
 
-    // Reconcile the scroll offset when content grows so the viewport stays at
-    // the same absolute position (issue #198 review fix #3).
-    state.terminal_history_offset = jefe::state::scrollback_ops::reconcile_offset_for_new_content(
+    let (new_offset, new_total) = jefe::state::scrollback_ops::compute_terminal_scroll_geometry(
         state.terminal_history_offset,
         old_total,
-        new_total,
+        history_count,
+        live_rows,
         viewport_rows,
     );
+    state.terminal_history_offset = new_offset;
     state.terminal_viewport_rows = viewport_rows;
     state.terminal_total_lines = new_total;
 }

@@ -46,7 +46,9 @@ fn terminal_size() -> (u16, u16) {
 /// runtime + current layout, writing them to `AppState` so the deterministic
 /// reducer's clamp bounds match the rendered content. Runs at event time (not
 /// render time) to avoid the infinite re-render loop that mutating AppState
-/// during render would cause.
+/// during render would cause. When ctx is None or the lock is contended,
+/// preserves existing geometry instead of zeroing it (zeroing would clear the
+/// scroll offset).
 fn refresh_terminal_scroll_geometry_from_ctx(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
@@ -63,31 +65,30 @@ fn refresh_terminal_scroll_geometry_from_ctx(
             }
             Err(_) => {
                 // Lock contention: preserve existing geometry instead of
-                // zeroing it (issue #198 review fix #5). Zeroing would clear
-                // the scroll offset and jump to follow-tail during attach.
+                // zeroing it. Zeroing would clear the scroll offset and jump
+                // to follow-tail during attach.
                 return;
             }
         },
         None => {
-            // No context: preserve existing geometry instead of zeroing it
-            // (fix #3). Zeroing would clear the scroll offset.
+            // No context: preserve existing geometry instead of zeroing it.
+            // Zeroing would clear the scroll offset.
             return;
         }
     };
 
     let mut state = app_state.write();
-    let new_total = history_count + live_rows;
     let old_total = state.terminal_total_lines;
     let viewport_rows = usize::from(pty_layout.pty_rows);
 
-    // Reconcile the scroll offset when content grows so the viewport stays at
-    // the same absolute position (issue #198 review fix #3).
-    state.terminal_history_offset = jefe::state::scrollback_ops::reconcile_offset_for_new_content(
+    let (new_offset, new_total) = jefe::state::scrollback_ops::compute_terminal_scroll_geometry(
         state.terminal_history_offset,
         old_total,
-        new_total,
+        history_count,
+        live_rows,
         viewport_rows,
     );
+    state.terminal_history_offset = new_offset;
     state.terminal_viewport_rows = viewport_rows;
     state.terminal_total_lines = new_total;
 }
@@ -829,7 +830,7 @@ fn scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
         // Issue #198: terminal history offset is bottom-relative, but the
         // selection layer expects a top-relative "lines hidden above viewport".
         // Convert via the shared single source of truth so the selection
-        // coordinate system agrees with the viewport projection (review fix #4).
+        // coordinate system agrees with the viewport projection.
         SelectablePane::TerminalView => jefe::state::scrollback_ops::terminal_content_start_line(
             state.terminal_history_offset,
             state.terminal_total_lines,

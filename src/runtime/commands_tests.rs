@@ -489,9 +489,10 @@ fn capture_pane_history_argv_respects_line_count() {
     assert_eq!(*s_value, "-2000");
 }
 
-/// Zero history lines still produces a valid argv (just captures the visible pane).
+/// Zero history lines is clamped to 1 so -S is always a negative offset,
+/// never the ambiguous `-S 0` (which means "capture entire scrollback").
 #[test]
-fn capture_pane_history_argv_zero_lines() {
+fn capture_pane_history_argv_zero_lines_clamps_to_one() {
     let argv = capture_pane_history_args("jefe-agent-1", 0);
     let s_idx = argv.iter().position(|a| a == "-S");
     let Some(s_idx) = s_idx else {
@@ -500,5 +501,5 @@ fn capture_pane_history_argv_zero_lines() {
     let Some(s_value) = argv.get(s_idx + 1) else {
         panic!("-S must have a value: {argv:?}");
     };
-    assert_eq!(*s_value, "0", "zero lines should produce -S 0");
+    assert_eq!(*s_value, "-1", "zero lines should clamp to -S -1");
 }
