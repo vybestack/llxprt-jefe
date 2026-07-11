@@ -94,7 +94,7 @@ Pressing `n` opens a form to launch a new agent under the currently selected rep
 | **Description**    | Optional. Longer explanation of the agent's purpose.                         |
 | **Work dir**       | Auto-populated from repo base dir + name slug. User-editable.                |
 | **Profile**        | Inherited from repository default. Editable. Empty means agent CLI defaults. |
-| **Mode**           | Defaults to `--yolo`. Free-text for arbitrary flags.                         |
+| **Mode**           | Pre-filled with `--yolo`. Free-text for arbitrary flags; clear it to run non-yolo. |
 | **Pass --continue**| Checkbox (default on). Appends `--continue` to the mode flags.               |
 
 On submit, Jefe creates the working directory on disk, spawns a tmux session running the agent CLI in that directory with the configured profile and mode flags, allocates a PTY slot, and returns to the dashboard with the new agent selected.
