@@ -221,7 +221,12 @@ impl MarkdownRenderer {
         let start = self.lines.len();
         self.render_block_children(node, indent);
         for line in &mut self.lines[start..] {
-            line.insert_str(0, "> ");
+            // Decorate content lines only: blank separators stay truly empty
+            // (the "blank lines stay empty" contract), so trailing-blank
+            // trimming and paragraph breaks keep working through a quote.
+            if !line.is_empty() {
+                line.insert_str(0, "> ");
+            }
         }
     }
 

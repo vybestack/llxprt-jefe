@@ -65,11 +65,7 @@ pub fn pr_detail_header_view(detail: &PullRequestDetail) -> PrDetailHeaderView {
     let updated = crate::ui::util::format_iso_date(&detail.updated_at);
     let labels_str = crate::ui::util::field_list(&detail.labels);
     let assignees_str = crate::ui::util::field_list(&detail.assignees);
-    let milestone_str = detail
-        .milestone
-        .as_deref()
-        .filter(|m| !m.is_empty())
-        .map_or_else(|| crate::ui::util::EMPTY_FIELD.to_string(), str::to_string);
+    let milestone_str = crate::ui::util::field_opt(detail.milestone.as_deref());
     PrDetailHeaderView {
         title: format!("#{} {}{}", detail.number, detail.title, draft_marker),
         state: format!(

@@ -275,6 +275,29 @@ fn blockquote_is_marked() {
     );
 }
 
+/// Blank separator lines inside/after a blockquote stay truly empty — the
+/// quote bar decorates content lines only, so a document ending in a quote
+/// trims its trailing blank and multi-paragraph quotes keep `>`-free breaks.
+#[test]
+fn blockquote_blank_lines_stay_empty() {
+    let out = render(
+        "> para one
+>
+> para two",
+    );
+    assert!(
+        !out.lines().any(|l| l.trim() == ">"),
+        "no bare '> ' decorated blank lines: {out:?}"
+    );
+    let Some(last) = out.lines().last() else {
+        panic!("blockquote output must not be empty");
+    };
+    assert!(
+        !last.trim().is_empty(),
+        "trailing blank after a quote is trimmed: {out:?}"
+    );
+}
+
 /// A table whose data row has fewer cells than the declared columns still
 /// emits an alignment separator spanning all declared columns so the header
 /// lines up with the declared width.

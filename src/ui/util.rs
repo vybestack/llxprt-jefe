@@ -29,6 +29,16 @@ pub fn field_list(values: &[String]) -> String {
     values.join(", ")
 }
 
+/// An optional field value for display, or [`EMPTY_FIELD`] when absent or
+/// whitespace-only (a blank milestone must render the placeholder, not a
+/// gap). Shared by the Issue and PR detail header projections.
+#[must_use]
+pub fn field_opt(value: Option<&str>) -> String {
+    value
+        .filter(|v| !v.trim().is_empty())
+        .map_or_else(|| EMPTY_FIELD.to_string(), str::to_string)
+}
+
 /// Format a GitHub ISO-8601 timestamp into a compact human date.
 ///
 /// Accepts the forms `gh` returns (`2026-07-06T15:26:53Z` and the date-only
@@ -216,7 +226,7 @@ pub fn truncate_with_ellipsis(text: &str, max_width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{EMPTY_FIELD, field_list, format_iso_date, truncate_with_ellipsis};
+    use super::{EMPTY_FIELD, field_list, field_opt, format_iso_date, truncate_with_ellipsis};
     use unicode_width::UnicodeWidthStr;
 
     #[test]
@@ -338,6 +348,16 @@ mod tests {
         assert_eq!(field_list(&[]), EMPTY_FIELD);
         let values = vec!["a".to_string(), "b".to_string()];
         assert_eq!(field_list(&values), "a, b");
+    }
+
+    /// A missing OR whitespace-only optional field renders the placeholder,
+    /// never a blank gap (e.g. a milestone of `"  "`).
+    #[test]
+    fn field_opt_placeholder_for_absent_or_blank() {
+        assert_eq!(field_opt(None), EMPTY_FIELD);
+        assert_eq!(field_opt(Some("")), EMPTY_FIELD);
+        assert_eq!(field_opt(Some("   ")), EMPTY_FIELD);
+        assert_eq!(field_opt(Some("v1.0")), "v1.0");
     }
 
     #[test]
