@@ -379,12 +379,15 @@ fn prefix_disabled_ctrl_x_ctrl_x_reaches_child() {
 /// #3 for #200.
 ///
 /// Because SIGINT kills `cat`, "exactly once" is not observably distinguishable
-/// from "at least once" through tmux's dead-state text (tmux reports the same
-/// dead state either way). So this test proves the stronger *delivery* property
-/// — the byte is forwarded by the attach client and the child dies specifically
-/// of SIGINT — rather than a byte count, which cannot be asserted via `cat`.
-/// The byte-level "unchanged and in order" guarantee for the non-killing
-/// chords is covered by the sibling tests above.
+/// from "at least once" through tmux's dead-state (tmux reports the same dead
+/// state either way). So this test proves the stronger *delivery* property:
+/// the byte is forwarded by the attach client, the child dies, and it dies
+/// specifically of SIGINT. The signal is read via the portable tmux format
+/// `#{pane_dead_signal}` (which yields `int`), rather than parsing the
+/// "Pane is dead" banner text — that banner is terminal/locale dependent and
+/// is not reliably present in `capture-pane` output on Linux CI. The
+/// byte-level "unchanged and in order" guarantee for the non-killing chords is
+/// covered by the sibling tests above.
 #[test]
 fn prefix_disabled_ctrl_c_reaches_child_via_sigint() {
     if !tmux_available() {
@@ -410,15 +413,13 @@ fn prefix_disabled_ctrl_c_reaches_child_via_sigint() {
         "Ctrl-C must reach the child (pane should be dead from SIGINT)"
     );
 
-    // tmux renders a "Pane is dead (signal int, ...)" line into the captured
-    // pane content when the child was killed by SIGINT. That textual marker
-    // proves the death cause was Ctrl-C (SIGINT), not an unrelated exit.
-    let captured = tmux.capture();
-    assert!(
-        captured.contains("signal int") || captured.contains("Pane is dead"),
-        "dead pane should report signal int; captured: {:?}",
-        captured
-            .lines()
-            .find(|l| l.contains("dead") || l.contains("signal"))
+    // #{pane_dead_signal} yields the signal name tmux recorded for the dead
+    // pane. SIGINT ("int") proves the death cause was Ctrl-C, not an unrelated
+    // exit. This format is stable across macOS/Linux tmux builds, unlike the
+    // "Pane is dead (signal int, ...)" banner rendered into capture-pane.
+    let signal = tmux.display("#{pane_dead_signal}");
+    assert_eq!(
+        signal, "int",
+        "dead pane should report SIGINT; got signal={signal:?}"
     );
 }
