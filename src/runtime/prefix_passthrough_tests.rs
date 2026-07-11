@@ -13,7 +13,7 @@
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
@@ -98,6 +98,15 @@ impl IsolatedTmux {
     /// regression in the real helper (wrong option name, omitted `prefix2`) is
     /// caught here, not just the tmux concept in isolation (#200 review).
     fn new(prefix_disabled: bool) -> Self {
+        Self::new_with_command(prefix_disabled, "cat", &["-v"])
+    }
+
+    /// Like [`new`](Self::new) but runs an arbitrary shell command in the pane.
+    /// Used for the Ctrl-C test, which needs `stty -isig` so `0x03` is delivered
+    /// as a literal byte (not interpreted as SIGINT by the tty driver) and
+    /// echoed by `cat -v` — the same observable mechanism as the chord tests,
+    /// fully cross-platform.
+    fn new_with_command(prefix_disabled: bool, command: &str, args: &[&str]) -> Self {
         let (socket, session) = next_session_handle();
 
         let instance = Self {
@@ -114,20 +123,24 @@ impl IsolatedTmux {
             .status();
         let _ = std::fs::remove_file(&socket);
 
+        let mut new_args = vec![
+            "new-session".to_owned(),
+            "-d".to_owned(),
+            "-s".to_owned(),
+            session.clone(),
+            "-x".to_owned(),
+            "120".to_owned(),
+            "-y".to_owned(),
+            "24".to_owned(),
+            command.to_owned(),
+        ];
+        for arg in args {
+            new_args.push((*arg).to_owned());
+        }
+        let new_refs: Vec<&str> = new_args.iter().map(String::as_str).collect();
         let status = instance
             .tmux()
-            .args([
-                "new-session",
-                "-d",
-                "-s",
-                &session,
-                "-x",
-                "120",
-                "-y",
-                "24",
-                "cat",
-                "-v",
-            ])
+            .args(&new_refs)
             .status()
             .or_panic("tmux new-session should spawn");
         assert!(status.success(), "tmux new-session failed");
@@ -198,16 +211,6 @@ impl IsolatedTmux {
             String::from_utf8_lossy(&output.stderr)
         );
         String::from_utf8_lossy(&output.stdout).into_owned()
-    }
-
-    /// Run a `display-message -p` format query and return its trimmed stdout.
-    fn display(&self, format: &str) -> String {
-        let output = self
-            .tmux()
-            .args(["display-message", "-p", "-t", &self.session, format])
-            .output()
-            .or_panic("display-message should run");
-        String::from_utf8_lossy(&output.stdout).trim().to_owned()
     }
 }
 
@@ -375,51 +378,34 @@ fn prefix_disabled_ctrl_x_ctrl_x_reaches_child() {
     );
 }
 
-/// Ctrl-C (`0x03`) reaches the child and delivers SIGINT. Acceptance criterion
-/// #3 for #200.
+/// Ctrl-C (`0x03`) reaches the child unchanged. Acceptance criterion #3 for
+/// #200.
 ///
-/// Because SIGINT kills `cat`, "exactly once" is not observably distinguishable
-/// from "at least once" through tmux's dead-state (tmux reports the same dead
-/// state either way). So this test proves the stronger *delivery* property:
-/// the byte is forwarded by the attach client, the child dies, and it dies
-/// specifically of SIGINT. The signal is read via the portable tmux format
-/// `#{pane_dead_signal}` (which yields `int`), rather than parsing the
-/// "Pane is dead" banner text — that banner is terminal/locale dependent and
-/// is not reliably present in `capture-pane` output on Linux CI. The
-/// byte-level "unchanged and in order" guarantee for the non-killing chords is
-/// covered by the sibling tests above.
+/// `0x03` is special: the pane's terminal driver interprets it (ISIG) and
+/// delivers SIGINT to the foreground process group, killing `cat` before it
+/// can echo the byte. That makes the dead-pane approach tempting, but tmux's
+/// dead-state signal reporting (`#{pane_dead_signal}`, the "Pane is dead"
+/// banner) is version/locale dependent and is not reliable on Linux CI.
+///
+/// Instead this test runs the pane with `stty -isig`, which makes the tty
+/// driver pass `0x03` through as a literal byte rather than interpreting it as
+/// SIGINT. `cat -v` then reads and echoes it as `^C` — the exact same
+/// observable mechanism the chord tests above use, fully cross-platform. The
+/// pane stays alive (no dead-state reporting involved), and a `^C` echo proves
+/// the byte was forwarded by the attach client and reached the child.
 #[test]
-fn prefix_disabled_ctrl_c_reaches_child_via_sigint() {
+fn prefix_disabled_ctrl_c_reaches_child_unchanged() {
     if !tmux_available() {
         return;
     }
-    let tmux = IsolatedTmux::new(true);
+    let tmux = IsolatedTmux::new_with_command(true, "sh", &["-c", "stty -isig; exec cat -v"]);
 
-    // Write a single 0x03. cat receives SIGINT and dies.
-    let _pane = send_through_attach_client(&tmux, b"\x03");
+    // Send a single 0x03. With ISIG disabled, cat -v reads it and echoes ^C.
+    let pane = send_through_attach_client(&tmux, b"\x03");
+    let echoed = caret_echo_lines(&pane);
 
-    // Poll pane_dead; cat should be dead from SIGINT.
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let mut became_dead = false;
-    while Instant::now() < deadline {
-        if tmux.display("#{pane_dead}") == "1" {
-            became_dead = true;
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
     assert!(
-        became_dead,
-        "Ctrl-C must reach the child (pane should be dead from SIGINT)"
-    );
-
-    // #{pane_dead_signal} yields the signal name tmux recorded for the dead
-    // pane. SIGINT ("int") proves the death cause was Ctrl-C, not an unrelated
-    // exit. This format is stable across macOS/Linux tmux builds, unlike the
-    // "Pane is dead (signal int, ...)" banner rendered into capture-pane.
-    let signal = tmux.display("#{pane_dead_signal}");
-    assert_eq!(
-        signal, "int",
-        "dead pane should report SIGINT; got signal={signal:?}"
+        echoed.iter().any(|line| line.contains("^C")),
+        "Ctrl-C must reach the child unchanged; echoed: {echoed:?}"
     );
 }
