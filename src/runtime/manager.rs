@@ -381,9 +381,19 @@ impl TmuxRuntimeManager {
     /// control chords. Calling this on every attach guarantees the prefix is
     /// disabled even for pre-existing sessions.
     fn ensure_prefix_passthrough(&mut self, session_name: &str) {
-        if !self.prefix_enforced.contains(session_name) {
-            commands::disable_prefix_for_passthrough(session_name);
-            self.prefix_enforced.insert(session_name.to_owned());
+        if self.prefix_enforced.contains(session_name) {
+            return;
+        }
+        // Only memoize on success, mirroring the remote path: a transient tmux
+        // failure leaves the session un-remediated and un-memoized so the next
+        // attach retries (#200 review).
+        match commands::disable_prefix_for_passthrough(session_name) {
+            Ok(()) => {
+                self.prefix_enforced.insert(session_name.to_owned());
+            }
+            Err(error) => {
+                debug!(session_name = %session_name, error = %error, "prefix passthrough failed on local attach; will retry next attach");
+            }
         }
     }
 
@@ -401,8 +411,13 @@ impl TmuxRuntimeManager {
             return;
         }
         let command = commands::remote_disable_prefix_command(remote, session_name);
-        if commands::run_remote_ssh(remote, &command).is_ok() {
-            self.prefix_enforced.insert(session_name.to_owned());
+        match commands::run_remote_ssh(remote, &command) {
+            Ok(_) => {
+                self.prefix_enforced.insert(session_name.to_owned());
+            }
+            Err(error) => {
+                debug!(session_name = %session_name, error = %error, "remote prefix passthrough failed on attach; will retry next attach");
+            }
         }
     }
 
@@ -717,9 +732,11 @@ impl RuntimeManager for TmuxRuntimeManager {
             .dead_signatures
             .put(agent_id.clone(), session.launch_signature.clone());
 
-        // Clear clipboard passthrough memoization for this session so a
-        // recreated session with the same name re-enforces on next attach.
+        // Clear clipboard and prefix passthrough memoization for this session
+        // so a recreated session with the same name re-enforces on next attach
+        // (and the sets don't grow unbounded across kill/recreate cycles).
         self.clipboard_enforced.remove(&session.session_name);
+        self.prefix_enforced.remove(&session.session_name);
 
         // If attached, clear attachment and drop viewer.
         if self.attached_agent_id.as_ref() == Some(agent_id) {

@@ -226,6 +226,30 @@ impl Drop for IsolatedTmux {
     }
 }
 
+/// RAII guard that ensures an attach-client child is killed and reaped even if
+/// a panic occurs between `spawn_command` and the explicit cleanup at the end
+/// of [`send_through_attach_client`]. Without this, a panic would leave the
+/// client attached, blocking `kill-server` in `IsolatedTmux::drop` (tmux waits
+/// for attached clients to detach before shutting down) — #200 review.
+struct AttachClientGuard {
+    child: Option<Box<dyn portable_pty::Child + Send + Sync>>,
+}
+
+impl AttachClientGuard {
+    fn kill_now(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+impl Drop for AttachClientGuard {
+    fn drop(&mut self) {
+        self.kill_now();
+    }
+}
+
 /// Spawn a `tmux attach-session` client on a PTY (exactly what jefe's
 /// [`super::AttachedViewer`] does), write a byte sequence to the PTY master,
 /// and return the pane contents after a short settle window.
@@ -247,10 +271,13 @@ fn send_through_attach_client(tmux: &IsolatedTmux, bytes: &[u8]) -> String {
     cmd.arg(&tmux.session);
     cmd.env("TERM", "xterm-256color");
 
-    let mut child = pair
+    let child = pair
         .slave
         .spawn_command(cmd)
         .or_panic("spawn tmux attach-session");
+    // Wrap immediately so a panic in any subsequent setup step still reaps the
+    // attach client before IsolatedTmux::drop runs kill-server.
+    let mut guard = AttachClientGuard { child: Some(child) };
 
     let reader = pair
         .master
@@ -273,20 +300,52 @@ fn send_through_attach_client(tmux: &IsolatedTmux, bytes: &[u8]) -> String {
         .or_panic("write to attach-client PTY");
     writer.flush().or_panic("flush attach-client PTY");
 
-    // Give the client time to forward the bytes and `cat -v` time to echo.
-    std::thread::sleep(Duration::from_millis(800));
-
-    let captured = tmux.capture();
+    // Behavior-driven capture: poll the pane until the expected caret echoes
+    // appear or a bounded timeout expires. This is more robust on loaded CI
+    // than a single fixed sleep.
+    let captured = poll_for_caret_echo(tmux, bytes);
 
     // Explicitly terminate the attach client and drop the writer/PTY so the
     // client never lingers across the next test (which could otherwise block
     // `kill-server` in `IsolatedTmux::drop` waiting for the client to detach).
     drop(writer);
     drop(pair);
-    let _ = child.kill();
-    let _ = child.wait();
+    guard.kill_now();
 
     captured
+}
+
+/// Poll [`IsolatedTmux::capture`] until every byte we sent that `cat -v`
+/// renders as a caret token has appeared, or until a bounded timeout. This
+/// replaces a fixed post-send sleep with behavior-driven waiting so the test is
+/// resilient to CI load (#200 review).
+///
+/// Only caret-rendered control bytes (those `cat -v` turns into `^X`/`^B`/`^C`)
+/// are waitable; plain bytes are not observable via capture, so callers sending
+/// only plain bytes get a single capture after a short settle.
+fn poll_for_caret_echo(tmux: &IsolatedTmux, bytes: &[u8]) -> String {
+    let expected: Vec<&str> = bytes
+        .iter()
+        .filter_map(|&b| match b {
+            0x18 => Some("^X"),
+            0x02 => Some("^B"),
+            0x03 => Some("^C"),
+            _ => None,
+        })
+        .collect();
+
+    let deadline = std::time::Instant::now() + Duration::from_millis(1500);
+    let mut last = tmux.capture();
+    for token in &expected {
+        while !last.contains(token) {
+            if std::time::Instant::now() >= deadline {
+                return last;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+            last = tmux.capture();
+        }
+    }
+    last
 }
 
 /// Lines from a pane capture that contain a caret (control-byte echo from
@@ -393,6 +452,9 @@ fn prefix_disabled_ctrl_x_ctrl_x_reaches_child() {
 /// observable mechanism the chord tests above use, fully cross-platform. The
 /// pane stays alive (no dead-state reporting involved), and a `^C` echo proves
 /// the byte was forwarded by the attach client and reached the child.
+///
+/// `stty` is POSIX-standard and present on every Unix target jefe supports, so
+/// no separate availability check is needed beyond the `tmux_available()` guard.
 #[test]
 fn prefix_disabled_ctrl_c_reaches_child_unchanged() {
     if !tmux_available() {
