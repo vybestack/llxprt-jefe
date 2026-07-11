@@ -322,9 +322,9 @@ pub struct PriorAgentFocus {
 }
 
 // IssuesState and its helper structs live in issues_types.rs (extracted to keep
-// this file under the source-length limit). The PR_FILTER_FIELD_COUNT constant
-// (issue #163) is re-declared here alongside ISSUE_FILTER_FIELD_COUNT so both
-// mode filters reference sibling constants in one place.
+// this file under the source-length limit). PR_FILTER_FIELD_COUNT is declared
+// here; ISSUE_FILTER_FIELD_COUNT lives in issues_types.rs. Both constants stay
+// public so each mode filter references its sibling count.
 /// Number of PR filter fields for FilterNavigate wrap (issue #163).
 pub const PR_FILTER_FIELD_COUNT: usize = 8;
 

@@ -622,6 +622,10 @@ fn close_failure_with_wrong_issue_number_is_ignored_by_lifecycle() {
         state.issues_state.close_mutation_pending.is_some(),
         "wrong-issue-number failure should NOT clear lifecycle pending"
     );
+    assert!(
+        state.issues_state.error.is_none(),
+        "wrong-issue-number failure should NOT surface an error"
+    );
 }
 
 #[test]
@@ -724,6 +728,24 @@ fn close_while_delete_pending_is_suppressed() {
     assert!(
         state.issues_state.close_mutation_pending.is_none(),
         "close must not begin while a delete is in flight"
+    );
+}
+
+#[test]
+fn close_while_delete_confirm_overlay_open_is_suppressed() {
+    let mut state = issues_state_with_list("repo-1");
+    state.issues_state.delete_confirm = Some(IssueDeleteConfirmState {
+        issue_number: 1,
+        awaiting_confirmation: false,
+    });
+    let state = state.apply(AppEvent::CloseIssue);
+    assert!(
+        state.issues_state.close_mutation_pending.is_none(),
+        "close must not begin while the delete-confirm overlay is open"
+    );
+    assert!(
+        state.issues_state.delete_confirm.is_some(),
+        "delete-confirm overlay must remain open (close must not dismiss it)"
     );
 }
 
