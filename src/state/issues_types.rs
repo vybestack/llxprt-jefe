@@ -126,6 +126,10 @@ pub struct IssueDeleteConfirmState {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IssueLifecycleMutationPending {
     pub scope_repo_id: RepositoryId,
+    /// Monotonic mutation id allocated from `IssuesState.next_mutation_id`
+    /// (the SAME shared allocator used by inline-composer mutations via
+    /// `IssueMutationPending.id`), so close/delete ids can never collide
+    /// with in-flight inline mutation ids.
     pub mutation_id: u64,
     pub issue_number: u64,
     pub node_id: Option<String>,

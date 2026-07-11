@@ -152,12 +152,11 @@ impl AppState {
             self.show_issue_notice(ReadOnlyHintKind::NoIssueFocused);
             return;
         };
-        let node_id = self.focused_issue_node_id(issue_number).unwrap_or_default();
-        if node_id.is_empty() {
+        let Some(node_id) = self.focused_issue_node_id(issue_number) else {
             self.issues_state.delete_confirm = None;
             self.issues_state.error = Some("Cannot delete: issue node id unavailable".to_string());
             return;
-        }
+        };
         let mutation_id = self.next_issue_mutation_id();
         self.issues_state.delete_confirm = None;
         self.issues_state.delete_mutation_pending = Some(IssueLifecycleMutationPending {
@@ -169,17 +168,23 @@ impl AppState {
     }
 
     /// Resolve the node id for a given issue number (from list or detail).
+    ///
+    /// Returns `None` when the issue is not found OR its node id is empty, so
+    /// the caller can produce a single clear "node id unavailable" diagnostic
+    /// instead of distinguishing not-found from incomplete-data.
     fn focused_issue_node_id(&self, issue_number: u64) -> Option<String> {
-        if let Some(detail) = &self.issues_state.issue_detail
+        let raw = if let Some(detail) = &self.issues_state.issue_detail
             && detail.number == issue_number
         {
-            return Some(detail.node_id.clone());
-        }
-        self.issues_state
-            .issues
-            .iter()
-            .find(|issue| issue.number == issue_number)
-            .map(|issue| issue.node_id.clone())
+            Some(detail.node_id.clone())
+        } else {
+            self.issues_state
+                .issues
+                .iter()
+                .find(|issue| issue.number == issue_number)
+                .map(|issue| issue.node_id.clone())
+        };
+        raw.filter(|id| !id.is_empty())
     }
 
     /// Apply a successful close: update list + detail state, clear pending.
@@ -243,6 +248,14 @@ impl AppState {
             return true;
         }
         self.issues_state.delete_mutation_pending = None;
+        // Capture the deleted issue's index BEFORE removal so the selection can
+        // be adjusted precisely (shifting down when an earlier row is removed,
+        // rather than silently landing on whichever issue now occupies the slot).
+        let deleted_index = self
+            .issues_state
+            .issues
+            .iter()
+            .position(|issue| issue.number == issue_number);
         self.issues_state
             .issues
             .retain(|issue| issue.number != issue_number);
@@ -255,22 +268,37 @@ impl AppState {
             self.issues_state.issue_detail = None;
             self.issues_state.issue_focus = super::IssueFocus::IssueList;
         }
-        self.fix_issue_selection_after_delete();
+        self.fix_issue_selection_after_delete(deleted_index);
         self.issues_state.draft_notice = Some(format!("Deleted issue #{issue_number}"));
         true
     }
 
-    /// Fix the selected issue index after a delete removes the focused row.
-    fn fix_issue_selection_after_delete(&mut self) {
+    /// Fix the selected issue index after a delete.
+    ///
+    /// If the deleted row was at or before the selection, the selection shifts
+    /// down by one to keep pointing at the same issue; if the deleted row WAS
+    /// the selection (or the list is now empty), the selection is clamped to the
+    /// new bounds (or cleared). This preserves keyboard-navigation continuity
+    /// instead of silently jumping focus to a different issue.
+    fn fix_issue_selection_after_delete(&mut self, deleted_index: Option<usize>) {
         if self.issues_state.issues.is_empty() {
             self.issues_state.selected_issue_index = None;
             return;
         }
         let max_idx = self.issues_state.issues.len() - 1;
-        if let Some(idx) = self.issues_state.selected_issue_index
-            && idx > max_idx
-        {
-            self.issues_state.selected_issue_index = Some(max_idx);
+        match (deleted_index, self.issues_state.selected_issue_index) {
+            (Some(deleted), Some(sel)) if deleted < sel => {
+                // An earlier row was removed: shift the selection down to track
+                // the same issue.
+                self.issues_state.selected_issue_index = Some(sel - 1);
+            }
+            _ => {
+                if let Some(idx) = self.issues_state.selected_issue_index
+                    && idx > max_idx
+                {
+                    self.issues_state.selected_issue_index = Some(max_idx);
+                }
+            }
         }
     }
 
@@ -347,7 +375,16 @@ impl AppState {
         let text = match kind {
             ReadOnlyHintKind::IssueAlreadyClosed => "Issue is already closed".to_string(),
             ReadOnlyHintKind::NoIssueFocused => "No issue selected".to_string(),
-            _ => "Action not available".to_string(),
+            // The remaining variants are PR-domain hints that this issues path
+            // never emits; they are enumerated so adding a new variant forces an
+            // explicit decision here rather than being silently swallowed.
+            ReadOnlyHintKind::ReadOnlyReplyOnComment
+            | ReadOnlyHintKind::ReadOnlyNoComment
+            | ReadOnlyHintKind::ReadOnlyNotEditable
+            | ReadOnlyHintKind::NoSelectionToOpen
+            | ReadOnlyHintKind::NoPrToMerge
+            | ReadOnlyHintKind::PrNotMergeable
+            | ReadOnlyHintKind::ReadOnlyResolveOnThread => "Action not available".to_string(),
         };
         self.issues_state.draft_notice = Some(text);
     }

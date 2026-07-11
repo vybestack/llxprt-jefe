@@ -432,6 +432,40 @@ fn issue_deleted_when_last_in_list_clears_selection() {
 }
 
 #[test]
+fn issue_deleted_shifts_selection_when_earlier_row_removed() {
+    // Delete a non-selected, earlier issue: selection must shift down to keep
+    // pointing at the same issue instead of landing on a different one.
+    let mut state = issues_state_with_list("repo-1");
+    // issues are #1, #2, #3 at indices 0, 1, 2; select #3 (index 2), delete #1.
+    state.issues_state.selected_issue_index = Some(2);
+    state.issues_state.delete_mutation_pending = Some(IssueLifecycleMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 1,
+        issue_number: 1,
+        node_id: Some("I_1".to_string()),
+    });
+    let state = state.apply(AppEvent::IssueDeleted {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        issue_number: 1,
+        mutation_id: 1,
+    });
+    // After removing #1, the list is [#2, #3]; #3 is now at index 1.
+    assert_eq!(
+        state.issues_state.selected_issue_index,
+        Some(1),
+        "selection should shift down to track issue #3"
+    );
+    let selected = state
+        .issues_state
+        .selected_issue_index
+        .and_then(|idx| state.issues_state.issues.get(idx));
+    assert!(
+        selected.is_some_and(|i| i.number == 3),
+        "focused issue should still be #3 after an earlier delete"
+    );
+}
+
+#[test]
 fn issue_deleted_with_wrong_mutation_id_is_ignored() {
     let mut state = issues_state_with_list("repo-1");
     state.issues_state.delete_mutation_pending = Some(IssueLifecycleMutationPending {
