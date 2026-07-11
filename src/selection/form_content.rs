@@ -12,7 +12,8 @@
 use crate::domain::PlatformCapabilities;
 use crate::state::{
     AgentFormCursor, AgentFormFields, AgentFormFocus, AppState, ModalState, RepositoryFormCursor,
-    RepositoryFormFields, RepositoryFormFocus,
+    RepositoryFormFields, RepositoryFormFocus, agent_form_visibility, effective_agent_kinds,
+    effective_kinds_hint, is_field_visible, kind_from_form_value,
 };
 use crate::ui::util::text_with_caret;
 
@@ -30,11 +31,13 @@ fn render_checkbox(label: &str, checked: bool, hint: &str) -> String {
     format!("  {label:<16} [{mark}]  ({hint})")
 }
 
-/// Build the field specs for the agent form's editable text fields.
-fn agent_field_specs(
+/// Build the field specs for the agent form's editable text fields rendered
+/// BEFORE the Agent Runtime selector (Shortcut, Name, Description, Work Dir,
+/// Profile).
+fn agent_pre_kind_field_specs(
     fields: &AgentFormFields,
     cursor: &AgentFormCursor,
-) -> [(&'static str, String, AgentFormFocus, usize); 7] {
+) -> [(&'static str, String, AgentFormFocus, usize); 5] {
     let shortcut = fields
         .shortcut_slot
         .map_or_else(|| "none".to_string(), |slot| slot.to_string());
@@ -64,6 +67,16 @@ fn agent_field_specs(
             AgentFormFocus::Profile,
             cursor.profile,
         ),
+    ]
+}
+
+/// Build the field specs for the agent form's editable text fields rendered
+/// AFTER the Agent Runtime selector (Mode Flags, LLXPRT_DEBUG).
+fn agent_post_kind_field_specs(
+    fields: &AgentFormFields,
+    cursor: &AgentFormCursor,
+) -> [(&'static str, String, AgentFormFocus, usize); 2] {
+    [
         (
             "Mode Flags",
             fields.mode.clone(),
@@ -85,32 +98,55 @@ pub fn agent_form_content_lines(state: &AppState) -> Option<Vec<String>> {
     let (title, fields, focus, cursor) = agent_form_state(state)?;
     let mut lines: Vec<String> = vec![format!(" {title}"), String::new()];
 
-    let specs = agent_field_specs(fields, cursor);
-    agent_text_field_lines(&specs, focus, &mut lines);
+    let visibility = agent_form_visibility(kind_from_form_value(&fields.agent_kind));
 
-    lines.push(render_checkbox(
-        "Pass --continue",
-        fields.pass_continue,
-        "space toggles",
-    ));
-    lines.push(render_checkbox(
-        "Sandbox",
-        fields.sandbox_enabled,
-        "space toggles",
-    ));
+    // Render pre-kind text fields, then Agent Runtime, then post-kind fields
+    // so the line order matches the focus/navigation order
+    // (WorkDir → Profile → AgentKind → Mode).
+    let pre_specs = agent_pre_kind_field_specs(fields, cursor);
+    agent_text_field_lines(&pre_specs, focus, visibility, &mut lines);
 
-    let engine_hint = sandbox_engine_hint(fields.sandbox_enabled);
+    let effective_kinds = effective_kinds_for_agent_form(state);
+    let kind_hint = effective_kinds_hint(&effective_kinds);
     lines.push(format!(
-        "  {:<16} [{}]  ({engine_hint})",
-        "Sandbox Engine", fields.sandbox_engine
+        "  {:<16} [{}]  ({kind_hint})",
+        "Agent Runtime", fields.agent_kind
     ));
 
-    let flags_value = if focus == AgentFormFocus::SandboxFlags {
-        text_with_caret(&fields.sandbox_flags, cursor.sandbox_flags)
-    } else {
-        fields.sandbox_flags.clone()
-    };
-    lines.push(render_field("Sandbox Flags", &flags_value));
+    let post_specs = agent_post_kind_field_specs(fields, cursor);
+    agent_text_field_lines(&post_specs, focus, visibility, &mut lines);
+
+    if visibility.shows_llxprt_fields() {
+        lines.push(render_checkbox(
+            "Pass --continue",
+            fields.pass_continue,
+            "space toggles",
+        ));
+    }
+    if visibility.shows_llxprt_fields() {
+        lines.push(render_checkbox(
+            "Sandbox",
+            fields.sandbox_enabled,
+            "space toggles",
+        ));
+    }
+
+    if visibility.shows_llxprt_fields() {
+        let engine_hint = sandbox_engine_hint(fields.sandbox_enabled);
+        lines.push(format!(
+            "  {:<16} [{}]  ({engine_hint})",
+            "Sandbox Engine", fields.sandbox_engine
+        ));
+    }
+
+    if visibility.shows_llxprt_fields() {
+        let flags_value = if focus == AgentFormFocus::SandboxFlags {
+            text_with_caret(&fields.sandbox_flags, cursor.sandbox_flags)
+        } else {
+            fields.sandbox_flags.clone()
+        };
+        lines.push(render_field("Sandbox Flags", &flags_value));
+    }
 
     lines.push(String::new());
     lines.push(AGENT_HINT.to_string());
@@ -118,13 +154,18 @@ pub fn agent_form_content_lines(state: &AppState) -> Option<Vec<String>> {
 }
 
 /// Append rendered text-field rows, inserting the caret into the focused
-/// editable field (Shortcut is never editable).
+/// editable field (Shortcut is never editable). Hidden fields are skipped so
+/// the line indices match the on-screen render.
 fn agent_text_field_lines(
     specs: &[(&str, String, AgentFormFocus, usize)],
     focus: AgentFormFocus,
+    visibility: crate::state::AgentFormFieldVisibility,
     lines: &mut Vec<String>,
 ) {
     for (label, value, field_focus, field_cursor) in specs {
+        if !is_field_visible(*field_focus, visibility) {
+            continue;
+        }
         let rendered = if focus == *field_focus && *field_focus != AgentFormFocus::Shortcut {
             text_with_caret(value, *field_cursor)
         } else {
@@ -159,7 +200,7 @@ fn agent_form_state(
 fn repo_text_field_specs(
     fields: &RepositoryFormFields,
     cursor: &RepositoryFormCursor,
-) -> [(&'static str, String, RepositoryFormFocus, usize); 4] {
+) -> [(&'static str, String, RepositoryFormFocus, usize); 3] {
     [
         (
             "Name",
@@ -178,12 +219,6 @@ fn repo_text_field_specs(
             fields.default_profile.clone(),
             RepositoryFormFocus::DefaultProfile,
             cursor.default_profile,
-        ),
-        (
-            "GitHub Repo",
-            fields.github_repo.clone(),
-            RepositoryFormFocus::GitHubRepo,
-            cursor.github_repo,
         ),
     ]
 }
@@ -223,6 +258,21 @@ pub fn repository_form_content_lines(state: &AppState) -> Option<Vec<String>> {
 
     let text_specs = repo_text_field_specs(fields, cursor);
     repo_text_field_lines(&text_specs, focus, &mut lines);
+
+    let effective_kinds =
+        effective_agent_kinds(&state.installed_agent_kinds, fields.remote_enabled);
+    let kind_hint = effective_kinds_hint(&effective_kinds);
+    lines.push(format!(
+        "  {:<16} [{}]  ({kind_hint})",
+        "Default Agent", fields.default_agent_kind
+    ));
+
+    let github_value = if focus == RepositoryFormFocus::GitHubRepo {
+        text_with_caret(&fields.github_repo, cursor.github_repo)
+    } else {
+        fields.github_repo.clone()
+    };
+    lines.push(render_field("GitHub Repo", &github_value));
 
     lines.push(render_checkbox(
         "Remote Repository",
@@ -298,6 +348,23 @@ fn sandbox_engine_hint(sandbox_enabled: bool) -> String {
     } else {
         String::from("disabled")
     }
+}
+
+/// Resolve the effective agent kinds for the currently open agent form,
+/// matching what the form-state cycling logic offers. Remote-enabled
+/// repositories offer both kinds; local repositories offer only installed
+/// kinds.
+fn effective_kinds_for_agent_form(state: &AppState) -> Vec<crate::domain::AgentKind> {
+    let is_remote = match &state.modal {
+        ModalState::NewAgent { repository_id, .. } => state
+            .repository_by_id(repository_id)
+            .is_some_and(|r| r.remote.enabled),
+        ModalState::EditAgent { id, .. } => state
+            .repository_for_agent(id)
+            .is_some_and(|r| r.remote.enabled),
+        _ => false,
+    };
+    effective_agent_kinds(&state.installed_agent_kinds, is_remote)
 }
 
 #[cfg(test)]

@@ -193,6 +193,7 @@ fn test_comment_created_scrolls_to_real_rendered_bottom_with_reviews_and_checks(
 #[test]
 fn test_agent_chooser_open_navigate_confirm_cancel() {
     let mut state = prs_state_with_detail("repo-1", 1);
+    state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
     // Provide agents so the chooser opens.
     state.agents.push(crate::domain::Agent::new(
         crate::domain::AgentId("agent-1".to_string()),

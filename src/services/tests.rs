@@ -11,6 +11,7 @@ fn local_repository() -> Repository {
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),
+        default_agent_kind: crate::domain::AgentKind::Llxprt,
         agent_ids: Vec::new(),
     }
 }
@@ -39,6 +40,7 @@ fn params<'a>(
         description: "",
         work_dir,
         profile: "",
+        agent_kind: "LLxprt",
         mode: "",
         llxprt_debug: "",
         pass_continue: true,

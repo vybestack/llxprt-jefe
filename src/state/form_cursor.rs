@@ -33,7 +33,9 @@ pub(super) fn handle_repository_field_char(
         RepositoryFormFocus::RunAsUser => {
             cursor.run_as_user = insert_char_at(&mut fields.run_as_user, cursor.run_as_user, c);
         }
-        RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {
+        RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::RemoteEnabled
+        | RepositoryFormFocus::SetupEnvDefault => {
             return c == ' ' || c == 'x' || c == 'X';
         }
     }
@@ -46,7 +48,9 @@ pub(super) fn move_repository_field_cursor_right(
     focus: RepositoryFormFocus,
 ) {
     match focus {
-        RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {}
+        RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::RemoteEnabled
+        | RepositoryFormFocus::SetupEnvDefault => {}
         RepositoryFormFocus::Name => cursor.name = move_cursor_right(&fields.name, cursor.name),
         RepositoryFormFocus::BaseDir => {
             cursor.base_dir = move_cursor_right(&fields.base_dir, cursor.base_dir);
@@ -75,6 +79,7 @@ pub(super) fn move_agent_field_cursor_right(
 ) {
     match focus {
         AgentFormFocus::Shortcut
+        | AgentFormFocus::AgentKind
         | AgentFormFocus::PassContinue
         | AgentFormFocus::Sandbox
         | AgentFormFocus::SandboxEngine => {}

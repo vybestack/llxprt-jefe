@@ -154,6 +154,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                 agent_count: agent_count,
                 theme_name: props.theme_name.clone(),
                 version: crate::VERSION.to_owned(),
+                kennel_mode: state.and_then(|s| s.selected_agent()).is_some_and(|a| a.agent_kind.is_kennel()),
                 warning_message: state.and_then(|s| s.warning_message.clone()),
                 colors: colors.clone(),
                 selection: selection,

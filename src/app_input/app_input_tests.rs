@@ -23,6 +23,19 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
     }
 }
 
+trait TestOptionExt<T> {
+    fn value_or_panic(self, context: &str) -> T;
+}
+
+impl<T> TestOptionExt<T> for Option<T> {
+    fn value_or_panic(self, context: &str) -> T {
+        match self {
+            Some(value) => value,
+            None => panic!("{context}: expected Some, got None"),
+        }
+    }
+}
+
 fn sample_signature() -> LaunchSignature {
     LaunchSignature {
         work_dir: PathBuf::from("/tmp/agent"),
@@ -34,6 +47,7 @@ fn sample_signature() -> LaunchSignature {
         sandbox_engine: SandboxEngine::Podman,
         sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: RemoteRepositorySettings::default(),
+        agent_kind: jefe::domain::AgentKind::Llxprt,
     }
 }
 
@@ -803,6 +817,34 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
     );
 }
 
+#[test]
+fn code_puppy_issue_send_carries_kind_and_uses_positional_instruction() {
+    let agent_id = AgentId(String::from("code-puppy-issue-agent"));
+    let work_dir = std::path::PathBuf::from("/tmp/jefe-code-puppy-issue-send");
+    let mut state = state_for_issue_agent_chooser_send(&agent_id, &work_dir);
+    let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) else {
+        panic!("fixture agent should exist");
+    };
+    agent.agent_kind = jefe::domain::AgentKind::CodePuppy;
+
+    let send_info = issue_send_info_from_state(&state)
+        .unwrap_or_else(|| panic!("CodePuppy issue send info should resolve"));
+    assert_eq!(
+        send_info.signature.agent_kind,
+        jefe::domain::AgentKind::CodePuppy
+    );
+
+    let launch_sig = prepare_issue_launch_signature(send_info.signature);
+    assert!(!launch_sig.pass_continue);
+    assert!(!launch_sig.mode_flags.iter().any(|arg| arg == "-i"));
+    assert!(
+        launch_sig
+            .mode_flags
+            .iter()
+            .any(|arg| arg.contains(".jefe/issue-prompt.md"))
+    );
+}
+
 /// The `ConfirmIssueDirtyCopy` modal must resolve to `InputMode::Confirm` so
 /// the confirm key handler routes Enter/Esc/n correctly.
 #[test]
@@ -823,5 +865,108 @@ fn confirm_issue_dirty_copy_modal_routes_to_confirm_input_mode() {
         input_mode_for_state(&state),
         jefe::input::InputMode::Confirm,
         "ConfirmIssueDirtyCopy must use InputMode::Confirm"
+    );
+}
+
+// ── Issue #184: validated clone identity in issue-send info ─────────────
+
+/// Issue-send info must carry a valid clone identity ONLY when
+/// `github_repo` is a valid `owner/repo`, and NEVER fall back to `slug`.
+#[test]
+fn issue_send_info_carries_valid_clone_identity_only() {
+    let agent_id = AgentId(String::from("issue-valid-id"));
+    let work_dir = PathBuf::from("/tmp/jefe-issue-valid-id");
+    let mut state = state_for_issue_agent_chooser_send(&agent_id, &work_dir);
+    // Set a valid github_repo.
+    state.repositories[0].github_repo = "acme/widgets".to_owned();
+
+    let send_info = issue_send_info_from_state(&state)
+        .value_or_panic("issue send info must resolve with a valid github_repo");
+    let identity = send_info
+        .clone_identity
+        .as_ref()
+        .value_or_panic("a valid github_repo must yield a clone identity");
+    assert_eq!(identity.clone_url(), "https://github.com/acme/widgets.git");
+}
+
+/// When `github_repo` is empty but `slug` is set, issue-send info must NOT
+/// carry a clone identity (no fallback to slug).
+#[test]
+fn issue_send_info_no_clone_identity_when_github_repo_empty() {
+    let agent_id = AgentId(String::from("issue-no-id"));
+    let work_dir = PathBuf::from("/tmp/jefe-issue-no-id");
+    let mut state = state_for_issue_agent_chooser_send(&agent_id, &work_dir);
+    // slug is "owner/repo" (set by the fixture) but github_repo is empty.
+    state.repositories[0].github_repo = String::new();
+    assert!(
+        !state.repositories[0].slug.is_empty(),
+        "fixture: slug must be non-empty to prove no fallback"
+    );
+
+    let send_info =
+        issue_send_info_from_state(&state).value_or_panic("issue send info must still resolve");
+    assert!(
+        send_info.clone_identity.is_none(),
+        "no clone identity when github_repo is empty (must not fall back to slug)"
+    );
+}
+
+/// When `github_repo` is a URL (invalid), issue-send info must NOT carry a
+/// clone identity, even though slug looks valid.
+#[test]
+fn issue_send_info_no_clone_identity_for_url_shaped_github_repo() {
+    let agent_id = AgentId(String::from("issue-url-id"));
+    let work_dir = PathBuf::from("/tmp/jefe-issue-url-id");
+    let mut state = state_for_issue_agent_chooser_send(&agent_id, &work_dir);
+    state.repositories[0].github_repo = "https://github.com/acme/widgets".to_owned();
+
+    let send_info =
+        issue_send_info_from_state(&state).value_or_panic("issue send info must still resolve");
+    assert!(
+        send_info.clone_identity.is_none(),
+        "URL-shaped github_repo must not yield a clone identity"
+    );
+}
+
+/// CodePuppy issue send uses the SAME prep path (identical launch signature
+/// structure) and a fresh no-resume signature. This proves CodePuppy and
+/// LLxprt share identical prep; only the runtime args differ.
+#[test]
+fn code_puppy_issue_uses_identical_prep_and_fresh_no_resume_signature() {
+    let agent_id = AgentId(String::from("cp-identical-prep"));
+    let work_dir = PathBuf::from("/tmp/jefe-cp-identical-prep");
+    let mut state = state_for_issue_agent_chooser_send(&agent_id, &work_dir);
+    state.repositories[0].github_repo = "acme/widgets".to_owned();
+    if let Some(agent) = state.agents.iter_mut().find(|a| a.id == agent_id) {
+        agent.agent_kind = jefe::domain::AgentKind::CodePuppy;
+    }
+
+    let send_info =
+        issue_send_info_from_state(&state).value_or_panic("CodePuppy issue send info must resolve");
+
+    // Same validated clone identity as LLxprt would get (identical prep).
+    let identity = send_info
+        .clone_identity
+        .as_ref()
+        .value_or_panic("CodePuppy must carry the same validated clone identity");
+    assert_eq!(identity.clone_url(), "https://github.com/acme/widgets.git");
+
+    // Fresh no-resume signature: pass_continue forced off, positional
+    // instruction (no -i).
+    let launch_sig = prepare_issue_launch_signature(send_info.signature);
+    assert!(
+        !launch_sig.pass_continue,
+        "CodePuppy issue send must be fresh (no resume)"
+    );
+    assert!(
+        !launch_sig.mode_flags.iter().any(|arg| arg == "-i"),
+        "CodePuppy must not receive -i (runtime prepends it)"
+    );
+    assert!(
+        launch_sig
+            .mode_flags
+            .iter()
+            .any(|arg| arg.contains(".jefe/issue-prompt.md")),
+        "CodePuppy issue signature must reference the issue prompt"
     );
 }

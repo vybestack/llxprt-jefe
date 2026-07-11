@@ -161,6 +161,8 @@ pub struct AppState {
     // Data
     pub repositories: Vec<crate::domain::Repository>,
     pub agents: Vec<crate::domain::Agent>,
+    /// Runtime availability snapshot detected once during startup.
+    pub installed_agent_kinds: Vec<crate::domain::AgentKind>,
 
     // Selection
     pub selected_repository_index: Option<usize>,

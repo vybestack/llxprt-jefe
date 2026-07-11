@@ -7,8 +7,11 @@
 //! Pseudocode reference: component-001 lines 01-12
 
 mod dashboard_grab_ops;
+mod form_build;
 mod form_cursor;
 mod form_ops;
+mod form_projection;
+mod form_runtime;
 mod issues_inline_ops;
 mod issues_load_ops;
 mod issues_mutation_ops;
@@ -31,6 +34,11 @@ mod util;
 
 pub use state_ops::{delete_selected_agent, delete_selected_repository};
 pub use types::*;
+
+pub use form_projection::{
+    AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds, effective_kinds_hint,
+    is_field_visible, kind_from_form_value, next_visible_focus, prev_visible_focus,
+};
 
 use tracing::{debug, trace};
 

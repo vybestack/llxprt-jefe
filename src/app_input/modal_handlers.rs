@@ -402,19 +402,91 @@ fn apply_theme_picker_selection(app_state: &mut AppStateHandle, ctx: &SharedCont
 }
 
 fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    // Validate local installed-kind availability BEFORE applying SubmitForm
+    // (which closes the modal). This keeps the modal open with a visible
+    // error when the selected agent kind is not installed for a local
+    // repository. Remote repositories bypass the check.
+    if !validate_form_kind_available(app_state) {
+        return;
+    }
+
     let is_new_agent = {
         let state_ro = app_state.read();
         matches!(state_ro.modal, ModalState::NewAgent { .. })
     };
 
     let launch_after_submit = submit_form_and_snapshot_launch(app_state, ctx, is_new_agent);
-    if let Some((agent_id, work_dir, signature)) = launch_after_submit {
-        if !preflight_or_prompt(app_state, ctx, &agent_id, &signature) {
-            return;
-        }
-        focus_terminal_after_submit(app_state, ctx);
-        execute_agent_launch(app_state, ctx, &agent_id, &work_dir, &signature, false);
+    let Some((agent_id, work_dir, signature)) = launch_after_submit else {
+        return;
+    };
+
+    // Enforce local installed-kind availability before any launch attempt.
+    // Remote repositories skip this because remote PATH resolution is
+    // authoritative.
+    if !super::availability::local_kind_available_or_error(
+        app_state,
+        signature.agent_kind,
+        &signature.remote,
+    ) {
+        return;
     }
+
+    if !preflight_or_prompt(app_state, ctx, &agent_id, &signature) {
+        return;
+    }
+    focus_terminal_after_submit(app_state, ctx);
+    execute_agent_launch(app_state, ctx, &agent_id, &work_dir, &signature, false);
+}
+
+/// Pre-submit validation: check that the selected agent kind is locally
+/// installed for local repositories. For repository forms, validates the
+/// `default_agent_kind` field. For agent forms, validates the `agent_kind`
+/// field. Sets a visible error and returns `false` (modal stays open) when
+/// the kind is not installed and the repository is not remote-enabled.
+fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
+    use jefe::domain::{AgentKind, RemoteRepositorySettings};
+
+    let state = app_state.read();
+    let selection = match &state.modal {
+        ModalState::NewRepository { fields, .. } | ModalState::EditRepository { fields, .. } => {
+            let kind = AgentKind::from_form_value(&fields.default_agent_kind).unwrap_or_default();
+            let remote = RemoteRepositorySettings {
+                enabled: fields.remote_enabled,
+                login_user: fields.login_user.clone(),
+                host: fields.host.clone(),
+                run_as_user: fields.run_as_user.clone(),
+                setup_env_default: fields.setup_env_default,
+            };
+            (kind, remote)
+        }
+        ModalState::NewAgent {
+            repository_id,
+            fields,
+            ..
+        } => {
+            let kind = AgentKind::from_form_value(&fields.agent_kind).unwrap_or_default();
+            let remote = state
+                .repository_by_id(repository_id)
+                .map_or_else(RemoteRepositorySettings::default, |repo| {
+                    repo.remote.clone()
+                });
+            (kind, remote)
+        }
+        ModalState::EditAgent { id, fields, .. } => {
+            let kind = AgentKind::from_form_value(&fields.agent_kind).unwrap_or_default();
+            let remote = state
+                .repository_for_agent(id)
+                .map_or_else(RemoteRepositorySettings::default, |repo| {
+                    repo.remote.clone()
+                });
+            (kind, remote)
+        }
+        _ => return true,
+    };
+    drop(state);
+    let (kind, remote) = selection;
+
+    super::availability::local_kind_available_or_error(app_state, kind, &remote)
 }
 
 fn submit_form_and_snapshot_launch(
@@ -467,7 +539,10 @@ fn handle_form_space(app_state: &mut AppStateHandle, ctx: &SharedContext) -> Opt
             Some(AppEvent::FormToggleCheckbox)
         }
         FocusedFormField::Agent(
-            AgentFormFocus::PassContinue | AgentFormFocus::Sandbox | AgentFormFocus::Shortcut,
+            AgentFormFocus::AgentKind
+            | AgentFormFocus::PassContinue
+            | AgentFormFocus::Sandbox
+            | AgentFormFocus::Shortcut,
         ) => Some(AppEvent::FormToggleCheckbox),
         FocusedFormField::Agent(AgentFormFocus::SandboxEngine) => {
             cycle_sandbox_engine(app_state, ctx);

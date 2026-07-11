@@ -93,6 +93,7 @@ fn p15_state_with_loaded_detail(repo_id: &RepositoryId, issue_number: u64) -> Ap
 fn state_with_repo_and_agent() -> AppState {
     let mut state = AppState {
         selected_repository_index: Some(0),
+        installed_agent_kinds: vec![crate::domain::AgentKind::Llxprt],
         ..AppState::default()
     };
     state.repositories.push(Repository::new(

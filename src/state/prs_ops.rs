@@ -387,15 +387,12 @@ impl AppState {
         {
             return;
         }
-        if self.agents.is_empty() {
+        let repo_id = self.selected_repository_id().cloned();
+        let agents = self.chooser_agents_for_repository(repo_id.as_ref());
+        if agents.is_empty() {
             self.prs_state.draft_notice = Some("No agents available".to_string());
             return;
         }
-        let agents: Vec<(crate::domain::AgentId, String)> = self
-            .agents
-            .iter()
-            .map(|a| (a.id.clone(), a.name.clone()))
-            .collect();
         self.prs_state.agent_chooser = Some(AgentChooserState {
             selected_index: 0,
             agents,

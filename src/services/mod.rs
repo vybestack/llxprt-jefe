@@ -9,7 +9,9 @@ mod normalize;
 
 use std::path::PathBuf;
 
-use crate::domain::{Agent, AgentId, AgentStatus, PlatformCapabilities, Repository, SandboxEngine};
+use crate::domain::{
+    Agent, AgentId, AgentKind, AgentStatus, PlatformCapabilities, Repository, SandboxEngine,
+};
 
 pub(crate) use normalize::{
     expand_tilde, normalize_llxprt_debug, normalize_profile, normalize_sandbox_flags,
@@ -42,6 +44,8 @@ pub struct CreateAgentParams<'a> {
     pub work_dir: &'a str,
     /// Raw profile value (normalized by the service).
     pub profile: &'a str,
+    /// Agent runtime selected in the form.
+    pub agent_kind: &'a str,
     /// Raw mode string, whitespace-split into flags by the service.
     pub mode: &'a str,
     /// Raw llxprt debug value (trimmed by the service).
@@ -129,6 +133,8 @@ pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
         sandbox_enabled: params.sandbox_enabled,
         sandbox_engine,
         sandbox_flags: normalize_sandbox_flags(params.sandbox_flags),
+        agent_kind: AgentKind::from_form_value(params.agent_kind)
+            .unwrap_or(params.repository.default_agent_kind),
         // App-created agents start Running because creation triggers immediate launch.
         status: AgentStatus::Running,
         runtime_binding: None,

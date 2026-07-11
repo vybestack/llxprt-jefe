@@ -4,6 +4,7 @@
 //! @requirement REQ-TECH-001
 
 use super::{Agent, AppState, Repository, RepositoryId};
+use crate::domain::AgentId;
 
 impl AppState {
     #[must_use]
@@ -82,5 +83,40 @@ impl AppState {
         let agent = self.agents.get(selected_idx)?;
         (&agent.repository_id == repository_id && self.is_agent_visible_with_idle_filter(agent))
             .then_some(agent)
+    }
+
+    /// Build the list of selectable agents for the issue/PR agent chooser.
+    ///
+    /// Filters to non-running agents in the specified repository, hiding
+    /// agents whose local runtime kind is not installed — **unless** the
+    /// agent belongs to a remote-enabled repository (remote PATH resolution
+    /// is authoritative).
+    ///
+    /// This is the single shared selector consumed by both the issue and PR
+    /// chooser open paths, ensuring repository scoping and availability
+    /// filtering are identical.
+    #[must_use]
+    pub fn chooser_agents_for_repository(
+        &self,
+        repository_id: Option<&RepositoryId>,
+    ) -> Vec<(AgentId, String)> {
+        self.agents
+            .iter()
+            .filter(|a| !a.is_running())
+            .filter(|a| repository_id.is_some_and(|rid| a.repository_id == *rid))
+            .filter(|a| self.is_chooser_agent_available(a))
+            .map(|a| (a.id.clone(), a.name.clone()))
+            .collect()
+    }
+
+    /// Whether an agent should appear in the chooser based on availability.
+    ///
+    /// Remote-enabled agents always pass. Local agents pass only when their
+    /// runtime kind is in the installed snapshot.
+    fn is_chooser_agent_available(&self, agent: &Agent) -> bool {
+        let repo_remote = self
+            .repository_by_id(&agent.repository_id)
+            .is_some_and(|r| r.remote.enabled);
+        repo_remote || self.installed_agent_kinds.contains(&agent.agent_kind)
     }
 }

@@ -326,7 +326,11 @@ fn status_bar_lines(state: &AppState) -> PaneContent {
     let repo_count = state.visible_repository_indices().len();
     let running = state.agents.iter().filter(|a| a.is_running()).count();
     let agent_count = state.visible_agent_count();
-    let left = format!("LLxprt Jefe - {}", crate::VERSION);
+    let kennel_suffix = state
+        .selected_agent()
+        .filter(|agent| agent.agent_kind.is_kennel())
+        .map_or("", |_| " (Kennel mode)");
+    let left = format!("LLxprt Jefe{kennel_suffix} - {}", crate::VERSION);
     let center = format!("{repo_count} repos | {running}/{agent_count} running");
     let line = format!("{left}   {center}");
     PaneContent::new(SelectablePane::StatusBar, vec![line])
@@ -467,6 +471,7 @@ mod tests {
             github_repo: String::new(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
+            default_agent_kind: crate::domain::AgentKind::Llxprt,
             agent_ids: vec![AgentId("a1".to_string()), AgentId("a2".to_string())],
         });
         // Select the first repo so the rendered "> " prefix appears.
@@ -542,6 +547,30 @@ mod tests {
         assert!(content.lines[0].contains("repos |"));
     }
 
+    #[test]
+    fn status_bar_lines_show_kennel_mode_for_selected_code_puppy_agent() {
+        let repo_id = crate::domain::RepositoryId("kennel-repo".to_owned());
+        let mut state = AppState::default();
+        state.repositories.push(crate::domain::Repository::new(
+            repo_id.clone(),
+            "Kennel Repo".to_owned(),
+            "kennel".to_owned(),
+            std::path::PathBuf::from("/tmp/kennel"),
+        ));
+        let mut agent = crate::domain::Agent::new(
+            crate::domain::AgentId("puppy".to_owned()),
+            repo_id,
+            "Puppy".to_owned(),
+            std::path::PathBuf::from("/tmp/kennel/puppy"),
+        );
+        agent.agent_kind = crate::domain::AgentKind::CodePuppy;
+        state.agents.push(agent);
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+
+        let content = pane_content_lines(SelectablePane::StatusBar, &state, None, 120, 40);
+        assert!(content.lines[0].contains("LLxprt Jefe (Kennel mode) -"));
+    }
     #[test]
     fn keybind_bar_lines_match_rendered_hints() {
         let mut state = AppState::default();

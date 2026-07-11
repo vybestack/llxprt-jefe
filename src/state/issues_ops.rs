@@ -487,14 +487,7 @@ impl AppState {
 
     fn open_agent_chooser(&mut self) {
         let repo_id = self.selected_repository_id().cloned();
-        let agents: Vec<_> = self
-            .agents
-            .iter()
-            .filter(|a| {
-                repo_id.as_ref().is_some_and(|rid| a.repository_id == *rid) && !a.is_running()
-            })
-            .map(|a| (a.id.clone(), a.name.clone()))
-            .collect();
+        let agents = self.chooser_agents_for_repository(repo_id.as_ref());
         if !agents.is_empty() {
             self.issues_state.agent_chooser = Some(AgentChooserState {
                 selected_index: 0,
