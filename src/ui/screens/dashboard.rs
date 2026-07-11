@@ -200,7 +200,32 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                     }
                     Box(height: terminal_rows, width: 100pct) {
                         TerminalView(
-                            snapshot: props.terminal_snapshot.clone(),
+                            // When a Jefe-owned terminal selection is active,
+                            // use the snapshot that was captured at gesture
+                            // start (selection_snapshot) so the highlight and
+                            // copy use the SAME grid data (Finding B, issue
+                            // #197). Gate on the selection targeting the
+                            // terminal pane: a sidebar/agent-list selection
+                            // renders from app state, not the terminal grid,
+                            // so it must not pin the terminal to a stale
+                            // snapshot (issue #197 review). Otherwise use the
+                            // live render snapshot.
+                            snapshot: {
+                                let pinned = state.and_then(|s| {
+                                    let sel_is_terminal = s
+                                        .selection
+                                        .is_some_and(|sel| {
+                                            sel.pane()
+                                                == crate::selection::SelectablePane::TerminalView
+                                        });
+                                    if sel_is_terminal {
+                                        s.selection_snapshot.clone()
+                                    } else {
+                                        None
+                                    }
+                                });
+                                pinned.or_else(|| props.terminal_snapshot.clone())
+                            },
                             focused: terminal_focused,
                             colors: colors.clone(),
                             selection: selection,

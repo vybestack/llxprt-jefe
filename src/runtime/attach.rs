@@ -443,7 +443,11 @@ fn snapshot_cell(indexed: &Indexed<&Cell>, style: TerminalCellStyle) -> Terminal
     } else {
         indexed.cell.c
     };
-    TerminalCell { ch, style }
+    TerminalCell {
+        ch,
+        style,
+        wide_spacer: false,
+    }
 }
 
 fn snapshot_from_term(term: &Term<RuntimeListener>) -> TerminalSnapshot {
@@ -456,11 +460,37 @@ fn snapshot_from_term(term: &Term<RuntimeListener>) -> TerminalSnapshot {
         let Some((row, col)) = snapshot_position(&indexed, rows, cols) else {
             continue;
         };
+        // Alacritty sets WRAPLINE on the last cell of a row that soft-wraps to
+        // the next row. Record per-row wrap metadata so selection extraction
+        // joins soft-wrapped rows without inserting a newline separator
+        // (issue #197). This check comes BEFORE the wide-spacer branch because
+        // a wide glyph's spacer cell can carry WRAPLINE when the glyph lands at
+        // the final column — recording wrap first keeps soft-wrap fidelity for
+        // CJK/emoji at line ends (issue #197 review).
+        if indexed.cell.flags.contains(Flags::WRAPLINE) {
+            ensure_wrap_slot(&mut snapshot.wraps, rows);
+            snapshot.wraps[row] = true;
+        }
+        // Wide-char spacer cells: mark the snapshot cell as a wide-spacer so
+        // selection extraction skips it (the glyph lives in the preceding cell).
+        // The renderer already treats these cells as blank; marking rather than
+        // skipping preserves the grid alignment so column indices stay stable.
         if indexed
             .cell
             .flags
             .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
         {
+            let style = snapshot_cell_style(
+                &indexed,
+                renderable.selection,
+                renderable.cursor,
+                renderable.colors,
+            );
+            snapshot.cells[row][col] = TerminalCell {
+                ch: ' ',
+                style,
+                wide_spacer: true,
+            };
             continue;
         }
 
@@ -474,6 +504,13 @@ fn snapshot_from_term(term: &Term<RuntimeListener>) -> TerminalSnapshot {
     }
 
     snapshot
+}
+
+/// Ensure `wraps` has at least `rows` entries (all defaulting to false).
+fn ensure_wrap_slot(wraps: &mut Vec<bool>, rows: usize) {
+    if wraps.len() < rows {
+        wraps.resize(rows, false);
+    }
 }
 
 fn attach_command(session_name: &str, ssh_command: Option<&str>) -> CommandBuilder {

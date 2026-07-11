@@ -778,11 +778,16 @@ impl RuntimeManager for TmuxRuntimeManager {
         };
 
         let mut snapshot = TerminalSnapshot::blank(rows, cols, default_style);
+        // `capture_pane_lines` does not preserve soft-wrap metadata, so all
+        // rows are treated as hard line breaks (wraps stays all-false, which
+        // is the default from `blank` — issue #197).
+        snapshot.wraps = vec![false; rows];
         for (r, line) in lines.iter().enumerate() {
             for (c, ch) in line.chars().enumerate() {
                 snapshot.cells[r][c] = TerminalCell {
                     ch,
                     style: default_style,
+                    wide_spacer: false,
                 };
             }
         }

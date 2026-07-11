@@ -94,6 +94,13 @@ pub struct TerminalCell {
     pub ch: char,
     /// Cell style.
     pub style: TerminalCellStyle,
+    /// Whether this cell is the trailing spacer of a wide (width-2) glyph.
+    ///
+    /// When `true`, the actual glyph lives in the preceding cell's `ch` and
+    /// this cell carries a blank `' '` for rendering. Selection extraction
+    /// skips wide-spacer cells so copying a selection across a wide glyph
+    /// yields just the glyph, not a spurious trailing space (issue #197).
+    pub wide_spacer: bool,
 }
 
 /// Terminal snapshot data for rendering.
@@ -107,17 +114,31 @@ pub struct TerminalSnapshot {
     pub cols: usize,
     /// Row-major terminal cells.
     pub cells: Vec<Vec<TerminalCell>>,
+    /// Per-row soft-wrap metadata for selection text extraction.
+    ///
+    /// `wraps[row] == true` means row `row` soft-wraps into row `row+1` (the
+    /// logical line continues on the next row without a newline). An empty
+    /// `Vec` (the default) means no rows wrap — every row ends a logical line.
+    /// This lets terminal selection extraction join soft-wrapped rows without
+    /// inserting a spurious newline while still inserting one at real line
+    /// breaks (issue #197).
+    pub wraps: Vec<bool>,
 }
 
 impl TerminalSnapshot {
     /// Build an empty snapshot pre-filled with a base style.
     #[must_use]
     pub fn blank(rows: usize, cols: usize, style: TerminalCellStyle) -> Self {
-        let cell = TerminalCell { ch: ' ', style };
+        let cell = TerminalCell {
+            ch: ' ',
+            style,
+            wide_spacer: false,
+        };
         Self {
             rows,
             cols,
             cells: vec![vec![cell; cols]; rows],
+            wraps: Vec::new(),
         }
     }
 

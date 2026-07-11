@@ -27,14 +27,17 @@
 mod content;
 mod form_content;
 mod geometry;
+mod gesture;
 mod layout_descriptor;
 mod overlay_content;
+mod terminal_text;
 mod text;
-
 pub use content::{PaneContent, pane_content_lines};
 pub use form_content::{agent_form_content_lines, repository_form_content_lines};
 pub use geometry::{PaneGeometry, pane_at};
+pub use gesture::{GestureAction, GestureEvent, GestureEventKind, GestureState, PtyReplay};
 pub use layout_descriptor::{OverlayPane, ScreenLayout};
+pub use terminal_text::terminal_selection_text;
 pub use text::{
     HighlightRange, SelectablePane, SelectionPoint, TextSelection, normalize_selection,
     point_to_content_coords, row_highlight_range, selection_text,

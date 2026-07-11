@@ -235,6 +235,22 @@ pub struct AppState {
     /// inverse-video highlight over the selected cells.
     pub selection: Option<crate::selection::TextSelection>,
 
+    /// The terminal snapshot bound to the active selection (issue #197).
+    ///
+    /// Captured when a terminal selection gesture begins and reused for BOTH
+    /// the highlight rendering and the copy-at-release so copied text always
+    /// matches what the user highlighted — even when the live grid streams new
+    /// output between the last drag frame and mouse-up. Cleared together with
+    /// `selection`. Runtime-only — never persisted.
+    pub selection_snapshot: Option<crate::runtime::TerminalSnapshot>,
+
+    /// Gesture-ownership state for the terminal mouse router (issue #197).
+    ///
+    /// Persists the left-button gesture ownership decision (Jefe vs PTY) across
+    /// events within a single down→drag→up cycle. Reset to idle on release.
+    /// Runtime-only — never persisted.
+    pub terminal_gesture_state: crate::selection::GestureState,
+
     /// Help modal scroll offset (lines scrolled from the top). Mirrored from
     /// the app-shell hook state so the selection content projection can map
     /// screen coordinates to the correct help content line (issue #178).
