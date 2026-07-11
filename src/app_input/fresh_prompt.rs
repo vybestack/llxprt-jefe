@@ -140,6 +140,25 @@ mod tests {
     }
 
     #[test]
+    fn llxprt_fresh_prompt_does_not_add_yolo_to_empty_mode() {
+        // The other half of #210: an agent whose mode was cleared (non-yolo)
+        // must stay non-yolo on a fresh-prompt launch. --yolo is never
+        // synthesized here; only the instruction is appended.
+        let mut sig = base_sig(AgentKind::Llxprt);
+        sig.mode_flags.clear();
+        let result =
+            prepare_fresh_prompt_signature(sig, FreshPromptKind::Issue, ".jefe/issue-prompt.md");
+        assert!(!result.pass_continue);
+        assert_eq!(
+            result.mode_flags,
+            vec![
+                "-i",
+                "Read and work on the GitHub issue described in .jefe/issue-prompt.md"
+            ]
+        );
+    }
+
+    #[test]
     fn llxprt_fresh_prompt_strips_persisted_continue() {
         // Fresh launches must never resume a prior session. `--continue` is
         // owned by `pass_continue` (forced off here), so a stale persisted

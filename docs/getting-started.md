@@ -73,7 +73,8 @@ With your repository selected, press `n` (lowercase n) to open **New Agent**.
 
 - **Mode Flags**
   - Extra llxprt CLI flags.
-  - Defaults to `--yolo` when empty.
+  - The new-agent form pre-fills `--yolo`; clear it to run non-yolo. What you
+    save is what is passed.
 
 - **LLXPRT_DEBUG**
   - Optional debug env value for llxprt.

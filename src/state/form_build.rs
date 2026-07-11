@@ -254,18 +254,10 @@ impl AppState {
         agent.profile = normalize_profile(&fields.profile);
         agent.agent_kind =
             AgentKind::from_form_value(&fields.agent_kind).unwrap_or(agent.agent_kind);
-        if fields.mode.trim().is_empty() {
-            // Match the create path: an empty mode for Llxprt resets to
-            // --yolo so update and create behave identically. CodePuppy has
-            // no default mode flags.
-            if agent.agent_kind == AgentKind::Llxprt {
-                agent.mode_flags = vec!["--yolo".to_owned()];
-            } else {
-                agent.mode_flags = Vec::new();
-            }
-        } else {
-            agent.mode_flags = fields.mode.split_whitespace().map(String::from).collect();
-        }
+        // The mode field is the single source of truth for mode flags. An
+        // empty mode yields no flags so yolo can be turned off on update; the
+        // new-agent form pre-fills --yolo as the create default instead.
+        agent.mode_flags = fields.mode.split_whitespace().map(String::from).collect();
         agent.llxprt_debug = normalize_llxprt_debug(&fields.llxprt_debug);
         agent.pass_continue = fields.pass_continue;
         agent.sandbox_enabled = fields.sandbox_enabled;

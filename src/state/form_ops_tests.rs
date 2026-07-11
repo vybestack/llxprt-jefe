@@ -300,9 +300,10 @@ fn update_agent_ignores_whitespace_only_work_dir() {
 }
 
 #[test]
-fn update_agent_empty_llxprt_mode_resets_to_yolo() {
-    // Consistent with create: clearing the mode field for Llxprt must reset
-    // to --yolo, not preserve an old non-yolo value.
+fn update_agent_empty_llxprt_mode_stays_empty() {
+    // Clearing the mode field for Llxprt must persist as empty flags, letting
+    // the agent run non-yolo. The agent config is the source of truth for
+    // whether --yolo is passed (#210).
     let repository = seed_repository();
     let mut agent = Agent {
         id: crate::domain::AgentId("agent-yolo".to_owned()),
@@ -338,10 +339,10 @@ fn update_agent_empty_llxprt_mode_resets_to_yolo() {
         sandbox_flags: String::new(),
     };
     AppState::update_agent_from_fields(&mut agent, &repository, &fields);
-    assert_eq!(
-        agent.mode_flags,
-        vec!["--yolo".to_owned()],
-        "empty Llxprt mode must reset to --yolo, not preserve --fast"
+    assert!(
+        agent.mode_flags.is_empty(),
+        "empty Llxprt mode must stay empty so yolo can be turned off, got {:?}",
+        agent.mode_flags
     );
 }
 

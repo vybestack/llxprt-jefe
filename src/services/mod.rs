@@ -107,11 +107,10 @@ pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
 
     let work_dir = resolve_agent_work_dir(params.repository, params.work_dir)?;
 
-    let mode_flags: Vec<String> = if params.mode.trim().is_empty() {
-        vec!["--yolo".to_owned()]
-    } else {
-        params.mode.split_whitespace().map(String::from).collect()
-    };
+    // The mode field is the single source of truth for whether --yolo (or any
+    // flag) is passed. An empty mode yields no flags so an agent can run
+    // non-yolo; the new-agent form pre-fills --yolo as the default instead.
+    let mode_flags: Vec<String> = params.mode.split_whitespace().map(String::from).collect();
 
     let caps = PlatformCapabilities::current();
     let sandbox_engine = SandboxEngine::from_form_value(params.sandbox_engine)
