@@ -101,10 +101,16 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
 
             // Terminal content. A single low-level canvas node draws the whole
             // grid; see module docs for why this is not a flex tree.
+            //
+            // The content-area fill is transparent (Color::Reset) when theme
+            // override is OFF, so the embedded agent's default cells let the
+            // host terminal's real background show through instead of jefe's
+            // theme bg bleeding in (issue #179). Override ON fills with jefe's
+            // theme bg. Chrome (border, title bar) always carries rc.bg.
             Box(
                 flex_direction: FlexDirection::Column,
                 flex_grow: 1.0_f32,
-                background_color: rc.bg,
+                background_color: terminal_content_background(props.override_theme, rc.bg),
             ) {
                 #(if let Some(snapshot) = props.snapshot.clone() {
                     element! {
@@ -122,7 +128,10 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
                     .into_any()
                 } else {
                     element! {
-                        Box {
+                        Box(background_color: terminal_content_background(
+                            props.override_theme,
+                            rc.bg,
+                        )) {
                             Text(content: terminal_empty_message(props.session_live), color: rc.dim)
                         }
                     }
@@ -267,11 +276,32 @@ impl Default for TerminalThemeOverride {
     }
 }
 
+/// Background fill for the agent terminal *content* area (issue #179).
+///
+/// Override OFF: `Color::Reset` (transparent). The embedded agent's default
+/// cells let the host terminal's real background show through instead of
+/// jefe's theme bg bleeding in. Override ON: jefe's theme bg, so blank /
+/// trailing / default regions are consistently themed (explicit agent cell
+/// backgrounds overpaint this fill).
+///
+/// This is the single source of truth for the content-area fill and is shared
+/// by the content container and the empty-state box so both honor the same
+/// transparency contract. Jefe's chrome (outer border, title bar) does NOT
+/// use this helper — it always carries `rc.bg`.
+#[must_use]
+fn terminal_content_background(override_theme: bool, theme_bg: iocraft::Color) -> iocraft::Color {
+    if override_theme {
+        theme_bg
+    } else {
+        iocraft::Color::Reset
+    }
+}
+
 /// Whether a color represents the terminal default (transparent) background.
 ///
 /// When `paint_terminal_cells` encounters a run whose bg is `Color::Reset`,
-/// it skips `set_background_color` so the parent container's fill (or the host
-/// terminal default) shows through (issue #179).
+/// it skips `set_background_color` so the host terminal's real default
+/// background shows through the transparent content container (issue #179).
 fn is_default_bg(color: iocraft::Color) -> bool {
     matches!(color, iocraft::Color::Reset)
 }
@@ -294,11 +324,12 @@ fn is_default_fg(color: iocraft::Color) -> bool {
 ///   A run whose effective background is still `Reset` after resolution yields
 ///   `None` (transparent).
 ///
-/// Override guarantees an opaque, visible result even if the sourced theme
-/// color is itself `Reset`: a `Reset` theme channel is normalized to a
-/// concrete fallback (black bg / white fg) so override can never produce an
-/// unintended transparent background or invisible foreground. Today
-/// `ResolvedColors` always supplies concrete `Rgb` values, so this is a
+/// Override guarantees an *opaque* result even if the sourced theme color is
+/// itself `Reset`: a `Reset` theme channel is normalized to a concrete
+/// fallback (black bg / white fg) so override can never produce an unintended
+/// transparent background. The foreground fallback is a concrete, non-`Reset`
+/// color but is not guaranteed to contrast with every possible background.
+/// Today `ResolvedColors` always supplies concrete `Rgb` values, so this is a
 /// defensive contract guarantee rather than a live code path.
 ///
 /// Transformed cells (inverse, selection, cursor) already carry concrete ANSI
@@ -336,7 +367,9 @@ fn resolve_run_colors(
 }
 
 /// Concrete foreground to use when override is enabled but the theme fg is the
-/// terminal default. White is visible against any jefe background color.
+/// terminal default. A concrete (non-`Reset`) fallback guarantees override
+/// paints an opaque cell; it is not guaranteed to contrast with every
+/// background (today `ResolvedColors` always supplies concrete colors).
 fn normalize_override_fg(color: iocraft::Color) -> iocraft::Color {
     if is_default_fg(color) {
         iocraft::Color::White
@@ -643,6 +676,40 @@ mod tests {
         assert_eq!(terminal_empty_message(false), "No terminal attached");
     }
 
+    // --- terminal_content_background (issue #179) ---
+
+    #[test]
+    fn content_background_transparent_when_override_off() {
+        // Override OFF: content area is transparent so the agent's/host's
+        // real background shows through instead of jefe's theme bg.
+        assert_eq!(
+            terminal_content_background(false, Color::Blue),
+            Color::Reset
+        );
+    }
+
+    #[test]
+    fn content_background_is_theme_bg_when_override_on() {
+        // Override ON: content area is filled with jefe's theme bg.
+        assert_eq!(terminal_content_background(true, Color::Blue), Color::Blue);
+    }
+
+    #[test]
+    fn content_background_off_ignores_theme_bg() {
+        // Regardless of the supplied theme bg, override OFF is always Reset.
+        assert_eq!(
+            terminal_content_background(
+                false,
+                Color::Rgb {
+                    r: 30,
+                    g: 30,
+                    b: 30
+                }
+            ),
+            Color::Reset
+        );
+    }
+
     // --- is_default_bg / is_default_fg (issue #179) ---
 
     #[test]
@@ -698,7 +765,9 @@ mod tests {
 
     #[test]
     fn resolve_default_bg_is_transparent_when_override_off() {
-        // Default-bg cell does not paint a background; container shows through.
+        // Default-bg cell does not paint a background; the transparent content
+        // container lets the host terminal's real default bg show through
+        // (issue #179).
         let (fg, bg) = resolve_run_colors(&run_style(Color::White, Color::Reset), override_off());
         assert_eq!(fg, Color::White);
         assert!(bg.is_none(), "default bg must be transparent (None)");
@@ -745,6 +814,25 @@ mod tests {
     }
 
     #[test]
+    fn resolve_override_maps_only_default_fg_with_explicit_bg() {
+        // Mirror mixed case: default fg becomes theme fg; explicit bg passes
+        // through unchanged (ANSI and RGB both preserved).
+        let (fg, bg) = resolve_run_colors(
+            &run_style(Color::Reset, Color::Yellow),
+            override_on(Color::Green, Color::Blue),
+        );
+        assert_eq!(fg, Color::Green);
+        assert_eq!(bg, Some(Color::Yellow));
+
+        let (fg, bg) = resolve_run_colors(
+            &run_style(Color::Reset, Color::Rgb { r: 1, g: 2, b: 3 }),
+            override_on(Color::Green, Color::Blue),
+        );
+        assert_eq!(fg, Color::Green);
+        assert_eq!(bg, Some(Color::Rgb { r: 1, g: 2, b: 3 }));
+    }
+
+    #[test]
     fn resolve_override_normalizes_reset_theme_bg_to_opaque() {
         // Defensive contract (CodeRabbit): even if the sourced theme bg is
         // Reset, override must paint an opaque background (black fallback)
@@ -757,13 +845,14 @@ mod tests {
     }
 
     #[test]
-    fn resolve_override_normalizes_reset_theme_fg_to_visible() {
-        // Defensive contract: a Reset theme fg normalizes to white so override
-        // never produces an invisible foreground.
+    fn resolve_override_normalizes_reset_theme_fg_to_concrete() {
+        // Defensive contract: a Reset theme fg normalizes to a concrete
+        // (non-Reset) fallback so override never leaves the channel as the
+        // terminal default.
         let (fg, _bg) = resolve_run_colors(
             &run_style(Color::Reset, Color::Reset),
             override_on(Color::Reset, Color::Reset),
         );
-        assert_eq!(fg, Color::White, "override fg must be visible");
+        assert_eq!(fg, Color::White, "override fg must be concrete (non-Reset)");
     }
 }
