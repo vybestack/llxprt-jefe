@@ -53,6 +53,12 @@ impl GhClient {
                 break;
             }
         }
+        if cursor.is_some() {
+            tracing::warn!(
+                "review-threads truncated at page cap for {owner}/{name}#{number} ({} threads collected)",
+                threads.len()
+            );
+        }
         threads
     }
 
@@ -88,14 +94,18 @@ impl GhClient {
                 // Degrade gracefully (threads already collected still show),
                 // but surface the failure so truncated results on large PRs
                 // are diagnosable instead of silently shorter.
-                tracing::warn!("review-threads page fetch failed: {err}");
+                tracing::warn!(
+                    "review-threads page fetch failed for {owner}/{name}#{number}: {err}"
+                );
                 return None;
             }
         };
         match serde_json::from_str::<serde_json::Value>(&stdout) {
             Ok(json) => Some(json),
             Err(err) => {
-                tracing::warn!("review-threads page parse failed: {err}");
+                tracing::warn!(
+                    "review-threads page parse failed for {owner}/{name}#{number}: {err}"
+                );
                 None
             }
         }

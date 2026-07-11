@@ -840,3 +840,36 @@ fn bidi_control_chars_stripped_zwj_preserved() {
         "ZWJ preserved for emoji: {out3:?}"
     );
 }
+
+// ── CHANGE A: multiple leading whitespace before tag name (issue #155) ──
+
+/// Multiple spaces between `<` and the tag name must still produce a block
+/// boundary. The scanner must skip ALL leading whitespace before the tag
+/// name, not just one char (regression: `<  br>` lost its line break).
+#[test]
+fn multiple_spaces_before_tag_name_still_break() {
+    // `<  br>` (two spaces) must introduce a line break.
+    assert_eq!(
+        crate::markdown_html_strip::strip_html_to_text("a<  br>b"),
+        "a\nb",
+        "double-space `<  br>` must break"
+    );
+    // `<  /p>` (two spaces) after text must introduce a newline.
+    assert_eq!(
+        crate::markdown_html_strip::strip_html_to_text("alpha<  /p>"),
+        "alpha\n",
+        "double-space `<  /p>` must break"
+    );
+    // Existing doc case: single spaces `< /p >` must still break.
+    assert_eq!(
+        crate::markdown_html_strip::strip_html_to_text("alpha< /p >"),
+        "alpha\n",
+        "single-space `< /p >` must still break"
+    );
+    // Even with many spaces, the tag name must be found.
+    assert_eq!(
+        crate::markdown_html_strip::strip_html_to_text("x<    br>y"),
+        "x\ny",
+        "four-space `<    br>` must break"
+    );
+}

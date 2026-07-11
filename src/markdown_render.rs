@@ -301,10 +301,10 @@ impl MarkdownRenderer {
             let box_char = symbol.map_or_else(
                 || "[ ]",
                 |c| {
-                    if c.is_whitespace() || c == '\u{0}' {
-                        "[ ]"
-                    } else {
+                    if c.eq_ignore_ascii_case(&'x') {
                         "[x]"
+                    } else {
+                        "[ ]"
                     }
                 },
             );
@@ -430,13 +430,17 @@ impl MarkdownRenderer {
 
     /// Render a GFM table as aligned columns.
     fn render_table<'a>(&mut self, node: &'a AstNode<'a>, table: &NodeTable, indent: usize) {
+        // Whether the first TableRow is a header (only `.first()` of the
+        // collected bools was ever read, so a single bool suffices).
+        let first_row_is_header = node
+            .children()
+            .find(|row| matches!(&row.data().value, NodeValue::TableRow(_)))
+            .is_some_and(|row| row.data().value == NodeValue::TableRow(true));
         let mut rows: Vec<Vec<String>> = Vec::new();
-        let mut is_header = Vec::new();
         for row in node.children() {
             if !matches!(&row.data().value, NodeValue::TableRow(_)) {
                 continue;
             }
-            is_header.push(row.data().value == NodeValue::TableRow(true));
             let mut cells = Vec::new();
             for cell in row.children() {
                 if matches!(&cell.data().value, NodeValue::TableCell) {
@@ -476,7 +480,7 @@ impl MarkdownRenderer {
             // Emit an alignment separator after the header row. Iterate the
             // declared column count (not the header row's cells) so a sparse
             // header still aligns with wider data rows.
-            if ri == 0 && is_header.first().is_some_and(|h| *h) {
+            if ri == 0 && first_row_is_header {
                 let mut sep = String::from(&pad);
                 for (i, w) in widths.iter().enumerate().take(num_cols) {
                     let align = table
@@ -647,7 +651,8 @@ impl InlineLines {
         &self.current
     }
 
-    /// Trim trailing whitespace from every line and drop a trailing empty line.
+    /// Trim trailing whitespace from every line and drop all consecutive
+    /// trailing empty lines.
     fn trim_ends(&mut self) {
         for line in &mut self.prev {
             *line = line.trim_end().to_string();
@@ -737,6 +742,10 @@ fn wrap_indent_cols(text: &str, pad_cols: usize) -> Vec<String> {
                 current = word.to_string();
             }
         }
+        // Defensive: the trim().is_empty() guard above means every non-blank
+        // source line yields at least one word, so `current` is normally
+        // non-empty here. The `out.is_empty()` arm merely guarantees the
+        // function never returns an empty vec for non-empty input.
         if !current.is_empty() || out.is_empty() {
             out.push(format!("{pad}{current}"));
         }

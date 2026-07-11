@@ -101,8 +101,14 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
     }
 
     // Scan the tag name + attributes, respecting quoted attribute values so a
-    // `>` inside quotes does not prematurely close the tag.
+    // `>` inside quotes does not prematurely close the tag. Skip ALL leading
+    // whitespace after `<` before starting the name scan so markup like
+    // `<  /p>` (multiple spaces) is handled the same as `< /p>`.
     let mut j = start + 1;
+    while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+        j += 1;
+    }
+    let name_start = j;
     let mut name_end = j;
     while j < bytes.len() {
         match bytes[j] {
@@ -114,19 +120,21 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
                     j += 1;
                 }
             }
-            c if c.is_ascii_whitespace() && name_end == start + 1 => {
+            // Leading whitespace was already skipped, so the first whitespace
+            // encountered marks the end of the tag name.
+            c if c.is_ascii_whitespace() && name_end == name_start => {
                 name_end = j;
             }
             _ => {}
         }
         j += 1;
     }
-    if name_end == start + 1 {
+    if name_end == name_start {
         name_end = j;
     }
     // Trim so markup with whitespace after `<` (e.g. `< br>`, `< /p >`) still
     // matches its tag name and introduces the block boundary.
-    let name = html[start + 1..name_end].trim().to_ascii_lowercase();
+    let name = html[name_start..name_end].trim().to_ascii_lowercase();
     if html_tag_introduces_break(&name) {
         out.push('\n');
     }
@@ -260,10 +268,10 @@ fn decode_entity(entity: &str) -> Option<String> {
         inner.strip_prefix('#')?.parse::<u32>().ok()?
     };
     let c = char::from_u32(code)?;
-    // Never emit control characters (&#27; ESC, &#0; NUL, &#8; BS, C1 set…):
-    // they can corrupt terminal state or enable escape-sequence injection
-    // from untrusted GitHub content. Tab is not meaningful mid-line here
-    // either, so only fully printable characters pass through.
+    // Returns None for control characters (&#27; ESC, &#0; NUL, C1 set…) so
+    // they never decode to output; consume_entity treats None as a literal
+    // `&`. Tab is not meaningful mid-line here either, so only fully printable
+    // characters pass through.
     if c.is_control() {
         return None;
     }
