@@ -298,6 +298,13 @@ pub struct TmuxRuntimeManager {
     /// Avoids re-running the tmux option commands on every attach. Populated
     /// during local session creation and the local attach path.
     clipboard_enforced: HashSet<String>,
+    /// Session names for which tmux prefix passthrough has already been
+    /// enforced.
+    ///
+    /// Mirrors [`clipboard_enforced`](Self::clipboard_enforced): the prefix
+    /// options are idempotent, but we memoize so the reattach/attach hot paths
+    /// do not re-shell out to tmux for a session already remediated (#200).
+    prefix_enforced: HashSet<String>,
     /// Terminal dimensions.
     rows: u16,
     cols: u16,
@@ -326,6 +333,7 @@ impl TmuxRuntimeManager {
             attached_agent_id: None,
             dead_signatures: LruCache::new(MAX_DEAD_SIGNATURES),
             clipboard_enforced: HashSet::new(),
+            prefix_enforced: HashSet::new(),
             rows,
             cols,
         }
@@ -359,6 +367,64 @@ impl TmuxRuntimeManager {
     #[cfg(test)]
     fn record_clipboard_passthrough(&mut self, session: &str) {
         self.clipboard_enforced.insert(session.to_owned());
+    }
+
+    /// Enforce tmux prefix passthrough for `session_name` if not already done.
+    ///
+    /// Memoized per session name so the tmux option commands run at most once
+    /// per session across create + attach cycles, mirroring
+    /// [`ensure_clipboard_passthrough`](Self::ensure_clipboard_passthrough).
+    ///
+    /// This is the reattach-side remediation for issue #200: a session created
+    /// before the prefix-disabling fix still has tmux's default `C-b` prefix,
+    /// which the attach client would use to eat the `0x02` byte of application
+    /// control chords. Calling this on every attach guarantees the prefix is
+    /// disabled even for pre-existing sessions.
+    fn ensure_prefix_passthrough(&mut self, session_name: &str) {
+        if !self.prefix_enforced.contains(session_name) {
+            commands::disable_prefix_for_passthrough(session_name);
+            self.prefix_enforced.insert(session_name.to_owned());
+        }
+    }
+
+    /// Enforce tmux prefix passthrough on a remote session if not already done.
+    ///
+    /// Remote mirror of [`ensure_prefix_passthrough`](Self::ensure_prefix_passthrough):
+    /// best-effort because a transient SSH failure must not block reattach, but
+    /// success is memoized so the option is applied exactly once per session.
+    fn ensure_remote_prefix_passthrough(
+        &mut self,
+        remote: &crate::domain::RemoteRepositorySettings,
+        session_name: &str,
+    ) {
+        if self.prefix_enforced.contains(session_name) {
+            return;
+        }
+        let command = commands::remote_disable_prefix_command(remote, session_name);
+        if commands::run_remote_ssh(remote, &command).is_ok() {
+            self.prefix_enforced.insert(session_name.to_owned());
+        }
+    }
+
+    /// Test-only accessor: whether prefix passthrough was already recorded
+    /// for `session_name`.
+    #[cfg(test)]
+    fn prefix_passthrough_enforced(&self, session: &str) -> bool {
+        self.prefix_enforced.contains(session)
+    }
+
+    /// Test-only setter for recording prefix passthrough without invoking tmux.
+    #[cfg(test)]
+    fn record_prefix_passthrough(&mut self, session: &str) {
+        self.mark_prefix_passthrough_enforced(session);
+    }
+
+    /// Record that prefix passthrough has been enforced for `session_name`
+    /// without issuing tmux commands. Used after the local create path, where
+    /// [`commands::finalize_local_session`] already disabled the prefix inside
+    /// `create_session`, so we only need to memoize it for the attach path.
+    fn mark_prefix_passthrough_enforced(&mut self, session_name: &str) {
+        self.prefix_enforced.insert(session_name.to_owned());
     }
 
     /// Collect liveness check metadata for all tracked sessions.
@@ -441,6 +507,16 @@ impl TmuxRuntimeManager {
         let can_reattach = allow_reattach && self.session_exists_for_signature(agent_id, signature);
         if can_reattach {
             debug!(session_name = %session_name, "reattaching to existing tmux session");
+            // The session may predate the prefix-passthrough fix (#200): a
+            // pre-existing session still has tmux's default `C-b` prefix, which
+            // the attach client uses to eat the 0x02 byte of control chords.
+            // Remediate it on reattach so local and remote sessions behave
+            // identically to freshly created ones.
+            if signature.remote.enabled {
+                self.ensure_remote_prefix_passthrough(&signature.remote, &session_name);
+            } else {
+                self.ensure_prefix_passthrough(&session_name);
+            }
         } else {
             if !allow_reattach {
                 // Explicit relaunch-after-kill path: best-effort kill by name so a
@@ -469,6 +545,9 @@ impl TmuxRuntimeManager {
             // but is robust against future refactors of that call chain.
             if !signature.remote.enabled {
                 self.ensure_clipboard_passthrough(&session_name);
+                // finalize_local_session also disabled the tmux prefix
+                // (#200); memoize it so the attach path does not re-apply it.
+                self.mark_prefix_passthrough_enforced(&session_name);
             }
         }
 
@@ -572,6 +651,12 @@ impl RuntimeManager for TmuxRuntimeManager {
             // AttachedViewer::spawn to do this.
             if !remote_enabled {
                 self.ensure_clipboard_passthrough(&session_name);
+                // Same invariant for tmux prefix passthrough (#200): a
+                // session reattached after an upgrade must not keep the
+                // default C-b prefix that eats control-chord bytes.
+                self.ensure_prefix_passthrough(&session_name);
+            } else if let Some(remote) = remote_settings.as_ref() {
+                self.ensure_remote_prefix_passthrough(remote, &session_name);
             }
 
             // Spawn new viewer
@@ -860,6 +945,30 @@ mod tests {
         mgr.record_clipboard_passthrough("jefe-agent-b");
         assert!(mgr.clipboard_passthrough_enforced("jefe-agent-a"));
         assert!(mgr.clipboard_passthrough_enforced("jefe-agent-b"));
+    }
+
+    #[test]
+    fn prefix_passthrough_tracking_memoizes_per_session() {
+        let mut mgr = TmuxRuntimeManager::new(40, 120);
+
+        // Initially nothing is enforced — a pre-fix session has not been
+        // remediated, which is exactly the reattach gap #200 closes.
+        assert!(!mgr.prefix_passthrough_enforced("jefe-agent-a"));
+        assert!(!mgr.prefix_passthrough_enforced("jefe-agent-b"));
+
+        // Recording a session marks only that session.
+        mgr.record_prefix_passthrough("jefe-agent-a");
+        assert!(mgr.prefix_passthrough_enforced("jefe-agent-a"));
+        assert!(!mgr.prefix_passthrough_enforced("jefe-agent-b"));
+
+        // Recording again is idempotent (HashSet dedup).
+        mgr.record_prefix_passthrough("jefe-agent-a");
+        assert!(mgr.prefix_passthrough_enforced("jefe-agent-a"));
+
+        // A second session is tracked independently.
+        mgr.record_prefix_passthrough("jefe-agent-b");
+        assert!(mgr.prefix_passthrough_enforced("jefe-agent-a"));
+        assert!(mgr.prefix_passthrough_enforced("jefe-agent-b"));
     }
 
     #[test]

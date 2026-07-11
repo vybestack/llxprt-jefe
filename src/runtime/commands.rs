@@ -4,6 +4,7 @@
 //! @requirement REQ-TECH-004
 //! @pseudocode component-002 lines 01-06
 
+use std::fmt::Write;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -114,6 +115,85 @@ fn apply_session_style(session_name: &str) {
         .as_ref(),
         None,
     );
+}
+
+/// Disable the tmux prefix key (`prefix` and `prefix2`) on a jefe-managed
+/// session so application control chords pass through to the child unchanged.
+///
+/// tmux's default prefix is `C-b` (byte `0x02`). jefe starts tmux with
+/// `-f /dev/null`, which leaves that default active. The embedded viewer runs
+/// an interactive `tmux attach-session` client, and the client consumes the
+/// prefix byte from the input stream before forwarding the rest to the pane.
+/// That eats the `0x02` in a Code Puppy `Ctrl-X Ctrl-B` (`0x18 0x02`) chord,
+/// so the child only sees `0x18` and the chord never completes (#200).
+///
+/// jefe controls its private sessions programmatically (send-keys, capture,
+/// attach) and never exposes a user-facing tmux command table, so no prefix is
+/// needed. Setting `prefix None` / `prefix2 None` makes the client stop
+/// intercepting the prefix key, restoring raw PTY semantics for every runtime.
+/// This is general (not a Code Puppy-specific rewrite) and keeps jefe's own
+/// F12 escape/focus mechanism untouched (F12 is handled by the host app shell
+/// before any byte reaches the PTY).
+///
+/// This is safe to call repeatedly (the options are idempotent), so it is also
+/// used on the reattach path to remediate sessions created before this fix
+/// existed (#200).
+pub fn disable_prefix_for_passthrough(session_name: &str) {
+    for option in prefix_disable_option_names() {
+        let _ = tmux_cmd_status(
+            ["set-option", "-t", session_name, option, "None"].as_ref(),
+            None,
+        );
+    }
+}
+
+/// The tmux option names that must be set to `None` so no prefix key is
+/// reserved on a jefe-managed session (#200).
+///
+/// Single source of truth shared by the local path
+/// ([`disable_prefix_for_passthrough`]) and the remote path
+/// ([`remote_disable_prefix_command`]) so the two cannot drift, and so tests
+/// can prove the production option set is applied rather than re-deriving it.
+#[must_use]
+pub fn prefix_disable_option_names() -> &'static [&'static str] {
+    &["prefix", "prefix2"]
+}
+
+/// Build the remote shell fragment that disables both tmux prefix keys on an
+/// existing remote session. Used on the remote reattach/attach path to
+/// remediate remote sessions created before the inline-script fix (#200),
+/// mirroring [`disable_prefix_for_passthrough`] for the local path.
+///
+/// The fragment is built from [`prefix_disable_option_names`] so the remote
+/// and local paths disable exactly the same options. It targets the session by
+/// its escaped name and uses tmux's `\;` command separator so all options apply
+/// in one `tmux` invocation.
+fn remote_disable_prefix_fragment(escaped_session: &str) -> String {
+    let mut parts: Vec<String> = vec!["tmux".to_owned()];
+    let mut first = true;
+    for option in prefix_disable_option_names() {
+        if !first {
+            parts.push("\\;".to_owned());
+        }
+        parts.push("set-option".to_owned());
+        parts.push("-t".to_owned());
+        parts.push(escaped_session.to_owned());
+        parts.push((*option).to_owned());
+        parts.push("None".to_owned());
+        first = false;
+    }
+    parts.join(" ")
+}
+
+/// SSH command that disables both tmux prefix keys on an existing remote
+/// session, wrapped through the remote user-escalation path. Best-effort: a
+/// failure (e.g. the session already exited) is non-fatal for reattach.
+pub fn remote_disable_prefix_command(
+    remote: &crate::domain::RemoteRepositorySettings,
+    session_name: &str,
+) -> String {
+    let escaped_session = shell_escape_single(session_name);
+    remote_tmux_command(remote, &remote_disable_prefix_fragment(&escaped_session))
 }
 
 pub fn enforce_clipboard_passthrough(session_name: &str) {
@@ -582,8 +662,21 @@ fn build_remote_tmux_script(
     escaped_session: &str,
     pane_command: &str,
 ) -> String {
+    // Disable the tmux prefix on the remote session using the shared option
+    // list so this inline creation script and the reattach fragment
+    // ([`remote_disable_prefix_fragment`]) cannot drift (#200). The remote
+    // tmux server also defaults to `C-b`, which the remote attach client would
+    // consume before it reaches the agent; jefe never needs a user-facing
+    // prefix on its managed sessions.
+    let mut prefix_options = String::new();
+    for option in prefix_disable_option_names() {
+        let _ = write!(
+            prefix_options,
+            " \\; set-option -t {escaped_session} {option} None"
+        );
+    }
     format!(
-        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {pane_command} \\; set-option -t {escaped_session} remain-on-exit on"
+        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {pane_command} \\; set-option -t {escaped_session} remain-on-exit on{prefix_options}"
     )
 }
 
@@ -662,6 +755,7 @@ fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
 
 fn finalize_local_session(session_name: &str, warning: Option<String>) {
     enforce_clipboard_passthrough(session_name);
+    disable_prefix_for_passthrough(session_name);
     let _ = tmux_cmd_status(
         ["set-option", "-t", session_name, "remain-on-exit", "on"].as_ref(),
         None,
@@ -883,3 +977,7 @@ pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
 #[cfg(test)]
 #[path = "commands_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "prefix_passthrough_tests.rs"]
+mod prefix_passthrough_tests;
