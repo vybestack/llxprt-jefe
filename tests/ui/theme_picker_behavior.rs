@@ -173,7 +173,7 @@ fn view_marks_active_theme_independently_of_selection() {
 // ============================================================================
 
 #[test]
-fn toggle_override_flips_modal_flag() {
+fn toggle_override_flips_override_flag() {
     let state = picker_state(&["a", "b"], 0).apply(AppEvent::ThemePickerToggleOverride);
     let override_val = theme_picker_override_view(&state)
         .unwrap_or_else(|| panic!("picker should be open with override field"));
@@ -203,6 +203,10 @@ fn toggle_override_is_noop_when_picker_not_open() {
         state.modal,
         ModalState::None,
         "toggle should be a no-op when picker is not open"
+    );
+    assert!(
+        !state.override_agent_theme,
+        "app-level override flag must be unchanged when the picker is closed"
     );
 }
 
