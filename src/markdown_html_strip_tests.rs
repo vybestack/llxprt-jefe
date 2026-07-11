@@ -71,10 +71,11 @@ fn unmatched_quote_in_tag_does_not_panic() {
         out, "",
         "unterminated tag with unmatched quote yields empty: {out:?}"
     );
-    // Text before the unterminated tag survives.
+    // Text before the unterminated tag survives (the opening `<div` is a
+    // block boundary, so it contributes a trailing newline).
     let out2 = strip_html_to_text("text<div class=\"x");
     assert_eq!(
-        out2, "text",
+        out2, "text\n",
         "text before unterminated tag survives: {out2:?}"
     );
 }
@@ -136,5 +137,44 @@ fn newline_and_tab_entities_decode() {
     assert!(
         !strip_html_to_text("a&#13;b").contains('\r'),
         "&#13; (CR) must NOT decode"
+    );
+}
+
+/// Opening block-level tags must break the same as their closing forms:
+/// `Text<p>Para</p>` yields "Text" and "Para" on separate lines instead of
+/// fusing them ("TextPara").
+#[test]
+fn opening_block_tags_break_lines() {
+    assert_eq!(
+        strip_html_to_text("Text<p>Para</p>"),
+        "Text\nPara\n",
+        "opening <p> breaks before the paragraph"
+    );
+    assert_eq!(
+        strip_html_to_text("a<div>b</div>"),
+        "a\nb\n",
+        "opening <div> breaks"
+    );
+    // Inline tags still do NOT break.
+    assert_eq!(
+        strip_html_to_text("a<b>bold</b>c"),
+        "aboldc",
+        "inline tags introduce no break"
+    );
+}
+
+/// `&nbsp;` decodes to U+00A0 (non-breaking space), consistent with the
+/// numeric form `&#xA0;`.
+#[test]
+fn nbsp_decodes_to_nonbreaking_space() {
+    assert_eq!(
+        strip_html_to_text("a&nbsp;b"),
+        "a\u{00A0}b",
+        "&nbsp; is U+00A0"
+    );
+    assert_eq!(
+        strip_html_to_text("a&#xA0;b"),
+        "a\u{00A0}b",
+        "&#xA0; matches"
     );
 }

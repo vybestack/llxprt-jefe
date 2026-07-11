@@ -43,8 +43,14 @@ impl GhClient {
     ) -> Vec<PrReviewThread> {
         let mut threads = Vec::new();
         let mut cursor: Option<String> = None;
+        // Distinguish "cap exhausted with pages remaining" from a mid-loop
+        // fetch/parse failure: the failure path logs its own warning in
+        // fetch_thread_page but leaves the previous cursor behind, so the
+        // cap warning must not fire for it.
+        let mut fetch_failed = false;
         for _ in 0..PR_REVIEW_THREADS_MAX_PAGES {
             let Some(json) = Self::fetch_thread_page(owner, name, number, cursor.as_deref()) else {
+                fetch_failed = true;
                 break;
             };
             threads.extend(parse_pr_review_threads(&json));
@@ -53,7 +59,7 @@ impl GhClient {
                 break;
             }
         }
-        if cursor.is_some() {
+        if cursor.is_some() && !fetch_failed {
             tracing::warn!(
                 "review-threads truncated at page cap for {owner}/{name}#{number} ({} threads collected)",
                 threads.len()

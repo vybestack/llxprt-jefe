@@ -623,7 +623,10 @@ fn outdated_thread_collapses_and_shows_outdated_tag() {
         focused.text.contains("This unwrap can panic."),
         "focused outdated thread must expand"
     );
-    assert!(focused.text.contains("[OUTDATED]"));
+    assert!(
+        focused.text.contains("[OUTDATED]"),
+        "expanding must NOT drop the [OUTDATED] tag"
+    );
 }
 
 /// The focused resolve hint flips to "unresolve" for resolved threads so the

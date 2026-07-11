@@ -210,44 +210,52 @@ pub fn contains_open_tag(haystack: &str, needle: &str) -> bool {
     false
 }
 
-/// True for the block-level closing tags and `<br>`/`<hr>` whose removal
-/// should yield a line break so paragraph/list/row/section boundaries survive
-/// the HTML strip (e.g. `<div>a</div><div>b</div>` on one source line).
+/// True for block-level tags (opening, closing, or self-closing form) whose
+/// removal should yield a line break so paragraph/list/row/section boundaries
+/// survive the HTML strip — `Text<p>Para</p>` breaks both before and after
+/// "Para", and `<div>a</div><div>b</div>` on one source line splits per div.
+/// Consecutive boundaries (`</p><p>`) collapse downstream: the renderer's
+/// blank-line handling merges empty split segments into one gap.
 fn html_tag_introduces_break(name: &str) -> bool {
     matches!(
-        name,
-        "br" | "br/"
-            | "/br"
-            | "/br/"
-            | "hr"
-            | "hr/"
-            | "/p"
-            | "/li"
-            | "/tr"
-            | "/summary"
-            | "/details"
-            | "/div"
-            | "/table"
-            | "/blockquote"
-            | "/pre"
-            | "/ul"
-            | "/ol"
-            | "/h1"
-            | "/h2"
-            | "/h3"
-            | "/h4"
-            | "/h5"
-            | "/h6"
-            | "/section"
-            | "/article"
-            | "/header"
-            | "/footer"
-            | "/main"
-            | "/aside"
-            | "/nav"
-            | "/figure"
-            | "/figcaption"
+        bare_tag_name(name),
+        "br" | "hr"
+            | "p"
+            | "li"
+            | "tr"
+            | "summary"
+            | "details"
+            | "div"
+            | "table"
+            | "blockquote"
+            | "pre"
+            | "ul"
+            | "ol"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "section"
+            | "article"
+            | "header"
+            | "footer"
+            | "main"
+            | "aside"
+            | "nav"
+            | "figure"
+            | "figcaption"
     )
+}
+
+/// Strip the closing-tag prefix (`/p` → `p`) and self-closing suffix
+/// (`br/` → `br`) so `html_tag_introduces_break` matches the OPENING,
+/// CLOSING, and SELF-CLOSING form of every block-level tag uniformly —
+/// `Text<p>Para</p>` must break before "Para", not only after it.
+fn bare_tag_name(name: &str) -> &str {
+    let name = name.strip_prefix('/').unwrap_or(name);
+    name.strip_suffix('/').unwrap_or(name)
 }
 
 /// Return the byte length of the UTF-8 sequence starting at the given lead
@@ -275,7 +283,10 @@ fn decode_entity(entity: &str) -> Option<String> {
         "&gt;" => Some(">"),
         "&quot;" => Some("\""),
         "&apos;" => Some("'"),
-        "&nbsp;" => Some(" "),
+        // U+00A0, matching the numeric form &#xA0; (the renderer's
+        // whitespace-based wrapper treats it as whitespace anyway, so this
+        // is about consistency, not wrap semantics).
+        "&nbsp;" => Some("\u{00A0}"),
         "&mdash;" => Some("\u{2014}"),
         "&ndash;" => Some("\u{2013}"),
         "&hellip;" => Some("\u{2026}"),
