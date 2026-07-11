@@ -381,6 +381,14 @@ fn capture_current_snapshot(
 
 /// Resolve a screen coordinate to a selection point within the terminal pane
 /// (for gesture-state-machine use).
+///
+/// `pane_at` is called with `terminal_input_enabled = false` so the terminal
+/// region resolves to [`SelectablePane::TerminalView`] even while the
+/// terminal is focused. Jefe owns left-button selection over the focused
+/// terminal (issue #197), so the gesture resolver must always be able to map
+/// an in-terminal coordinate to a content point — passing `true` here would
+/// make `pane_at` return `None` for the whole terminal region and the gesture
+/// could never begin (the down would have no anchor).
 fn resolve_terminal_point(
     app_state: &HookState<AppState>,
     col: u16,
@@ -389,7 +397,7 @@ fn resolve_terminal_point(
     let (cols, rows) = terminal_size();
     let (pane, geometry) = {
         let state = app_state.read();
-        resolve_pane(&state, col, row, cols, rows, true)?
+        resolve_pane(&state, col, row, cols, rows, false)?
     };
     let (line, c) = point_to_content_coords(col, row, 0, &geometry);
     Some(SelectionPoint::new(pane, line, c))

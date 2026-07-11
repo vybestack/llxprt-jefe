@@ -394,6 +394,89 @@ fn resolve_pane_terminal_not_enabled_includes_terminal() {
     }
 }
 
+// ── Critical regression: the production gesture resolver must resolve a
+//    focused-terminal coordinate to TerminalView (issue #197 runtime bug).
+//
+// `resolve_terminal_point` calls `resolve_pane(..., terminal_input_enabled)`.
+// For a FOCUSED terminal that flag must be `false` — otherwise `pane_at`
+// excludes the whole terminal region (returns None), the left-button down has
+// no anchor, and the gesture can never begin a selection (no highlight, no
+// copy). This test wires the SAME `resolve_pane(false)` call the production
+// resolver makes into the gesture state machine so the end-to-end path — real
+// geometry → gesture → TerminalView selection range — is guarded. The earlier
+// hand-rolled test resolver masked this bug (it always returned TerminalView).
+
+#[test]
+fn focused_terminal_drag_resolves_to_terminalview_selection_via_production_geometry() {
+    use jefe::selection::{SelectionPoint, point_to_content_coords};
+
+    let state = focused_terminal_state(AgentKind::CodePuppy);
+    // Mirror the production resolve_terminal_point: resolve_pane with
+    // terminal_input_enabled = false (NOT true) so the terminal region is
+    // selectable while focused.
+    let resolver = |col: u16, row: u16| -> Option<SelectionPoint> {
+        let (pane, geometry) = resolve_pane(&state, col, row, 120, 40, false)?;
+        let (line, c) = point_to_content_coords(col, row, 0, &geometry);
+        Some(SelectionPoint::new(pane, line, c))
+    };
+
+    // A coordinate in the dashboard terminal slot (middle column, below the
+    // agent list) must resolve to TerminalView — not None.
+    let point = resolver(30, 25);
+    assert!(
+        matches!(
+            point,
+            Some(SelectionPoint {
+                pane: SelectablePane::TerminalView,
+                ..
+            })
+        ),
+        "production geometry resolver must map an in-terminal coord to TerminalView (got {point:?}); \
+         if this is None, resolve_terminal_point is passing terminal_input_enabled=true and the \
+         gesture can never begin a selection over a focused terminal"
+    );
+
+    // Drive the gesture machine the way route_terminal_gesture does: a
+    // reporting left-down (buffered) then a left-drag must produce a
+    // Jefe-owned selection RANGE over TerminalView.
+    let down = GestureEvent {
+        kind: GestureEventKind::LeftDown,
+        shift_held: false,
+        col: 30,
+        row: 25,
+        mouse_reporting_active: true,
+    };
+    let (down_action, down_gesture) = GestureState::default().process(down, &resolver);
+    assert_eq!(
+        down_action,
+        GestureAction::Noop,
+        "down buffers while pending"
+    );
+    assert!(matches!(down_gesture, GestureState::Pending { .. }));
+
+    let drag = GestureEvent {
+        kind: GestureEventKind::LeftDrag,
+        shift_held: false,
+        col: 35,
+        row: 25,
+        mouse_reporting_active: true,
+    };
+    let (drag_action, drag_gesture) = down_gesture.process(drag, &resolver);
+    match drag_action {
+        GestureAction::BeginSelectionRange { anchor, focus } => {
+            assert_eq!(anchor.pane, SelectablePane::TerminalView);
+            assert_eq!(focus.pane, SelectablePane::TerminalView);
+        }
+        other => panic!(
+            "drag over focused reporting terminal must begin a TerminalView selection range, got {other:?}"
+        ),
+    }
+    assert!(
+        matches!(drag_gesture, GestureState::JefeOwned { .. }),
+        "gesture latches Jefe ownership"
+    );
+}
+
 // ── Terminal selection text with wraps + wide chars (Finding C+D) ─────────────
 
 fn styled_cell(ch: char) -> TerminalCell {
