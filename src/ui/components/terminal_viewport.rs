@@ -130,6 +130,7 @@ fn build_windowed_snapshot(
         rows: viewport_rows,
         cols: viewport_cols,
         cells,
+        wraps: Vec::new(),
     }
 }
 
@@ -138,7 +139,11 @@ fn string_to_cells(text: &str, max_cols: usize, style: TerminalCellStyle) -> Vec
     let mut cells: Vec<TerminalCell> = text
         .chars()
         .take(max_cols)
-        .map(|ch| TerminalCell { ch, style })
+        .map(|ch| TerminalCell {
+            ch,
+            style,
+            wide_spacer: false,
+        })
         .collect();
     // Pad to max_cols with blank cells.
     while cells.len() < max_cols {
@@ -157,7 +162,11 @@ fn clamp_row(row: &[TerminalCell], max_cols: usize, style: TerminalCellStyle) ->
 }
 
 fn blank_cell(style: TerminalCellStyle) -> TerminalCell {
-    TerminalCell { ch: ' ', style }
+    TerminalCell {
+        ch: ' ',
+        style,
+        wide_spacer: false,
+    }
 }
 
 #[cfg(test)]
@@ -180,10 +189,20 @@ mod tests {
         let cells: Vec<Vec<TerminalCell>> = rows
             .iter()
             .map(|row| {
-                let mut line: Vec<TerminalCell> =
-                    row.chars().map(|ch| TerminalCell { ch, style }).collect();
+                let mut line: Vec<TerminalCell> = row
+                    .chars()
+                    .map(|ch| TerminalCell {
+                        ch,
+                        style,
+                        wide_spacer: false,
+                    })
+                    .collect();
                 while line.len() < 80 {
-                    line.push(TerminalCell { ch: ' ', style });
+                    line.push(TerminalCell {
+                        ch: ' ',
+                        style,
+                        wide_spacer: false,
+                    });
                 }
                 line
             })
@@ -192,6 +211,7 @@ mod tests {
             rows: rows.len(),
             cols: 80,
             cells,
+            wraps: Vec::new(),
         }
     }
 
@@ -300,11 +320,13 @@ mod tests {
         let live_cell = TerminalCell {
             ch: 'X',
             style: live_style,
+            wide_spacer: false,
         };
         let live = TerminalSnapshot {
             rows: 1,
             cols: 1,
             cells: vec![vec![live_cell]],
+            wraps: Vec::new(),
         };
         // No history, follow view.
         let proj = build_terminal_viewport(&live, &[], None, 1, 1, default_style());

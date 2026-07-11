@@ -1,0 +1,22 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 32,
+    "history_limit": 2000,
+    "initial_wait_ms": 100,
+    "assert_mode": "soft"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "key": "t" },
+    { "waitFor": "Terminal" },
+    { "capture": "kennel-terminal-focused" },
+    { "key": "F12" },
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

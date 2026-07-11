@@ -3,6 +3,7 @@
 //! These exercise [`crate::selection::pane_at`], [`normalize_selection`],
 //! [`selection_text`], and [`point_to_content_coords`] without any terminal.
 
+use crate::layout::{LEFT_COL_WIDTH, TERMINAL_VIEW_CHROME_COLS, TERMINAL_VIEW_CHROME_ROWS};
 use crate::selection::{
     HighlightRange, PaneGeometry, SelectablePane, SelectionPoint, TextSelection,
     normalize_selection, pane_at, point_to_content_coords, row_highlight_range, selection_text,
@@ -144,6 +145,34 @@ fn pane_at_dashboard_terminal_focused_returns_none_in_terminal_region() {
         sidebar.map(|(p, _)| p),
         Some(SelectablePane::Sidebar)
     ));
+}
+
+// Verify the terminal pane's content-origin geometry in the dashboard middle
+// column. `pane_at` with `terminal_input_enabled = false` resolves the
+// terminal region to TerminalView with chrome offsets; pin the content origin
+// so selection coordinates match the rendered snapshot. (Issue #197: the
+// mouse router relies on this geometry when it decides to paint a Jefe
+// selection over a focused terminal.)
+#[test]
+fn pane_at_dashboard_terminal_content_origin_geometry() {
+    let lay = layout(120, 40, DASHBOARD, false, false);
+    // terminal_input_enabled = false mirrors what the router passes when the
+    // routing policy chose AppSelection over the focused terminal.
+    let selectable = pane_at(30, 20, DASHBOARD, false, &lay);
+    let Some((pane, geo)) = selectable else {
+        panic!("expected TerminalView to resolve when terminal is selectable");
+    };
+    assert!(matches!(pane, SelectablePane::TerminalView));
+    // Content origin must match the unfocused terminal geometry so selection
+    // coordinates line up with the rendered snapshot.
+    assert_eq!(
+        geo.content_origin_col,
+        LEFT_COL_WIDTH + TERMINAL_VIEW_CHROME_COLS
+    );
+    assert_eq!(
+        geo.content_origin_row,
+        geo.origin_row + TERMINAL_VIEW_CHROME_ROWS
+    );
 }
 
 // ── pane_at: issues mode ────────────────────────────────────────────────────

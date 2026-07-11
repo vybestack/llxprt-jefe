@@ -5,6 +5,18 @@
 //! shared [`crate::app_shell::CtxArc`], translating fullscreen mouse events
 //! into either PTY input (when the terminal pane is focused) or text-selection
 //! state transitions.
+//!
+//! # Issue #197 design
+//!
+//! Terminal mouse routing uses a pure gesture-ownership state machine
+//! ([`jefe::selection::GestureState`]) to decide, at gesture START, whether
+//! Jefe or the PTY owns a left-button down→drag→up cycle. This fixes the core
+//! bug: reporting children get their clicks, but drags still produce Jefe
+//! selections. Shift-modified non-left-button events (wheel, right, middle)
+//! pass through to the host (Finding H). Non-dashboard modes never route to
+//! the terminal (Finding F). Blocking modals intercept mouse input (Finding G).
+//! The reporting flag is read once per event (Finding E). Copy uses the
+//! snapshot captured at gesture start, not a fresh recapture (Finding B).
 
 use crate::app_shell::{CtxArc, HookState, capture_terminal_snapshot};
 use crate::pty_encoding::mouse_event_to_bytes;
@@ -12,10 +24,14 @@ use jefe::clipboard;
 use jefe::layout::compute_pty_layout;
 use jefe::runtime::RuntimeManager;
 use jefe::selection::{
-    ScreenLayout, SelectablePane, SelectionPoint, TextSelection, pane_at, pane_content_lines,
-    point_to_content_coords, selection_text,
+    GestureAction, GestureEvent, GestureEventKind, GestureState, PtyReplay, ScreenLayout,
+    SelectablePane, SelectionPoint, TextSelection, pane_at, pane_content_lines,
+    point_to_content_coords, selection_text, terminal_selection_text,
 };
-use jefe::state::{AppState, PaneFocus};
+use jefe::state::{AppState, PaneFocus, ScreenMode};
+
+/// Type alias for the clipboard writer function, injected for testability.
+pub type ClipboardWriter = fn(&str) -> Result<(), std::io::Error>;
 
 /// Terminal size fallback for the default 120x40 geometry.
 fn terminal_size() -> (u16, u16) {
@@ -76,15 +92,37 @@ fn refresh_terminal_scroll_geometry_from_ctx(
     state.terminal_total_lines = new_total;
 }
 
+/// Map a crossterm event kind to the gesture-state-machine event kind.
+fn gesture_event_kind(kind: crossterm::event::MouseEventKind) -> Option<GestureEventKind> {
+    use crossterm::event::{MouseButton, MouseEventKind};
+    match kind {
+        MouseEventKind::Down(MouseButton::Left) => Some(GestureEventKind::LeftDown),
+        MouseEventKind::Drag(MouseButton::Left) => Some(GestureEventKind::LeftDrag),
+        MouseEventKind::Up(MouseButton::Left) => Some(GestureEventKind::LeftUp),
+        MouseEventKind::ScrollUp => Some(GestureEventKind::ScrollUp),
+        MouseEventKind::ScrollDown => Some(GestureEventKind::ScrollDown),
+        MouseEventKind::Down(MouseButton::Right | MouseButton::Middle)
+        | MouseEventKind::Drag(MouseButton::Right | MouseButton::Middle)
+        | MouseEventKind::Up(MouseButton::Right | MouseButton::Middle) => {
+            Some(GestureEventKind::OtherButton)
+        }
+        _ => None,
+    }
+}
+
 /// Clear any active mouse selection.
 ///
 /// Called on every non-mouse terminal event (key, paste, resize) so a
 /// selection doesn't linger after the user moves on to keyboard interaction.
+/// Also resets the terminal gesture state: a Pending gesture (which has no
+/// `selection` yet) must not survive a keyboard/paste/resize event, otherwise
+/// a buffered reporting down could leak into a later gesture against a
+/// different agent or screen (issue #197 review: gesture/snapshot invalidation).
 pub fn clear_selection(app_state: &mut HookState<AppState>) {
-    let needs_clear = app_state.read().selection.is_some();
-    if needs_clear {
-        app_state.write().selection = None;
-    }
+    let mut state = app_state.write();
+    state.selection = None;
+    state.selection_snapshot = None;
+    state.terminal_gesture_state = GestureState::default();
 }
 
 /// Route a fullscreen mouse event to PTY forwarding or app-level selection.
@@ -93,64 +131,224 @@ pub fn handle_fullscreen_mouse(
     app_state: &mut HookState<AppState>,
     mouse_event: iocraft::FullscreenMouseEvent,
 ) {
-    use crossterm::event::{MouseButton, MouseEventKind};
+    let shift_held = mouse_event.modifiers.contains(iocraft::KeyModifiers::SHIFT);
 
-    // Shift bypasses app selection and PTY forwarding: let the host terminal
-    // emulator handle native selection/copy (mirrors mouse_event_to_bytes).
-    if mouse_event.modifiers.contains(iocraft::KeyModifiers::SHIFT) {
+    // Determine whether the terminal is the active input target and read the
+    // reporting flag ONCE under a single lock (Finding E + F + G + J).
+    let (terminal_active, mouse_reporting_active) = terminal_target_info(ctx, app_state);
+
+    // If the terminal is the active input target, route through the gesture
+    // state machine. Otherwise, fall through to app-level pane selection.
+    if terminal_active
+        && route_terminal_gesture(
+            ctx,
+            app_state,
+            &mouse_event,
+            shift_held,
+            mouse_reporting_active,
+        )
+    {
         return;
     }
 
-    let terminal_input_enabled = {
-        let state = app_state.read();
-        // Suppress PTY forwarding when an overlay (modal/form/chooser) is
-        // active so mouse selection targets the top-most overlay instead of
-        // the terminal underneath (issue #178 z-order fix).
-        state.terminal_focused
-            && state.pane_focus == PaneFocus::Terminal
-            && active_overlay_for(&state) == jefe::selection::OverlayPane::None
+    // Non-terminal routing: shift-modified non-left-button events are host
+    // passthrough (Finding H) — return early.
+    if shift_held && !is_left_button(mouse_event.kind) {
+        return;
+    }
+
+    // App selection over the rendered panes (terminal not focused or not
+    // dashboard). The terminal pane is selectable only when unfocused.
+    match mouse_event.kind {
+        crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+            begin_app_selection(app_state, mouse_event.column, mouse_event.row);
+        }
+        crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left) => {
+            update_app_selection(app_state, mouse_event.column, mouse_event.row);
+        }
+        crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left) => {
+            finalize_and_copy_selection(ctx, app_state, clipboard::write_osc52);
+        }
+        crossterm::event::MouseEventKind::ScrollUp
+        | crossterm::event::MouseEventKind::ScrollDown => {
+            dispatch_detail_scroll(app_state, &mouse_event);
+        }
+        _ => {}
+    }
+}
+
+/// Whether a crossterm event kind is a left-button event.
+fn is_left_button(kind: crossterm::event::MouseEventKind) -> bool {
+    matches!(
+        kind,
+        crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left)
+            | crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left)
+            | crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left)
+    )
+}
+
+/// Route a mouse event over the focused terminal through the gesture-ownership
+/// state machine (Finding A). Returns `true` when the event was consumed
+/// (handled by terminal routing), `false` when it should fall through to
+/// app-level pane selection (e.g. an unmapped event kind like plain move).
+fn route_terminal_gesture(
+    ctx: Option<&CtxArc>,
+    app_state: &mut HookState<AppState>,
+    mouse_event: &iocraft::FullscreenMouseEvent,
+    shift_held: bool,
+    mouse_reporting_active: bool,
+) -> bool {
+    let gesture_state = app_state.read().terminal_gesture_state.clone();
+
+    let Some(event_kind) = gesture_event_kind(mouse_event.kind) else {
+        // Unmapped event kind (e.g. plain move) — reset gesture state and let
+        // the caller fall through to app selection.
+        app_state.write().terminal_gesture_state = GestureState::default();
+        return false;
     };
 
-    // Issue #198: wheel events over the terminal pane move the Jefe scrollback
-    // viewport BEFORE being forwarded to the PTY. This is the crux of usable
-    // scrollback: wheel-up scrolls the Jefe viewport, not the child. Shift+wheel
-    // already bypassed above (host-terminal native scroll). Clicks/drags still
-    // go to the PTY when mouse reporting is active.
-    if terminal_input_enabled
-        && is_wheel_event(&mouse_event)
-        && is_event_over_terminal_pane(&mouse_event)
-    {
-        let evt = wheel_to_terminal_scroll_event(&mouse_event);
-        if let Some(scroll_evt) = evt {
-            // Refresh scroll geometry from runtime + layout BEFORE applying so
-            // the reducer's clamp bounds match the rendered content (mirrors the
-            // keyboard dispatch path). This runs at event time, never at render
-            // time, so it does not trigger an infinite re-render loop.
-            refresh_terminal_scroll_geometry_from_ctx(ctx, app_state);
+    // Issue #198: wheel events over the focused terminal pane move the Jefe
+    // scrollback viewport BEFORE the gesture state machine or PTY forwarding.
+    // This is the crux of usable scrollback: wheel-up scrolls the Jefe
+    // viewport, not the child. Shift+wheel already bypassed above (host
+    // native scroll). Clicks/drags still flow through the gesture machine so
+    // reporting children stay interactive.
+    if !shift_held && is_wheel_event(mouse_event) && is_event_over_terminal_pane(mouse_event) {
+        // Refresh scroll geometry from runtime + layout BEFORE applying so
+        // the reducer's clamp bounds match the rendered content (mirrors the
+        // keyboard dispatch path). Runs at event time, never at render time.
+        refresh_terminal_scroll_geometry_from_ctx(ctx, app_state);
+        if let Some(scroll_evt) = wheel_to_terminal_scroll_event(mouse_event) {
             let mut state = app_state.write();
             *state = std::mem::take(&mut *state).apply(scroll_evt);
-            drop(state);
-            return;
+        }
+        return true;
+    }
+
+    let event = GestureEvent {
+        kind: event_kind,
+        shift_held,
+        col: mouse_event.column,
+        row: mouse_event.row,
+        mouse_reporting_active,
+    };
+    let resolver = |col: u16, row: u16| resolve_terminal_point(app_state, col, row);
+
+    let (action, new_gesture_state) = gesture_state.process(event, &resolver);
+    app_state.write().terminal_gesture_state = new_gesture_state;
+
+    execute_gesture_action(ctx, app_state, action, mouse_event);
+    true
+}
+
+/// Read the terminal target info (active + reporting) under a single lock
+/// acquisition (Finding E: no TOCTOU; Finding F: dashboard-only; Finding G:
+/// blocking overlay check; Finding J: log lock poisoning).
+///
+/// Returns `(false, false)` when the terminal is not the active input target.
+fn terminal_target_info(ctx: Option<&CtxArc>, app_state: &HookState<AppState>) -> (bool, bool) {
+    let (terminal_focused, pane_focus, screen_mode, modal_blocking) = {
+        let state = app_state.read();
+        (
+            state.terminal_focused,
+            state.pane_focus,
+            state.screen_mode,
+            is_blocking_modal_open(&state),
+        )
+    };
+
+    // Finding F: terminal routing only in Dashboard mode.
+    // Finding G: blocking modal intercepts mouse input.
+    let terminal_active = terminal_focused
+        && pane_focus == PaneFocus::Terminal
+        && screen_mode == ScreenMode::Dashboard
+        && !modal_blocking;
+
+    if !terminal_active {
+        return (false, false);
+    }
+
+    // Read reporting once under a single lock (Finding E).
+    let reporting = match ctx {
+        Some(ctx_arc) => {
+            if let Ok(guard) = ctx_arc.lock() {
+                guard.runtime.mouse_reporting_active()
+            } else {
+                // Finding J: log lock poisoning, treat as terminal not active.
+                tracing::warn!("ctx lock poisoned while reading mouse_reporting_active");
+                return (false, false);
+            }
+        }
+        None => false,
+    };
+
+    (true, reporting)
+}
+
+/// Execute the action returned by the gesture state machine.
+fn execute_gesture_action(
+    ctx: Option<&CtxArc>,
+    app_state: &mut HookState<AppState>,
+    action: GestureAction,
+    mouse_event: &iocraft::FullscreenMouseEvent,
+) {
+    match action {
+        GestureAction::BeginSelection(point) => {
+            // Capture the snapshot at gesture start (Finding B): the copy at
+            // release will use this same snapshot, not a fresh recapture.
+            let snapshot = capture_current_snapshot(ctx, app_state);
+            let mut state = app_state.write();
+            state.selection = Some(TextSelection::collapsed(point));
+            state.selection_snapshot = snapshot;
+        }
+        GestureAction::BeginSelectionRange { anchor, focus } => {
+            // Capture the snapshot at gesture start (Finding B): the copy at
+            // release will use this same snapshot, not a fresh recapture.
+            let snapshot = capture_current_snapshot(ctx, app_state);
+            let mut state = app_state.write();
+            state.selection = Some(TextSelection { anchor, focus });
+            state.selection_snapshot = snapshot;
+        }
+        GestureAction::UpdateSelection(point) => {
+            let anchor = {
+                let state = app_state.read();
+                state.selection.map(|s| s.anchor)
+            };
+            if let Some(anchor) = anchor {
+                let mut state = app_state.write();
+                state.selection = Some(TextSelection {
+                    anchor,
+                    focus: point,
+                });
+            }
+        }
+        GestureAction::FinalizeAndCopy => {
+            finalize_terminal_selection(ctx, app_state, clipboard::write_osc52);
+        }
+        GestureAction::ForwardToPty(replays) => {
+            forward_replays(ctx, &replays, mouse_event);
+        }
+        GestureAction::Composite { first, second } => {
+            execute_gesture_action(ctx, app_state, *first, mouse_event);
+            execute_gesture_action(ctx, app_state, *second, mouse_event);
+        }
+        GestureAction::Noop => {
+            // For scroll events that the gesture machine noops (non-reporting
+            // child), fall through to app-level scroll handling.
+            dispatch_detail_scroll(app_state, mouse_event);
         }
     }
+}
 
-    // When the terminal is focused, mouse events within the terminal pane go to
-    // the managed PTY (current behavior). Everything else is app selection.
-    if terminal_input_enabled && forward_to_pty_if_in_terminal(ctx, &mouse_event) {
-        return;
-    }
-
-    // Route the event to the app-level selection handler.
+/// Detail-pane scroll dispatch for a mouse event, shared by the app-selection
+/// path and the gesture-machine Noop path so the two cannot diverge (issue
+/// #197 review: single source of truth for wheel granularity / pane resolution).
+fn dispatch_detail_scroll(
+    app_state: &mut HookState<AppState>,
+    mouse_event: &iocraft::FullscreenMouseEvent,
+) {
+    use crossterm::event::MouseEventKind;
     match mouse_event.kind {
-        MouseEventKind::Down(MouseButton::Left) => {
-            begin_selection(app_state, mouse_event.column, mouse_event.row);
-        }
-        MouseEventKind::Drag(MouseButton::Left) => {
-            update_selection(app_state, mouse_event.column, mouse_event.row);
-        }
-        MouseEventKind::Up(MouseButton::Left) => {
-            finalize_and_copy_selection(ctx, app_state);
-        }
         MouseEventKind::ScrollUp => {
             scroll_detail_pane(
                 app_state,
@@ -213,197 +411,159 @@ fn wheel_to_terminal_scroll_event(
     }
 }
 
-/// Forward `mouse_event` to the managed PTY if the terminal is focused, mouse
-/// reporting is active, and the event lands inside the terminal pane bounds.
-///
-/// Returns `true` when the event was consumed (forwarded or filtered as
-/// out-of-bounds while focused), `false` when the caller should handle it as
-/// an app-level selection.
-fn forward_to_pty_if_in_terminal(
+/// Forward a list of PTY replay events, encoding each as SGR mouse bytes.
+fn forward_replays(
     ctx: Option<&CtxArc>,
+    replays: &[PtyReplay],
     mouse_event: &iocraft::FullscreenMouseEvent,
-) -> bool {
+) {
     let Some(ctx_arc) = ctx else {
-        return false;
+        return;
     };
     let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return false;
+        return;
     };
-    if !ctx_guard.runtime.mouse_reporting_active() {
-        return false;
-    }
 
     let (cols, rows) = terminal_size();
     let layout = compute_pty_layout(cols, rows);
 
-    let row_end = layout
-        .pane_row0
-        .saturating_add(layout.pty_rows.saturating_sub(1));
-    let col_end = layout
-        .pane_col0
-        .saturating_add(layout.pty_cols.saturating_sub(1));
+    for replay in replays {
+        let (screen_col, screen_row) = (replay.col, replay.row);
 
-    let screen_row0 = mouse_event.row;
-    let screen_col0 = mouse_event.column;
+        let local_row = screen_row.saturating_sub(layout.pane_row0);
+        let local_col = screen_col.saturating_sub(layout.pane_col0);
 
-    let in_terminal_bounds = screen_col0 >= layout.pane_col0
-        && screen_col0 <= col_end
-        && screen_row0 >= layout.pane_row0
-        && screen_row0 <= row_end;
+        // Left-button replays may be buffered/replayed (e.g. a pending click
+        // replays its buffered down + the up), so they are reconstructed from
+        // the gesture kind. Non-left replays (wheel/right/middle) are always
+        // the live event: forward the ORIGINAL mouse event kind so the real
+        // button and phase (right-down vs middle-up, etc.) are preserved
+        // (issue #197 review: OtherButton collapsed right/middle, which were
+        // then silently dropped).
+        let crossterm_kind = match replay.kind {
+            GestureEventKind::LeftDown => {
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left)
+            }
+            GestureEventKind::LeftDrag => {
+                crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left)
+            }
+            GestureEventKind::LeftUp => {
+                crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left)
+            }
+            GestureEventKind::ScrollUp
+            | GestureEventKind::ScrollDown
+            | GestureEventKind::OtherButton => mouse_event.kind,
+        };
 
-    if !in_terminal_bounds {
-        // Focused but outside the terminal pane: treat as app selection target.
-        return false;
+        let mut local_event =
+            iocraft::FullscreenMouseEvent::new(crossterm_kind, local_col, local_row);
+        local_event.modifiers = mouse_event.modifiers;
+
+        if let Some(bytes) = mouse_event_to_bytes(&local_event) {
+            let _ = ctx_guard.runtime.write_input(&bytes);
+        }
     }
-
-    let local_row = screen_row0.saturating_sub(layout.pane_row0);
-    let local_col = screen_col0.saturating_sub(layout.pane_col0);
-
-    let mut local_event =
-        iocraft::FullscreenMouseEvent::new(mouse_event.kind, local_col, local_row);
-    local_event.modifiers = mouse_event.modifiers;
-
-    if let Some(bytes) = mouse_event_to_bytes(&local_event) {
-        let _ = ctx_guard.runtime.write_input(&bytes);
-    }
-    true
 }
 
-/// Build the screen-layout descriptor from the current app state + terminal size.
-fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
-    let error_visible = state.error_message.is_some()
-        || state.issues_state.error.is_some()
-        || state.prs_state.error.is_some()
-        || state.actions_state.error.is_some();
-    let filter_open = state.issues_state.filter_ui.controls_open
-        || state.prs_state.filter_ui.controls_open
-        || state.actions_state.ui.filter_ui_open;
-    let overlay = active_overlay_for(state);
-    ScreenLayout::new(cols, rows, state.screen_mode, error_visible, filter_open)
-        .with_overlay(overlay)
-}
-
-/// Determine which overlay (modal/form/chooser) is currently active, if any.
+/// Capture the current terminal snapshot for the selected agent.
 ///
-/// Full-screen modals take priority over positioned choosers. Returns
-/// [`OverlayPane::None`] when no overlay is active so normal pane geometry
-/// applies.
-fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
-    use jefe::selection::OverlayPane;
-    match &state.modal {
-        jefe::state::ModalState::Help => return OverlayPane::HelpModal,
-        jefe::state::ModalState::NewAgent { .. } | jefe::state::ModalState::EditAgent { .. } => {
-            return OverlayPane::AgentForm;
-        }
-        jefe::state::ModalState::NewRepository { .. }
-        | jefe::state::ModalState::EditRepository { .. } => return OverlayPane::RepositoryForm,
-        jefe::state::ModalState::ConfirmDeleteRepository { .. }
-        | jefe::state::ModalState::ConfirmDeleteAgent { .. }
-        | jefe::state::ModalState::ConfirmKillAgent { .. }
-        | jefe::state::ModalState::PreflightPrompt { .. }
-        | jefe::state::ModalState::ConfirmIssueDirtyCopy { .. } => {
-            return OverlayPane::ConfirmModal;
-        }
-        // Explicit match (not wildcard) so new ModalState variants force a
-        // conscious overlay-routing decision here (issue #178 z-order).
-        jefe::state::ModalState::None
-        // Search is an in-band filter mode (SplitScreen's filter bar), not a
-        // blocking overlay — the base screen remains visible and interactive.
-        | jefe::state::ModalState::Search { .. }
-        // ThemePicker renders as a full-screen modal but does not yet have a
-        // content projection — no selection, but no PTY forwarding either
-        // (pre-existing behavior; the base screen is not visible behind it).
-        | jefe::state::ModalState::ThemePicker { .. }
-        // WorkflowDispatch is a centered modal form; no selection content
-        // projection yet and no PTY forwarding while open.
-        | jefe::state::ModalState::WorkflowDispatch { .. } => {}
-    }
-    // Positioned overlays (choosers) — checked only when no full-screen modal.
-    if state.issues_state.agent_chooser.is_some() || state.prs_state.agent_chooser.is_some() {
-        return OverlayPane::AgentChooser;
-    }
-    if state.prs_state.merge_chooser.is_some() {
-        return OverlayPane::MergeChooser;
-    }
-    OverlayPane::None
+/// Both agent IDs are derived from a single short read so they describe the
+/// same selected agent. `capture_terminal_snapshot` re-validates attachment
+/// internally, so a mid-flight agent change yields a benign miss rather than
+/// corrupted content.
+fn capture_current_snapshot(
+    ctx: Option<&CtxArc>,
+    app_state: &HookState<AppState>,
+) -> Option<jefe::runtime::TerminalSnapshot> {
+    let (selected_agent_id, selected_running_agent_id) = {
+        let state = app_state.read();
+        let selected = state.selected_agent();
+        let ids = (
+            selected.map(|a| a.id.clone()),
+            selected.filter(|a| a.is_running()).map(|a| a.id.clone()),
+        );
+        drop(state);
+        ids
+    };
+    capture_terminal_snapshot(
+        ctx,
+        &app_state.read(),
+        selected_agent_id.as_ref(),
+        selected_running_agent_id.as_ref(),
+    )
 }
 
-/// Resolve which pane + geometry a screen coordinate maps to, given app state.
-fn resolve_pane(
-    state: &AppState,
-    col: u16,
-    row: u16,
-    cols: u16,
-    rows: u16,
-) -> Option<(SelectablePane, jefe::selection::PaneGeometry)> {
-    let layout = screen_layout_for(state, cols, rows);
-    let terminal_input_enabled = state.terminal_focused && state.pane_focus == PaneFocus::Terminal;
-    pane_at(col, row, state.screen_mode, terminal_input_enabled, &layout)
-}
-
-/// Begin a new text selection at `(col, row)`.
-fn begin_selection(app_state: &mut HookState<AppState>, col: u16, row: u16) {
-    let (cols, rows) = terminal_size();
-    let point = resolve_selection_point(app_state, col, row, cols, rows);
-    match point {
-        Some(p) => app_state.write().selection = Some(TextSelection::collapsed(p)),
-        None => app_state.write().selection = None,
-    }
-}
-
-/// Resolve the screen `(col, row)` to a content selection point under the pane
-/// it lands in, applying the detail-header scroll suppression. Returns `None`
-/// when the coordinate is not over any selectable pane.
-fn resolve_selection_point(
+/// Resolve a screen coordinate to a selection point within the terminal pane
+/// (for gesture-state-machine use).
+///
+/// `pane_at` is called with `terminal_input_enabled = false` so the terminal
+/// region resolves to [`SelectablePane::TerminalView`] even while the
+/// terminal is focused. Jefe owns left-button selection over the focused
+/// terminal (issue #197), so the gesture resolver must always be able to map
+/// an in-terminal coordinate to a content point — passing `true` here would
+/// make `pane_at` return `None` for the whole terminal region and the gesture
+/// could never begin (the down would have no anchor).
+fn resolve_terminal_point(
     app_state: &HookState<AppState>,
     col: u16,
     row: u16,
-    cols: u16,
-    rows: u16,
 ) -> Option<SelectionPoint> {
-    // Resolve the pane + geometry in one short read, then read the scroll
-    // offset in another, so each read guard drops immediately (the guard has a
-    // significant Drop and clippy::significant_drop_tightening requires it not
-    // be held across unrelated statements).
+    let (cols, rows) = terminal_size();
     let (pane, geometry) = {
         let state = app_state.read();
-        resolve_pane(&state, col, row, cols, rows)?
+        resolve_pane(&state, col, row, cols, rows, false)?
     };
-    let raw_scroll = {
-        let state = app_state.read();
-        scroll_offset_for_pane(&state, pane)
-    };
-    let scroll_offset = effective_scroll_for_detail(pane, row, &geometry, raw_scroll);
-    let (line, c) = point_to_content_coords(col, row, scroll_offset, &geometry);
+    let (line, c) = point_to_content_coords(col, row, 0, &geometry);
     Some(SelectionPoint::new(pane, line, c))
 }
 
-/// Update the focus (drag) point of the active selection.
-fn update_selection(app_state: &mut HookState<AppState>, col: u16, row: u16) {
+/// Resolve a screen `(col, row)` to a selection point for non-terminal panes.
+fn begin_app_selection(app_state: &mut HookState<AppState>, col: u16, row: u16) {
     let (cols, rows) = terminal_size();
-    let (anchor, pane, scroll_offset) = {
+    let point = {
+        let state = app_state.read();
+        resolve_app_selection_point(&state, col, row, cols, rows)
+    };
+    if let Some(p) = point {
+        let mut state = app_state.write();
+        state.selection = Some(TextSelection::collapsed(p));
+        // Clear any stale terminal selection snapshot when starting a
+        // non-terminal selection.
+        state.selection_snapshot = None;
+    } else {
+        let mut state = app_state.write();
+        state.selection = None;
+        state.selection_snapshot = None;
+    }
+}
+
+/// Update the focus (drag) point of the active selection for non-terminal panes.
+fn update_app_selection(app_state: &mut HookState<AppState>, col: u16, row: u16) {
+    let (cols, rows) = terminal_size();
+    let (anchor, pane) = {
         let state = app_state.read();
         let Some(current) = state.selection else {
             return;
         };
-        let pane = current.pane();
-        let raw_scroll = scroll_offset_for_pane(&state, pane);
+        let pair = (current.anchor, current.pane());
         drop(state);
-        (current.anchor, pane, raw_scroll)
+        pair
     };
     let focus_point = {
         let state = app_state.read();
-        // Clamp drag to the anchor pane: cross-pane drag would mix coordinate
-        // spaces. If the cursor left the anchor pane, keep the last valid focus.
-        let Some((resolved_pane, geometry)) = resolve_pane(&state, col, row, cols, rows) else {
+        let Some((resolved_pane, geometry)) = resolve_pane(&state, col, row, cols, rows, false)
+        else {
             return;
         };
         if resolved_pane != pane {
             return;
         }
+        let scroll_offset = scroll_offset_for_pane(&state, pane);
         let scroll_offset = effective_scroll_for_detail(pane, row, &geometry, scroll_offset);
         let (line, c) = point_to_content_coords(col, row, scroll_offset, &geometry);
-        SelectionPoint::new(pane, line, c)
+        let point = SelectionPoint::new(pane, line, c);
+        drop(state);
+        point
     };
     app_state.write().selection = Some(TextSelection {
         anchor,
@@ -411,8 +571,68 @@ fn update_selection(app_state: &mut HookState<AppState>, col: u16, row: u16) {
     });
 }
 
-/// Finalize the active selection and copy its text to the clipboard via OSC 52.
-fn finalize_and_copy_selection(ctx: Option<&CtxArc>, app_state: &HookState<AppState>) {
+/// Finalize a TERMINAL selection and copy using the selection-bound snapshot
+/// (Finding B) with wrap-aware text extraction (Finding C+D).
+fn finalize_terminal_selection(
+    ctx: Option<&CtxArc>,
+    app_state: &HookState<AppState>,
+    writer: ClipboardWriter,
+) {
+    let (selection, snapshot) = {
+        let state = app_state.read();
+        (state.selection, state.selection_snapshot.clone())
+    };
+    let Some(selection) = selection else {
+        return;
+    };
+    if selection.is_empty() {
+        return;
+    }
+
+    // For the terminal pane, use the selection-bound snapshot with wrap-aware
+    // extraction (Finding B + C + D). For non-terminal panes, fall back to the
+    // generic path.
+    let text = if selection.pane() == SelectablePane::TerminalView {
+        if let Some(snap) = &snapshot {
+            terminal_selection_text(snap, &selection)
+        } else {
+            // No bound snapshot — fall back to generic extraction (issue #198:
+            // include retained history lines for the terminal pane).
+            let (cols, rows) = terminal_size();
+            let history_lines = ctx
+                .and_then(|ctx_arc| ctx_arc.try_lock().ok())
+                .and_then(|mut guard| guard.runtime.capture_history())
+                .unwrap_or_default();
+            let state = app_state.read();
+            let content =
+                pane_content_lines(selection.pane(), &state, None, &history_lines, cols, rows);
+            drop(state);
+            selection_text(&selection, &content.lines)
+        }
+    } else {
+        let (cols, rows) = terminal_size();
+        let state = app_state.read();
+        let content = pane_content_lines(selection.pane(), &state, None, &[], cols, rows);
+        drop(state);
+        selection_text(&selection, &content.lines)
+    };
+
+    if !text.is_empty() {
+        if let Err(err) = writer(&text) {
+            tracing::warn!(error = %err, "OSC 52 clipboard write failed");
+        }
+    }
+}
+
+/// Finalize and copy for non-terminal selections (legacy entry point for
+/// app-level selection finalization).
+fn finalize_and_copy_selection(
+    ctx: Option<&CtxArc>,
+    app_state: &HookState<AppState>,
+    writer: ClipboardWriter,
+) {
+    // This path is reached from the non-terminal app-selection branch. The
+    // terminal pane won't be the active selection here.
     let selection = {
         let state = app_state.read();
         state.selection
@@ -456,24 +676,122 @@ fn finalize_and_copy_selection(ctx: Option<&CtxArc>, app_state: &HookState<AppSt
         selection_text(&selection, &content.lines)
     };
     if !text.is_empty()
-        && let Err(err) = clipboard::write_osc52(&text)
+        && let Err(err) = writer(&text)
     {
         tracing::warn!(error = %err, "OSC 52 clipboard write failed");
     }
 }
 
-/// HelpModal title rows (title text + blank): not affected by scroll offset,
-/// mirroring the renderer's title Box(height: 2) above ScrollableText.
+/// Resolve the screen `(col, row)` to a content selection point under the pane
+/// it lands in for non-terminal panes.
+fn resolve_app_selection_point(
+    app_state: &AppState,
+    col: u16,
+    row: u16,
+    cols: u16,
+    rows: u16,
+) -> Option<SelectionPoint> {
+    let (pane, geometry) = resolve_pane(app_state, col, row, cols, rows, false)?;
+    let scroll_offset = scroll_offset_for_pane(app_state, pane);
+    let scroll_offset = effective_scroll_for_detail(pane, row, &geometry, scroll_offset);
+    let (line, c) = point_to_content_coords(col, row, scroll_offset, &geometry);
+    Some(SelectionPoint::new(pane, line, c))
+}
+
+/// Build the screen-layout descriptor from the current app state + terminal size.
+fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
+    let error_visible = state.error_message.is_some()
+        || state.issues_state.error.is_some()
+        || state.prs_state.error.is_some()
+        || state.actions_state.error.is_some();
+    let filter_open = state.issues_state.filter_ui.controls_open
+        || state.prs_state.filter_ui.controls_open
+        || state.actions_state.ui.filter_ui_open;
+    let overlay = active_overlay_for(state);
+    ScreenLayout::new(cols, rows, state.screen_mode, error_visible, filter_open)
+        .with_overlay(overlay)
+}
+
+/// Whether a blocking modal is open (Finding G).
+///
+/// Blocking modals intercept mouse input even if they have no selectable
+/// content projection. ThemePicker and WorkflowDispatch are full-screen
+/// modals without content projection — they must still disable terminal
+/// routing so a focused terminal behind them doesn't receive PTY events.
+fn is_blocking_modal_open(state: &AppState) -> bool {
+    use jefe::state::ModalState;
+    matches!(
+        state.modal,
+        ModalState::Help
+            | ModalState::NewAgent { .. }
+            | ModalState::EditAgent { .. }
+            | ModalState::NewRepository { .. }
+            | ModalState::EditRepository { .. }
+            | ModalState::ConfirmDeleteRepository { .. }
+            | ModalState::ConfirmDeleteAgent { .. }
+            | ModalState::ConfirmKillAgent { .. }
+            | ModalState::PreflightPrompt { .. }
+            | ModalState::ConfirmIssueDirtyCopy { .. }
+            | ModalState::ThemePicker { .. }
+            | ModalState::WorkflowDispatch { .. }
+    )
+}
+
+/// Determine which overlay (modal/form/chooser) is currently active, if any.
+fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
+    use jefe::selection::OverlayPane;
+    match &state.modal {
+        jefe::state::ModalState::Help => return OverlayPane::HelpModal,
+        jefe::state::ModalState::NewAgent { .. } | jefe::state::ModalState::EditAgent { .. } => {
+            return OverlayPane::AgentForm;
+        }
+        jefe::state::ModalState::NewRepository { .. }
+        | jefe::state::ModalState::EditRepository { .. } => return OverlayPane::RepositoryForm,
+        jefe::state::ModalState::ConfirmDeleteRepository { .. }
+        | jefe::state::ModalState::ConfirmDeleteAgent { .. }
+        | jefe::state::ModalState::ConfirmKillAgent { .. }
+        | jefe::state::ModalState::PreflightPrompt { .. }
+        | jefe::state::ModalState::ConfirmIssueDirtyCopy { .. } => {
+            return OverlayPane::ConfirmModal;
+        }
+        // Explicit match (not wildcard) so new ModalState variants force a
+        // conscious overlay-routing decision here (issue #178 z-order).
+        jefe::state::ModalState::None
+        | jefe::state::ModalState::Search { .. }
+        | jefe::state::ModalState::ThemePicker { .. }
+        | jefe::state::ModalState::WorkflowDispatch { .. } => {}
+    }
+    if state.issues_state.agent_chooser.is_some() || state.prs_state.agent_chooser.is_some() {
+        return OverlayPane::AgentChooser;
+    }
+    if state.prs_state.merge_chooser.is_some() {
+        return OverlayPane::MergeChooser;
+    }
+    OverlayPane::None
+}
+
+/// Resolve which pane + geometry a screen coordinate maps to, given app state.
+///
+/// `terminal_input_enabled` (Finding K: renamed from `terminal_selectable`)
+/// controls whether the dashboard terminal region resolves to
+/// [`SelectablePane::TerminalView`]. When the terminal is receiving PTY input,
+/// pass `true` so the terminal pane is excluded from selection (returns None
+/// for the dashboard terminal region); otherwise `false` so it is selectable.
+fn resolve_pane(
+    state: &AppState,
+    col: u16,
+    row: u16,
+    cols: u16,
+    rows: u16,
+    terminal_input_enabled: bool,
+) -> Option<(SelectablePane, jefe::selection::PaneGeometry)> {
+    let layout = screen_layout_for(state, cols, rows);
+    pane_at(col, row, state.screen_mode, terminal_input_enabled, &layout)
+}
+
+/// HelpModal title rows (title text + blank): not affected by scroll offset.
 const HELP_TITLE_ROWS: usize = 2;
 
-/// For detail panes, headers occupy content lines `0..DETAIL_HEADER_ROWS` and
-/// are not affected by scroll offset. Scrollable content starts at line
-/// `DETAIL_HEADER_ROWS`. Return 0 when the click is in the header area,
-/// otherwise the real scroll offset.
-///
-/// The HelpModal also has fixed header rows (title + blank = 2 rows) that are
-/// not affected by the scroll offset; the scrollable help content starts at
-/// line 2.
 fn effective_scroll_for_detail(
     pane: SelectablePane,
     row: u16,
@@ -492,7 +810,6 @@ fn effective_scroll_for_detail(
         }
         SelectablePane::HelpModal => {
             let content_row = usize::from(row.saturating_sub(geometry.content_origin_row));
-            // Title Box is height 2 (title text + blank) — not scrolled.
             if content_row < HELP_TITLE_ROWS {
                 0
             } else {
@@ -503,7 +820,6 @@ fn effective_scroll_for_detail(
     }
 }
 
-/// Scroll offset for a specific pane from app state.
 fn scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
     match pane {
         SelectablePane::IssueDetail => state.issues_state.detail_scroll_offset,
@@ -523,15 +839,6 @@ fn scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
     }
 }
 
-/// Refresh the cached `detail_viewport_rows` for `pane` from the current
-/// terminal size and conditional bands.
-///
-/// Mirrors `update_detail_viewport_rows` / `update_pr_detail_viewport_rows` in
-/// the keyboard dispatch path so the scroll-offset clamp bound
-/// (`max_detail_scroll_offset` / `pr_detail_max_scroll_offset`) agrees with the
-/// viewport the renderer actually uses. Without this, a stale cache (e.g. left
-/// over from before entering the mode, since it is only refreshed on keyboard
-/// scroll-down) lets the stored offset drift past the renderer's clamp bound.
 fn refresh_detail_viewport_rows(state: &mut AppState, pane: SelectablePane, term_rows: u16) {
     let term_rows = usize::from(term_rows);
     match pane {
@@ -567,17 +874,6 @@ enum WheelDirection {
     Down,
 }
 
-/// Next detail scroll offset after one mousewheel tick, clamped to `[0, max]`.
-///
-/// Pure and side-effect-free so the clamp invariant is unit-testable without
-/// the iocraft runtime: scrolling up never drops below 0 and scrolling down
-/// never exceeds the pane's maximum offset. `max` is the detail pane's
-/// `max_detail_scroll_offset()` (0 when there is no content to scroll).
-///
-/// `current` is clamped to `max` *before* the tick is applied, so a stale
-/// offset that drifted past `max` (e.g. the cached viewport shrank) snaps back
-/// into the valid range on the very next tick instead of stranding the view in
-/// a phantom region the renderer clamps but the stored value does not.
 #[must_use]
 fn next_wheel_scroll_offset(current: usize, max: usize, direction: WheelDirection) -> usize {
     let clamped = current.min(max);
@@ -587,9 +883,6 @@ fn next_wheel_scroll_offset(current: usize, max: usize, direction: WheelDirectio
     }
 }
 
-/// Maximum scroll offset for a detail pane from app state.
-///
-/// Returns 0 for non-scrollable panes (they are never advanced by the wheel).
 fn max_scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
     match pane {
         SelectablePane::IssueDetail => state.issues_state.max_detail_scroll_offset(),
@@ -599,15 +892,6 @@ fn max_scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
     }
 }
 
-/// Scroll the detail pane under `(col, row)` by one wheel tick.
-///
-/// Resolves the pane under the cursor via [`resolve_pane`] and, when it is a
-/// scrollable detail pane (`IssueDetail` / `PrDetail` / `ActionsDetail`), advances its scroll
-/// offset by one line in the given direction, clamped to the pane's valid
-/// bounds via [`next_wheel_scroll_offset`]. The cached viewport row count is
-/// refreshed first ([`refresh_detail_viewport_rows`]) so the clamp bound
-/// matches the renderer. Non-detail panes are ignored — mousewheel scrolling
-/// in list/terminal panes is out of scope (issue #148).
 fn scroll_detail_pane(
     app_state: &mut HookState<AppState>,
     col: u16,
@@ -615,13 +899,9 @@ fn scroll_detail_pane(
     direction: WheelDirection,
 ) {
     let (cols, rows) = terminal_size();
-    // Resolve the pane in one short read guard, then read current/max offsets
-    // in another, so each read guard drops immediately (the guard has a
-    // significant Drop and clippy::significant_drop_tightening requires it not
-    // be held across unrelated statements).
     let pane = {
         let state = app_state.read();
-        let Some((pane, _geometry)) = resolve_pane(&state, col, row, cols, rows) else {
+        let Some((pane, _geometry)) = resolve_pane(&state, col, row, cols, rows, false) else {
             return;
         };
         pane
@@ -632,14 +912,6 @@ fn scroll_detail_pane(
     ) {
         return;
     }
-    // Refresh the cached detail-viewport row count from the current terminal
-    // layout before computing the clamp bound. The renderer windows content
-    // with a *fresh* viewport (derived from the actual layout), but
-    // `max_detail_scroll_offset` / `pr_detail_max_scroll_offset` read the cached
-    // `detail_viewport_rows` field. The keyboard dispatch path refreshes that
-    // cache (`update_*_detail_viewport_rows`) before every scroll; the mouse
-    // path must too, otherwise a stale (smaller) cache lets the offset run past
-    // the renderer's clamp bound and the wheel appears to overscroll / stick.
     {
         let mut state = app_state.write();
         refresh_detail_viewport_rows(&mut state, pane, rows);
@@ -662,154 +934,5 @@ fn scroll_detail_pane(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        WheelDirection, is_wheel_event, next_wheel_scroll_offset, wheel_to_terminal_scroll_event,
-    };
-
-    #[test]
-    fn scroll_down_advances_within_bounds() {
-        assert_eq!(
-            next_wheel_scroll_offset(2, 5, WheelDirection::Down),
-            3,
-            "scrolling down from 2 with max 5 should advance to 3"
-        );
-    }
-
-    #[test]
-    fn scroll_up_decrements_within_bounds() {
-        assert_eq!(
-            next_wheel_scroll_offset(2, 5, WheelDirection::Up),
-            1,
-            "scrolling up from 2 with max 5 should decrement to 1"
-        );
-    }
-
-    #[test]
-    fn scroll_down_clamps_at_max_offset() {
-        assert_eq!(
-            next_wheel_scroll_offset(5, 5, WheelDirection::Down),
-            5,
-            "scrolling down at max offset must not overscroll"
-        );
-    }
-
-    #[test]
-    fn scroll_up_clamps_at_zero() {
-        assert_eq!(
-            next_wheel_scroll_offset(0, 5, WheelDirection::Up),
-            0,
-            "scrolling up at offset 0 must not underscroll"
-        );
-    }
-
-    #[test]
-    fn scroll_down_with_zero_max_stays_zero() {
-        assert_eq!(
-            next_wheel_scroll_offset(0, 0, WheelDirection::Down),
-            0,
-            "empty detail pane (max 0) cannot scroll down"
-        );
-    }
-
-    #[test]
-    fn scroll_up_with_zero_max_stays_zero() {
-        assert_eq!(
-            next_wheel_scroll_offset(0, 0, WheelDirection::Up),
-            0,
-            "empty detail pane (max 0) cannot scroll up"
-        );
-    }
-
-    #[test]
-    fn scroll_down_in_middle_of_large_content() {
-        assert_eq!(
-            next_wheel_scroll_offset(10, 100, WheelDirection::Down),
-            11,
-            "scrolling down from 10 within a large pane should advance to 11"
-        );
-    }
-
-    // ── stale / inflated offset recovery ───────────────────────────────────
-    //
-    // The stored detail scroll offset can lag behind the renderer's clamp
-    // bound when the cached `detail_viewport_rows` is smaller than the
-    // renderer's fresh viewport (the keyboard dispatch path refreshes that
-    // cache before scrolling; the mouse path now does too). If the offset is
-    // ever inflated past `max`, a single wheel tick must snap it back into the
-    // valid range instead of leaving it stranded in a phantom region where the
-    // renderer clamps the display but the stored value keeps climbing.
-
-    #[test]
-    fn scroll_up_from_inflated_offset_snaps_below_max() {
-        assert_eq!(
-            next_wheel_scroll_offset(8, 5, WheelDirection::Up),
-            4,
-            "scrolling up from an inflated offset (8) with max 5 must snap to 4, not walk back one-at-a-time through the phantom region"
-        );
-    }
-
-    #[test]
-    fn scroll_down_from_inflated_offset_snaps_to_max() {
-        assert_eq!(
-            next_wheel_scroll_offset(8, 5, WheelDirection::Down),
-            5,
-            "scrolling down from an inflated offset (8) with max 5 must snap to 5"
-        );
-    }
-
-    #[test]
-    fn scroll_up_from_inflated_offset_near_zero_snaps_to_zero() {
-        assert_eq!(
-            next_wheel_scroll_offset(8, 1, WheelDirection::Up),
-            0,
-            "scrolling up from an inflated offset (8) with max 1 must snap to 0"
-        );
-    }
-
-    // ── Issue #198: wheel → terminal scroll event mapping ─────────────────
-
-    use crossterm::event::{MouseButton, MouseEventKind};
-
-    fn fullscreen_event(kind: MouseEventKind) -> iocraft::FullscreenMouseEvent {
-        iocraft::FullscreenMouseEvent::new(kind, 10, 10)
-    }
-
-    #[test]
-    fn wheel_up_maps_to_terminal_scroll_up() {
-        let evt = fullscreen_event(MouseEventKind::ScrollUp);
-        let result = wheel_to_terminal_scroll_event(&evt);
-        assert!(
-            matches!(result, Some(jefe::state::AppEvent::TerminalScrollUp)),
-            "wheel up must map to TerminalScrollUp"
-        );
-    }
-
-    #[test]
-    fn wheel_down_maps_to_terminal_scroll_down() {
-        let evt = fullscreen_event(MouseEventKind::ScrollDown);
-        let result = wheel_to_terminal_scroll_event(&evt);
-        assert!(
-            matches!(result, Some(jefe::state::AppEvent::TerminalScrollDown)),
-            "wheel down must map to TerminalScrollDown"
-        );
-    }
-
-    #[test]
-    fn non_wheel_event_maps_to_none() {
-        let evt = fullscreen_event(MouseEventKind::Down(MouseButton::Left));
-        let result = wheel_to_terminal_scroll_event(&evt);
-        assert!(result.is_none(), "non-wheel events must not map to scroll");
-    }
-
-    #[test]
-    fn is_wheel_detects_scroll_events() {
-        assert!(is_wheel_event(&fullscreen_event(MouseEventKind::ScrollUp)));
-        assert!(is_wheel_event(&fullscreen_event(
-            MouseEventKind::ScrollDown
-        )));
-        assert!(!is_wheel_event(&fullscreen_event(MouseEventKind::Down(
-            MouseButton::Left
-        ))));
-    }
-}
+#[path = "mouse_routing_tests.rs"]
+mod mouse_routing_tests;

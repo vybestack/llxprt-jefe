@@ -594,6 +594,7 @@ mod tests {
         TerminalCell {
             ch,
             style: style(fg),
+            wide_spacer: false,
         }
     }
 

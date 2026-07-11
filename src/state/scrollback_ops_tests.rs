@@ -275,6 +275,7 @@ fn reconcile_preserves_absolute_viewport_position() {
         rows: 0,
         cols: 80,
         cells: vec![],
+        wraps: Vec::new(),
     };
 
     let old_total = 30;

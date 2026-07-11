@@ -291,11 +291,19 @@ fn terminal_lines(
 ) -> PaneContent {
     // Issue #198: include retained history lines above the live snapshot rows
     // so selection coordinates map to the scrolled viewport content.
+    // Issue #197: filter wide-character spacers so selection text matches the
+    // rendered grid (each wide cell occupies 2 columns; the trailing spacer
+    // is not a real glyph).
     let live_lines: Vec<String> = snapshot.map_or_else(Vec::new, |snap| {
         (0..snap.rows)
             .map(|row| {
                 snap.cells.get(row).map_or_else(String::new, |cells| {
-                    cells.iter().take(snap.cols).map(|c| c.ch).collect()
+                    cells
+                        .iter()
+                        .take(snap.cols)
+                        .filter(|c| !c.wide_spacer)
+                        .map(|c| c.ch)
+                        .collect()
                 })
             })
             .collect()
@@ -410,15 +418,42 @@ mod tests {
         };
         let cells = vec![
             vec![
-                TerminalCell { ch: 'h', style },
-                TerminalCell { ch: 'i', style },
+                TerminalCell {
+                    ch: 'h',
+                    style,
+                    wide_spacer: false,
+                },
+                TerminalCell {
+                    ch: 'i',
+                    style,
+                    wide_spacer: false,
+                },
             ],
-            vec![TerminalCell { ch: '!', style }],
+            // Second line has a width-2 glyph '中' + its trailing spacer, then '!'.
+            // The spacer cell must be filtered out so the line reads "中!" (issue #197).
+            vec![
+                TerminalCell {
+                    ch: '中',
+                    style,
+                    wide_spacer: false,
+                },
+                TerminalCell {
+                    ch: ' ',
+                    style,
+                    wide_spacer: true,
+                },
+                TerminalCell {
+                    ch: '!',
+                    style,
+                    wide_spacer: false,
+                },
+            ],
         ];
         let snap = TerminalSnapshot {
             rows: 2,
-            cols: 2,
+            cols: 3,
             cells,
+            wraps: Vec::new(),
         };
         let content = pane_content_lines(
             SelectablePane::TerminalView,
@@ -428,7 +463,7 @@ mod tests {
             120,
             40,
         );
-        assert_eq!(content.lines, vec!["hi".to_string(), "!".to_string()]);
+        assert_eq!(content.lines, vec!["hi".to_string(), "中!".to_string()]);
     }
 
     #[test]
