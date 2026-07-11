@@ -23,6 +23,9 @@
 //!   `<details>`/`<summary>` become a toggle/label line, `<a>`/`<img>`/etc.
 //!   collapse to their text/alt, and everything else is stripped.
 
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+
 use comrak::nodes::{
     AstNode, ListType, NodeCodeBlock, NodeLink, NodeList, NodeTable, NodeTaskItem, NodeValue,
     TableAlignment,
@@ -63,8 +66,55 @@ pub fn render_markdown_lines(markdown: &str) -> Vec<String> {
 /// whitespace-only, or stripped-to-nothing such as a lone HTML comment)
 /// yields exactly one `{prefix}{placeholder}` line so the section is never a
 /// silent gap. Centralized here so the PR and Issue builders cannot drift.
+///
+/// The function is pure, so its output is memoized in a process-wide cache
+/// keyed by the full `(markdown, prefix, placeholder)` triple. PR-detail
+/// builds call this ~350 times per render and the comrak parse dominates the
+/// cost (~24ms/call in debug before caching); memoization makes repeated
+/// builds (every keystroke/mouse-wheel tick) hash lookups after the first
+/// warm build.
 #[must_use]
 pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) -> Vec<String> {
+    let key = (
+        markdown.to_string(),
+        prefix.to_string(),
+        placeholder.to_string(),
+    );
+    if let Ok(mut cache) = MARKDOWN_RENDER_CACHE.lock() {
+        if let Some(cached) = cache.get(&key) {
+            return cached.clone();
+        }
+        let result = compute_markdown_block(markdown, prefix, placeholder);
+        // Epoch clearing: bodies are gh-bounded (~65KB) and a detail view has
+        // at most a few hundred unique bodies, so 512 covers a whole view;
+        // clearing on overflow keeps worst-case memory bounded while
+        // preserving the per-view hit rate.
+        if cache.len() >= MARKDOWN_RENDER_CACHE_CAP {
+            cache.clear();
+        }
+        cache.insert(key, result.clone());
+        result
+    } else {
+        // Poisoned lock: fall back to computing without caching (never panic).
+        compute_markdown_block(markdown, prefix, placeholder)
+    }
+}
+
+/// Maximum number of entries retained in [`MARKDOWN_RENDER_CACHE`] before an
+/// epoch clear resets the map.
+const MARKDOWN_RENDER_CACHE_CAP: usize = 512;
+
+/// Keyed cache entry type factored out to satisfy `clippy::type_complexity`.
+type RenderCache = HashMap<(String, String, String), Vec<String>>;
+
+/// Process-wide memo cache for [`render_markdown_block`]. Keyed by the full
+/// `(markdown, prefix, placeholder)` triple so hash collisions cannot
+/// produce a correctness bug (full-key equality).
+static MARKDOWN_RENDER_CACHE: LazyLock<Mutex<RenderCache>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// The uncached computation behind [`render_markdown_block`].
+fn compute_markdown_block(markdown: &str, prefix: &str, placeholder: &str) -> Vec<String> {
     let rendered = render_markdown_lines(markdown);
     if rendered.is_empty() {
         return vec![format!("{prefix}{placeholder}")];
@@ -859,3 +909,7 @@ fn dashes(width: usize, align: TableAlignment) -> String {
 #[cfg(test)]
 #[path = "markdown_render_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "markdown_render_cache_tests.rs"]
+mod cache_tests;

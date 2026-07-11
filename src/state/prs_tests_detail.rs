@@ -436,3 +436,139 @@ fn test_pr_subfocus_prev_scrolls_to_offscreen_comment() {
         offset + viewport
     );
 }
+
+/// Helper: build a minimal review thread with the given thread_id.
+fn make_thread(thread_id: &str) -> crate::domain::PrReviewThread {
+    use crate::domain::{IssueComment, PrReviewThread};
+    PrReviewThread {
+        thread_id: thread_id.to_string(),
+        path: Some("src/main.rs".to_string()),
+        line: Some(10),
+        is_resolved: false,
+        is_outdated: false,
+        review_id: None,
+        comments: vec![IssueComment {
+            comment_id: 1,
+            author_login: "alice".to_string(),
+            created_at: "2024-01-01".to_string(),
+            edited_at: None,
+            body: "thread body".to_string(),
+        }],
+    }
+}
+
+/// Helper: build a minimal review with the given threads.
+fn make_review(
+    author: &str,
+    threads: Vec<crate::domain::PrReviewThread>,
+) -> crate::domain::PrReview {
+    use crate::domain::{PrReview, PrReviewState};
+    PrReview {
+        review_id: None,
+        author_login: author.to_string(),
+        state: PrReviewState::Commented,
+        submitted_at: "2024-01-01".to_string(),
+        body: None,
+        review_threads: threads,
+    }
+}
+
+/// Subfocus-next must follow document order: Body → Review(0) → ReviewThread(0)
+/// → ReviewThread(1) → Review(1) → ReviewThread(2) → NewComment → Body (wrap).
+///
+/// The rendered document (build_reviews_section) interleaves each review
+/// header with its own threads, using a flat thread index that increments
+/// across all reviews in that document order. The subfocus cycle MUST match
+/// that same interleaving, not visit all review headers first then all
+/// threads.
+#[test]
+fn subfocus_next_follows_document_order_reviews_interleaved_with_threads() {
+    let mut state = prs_mode_state("repo-1");
+    let mut detail = make_test_pr_detail(1);
+    // 2 reviews: review 0 has 2 threads, review 1 has 1 thread.
+    detail.reviews = vec![
+        make_review("rev0", vec![make_thread("t0"), make_thread("t1")]),
+        make_review("rev1", vec![make_thread("t2")]),
+    ];
+    state.prs_state.pr_detail = Some(detail);
+    state.prs_state.detail_subfocus = PrDetailSubfocus::Body;
+    state.prs_state.detail_viewport_rows = 100; // large viewport, no scrolling interference
+
+    let mut s = state;
+    // Body -> Review(0)
+    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Review(0));
+    // Review(0) -> ReviewThread(0)
+    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    assert_eq!(
+        s.prs_state.detail_subfocus,
+        PrDetailSubfocus::ReviewThread(0)
+    );
+    // ReviewThread(0) -> ReviewThread(1)
+    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    assert_eq!(
+        s.prs_state.detail_subfocus,
+        PrDetailSubfocus::ReviewThread(1)
+    );
+    // ReviewThread(1) -> Review(1)  [interleaved! NOT skipped to a different thread]
+    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Review(1));
+    // Review(1) -> ReviewThread(2)
+    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    assert_eq!(
+        s.prs_state.detail_subfocus,
+        PrDetailSubfocus::ReviewThread(2)
+    );
+    // ReviewThread(2) -> NewComment (no checks or comments in this detail)
+    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::NewComment);
+    // NewComment -> Body (wrap)
+    s = s.apply(AppEvent::PrDetailSubfocusNext);
+    assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Body);
+}
+
+/// Subfocus-prev must be the exact reverse of next's document order.
+#[test]
+fn subfocus_prev_follows_reverse_document_order_reviews_interleaved_with_threads() {
+    let mut state = prs_mode_state("repo-1");
+    let mut detail = make_test_pr_detail(1);
+    detail.reviews = vec![
+        make_review("rev0", vec![make_thread("t0"), make_thread("t1")]),
+        make_review("rev1", vec![make_thread("t2")]),
+    ];
+    state.prs_state.pr_detail = Some(detail);
+    state.prs_state.detail_subfocus = PrDetailSubfocus::Body;
+    state.prs_state.detail_viewport_rows = 100;
+
+    let mut s = state;
+    // Body -> NewComment (prev wraps to last item)
+    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::NewComment);
+    // NewComment -> ReviewThread(2)
+    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    assert_eq!(
+        s.prs_state.detail_subfocus,
+        PrDetailSubfocus::ReviewThread(2)
+    );
+    // ReviewThread(2) -> Review(1)
+    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Review(1));
+    // Review(1) -> ReviewThread(1)
+    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    assert_eq!(
+        s.prs_state.detail_subfocus,
+        PrDetailSubfocus::ReviewThread(1)
+    );
+    // ReviewThread(1) -> ReviewThread(0)
+    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    assert_eq!(
+        s.prs_state.detail_subfocus,
+        PrDetailSubfocus::ReviewThread(0)
+    );
+    // ReviewThread(0) -> Review(0)
+    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Review(0));
+    // Review(0) -> Body
+    s = s.apply(AppEvent::PrDetailSubfocusPrev);
+    assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Body);
+}

@@ -186,244 +186,47 @@ impl AppState {
 
     // ---- Detail subfocus cycling ----
 
-    /// Advance detail subfocus: Body -> Review -> Check -> Comment -> NewComment.
+    /// Advance detail subfocus to the next item in document order.
+    ///
+    /// Builds the full document-order list (matching `build_reviews_section`'s
+    /// interleaving of review headers and their threads) and moves to the next
+    /// position, wrapping from the last item back to Body.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-003
     /// @pseudocode component-001 lines 201-208
     fn pr_detail_subfocus_next(&mut self) {
-        use super::PrDetailSubfocus;
         let Some(detail) = &self.prs_state.pr_detail else {
             return;
         };
-        let review_count = detail.reviews.len();
-        let thread_count = count_review_threads(detail);
-        let check_count = detail.checks.len();
-        let comment_count = detail.comments.len();
-        self.prs_state.detail_subfocus = match self.prs_state.detail_subfocus {
-            PrDetailSubfocus::Body => {
-                Self::next_after_body(review_count, thread_count, check_count, comment_count)
-            }
-            PrDetailSubfocus::Review(i) => {
-                Self::next_after_review(i, review_count, thread_count, check_count, comment_count)
-            }
-            PrDetailSubfocus::ReviewThread(i) => {
-                Self::next_after_thread(i, thread_count, check_count, comment_count)
-            }
-            PrDetailSubfocus::Check(i) => Self::next_after_check(i, check_count, comment_count),
-            PrDetailSubfocus::Comment(i) => Self::next_after_comment(i, comment_count),
-            PrDetailSubfocus::NewComment => PrDetailSubfocus::Body,
-        };
+        let order = pr_detail_subfocus_order(detail);
+        if order.is_empty() {
+            return;
+        }
+        let pos = subfocus_position(&order, self.prs_state.detail_subfocus);
+        let len = order.len();
+        self.prs_state.detail_subfocus = order[(pos + 1) % len];
     }
 
-    /// Reverse detail subfocus: NewComment -> Comment -> Check -> Review -> Body.
+    /// Reverse detail subfocus to the previous item in document order.
+    ///
+    /// Uses the same document-order list as `pr_detail_subfocus_next` and moves
+    /// to the previous position, wrapping from Body back to the last item.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-003
     /// @pseudocode component-001 lines 201-208
     fn pr_detail_subfocus_prev(&mut self) {
-        use super::PrDetailSubfocus;
         let Some(detail) = &self.prs_state.pr_detail else {
             return;
         };
-        let review_count = detail.reviews.len();
-        let thread_count = count_review_threads(detail);
-        let check_count = detail.checks.len();
-        let comment_count = detail.comments.len();
-        self.prs_state.detail_subfocus = match self.prs_state.detail_subfocus {
-            PrDetailSubfocus::Body => {
-                Self::prev_from_body(comment_count, check_count, thread_count, review_count)
-            }
-            PrDetailSubfocus::Review(0) => PrDetailSubfocus::Body,
-            PrDetailSubfocus::Review(i) => PrDetailSubfocus::Review(i - 1),
-            PrDetailSubfocus::ReviewThread(0) => Self::prev_from_thread_zero(review_count),
-            PrDetailSubfocus::ReviewThread(i) => PrDetailSubfocus::ReviewThread(i - 1),
-            PrDetailSubfocus::Check(0) => Self::prev_from_check_zero(thread_count, review_count),
-            PrDetailSubfocus::Check(i) => PrDetailSubfocus::Check(i - 1),
-            PrDetailSubfocus::Comment(0) => {
-                Self::prev_from_comment_zero(review_count, check_count, thread_count)
-            }
-            PrDetailSubfocus::Comment(i) => PrDetailSubfocus::Comment(i - 1),
-            PrDetailSubfocus::NewComment => {
-                if comment_count > 0 {
-                    PrDetailSubfocus::Comment(comment_count - 1)
-                } else {
-                    PrDetailSubfocus::Body
-                }
-            }
-        };
-    }
-
-    /// Compute the next subfocus from Body (skip empty sections).
-    /// Cycle: Body -> Review -> ReviewThread -> Check -> Comment -> NewComment.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-003
-    /// @pseudocode component-001 lines 201-208
-    fn next_after_body(
-        reviews: usize,
-        threads: usize,
-        checks: usize,
-        comments: usize,
-    ) -> super::PrDetailSubfocus {
-        use super::PrDetailSubfocus;
-        if reviews > 0 {
-            PrDetailSubfocus::Review(0)
-        } else if threads > 0 {
-            PrDetailSubfocus::ReviewThread(0)
-        } else if checks > 0 {
-            PrDetailSubfocus::Check(0)
-        } else if comments > 0 {
-            PrDetailSubfocus::Comment(0)
-        } else {
-            PrDetailSubfocus::NewComment
+        let order = pr_detail_subfocus_order(detail);
+        if order.is_empty() {
+            return;
         }
-    }
-
-    /// Compute the next subfocus from Review(i) (advance, threads, or fall through).
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-003
-    /// @pseudocode component-001 lines 201-208
-    fn next_after_review(
-        i: usize,
-        reviews: usize,
-        threads: usize,
-        checks: usize,
-        comments: usize,
-    ) -> super::PrDetailSubfocus {
-        use super::PrDetailSubfocus;
-        if i + 1 < reviews {
-            PrDetailSubfocus::Review(i + 1)
-        } else if threads > 0 {
-            PrDetailSubfocus::ReviewThread(0)
-        } else if checks > 0 {
-            PrDetailSubfocus::Check(0)
-        } else if comments > 0 {
-            PrDetailSubfocus::Comment(0)
-        } else {
-            PrDetailSubfocus::NewComment
-        }
-    }
-
-    /// Compute the next subfocus from ReviewThread(i) (advance or fall through).
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-003
-    fn next_after_thread(
-        i: usize,
-        threads: usize,
-        checks: usize,
-        comments: usize,
-    ) -> super::PrDetailSubfocus {
-        use super::PrDetailSubfocus;
-        if i + 1 < threads {
-            PrDetailSubfocus::ReviewThread(i + 1)
-        } else if checks > 0 {
-            PrDetailSubfocus::Check(0)
-        } else if comments > 0 {
-            PrDetailSubfocus::Comment(0)
-        } else {
-            PrDetailSubfocus::NewComment
-        }
-    }
-
-    /// Compute the next subfocus from Check(i) (advance or fall through).
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-003
-    /// @pseudocode component-001 lines 201-208
-    fn next_after_check(i: usize, checks: usize, comments: usize) -> super::PrDetailSubfocus {
-        use super::PrDetailSubfocus;
-        if i + 1 < checks {
-            PrDetailSubfocus::Check(i + 1)
-        } else if comments > 0 {
-            PrDetailSubfocus::Comment(0)
-        } else {
-            PrDetailSubfocus::NewComment
-        }
-    }
-
-    /// Compute the next subfocus from Comment(i) (advance or NewComment).
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-003
-    /// @pseudocode component-001 lines 201-208
-    fn next_after_comment(i: usize, comments: usize) -> super::PrDetailSubfocus {
-        use super::PrDetailSubfocus;
-        if i + 1 < comments {
-            PrDetailSubfocus::Comment(i + 1)
-        } else {
-            PrDetailSubfocus::NewComment
-        }
-    }
-
-    /// Compute the previous subfocus from Body (reverse: Comment, Check,
-    /// ReviewThread, Review, NewComment).
-    fn prev_from_body(
-        comments: usize,
-        checks: usize,
-        threads: usize,
-        reviews: usize,
-    ) -> super::PrDetailSubfocus {
-        use super::PrDetailSubfocus;
-        if comments > 0 {
-            PrDetailSubfocus::Comment(comments - 1)
-        } else if checks > 0 {
-            PrDetailSubfocus::Check(checks - 1)
-        } else if threads > 0 {
-            PrDetailSubfocus::ReviewThread(threads - 1)
-        } else if reviews > 0 {
-            PrDetailSubfocus::Review(reviews - 1)
-        } else {
-            PrDetailSubfocus::NewComment
-        }
-    }
-
-    /// Compute the previous subfocus from ReviewThread(0) (go to last Review).
-    fn prev_from_thread_zero(reviews: usize) -> super::PrDetailSubfocus {
-        use super::PrDetailSubfocus;
-        if reviews > 0 {
-            PrDetailSubfocus::Review(reviews - 1)
-        } else {
-            PrDetailSubfocus::Body
-        }
-    }
-
-    /// Compute the previous subfocus from Check(0) (reverse to ReviewThread/Review).
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-003
-    fn prev_from_check_zero(threads: usize, reviews: usize) -> super::PrDetailSubfocus {
-        use super::PrDetailSubfocus;
-        if threads > 0 {
-            PrDetailSubfocus::ReviewThread(threads - 1)
-        } else if reviews > 0 {
-            PrDetailSubfocus::Review(reviews - 1)
-        } else {
-            PrDetailSubfocus::Body
-        }
-    }
-
-    /// Compute the previous subfocus from Comment(0) (reverse traversal).
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-003
-    fn prev_from_comment_zero(
-        reviews: usize,
-        checks: usize,
-        threads: usize,
-    ) -> super::PrDetailSubfocus {
-        use super::PrDetailSubfocus;
-        if checks > 0 {
-            PrDetailSubfocus::Check(checks - 1)
-        } else if threads > 0 {
-            PrDetailSubfocus::ReviewThread(threads - 1)
-        } else if reviews > 0 {
-            PrDetailSubfocus::Review(reviews - 1)
-        } else {
-            PrDetailSubfocus::Body
-        }
+        let pos = subfocus_position(&order, self.prs_state.detail_subfocus);
+        let len = order.len();
+        self.prs_state.detail_subfocus = order[(pos + len - 1) % len];
     }
 
     // ---- Detail scroll ----
@@ -690,18 +493,44 @@ impl AppState {
     }
 }
 
-/// Count all review threads across all reviews in a PR detail.
+/// Build the document-order list of all focusable subfocus items.
 ///
-/// Threads are stored under each `PrReview.review_threads`; this flattens and
-/// counts them to support the flat `PrDetailSubfocus::ReviewThread(usize)`
-/// index used for navigation and rendering.
+/// This mirrors the rendering order in `build_reviews_section` exactly: each
+/// review header is immediately followed by its own threads, and the flat
+/// thread index increments across all reviews in that same interleaved order.
+/// Empty sections naturally produce no entries.
+///
+/// Order: Body → (for each review: Review(ri), ReviewThread(flat_idx)...)
+/// → Check(0..) → Comment(0..) → NewComment.
 ///
 /// @plan PLAN-20260624-PR-MODE.P05
+/// @requirement REQ-PR-003
 /// @requirement REQ-PR-009
-pub(super) fn count_review_threads(detail: &crate::domain::PullRequestDetail) -> usize {
-    detail
-        .reviews
-        .iter()
-        .flat_map(|r| &r.review_threads)
-        .count()
+pub(super) fn pr_detail_subfocus_order(
+    detail: &crate::domain::PullRequestDetail,
+) -> Vec<super::PrDetailSubfocus> {
+    use super::PrDetailSubfocus;
+    let mut order = vec![PrDetailSubfocus::Body];
+    let mut flat_thread_idx = 0usize;
+    for (ri, review) in detail.reviews.iter().enumerate() {
+        order.push(PrDetailSubfocus::Review(ri));
+        for _ in &review.review_threads {
+            order.push(PrDetailSubfocus::ReviewThread(flat_thread_idx));
+            flat_thread_idx += 1;
+        }
+    }
+    for ci in 0..detail.checks.len() {
+        order.push(PrDetailSubfocus::Check(ci));
+    }
+    for cmi in 0..detail.comments.len() {
+        order.push(PrDetailSubfocus::Comment(cmi));
+    }
+    order.push(PrDetailSubfocus::NewComment);
+    order
+}
+
+/// Find the position of `current` in the ordered list, falling back to 0
+/// (Body) if not found (e.g. index out of range after a reload).
+fn subfocus_position(order: &[super::PrDetailSubfocus], current: super::PrDetailSubfocus) -> usize {
+    order.iter().position(|item| *item == current).unwrap_or(0)
 }

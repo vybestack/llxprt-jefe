@@ -546,14 +546,42 @@ impl GhClient {
             "--json".to_string(),
             "number,title,state,mergedAt,author,createdAt,updatedAt,headRefName,baseRefName,isDraft,labels,assignees,milestone,body,url,reviewDecision,statusCheckRollup,reviews,mergeable,mergeStateStatus".to_string(),
         ];
-        let stdout = Self::run_gh(&args)?;
-        let mut detail = parse_pull_request_detail_json(&stdout, &format!("{owner}/{name}"))?;
-        let comments_response =
-            self.list_pr_comments(owner, name, number, None, ISSUE_DETAIL_COMMENT_PAGE_SIZE)?;
-        detail.comments = comments_response.comments;
-        detail.comments_cursor = comments_response.cursor;
-        detail.has_more_comments = comments_response.has_more;
-        let threads = self.list_pr_review_threads(owner, name, number);
+        let repo = format!("{owner}/{name}");
+
+        // Run the three gh subprocess fetches CONCURRENTLY so a detail load
+        // takes max(fetch) instead of sum(fetch) (each gh call takes 1-3s).
+        // GhClient is a Sync ZST, so scoped &self borrows across threads are
+        // safe. join() returns Err only on worker panic; that is mapped to a
+        // GhError (never panic-propagated).
+        let (detail, comments, threads) = std::thread::scope(|s| {
+            let detail_handle = s.spawn(|| {
+                let stdout = Self::run_gh(&args)?;
+                parse_pull_request_detail_json(&stdout, &repo)
+            });
+            let comments_handle = s.spawn(|| {
+                self.list_pr_comments(owner, name, number, None, ISSUE_DETAIL_COMMENT_PAGE_SIZE)
+            });
+            let threads_handle = s.spawn(|| self.list_pr_review_threads(owner, name, number));
+
+            let detail = detail_handle
+                .join()
+                .map_err(|_| GhError::ApiError("detail fetch worker panicked".to_string()))??;
+            let comments = comments_handle
+                .join()
+                .map_err(|_| GhError::ApiError("detail fetch worker panicked".to_string()))??;
+            // Threads are best-effort (infallible): a join failure is treated
+            // as "no threads" rather than failing the whole load.
+            let threads = threads_handle.join().unwrap_or_default();
+            Ok::<_, GhError>((detail, comments, threads))
+        })?;
+
+        // Assemble exactly as before: metadata error OR comments error still
+        // fails the whole load (Result propagated above); threads are
+        // best-effort.
+        let mut detail = detail;
+        detail.comments = comments.comments;
+        detail.comments_cursor = comments.cursor;
+        detail.has_more_comments = comments.has_more;
         assign_threads_to_reviews(&mut detail.reviews, threads);
         Ok(detail)
     }
