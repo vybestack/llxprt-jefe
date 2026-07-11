@@ -468,6 +468,92 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
     dispatch_app_message(app_state, ctx, evt.into());
 }
 
+/// Dispatch a terminal scrollback event (issue #198).
+///
+/// Refreshes cached scroll geometry BEFORE applying the event so the reducer's
+/// clamp bounds match rendered content. Uses apply-only (no persist) since
+/// scrollback fields are runtime-only.
+pub fn dispatch_terminal_scroll(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    evt: AppEvent,
+) {
+    refresh_terminal_scroll_geometry(app_state, ctx);
+    let mut state = app_state.write();
+    *state = std::mem::take(&mut *state).apply(evt);
+}
+
+/// Try to intercept a scrollback-control key while the terminal is focused
+/// (issue #198). Returns `true` when the key was consumed as a terminal
+/// scrollback viewport event (and must NOT be forwarded to the PTY).
+///
+/// PageUp/PageDown/Home intercept from both states; End/Up/Down only intercept
+/// when scrolled back. Modifier chords are forwarded. The decision is made by
+/// the pure [`jefe::input::should_intercept_for_scrollback`] helper so it stays
+/// unit-testable.
+pub fn try_intercept_terminal_scrollback(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    key_event: &KeyEvent,
+) -> bool {
+    let offset_is_some = app_state.read().terminal_history_offset.is_some();
+    let Some(scroll_evt) = jefe::input::should_intercept_for_scrollback(key_event, offset_is_some)
+    else {
+        return false;
+    };
+    dispatch_terminal_scroll(app_state, ctx, scroll_evt);
+    true
+}
+
+/// Refresh cached terminal scrollback geometry (issue #198). Computes
+/// viewport rows from PTY layout and total lines from history + snapshot.
+/// When ctx is None, preserves existing geometry (fix #3).
+pub fn refresh_terminal_scroll_geometry(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let pty_layout = jefe::layout::compute_pty_layout(term_cols, term_rows);
+
+    // Capture retained history + live snapshot rows under the ctx lock so the
+    // total reflects the currently attached session. try_lock keeps this
+    // non-blocking when a background attach holds the mutex (the geometry is
+    // simply not refreshed that frame, falling back to the stale cache).
+    let (history_count, live_rows) = match ctx.as_ref() {
+        Some(ctx_arc) => match ctx_arc.try_lock() {
+            Ok(mut guard) => {
+                let history_count = guard.runtime.capture_history().map_or(0, |v| v.len());
+                let live_rows = guard.runtime.snapshot().map_or(0, |s| s.rows);
+                (history_count, live_rows)
+            }
+            Err(_) => {
+                // Lock contention: preserve existing geometry instead of
+                // zeroing it (issue #198 review fix #5). Zeroing would clear
+                // the scroll offset and jump to follow-tail during attach.
+                return;
+            }
+        },
+        None => {
+            // No context: preserve existing geometry instead of zeroing it
+            // (fix #3). Zeroing would clear the scroll offset.
+            return;
+        }
+    };
+
+    let mut state = app_state.write();
+    let new_total = history_count + live_rows;
+    let old_total = state.terminal_total_lines;
+    let viewport_rows = usize::from(pty_layout.pty_rows);
+
+    // Reconcile the scroll offset when content grows so the viewport stays at
+    // the same absolute position (issue #198 review fix #3).
+    state.terminal_history_offset = jefe::state::scrollback_ops::reconcile_offset_for_new_content(
+        state.terminal_history_offset,
+        old_total,
+        new_total,
+        viewport_rows,
+    );
+    state.terminal_viewport_rows = viewport_rows;
+    state.terminal_total_lines = new_total;
+}
+
 pub fn dispatch_app_message(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,

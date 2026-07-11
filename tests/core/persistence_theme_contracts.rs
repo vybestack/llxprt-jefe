@@ -204,6 +204,7 @@ fn settings_theme_applies_to_theme_manager() {
     let settings = Settings {
         schema_version: SETTINGS_SCHEMA_VERSION,
         theme: "green-screen".into(),
+        override_agent_theme: false,
     };
 
     let mut mgr = StubThemeManager::new();
@@ -218,6 +219,7 @@ fn invalid_settings_theme_falls_back() {
     let settings = Settings {
         schema_version: SETTINGS_SCHEMA_VERSION,
         theme: "bogus-theme".into(),
+        override_agent_theme: false,
     };
 
     let mut mgr = StubThemeManager::new();

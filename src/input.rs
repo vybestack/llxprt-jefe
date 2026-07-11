@@ -4,7 +4,9 @@ use std::time::{Duration, Instant};
 
 use iocraft::prelude::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::state::{AppState, InlineState, ModalState, PaneFocus, QuitSequenceState, ScreenMode};
+use crate::state::{
+    AppEvent, AppState, InlineState, ModalState, PaneFocus, QuitSequenceState, ScreenMode,
+};
 
 /// High-level mode used to route keyboard events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -194,6 +196,72 @@ pub fn route_search_key(key: &KeyEvent) -> SearchKeyRoute {
             SearchKeyRoute::CloseAndReroute
         }
         _ => SearchKeyRoute::Ignore,
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Terminal scrollback key interception (issue #198).
+//
+// When the terminal pane is focused (InputMode::TerminalCapture), certain keys
+// move the Jefe scrollback viewport instead of being forwarded to the PTY.
+// This pure helper translates a key event + scroll state into an optional
+// AppEvent so the app-shell can dispatch the scroll event before PTY forwarding.
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Determine whether a key event should be intercepted for terminal scrollback
+/// control instead of forwarded to the PTY (issue #198).
+///
+/// Parameters:
+/// - `key_event`: The keyboard event to evaluate.
+/// - `offset_is_some`: Whether the terminal is currently scrolled back
+///   (`terminal_history_offset.is_some()`). When `true`, arrow keys also move
+///   the viewport; when `false` (follow-tail), only PageUp/PageDown/Home
+///   trigger scroll interception.
+///
+/// Returns the `AppEvent` to dispatch, or `None` when the key should be
+/// forwarded to the PTY as normal terminal input.
+///
+/// ## Modifier policy (review fix #1)
+///
+/// Scroll keys are ONLY intercepted when the key has NO modifiers
+/// (`KeyModifiers::NONE`). Any modifier chord (Ctrl, Alt, Shift, or a
+/// combination) is forwarded to the PTY so child TUIs that bind those chords
+/// (e.g. Ctrl+End, Alt+PageUp) are not broken.
+///
+/// ## End key (review fix #1)
+///
+/// `End` ONLY intercepts when the viewport is scrolled back
+/// (`offset_is_some == true`): it returns the user to follow-tail. At
+/// follow-tail, `End` is forwarded to the PTY (so shell line editing works).
+///
+/// ## Home key (review fix #2)
+///
+/// `Home` intercepts from BOTH states (follow-tail and scrolled-back): it
+/// jumps to the top of history, matching PageUp's "enter scrollback from
+/// anywhere" behavior.
+#[must_use]
+pub fn should_intercept_for_scrollback(
+    key_event: &KeyEvent,
+    offset_is_some: bool,
+) -> Option<AppEvent> {
+    // Modifier chords always go to the PTY (review fix #1).
+    if key_event.modifiers != KeyModifiers::NONE {
+        return None;
+    }
+    match key_event.code {
+        // PageUp/PageDown enter/continue scrollback from both states.
+        KeyCode::PageUp => Some(AppEvent::TerminalScrollPageUp),
+        KeyCode::PageDown => Some(AppEvent::TerminalScrollPageDown),
+        // End only intercepts when scrolled back (return to follow-tail).
+        // At follow-tail, End goes to the PTY (shell line editing).
+        KeyCode::End if offset_is_some => Some(AppEvent::TerminalFollowTail),
+        // Arrow keys only scroll the viewport when already scrolled back.
+        // When at follow-tail, arrows go to the PTY (so the child TUI works).
+        KeyCode::Up if offset_is_some => Some(AppEvent::TerminalScrollUp),
+        KeyCode::Down if offset_is_some => Some(AppEvent::TerminalScrollDown),
+        // Home scrolls to the top of history from BOTH states (review fix #2).
+        KeyCode::Home => Some(AppEvent::TerminalScrollToTop),
+        _ => None,
     }
 }
 
@@ -653,5 +721,158 @@ mod tests {
             QuitOutcome::Quit
         );
         assert_eq!(seq, QuitSequenceState::default());
+    }
+
+    // ── should_intercept_for_scrollback (issue #198) ───────────────────────
+
+    #[test]
+    fn scrollback_pageup_intercepts_from_follow_tail() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::PageUp), false);
+        assert!(matches!(evt, Some(AppEvent::TerminalScrollPageUp)));
+    }
+
+    #[test]
+    fn scrollback_pagedown_intercepts_from_follow_tail() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::PageDown), false);
+        assert!(matches!(evt, Some(AppEvent::TerminalScrollPageDown)));
+    }
+
+    #[test]
+    fn scrollback_pageup_intercepts_when_scrolled_back() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::PageUp), true);
+        assert!(matches!(evt, Some(AppEvent::TerminalScrollPageUp)));
+    }
+
+    #[test]
+    fn scrollback_pagedown_intercepts_when_scrolled_back() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::PageDown), true);
+        assert!(matches!(evt, Some(AppEvent::TerminalScrollPageDown)));
+    }
+
+    // ── review fix #1: modifier chords go to the PTY ─────────────────────
+
+    #[test]
+    fn scrollback_ctrl_end_forwards_to_pty() {
+        let evt =
+            should_intercept_for_scrollback(&key_mods(KeyCode::End, KeyModifiers::CONTROL), true);
+        assert!(evt.is_none(), "Ctrl+End must be forwarded to the PTY");
+    }
+
+    #[test]
+    fn scrollback_alt_pageup_forwards_to_pty() {
+        let evt =
+            should_intercept_for_scrollback(&key_mods(KeyCode::PageUp, KeyModifiers::ALT), false);
+        assert!(evt.is_none(), "Alt+PageUp must be forwarded to the PTY");
+    }
+
+    #[test]
+    fn scrollback_shift_pageup_forwards_to_pty() {
+        let evt =
+            should_intercept_for_scrollback(&key_mods(KeyCode::PageUp, KeyModifiers::SHIFT), false);
+        assert!(evt.is_none(), "Shift+PageUp must be forwarded to the PTY");
+    }
+
+    #[test]
+    fn scrollback_ctrl_pagedown_forwards_to_pty() {
+        let evt = should_intercept_for_scrollback(
+            &key_mods(KeyCode::PageDown, KeyModifiers::CONTROL),
+            false,
+        );
+        assert!(evt.is_none(), "Ctrl+PageDown must be forwarded to the PTY");
+    }
+
+    #[test]
+    fn scrollback_ctrl_home_forwards_to_pty() {
+        let evt =
+            should_intercept_for_scrollback(&key_mods(KeyCode::Home, KeyModifiers::CONTROL), true);
+        assert!(evt.is_none(), "Ctrl+Home must be forwarded to the PTY");
+    }
+
+    #[test]
+    fn scrollback_ctrl_up_forwards_to_pty_even_when_scrolled() {
+        let evt =
+            should_intercept_for_scrollback(&key_mods(KeyCode::Up, KeyModifiers::CONTROL), true);
+        assert!(
+            evt.is_none(),
+            "Ctrl+Up must be forwarded to the PTY even when scrolled"
+        );
+    }
+
+    // ── review fix #1: End only intercepts when scrolled back ────────────
+
+    #[test]
+    fn scrollback_end_at_follow_tail_forwards_to_pty() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::End), false);
+        assert!(
+            evt.is_none(),
+            "End at follow-tail must be forwarded to the PTY"
+        );
+    }
+
+    #[test]
+    fn scrollback_end_while_scrolled_returns_follow_tail() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::End), true);
+        assert!(matches!(evt, Some(AppEvent::TerminalFollowTail)));
+    }
+
+    // ── review fix #2: Home intercepts from BOTH states ──────────────────
+
+    #[test]
+    fn scrollback_home_intercepts_when_scrolled_back() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::Home), true);
+        assert!(
+            matches!(evt, Some(AppEvent::TerminalScrollToTop)),
+            "Home must map to TerminalScrollToTop (scroll to top of history)"
+        );
+    }
+
+    #[test]
+    fn scrollback_home_intercepts_from_follow_tail() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::Home), false);
+        assert!(
+            matches!(evt, Some(AppEvent::TerminalScrollToTop)),
+            "Home must intercept from follow-tail too (enter scrollback from anywhere)"
+        );
+    }
+
+    #[test]
+    fn scrollback_up_intercepts_when_scrolled_back() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::Up), true);
+        assert!(matches!(evt, Some(AppEvent::TerminalScrollUp)));
+    }
+
+    #[test]
+    fn scrollback_down_intercepts_when_scrolled_back() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::Down), true);
+        assert!(matches!(evt, Some(AppEvent::TerminalScrollDown)));
+    }
+
+    #[test]
+    fn scrollback_up_not_intercepted_when_following() {
+        // When at follow-tail (offset None), Up goes to the PTY.
+        let evt = should_intercept_for_scrollback(&key(KeyCode::Up), false);
+        assert!(evt.is_none());
+    }
+
+    #[test]
+    fn scrollback_down_not_intercepted_when_following() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::Down), false);
+        assert!(evt.is_none());
+    }
+
+    #[test]
+    fn scrollback_regular_keys_not_intercepted() {
+        // Regular character keys are never intercepted.
+        assert!(should_intercept_for_scrollback(&key(KeyCode::Char('a')), true).is_none());
+        assert!(should_intercept_for_scrollback(&key(KeyCode::Enter), true).is_none());
+        assert!(should_intercept_for_scrollback(&key(KeyCode::Tab), true).is_none());
+        assert!(should_intercept_for_scrollback(&key(KeyCode::Backspace), true).is_none());
+    }
+
+    #[test]
+    fn scrollback_left_right_not_intercepted() {
+        // Left/Right go to the PTY even when scrolled back.
+        assert!(should_intercept_for_scrollback(&key(KeyCode::Left), true).is_none());
+        assert!(should_intercept_for_scrollback(&key(KeyCode::Right), true).is_none());
     }
 }

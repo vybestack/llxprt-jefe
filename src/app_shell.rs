@@ -12,6 +12,7 @@ use crate::app_input::{
     handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key, handle_mode_search_key,
     handle_mode_theme_picker_key, handle_normal_key_event, persist_state,
     request_pr_background_refresh, to_persisted_state, try_ctrl_c_interrupt_passthrough,
+    try_intercept_terminal_scrollback,
 };
 use crate::pty_encoding::{
     should_arm_paste_enter_suppression, should_disarm_paste_enter_suppression,
@@ -375,8 +376,35 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let (render_cols, render_rows) = effective_render_size(term_cols, term_rows);
 
+    // Capture scrollback history lines for the terminal pane (issue #198).
+    // Uses the runtime cache (no shell-out on non-dirty frames). The cache uses
+    // the non-consuming is_dirty() so it never steals the dirty flag out from
+    // under the render-decision path.
+    let history_lines: Vec<String> = ctx
+        .as_ref()
+        .and_then(|ctx_arc| {
+            ctx_arc
+                .try_lock()
+                .ok()
+                .and_then(|mut guard| guard.runtime.capture_history())
+        })
+        .unwrap_or_default();
+
+    // NOTE: scroll-geometry (terminal_viewport_rows / terminal_total_lines) is
+    // NOT written here. Mutating AppState during render causes an infinite
+    // re-render loop (iocraft sees a state change and re-renders, which writes
+    // again), starving the input loop (qqq never processed). The geometry is
+    // refreshed at dispatch time instead — see refresh_terminal_scroll_geometry
+    // (mirrors the detail-pane viewport-refresh pattern).
+
     // Build screen and modal elements using orchestration helpers.
-    let screen_el = build_screen_element(&snapshot, &colors, &theme_name, terminal_snapshot);
+    let screen_el = build_screen_element(
+        &snapshot,
+        &colors,
+        &theme_name,
+        terminal_snapshot,
+        history_lines,
+    );
     let confirm_data = derive_confirm_modal_data(&snapshot, &modal);
     let modal_el = build_modal_element(
         &snapshot,
@@ -576,6 +604,26 @@ fn paste_to_issues_search(
     suppress_next_enter.set(false);
 }
 
+/// Arm or clear the paste-Enter suppression flag based on the current key and
+/// input mode. `Ctrl-V` / `Cmd-V` in terminal-capture mode arms suppression so
+/// the synthetic Enter some terminals send after a paste is swallowed; any
+/// other key disarms it.
+fn update_paste_enter_suppression(
+    app_state: &HookState<AppState>,
+    suppress_next_enter: &mut HookState<bool>,
+    key_event: &KeyEvent,
+) {
+    let current_input_mode = {
+        let state = app_state.read();
+        input_mode_for_state(&state)
+    };
+    if should_arm_paste_enter_suppression(key_event, current_input_mode) {
+        suppress_next_enter.set(true);
+    } else if should_disarm_paste_enter_suppression(suppress_next_enter.get(), key_event) {
+        suppress_next_enter.set(false);
+    }
+}
+
 fn handle_key_event(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
@@ -612,15 +660,7 @@ fn handle_key_event(
         return;
     }
 
-    let current_input_mode = {
-        let state = app_state.read();
-        input_mode_for_state(&state)
-    };
-    if should_arm_paste_enter_suppression(&key_event, current_input_mode) {
-        suppress_next_enter.set(true);
-    } else if should_disarm_paste_enter_suppression(suppress_next_enter.get(), &key_event) {
-        suppress_next_enter.set(false);
-    }
+    update_paste_enter_suppression(app_state, suppress_next_enter, &key_event);
 
     if key_event.code == KeyCode::F(12) {
         handle_f12_toggle(app_state, &ctx.cloned());
@@ -642,6 +682,10 @@ fn handle_key_event(
     }
 
     if input_mode == InputMode::TerminalCapture {
+        // Check scrollback key interception BEFORE forwarding to PTY (issue #198).
+        if try_intercept_terminal_scrollback(app_state, &ctx.cloned(), &key_event) {
+            return;
+        }
         forward_key_to_pty(ctx, suppress_next_enter, &key_event);
         return;
     }

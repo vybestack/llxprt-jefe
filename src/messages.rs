@@ -72,6 +72,14 @@ pub enum UiNavigationMessage {
     ExitDashboardGrab,
     DashboardGrabMoveUp,
     DashboardGrabMoveDown,
+    /// Terminal scrollback viewport events (issue #198).
+    TerminalScrollUp,
+    TerminalScrollDown,
+    TerminalScrollPageUp,
+    TerminalScrollPageDown,
+    TerminalFollowTail,
+    /// Scroll to the top of terminal history (Home key, issue #198 review #8).
+    TerminalScrollToTop,
 }
 
 /// Modal and form-editing messages.
@@ -140,6 +148,9 @@ pub enum ThemeMessage {
     PickerNavigateDown,
     PickerConfirm,
     PickerCancel,
+    /// Toggle the in-dialog "Apply jefe theme to agent" override checkbox
+    /// (issue #179). Flips `ModalState::ThemePicker.override_theme`.
+    ToggleAgentThemeOverride,
 }
 
 /// Issues-mode messages.
@@ -711,6 +722,12 @@ message_names!(UiNavigationMessage {
     Self::ExitDashboardGrab => "ExitDashboardGrab",
     Self::DashboardGrabMoveUp => "DashboardGrabMoveUp",
     Self::DashboardGrabMoveDown => "DashboardGrabMoveDown",
+    Self::TerminalScrollUp => "TerminalScrollUp",
+    Self::TerminalScrollDown => "TerminalScrollDown",
+    Self::TerminalScrollPageUp => "TerminalScrollPageUp",
+    Self::TerminalScrollPageDown => "TerminalScrollPageDown",
+    Self::TerminalFollowTail => "TerminalFollowTail",
+    Self::TerminalScrollToTop => "TerminalScrollToTop",
 });
 
 message_names!(ModalMessage {
@@ -760,6 +777,7 @@ message_names!(ThemeMessage {
     Self::PickerNavigateDown => "ThemePickerNavigateDown",
     Self::PickerConfirm => "ThemePickerConfirm",
     Self::PickerCancel => "CloseThemePicker",
+    Self::ToggleAgentThemeOverride => "ThemePickerToggleOverride",
 });
 
 message_names!(SystemMessage {

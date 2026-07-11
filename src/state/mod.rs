@@ -35,6 +35,7 @@ mod prs_mutation_ops;
 mod prs_nav_ops;
 mod prs_ops;
 mod prs_thread_ops;
+pub mod scrollback_ops;
 mod selectors;
 pub mod state_ops;
 pub mod theme_picker_view;
@@ -42,6 +43,7 @@ mod types;
 mod util;
 
 pub use events::*;
+pub use scrollback_ops::{FollowIndicator, terminal_follow_indicator};
 pub use state_ops::{delete_selected_agent, delete_selected_repository};
 pub use types::*;
 
@@ -52,8 +54,7 @@ pub use form_projection::{
 
 use tracing::{debug, trace};
 
-use crate::domain::{Agent, AgentId, AgentStatus};
-use crate::domain::{Repository, RepositoryId};
+use crate::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
 use crate::messages::{
     AppMessage, MessageRoute, PersistenceMessage, RuntimeMessage, SystemMessage, ThemeMessage,
     UiNavigationMessage,
@@ -73,10 +74,8 @@ fn inline_cursor_vertical(text: &str, cursor: &mut usize, direction: i32) {
         }
     }
 
-    // Clamp the cursor to a valid char boundary within the text. As the shared
-    // single source of truth for vertical movement in both Issues and PR modes,
-    // this defensively walks a mid-codepoint offset DOWN to the nearest UTF-8
-    // boundary so slicing cannot panic on malformed input.
+    // Clamp the cursor to a valid char boundary. Defensively walks a
+    // mid-codepoint offset DOWN so slicing cannot panic.
     let mut clamped_cursor = (*cursor).min(text.len());
     while clamped_cursor > 0 && !text.is_char_boundary(clamped_cursor) {
         clamped_cursor -= 1;
@@ -123,6 +122,14 @@ fn inline_cursor_vertical(text: &str, cursor: &mut usize, direction: i32) {
 }
 
 impl AppState {
+    /// Reset terminal scrollback state to defaults (fix #4). Called from
+    /// every path that changes the selected agent or repository.
+    fn reset_terminal_scrollback(&mut self) {
+        self.terminal_history_offset = None;
+        self.terminal_viewport_rows = 0;
+        self.terminal_total_lines = 0;
+    }
+
     fn selected_repository_id(&self) -> Option<&RepositoryId> {
         self.selected_repository_index
             .and_then(|idx| self.repositories.get(idx).map(|repo| &repo.id))
@@ -366,6 +373,22 @@ impl AppState {
     }
 
     fn terminal_blocks(message: &AppMessage) -> bool {
+        // Scrollback events and focus toggles are never blocked (issue #198).
+        if let AppMessage::UiNavigation(msg) = message
+            && matches!(
+                msg,
+                UiNavigationMessage::TerminalScrollUp
+                    | UiNavigationMessage::TerminalScrollDown
+                    | UiNavigationMessage::TerminalScrollPageUp
+                    | UiNavigationMessage::TerminalScrollPageDown
+                    | UiNavigationMessage::TerminalFollowTail
+                    | UiNavigationMessage::TerminalScrollToTop
+                    | UiNavigationMessage::ToggleTerminalFocus
+                    | UiNavigationMessage::CyclePaneFocus
+            )
+        {
+            return false;
+        }
         matches!(
             message,
             AppMessage::UiNavigation(
@@ -457,6 +480,19 @@ impl AppState {
             UiNavigationMessage::ExitDashboardGrab => self.dashboard_grab = None,
             UiNavigationMessage::DashboardGrabMoveUp => self.move_dashboard_grab_up(),
             UiNavigationMessage::DashboardGrabMoveDown => self.move_dashboard_grab_down(),
+            UiNavigationMessage::TerminalScrollUp
+            | UiNavigationMessage::TerminalScrollDown
+            | UiNavigationMessage::TerminalScrollPageUp
+            | UiNavigationMessage::TerminalScrollPageDown
+            | UiNavigationMessage::TerminalFollowTail
+            | UiNavigationMessage::TerminalScrollToTop => {
+                scrollback_ops::apply_terminal_scroll_message(
+                    &mut self.terminal_history_offset,
+                    self.terminal_total_lines,
+                    self.terminal_viewport_rows,
+                    message,
+                );
+            }
         }
     }
 
@@ -514,6 +550,7 @@ impl AppState {
             self.selected_repository_index = Some(idx);
             self.restore_selected_agent_for_current_repo();
             self.sync_preferences_for_repo_change(prev_repo_id);
+            self.reset_terminal_scrollback();
         }
     }
 
@@ -538,6 +575,7 @@ impl AppState {
                 self.remember_selected_agent_for_current_repo();
                 self.selected_repository_index = Some(indices[0]);
                 self.restore_selected_agent_for_current_repo();
+                self.reset_terminal_scrollback();
                 return true;
             }
             return false;
@@ -565,6 +603,7 @@ impl AppState {
         self.remember_selected_agent_for_current_repo();
         self.selected_repository_index = Some(indices[target]);
         self.restore_selected_agent_for_current_repo();
+        self.reset_terminal_scrollback();
         true
     }
 
@@ -574,6 +613,7 @@ impl AppState {
             if idx < visible_indices.len() {
                 self.selected_agent_index = Some(visible_indices[idx]);
                 self.remember_selected_agent_for_current_repo();
+                self.reset_terminal_scrollback();
             }
         }
     }
@@ -597,6 +637,7 @@ impl AppState {
             self.selected_agent_index = Some(agent_idx);
             self.pane_focus = PaneFocus::Agents;
             self.terminal_focused = false;
+            self.reset_terminal_scrollback();
             self.remember_selected_agent_for_current_repo();
             self.sync_preferences_for_repo_change(prev_repo_id);
         }
@@ -650,6 +691,11 @@ impl AppState {
                     if status == AgentStatus::Running {
                         self.sticky_dead_agent_ids.remove(&agent_id);
                     }
+                    // Reset scroll state when selected agent's status changes
+                    // (fix #6).
+                    if self.selected_agent().is_some_and(|a| a.id == agent_id) {
+                        self.reset_terminal_scrollback();
+                    }
                 }
             }
             RuntimeMessage::RelaunchAgent(agent_id) => {
@@ -702,6 +748,7 @@ impl AppState {
                     available_themes,
                     selected_index,
                     active_slug,
+                    override_theme: self.override_agent_theme,
                 };
             }
             ThemeMessage::PickerNavigateUp => {
@@ -722,7 +769,21 @@ impl AppState {
                     *selected_index += 1;
                 }
             }
-            ThemeMessage::PickerConfirm | ThemeMessage::PickerCancel => {
+            ThemeMessage::ToggleAgentThemeOverride => {
+                if let ModalState::ThemePicker { override_theme, .. } = &mut self.modal {
+                    *override_theme = !*override_theme;
+                }
+            }
+            ThemeMessage::PickerConfirm => {
+                // Commit the in-dialog override toggle to the runtime mirror
+                // before closing (issue #179). Persistence is applied by the
+                // input layer; this keeps the state transition deterministic.
+                if let ModalState::ThemePicker { override_theme, .. } = &self.modal {
+                    self.override_agent_theme = *override_theme;
+                }
+                self.modal = ModalState::None;
+            }
+            ThemeMessage::PickerCancel => {
                 self.modal = ModalState::None;
             }
         }
@@ -745,6 +806,7 @@ impl AppState {
                     self.remember_selected_agent_for_current_repo();
                     self.selected_repository_index = Some(visible_repo_indices[visible_idx - 1]);
                     self.restore_selected_agent_for_current_repo();
+                    self.reset_terminal_scrollback();
                 }
             }
             PaneFocus::Agents => {
@@ -769,11 +831,13 @@ impl AppState {
                     Some(local_idx) if local_idx > 0 => {
                         self.selected_agent_index = Some(visible_indices[local_idx - 1]);
                         self.remember_selected_agent_for_current_repo();
+                        self.reset_terminal_scrollback();
                     }
                     Some(_) => {}
                     None => {
                         self.selected_agent_index = visible_indices.first().copied();
                         self.remember_selected_agent_for_current_repo();
+                        self.reset_terminal_scrollback();
                     }
                 }
             }
@@ -792,6 +856,7 @@ impl AppState {
                     self.remember_selected_agent_for_current_repo();
                     self.selected_repository_index = Some(visible_repo_indices[visible_idx + 1]);
                     self.restore_selected_agent_for_current_repo();
+                    self.reset_terminal_scrollback();
                 }
             }
             PaneFocus::Agents => {
@@ -816,11 +881,13 @@ impl AppState {
                     Some(local_idx) if local_idx + 1 < visible_indices.len() => {
                         self.selected_agent_index = Some(visible_indices[local_idx + 1]);
                         self.remember_selected_agent_for_current_repo();
+                        self.reset_terminal_scrollback();
                     }
                     Some(_) => {}
                     None => {
                         self.selected_agent_index = visible_indices.first().copied();
                         self.remember_selected_agent_for_current_repo();
+                        self.reset_terminal_scrollback();
                     }
                 }
             }
@@ -915,9 +982,6 @@ mod prs_tests_detail_flow;
 mod prs_tests_components;
 
 /// Review-thread state tests (issue #119): open reply composer, toggle resolve.
-///
-/// @plan PLAN-20260624-PR-MODE.P05
-/// @requirement REQ-PR-009
 /// Silent background refresh state-transition tests (issue #128).
 #[cfg(test)]
 #[path = "prs_tests_silent_refresh.rs"]
@@ -927,9 +991,7 @@ mod prs_tests_silent_refresh;
 #[path = "prs_tests_review_threads.rs"]
 mod prs_tests_review_threads;
 
-// @plan PLAN-20260624-PR-MODE.P15
-// @requirement REQ-PR-001
-// @pseudocode component-001 lines 66-291
+// @plan PLAN-20260624-PR-MODE.P15 @requirement REQ-PR-001
 #[cfg(test)]
 #[path = "prs_integration_tests.rs"]
 mod prs_integration_tests;

@@ -160,6 +160,31 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
   the runtime unit tests (`prefix_passthrough_tests`), which drive a real
   `tmux attach-session` client on an isolated socket with the prefix disabled
   exactly as production does (#200).
+- [`kennel-terminal-select.json`](../tmux-scenarios/kennel-terminal-select.json):
+  manual scratch scenario for issue #197 — terminal text selection and copy for
+  Code Puppy (Kennel mode) sessions. It focuses the terminal and captures the
+  focused Kennel terminal screen. It is intentionally not a CI gate because it
+  requires a configured repository with a running Code Puppy agent (which varies
+  by developer machine), and the keyboard-only harness cannot drive mouse
+  drag-select or assert OSC 52 clipboard contents. The behavioral contract
+  (plain drag and shift-drag paint a Jefe selection and copy over the snapshot
+  for Kennel agents; LLxprt keeps PTY forwarding when mouse reporting is active)
+  is covered by unit tests in `tests/runtime/terminal_focus_routing.rs` and
+  `src/selection/terminal_mouse_policy.rs`. Run the scenario manually:
+
+  ```bash
+  cargo run --bin jefe-tmux-harness -- \
+    --scenario dev-docs/tmux-scenarios/kennel-terminal-select.json \
+    --jefe-bin target/debug/jefe \
+    --config /tmp/jefe-harness-config \
+    --out-dir target/tmux-harness/kennel-terminal-select \
+    --keep-session
+  ```
+
+  Then, in the kept session, drag across visible Code Puppy output: the
+  selected cells should highlight (inverse video) and release should copy the
+  highlighted text. Holding Shift while dragging must also highlight and copy
+  (it is no longer a no-op).
 
 ## Future regression scenarios
 

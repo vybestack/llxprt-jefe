@@ -22,6 +22,9 @@
 
 use iocraft::prelude::*;
 
+use super::terminal_theme::{
+    TerminalThemeOverride, resolve_run_colors, terminal_content_background, terminal_weight,
+};
 use crate::runtime::{TerminalCell, TerminalSnapshot};
 use crate::selection::{SelectablePane, TextSelection, row_highlight_range};
 use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
@@ -43,6 +46,15 @@ pub struct TerminalViewProps {
     /// attaching). When true the empty-state copy distinguishes a healthy live
     /// session from a genuinely unattached terminal (issue #160).
     pub session_live: bool,
+    /// Retained scrollback history lines from the runtime cache (issue #198).
+    pub history_lines: Vec<String>,
+    /// Terminal scrollback offset: `None` = follow-tail (live), `Some(n)` =
+    /// scrolled back `n` lines. Drives the viewport projection + indicator.
+    pub terminal_history_offset: Option<usize>,
+    /// When true, jefe's theme fg/bg is force-applied to the agent terminal's
+    /// default (transparent) cells, while explicitly-styled cells pass through
+    /// unchanged (issue #179 override toggle).
+    pub override_theme: bool,
 }
 
 /// Empty-state message for the terminal pane when no snapshot is available.
@@ -75,6 +87,38 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
         "F12/t to focus"
     };
 
+    // Build the scrollback viewport projection (issue #198). When history lines
+    // are present, project history+live through the offset window. When no
+    // history is available, render the live snapshot as-is.
+    let default_style = crate::runtime::TerminalCellStyle {
+        fg: iocraft::Color::White,
+        bg: rc.bg,
+        bold: false,
+        dim: false,
+        underline: false,
+    };
+
+    let (projected_snapshot, indicator, content_start_line) =
+        if let Some(live) = props.snapshot.as_ref().filter(|s| !s.is_empty()) {
+            if props.history_lines.is_empty() {
+                (Some(live.clone()), None, 0)
+            } else {
+                // Use a large viewport so the projection fills the pane; the
+                // TerminalGrid clips to the actual canvas size at draw time.
+                let proj = super::terminal_viewport::build_terminal_viewport(
+                    live,
+                    &props.history_lines,
+                    props.terminal_history_offset,
+                    live.rows,
+                    live.cols,
+                    default_style,
+                );
+                (Some(proj.snapshot), proj.indicator, proj.start_line)
+            }
+        } else {
+            (None, None, 0)
+        };
+
     element! {
         Box(
             flex_direction: FlexDirection::Column,
@@ -97,23 +141,45 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
 
             // Terminal content. A single low-level canvas node draws the whole
             // grid; see module docs for why this is not a flex tree.
+            //
+            // The follow indicator is overlaid on the last grid row by the
+            // canvas draw, NOT as a separate flex Box, so it does not consume
+            // a content row (issue #198 review fix #6).
+            //
+            // The content-area fill is transparent (Color::Reset) when theme
+            // override is OFF, so the embedded agent's default cells let the
+            // host terminal's real background show through instead of jefe's
+            // theme bg bleeding in (issue #179). Override ON fills with jefe's
+            // theme bg. Chrome (border, title bar) always carries rc.bg.
             Box(
                 flex_direction: FlexDirection::Column,
                 flex_grow: 1.0_f32,
-                background_color: rc.bg,
+                background_color: terminal_content_background(props.override_theme, rc.bg),
             ) {
-                #(if let Some(snapshot) = props.snapshot.clone() {
+                #(if let Some(snapshot) = projected_snapshot {
                     element! {
                         TerminalGrid(
                             snapshot: snapshot,
                             selection: props.selection,
                             sel_colors: SelectionColors::from_resolved(&rc),
+                            content_start_line: content_start_line,
+                            indicator_text: indicator.as_ref().map(|ind| ind.text.clone()),
+                            dim_color: rc.dim,
+                            bg_color: rc.bg,
+                            theme_override: TerminalThemeOverride {
+                                enabled: props.override_theme,
+                                fg: rc.fg,
+                                bg: rc.bg,
+                            },
                         )
                     }
                     .into_any()
                 } else {
                     element! {
-                        Box {
+                        Box(background_color: terminal_content_background(
+                            props.override_theme,
+                            rc.bg,
+                        )) {
                             Text(content: terminal_empty_message(props.session_live), color: rc.dim)
                         }
                     }
@@ -134,6 +200,21 @@ struct TerminalGridProps {
     selection: Option<TextSelection>,
     /// Selection foreground + background colors (inverse-video).
     sel_colors: SelectionColors,
+    /// Absolute content-line index of the first viewport row (issue #198
+    /// review fix #5). Selection highlight math adds this to the viewport-local
+    /// row index to get the absolute content row that `row_highlight_range`
+    /// expects.
+    content_start_line: usize,
+    /// Follow indicator text to overlay on the last grid row (issue #198
+    /// review fix #6). When present, the indicator is drawn on top of the last
+    /// row of the canvas WITHOUT consuming an additional content row.
+    indicator_text: Option<String>,
+    /// Dim color for the indicator overlay.
+    dim_color: iocraft::Color,
+    /// Background color for the indicator overlay.
+    bg_color: iocraft::Color,
+    /// Jefe-theme override for the agent's default cells (issue #179).
+    theme_override: TerminalThemeOverride,
 }
 
 impl Default for TerminalGridProps {
@@ -145,6 +226,11 @@ impl Default for TerminalGridProps {
                 fg: Color::Reset,
                 bg: Color::Reset,
             },
+            content_start_line: 0,
+            indicator_text: None,
+            dim_color: Color::Reset,
+            bg_color: Color::Reset,
+            theme_override: TerminalThemeOverride::default(),
         }
     }
 }
@@ -159,6 +245,11 @@ struct TerminalGrid {
     snapshot: TerminalSnapshot,
     selection: Option<TextSelection>,
     sel_colors: SelectionColors,
+    content_start_line: usize,
+    indicator_text: Option<String>,
+    dim_color: iocraft::Color,
+    bg_color: iocraft::Color,
+    theme_override: TerminalThemeOverride,
 }
 
 impl Default for TerminalGrid {
@@ -170,6 +261,11 @@ impl Default for TerminalGrid {
                 fg: Color::Reset,
                 bg: Color::Reset,
             },
+            content_start_line: 0,
+            indicator_text: None,
+            dim_color: Color::Reset,
+            bg_color: Color::Reset,
+            theme_override: TerminalThemeOverride::default(),
         }
     }
 }
@@ -190,6 +286,11 @@ impl Component for TerminalGrid {
         self.snapshot = props.snapshot.clone();
         self.selection = props.selection;
         self.sel_colors = props.sel_colors;
+        self.content_start_line = props.content_start_line;
+        self.indicator_text.clone_from(&props.indicator_text);
+        self.dim_color = props.dim_color;
+        self.bg_color = props.bg_color;
+        self.theme_override = props.theme_override;
 
         // Fill the available space; the parent Box constrains us to the pane.
         // Build the taffy style directly so node count stays at one leaf.
@@ -211,14 +312,26 @@ impl Component for TerminalGrid {
         }
 
         let mut canvas = drawer.canvas();
-        paint_terminal_cells(&mut canvas, &self.snapshot, max_rows, max_cols);
-        paint_selection_overlay(
+        paint_terminal_cells(
             &mut canvas,
             &self.snapshot,
-            self.selection,
             max_rows,
             max_cols,
-            self.sel_colors,
+            self.theme_override,
+        );
+        let overlay = SelectionOverlay {
+            selection: self.selection,
+            content_start_line: self.content_start_line,
+            sel_colors: self.sel_colors,
+        };
+        paint_selection_overlay(&mut canvas, &self.snapshot, &overlay, max_rows, max_cols);
+        paint_follow_indicator_overlay(
+            &mut canvas,
+            self.indicator_text.as_deref(),
+            max_rows,
+            max_cols,
+            self.dim_color,
+            self.bg_color,
         );
     }
 }
@@ -229,6 +342,7 @@ fn paint_terminal_cells(
     snapshot: &TerminalSnapshot,
     max_rows: usize,
     max_cols: usize,
+    theme_override: TerminalThemeOverride,
 ) {
     for (row_idx, row) in snapshot
         .cells
@@ -243,37 +357,45 @@ fn paint_terminal_cells(
             let Some(x) = canvas_coord(run.start_col) else {
                 continue;
             };
+            let (text_color, fill_color) = resolve_run_colors(&run.style, theme_override);
             // CanvasTextStyle is #[non_exhaustive]; build via Default then set fields.
             let mut style = CanvasTextStyle::default();
-            style.color = Some(run.style.fg);
-            style.weight = if run.style.bold {
-                Weight::Bold
-            } else {
-                Weight::Normal
-            };
+            style.color = Some(text_color);
+            style.weight = terminal_weight(&run.style);
             style.underline = run.style.underline;
 
-            // Background is painted as a filled region under the run so that
-            // per-cell background colors are preserved.
-            canvas.set_background_color(x, y, run.width, 1, run.style.bg);
+            if let Some(fill) = fill_color {
+                canvas.set_background_color(x, y, run.width, 1, fill);
+            }
             canvas.set_text(x, y, &run.text, style);
         }
     }
+}
+
+/// Selection overlay context for [`paint_selection_overlay`] (fix #5).
+/// Groups the selection + its content-line offset + colors so the paint
+/// function stays within the clippy argument budget.
+struct SelectionOverlay {
+    selection: Option<TextSelection>,
+    content_start_line: usize,
+    sel_colors: SelectionColors,
 }
 
 /// Paint inverse-video over the selected cells of the terminal grid.
 ///
 /// Called after [`paint_terminal_cells`] so the selection highlight overlays the
 /// normal content. Only acts when a selection targets the terminal pane.
+/// `content_start_line` is the absolute content-line index of the first
+/// viewport row, so `row_highlight_range` receives absolute row numbers that
+/// match the selection coordinate space (issue #198 review fix #5).
 fn paint_selection_overlay(
     canvas: &mut CanvasSubviewMut<'_>,
     snapshot: &TerminalSnapshot,
-    selection: Option<TextSelection>,
+    overlay: &SelectionOverlay,
     max_rows: usize,
     max_cols: usize,
-    sel_colors: SelectionColors,
 ) {
-    let Some(selection) = selection else {
+    let Some(selection) = overlay.selection else {
         return;
     };
     if selection.pane() != SelectablePane::TerminalView || selection.is_empty() {
@@ -281,7 +403,8 @@ fn paint_selection_overlay(
     }
     let visible_rows = snapshot.rows.min(max_rows);
     for row_idx in 0..visible_rows {
-        let Some(range) = row_highlight_range(&selection, row_idx) else {
+        let absolute_row = overlay.content_start_line + row_idx;
+        let Some(range) = row_highlight_range(&selection, absolute_row) else {
             continue;
         };
         let Some(y) = canvas_coord(row_idx) else {
@@ -304,16 +427,52 @@ fn paint_selection_overlay(
         let Some(x) = canvas_coord(start) else {
             continue;
         };
-        canvas.set_background_color(x, y, width, 1, sel_colors.bg);
+        canvas.set_background_color(x, y, width, 1, overlay.sel_colors.bg);
         // Re-draw the selected cell text in the selection fg so the glyphs stay
         // legible over the inverse-video background.
         if let Some(row) = snapshot.cells.get(row_idx) {
             let chars: String = row.iter().skip(start).take(width).map(|c| c.ch).collect();
             let mut style = CanvasTextStyle::default();
-            style.color = Some(sel_colors.fg);
+            style.color = Some(overlay.sel_colors.fg);
             canvas.set_text(x, y, &chars, style);
         }
     }
+}
+
+/// Paint the follow indicator as an overlay on the last canvas row WITHOUT
+/// consuming an additional content row (issue #198 review fix #6).
+///
+/// When `indicator_text` is present, the last row of the canvas is overpainted
+/// with the indicator text in the dim color over the bg color. This keeps the
+/// terminal grid at the full viewport height — no content row is clipped.
+fn paint_follow_indicator_overlay(
+    canvas: &mut CanvasSubviewMut<'_>,
+    indicator_text: Option<&str>,
+    max_rows: usize,
+    max_cols: usize,
+    dim_color: iocraft::Color,
+    bg_color: iocraft::Color,
+) {
+    let Some(text) = indicator_text else {
+        return;
+    };
+    if max_rows == 0 || max_cols == 0 {
+        return;
+    }
+    // Overlay on the last visible row.
+    let last_row = max_rows - 1;
+    let Some(y) = canvas_coord(last_row) else {
+        return;
+    };
+    // Clear the background of the last row.
+    let Some(x) = canvas_coord(0) else {
+        return;
+    };
+    canvas.set_background_color(x, y, max_cols, 1, bg_color);
+    let display_text: String = text.chars().take(max_cols).collect();
+    let mut style = CanvasTextStyle::default();
+    style.color = Some(dim_color);
+    canvas.set_text(x, y, &display_text, style);
 }
 
 fn canvas_coord(value: usize) -> Option<isize> {
@@ -426,6 +585,7 @@ mod tests {
             fg: Color::AnsiValue(fg),
             bg: Color::Black,
             bold: false,
+            dim: false,
             underline: false,
         }
     }
@@ -434,6 +594,7 @@ mod tests {
         TerminalCell {
             ch,
             style: style(fg),
+            wide_spacer: false,
         }
     }
 

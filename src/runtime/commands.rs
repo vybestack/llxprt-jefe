@@ -80,6 +80,12 @@ pub fn tmux_command() -> Command {
     cmd
 }
 
+// Re-export the pane capture / introspection helpers that production callers
+// (`commands::capture_pane_lines` / `commands::capture_pane_history` /
+// `commands::pane_pid` in `manager.rs`) still resolve, after the functions
+// moved to `pane_capture.rs` for file-size reasons.
+pub use super::pane_capture::{capture_pane_history, capture_pane_lines, pane_pid};
+
 fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
     let mut cmd = tmux_command();
     cmd.args(args);
@@ -890,59 +896,6 @@ pub fn remote_session_exists(
     let output = run_remote_ssh(remote, &command)?;
     Ok(output.status.success())
 }
-
-/// Capture pane output for a session as plain text lines.
-pub fn capture_pane_lines(session_name: &str) -> Option<Vec<String>> {
-    let output = tmux_command()
-        .args(["capture-pane", "-p", "-t", session_name])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    Some(text.lines().map(std::borrow::ToOwned::to_owned).collect())
-}
-
-/// Parse the stdout of `tmux list-panes -t <session> -F '#{pane_pid}'` into a
-/// single PID.
-///
-/// Returns the first non-empty trimmed line parsed as a `u32`, or `None` if the
-/// output is empty/garbage. Factored out of [`pane_pid`] so the parsing logic is
-/// unit-testable without spawning tmux.
-#[must_use]
-pub fn parse_pane_pid(stdout: &str) -> Option<u32> {
-    stdout
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .and_then(|line| line.parse::<u32>().ok())
-}
-
-/// Query the PID of the (first) pane in a local tmux session.
-///
-/// Runs `tmux list-panes -t <session> -F '#{pane_pid}'` against the jefe-private
-/// socket. Because `llxprt` runs as the pane's direct command (not a shell
-/// wrapper), the returned PID **is** the worker process itself. Local sessions
-/// only.
-///
-/// Returns `None` if tmux is unavailable, the session does not exist, or the
-/// output cannot be parsed. This is the PID-fallback input used to detect
-/// workers that are still alive after their tmux session is gone.
-#[must_use]
-pub fn pane_pid(session_name: &str) -> Option<u32> {
-    let output = tmux_command()
-        .args(["list-panes", "-t", session_name, "-F", "#{pane_pid}"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    parse_pane_pid(&String::from_utf8_lossy(&output.stdout))
-}
-
-/// Kill a tmux session.
 ///
 /// @pseudocode component-002 lines 24-25
 pub fn kill_session(session_name: &str) -> Result<(), RuntimeError> {

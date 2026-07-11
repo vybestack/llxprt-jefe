@@ -36,6 +36,9 @@ pub enum ModalState {
         selected_index: usize,
         /// Slug of the currently-applied theme (for the active marker).
         active_slug: String,
+        /// In-dialog "Apply jefe theme to agent" toggle (issue #179).
+        /// Initialized from `AppState.override_agent_theme`; persisted on Enter.
+        override_theme: bool,
     },
     NewRepository {
         fields: RepositoryFormFields,
@@ -232,11 +235,51 @@ pub struct AppState {
     /// inverse-video highlight over the selected cells.
     pub selection: Option<crate::selection::TextSelection>,
 
+    /// The terminal snapshot bound to the active selection (issue #197).
+    ///
+    /// Captured when a terminal selection gesture begins and reused for BOTH
+    /// the highlight rendering and the copy-at-release so copied text always
+    /// matches what the user highlighted — even when the live grid streams new
+    /// output between the last drag frame and mouse-up. Cleared together with
+    /// `selection`. Runtime-only — never persisted.
+    pub selection_snapshot: Option<crate::runtime::TerminalSnapshot>,
+
+    /// Gesture-ownership state for the terminal mouse router (issue #197).
+    ///
+    /// Persists the left-button gesture ownership decision (Jefe vs PTY) across
+    /// events within a single down→drag→up cycle. Reset to idle on release.
+    /// Runtime-only — never persisted.
+    pub terminal_gesture_state: crate::selection::GestureState,
+
     /// Help modal scroll offset (lines scrolled from the top). Mirrored from
     /// the app-shell hook state so the selection content projection can map
     /// screen coordinates to the correct help content line (issue #178).
     /// Runtime-only — never persisted.
     pub help_scroll_offset: usize,
+
+    /// Terminal scrollback offset for the embedded terminal pane (issue #198).
+    ///
+    /// `None` (default) means **follow-tail**: render the live snapshot at the
+    /// bottom (current behavior). `Some(n)` means the viewport is scrolled back
+    /// `n` lines from the bottom; follow-tail is paused and a follow indicator
+    /// renders. Runtime-only — never persisted (like `selection`,
+    /// `quit_sequence`).
+    pub terminal_history_offset: Option<usize>,
+
+    /// Cached number of terminal viewport rows (for scrollback offset math,
+    /// issue #198). Mirrors `detail_viewport_rows` for detail panes. Updated by
+    /// the render/layout layer so the deterministic reducer can compute clamp
+    /// bounds without I/O. Runtime-only — never persisted.
+    pub terminal_viewport_rows: usize,
+
+    /// Cached total lines of scrollback content (history + live snapshot rows,
+    /// issue #198). Updated by the render layer from the runtime history
+    /// capture + live snapshot. Runtime-only — never persisted.
+    pub terminal_total_lines: usize,
+
+    /// Runtime mirror of `persistence::Settings.override_agent_theme` (issue
+    /// #179). settings.toml is the source of truth; the render path reads this.
+    pub override_agent_theme: bool,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
