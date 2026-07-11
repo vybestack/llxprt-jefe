@@ -837,3 +837,51 @@ fn pr_subfocus_line_range_returns_none_for_out_of_bounds_index() {
         "out-of-bounds comment index must return None"
     );
 }
+
+/// Consecutive bodyless reviews (e.g. bot reviews whose content lives in
+/// threads) still get a blank separator line between their headers so they
+/// never render visually glued together.
+#[test]
+fn bodyless_reviews_are_separated_by_blank_lines() {
+    let mut detail = sample_detail();
+    detail.reviews = vec![
+        PrReview {
+            review_id: Some("PRR_kw001".to_string()),
+            author_login: "bot".to_string(),
+            state: PrReviewState::Commented,
+            submitted_at: "2026-06-23".to_string(),
+            body: None,
+            review_threads: vec![],
+        },
+        PrReview {
+            review_id: Some("PRR_kw002".to_string()),
+            author_login: "bot".to_string(),
+            state: PrReviewState::Commented,
+            submitted_at: "2026-06-24".to_string(),
+            body: None,
+            review_threads: vec![],
+        },
+    ];
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+    let lines: Vec<&str> = content.text.lines().collect();
+    let Some(first) = lines.iter().position(|l| l.contains("2026-06-23")) else {
+        panic!("first review header present");
+    };
+    assert_eq!(
+        lines.get(first + 1).copied(),
+        Some(""),
+        "blank separator after a bodyless review header"
+    );
+    assert!(
+        lines
+            .get(first + 2)
+            .is_some_and(|l| l.contains("2026-06-24")),
+        "second review header follows the separator"
+    );
+}

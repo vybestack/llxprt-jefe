@@ -17,6 +17,18 @@ const MONTH_ABBR: [&str; 13] = [
     "", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
+/// Join field values for display, or [`EMPTY_FIELD`] when empty.
+///
+/// Issue #155: replaces the leaky `-` placeholder with a clean em-dash.
+/// Shared by the Issue and PR detail header projections.
+#[must_use]
+pub fn field_list(values: &[String]) -> String {
+    if values.is_empty() {
+        return EMPTY_FIELD.to_string();
+    }
+    values.join(", ")
+}
+
 /// Format a GitHub ISO-8601 timestamp into a compact human date.
 ///
 /// Accepts the forms `gh` returns (`2026-07-06T15:26:53Z` and the date-only
@@ -32,7 +44,9 @@ const MONTH_ABBR: [&str; 13] = [
 pub fn format_iso_date(iso: &str) -> String {
     let trimmed = iso.trim();
     if trimmed.is_empty() {
-        return String::new();
+        // Blank timestamps render the standard empty-field placeholder so the
+        // header reads `created: —` instead of leaving a silent gap.
+        return EMPTY_FIELD.to_string();
     }
     // Split date from optional time at 'T' or a space.
     let (date_part, time_part) = trimmed
@@ -186,7 +200,7 @@ pub fn truncate_with_ellipsis(text: &str, max_width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_iso_date, truncate_with_ellipsis};
+    use super::{EMPTY_FIELD, field_list, format_iso_date, truncate_with_ellipsis};
     use unicode_width::UnicodeWidthStr;
 
     #[test]
@@ -296,8 +310,18 @@ mod tests {
     }
 
     #[test]
-    fn format_iso_date_empty_returns_empty() {
-        assert_eq!(format_iso_date(""), "");
+    fn format_iso_date_empty_returns_placeholder() {
+        // Blank timestamps render the standard empty-field placeholder so
+        // headers read `created: —` instead of a silent gap (issue #155).
+        assert_eq!(format_iso_date(""), EMPTY_FIELD);
+        assert_eq!(format_iso_date("   "), EMPTY_FIELD);
+    }
+
+    #[test]
+    fn field_list_joins_or_placeholder() {
+        assert_eq!(field_list(&[]), EMPTY_FIELD);
+        let values = vec!["a".to_string(), "b".to_string()];
+        assert_eq!(field_list(&values), "a, b");
     }
 
     #[test]

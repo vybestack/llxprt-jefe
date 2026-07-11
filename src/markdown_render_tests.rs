@@ -193,8 +193,8 @@ fn table_renders_aligned_columns() {
 fn blockquote_is_marked() {
     let out = render("> quoted text");
     assert!(
-        out.contains("> ") && out.contains("quoted text"),
-        "blockquote marked: {out}"
+        out.lines().any(|l| l == "> quoted text"),
+        "blockquote must render exactly '> quoted text' (quote bar, no extra indent): {out}"
     );
 }
 
@@ -328,6 +328,50 @@ fn loose_list_has_inter_item_blank_lines() {
     let second = lines.get(a + 2).copied().unwrap_or("<missing>");
     assert_eq!(blank, "", "loose list has a blank between items: {out}");
     assert_eq!(second, "* b", "second item after blank: {out}");
+}
+
+/// A multi-paragraph list item keeps its paragraph break: the hard-break
+/// blank inside the item must survive wrapping instead of being swallowed
+/// (regression: whitespace-only source lines produced zero words and were
+/// silently dropped by wrap_indent_cols).
+#[test]
+fn multi_paragraph_list_item_keeps_paragraph_break() {
+    let out = render(
+        "- first para
+
+  second para",
+    );
+    let lines: Vec<&str> = out.lines().collect();
+    let Some(first) = lines.iter().position(|l| l.contains("first para")) else {
+        panic!("first paragraph present: {out}");
+    };
+    assert!(
+        lines
+            .iter()
+            .skip(first + 1)
+            .any(|l| l.contains("second para")),
+        "second paragraph present: {out}"
+    );
+    let between: Vec<&&str> = lines
+        .iter()
+        .skip(first + 1)
+        .take_while(|l| !l.contains("second para"))
+        .collect();
+    assert!(
+        between.iter().any(|l| l.trim().is_empty()),
+        "paragraph break preserved between paragraphs: {out}"
+    );
+}
+
+/// Closing block-level tags (`</div>`) inside stripped HTML introduce line
+/// breaks so adjacent blocks don't fuse into one line.
+#[test]
+fn html_div_boundaries_break_lines() {
+    let out = render("<div>alpha</div><div>beta</div>");
+    assert!(
+        out.lines().any(|l| l.trim() == "alpha") && out.lines().any(|l| l.trim() == "beta"),
+        "div contents split onto separate lines: {out}"
+    );
 }
 
 /// A wrapped list item's continuation lines must align under the marker's

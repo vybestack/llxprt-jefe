@@ -159,12 +159,13 @@ impl MarkdownRenderer {
         self.push_blank();
     }
 
-    /// Render a blockquote by rendering its children one indent deeper and
-    /// prefixing each resulting line with a quote bar.
+    /// Render a blockquote by rendering its children at the same indent and
+    /// prefixing each resulting line with a quote bar. The `"> "` prefix alone
+    /// marks the quote level; adding an indent level on top would double-pad
+    /// (`">   text"` instead of `"> text"`).
     fn render_block_quote<'a>(&mut self, node: &'a AstNode<'a>, indent: usize) {
-        let quote_indent = indent + 1;
         let start = self.lines.len();
-        self.render_block_children(node, quote_indent);
+        self.render_block_children(node, indent);
         for line in &mut self.lines[start..] {
             line.insert_str(0, "> ");
         }
@@ -268,6 +269,12 @@ impl MarkdownRenderer {
                     self.render_list(child, nested, indent + 1);
                 }
                 NodeValue::Paragraph => {
+                    if !first {
+                        // A subsequent paragraph inside the same list item
+                        // keeps its paragraph break (otherwise multi-paragraph
+                        // items render visually fused).
+                        self.push_blank();
+                    }
                     let collected = self.collect_inline(child);
                     let mut lines = Vec::new();
                     for src in collected {
@@ -598,7 +605,10 @@ fn wrap_indent_cols(text: &str, pad_cols: usize) -> Vec<String> {
     let pad = " ".repeat(pad_cols);
     let mut out = Vec::new();
     for source_line in text.split('\n') {
-        if source_line.is_empty() {
+        // Empty AND whitespace-only source lines preserve the paragraph break
+        // (previously whitespace-only lines produced zero words and were
+        // silently swallowed, collapsing paragraph spacing inside list items).
+        if source_line.trim().is_empty() {
             out.push(pad.clone());
             continue;
         }
@@ -777,18 +787,28 @@ fn consume_entity(html: &str, start: usize) -> (usize, String) {
     }
 }
 
-/// True for the block-level closing tags and `<br>` whose removal should yield
-/// a line break so paragraph/list/row boundaries survive the HTML strip.
+/// True for the block-level closing tags and `<br>`/`<hr>` whose removal
+/// should yield a line break so paragraph/list/row/section boundaries survive
+/// the HTML strip (e.g. `<div>a</div><div>b</div>` on one source line).
 fn html_tag_introduces_break(name: &str) -> bool {
     matches!(
         name,
         "br" | "br/"
             | "/br"
             | "/br/"
+            | "hr"
+            | "hr/"
             | "/p"
             | "/li"
             | "/tr"
             | "/summary"
+            | "/details"
+            | "/div"
+            | "/table"
+            | "/blockquote"
+            | "/pre"
+            | "/ul"
+            | "/ol"
             | "/h1"
             | "/h2"
             | "/h3"

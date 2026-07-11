@@ -364,6 +364,17 @@ impl ContentBuilder {
         Self { lines: Vec::new() }
     }
 
+    /// Push a rendered markdown line under an indent prefix. Blank rendered
+    /// lines (paragraph separators) stay truly empty instead of becoming
+    /// indent-only whitespace lines.
+    fn push_indented(&mut self, prefix: &str, line: &str) {
+        if line.is_empty() {
+            self.lines.push(String::new());
+        } else {
+            self.lines.push(format!("{prefix}{line}"));
+        }
+    }
+
     /// Join the accumulated read-only lines into the final content.
     ///
     /// PR composer cursors belong to the embedded TextBox, so this always
@@ -398,13 +409,15 @@ fn build_body_section(
         // Render the markdown body through comrak instead of dumping it raw
         // (issue #155): headings/rules/lists/code fences/HTML are converted to
         // plain text, indented two spaces to sit under the section label.
-        let mut rendered = false;
-        for line in crate::markdown_render::render_markdown_lines(&detail.body) {
-            builder.lines.push(format!("  {line}"));
-            rendered = true;
-        }
-        if !rendered {
+        let rendered = crate::markdown_render::render_markdown_lines(&detail.body);
+        if rendered.is_empty() {
+            // Non-whitespace source that renders to nothing (e.g. only an
+            // HTML comment) still gets the placeholder.
             builder.lines.push("  (no description)".to_string());
+        } else {
+            for line in rendered {
+                builder.push_indented("  ", &line);
+            }
         }
     }
 }
@@ -473,11 +486,13 @@ fn build_single_review(
             builder.lines.push("    (no body)".to_string());
         } else {
             for line in rendered {
-                builder.lines.push(format!("    {line}"));
+                builder.push_indented("    ", &line);
             }
         }
-        builder.lines.push(String::new());
     }
+    // Every review ends with a blank separator (with or without a body) so
+    // consecutive reviews never render visually glued together.
+    builder.lines.push(String::new());
 }
 
 /// Render a review thread with its comments (indented under the review).
@@ -561,7 +576,7 @@ fn build_review_thread_comments(
             builder.lines.push("        (no body)".to_string());
         } else {
             for line in rendered {
-                builder.lines.push(format!("        {line}"));
+                builder.push_indented("        ", &line);
             }
         }
     }
@@ -646,7 +661,7 @@ fn build_single_comment(
         builder.lines.push("    (no body)".to_string());
     } else {
         for line in rendered {
-            builder.lines.push(format!("    {line}"));
+            builder.push_indented("    ", &line);
         }
     }
 

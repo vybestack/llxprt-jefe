@@ -222,6 +222,17 @@ struct ContentBuilder {
 }
 
 impl ContentBuilder {
+    /// Push a rendered markdown line under an indent prefix. Blank rendered
+    /// lines (paragraph separators) stay truly empty instead of becoming
+    /// indent-only whitespace lines.
+    fn push_indented(&mut self, prefix: &str, line: &str) {
+        if line.is_empty() {
+            self.lines.push(String::new());
+        } else {
+            self.lines.push(format!("{prefix}{line}"));
+        }
+    }
+
     fn new() -> Self {
         Self {
             lines: Vec::new(),
@@ -306,7 +317,7 @@ fn build_body_section(
             builder.lines.push("    (no description)".to_string());
         } else {
             for line in lines {
-                builder.lines.push(format!("    {line}"));
+                builder.push_indented("    ", &line);
             }
         }
     }
@@ -376,7 +387,7 @@ fn build_single_comment(
             builder.lines.push("      (no body)".to_string());
         } else {
             for line in rendered {
-                builder.lines.push(format!("      {line}"));
+                builder.push_indented("      ", &line);
             }
         }
     }

@@ -49,8 +49,8 @@ pub fn issue_detail_header_view(detail: &IssueDetail) -> IssueDetailHeaderView {
     };
     let created = crate::ui::util::format_iso_date(&detail.created_at);
     let updated = crate::ui::util::format_iso_date(&detail.updated_at);
-    let labels_str = field_list(&detail.labels);
-    let assignees_str = field_list(&detail.assignees);
+    let labels_str = crate::ui::util::field_list(&detail.labels);
+    let assignees_str = crate::ui::util::field_list(&detail.assignees);
     let milestone_str = detail
         .milestone
         .as_deref()
@@ -67,15 +67,6 @@ pub fn issue_detail_header_view(detail: &IssueDetail) -> IssueDetailHeaderView {
         ),
         url: detail.external_url.clone(),
     }
-}
-
-/// Join a list of field values into a display string, or `—` when empty
-/// (issue #155: replace the leaky `-` placeholder with a clean em-dash).
-fn field_list(values: &[String]) -> String {
-    if values.is_empty() {
-        return crate::ui::util::EMPTY_FIELD.to_string();
-    }
-    values.join(", ")
 }
 
 /// Inputs the Issues screen passes to [`issue_detail_props`], bundled to stay
