@@ -40,6 +40,22 @@ fn picker_state_with_active(themes: &[&str], selected: usize, active: &str) -> A
     }
 }
 
+/// A picker state whose in-dialog override checkbox starts ON (issue #179).
+fn picker_state_with_override(themes: &[&str], selected: usize, override_theme: bool) -> AppState {
+    AppState {
+        modal: ModalState::ThemePicker {
+            available_themes: themes
+                .iter()
+                .map(|&s| (s.to_string(), s.to_string()))
+                .collect(),
+            selected_index: selected,
+            active_slug: String::new(),
+            override_theme,
+        },
+        ..AppState::default()
+    }
+}
+
 // ============================================================================
 // Open
 // ============================================================================
@@ -198,14 +214,21 @@ fn toggle_override_twice_returns_to_false() {
 
 #[test]
 fn toggle_override_is_noop_when_picker_not_open() {
-    let state = AppState::default().apply(AppEvent::ThemePickerToggleOverride);
+    // Explicit preconditions: no modal and override off. The toggle must be a
+    // no-op that leaves both unchanged.
+    let state = AppState {
+        modal: ModalState::None,
+        override_agent_theme: false,
+        ..AppState::default()
+    };
+    let next = state.apply(AppEvent::ThemePickerToggleOverride);
     assert_eq!(
-        state.modal,
+        next.modal,
         ModalState::None,
         "toggle should be a no-op when picker is not open"
     );
     assert!(
-        !state.override_agent_theme,
+        !next.override_agent_theme,
         "app-level override flag must be unchanged when the picker is closed"
     );
 }
@@ -250,6 +273,19 @@ fn confirm_commits_override_to_app_state() {
     assert!(
         state.override_agent_theme,
         "confirm must commit the toggled override to AppState"
+    );
+}
+
+#[test]
+fn confirm_commits_override_false_to_app_state() {
+    // Reverse direction (issue #179 symmetry): starting with the in-dialog
+    // override ON, toggling it OFF and confirming must commit false.
+    let state = picker_state_with_override(&["a", "b"], 0, true)
+        .apply(AppEvent::ThemePickerToggleOverride)
+        .apply(AppEvent::ThemePickerConfirm);
+    assert!(
+        !state.override_agent_theme,
+        "confirm must commit the toggled-off override (false) to AppState"
     );
 }
 
