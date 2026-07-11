@@ -267,15 +267,6 @@ impl MarkdownRenderer {
         }
     }
 
-    /// Render the inline children of `node` as wrapped, indented text lines.
-    fn render_inline_block<'a>(&mut self, node: &'a AstNode<'a>, indent: usize) {
-        for src in self.collect_inline(node) {
-            for line in wrap_indent(&src, indent) {
-                self.push(line);
-            }
-        }
-    }
-
     /// Fallback for unrecognized block nodes: render their inline text only
     /// when it is non-empty (avoids pushing blank paragraphs).
     fn render_unknown_block<'a>(&mut self, node: &'a AstNode<'a>, indent: usize) {
