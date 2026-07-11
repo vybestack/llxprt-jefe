@@ -482,6 +482,12 @@ fn build_single_review(
 
 /// Render a review thread with its comments (indented under the review).
 ///
+/// Resolved and outdated threads COLLAPSE to their header line when not
+/// focused (mirroring github.com, which folds them by default); moving the
+/// selector onto the thread expands its full conversation WITHOUT mutating
+/// the thread's resolve state (issue #155 follow-up). Unresolved, current
+/// threads always render expanded.
+///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
 fn build_review_thread(
@@ -497,14 +503,54 @@ fn build_review_thread(
     } else {
         "[UNRESOLVED]"
     };
+    let outdated_tag = if thread.is_outdated {
+        "  [OUTDATED]"
+    } else {
+        ""
+    };
     let location = match (&thread.path, thread.line) {
         (Some(path), Some(line)) => format!("{path}:{line}"),
         (Some(path), None) => path.clone(),
         (None, _) => "(no file)".to_string(),
     };
-    builder
-        .lines
-        .push(format!("{marker}    {location}  {resolve_tag}"));
+    let collapsed = thread_collapsed(thread, focused);
+    let collapse_hint = if collapsed {
+        let n = thread.comments.len();
+        let noun = if n == 1 { "comment" } else { "comments" };
+        format!("  · {n} {noun} (select to expand)")
+    } else {
+        String::new()
+    };
+    builder.lines.push(format!(
+        "{marker}    {location}  {resolve_tag}{outdated_tag}{collapse_hint}"
+    ));
+    if !collapsed {
+        build_review_thread_comments(thread, builder);
+    }
+    if focused {
+        let resolve_label = if thread.is_resolved {
+            "[ R unresolve ]"
+        } else {
+            "[ R resolve ]"
+        };
+        builder
+            .lines
+            .push(format!("      [ r reply ]  {resolve_label}"));
+    }
+    builder.lines.push(String::new());
+}
+
+/// Whether a thread renders collapsed to its header line: resolved/outdated
+/// threads collapse unless focused; unresolved current threads never collapse.
+fn thread_collapsed(thread: &crate::domain::PrReviewThread, focused: bool) -> bool {
+    (thread.is_resolved || thread.is_outdated) && !focused
+}
+
+/// Render the expanded comment conversation of a review thread.
+fn build_review_thread_comments(
+    thread: &crate::domain::PrReviewThread,
+    builder: &mut ContentBuilder,
+) {
     for comment in &thread.comments {
         builder.lines.push(format!(
             "      {}  {}",
@@ -519,12 +565,6 @@ fn build_review_thread(
             }
         }
     }
-    if focused {
-        builder
-            .lines
-            .push("      [ r reply ]  [ R resolve ]".to_string());
-    }
-    builder.lines.push(String::new());
 }
 
 /// @plan PLAN-20260624-PR-MODE.P12

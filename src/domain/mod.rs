@@ -465,6 +465,9 @@ pub struct PullRequest {
 /// Review summary item (read-only).
 #[derive(Debug, Clone)]
 pub struct PrReview {
+    /// GraphQL node id of this review (`PRR_...`), used to attach review
+    /// threads to their parent review. `None` when the API omitted it.
+    pub review_id: Option<String>,
     pub author_login: String,
     pub state: PrReviewState,
     pub submitted_at: String,
@@ -489,6 +492,11 @@ pub struct PrReviewThread {
     pub thread_id: String,
     /// Whether the thread is currently resolved.
     pub is_resolved: bool,
+    /// Whether the thread is outdated (the code it was attached to changed).
+    pub is_outdated: bool,
+    /// GraphQL node id of the parent review (`PRR_...`) this thread belongs
+    /// to, taken from the thread's first comment. `None` when unavailable.
+    pub review_id: Option<String>,
     /// File path the thread is attached to (`None` for PR-level threads).
     pub path: Option<String>,
     /// Line number the thread is attached to (`None` for PR-level threads).

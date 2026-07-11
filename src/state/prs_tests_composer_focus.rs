@@ -268,6 +268,7 @@ Line C"
         .to_string();
     detail.reviews = vec![
         PrReview {
+            review_id: None,
             author_login: "rev1".to_string(),
             state: PrReviewState::Approved,
             submitted_at: "2024-01-02T00:00:00Z".to_string(),
@@ -275,6 +276,7 @@ Line C"
             review_threads: vec![],
         },
         PrReview {
+            review_id: None,
             author_login: "rev2".to_string(),
             state: PrReviewState::ChangesRequested,
             submitted_at: "2024-01-02T01:00:00Z".to_string(),

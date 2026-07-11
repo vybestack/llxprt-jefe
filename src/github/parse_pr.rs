@@ -399,6 +399,11 @@ fn pr_string_array(value: &Value, field: &str, key: &str) -> Vec<String> {
 /// @pseudocode component-002 lines 174-180
 #[must_use]
 pub fn parse_pr_review(node: &Value) -> PrReview {
+    let review_id = node
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(String::from);
     let author_login = node
         .get("author")
         .and_then(|a| a.get("login"))
@@ -413,6 +418,7 @@ pub fn parse_pr_review(node: &Value) -> PrReview {
     let submitted_at = str_field(node, "submittedAt");
     let body = node.get("body").and_then(Value::as_str).map(String::from);
     PrReview {
+        review_id,
         author_login,
         state,
         submitted_at,
@@ -595,9 +601,13 @@ pub fn sort_pull_requests(items: &mut [PullRequest]) {
 /// Build the GraphQL query string for the PR review-threads fetch.
 ///
 /// Selects `repository.pullRequest(number:).reviewThreads(first: N) { nodes
-/// { id isResolved path line comments(first: 50) { nodes { databaseId author
-/// { login } createdAt lastEditedAt body } } } }`. Threads are a direct
-/// connection on `PullRequest` (not nested under each `Review`).
+/// { id isResolved isOutdated path line comments(first: 50) { nodes {
+/// databaseId author { login } createdAt lastEditedAt body pullRequestReview
+/// { id } } } } pageInfo { hasNextPage endCursor } }`. Threads are a direct
+/// connection on `PullRequest` (not nested under each `Review`); the
+/// `pullRequestReview { id }` on each comment lets the client attach threads
+/// to their parent review, and `pageInfo` drives cursor pagination so PRs
+/// with more threads than one page lose nothing (issue #155 follow-up).
 ///
 /// `with_cursor=true` includes the `$after` variable declaration and the
 /// `after: $after` argument on the reviewThreads connection;
@@ -608,11 +618,39 @@ pub fn sort_pull_requests(items: &mut [PullRequest]) {
 #[must_use]
 pub fn build_pr_review_threads_query(with_cursor: bool) -> String {
     if with_cursor {
-        "query($owner: String!, $repo: String!, $number: Int!, $first: Int!, $after: String) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: $first, after: $after) { nodes { id isResolved path line comments(first: 50) { nodes { databaseId author { login } createdAt lastEditedAt body } } } } } } }"
+        "query($owner: String!, $repo: String!, $number: Int!, $first: Int!, $after: String) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: $first, after: $after) { nodes { id isResolved isOutdated path line comments(first: 50) { nodes { databaseId author { login } createdAt lastEditedAt body pullRequestReview { id } } } } pageInfo { hasNextPage endCursor } } } } }"
     } else {
-        "query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: $first) { nodes { id isResolved path line comments(first: 50) { nodes { databaseId author { login } createdAt lastEditedAt body } } } } } } }"
+        "query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: $first) { nodes { id isResolved isOutdated path line comments(first: 50) { nodes { databaseId author { login } createdAt lastEditedAt body pullRequestReview { id } } } } pageInfo { hasNextPage endCursor } } } } }"
     }
     .to_owned()
+}
+
+/// Extract the `reviewThreads.pageInfo` cursor from a thread-page response.
+///
+/// Returns `Some(end_cursor)` when `hasNextPage` is true and `endCursor` is
+/// a non-empty string, `None` otherwise (last page or malformed page info).
+///
+/// @requirement REQ-PR-009
+#[must_use]
+pub fn parse_pr_review_threads_cursor(json: &Value) -> Option<String> {
+    let page_info = json
+        .get("data")?
+        .get("repository")?
+        .get("pullRequest")?
+        .get("reviewThreads")?
+        .get("pageInfo")?;
+    if !page_info
+        .get("hasNextPage")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    page_info
+        .get("endCursor")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
 }
 
 /// Parse review threads from a GraphQL response JSON value.
@@ -694,6 +732,11 @@ fn parse_single_review_thread(node: &Value) -> PrReviewThread {
         .get("isResolved")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let is_outdated = node
+        .get("isOutdated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let review_id = parse_thread_review_id(node);
     let path = node
         .get("path")
         .and_then(Value::as_str)
@@ -707,10 +750,29 @@ fn parse_single_review_thread(node: &Value) -> PrReviewThread {
     PrReviewThread {
         thread_id,
         is_resolved,
+        is_outdated,
+        review_id,
         path,
         line,
         comments,
     }
+}
+
+/// Extract the parent-review id (`comments.nodes[0].pullRequestReview.id`)
+/// from a thread node. The FIRST comment of a thread is the one created by
+/// the review that opened the thread, so its `pullRequestReview` id is the
+/// thread's parent review. `None` when unavailable (degraded thread).
+fn parse_thread_review_id(thread_node: &Value) -> Option<String> {
+    thread_node
+        .get("comments")?
+        .get("nodes")?
+        .as_array()?
+        .first()?
+        .get("pullRequestReview")?
+        .get("id")?
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(String::from)
 }
 
 /// Parse the `comments.nodes` array of a thread node into [`IssueComment`]s.

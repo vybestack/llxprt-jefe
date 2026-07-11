@@ -31,9 +31,9 @@ mod parse_pr;
 pub use parse_pr::{
     build_pr_comments_query, build_pr_review_threads_query, build_pr_search_args,
     build_pr_search_query, parse_check_status, parse_checks_rollup, parse_pr_check,
-    parse_pr_review, parse_pr_review_threads, parse_pr_state, parse_pull_request_detail_json,
-    parse_pull_requests_json, parse_review_decision, parse_thread_reply_json, rollup_nodes,
-    sort_pull_requests,
+    parse_pr_review, parse_pr_review_threads, parse_pr_review_threads_cursor, parse_pr_state,
+    parse_pull_request_detail_json, parse_pull_requests_json, parse_review_decision,
+    parse_thread_reply_json, rollup_nodes, sort_pull_requests,
 };
 
 /// Error types for GitHub CLI operations.
@@ -757,20 +757,31 @@ impl Default for GhClient {
 /// Distribute fetched review threads onto the review structs.
 ///
 /// GitHub's `reviewThreads` connection is on `PullRequest`, not on each
-/// `Review`. Since the domain model stores threads under `PrReview`, all
-/// fetched threads are assigned to the first review (if any). When there are
-/// no reviews but threads exist, the threads are silently dropped (there is
-/// no review slot to hold them). The renderer flattens
+/// `Review`. Each thread carries the id of the review that opened it (from
+/// its first comment's `pullRequestReview`), so threads are attached to THEIR
+/// parent review — mirroring the github.com grouping where each review card
+/// shows its own batch of inline comments. Threads whose parent review id is
+/// missing or matches no fetched review fall back to the first review so
+/// nothing is dropped. When there are no reviews at all, threads are dropped
+/// (there is no review slot to hold them). The renderer flattens
 /// `reviews.iter().flat_map(|r| &r.review_threads)` so this preserves all
-/// threads for display.
-fn assign_threads_to_reviews(reviews: &mut [PrReview], threads: Vec<PrReviewThread>) {
-    if threads.is_empty() {
+/// threads for display, in per-review chronological order.
+pub(crate) fn assign_threads_to_reviews(reviews: &mut [PrReview], threads: Vec<PrReviewThread>) {
+    if threads.is_empty() || reviews.is_empty() {
         return;
     }
-    let Some(first_review) = reviews.first_mut() else {
-        return;
-    };
-    first_review.review_threads = threads;
+    for thread in threads {
+        let parent_idx = thread
+            .review_id
+            .as_deref()
+            .and_then(|tid| {
+                reviews
+                    .iter()
+                    .position(|r| r.review_id.as_deref() == Some(tid))
+            })
+            .unwrap_or(0);
+        reviews[parent_idx].review_threads.push(thread);
+    }
 }
 
 /// Map a [`PrState`] to its lowercase send-payload string.

@@ -307,6 +307,8 @@ fn test_pr_subfocus_next_scrolls_to_offscreen_thread() {
         path: Some("src/main.rs".to_string()),
         line: Some(10),
         is_resolved: false,
+        is_outdated: false,
+        review_id: None,
         comments: vec![IssueComment {
             comment_id: 1,
             author_login: "alice".to_string(),
@@ -316,6 +318,7 @@ fn test_pr_subfocus_next_scrolls_to_offscreen_thread() {
         }],
     };
     detail.reviews = vec![PrReview {
+        review_id: None,
         author_login: "reviewer".to_string(),
         state: PrReviewState::Approved,
         submitted_at: "2024-01-01".to_string(),

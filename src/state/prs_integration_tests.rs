@@ -78,6 +78,7 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
         review_decision: Some(PrReviewState::Approved),
         checks_status: PrCheckStatus::Success,
         reviews: vec![PrReview {
+            review_id: None,
             author_login: "reviewer1".to_string(),
             state: PrReviewState::Approved,
             submitted_at: "2024-01-01T12:00:00Z".to_string(),

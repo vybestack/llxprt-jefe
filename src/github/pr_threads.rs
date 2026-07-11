@@ -7,18 +7,29 @@
 use crate::domain::{IssueComment, PrReviewThread};
 
 use super::parse_pr::{
-    build_pr_review_threads_query, parse_pr_review_threads, parse_thread_reply_json,
+    build_pr_review_threads_query, parse_pr_review_threads, parse_pr_review_threads_cursor,
+    parse_thread_reply_json,
 };
 use super::{GhClient, GhError};
 
+/// Page size for the review-threads GraphQL connection.
+const PR_REVIEW_THREADS_PAGE_SIZE: u32 = 50;
+
+/// Hard cap on thread pages fetched per PR, bounding worst-case latency on
+/// pathological PRs (cap × page size = 1000 threads).
+const PR_REVIEW_THREADS_MAX_PAGES: u32 = 20;
+
 impl GhClient {
-    /// List review threads for a pull request.
+    /// List ALL review threads for a pull request, following pagination.
     ///
     /// Runs the `build_pr_review_threads_query` GraphQL query targeting
-    /// `repository.pullRequest(number:).reviewThreads` and parses the
-    /// result via `parse_pr_review_threads`. On parse/network error returns an
-    /// empty vec (graceful degradation — the detail load must not fail because
-    /// the threads fetch failed).
+    /// `repository.pullRequest(number:).reviewThreads` and parses each page
+    /// via `parse_pr_review_threads`, following `pageInfo.hasNextPage` /
+    /// `endCursor` until the connection is exhausted (issue #155 follow-up:
+    /// a single unpaginated `first=20` fetch silently dropped every thread
+    /// beyond the first page). On parse/network error returns the threads
+    /// collected so far (graceful degradation — the detail load must not fail
+    /// because the threads fetch failed).
     ///
     /// @requirement REQ-PR-009
     #[must_use]
@@ -28,11 +39,34 @@ impl GhClient {
         name: &str,
         number: u64,
     ) -> Vec<PrReviewThread> {
-        let args = vec![
+        let mut threads = Vec::new();
+        let mut cursor: Option<String> = None;
+        for _ in 0..PR_REVIEW_THREADS_MAX_PAGES {
+            let Some(json) = Self::fetch_thread_page(owner, name, number, cursor.as_deref()) else {
+                break;
+            };
+            threads.extend(parse_pr_review_threads(&json));
+            cursor = parse_pr_review_threads_cursor(&json);
+            if cursor.is_none() {
+                break;
+            }
+        }
+        threads
+    }
+
+    /// Fetch one page of the review-threads connection. `None` on
+    /// network/parse error (degrades to the threads already collected).
+    fn fetch_thread_page(
+        owner: &str,
+        name: &str,
+        number: u64,
+        cursor: Option<&str>,
+    ) -> Option<serde_json::Value> {
+        let mut args = vec![
             "api".to_string(),
             "graphql".to_string(),
             "-f".to_string(),
-            format!("query={}", build_pr_review_threads_query(false)),
+            format!("query={}", build_pr_review_threads_query(cursor.is_some())),
             "-F".to_string(),
             format!("owner={owner}"),
             "-F".to_string(),
@@ -40,15 +74,14 @@ impl GhClient {
             "-F".to_string(),
             format!("number={number}"),
             "-F".to_string(),
-            "first=20".to_string(),
+            format!("first={PR_REVIEW_THREADS_PAGE_SIZE}"),
         ];
-        let Ok(stdout) = Self::run_gh(&args) else {
-            return Vec::new();
-        };
-        let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) else {
-            return Vec::new();
-        };
-        parse_pr_review_threads(&json)
+        if let Some(after) = cursor {
+            args.push("-F".to_string());
+            args.push(format!("after={after}"));
+        }
+        let stdout = Self::run_gh(&args).ok()?;
+        serde_json::from_str::<serde_json::Value>(&stdout).ok()
     }
     /// Resolve a review thread via the GraphQL `resolveReviewThread` mutation.
     ///

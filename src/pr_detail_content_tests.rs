@@ -41,6 +41,7 @@ fn sample_detail() -> PullRequestDetail {
         review_decision: Some(PrReviewState::ReviewRequired),
         checks_status: PrCheckStatus::Success,
         reviews: vec![PrReview {
+            review_id: Some("PRR_kw001".to_string()),
             author_login: "ada".to_string(),
             state: PrReviewState::ChangesRequested,
             submitted_at: "2026-06-23".to_string(),
@@ -342,6 +343,8 @@ fn detail_with_threads() -> PullRequestDetail {
         PrReviewThread {
             thread_id: "PRRT_kw1".to_string(),
             is_resolved: false,
+            is_outdated: false,
+            review_id: Some("PRR_kw001".to_string()),
             path: Some("src/parser.rs".to_string()),
             line: Some(42),
             comments: vec![
@@ -364,6 +367,8 @@ fn detail_with_threads() -> PullRequestDetail {
         PrReviewThread {
             thread_id: "PRRT_kw2".to_string(),
             is_resolved: true,
+            is_outdated: false,
+            review_id: Some("PRR_kw001".to_string()),
             path: Some("src/main.rs".to_string()),
             line: Some(5),
             comments: vec![IssueComment {
@@ -470,6 +475,137 @@ fn review_thread_focused_shows_focus_marker() {
     assert!(
         content.text.contains(">     src/parser.rs:42"),
         "focused thread must have > marker"
+    );
+}
+
+// ── Collapse/expand-on-focus for resolved/outdated threads (#155 f-up) ───
+
+/// Resolved threads collapse to their header line when NOT focused: the
+/// conversation body is hidden and a "(select to expand)" hint shows instead.
+#[test]
+fn resolved_thread_collapses_body_when_not_focused() {
+    let detail = detail_with_threads();
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        !content.text.contains("Looks good."),
+        "resolved thread body must be hidden while unfocused"
+    );
+    assert!(
+        content.text.contains("(select to expand)"),
+        "collapsed thread must hint how to expand"
+    );
+    assert!(
+        content.text.contains("1 comment"),
+        "collapsed thread must show its comment count"
+    );
+}
+
+/// Focusing a resolved thread expands its full conversation WITHOUT
+/// mutating the resolve state (read access must not require unresolve).
+#[test]
+fn resolved_thread_expands_on_focus() {
+    let detail = detail_with_threads();
+    // Thread flat index 1 is the resolved src/main.rs thread.
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::ReviewThread(1),
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        content.text.contains("Looks good."),
+        "focused resolved thread must render its conversation"
+    );
+    assert!(
+        content.text.contains("carol"),
+        "focused resolved thread must render comment authors"
+    );
+    assert!(
+        content.text.contains("[RESOLVED]"),
+        "expanding must NOT flip the resolve tag"
+    );
+}
+
+/// Unresolved current threads always render expanded, focused or not.
+#[test]
+fn unresolved_thread_stays_expanded_when_unfocused() {
+    let detail = detail_with_threads();
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        content.text.contains("This unwrap can panic."),
+        "unresolved thread body must always render"
+    );
+}
+
+/// Outdated (but unresolved) threads collapse like resolved ones and carry
+/// an [OUTDATED] tag on the header line.
+#[test]
+fn outdated_thread_collapses_and_shows_outdated_tag() {
+    let mut detail = detail_with_threads();
+    detail.reviews[0].review_threads[0].is_outdated = true;
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        content.text.contains("[OUTDATED]"),
+        "outdated thread must show the [OUTDATED] tag"
+    );
+    assert!(
+        !content.text.contains("This unwrap can panic."),
+        "outdated thread body must collapse while unfocused"
+    );
+
+    // Focus expands it, tag stays.
+    let focused = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::ReviewThread(0),
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        focused.text.contains("This unwrap can panic."),
+        "focused outdated thread must expand"
+    );
+    assert!(focused.text.contains("[OUTDATED]"));
+}
+
+/// The focused resolve hint flips to "unresolve" for resolved threads so the
+/// toggle's effect is honest.
+#[test]
+fn focused_resolved_thread_shows_unresolve_hint() {
+    let detail = detail_with_threads();
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::ReviewThread(1),
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        content.text.contains("[ R unresolve ]"),
+        "resolved thread hint must say unresolve"
+    );
+    assert!(
+        !content.text.contains("[ R resolve ]"),
+        "resolved thread must not show the resolve label"
     );
 }
 

@@ -386,6 +386,8 @@ fn pr_review_thread_constructs_with_thread_id_and_resolved_flag() {
     let thread = PrReviewThread {
         thread_id: "PRRT_kwAAA".to_string(),
         is_resolved: false,
+        is_outdated: false,
+        review_id: None,
         path: Some("src/lib.rs".to_string()),
         line: Some(42),
         comments: vec![IssueComment {
@@ -398,6 +400,7 @@ fn pr_review_thread_constructs_with_thread_id_and_resolved_flag() {
     };
     assert_eq!(thread.thread_id, "PRRT_kwAAA");
     assert!(!thread.is_resolved);
+    assert!(!thread.is_outdated);
     assert_eq!(thread.path.as_deref(), Some("src/lib.rs"));
     assert_eq!(thread.line, Some(42));
     assert_eq!(thread.comments.len(), 1);
@@ -408,6 +411,7 @@ fn pr_review_thread_constructs_with_thread_id_and_resolved_flag() {
 #[test]
 fn pr_review_carries_review_threads_field() {
     let review = PrReview {
+        review_id: Some("PRR_kw001".to_string()),
         author_login: "reviewer1".to_string(),
         state: PrReviewState::Commented,
         submitted_at: "2026-07-01T10:00:00Z".to_string(),
@@ -415,6 +419,8 @@ fn pr_review_carries_review_threads_field() {
         review_threads: vec![PrReviewThread {
             thread_id: "PRRT_kwBBB".to_string(),
             is_resolved: true,
+            is_outdated: false,
+            review_id: Some("PRR_kw001".to_string()),
             path: None,
             line: None,
             comments: vec![],
@@ -435,6 +441,8 @@ fn pr_review_thread_supports_unresolved_with_location() {
     let thread = PrReviewThread {
         thread_id: "PRRT_kwCCC".to_string(),
         is_resolved: false,
+        is_outdated: false,
+        review_id: None,
         path: Some("src/main.rs".to_string()),
         line: Some(10),
         comments: vec![
