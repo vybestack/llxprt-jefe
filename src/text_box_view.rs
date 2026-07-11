@@ -260,7 +260,7 @@ fn build_wrapped_display_rows(
                 && caret.col == seg.end;
             if full_width_end {
                 display_rows.push(TextBoxRow {
-                    text: seg.text.clone(),
+                    text: seg.text,
                     caret_col: None,
                 });
                 caret_row_idx = Some(display_rows.len());
@@ -276,7 +276,7 @@ fn build_wrapped_display_rows(
                 caret_row_idx = Some(display_rows.len());
             }
             display_rows.push(TextBoxRow {
-                text: seg.text.clone(),
+                text: seg.text,
                 caret_col,
             });
         }
