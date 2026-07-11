@@ -317,6 +317,21 @@ mod tests {
         assert!(!is_quit_key(&key(KeyCode::Char('a'))));
     }
 
+    // Ctrl-C must NEVER quit jefe. jefe owns its quit policy (Ctrl-Q / rapid
+    // qqq) and forwards Ctrl-C to the embedded agent terminal so runtimes like
+    // Code Puppy can use it to kill running shells / cancel an agent run. The
+    // vendored iocraft terminal layer used to hardcode Ctrl-C as an exit
+    // signal and swallow the event before it reached the app; that interception
+    // was removed, so this guard is now the authoritative "Ctrl-C is not quit"
+    // contract. See issue #200.
+    #[test]
+    fn is_quit_key_rejects_ctrl_c() {
+        assert!(!is_quit_key(&key_mods(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL
+        )));
+    }
+
     // ── is_qqq_press ───────────────────────────────────────────────────────
 
     #[test]

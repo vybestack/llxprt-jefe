@@ -356,7 +356,6 @@ pub(crate) struct Terminal {
     inner: Box<dyn TerminalImpl>,
     event_stream: Option<BoxStream<'static, TerminalEvent>>,
     subscribers: Vec<Weak<Mutex<TerminalEventsInner>>>,
-    received_ctrl_c: bool,
 }
 
 impl Terminal {
@@ -378,7 +377,6 @@ impl Terminal {
             inner: Box::new(inner),
             event_stream: None,
             subscribers: Vec::new(),
-            received_ctrl_c: false,
         }
     }
 
@@ -398,25 +396,19 @@ impl Terminal {
         self.inner.write_canvas(canvas)
     }
 
-    pub fn received_ctrl_c(&self) -> bool {
-        self.received_ctrl_c
-    }
-
     pub async fn wait(&mut self) {
         match &mut self.event_stream {
             Some(event_stream) => {
                 while let Some(event) = event_stream.next().await {
-                    if let TerminalEvent::Key(KeyEvent {
-                        code: KeyCode::Char('c'),
-                        kind: KeyEventKind::Press,
-                        modifiers: KeyModifiers::CONTROL,
-                    }) = event
-                    {
-                        self.received_ctrl_c = true;
-                    }
-                    if self.received_ctrl_c {
-                        return;
-                    }
+                    // NOTE: jefe deliberately does NOT special-case Ctrl-C here.
+                    // iocraft upstream hardcodes Ctrl-C as an exit signal, but jefe
+                    // owns its own quit policy (Ctrl-Q / rapid qqq) and must forward
+                    // Ctrl-C to the embedded agent terminal so runtimes like Code
+                    // Puppy can use it to kill running shells / cancel an agent run
+                    // (issue #200). Intercepting Ctrl-C here would (a) kill jefe
+                    // instead of the agent's command and (b) prevent the event from
+                    // ever reaching subscribers, so the app could never choose to
+                    // forward it. Every event is delivered unconditionally below.
                     self.subscribers.retain(|subscriber| {
                         if let Some(subscriber) = subscriber.upgrade() {
                             let mut subscriber = subscriber.lock().unwrap();
@@ -468,7 +460,6 @@ mod tests {
         // TODO: Is there a library we can use to emulate terminal input/output?
         let mut terminal = Terminal::new().unwrap();
         assert!(!terminal.is_raw_mode_enabled());
-        assert!(!terminal.received_ctrl_c());
         assert!(!terminal.is_raw_mode_enabled());
         let canvas = Canvas::new(10, 1);
         terminal.write_canvas(&canvas).unwrap();
