@@ -302,13 +302,11 @@ fn build_body_section(
     } else {
         // View mode: render the markdown body through comrak instead of
         // dumping it raw (issue #155 — shared with the PR detail bug).
-        builder
-            .lines
-            .extend(crate::markdown_render::render_markdown_block(
-                body_text,
-                "    ",
-                "(no description)",
-            ));
+        builder.lines.extend(
+            crate::markdown_render::render_markdown_block(body_text, "    ", "(no description)")
+                .iter()
+                .cloned(),
+        );
     }
     if body_editing {
         builder
@@ -371,13 +369,11 @@ fn build_single_comment(
         // View mode: render the comment body as markdown (issue #155). An
         // empty/whitespace-only body renders a placeholder so the comment is
         // never a visually empty gap.
-        builder
-            .lines
-            .extend(crate::markdown_render::render_markdown_block(
-                comment_text,
-                "      ",
-                "(no body)",
-            ));
+        builder.lines.extend(
+            crate::markdown_render::render_markdown_block(comment_text, "      ", "(no body)")
+                .iter()
+                .cloned(),
+        );
     }
     if comment_editing {
         builder

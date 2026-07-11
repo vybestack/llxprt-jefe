@@ -398,13 +398,11 @@ fn build_body_section(
         // Render the markdown body through comrak instead of dumping it raw
         // (issue #155): headings/rules/lists/code fences/HTML are converted to
         // plain text, indented two spaces to sit under the section label.
-        builder
-            .lines
-            .extend(crate::markdown_render::render_markdown_block(
-                &detail.body,
-                "  ",
-                "(no description)",
-            ));
+        builder.lines.extend(
+            crate::markdown_render::render_markdown_block(&detail.body, "  ", "(no description)")
+                .iter()
+                .cloned(),
+        );
     }
 }
 
@@ -468,13 +466,11 @@ fn build_single_review(
     if let Some(body) = review.body.as_deref()
         && !body.trim().is_empty()
     {
-        builder
-            .lines
-            .extend(crate::markdown_render::render_markdown_block(
-                body,
-                "    ",
-                "(no body)",
-            ));
+        builder.lines.extend(
+            crate::markdown_render::render_markdown_block(body, "    ", "(no body)")
+                .iter()
+                .cloned(),
+        );
     }
     // Every review ends with a blank separator (with or without a body) so
     // consecutive reviews never render visually glued together.
@@ -560,13 +556,11 @@ fn build_review_thread_comments(
         // Bodies are passed unconditionally: thread comments virtually always
         // have content, and a bare author/date header with nothing under it
         // would look broken. An empty body renders the "(no body)" placeholder.
-        builder
-            .lines
-            .extend(crate::markdown_render::render_markdown_block(
-                &comment.body,
-                "        ",
-                "(no body)",
-            ));
+        builder.lines.extend(
+            crate::markdown_render::render_markdown_block(&comment.body, "        ", "(no body)")
+                .iter()
+                .cloned(),
+        );
     }
 }
 
@@ -647,13 +641,11 @@ fn build_single_comment(
     // Bodies are passed unconditionally: comments virtually always have
     // content, and a bare author/date header with nothing under it would look
     // broken. An empty body renders the "(no body)" placeholder.
-    builder
-        .lines
-        .extend(crate::markdown_render::render_markdown_block(
-            &comment.body,
-            "    ",
-            "(no body)",
-        ));
+    builder.lines.extend(
+        crate::markdown_render::render_markdown_block(&comment.body, "    ", "(no body)")
+            .iter()
+            .cloned(),
+    );
 
     if let InlineState::Composer {
         target: ComposerTarget::Reply { comment_index, .. },

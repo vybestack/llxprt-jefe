@@ -572,3 +572,78 @@ fn subfocus_prev_follows_reverse_document_order_reviews_interleaved_with_threads
     s = s.apply(AppEvent::PrDetailSubfocusPrev);
     assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Body);
 }
+
+/// Navigation order must match the rendered document top-to-bottom: for every
+/// item in `pr_detail_subfocus_order`, the start line reported by
+/// `pr_subfocus_line_range` (a projection over the SAME text the renderer
+/// paints) must be strictly increasing. This pins the navigation⇄renderer
+/// parity so a future change to either cannot silently break tab order.
+///
+/// NewComment is included: its section label renders after the comments
+/// section, so it participates in the same strictly-increasing sequence.
+#[test]
+fn subfocus_order_matches_rendered_document_order() {
+    use crate::domain::{IssueComment, PrCheck, PrCheckStatus};
+    use crate::state::InlineState;
+
+    let mut detail = make_test_pr_detail(1);
+    detail.reviews = vec![
+        make_review("rev0", vec![make_thread("t0"), make_thread("t1")]),
+        make_review("rev1", vec![make_thread("t2")]),
+    ];
+    detail.checks = vec![
+        PrCheck {
+            name: "build".to_string(),
+            status: PrCheckStatus::Success,
+            conclusion: "success".to_string(),
+            url: None,
+        },
+        PrCheck {
+            name: "test".to_string(),
+            status: PrCheckStatus::Success,
+            conclusion: "success".to_string(),
+            url: None,
+        },
+    ];
+    detail.comments = vec![
+        IssueComment {
+            comment_id: 1,
+            author_login: "alice".to_string(),
+            created_at: "2024-01-01".to_string(),
+            edited_at: None,
+            body: "first comment".to_string(),
+        },
+        IssueComment {
+            comment_id: 2,
+            author_login: "bob".to_string(),
+            created_at: "2024-01-02".to_string(),
+            edited_at: None,
+            body: "second comment".to_string(),
+        },
+    ];
+
+    let order = super::prs_nav_ops::pr_detail_subfocus_order(&detail);
+    // Sanity: the fixture exercises every section kind.
+    assert_eq!(order.len(), 1 + 2 + 3 + 2 + 2 + 1, "full order: {order:?}");
+
+    let mut last_start: Option<usize> = None;
+    for item in order {
+        let Some((start, _end)) = crate::pr_detail_content::pr_subfocus_line_range(
+            &detail,
+            item,
+            &InlineState::None,
+            false,
+            false,
+        ) else {
+            panic!("subfocus {item:?} from the order list must resolve to a line range");
+        };
+        if let Some(prev) = last_start {
+            assert!(
+                start > prev,
+                "navigation order must follow the rendered document: \
+                 {item:?} starts at line {start}, not after previous start {prev}"
+            );
+        }
+        last_start = Some(start);
+    }
+}

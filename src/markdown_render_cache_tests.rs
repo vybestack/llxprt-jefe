@@ -27,8 +27,8 @@ fn render_markdown_block_memoized_is_idempotent() {
     let ph_a = render_markdown_block("", "  ", "(no description)");
     let ph_b = render_markdown_block("", "  ", "(no body)");
     assert_ne!(ph_a, ph_b, "key includes placeholder");
-    assert_eq!(ph_a, vec!["  (no description)"]);
-    assert_eq!(ph_b, vec!["  (no body)"]);
+    assert_eq!(ph_a.as_ref(), &["  (no description)".to_string()]);
+    assert_eq!(ph_b.as_ref(), &["  (no body)".to_string()]);
 
     // Differing markdown (key includes body).
     let md_a = render_markdown_block("alpha", "  ", "(no body)");

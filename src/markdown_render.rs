@@ -24,7 +24,7 @@
 //!   collapse to their text/alt, and everything else is stripped.
 
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use comrak::nodes::{
     AstNode, ListType, NodeCodeBlock, NodeLink, NodeList, NodeTable, NodeTaskItem, NodeValue,
@@ -53,7 +53,7 @@ pub fn render_markdown_lines(markdown: &str) -> Vec<String> {
     let opts = gfm_options();
     let root = parse_document(&arena, markdown, &opts);
     let mut renderer = MarkdownRenderer::new();
-    renderer.render_block_children(root, 0);
+    renderer.render_block_children(root, 0, 0);
     renderer.finish()
 }
 
@@ -74,7 +74,7 @@ pub fn render_markdown_lines(markdown: &str) -> Vec<String> {
 /// builds (every keystroke/mouse-wheel tick) hash lookups after the first
 /// warm build.
 #[must_use]
-pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) -> Vec<String> {
+pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) -> Arc<[String]> {
     let key = (
         markdown.to_string(),
         prefix.to_string(),
@@ -87,7 +87,7 @@ pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) ->
     if let Ok(cache) = MARKDOWN_RENDER_CACHE.lock()
         && let Some(cached) = cache.get(&key)
     {
-        return cached.clone();
+        return Arc::clone(cached);
     }
     let result = compute_markdown_block(markdown, prefix, placeholder);
     if let Ok(mut cache) = MARKDOWN_RENDER_CACHE.lock() {
@@ -98,7 +98,7 @@ pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) ->
         if cache.len() >= MARKDOWN_RENDER_CACHE_CAP {
             cache.clear();
         }
-        cache.insert(key, result.clone());
+        cache.insert(key, Arc::clone(&result));
     }
     // Poisoned lock: computed without caching (never panic).
     result
@@ -109,7 +109,10 @@ pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) ->
 const MARKDOWN_RENDER_CACHE_CAP: usize = 512;
 
 /// Keyed cache entry type factored out to satisfy `clippy::type_complexity`.
-type RenderCache = HashMap<(String, String, String), Vec<String>>;
+/// `Arc<[String]>` avoids cloning every `String` on each cache hit — callers
+/// get a cheap refcount bump and clone the individual `String`s only when
+/// actually extending the built document.
+type RenderCache = HashMap<(String, String, String), Arc<[String]>>;
 
 /// Process-wide memo cache for [`render_markdown_block`]. Keyed by the full
 /// `(markdown, prefix, placeholder)` triple so hash collisions cannot
@@ -118,12 +121,12 @@ static MARKDOWN_RENDER_CACHE: LazyLock<Mutex<RenderCache>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// The uncached computation behind [`render_markdown_block`].
-fn compute_markdown_block(markdown: &str, prefix: &str, placeholder: &str) -> Vec<String> {
+fn compute_markdown_block(markdown: &str, prefix: &str, placeholder: &str) -> Arc<[String]> {
     let rendered = render_markdown_lines(markdown);
     if rendered.is_empty() {
-        return vec![format!("{prefix}{placeholder}")];
+        return Arc::from(vec![format!("{prefix}{placeholder}")]);
     }
-    rendered
+    let lines: Vec<String> = rendered
         .into_iter()
         .map(|line| {
             if line.is_empty() {
@@ -132,7 +135,8 @@ fn compute_markdown_block(markdown: &str, prefix: &str, placeholder: &str) -> Ve
                 format!("{prefix}{line}")
             }
         })
-        .collect()
+        .collect();
+    Arc::from(lines)
 }
 
 /// Build the comrak options used everywhere in jefe: GFM extensions
@@ -155,6 +159,11 @@ fn gfm_options() -> Options<'static> {
 
 /// Width of the ASCII rule drawn under headings and section labels.
 const HEADING_RULE_WIDTH: usize = 40;
+/// Maximum nesting depth before the block renderer stops recursing and emits
+/// a fallback line. Far above any real document (comrak parses iteratively so
+/// the AST can be arbitrarily deep); prevents a stack overflow from
+/// untrusted, deeply-nested content (e.g. 20k nested blockquotes).
+const MAX_RENDER_DEPTH: usize = 100;
 /// Glyph used for the bullet of an unordered list item.
 const BULLET: &str = "*";
 /// Characters used to draw the frame around a fenced code block.
@@ -239,15 +248,20 @@ impl MarkdownRenderer {
         }
     }
 
-    /// Render the block children of `node` at the given indent depth.
-    fn render_block_children<'a>(&mut self, node: &'a AstNode<'a>, indent: usize) {
+    /// Render the block children of `node` at the given indent depth and
+    /// recursion depth.
+    fn render_block_children<'a>(&mut self, node: &'a AstNode<'a>, indent: usize, depth: usize) {
         for child in node.children() {
-            self.render_block(child, indent);
+            self.render_block(child, indent, depth);
         }
     }
 
     /// Render a single block-level node.
-    fn render_block<'a>(&mut self, node: &'a AstNode<'a>, indent: usize) {
+    fn render_block<'a>(&mut self, node: &'a AstNode<'a>, indent: usize, depth: usize) {
+        if depth >= MAX_RENDER_DEPTH {
+            self.push(indent_str(indent, "(content nested too deeply)"));
+            return;
+        }
         let value = &node.data().value;
         match value {
             // Paragraphs share the unknown-block shape: render inline text
@@ -263,7 +277,7 @@ impl MarkdownRenderer {
             // the footnote's identity before its body.
             NodeValue::FootnoteDefinition(def) => {
                 self.push(indent_str(indent, &format!("[^{}]:", def.name)));
-                self.render_block_children(node, indent);
+                self.render_block_children(node, indent, depth + 1);
                 self.push_blank();
             }
             // GFM alerts contain nested BLOCK content, so render their
@@ -272,7 +286,7 @@ impl MarkdownRenderer {
             // so GitHub `> [!NOTE]` syntax parses as a plain blockquote —
             // but routed correctly in case the extension is ever enabled.
             NodeValue::Alert(_) => {
-                self.render_block_children(node, indent);
+                self.render_block_children(node, indent, depth + 1);
                 self.push_blank();
             }
             NodeValue::Heading(_) => self.render_heading(node, indent),
@@ -281,11 +295,11 @@ impl MarkdownRenderer {
                 self.push_blank();
             }
             NodeValue::List(list) => {
-                self.render_list(node, list, indent);
+                self.render_list(node, list, indent, depth + 1);
                 self.push_blank();
             }
             NodeValue::CodeBlock(code) => self.render_code_block(code, indent),
-            NodeValue::BlockQuote => self.render_block_quote(node, indent),
+            NodeValue::BlockQuote => self.render_block_quote(node, indent, depth + 1),
             NodeValue::HtmlBlock(html) => self.render_html_block(&html.literal, indent),
             NodeValue::Table(table) => self.render_table(node, table, indent),
             _ => self.render_unknown_block(node, indent),
@@ -308,9 +322,9 @@ impl MarkdownRenderer {
     /// prefixing each resulting line with a quote bar. The `"> "` prefix alone
     /// marks the quote level; adding an indent level on top would double-pad
     /// (`">   text"` instead of `"> text"`).
-    fn render_block_quote<'a>(&mut self, node: &'a AstNode<'a>, indent: usize) {
+    fn render_block_quote<'a>(&mut self, node: &'a AstNode<'a>, indent: usize, depth: usize) {
         let start = self.lines.len();
-        self.render_block_children(node, indent);
+        self.render_block_children(node, indent, depth);
         for line in &mut self.lines[start..] {
             // Decorate content lines only: blank separators stay truly empty
             // (the "blank lines stay empty" contract), so trailing-blank
@@ -339,7 +353,13 @@ impl MarkdownRenderer {
     /// author's explicit start value is preserved as-is — `0.` lists are
     /// valid CommonMark and GitHub renders them starting at zero (the
     /// ordinal is unused for unordered lists).
-    fn render_list<'a>(&mut self, node: &'a AstNode<'a>, list: &NodeList, indent: usize) {
+    fn render_list<'a>(
+        &mut self,
+        node: &'a AstNode<'a>,
+        list: &NodeList,
+        indent: usize,
+        depth: usize,
+    ) {
         let mut ordinal = list.start;
         let mut rendered_any = false;
         for item in node.children() {
@@ -351,12 +371,12 @@ impl MarkdownRenderer {
                     if rendered_any && !list.tight {
                         self.push_blank();
                     }
-                    self.render_list_item(item, &marker, indent);
+                    self.render_list_item(item, &marker, indent, depth);
                     rendered_any = true;
                 }
                 // A nested list nested directly (rare) — render its block form.
-                NodeValue::List(nested) => self.render_list(item, nested, indent + 1),
-                _ => self.render_block(item, indent),
+                NodeValue::List(nested) => self.render_list(item, nested, indent + 1, depth + 1),
+                _ => self.render_block(item, indent, depth),
             }
         }
     }
@@ -396,7 +416,20 @@ impl MarkdownRenderer {
 
     /// Render a single list item: first line carries the marker, nested blocks
     /// and sub-lists are indented under it.
-    fn render_list_item<'a>(&mut self, item: &'a AstNode<'a>, marker: &str, indent: usize) {
+    fn render_list_item<'a>(
+        &mut self,
+        item: &'a AstNode<'a>,
+        marker: &str,
+        indent: usize,
+        depth: usize,
+    ) {
+        // Depth guard for the List → Item → List recursion path (which
+        // bypasses render_block's guard). Deeply nested lists from
+        // untrusted content must not overflow the stack.
+        if depth >= MAX_RENDER_DEPTH {
+            self.push(indent_str(indent, "(content nested too deeply)"));
+            return;
+        }
         // Continuation lines align under the first line's content, which starts
         // after the marker and one space. This is a raw column count (NOT
         // indent levels) and is passed to wrap_indent as the target pad so the
@@ -417,7 +450,7 @@ impl MarkdownRenderer {
                         first = false;
                     }
                     // Sub-lists indent one level deeper.
-                    self.render_list(child, nested, indent + 1);
+                    self.render_list(child, nested, indent + 1, depth + 1);
                 }
                 NodeValue::Paragraph => {
                     if !first {
@@ -473,7 +506,7 @@ impl MarkdownRenderer {
                     }
                     // Render the block with the marker's continuation indent so
                     // it stays visually nested.
-                    self.render_block(child, indent + 1);
+                    self.render_block(child, indent + 1, depth);
                 }
             }
         }
@@ -616,7 +649,7 @@ impl MarkdownRenderer {
     fn collect_inline<'a>(&mut self, node: &'a AstNode<'a>) -> Vec<String> {
         let mut lines = InlineLines::new();
         for child in node.children() {
-            self.render_inline_lines(child, &mut lines);
+            self.render_inline_lines(child, &mut lines, 0);
         }
         // Trim trailing whitespace on each line; drop a single trailing empty
         // line if the content ended on a break.
@@ -626,7 +659,21 @@ impl MarkdownRenderer {
 
     /// Render a single inline node, appending plain text to the current line
     /// (`lines.current()`) and starting a new line on soft/hard breaks.
-    fn render_inline_lines<'a>(&mut self, node: &'a AstNode<'a>, lines: &mut InlineLines) {
+    ///
+    /// The inline AST recursion is depth-bounded like the block walk:
+    /// crafted bodies (15k unclosed `*a ` runs, 8k matched `**` pairs, deep
+    /// bracket nests) parse into inline chains deep enough to overflow the
+    /// stack, so past `MAX_RENDER_DEPTH` children are skipped (the text of
+    /// well-formed content at that depth is decoration-only nesting).
+    fn render_inline_lines<'a>(
+        &mut self,
+        node: &'a AstNode<'a>,
+        lines: &mut InlineLines,
+        depth: usize,
+    ) {
+        if depth >= MAX_RENDER_DEPTH {
+            return;
+        }
         let value = &node.data().value;
         match value {
             NodeValue::Text(t) => lines.push_str(t.as_ref()),
@@ -640,11 +687,11 @@ impl MarkdownRenderer {
             // Dropped inline content (math, raw): emit nothing.
             NodeValue::Math(_) | NodeValue::Raw(_) => {}
             // Link: render text + URL via its dedicated helper.
-            NodeValue::Link(link) => self.render_link_lines(link, node, lines),
+            NodeValue::Link(link) => self.render_link_lines(link, node, lines, depth),
             // Image: keep the alt text, drop the image itself.
             NodeValue::Image(link) => {
                 for child in node.children() {
-                    self.render_inline_lines(child, lines);
+                    self.render_inline_lines(child, lines, depth + 1);
                 }
                 let _ = link;
             }
@@ -653,7 +700,7 @@ impl MarkdownRenderer {
             // into the children so nested inline content still renders.
             _ => {
                 for child in node.children() {
-                    self.render_inline_lines(child, lines);
+                    self.render_inline_lines(child, lines, depth + 1);
                 }
             }
         }
@@ -667,10 +714,11 @@ impl MarkdownRenderer {
         link: &NodeLink,
         node: &'a AstNode<'a>,
         lines: &mut InlineLines,
+        depth: usize,
     ) {
         let mut text = InlineLines::new();
         for child in node.children() {
-            self.render_inline_lines(child, &mut text);
+            self.render_inline_lines(child, &mut text, depth + 1);
         }
         let text_str = text.join();
         if !text_str.is_empty() {
@@ -917,3 +965,7 @@ mod tests;
 #[cfg(test)]
 #[path = "markdown_render_cache_tests.rs"]
 mod cache_tests;
+
+#[cfg(test)]
+#[path = "markdown_render_depth_tests.rs"]
+mod depth_tests;

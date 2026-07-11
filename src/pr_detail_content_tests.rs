@@ -904,7 +904,7 @@ fn rendered_lines_at(detail: &PullRequestDetail, anchor: &str) -> (Vec<String>, 
     );
     let lines: Vec<String> = content.text.lines().map(str::to_string).collect();
     let Some(first) = lines.iter().position(|l| l.contains(anchor)) else {
-        panic!("anchor line {anchor:?} present");
+        panic!("anchor line {anchor:?} absent from rendered content");
     };
     (lines, first)
 }
