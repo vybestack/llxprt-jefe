@@ -130,7 +130,11 @@ pub enum ScrollRequest {
 /// Returns `None` when:
 /// - Currently following (tail) (`old_offset` is `None`) — follow-tail is
 ///   unaffected by new content.
-/// - No new lines were appended (`new_total <= old_total`).
+/// - Content shrank (`new_total_lines < old_total_lines`) — the viewport is
+///   reset to follow-tail since the old absolute position is no longer valid.
+///
+/// When content is unchanged (`new_total_lines == old_total_lines`), the
+/// offset is preserved (`Some(old_offset)`).
 ///
 /// Parameters:
 /// - `old_offset`: The bottom-relative offset before the content grew.

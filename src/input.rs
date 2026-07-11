@@ -624,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn scrollback_ctrl_pageup_forwards_to_pty() {
+    fn scrollback_ctrl_pagedown_forwards_to_pty() {
         let evt = should_intercept_for_scrollback(
             &key_mods(KeyCode::PageDown, KeyModifiers::CONTROL),
             false,

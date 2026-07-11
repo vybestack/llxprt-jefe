@@ -926,14 +926,15 @@ impl RuntimeManager for TmuxRuntimeManager {
 
         // Review fix #9: do NOT strip trailing blank lines — they may be real
         // blank output, not tmux padding.
-        // Review fix #7: cache the empty result too so we don't shell out
-        // every frame.
+        // Review fix #7: cache the result (including an empty capture) so we
+        // don't shell out every frame. Return `Some(lines)` consistently so
+        // the current frame and subsequent cache-hit frames agree (an empty
+        // capture returns `Some(vec![])`, not `None` — callers normalize via
+        // `map_or(0, Vec::len)`, and `None` is reserved for "no session /
+        // capture not applicable").
         self.history_cache
             .store(&agent_id, generation, Some(lines.clone()));
 
-        if lines.is_empty() {
-            return None;
-        }
         Some(lines)
     }
 }

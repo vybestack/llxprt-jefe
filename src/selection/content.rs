@@ -314,7 +314,9 @@ fn terminal_lines(
         );
     }
 
-    let mut all_lines: Vec<String> = history_lines.to_vec();
+    // Build the combined history+live vector once with a single allocation.
+    let mut all_lines: Vec<String> = Vec::with_capacity(history_lines.len() + live_lines.len());
+    all_lines.extend_from_slice(history_lines);
     all_lines.extend(live_lines);
     PaneContent::new(SelectablePane::TerminalView, all_lines)
 }

@@ -49,24 +49,28 @@ pub fn build_terminal_viewport(
 ) -> TerminalViewportProjection {
     let indicator = crate::state::terminal_follow_indicator(offset);
 
+    // Compute the top-relative content start line once (single source of truth)
+    // so the viewport projection and the reported `start_line` can never drift
+    // apart (OCR finding: the value was previously computed twice).
+    let total_lines = history_lines.len() + live_snapshot.rows;
+    let start_line = crate::state::scrollback_ops::terminal_content_start_line(
+        offset,
+        total_lines,
+        viewport_rows,
+    );
+
     let snapshot = if viewport_rows == 0 || viewport_cols == 0 {
         TerminalSnapshot::default()
     } else {
         build_windowed_snapshot(
             live_snapshot,
             history_lines,
-            offset,
+            start_line,
             viewport_rows,
             viewport_cols,
             default_style,
         )
     };
-
-    let start_line = crate::state::scrollback_ops::terminal_content_start_line(
-        offset,
-        history_lines.len() + live_snapshot.rows,
-        viewport_rows,
-    );
 
     TerminalViewportProjection {
         snapshot,
@@ -76,10 +80,14 @@ pub fn build_terminal_viewport(
 }
 
 /// Build the windowed snapshot from history + live rows.
+///
+/// `start_line` is the already-computed top-relative content start line
+/// (shared with the projection's reported `start_line`) so there is a single
+/// source of truth for the windowing offset.
 fn build_windowed_snapshot(
     live_snapshot: &TerminalSnapshot,
     history_lines: &[String],
-    offset: Option<usize>,
+    start_line: usize,
     viewport_rows: usize,
     viewport_cols: usize,
     default_style: TerminalCellStyle,
@@ -88,15 +96,6 @@ fn build_windowed_snapshot(
     // either a history string or a live snapshot row index.
     let live_rows = live_snapshot.rows;
     let total_lines = history_lines.len() + live_rows;
-
-    // The start line in the composed content (0-based from the top), derived
-    // from the shared single source of truth so the viewport projection and
-    // the mouse-selection offset always agree (issue #198 review fix #4).
-    let start_line = crate::state::scrollback_ops::terminal_content_start_line(
-        offset,
-        total_lines,
-        viewport_rows,
-    );
 
     let mut cells: Vec<Vec<TerminalCell>> = Vec::with_capacity(viewport_rows);
     for row_idx in 0..viewport_rows {
