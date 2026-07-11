@@ -122,7 +122,11 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
         // physical pane.
         let blank = crate::runtime::TerminalSnapshot::default();
         let live_ref = live.unwrap_or(&blank);
-        let (viewport_rows, viewport_cols) = if live_ref.rows == 0 {
+        // Fall back to the real pane dimensions when the live snapshot is
+        // absent OR degenerate in either dimension, so the viewport never
+        // receives a zero row/col count (OCR: the check must cover both
+        // dimensions, not just rows).
+        let (viewport_rows, viewport_cols) = if live_ref.rows == 0 || live_ref.cols == 0 {
             (props.pane_rows.max(1), props.pane_cols.max(1))
         } else {
             (live_ref.rows, live_ref.cols)
