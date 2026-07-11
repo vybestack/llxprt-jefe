@@ -219,9 +219,12 @@ impl MarkdownRenderer {
         }
     }
 
-    /// Render an ordered or unordered list, tracking item ordinals.
+    /// Render an ordered or unordered list, tracking item ordinals. The
+    /// author's explicit start value is preserved as-is — `0.` lists are
+    /// valid CommonMark and GitHub renders them starting at zero (the
+    /// ordinal is unused for unordered lists).
     fn render_list<'a>(&mut self, node: &'a AstNode<'a>, list: &NodeList, indent: usize) {
-        let mut ordinal = list.start.max(1);
+        let mut ordinal = list.start;
         let mut rendered_any = false;
         for item in node.children() {
             match &item.data().value {
@@ -318,7 +321,11 @@ impl MarkdownRenderer {
                             // wrap_indent_cols already prefixed every line
                             // with `cont_cols` spaces; replace that prefix on
                             // the first line with the list indent + marker.
-                            let rest = first_line.split_off(cont_cols);
+                            // The first line can be SHORTER than the prefix
+                            // (a leading break tag yields an empty paragraph
+                            // line), so clamp the split to its length —
+                            // split_off past the end panics on crafted input.
+                            let rest = first_line.split_off(cont_cols.min(first_line.len()));
                             *first_line = format!("{pad}{marker} {rest}");
                         } else {
                             // First paragraph rendered to nothing (e.g. only
@@ -779,10 +786,25 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
         };
     }
     if start + 1 < bytes.len() && bytes[start + 1] == b'!' {
-        return match html[start..].find('>') {
-            Some(p) => start + p + 1,
-            None => bytes.len(),
-        };
+        // Declarations can carry quoted values containing `>` (e.g.
+        // `<!DOCTYPE html "foo>bar">`), so scan with quote awareness like
+        // the tag path below instead of stopping at the first `>`.
+        let mut j = start + 2;
+        while j < bytes.len() {
+            match bytes[j] {
+                b'>' => return j + 1,
+                b'"' | b'\'' => {
+                    let quote = bytes[j];
+                    j += 1;
+                    while j < bytes.len() && bytes[j] != quote {
+                        j += 1;
+                    }
+                }
+                _ => {}
+            }
+            j += 1;
+        }
+        return bytes.len();
     }
 
     // Scan the tag name + attributes, respecting quoted attribute values so a

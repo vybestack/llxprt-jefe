@@ -80,6 +80,18 @@ fn unordered_list_uses_bullets() {
     assert!(out.contains("* two"));
 }
 
+/// An explicit `0.` start is preserved (valid CommonMark; GitHub renders it
+/// starting at zero) instead of being coerced to 1.
+#[test]
+fn ordered_list_preserves_zero_start() {
+    let out = render(
+        "0. zero
+1. one",
+    );
+    assert!(out.contains("0. zero"), "zero start preserved: {out}");
+    assert!(out.contains("1. one"), "increment from zero: {out}");
+}
+
 #[test]
 fn ordered_list_uses_numbers() {
     let out = render("1. first\n2. second\n");
@@ -519,6 +531,20 @@ fn table_columns_align_by_display_width() {
     );
 }
 
+/// A list item whose first paragraph BEGINS with a break tag renders without
+/// panicking: the wrapped first line is empty, and the marker splice must not
+/// `split_off` past its length (crafted untrusted markdown must never panic).
+#[test]
+fn list_item_starting_with_break_does_not_panic() {
+    for md in ["- <br>after", "- <br><br>x", "1. <br>y"] {
+        let out = render(md);
+        assert!(
+            out.contains("after") || out.contains('x') || out.contains('y'),
+            "content after the break renders: {out:?}"
+        );
+    }
+}
+
 /// Consecutive `<br>` tags inside an HTML block render a paragraph gap (one
 /// blank line) between the surrounding text instead of being dropped.
 #[test]
@@ -610,6 +636,19 @@ fn gt_inside_quoted_attribute_does_not_close_tag() {
 }
 
 /// HTML comments (`<!-- … -->`) are dropped entirely.
+/// A declaration carrying a quoted `>` (e.g. `<!DOCTYPE html "foo>bar">`)
+/// consumes through its real close instead of truncating at the inner `>`
+/// and leaking the quoted remainder as text.
+#[test]
+fn declaration_with_quoted_gt_fully_consumed() {
+    let out = render("<div><!DOCTYPE html \"foo>bar\">text</div>");
+    assert!(out.contains("text"), "content after declaration: {out:?}");
+    assert!(
+        !out.contains("bar"),
+        "quoted declaration content must not leak: {out:?}"
+    );
+}
+
 #[test]
 fn html_comments_are_dropped() {
     let out = render("before<!-- secret -->after");
