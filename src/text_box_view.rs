@@ -59,9 +59,10 @@ pub struct TextBoxRow {
 pub struct TextBoxView {
     /// Exactly `viewport_rows` rows (or empty when `viewport_rows == 0`).
     pub rows: Vec<TextBoxRow>,
-    /// The first visible display-row index in the viewport (wrapping may make
-    /// a single logical line span several display rows).
-    pub first_visible_line: usize,
+    /// The first visible display-row index in the viewport. Wrapping may make
+    /// a single logical line span several display rows, so this is a row
+    /// index, not a logical-line index.
+    pub first_visible_row: usize,
     /// Total logical line count of the source text.
     pub total_lines: usize,
 }
@@ -129,6 +130,9 @@ struct WrapSegment {
 ///
 /// `content_width == 0` yields a single empty segment (the caller suppresses
 /// the caret for width 0 anyway).
+///
+/// Single-pass O(n): the char iterator is consumed once and each segment is
+/// built incrementally, so long lines do not trigger repeated re-scans.
 fn wrap_line(line: &str, content_width: usize) -> Vec<WrapSegment> {
     if content_width == 0 {
         return vec![WrapSegment {
@@ -138,31 +142,27 @@ fn wrap_line(line: &str, content_width: usize) -> Vec<WrapSegment> {
         }];
     }
     let mut segments = Vec::new();
-    let mut start = 0usize;
-    loop {
-        let remaining: String = line.chars().skip(start).collect();
-        if remaining.is_empty() {
-            // Empty/fully-consumed line still occupies one (blank) segment so
-            // the caret can land on it.
-            if segments.is_empty() {
-                segments.push(WrapSegment {
-                    text: String::new(),
-                    start,
-                    end: start,
-                });
-            }
-            break;
+    let mut chunk = String::with_capacity(line.len().min(content_width));
+    let mut col = 0usize; // char column within the current segment
+    let mut seg_start = 0usize; // char-column start of the current segment
+    for ch in line.chars() {
+        if col == content_width {
+            segments.push(WrapSegment {
+                text: std::mem::take(&mut chunk),
+                start: seg_start,
+                end: seg_start + col,
+            });
+            seg_start += col;
+            col = 0;
         }
-        let chunk: String = remaining.chars().take(content_width).collect();
-        let taken = chunk.chars().count();
-        let end = start + taken;
-        segments.push(WrapSegment {
-            text: chunk,
-            start,
-            end,
-        });
-        start = end;
+        chunk.push(ch);
+        col += 1;
     }
+    segments.push(WrapSegment {
+        text: chunk,
+        start: seg_start,
+        end: seg_start + col,
+    });
     segments
 }
 
@@ -173,7 +173,7 @@ fn wrap_line(line: &str, content_width: usize) -> Vec<WrapSegment> {
 ///   most `content_width` characters, so long lines fold onto the next row
 ///   instead of scrolling off the right edge.
 /// - Vertical viewport: the caret's wrapped row is always visible;
-///   `first_visible_line` is the first visible display-row index (derived
+///   `first_visible_row` is the first visible display-row index (derived
 ///   from the caret, no stored scroll state).
 /// - `rows.len() == viewport_rows` for `viewport_rows > 0` (padded blank);
 ///   `rows` is empty when `viewport_rows == 0`.
@@ -197,7 +197,7 @@ pub fn build_text_box_view(
     if viewport_rows == 0 {
         return TextBoxView {
             rows: Vec::new(),
-            first_visible_line: 0,
+            first_visible_row: 0,
             total_lines,
         };
     }
@@ -226,7 +226,7 @@ pub fn build_text_box_view(
 
     TextBoxView {
         rows,
-        first_visible_line: first,
+        first_visible_row: first,
         total_lines,
     }
 }
@@ -360,7 +360,7 @@ mod tests {
         let v = build_text_box_view("", 0, 3, 20);
         assert_eq!(v.rows.len(), 3);
         assert_eq!(v.total_lines, 1);
-        assert_eq!(v.first_visible_line, 0);
+        assert_eq!(v.first_visible_row, 0);
         // Caret is on the first (blank) row at column 0.
         assert_eq!(v.rows[0].text, "");
         assert_eq!(v.rows[0].caret_col, Some(0));
@@ -379,7 +379,7 @@ mod tests {
         let v = build_text_box_view(text, text.len(), 3, 20);
         assert_eq!(v.rows.len(), 3);
         // Caret is on line 7 ("l8"); viewport is 3 -> first = 7-2 = 5.
-        assert_eq!(v.first_visible_line, 5);
+        assert_eq!(v.first_visible_row, 5);
         // Rows 5,6,7 = "l6","l7","l8"; caret on row index 2.
         assert_eq!(v.rows[0].text, "l6");
         assert_eq!(v.rows[1].text, "l7");
@@ -399,7 +399,7 @@ mod tests {
         let text = "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8";
         // Cursor on line 0 ("l1").
         let v = build_text_box_view(text, 0, 3, 20);
-        assert_eq!(v.first_visible_line, 0);
+        assert_eq!(v.first_visible_row, 0);
         assert_eq!(v.rows[0].text, "l1");
         assert_eq!(v.rows[0].caret_col, Some(0));
     }
@@ -510,7 +510,7 @@ mod tests {
     fn zero_viewport_empty_no_panic() {
         let v = build_text_box_view("hello\nworld", 5, 0, 20);
         assert!(v.rows.is_empty());
-        assert_eq!(v.first_visible_line, 0);
+        assert_eq!(v.first_visible_row, 0);
         assert_eq!(v.total_lines, 2);
     }
 
