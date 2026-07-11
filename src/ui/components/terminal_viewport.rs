@@ -19,7 +19,7 @@ pub struct TerminalViewportProjection {
     /// Follow indicator when scrolled back; `None` when following (live).
     pub indicator: Option<FollowIndicator>,
     /// The absolute content-line index that the first viewport row (row 0)
-    /// corresponds to (issue #198 review fix #5). Selection highlight math must
+    /// corresponds to. Selection highlight math must
     /// add this to the viewport-local row index to get the absolute content row
     /// that `row_highlight_range` expects.
     pub start_line: usize,
@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(proj.snapshot.cells[0][0].style, live_style);
     }
 
-    // ── content_start_line (issue #198 review fix #5) ─────────────────────
+    // ── content_start_line ─────────────────────────────────────────
 
     #[test]
     fn start_line_is_zero_for_follow_tail() {
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn start_line_used_for_selection_highlight_matches_content() {
-        // Behavioral test (review fix #5): when scrolled back so that the
+        // Behavioral test: when scrolled back so that the
         // viewport starts at a nonzero content line, the start_line must be
         // added to the viewport-local row index to get the absolute content row
         // that row_highlight_range expects.
@@ -400,7 +400,7 @@ mod tests {
         );
     }
 
-    // ── Follow indicator does not consume a content row (review fix #6) ────
+    // ── Follow indicator does not consume a content row ─────────────
 
     #[test]
     fn indicator_present_does_not_reduce_viewport_rows() {
@@ -428,5 +428,20 @@ mod tests {
         let proj = build_terminal_viewport(&live, &history, None, 5, 80, default_style());
         assert!(proj.indicator.is_none());
         assert_eq!(proj.snapshot.rows, 5);
+    }
+
+    #[test]
+    fn empty_live_snapshot_with_history_still_projects_history() {
+        // When the live snapshot is empty (rows=0) but history_lines is
+        // non-empty, the projection must still contain the history rows.
+        let history: Vec<String> = (1..=5).map(|i| format!("h{i}")).collect();
+        let live = TerminalSnapshot::default();
+        let proj = build_terminal_viewport(&live, &history, None, 3, 80, default_style());
+        assert_eq!(proj.snapshot.rows, 3);
+        // Follow-tail (None) with total=5, viewport=3 → start=2.
+        // Rows: h3, h4, h5.
+        assert_eq!(row_text(&proj.snapshot, 0), "h3");
+        assert_eq!(row_text(&proj.snapshot, 1), "h4");
+        assert_eq!(row_text(&proj.snapshot, 2), "h5");
     }
 }

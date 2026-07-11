@@ -87,8 +87,8 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
         "F12/t to focus"
     };
 
-    // Build the scrollback viewport projection (issue #198). When history lines
-    // are present, project history+live through the offset window. When no
+    // Build the scrollback viewport projection. When history lines are
+    // present, project history+live through the offset window. When no
     // history is available, render the live snapshot as-is.
     let default_style = crate::runtime::TerminalCellStyle {
         fg: iocraft::Color::White,
@@ -98,26 +98,33 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
         underline: false,
     };
 
-    let (projected_snapshot, indicator, content_start_line) =
-        if let Some(live) = props.snapshot.as_ref().filter(|s| !s.is_empty()) {
-            if props.history_lines.is_empty() {
-                (Some(live.clone()), None, 0)
+    let live = props.snapshot.as_ref().filter(|s| !s.is_empty());
+    let has_history = !props.history_lines.is_empty();
+
+    let (projected_snapshot, indicator, content_start_line) = if has_history {
+        // History is available — project history+live through the offset
+        // window. When the live snapshot is empty/None, still project so the
+        // retained history remains visible (the user scrolled back before the
+        // pane resized or the snapshot was cleared).
+        let live_ref = live.cloned().unwrap_or_default();
+        let proj = super::terminal_viewport::build_terminal_viewport(
+            &live_ref,
+            &props.history_lines,
+            props.terminal_history_offset,
+            live_ref.rows.max(1),
+            if live_ref.cols == 0 {
+                80
             } else {
-                // Use a large viewport so the projection fills the pane; the
-                // TerminalGrid clips to the actual canvas size at draw time.
-                let proj = super::terminal_viewport::build_terminal_viewport(
-                    live,
-                    &props.history_lines,
-                    props.terminal_history_offset,
-                    live.rows,
-                    live.cols,
-                    default_style,
-                );
-                (Some(proj.snapshot), proj.indicator, proj.start_line)
-            }
-        } else {
-            (None, None, 0)
-        };
+                live_ref.cols
+            },
+            default_style,
+        );
+        (Some(proj.snapshot), proj.indicator, proj.start_line)
+    } else if let Some(live) = live {
+        (Some(live.clone()), None, 0)
+    } else {
+        (None, None, 0)
+    };
 
     element! {
         Box(
@@ -144,7 +151,7 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
             //
             // The follow indicator is overlaid on the last grid row by the
             // canvas draw, NOT as a separate flex Box, so it does not consume
-            // a content row (issue #198 review fix #6).
+            // a content row.
             //
             // The content-area fill is transparent (Color::Reset) when theme
             // override is OFF, so the embedded agent's default cells let the
@@ -200,13 +207,12 @@ struct TerminalGridProps {
     selection: Option<TextSelection>,
     /// Selection foreground + background colors (inverse-video).
     sel_colors: SelectionColors,
-    /// Absolute content-line index of the first viewport row (issue #198
-    /// review fix #5). Selection highlight math adds this to the viewport-local
-    /// row index to get the absolute content row that `row_highlight_range`
-    /// expects.
+    /// Absolute content-line index of the first viewport row. Selection
+    /// highlight math adds this to the viewport-local row index to get the
+    /// absolute content row that `row_highlight_range` expects.
     content_start_line: usize,
-    /// Follow indicator text to overlay on the last grid row (issue #198
-    /// review fix #6). When present, the indicator is drawn on top of the last
+    /// Follow indicator text to overlay on the last grid row. When present,
+    /// the indicator is drawn on top of the last
     /// row of the canvas WITHOUT consuming an additional content row.
     indicator_text: Option<String>,
     /// Dim color for the indicator overlay.
@@ -387,7 +393,7 @@ struct SelectionOverlay {
 /// normal content. Only acts when a selection targets the terminal pane.
 /// `content_start_line` is the absolute content-line index of the first
 /// viewport row, so `row_highlight_range` receives absolute row numbers that
-/// match the selection coordinate space (issue #198 review fix #5).
+/// match the selection coordinate space.
 fn paint_selection_overlay(
     canvas: &mut CanvasSubviewMut<'_>,
     snapshot: &TerminalSnapshot,
@@ -440,7 +446,7 @@ fn paint_selection_overlay(
 }
 
 /// Paint the follow indicator as an overlay on the last canvas row WITHOUT
-/// consuming an additional content row (issue #198 review fix #6).
+/// consuming an additional content row.
 ///
 /// When `indicator_text` is present, the last row of the canvas is overpainted
 /// with the indicator text in the dim color over the bg color. This keeps the

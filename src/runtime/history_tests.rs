@@ -59,7 +59,7 @@ fn tmux_capture_history_returns_none_without_attached_session() {
     );
 }
 
-// ── output_generation (issue #198 review fix #2) ────────────────────────
+// ── output_generation ───────────────────────────────────────────────
 
 #[test]
 fn tmux_output_generation_starts_at_zero() {

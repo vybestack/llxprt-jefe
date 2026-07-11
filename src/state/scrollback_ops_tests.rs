@@ -240,7 +240,7 @@ fn apply_request_to_top_returns_none_when_no_scrollable_content() {
     );
 }
 
-// ── reconcile_offset_for_new_content (issue #198 review fix #3) ────────
+// ── reconcile_offset_for_new_content ───────────────────────────────
 
 #[test]
 fn reconcile_grows_offset_when_scrolled_back_and_content_grows() {
@@ -348,7 +348,38 @@ fn reconcile_unchanged_when_content_shrinks() {
     assert_eq!(reconcile_offset_for_new_content(Some(5), 55, 50, 10), None);
 }
 
-// ── terminal_content_start_line (issue #198 review fix #4) ─────────────
+// ── compute_terminal_scroll_geometry ──────────────────────────────────
+
+#[test]
+fn compute_geometry_normal_case() {
+    // history=40, live=10, viewport=10 → total=50.
+    // No prior offset (follow-tail) → offset stays None.
+    let (offset, total) = compute_terminal_scroll_geometry(None, 0, 40, 10, 10);
+    assert_eq!(offset, None);
+    assert_eq!(total, 50);
+}
+
+#[test]
+fn compute_geometry_saturates_on_overflow() {
+    // Pathological inputs near usize::MAX: saturating_add prevents wrap.
+    let huge = usize::MAX - 5;
+    let (offset, total) = compute_terminal_scroll_geometry(None, 0, huge, 10, 10);
+    assert_eq!(total, usize::MAX);
+    // Follow-tail (None offset) → reconcile returns None.
+    assert_eq!(offset, None);
+}
+
+#[test]
+fn compute_geometry_reconciles_offset_on_content_growth() {
+    // Old: total=50, offset=5 (scrolled back 5 from bottom).
+    // New: history=45, live=10 → total=55 (5 lines appended).
+    // delta=5 → new offset = 5+5=10, new_max = 55-10=45.
+    let (offset, total) = compute_terminal_scroll_geometry(Some(5), 50, 45, 10, 10);
+    assert_eq!(total, 55);
+    assert_eq!(offset, Some(10));
+}
+
+// ── terminal_content_start_line ─────────────────────────────────────
 
 #[test]
 fn content_start_line_follow_tail_shows_bottom() {
@@ -384,7 +415,7 @@ fn content_start_line_offset_exceeds_max_clamps_to_zero() {
 
 #[test]
 fn selection_offset_agrees_with_viewport_projection() {
-    // Behavioral selection test (issue #198 review fix #4): the top-relative
+    // Behavioral selection test: the top-relative
     // start line derived from a bottom-relative offset must map to the SAME
     // content rows the viewport projection paints. With distinctive history
     // rows and a nonzero bottom-relative offset, verify the start line +
@@ -476,7 +507,7 @@ fn reducer_scroll_events_not_blocked_when_terminal_focused() {
     assert_eq!(state.terminal_history_offset, Some(1));
 }
 
-// ── Agent switch resets scroll state (issue #198 review fix #6) ────────
+// ── Agent switch resets scroll state ────────────────────────────────
 
 /// Build a minimal AppState with one repository + one agent so selection
 /// events have a valid target.
@@ -542,7 +573,7 @@ fn reducer_jump_to_agent_resets_scroll_offset() {
     );
 }
 
-// ── Arrow navigation resets scroll state (issue #198 review fix #4) ────
+// ── Arrow navigation resets scroll state ────────────────────────────
 
 /// Build a state with one repo and two agents so Up/Down navigation has a
 /// valid move target.
@@ -606,6 +637,8 @@ fn reducer_navigate_up_agent_resets_scroll_offset() {
         state.terminal_history_offset, None,
         "arrow-up agent navigation must reset the scroll offset"
     );
+    assert_eq!(state.terminal_viewport_rows, 0);
+    assert_eq!(state.terminal_total_lines, 0);
 }
 
 /// Build a state with two repos and one agent each so repo navigation has
@@ -675,4 +708,6 @@ fn reducer_navigate_up_repo_resets_scroll_offset() {
         state.terminal_history_offset, None,
         "arrow-up repo navigation must reset the scroll offset"
     );
+    assert_eq!(state.terminal_viewport_rows, 0);
+    assert_eq!(state.terminal_total_lines, 0);
 }

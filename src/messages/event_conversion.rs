@@ -167,7 +167,7 @@ impl AppMessage {
             AppEvent::Quit => Self::System(SystemMessage::Quit),
             AppEvent::ClearError => Self::System(SystemMessage::ClearError),
             AppEvent::ClearWarning => Self::System(SystemMessage::ClearWarning),
-            // Catch-all delegates issues/PRs/actions events (review fix #11).
+            // Catch-all delegates issues/PRs/actions events.
             other => Self::from_issues_event(other),
         }
     }
