@@ -436,3 +436,69 @@ fn code_puppy_discards_unrecognized_positional_flags() {
 
     assert_eq!(launch_args(&signature), vec!["-i"]);
 }
+
+// ── Issue #198: history-aware capture-pane argv builder ───────────────────
+//
+// `capture-pane -p -S -<N> -E -` captures the last N lines of tmux scrollback
+// history including the visible pane. The argv builder is a pure function so
+// it can be unit-tested without spawning tmux.
+
+/// The history-capture argv builder produces the correct flag sequence for a
+/// bounded history request.
+#[test]
+fn capture_pane_history_argv_builds_correct_flags() {
+    let argv = capture_pane_history_args("jefe-agent-1", 500);
+    // Must include capture-pane, -p (plain text), -t <session>, -S -<N>, -E -
+    assert!(argv.contains(&"capture-pane".to_owned()), "argv: {argv:?}");
+    assert!(argv.contains(&"-p".to_owned()), "argv: {argv:?}");
+    assert!(argv.contains(&"-t".to_owned()), "argv: {argv:?}");
+    assert!(argv.contains(&"jefe-agent-1".to_owned()), "argv: {argv:?}");
+    assert!(argv.contains(&"-S".to_owned()), "missing -S flag: {argv:?}");
+    assert!(argv.contains(&"-E".to_owned()), "missing -E flag: {argv:?}");
+    // -S value must be the negation of the requested line count.
+    let s_idx = argv.iter().position(|a| a == "-S");
+    let Some(s_idx) = s_idx else {
+        panic!("-S must be present: {argv:?}");
+    };
+    let Some(s_value) = argv.get(s_idx + 1) else {
+        panic!("-S must be followed by a value: {argv:?}");
+    };
+    assert_eq!(*s_value, "-500", "-S value must be -<history_lines>");
+    // -E value must be "-" (end at the bottom of the visible pane).
+    let e_idx = argv.iter().position(|a| a == "-E");
+    let Some(e_idx) = e_idx else {
+        panic!("-E must be present: {argv:?}");
+    };
+    let Some(e_value) = argv.get(e_idx + 1) else {
+        panic!("-E must be followed by a value: {argv:?}");
+    };
+    assert_eq!(*e_value, "-", "-E value must be -");
+}
+
+/// The history-capture argv builder respects the requested line count.
+#[test]
+fn capture_pane_history_argv_respects_line_count() {
+    let argv = capture_pane_history_args("jefe-agent-1", 2000);
+    let s_idx = argv.iter().position(|a| a == "-S");
+    let Some(s_idx) = s_idx else {
+        panic!("-S must be present: {argv:?}");
+    };
+    let Some(s_value) = argv.get(s_idx + 1) else {
+        panic!("-S must have a value: {argv:?}");
+    };
+    assert_eq!(*s_value, "-2000");
+}
+
+/// Zero history lines still produces a valid argv (just captures the visible pane).
+#[test]
+fn capture_pane_history_argv_zero_lines() {
+    let argv = capture_pane_history_args("jefe-agent-1", 0);
+    let s_idx = argv.iter().position(|a| a == "-S");
+    let Some(s_idx) = s_idx else {
+        panic!("-S must be present: {argv:?}");
+    };
+    let Some(s_value) = argv.get(s_idx + 1) else {
+        panic!("-S must have a value: {argv:?}");
+    };
+    assert_eq!(*s_value, "0", "zero lines should produce -S 0");
+}

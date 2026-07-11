@@ -237,6 +237,26 @@ pub struct AppState {
     /// screen coordinates to the correct help content line (issue #178).
     /// Runtime-only — never persisted.
     pub help_scroll_offset: usize,
+
+    /// Terminal scrollback offset for the embedded terminal pane (issue #198).
+    ///
+    /// `None` (default) means **follow-tail**: render the live snapshot at the
+    /// bottom (current behavior). `Some(n)` means the viewport is scrolled back
+    /// `n` lines from the bottom; follow-tail is paused and a follow indicator
+    /// renders. Runtime-only — never persisted (like `selection`,
+    /// `quit_sequence`).
+    pub terminal_history_offset: Option<usize>,
+
+    /// Cached number of terminal viewport rows (for scrollback offset math,
+    /// issue #198). Mirrors `detail_viewport_rows` for detail panes. Updated by
+    /// the render/layout layer so the deterministic reducer can compute clamp
+    /// bounds without I/O. Runtime-only — never persisted.
+    pub terminal_viewport_rows: usize,
+
+    /// Cached total lines of scrollback content (history + live snapshot rows,
+    /// issue #198). Updated by the render layer from the runtime history
+    /// capture + live snapshot. Runtime-only — never persisted.
+    pub terminal_total_lines: usize,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

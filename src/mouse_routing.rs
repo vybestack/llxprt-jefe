@@ -22,6 +22,60 @@ fn terminal_size() -> (u16, u16) {
     crossterm::terminal::size().unwrap_or((120, 40))
 }
 
+/// Refresh the cached terminal scrollback geometry before applying a wheel-driven
+/// scroll event (issue #198).
+///
+/// Computes `terminal_viewport_rows` (from the PTY layout) and
+/// `terminal_total_lines` (retained history + live snapshot rows) from the
+/// runtime + current layout, writing them to `AppState` so the deterministic
+/// reducer's clamp bounds match the rendered content. Runs at event time (not
+/// render time) to avoid the infinite re-render loop that mutating AppState
+/// during render would cause.
+fn refresh_terminal_scroll_geometry_from_ctx(
+    ctx: Option<&CtxArc>,
+    app_state: &mut HookState<AppState>,
+) {
+    let (cols, rows) = terminal_size();
+    let pty_layout = compute_pty_layout(cols, rows);
+
+    let (history_count, live_rows) = match ctx {
+        Some(ctx_arc) => match ctx_arc.try_lock() {
+            Ok(mut guard) => {
+                let history_count = guard.runtime.capture_history().map_or(0, |v| v.len());
+                let live_rows = guard.runtime.snapshot().map_or(0, |s| s.rows);
+                (history_count, live_rows)
+            }
+            Err(_) => {
+                // Lock contention: preserve existing geometry instead of
+                // zeroing it (issue #198 review fix #5). Zeroing would clear
+                // the scroll offset and jump to follow-tail during attach.
+                return;
+            }
+        },
+        None => {
+            // No context: preserve existing geometry instead of zeroing it
+            // (fix #3). Zeroing would clear the scroll offset.
+            return;
+        }
+    };
+
+    let mut state = app_state.write();
+    let new_total = history_count + live_rows;
+    let old_total = state.terminal_total_lines;
+    let viewport_rows = usize::from(pty_layout.pty_rows);
+
+    // Reconcile the scroll offset when content grows so the viewport stays at
+    // the same absolute position (issue #198 review fix #3).
+    state.terminal_history_offset = jefe::state::scrollback_ops::reconcile_offset_for_new_content(
+        state.terminal_history_offset,
+        old_total,
+        new_total,
+        viewport_rows,
+    );
+    state.terminal_viewport_rows = viewport_rows;
+    state.terminal_total_lines = new_total;
+}
+
 /// Clear any active mouse selection.
 ///
 /// Called on every non-mouse terminal event (key, paste, resize) so a
@@ -57,6 +111,29 @@ pub fn handle_fullscreen_mouse(
             && active_overlay_for(&state) == jefe::selection::OverlayPane::None
     };
 
+    // Issue #198: wheel events over the terminal pane move the Jefe scrollback
+    // viewport BEFORE being forwarded to the PTY. This is the crux of usable
+    // scrollback: wheel-up scrolls the Jefe viewport, not the child. Shift+wheel
+    // already bypassed above (host-terminal native scroll). Clicks/drags still
+    // go to the PTY when mouse reporting is active.
+    if terminal_input_enabled
+        && is_wheel_event(&mouse_event)
+        && is_event_over_terminal_pane(&mouse_event)
+    {
+        let evt = wheel_to_terminal_scroll_event(&mouse_event);
+        if let Some(scroll_evt) = evt {
+            // Refresh scroll geometry from runtime + layout BEFORE applying so
+            // the reducer's clamp bounds match the rendered content (mirrors the
+            // keyboard dispatch path). This runs at event time, never at render
+            // time, so it does not trigger an infinite re-render loop.
+            refresh_terminal_scroll_geometry_from_ctx(ctx, app_state);
+            let mut state = app_state.write();
+            *state = std::mem::take(&mut *state).apply(scroll_evt);
+            drop(state);
+            return;
+        }
+    }
+
     // When the terminal is focused, mouse events within the terminal pane go to
     // the managed PTY (current behavior). Everything else is app selection.
     if terminal_input_enabled && forward_to_pty_if_in_terminal(ctx, &mouse_event) {
@@ -91,6 +168,48 @@ pub fn handle_fullscreen_mouse(
             );
         }
         _ => {}
+    }
+}
+
+/// Whether the mouse event is a wheel scroll (issue #198).
+fn is_wheel_event(mouse_event: &iocraft::FullscreenMouseEvent) -> bool {
+    use crossterm::event::MouseEventKind;
+    matches!(
+        mouse_event.kind,
+        MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+    )
+}
+
+/// Whether the mouse event coordinates land inside the terminal pane bounds
+/// (issue #198).
+fn is_event_over_terminal_pane(mouse_event: &iocraft::FullscreenMouseEvent) -> bool {
+    let (cols, rows) = terminal_size();
+    let layout = compute_pty_layout(cols, rows);
+    let row_end = layout
+        .pane_row0
+        .saturating_add(layout.pty_rows.saturating_sub(1));
+    let col_end = layout
+        .pane_col0
+        .saturating_add(layout.pty_cols.saturating_sub(1));
+
+    mouse_event.column >= layout.pane_col0
+        && mouse_event.column <= col_end
+        && mouse_event.row >= layout.pane_row0
+        && mouse_event.row <= row_end
+}
+
+/// Map a wheel event to a terminal scroll AppEvent (issue #198).
+///
+/// Returns `None` for non-wheel events.
+#[must_use]
+fn wheel_to_terminal_scroll_event(
+    mouse_event: &iocraft::FullscreenMouseEvent,
+) -> Option<jefe::state::AppEvent> {
+    use crossterm::event::MouseEventKind;
+    match mouse_event.kind {
+        MouseEventKind::ScrollUp => Some(jefe::state::AppEvent::TerminalScrollUp),
+        MouseEventKind::ScrollDown => Some(jefe::state::AppEvent::TerminalScrollDown),
+        _ => None,
     }
 }
 
@@ -315,8 +434,24 @@ fn finalize_and_copy_selection(ctx: Option<&CtxArc>, app_state: &HookState<AppSt
                 .filter(|a| a.is_running())
                 .map(|a| &a.id),
         );
+        // Capture history lines for the selection content projection (issue #198).
+        let history_lines = ctx
+            .and_then(|ctx_arc| {
+                ctx_arc
+                    .try_lock()
+                    .ok()
+                    .and_then(|mut guard| guard.runtime.capture_history())
+            })
+            .unwrap_or_default();
         let (cols, rows) = terminal_size();
-        let content = pane_content_lines(selection.pane(), &state, snapshot.as_ref(), cols, rows);
+        let content = pane_content_lines(
+            selection.pane(),
+            &state,
+            snapshot.as_ref(),
+            &history_lines,
+            cols,
+            rows,
+        );
         drop(state);
         selection_text(&selection, &content.lines)
     };
@@ -375,6 +510,15 @@ fn scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
         SelectablePane::PrDetail => state.prs_state.detail_scroll_offset,
         SelectablePane::ActionsDetail => state.actions_state.detail_scroll_offset,
         SelectablePane::HelpModal => state.help_scroll_offset,
+        // Issue #198: terminal history offset is bottom-relative, but the
+        // selection layer expects a top-relative "lines hidden above viewport".
+        // Convert via the shared single source of truth so the selection
+        // coordinate system agrees with the viewport projection (review fix #4).
+        SelectablePane::TerminalView => jefe::state::scrollback_ops::terminal_content_start_line(
+            state.terminal_history_offset,
+            state.terminal_total_lines,
+            state.terminal_viewport_rows,
+        ),
         _ => 0,
     }
 }
@@ -519,7 +663,9 @@ fn scroll_detail_pane(
 
 #[cfg(test)]
 mod tests {
-    use super::{WheelDirection, next_wheel_scroll_offset};
+    use super::{
+        WheelDirection, is_wheel_event, next_wheel_scroll_offset, wheel_to_terminal_scroll_event,
+    };
 
     #[test]
     fn scroll_down_advances_within_bounds() {
@@ -619,5 +765,51 @@ mod tests {
             0,
             "scrolling up from an inflated offset (8) with max 1 must snap to 0"
         );
+    }
+
+    // ── Issue #198: wheel → terminal scroll event mapping ─────────────────
+
+    use crossterm::event::{MouseButton, MouseEventKind};
+
+    fn fullscreen_event(kind: MouseEventKind) -> iocraft::FullscreenMouseEvent {
+        iocraft::FullscreenMouseEvent::new(kind, 10, 10)
+    }
+
+    #[test]
+    fn wheel_up_maps_to_terminal_scroll_up() {
+        let evt = fullscreen_event(MouseEventKind::ScrollUp);
+        let result = wheel_to_terminal_scroll_event(&evt);
+        assert!(
+            matches!(result, Some(jefe::state::AppEvent::TerminalScrollUp)),
+            "wheel up must map to TerminalScrollUp"
+        );
+    }
+
+    #[test]
+    fn wheel_down_maps_to_terminal_scroll_down() {
+        let evt = fullscreen_event(MouseEventKind::ScrollDown);
+        let result = wheel_to_terminal_scroll_event(&evt);
+        assert!(
+            matches!(result, Some(jefe::state::AppEvent::TerminalScrollDown)),
+            "wheel down must map to TerminalScrollDown"
+        );
+    }
+
+    #[test]
+    fn non_wheel_event_maps_to_none() {
+        let evt = fullscreen_event(MouseEventKind::Down(MouseButton::Left));
+        let result = wheel_to_terminal_scroll_event(&evt);
+        assert!(result.is_none(), "non-wheel events must not map to scroll");
+    }
+
+    #[test]
+    fn is_wheel_detects_scroll_events() {
+        assert!(is_wheel_event(&fullscreen_event(MouseEventKind::ScrollUp)));
+        assert!(is_wheel_event(&fullscreen_event(
+            MouseEventKind::ScrollDown
+        )));
+        assert!(!is_wheel_event(&fullscreen_event(MouseEventKind::Down(
+            MouseButton::Left
+        ))));
     }
 }

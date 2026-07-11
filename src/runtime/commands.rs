@@ -796,6 +796,55 @@ pub fn capture_pane_lines(session_name: &str) -> Option<Vec<String>> {
     Some(text.lines().map(std::borrow::ToOwned::to_owned).collect())
 }
 
+/// Build the `capture-pane -p -S -<N> -E -` argv for a bounded history capture.
+///
+/// `-S -<history_lines>` starts `history_lines` lines before the top of the
+/// visible pane; `-E -` ends at the bottom of the visible pane (current line).
+/// This returns plain-text scrollback history **including the visible pane**.
+/// The caller (`TmuxRuntimeManager::capture_history`) strips the last
+/// `live_snapshot.rows` lines so the cached result is history ABOVE the
+/// visible pane only — the live Alacritty snapshot already represents the
+/// visible pane (issue #198 review fix #1).
+///
+/// Factored as a pure `#[must_use]` function so the argv composition is
+/// unit-testable without spawning tmux (issue #198).
+#[must_use]
+pub fn capture_pane_history_args(session_name: &str, history_lines: usize) -> Vec<String> {
+    let start = if history_lines == 0 {
+        "0".to_owned()
+    } else {
+        format!("-{history_lines}")
+    };
+    vec![
+        "capture-pane".to_owned(),
+        "-p".to_owned(),
+        "-t".to_owned(),
+        session_name.to_owned(),
+        "-S".to_owned(),
+        start,
+        "-E".to_owned(),
+        "-".to_owned(),
+    ]
+}
+
+/// Capture bounded scrollback history for a session as plain text lines.
+///
+/// Uses `capture-pane -p -S -<history_lines> -E -` to retrieve the last
+/// `history_lines` lines of tmux scrollback **including the visible pane**.
+/// The caller must strip the visible-pane rows before composing with the live
+/// snapshot to avoid duplication (issue #198 review fix #1).
+/// Returns `None` if tmux is unavailable or the command fails (issue #198).
+pub fn capture_pane_history(session_name: &str, history_lines: usize) -> Option<Vec<String>> {
+    let argv = capture_pane_history_args(session_name, history_lines);
+    let argv_refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let output = tmux_command().args(&argv_refs).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    Some(text.lines().map(std::borrow::ToOwned::to_owned).collect())
+}
+
 /// Parse the stdout of `tmux list-panes -t <session> -F '#{pane_pid}'` into a
 /// single PID.
 ///

@@ -72,6 +72,9 @@ pub(crate) mod selectable_list;
 mod sidebar;
 mod status_bar;
 mod terminal_view;
+/// Pure viewport projection for terminal scrollback (issue #198).
+/// iocraft-free, `#[must_use]`, unit-testable directly.
+pub(crate) mod terminal_viewport;
 /// Fixed-size multiline text-box component with an inline caret.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
@@ -121,6 +124,7 @@ pub use selectable_list::{
 pub use sidebar::{Sidebar, SidebarProps};
 pub use status_bar::{StatusBar, StatusBarProps};
 pub use terminal_view::{TerminalView, TerminalViewProps, terminal_empty_message};
+pub use terminal_viewport::{TerminalViewportProjection, build_terminal_viewport};
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-010

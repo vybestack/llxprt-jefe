@@ -97,6 +97,21 @@ pub enum AppEvent {
     ClearError,
     ClearWarning,
 
+    // Terminal scrollback (issue #198)
+    /// Scroll the terminal viewport up (back in history) by one line.
+    TerminalScrollUp,
+    /// Scroll the terminal viewport down (toward live) by one line.
+    TerminalScrollDown,
+    /// Scroll the terminal viewport up by a full page.
+    TerminalScrollPageUp,
+    /// Scroll the terminal viewport down by a full page.
+    TerminalScrollPageDown,
+    /// Resume follow-tail (clear the scrollback offset).
+    TerminalFollowTail,
+    /// Scroll the terminal viewport to the top of history (issue #198 review
+    /// fix #8: Home key).
+    TerminalScrollToTop,
+
     // Issues Mode events
     EnterIssuesMode,
     ExitIssuesMode,

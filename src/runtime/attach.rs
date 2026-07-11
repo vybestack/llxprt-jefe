@@ -537,6 +537,17 @@ impl AttachedViewer {
         self.dirty.swap(false, Ordering::Relaxed)
     }
 
+    /// Non-consuming check of the dirty flag (issue #198).
+    ///
+    /// Returns `true` when new PTY data has arrived since the last
+    /// [`take_dirty`](Self::take_dirty), without clearing the flag. Used by the
+    /// scrollback history cache to decide whether to re-capture without
+    /// stealing the dirty flag out from under the render-decision path.
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        self.dirty.load(Ordering::Relaxed)
+    }
+
     /// Write input bytes to the PTY.
     ///
     /// @pseudocode component-002 lines 18-20

@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use lru::LruCache;
 use tracing::{debug, info};
@@ -31,6 +32,10 @@ const MAX_DEAD_SIGNATURES: NonZeroUsize = match NonZeroUsize::new(100) {
     Some(n) => n,
     None => NonZeroUsize::MIN,
 };
+
+/// Maximum number of scrollback history lines retained for an embedded
+/// terminal session (issue #198). Matches the harness `history_limit`.
+const HISTORY_LINE_CAP: usize = 2000;
 
 /// Lightweight metadata for checking session liveness without holding the runtime lock.
 ///
@@ -127,11 +132,46 @@ pub trait RuntimeManager: Send {
     #[must_use]
     fn take_dirty(&self) -> bool;
 
+    /// Non-consuming check of the dirty flag on the attached viewer (issue #198).
+    ///
+    /// Returns `true` when new PTY data has arrived since the last
+    /// [`take_dirty`](Self::take_dirty), without clearing the flag. Used by the
+    /// scrollback history cache to decide whether to re-capture without
+    /// stealing the dirty flag out from under the render-decision path.
+    #[must_use]
+    fn is_dirty(&self) -> bool;
+
+    /// Monotonically increasing generation counter for attached PTY output
+    /// (issue #198 review fix).
+    ///
+    /// Increments when new output arrives on the attached viewer. The
+    /// scrollback history cache stores the generation it captured at and
+    /// compares it to the *current* generation to decide whether a re-capture
+    /// is necessary. This decouples history-cache invalidation from the
+    /// render-decision dirty flag (`take_dirty`), which is consumed during the
+    /// render decision and therefore always reads `false` later in the same
+    /// render frame — causing stale caches when `is_dirty()` was used.
+    #[must_use]
+    fn output_generation(&self) -> u64;
+
     /// Get a reference to a session by agent ID.
     fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession>;
 
     /// Capture pane output for a known session (used for dead-pane crash text).
     fn capture_session_output(&self, agent_id: &AgentId) -> Option<TerminalSnapshot>;
+
+    /// Retrieve retained scrollback history lines for the currently attached
+    /// session (issue #198).
+    ///
+    /// Returns `Option<Vec<String>>` — plain-text rows (no styles) from the
+    /// tmux pane's scrollback buffer. Implementations SHOULD cache so they do
+    /// not shell out on every render frame: re-capture only when `take_dirty()`
+    /// returns true (new PTY data) or the attached session changes.
+    ///
+    /// - **`TmuxRuntimeManager`**: cached `capture-pane -S` bounded to
+    ///   `HISTORY_LINE_CAP` lines.
+    /// - **`StubRuntimeManager`**: always returns `None` (no PTY).
+    fn capture_history(&mut self) -> Option<Vec<String>>;
 }
 
 /// Stub implementation of RuntimeManager for testing.
@@ -267,6 +307,14 @@ impl RuntimeManager for StubRuntimeManager {
         false
     }
 
+    fn is_dirty(&self) -> bool {
+        false
+    }
+
+    fn output_generation(&self) -> u64 {
+        0
+    }
+
     fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession> {
         self.sessions.iter().find(|s| &s.agent_id == agent_id)
     }
@@ -274,6 +322,73 @@ impl RuntimeManager for StubRuntimeManager {
     fn capture_session_output(&self, _agent_id: &AgentId) -> Option<TerminalSnapshot> {
         None
     }
+
+    fn capture_history(&mut self) -> Option<Vec<String>> {
+        None
+    }
+}
+
+/// Cached scrollback history for the currently attached session (issue #198).
+///
+/// Invalidated (re-captured) only when the output generation advances or the
+/// attached session changes. `lines` is `Option<Vec<String>>`:
+/// - `None` = no cache (never captured or invalidated).
+/// - `Some(vec![])` = cached empty capture (review fix #7).
+/// - `Some(non-empty)` = cached lines.
+///
+/// Caching the empty result avoids shelling out to `capture-pane` every render
+/// frame for a session with no scrollback.
+#[derive(Debug, Clone, Default)]
+struct HistoryCache {
+    cached_agent: Option<AgentId>,
+    generation: u64,
+    lines: Option<Vec<String>>,
+}
+
+impl HistoryCache {
+    fn get(&self, agent_id: &AgentId, generation: u64) -> Option<&Vec<String>> {
+        if self.cached_agent.as_ref() == Some(agent_id)
+            && self.generation == generation
+            && let Some(ref lines) = self.lines
+        {
+            Some(lines)
+        } else {
+            None
+        }
+    }
+
+    fn get_fallback(&self, agent_id: &AgentId) -> Option<&Vec<String>> {
+        if self.cached_agent.as_ref() == Some(agent_id)
+            && let Some(ref lines) = self.lines
+        {
+            Some(lines)
+        } else {
+            None
+        }
+    }
+
+    fn store(&mut self, agent_id: &AgentId, generation: u64, lines: Option<Vec<String>>) {
+        self.cached_agent = Some(agent_id.clone());
+        self.generation = generation;
+        self.lines = lines;
+    }
+
+    /// Invalidate the cache for `agent_id` (review fix #8).
+    fn clear(&mut self, agent_id: &AgentId) {
+        if self.cached_agent.as_ref() == Some(agent_id) {
+            self.lines = None;
+            self.cached_agent = None;
+        }
+    }
+}
+
+/// Strip the last `n` lines from `lines`, returning the remaining prefix
+/// (issue #198 review fix #1). The live snapshot already represents the
+/// visible pane, so the history capture must exclude those rows.
+#[must_use]
+fn strip_trailing_rows(lines: Vec<String>, n: usize) -> Vec<String> {
+    let keep = lines.len().saturating_sub(n);
+    lines.into_iter().take(keep).collect()
 }
 
 /// Real tmux-based runtime manager.
@@ -301,6 +416,12 @@ pub struct TmuxRuntimeManager {
     /// Terminal dimensions.
     rows: u16,
     cols: u16,
+    /// Monotonically increasing PTY-output generation counter (issue #198).
+    /// Incremented by `take_dirty()`. The history cache compares the stored
+    /// generation to decide re-capture.
+    output_generation: AtomicU64,
+    /// Cached scrollback history (issue #198).
+    history_cache: HistoryCache,
 }
 
 /// Move the current viewer (if any) out of the manager and drop it on a
@@ -328,6 +449,8 @@ impl TmuxRuntimeManager {
             clipboard_enforced: HashSet::new(),
             rows,
             cols,
+            output_generation: AtomicU64::new(0),
+            history_cache: HistoryCache::default(),
         }
     }
 
@@ -407,6 +530,9 @@ impl TmuxRuntimeManager {
             drop_viewer_in_background(&mut self.viewer);
         }
 
+        // Invalidate scrollback cache (fix #8).
+        self.history_cache.clear(agent_id);
+
         let _ = self
             .dead_signatures
             .put(agent_id.clone(), session.launch_signature.clone());
@@ -433,6 +559,11 @@ impl TmuxRuntimeManager {
         // Check for duplicate runtime mapping in this process.
         if self.sessions.contains_key(agent_id) {
             return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
+        }
+
+        // Fresh spawn (not reattach): invalidate stale cache (fix #8).
+        if !allow_reattach {
+            self.history_cache.clear(agent_id);
         }
 
         let session_name = RuntimeSession::session_name_for(agent_id);
@@ -636,6 +767,9 @@ impl RuntimeManager for TmuxRuntimeManager {
         // recreated session with the same name re-enforces on next attach.
         self.clipboard_enforced.remove(&session.session_name);
 
+        // Invalidate scrollback cache for this agent (fix #8).
+        self.history_cache.clear(agent_id);
+
         // If attached, clear attachment and drop viewer.
         if self.attached_agent_id.as_ref() == Some(agent_id) {
             self.attached_agent_id = None;
@@ -742,7 +876,23 @@ impl RuntimeManager for TmuxRuntimeManager {
     }
 
     fn take_dirty(&self) -> bool {
-        self.viewer.as_ref().is_some_and(AttachedViewer::take_dirty)
+        let dirty = self.viewer.as_ref().is_some_and(AttachedViewer::take_dirty);
+        // Bump the generation whenever the render-decision path consumes new
+        // PTY data. The history cache compares the stored generation to this
+        // counter to decide re-capture, fully decoupled from the volatile
+        // dirty flag (issue #198 review fix).
+        if dirty {
+            self.output_generation.fetch_add(1, Ordering::Relaxed);
+        }
+        dirty
+    }
+
+    fn is_dirty(&self) -> bool {
+        self.viewer.as_ref().is_some_and(AttachedViewer::is_dirty)
+    }
+
+    fn output_generation(&self) -> u64 {
+        self.output_generation.load(Ordering::Relaxed)
     }
 
     fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession> {
@@ -787,98 +937,64 @@ impl RuntimeManager for TmuxRuntimeManager {
 
         Some(snapshot)
     }
+
+    fn capture_history(&mut self) -> Option<Vec<String>> {
+        let agent_id = self.attached_agent_id.clone()?;
+        let session_name = self
+            .sessions
+            .get(&agent_id)
+            .map(|s| s.session_name.clone())?;
+
+        // Remote sessions do not support local capture-pane history.
+        let is_remote = self
+            .sessions
+            .get(&agent_id)
+            .is_some_and(|s| s.launch_signature.remote.enabled);
+        if is_remote {
+            return None;
+        }
+
+        // Cache hit: same agent + generation + not dirty → reuse (fix #2/#10).
+        // The generation counter increments on take_dirty(). Also treat a
+        // currently-dirty viewer as a cache miss so input-driven refresh does
+        // not serve stale lines before take_dirty() bumps the generation.
+        let generation = self.output_generation();
+        let is_currently_dirty = self.is_dirty();
+        if !is_currently_dirty {
+            if let Some(cached) = self.history_cache.get(&agent_id, generation) {
+                return Some(cached.clone());
+            }
+        }
+
+        // Cache miss / dirty: re-capture. On transient failure, return prior
+        // cache (issue #198 review fix #9).
+        let Some(raw_lines) = commands::capture_pane_history(&session_name, HISTORY_LINE_CAP)
+        else {
+            if let Some(prior) = self.history_cache.get_fallback(&agent_id) {
+                debug!(session_name = %session_name, "capture-pane failed; retaining prior cache");
+                return Some(prior.clone());
+            }
+            return None;
+        };
+
+        // Strip the visible pane rows (live snapshot already has them).
+        let live_rows = self.snapshot().map_or(0, |s| s.rows);
+        let lines = strip_trailing_rows(raw_lines, live_rows);
+
+        // Review fix #9: do NOT strip trailing blank lines — they may be real
+        // blank output, not tmux padding.
+        // Review fix #7: cache the empty result too so we don't shell out
+        // every frame.
+        self.history_cache
+            .store(&agent_id, generation, Some(lines.clone()));
+
+        if lines.is_empty() {
+            return None;
+        }
+        Some(lines)
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // The `dead_signatures` field is private and the real mutating methods
-    // (`mark_session_dead`, `kill`) require a live tmux session to exercise
-    // end-to-end, which is not unit-test friendly. Instead this test targets
-    // the bound directly: it constructs an `LruCache` with the production
-    // capacity constant and proves that exceeding it evicts the oldest entries
-    // while never growing past the cap. This is the property the field relies
-    // on to prevent unbounded memory growth from repeated kill/recreate cycles.
-    #[test]
-    fn dead_signatures_cache_is_bounded_by_max_dead_signatures() {
-        let cap = MAX_DEAD_SIGNATURES.get();
-        let mut cache: LruCache<AgentId, LaunchSignature> = LruCache::new(MAX_DEAD_SIGNATURES);
-
-        // Insert well beyond the capacity.
-        for i in 0..cap + 10 {
-            let id = AgentId(format!("agent-{i}"));
-            let _ = cache.put(
-                id,
-                LaunchSignature {
-                    work_dir: std::path::PathBuf::from("/tmp"),
-                    profile: "default".into(),
-                    mode_flags: vec![],
-                    llxprt_debug: String::new(),
-                    pass_continue: true,
-                    sandbox_enabled: false,
-                    sandbox_engine: crate::domain::SandboxEngine::Podman,
-                    sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-                    remote: crate::domain::RemoteRepositorySettings::default(),
-                    agent_kind: crate::domain::AgentKind::Llxprt,
-                },
-            );
-        }
-
-        // The cache must never exceed the configured bound.
-        assert_eq!(cache.len(), cap);
-
-        // The oldest entries (agent-0 .. agent-9) were evicted; the most recent
-        // entries survive because they are the ones most likely to be relaunched.
-        assert!(cache.peek(&AgentId("agent-0".into())).is_none());
-        assert!(cache.peek(&AgentId("agent-9".into())).is_none());
-        assert!(
-            cache
-                .peek(&AgentId(format!("agent-{}", cap + 10 - 1)))
-                .is_some()
-        );
-    }
-
-    #[test]
-    fn clipboard_passthrough_tracking_memoizes_per_session() {
-        let mut mgr = TmuxRuntimeManager::new(40, 120);
-
-        // Initially nothing is enforced.
-        assert!(!mgr.clipboard_passthrough_enforced("jefe-agent-a"));
-        assert!(!mgr.clipboard_passthrough_enforced("jefe-agent-b"));
-
-        // Recording a session marks only that session.
-        mgr.record_clipboard_passthrough("jefe-agent-a");
-        assert!(mgr.clipboard_passthrough_enforced("jefe-agent-a"));
-        assert!(!mgr.clipboard_passthrough_enforced("jefe-agent-b"));
-
-        // Recording again is idempotent (HashSet dedup).
-        mgr.record_clipboard_passthrough("jefe-agent-a");
-        assert!(mgr.clipboard_passthrough_enforced("jefe-agent-a"));
-
-        // A second session is tracked independently.
-        mgr.record_clipboard_passthrough("jefe-agent-b");
-        assert!(mgr.clipboard_passthrough_enforced("jefe-agent-a"));
-        assert!(mgr.clipboard_passthrough_enforced("jefe-agent-b"));
-    }
-
-    #[test]
-    fn stub_take_dirty_always_returns_false() {
-        let mgr = StubRuntimeManager::default();
-        // The stub has no real PTY, so the dirty flag is always false.
-        assert!(
-            !mgr.take_dirty(),
-            "StubRuntimeManager should never be dirty"
-        );
-    }
-
-    #[test]
-    fn tmux_take_dirty_returns_false_without_viewer() {
-        let mgr = TmuxRuntimeManager::new(40, 120);
-        // No viewer attached → take_dirty must return false (not panic).
-        assert!(
-            !mgr.take_dirty(),
-            "take_dirty should return false when no viewer is attached"
-        );
-    }
-}
+#[path = "history_tests.rs"]
+mod history_tests;

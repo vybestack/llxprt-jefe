@@ -28,6 +28,8 @@ pub struct DashboardProps {
     pub theme_name: String,
     /// Terminal snapshot for the active agent's PTY.
     pub terminal_snapshot: Option<TerminalSnapshot>,
+    /// Retained scrollback history lines for the attached terminal (issue #198).
+    pub history_lines: Vec<String>,
 }
 
 /// The main dashboard screen: sidebar + middle (agents + terminal) + preview.
@@ -205,6 +207,8 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                             colors: colors.clone(),
                             selection: selection,
                             session_live: session_live,
+                            history_lines: props.history_lines.clone(),
+                            terminal_history_offset: state.and_then(|s| s.terminal_history_offset),
                         )
                     }
                 }

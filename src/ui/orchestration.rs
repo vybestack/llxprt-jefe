@@ -95,6 +95,7 @@ pub fn build_screen_element(
     colors: &ThemeColors,
     theme_name: &str,
     terminal_snapshot: Option<crate::runtime::TerminalSnapshot>,
+    history_lines: Vec<String>,
 ) -> AnyElement<'static> {
     match snapshot.screen_mode {
         ScreenMode::Dashboard => element! {
@@ -103,6 +104,7 @@ pub fn build_screen_element(
                 colors: Some(colors.clone()),
                 theme_name: theme_name.to_owned(),
                 terminal_snapshot: terminal_snapshot,
+                history_lines: history_lines,
             )
         }
         .into_any(),
