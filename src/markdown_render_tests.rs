@@ -875,13 +875,19 @@ fn nested_list_in_tight_list_stays_tight() {
         .position(|l| l.contains("sub"))
         .unwrap_or(usize::MAX);
     assert_ne!(i, usize::MAX, "sub-list item found: {out:?}");
-    // The line after "sub" must NOT be blank (tight list).
-    if i + 1 < lines.len() {
-        assert!(
-            !lines[i + 1].is_empty(),
-            "no blank between nested item and next sibling in tight list: {out:?}"
-        );
-    }
+    // The line after "sub" must exist (the `- b` sibling) and must NOT be
+    // blank (tight list) — a missing sibling would make the check vacuous.
+    let Some(next) = lines.get(i + 1) else {
+        panic!("next sibling after nested item missing: {out:?}");
+    };
+    assert!(
+        !next.is_empty(),
+        "no blank between nested item and next sibling in tight list: {out:?}"
+    );
+    assert!(
+        next.contains("* b"),
+        "next sibling must render after the nested item: {out:?}"
+    );
 }
 
 // ── CHANGE 4: ban U+200B (zero-width space) ──────────────────────────

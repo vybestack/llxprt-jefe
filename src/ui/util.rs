@@ -91,9 +91,11 @@ pub fn format_iso_date(iso: &str) -> String {
 fn parse_date(s: &str) -> Option<(i32, usize, u32)> {
     let s = s.trim();
     let mut parts = s.split('-');
-    let year_s = parts.next()?.trim();
-    let month_s = parts.next()?.trim();
-    let day_s = parts.next()?.trim();
+    // Components are NOT trimmed: internal whitespace (`2026 - 07 - 06`)
+    // must fail the width check below, matching the strict 4-2-2 contract.
+    let year_s = parts.next()?;
+    let month_s = parts.next()?;
+    let day_s = parts.next()?;
     // No trailing components allowed.
     if parts.next().is_some() {
         return None;
@@ -160,8 +162,20 @@ fn parse_hhmm(time: &str) -> Option<String> {
         (None, _) => {}
         (Some(ss_s), None) => {
             // Fractional seconds (`53.123`) are valid ISO-8601; validate the
-            // integer part and drop the fraction like the seconds themselves.
-            let ss_s = ss_s.trim().split('.').next().unwrap_or_default();
+            // whole field (all-digit, non-empty fraction) and drop the
+            // fraction like the seconds themselves — `53.foo`/`53.` mean the
+            // timestamp is suspect, so the time component drops.
+            let seconds = ss_s.trim();
+            let ss_s = match seconds.split_once('.') {
+                Some((integer, fraction))
+                    if !fraction.is_empty()
+                        && fraction.bytes().all(|byte| byte.is_ascii_digit()) =>
+                {
+                    integer
+                }
+                Some(_) => return None,
+                None => seconds,
+            };
             if ss_s.len() != 2 {
                 return None;
             }
@@ -479,7 +493,9 @@ mod tests {
     }
 
     /// Fractional seconds are valid ISO-8601 and must not defeat the HH:MM
-    /// extraction (the integer part validates; the fraction drops).
+    /// extraction (the integer part validates; the fraction drops). Malformed
+    /// fractions (`53.foo`, `53.`) mean the timestamp is suspect, so the time
+    /// component drops to a date-only render.
     #[test]
     fn format_iso_date_fractional_seconds() {
         assert_eq!(
@@ -490,5 +506,7 @@ mod tests {
             format_iso_date("2026-07-06T15:26:53.123+02:00"),
             "Jul 6, 2026 15:26"
         );
+        assert_eq!(format_iso_date("2026-07-06T15:26:53.fooZ"), "Jul 6, 2026");
+        assert_eq!(format_iso_date("2026-07-06T15:26:53.Z"), "Jul 6, 2026");
     }
 }

@@ -114,11 +114,11 @@ const LIST_INDENT: &str = "  ";
 
 /// Characters that must never reach the terminal screen: ASCII/C1 control
 /// characters (except tab), Unicode bidi override/format characters usable
-/// for Trojan Source display spoofing, and U+200B (zero-width space, which
-/// enables invisible-text spoofing and is not needed for emoji sequences —
-/// ZWJ/ZWNJ and variation selectors stay allowed). Legitimate Format chars
-/// like ZWJ (U+200D), ZWNJ (U+200C), and variation selectors are NOT banned
-/// so emoji sequences survive intact.
+/// for Trojan Source display spoofing, and the invisible-text spoofing pair
+/// U+200B (zero-width space) / U+FEFF (BOM / zero-width no-break space) —
+/// neither is needed for emoji sequences. Legitimate Format chars like ZWJ
+/// (U+200D), ZWNJ (U+200C), and variation selectors are NOT banned so emoji
+/// sequences survive intact.
 fn banned_on_screen(c: char) -> bool {
     (c.is_control() && c != '\t')
         || matches!(
@@ -129,6 +129,7 @@ fn banned_on_screen(c: char) -> bool {
                 | '\u{200F}'
                 | '\u{061C}'
                 | '\u{200B}'
+                | '\u{FEFF}'
         )
 }
 

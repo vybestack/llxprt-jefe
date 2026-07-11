@@ -178,3 +178,17 @@ fn nbsp_decodes_to_nonbreaking_space() {
         "&#xA0; matches"
     );
 }
+
+/// A multi-byte character straddling the entity-scan window boundary must
+/// not panic: `&aaaaaaaaaa中` puts byte offset 12 (MAX_ENTITY_LEN) inside
+/// the 3-byte CJK char (crafted untrusted markdown must never panic).
+#[test]
+fn entity_window_on_multibyte_boundary_does_not_panic() {
+    let input = format!("&{}中", "a".repeat(10));
+    let out = strip_html_to_text(&input);
+    assert_eq!(out, input, "unterminated entity passes through: {out:?}");
+    // Same shape with a 4-byte emoji on the boundary.
+    let input2 = format!("&{}😀", "a".repeat(9));
+    let out2 = strip_html_to_text(&input2);
+    assert_eq!(out2, input2, "emoji boundary passes through: {out2:?}");
+}

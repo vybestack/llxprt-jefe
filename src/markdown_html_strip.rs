@@ -173,8 +173,13 @@ fn consume_declaration(bytes: &[u8], start: usize) -> usize {
 fn consume_entity(html: &str, start: usize) -> (usize, String) {
     let tail = &html[start..];
     // Bound the lookup so a stray `&` near end-of-input never scans the whole
-    // remaining string repeatedly.
-    let window_end = tail.len().min(MAX_ENTITY_LEN);
+    // remaining string repeatedly. The cap is a byte offset that can land
+    // inside a multi-byte char (`&aaaaaaaaaa中`), so back off to a char
+    // boundary before slicing — indexing mid-char panics on crafted input.
+    let mut window_end = tail.len().min(MAX_ENTITY_LEN);
+    while window_end > 0 && !tail.is_char_boundary(window_end) {
+        window_end -= 1;
+    }
     let Some(rel_semi) = tail[..window_end].find(';') else {
         return (start + 1, "&".to_string());
     };

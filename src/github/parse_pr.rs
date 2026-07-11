@@ -805,7 +805,7 @@ fn parse_thread_review_id(thread_node: &Value) -> Option<String> {
             .unwrap_or("(unknown)");
         tracing::warn!(
             thread_id,
-            "review thread missing parent review id; thread will be ungrouped"
+            "review thread missing parent review id; grouping will use the fallback review"
         );
     }
     review_id
