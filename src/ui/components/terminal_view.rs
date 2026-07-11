@@ -294,6 +294,13 @@ fn is_default_fg(color: iocraft::Color) -> bool {
 ///   A run whose effective background is still `Reset` after resolution yields
 ///   `None` (transparent).
 ///
+/// Override guarantees an opaque, visible result even if the sourced theme
+/// color is itself `Reset`: a `Reset` theme channel is normalized to a
+/// concrete fallback (black bg / white fg) so override can never produce an
+/// unintended transparent background or invisible foreground. Today
+/// `ResolvedColors` always supplies concrete `Rgb` values, so this is a
+/// defensive contract guarantee rather than a live code path.
+///
 /// Transformed cells (inverse, selection, cursor) already carry concrete ANSI
 /// contrast colors from the runtime layer, so they are never `Reset` and thus
 /// retain their high-contrast appearance in both modes — cursors and selection
@@ -303,18 +310,49 @@ fn resolve_run_colors(
     style: &crate::runtime::TerminalCellStyle,
     theme_override: TerminalThemeOverride,
 ) -> (iocraft::Color, Option<iocraft::Color>) {
-    let fg = if theme_override.enabled && is_default_fg(style.fg) {
-        theme_override.fg
+    if theme_override.enabled {
+        // Default channels become the theme color, normalized to a concrete
+        // fallback when the theme color itself is Reset so override always
+        // paints an opaque background and a visible foreground.
+        let fg = if is_default_fg(style.fg) {
+            normalize_override_fg(theme_override.fg)
+        } else {
+            style.fg
+        };
+        let bg = if is_default_bg(style.bg) {
+            normalize_override_bg(theme_override.bg)
+        } else {
+            style.bg
+        };
+        (fg, Some(bg))
     } else {
-        style.fg
-    };
-    let bg = if theme_override.enabled && is_default_bg(style.bg) {
-        theme_override.bg
+        let bg = if is_default_bg(style.bg) {
+            None
+        } else {
+            Some(style.bg)
+        };
+        (style.fg, bg)
+    }
+}
+
+/// Concrete foreground to use when override is enabled but the theme fg is the
+/// terminal default. White is visible against any jefe background color.
+fn normalize_override_fg(color: iocraft::Color) -> iocraft::Color {
+    if is_default_fg(color) {
+        iocraft::Color::White
     } else {
-        style.bg
-    };
-    let bg = if is_default_bg(bg) { None } else { Some(bg) };
-    (fg, bg)
+        color
+    }
+}
+
+/// Concrete background to use when override is enabled but the theme bg is the
+/// terminal default. Black is opaque and matches the terminal default look.
+fn normalize_override_bg(color: iocraft::Color) -> iocraft::Color {
+    if is_default_bg(color) {
+        iocraft::Color::Black
+    } else {
+        color
+    }
 }
 
 /// Paint the styled terminal cells onto the canvas as style-runs.
@@ -704,5 +742,28 @@ mod tests {
         );
         assert_eq!(fg, Color::Red);
         assert_eq!(bg, Some(Color::Blue));
+    }
+
+    #[test]
+    fn resolve_override_normalizes_reset_theme_bg_to_opaque() {
+        // Defensive contract (CodeRabbit): even if the sourced theme bg is
+        // Reset, override must paint an opaque background (black fallback)
+        // rather than leaving the cell transparent.
+        let (_fg, bg) = resolve_run_colors(
+            &run_style(Color::Reset, Color::Reset),
+            override_on(Color::Reset, Color::Reset),
+        );
+        assert_eq!(bg, Some(Color::Black), "override must be opaque");
+    }
+
+    #[test]
+    fn resolve_override_normalizes_reset_theme_fg_to_visible() {
+        // Defensive contract: a Reset theme fg normalizes to white so override
+        // never produces an invisible foreground.
+        let (fg, _bg) = resolve_run_colors(
+            &run_style(Color::Reset, Color::Reset),
+            override_on(Color::Reset, Color::Reset),
+        );
+        assert_eq!(fg, Color::White, "override fg must be visible");
     }
 }
