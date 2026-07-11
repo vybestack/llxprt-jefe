@@ -948,10 +948,11 @@ fn shift_d_blocked_when_composer_active() {
         text: String::new(),
         cursor: 0,
     };
-    // When a composer is active, keys go to the inline handler, not the C/D handler.
+    // When a composer is active, Shift-D routes to the inline composer (as a
+    // typed 'D' char), NOT to the delete-confirm handler.
     let result = resolve_issues_key_event(&state, &key(KeyCode::Char('D')));
     assert!(
-        !matches!(result, Some(AppEvent::OpenDeleteIssueConfirm)),
-        "Shift-D should NOT open delete confirm when composer is active"
+        matches!(result, Some(AppEvent::InlineChar('D'))),
+        "Shift-D should route to the inline composer when active, got {result:?}"
     );
 }

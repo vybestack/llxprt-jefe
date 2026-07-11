@@ -96,6 +96,11 @@ pub struct IssueCommentsPagePending {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssueMutationPending {
     pub scope_repo_id: RepositoryId,
+    /// Monotonic mutation id allocated from `next_mutation_id` (NOT the issue
+    /// number). Used to match a success/failure result back to the in-flight
+    /// mutation. Distinct from `IssueLifecycleMutationPending.mutation_id`
+    /// (the close/delete pipeline) and `IssuesState.next_mutation_id` (the
+    /// allocator).
     pub id: u64,
     pub target: InlineState,
 }

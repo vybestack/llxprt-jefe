@@ -320,6 +320,21 @@ fn open_delete_confirm_blocked_when_composer_active() {
     );
 }
 
+#[test]
+fn close_issue_blocked_when_composer_active() {
+    let mut state = issues_state_with_list("repo-1");
+    state.issues_state.inline_state = InlineState::Composer {
+        target: crate::state::ComposerTarget::NewComment,
+        text: String::new(),
+        cursor: 0,
+    };
+    let state = state.apply(AppEvent::CloseIssue);
+    assert!(
+        state.issues_state.close_mutation_pending.is_none(),
+        "close must NOT begin while composer is active"
+    );
+}
+
 // ── Delete result ─────────────────────────────────────────────────────────
 
 #[test]
