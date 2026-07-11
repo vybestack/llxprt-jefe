@@ -47,6 +47,9 @@ pub enum InputMode {
     /// @plan PLAN-20260624-PR-MODE.P03
     /// @requirement REQ-PR-002
     PrsChooser,
+    ActionsNormal,
+    ActionsFilter,
+    ActionsSearch,
 }
 
 /// Search-mode key routing result.
@@ -69,7 +72,8 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
         ModalState::NewRepository { .. }
         | ModalState::EditRepository { .. }
         | ModalState::NewAgent { .. }
-        | ModalState::EditAgent { .. } => return InputMode::Form,
+        | ModalState::EditAgent { .. }
+        | ModalState::WorkflowDispatch { .. } => return InputMode::Form,
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
         | ModalState::ConfirmKillAgent { .. }
@@ -118,6 +122,17 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
             return InputMode::PrsFilter;
         }
         return InputMode::PrsNormal;
+    }
+
+    // Actions mode detection
+    if state.screen_mode == ScreenMode::DashboardActions {
+        if state.actions_state.ui.search_input_focused {
+            return InputMode::ActionsSearch;
+        }
+        if state.actions_state.ui.filter_ui_open {
+            return InputMode::ActionsFilter;
+        }
+        return InputMode::ActionsNormal;
     }
 
     if state.terminal_focused && state.pane_focus == PaneFocus::Terminal {

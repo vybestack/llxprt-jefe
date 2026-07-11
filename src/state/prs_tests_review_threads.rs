@@ -7,9 +7,8 @@
 use super::prs_test_fixtures::prs_state_with_detail;
 use crate::domain::{IssueComment, PrReview, PrReviewState, PrReviewThread, RepositoryId};
 use crate::state::AppState;
-use crate::state::types::{
-    AppEvent, ComposerTarget, InlineState, PrDetailSubfocus, PrThreadResolvePending,
-};
+use crate::state::events::AppEvent;
+use crate::state::types::{ComposerTarget, InlineState, PrDetailSubfocus, PrThreadResolvePending};
 
 /// Helper: build a review thread with the given resolved state + path/line.
 fn make_thread(

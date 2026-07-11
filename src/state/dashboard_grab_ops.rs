@@ -17,14 +17,13 @@ impl AppState {
             return;
         }
         match &self.dashboard_grab {
-            Some(DashboardGrabPane::Repository { visible_index }) => {
+            Some(DashboardGrabPane::Repository { visible_index })
                 if self
                     .visible_repository_indices()
                     .get(*visible_index)
-                    .is_none()
-                {
-                    self.dashboard_grab = None;
-                }
+                    .is_none() =>
+            {
+                self.dashboard_grab = None;
             }
             Some(DashboardGrabPane::Agent {
                 repository_id,
@@ -43,7 +42,7 @@ impl AppState {
                     self.dashboard_grab = None;
                 }
             }
-            None => {}
+            Some(DashboardGrabPane::Repository { .. }) | None => {}
         }
     }
 

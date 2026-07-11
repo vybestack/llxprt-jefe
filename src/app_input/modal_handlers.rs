@@ -416,19 +416,195 @@ fn apply_theme_picker_selection(app_state: &mut AppStateHandle, ctx: &SharedCont
     apply_and_persist(app_state, ctx, AppEvent::ThemePickerConfirm);
 }
 fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    // Check if this is a WorkflowDispatch modal submit — route it through
+    // the Actions orchestration so the dispatch actually happens.
+    let dispatch_info = extract_workflow_dispatch_info(app_state);
+    if let Some(info) = dispatch_info {
+        handle_workflow_dispatch_submit(app_state, ctx, info);
+        return;
+    }
+
+    // Validate local installed-kind availability BEFORE applying SubmitForm
+    // (which closes the modal). This keeps the modal open with a visible
+    // error when the selected agent kind is not installed for a local
+    // repository. Remote repositories bypass the check.
+    if !validate_form_kind_available(app_state) {
+        return;
+    }
+
     let is_new_agent = {
         let state_ro = app_state.read();
         matches!(state_ro.modal, ModalState::NewAgent { .. })
     };
 
     let launch_after_submit = submit_form_and_snapshot_launch(app_state, ctx, is_new_agent);
-    if let Some((agent_id, work_dir, signature)) = launch_after_submit {
-        if !preflight_or_prompt(app_state, ctx, &agent_id, &signature) {
-            return;
-        }
-        focus_terminal_after_submit(app_state, ctx);
-        execute_agent_launch(app_state, ctx, &agent_id, &work_dir, &signature, false);
+    let Some((agent_id, work_dir, signature)) = launch_after_submit else {
+        return;
+    };
+
+    // Enforce local installed-kind availability before any launch attempt.
+    // Remote repositories skip this because remote PATH resolution is
+    // authoritative.
+    if !super::availability::local_kind_available_or_error(
+        app_state,
+        signature.agent_kind,
+        &signature.remote,
+    ) {
+        return;
     }
+
+    if !preflight_or_prompt(app_state, ctx, &agent_id, &signature) {
+        return;
+    }
+    focus_terminal_after_submit(app_state, ctx);
+    execute_agent_launch(app_state, ctx, &agent_id, &work_dir, &signature, false);
+}
+
+/// Pre-submit validation: check that the selected agent kind is locally
+/// installed for local repositories. For repository forms, validates the
+/// `default_agent_kind` field. For agent forms, validates the `agent_kind`
+/// field. Sets a visible error and returns `false` (modal stays open) when
+/// the kind is not installed and the repository is not remote-enabled.
+fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
+    use jefe::domain::{AgentKind, RemoteRepositorySettings};
+
+    let state = app_state.read();
+    let selection = match &state.modal {
+        ModalState::NewRepository { fields, .. } | ModalState::EditRepository { fields, .. } => {
+            let kind = AgentKind::from_form_value(&fields.default_agent_kind).unwrap_or_default();
+            let remote = RemoteRepositorySettings {
+                enabled: fields.remote_enabled,
+                login_user: fields.login_user.clone(),
+                host: fields.host.clone(),
+                run_as_user: fields.run_as_user.clone(),
+                setup_env_default: fields.setup_env_default,
+            };
+            (kind, remote)
+        }
+        ModalState::NewAgent {
+            repository_id,
+            fields,
+            ..
+        } => {
+            let kind = AgentKind::from_form_value(&fields.agent_kind).unwrap_or_default();
+            let remote = state
+                .repository_by_id(repository_id)
+                .map_or_else(RemoteRepositorySettings::default, |repo| {
+                    repo.remote.clone()
+                });
+            (kind, remote)
+        }
+        ModalState::EditAgent { id, fields, .. } => {
+            let kind = AgentKind::from_form_value(&fields.agent_kind).unwrap_or_default();
+            let remote = state
+                .repository_for_agent(id)
+                .map_or_else(RemoteRepositorySettings::default, |repo| {
+                    repo.remote.clone()
+                });
+            (kind, remote)
+        }
+        _ => return true,
+    };
+    drop(state);
+    let (kind, remote) = selection;
+
+    super::availability::local_kind_available_or_error(app_state, kind, &remote)
+}
+
+/// Extract workflow dispatch form data if the modal is a WorkflowDispatch
+/// with focus on Submit or Cancel.
+struct WorkflowDispatchInfo {
+    workflow_id: String,
+    ref_name: String,
+    inputs_raw: String,
+    is_cancel: bool,
+}
+
+fn extract_workflow_dispatch_info(app_state: &AppStateHandle) -> Option<WorkflowDispatchInfo> {
+    let (workflow_id, ref_name, inputs_raw, is_cancel, is_submit) = {
+        let state = app_state.read();
+        let ModalState::WorkflowDispatch {
+            workflow,
+            fields,
+            focus,
+            ..
+        } = &state.modal
+        else {
+            return None;
+        };
+        let is_cancel = matches!(focus, jefe::state::WorkflowDispatchFormFocus::Cancel);
+        let is_submit = matches!(focus, jefe::state::WorkflowDispatchFormFocus::Submit);
+        let info = (
+            workflow.id.to_string(),
+            fields.ref_name.clone(),
+            fields.inputs.clone(),
+            is_cancel,
+            is_submit,
+        );
+        drop(state);
+        info
+    };
+    if !is_submit && !is_cancel {
+        return None;
+    }
+    Some(WorkflowDispatchInfo {
+        workflow_id,
+        ref_name,
+        inputs_raw,
+        is_cancel,
+    })
+}
+
+/// Handle a WorkflowDispatch submit: close the modal and dispatch the workflow
+/// (or just close if Cancel).
+fn handle_workflow_dispatch_submit(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    info: WorkflowDispatchInfo,
+) {
+    if info.is_cancel {
+        close_modal_and_persist(app_state, ctx);
+        return;
+    }
+    // Validate ref_name
+    let trimmed_ref = info.ref_name.trim();
+    if trimmed_ref.is_empty() {
+        let mut state = app_state.write();
+        state.actions_state.error = Some("Ref name is required".to_string());
+        let persisted = to_persisted_state(&state);
+        drop(state);
+        persist_state(ctx, &persisted);
+        return;
+    }
+    // Parse inputs (cheap, no state access).
+    let inputs = jefe::state::AppState::parse_workflow_dispatch_inputs(&info.inputs_raw);
+    // Validate the repository BEFORE closing the modal: if there is no
+    // selected repository, surface an error and keep the modal open so the
+    // user sees the failure instead of a silent no-op dispatch.
+    let scope_repo_id = {
+        let state = app_state.read();
+        state.selected_repository().map(|r| r.id.clone())
+    };
+    // Validate the repository BEFORE closing the modal: if there is no
+    // selected repository, surface an error and keep the modal open so the
+    // user sees the failure instead of a silent no-op dispatch.
+    let Some(scope_repo_id) = scope_repo_id else {
+        let mut state = app_state.write();
+        state.actions_state.error = Some("No repository selected".to_string());
+        let persisted = to_persisted_state(&state);
+        drop(state);
+        persist_state(ctx, &persisted);
+        return;
+    };
+    // All validation passed — close the modal now so the dispatch proceeds.
+    close_modal_and_persist(app_state, ctx);
+    let message = jefe::messages::ActionsMessage::WorkflowDispatchSubmitted {
+        scope_repo_id,
+        workflow_id: info.workflow_id,
+        ref_name: trimmed_ref.to_string(),
+        inputs,
+    };
+    super::actions_orchestration::dispatch_actions_message(app_state, ctx, message);
 }
 
 fn submit_form_and_snapshot_launch(
@@ -481,7 +657,10 @@ fn handle_form_space(app_state: &mut AppStateHandle, ctx: &SharedContext) -> Opt
             Some(AppEvent::FormToggleCheckbox)
         }
         FocusedFormField::Agent(
-            AgentFormFocus::PassContinue | AgentFormFocus::Sandbox | AgentFormFocus::Shortcut,
+            AgentFormFocus::AgentKind
+            | AgentFormFocus::PassContinue
+            | AgentFormFocus::Sandbox
+            | AgentFormFocus::Shortcut,
         ) => Some(AppEvent::FormToggleCheckbox),
         FocusedFormField::Agent(AgentFormFocus::SandboxEngine) => {
             cycle_sandbox_engine(app_state, ctx);

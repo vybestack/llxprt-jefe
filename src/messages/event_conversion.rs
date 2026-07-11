@@ -7,8 +7,9 @@
 use crate::state::AppEvent;
 
 use super::{
-    AppMessage, IssuesMessage, ModalMessage, PersistenceMessage, PullRequestsMessage,
-    RepositoryAgentMessage, RuntimeMessage, SystemMessage, ThemeMessage, UiNavigationMessage,
+    ActionsMessage, AppMessage, IssuesMessage, ModalMessage, PersistenceMessage,
+    PullRequestsMessage, RepositoryAgentMessage, RuntimeMessage, SystemMessage, ThemeMessage,
+    UiNavigationMessage,
 };
 
 impl From<AppEvent> for AppMessage {
@@ -141,6 +142,8 @@ impl AppMessage {
     fn from_issues_event(event: AppEvent) -> Self {
         if Self::is_issues_event(&event) {
             Self::Issues(IssuesMessage::from_app_event(event))
+        } else if Self::is_actions_event(&event) {
+            Self::Actions(ActionsMessage::from_app_event(event))
         } else {
             // @plan PLAN-20260624-PR-MODE.P03
             // @requirement REQ-PR-002
@@ -151,6 +154,57 @@ impl AppMessage {
     /// Whether the event belongs to the issues domain.
     fn is_issues_event(event: &AppEvent) -> bool {
         Self::is_issues_nav_event(event) || Self::is_issues_data_event(event)
+    }
+
+    /// Whether the event belongs to the actions domain.
+    fn is_actions_event(event: &AppEvent) -> bool {
+        matches!(
+            event,
+            AppEvent::EnterActionsMode
+                | AppEvent::ExitActionsMode
+                | AppEvent::RefocusActionsList
+                | AppEvent::ActionsReload
+                | AppEvent::ActionsNavigateUp
+                | AppEvent::ActionsNavigateDown
+                | AppEvent::ActionsNavigatePageUp
+                | AppEvent::ActionsNavigatePageDown
+                | AppEvent::ActionsNavigateHome
+                | AppEvent::ActionsNavigateEnd
+                | AppEvent::ActionsEnter
+                | AppEvent::ActionsCycleFocus
+                | AppEvent::ActionsCycleFocusReverse
+                | AppEvent::ActionsScrollDetailUp
+                | AppEvent::ActionsScrollDetailDown
+                | AppEvent::ActionsToggleJobExpand
+                | AppEvent::ActionsCollapseJob
+                | AppEvent::ActionsNavigateJobUp
+                | AppEvent::ActionsNavigateJobDown
+                | AppEvent::ActionsRunsLoaded { .. }
+                | AppEvent::ActionsRunsLoadFailed { .. }
+                | AppEvent::ActionsDetailLoaded { .. }
+                | AppEvent::ActionsDetailLoadFailed { .. }
+                | AppEvent::WorkflowsLoaded { .. }
+                | AppEvent::WorkflowsLoadFailed { .. }
+                | AppEvent::ActionsOpenFilterControls
+                | AppEvent::ActionsCloseFilterControls
+                | AppEvent::ActionsApplyFilter
+                | AppEvent::ActionsClearFilter
+                | AppEvent::ActionsClearDraftFilter
+                | AppEvent::ActionsFilterNavigateNext
+                | AppEvent::ActionsFilterNavigatePrev
+                | AppEvent::ActionsCycleFilterStatus
+                | AppEvent::ActionsFocusSearchInput
+                | AppEvent::ActionsBlurSearchInput
+                | AppEvent::ActionsSetSearchQuery { .. }
+                | AppEvent::ActionsApplySearch
+                | AppEvent::ActionsClearSearch
+                | AppEvent::ActionsUpdateDraftFilter { .. }
+                | AppEvent::OpenWorkflowDispatch(_)
+                | AppEvent::CloseWorkflowDispatch
+                | AppEvent::WorkflowDispatchSubmitted { .. }
+                | AppEvent::WorkflowDispatchSuccess { .. }
+                | AppEvent::WorkflowDispatchFailed { .. }
+        )
     }
 
     /// Whether the event is an issues navigation/lifecycle event.
@@ -255,6 +309,7 @@ impl From<AppMessage> for AppEvent {
             // @plan PLAN-20260624-PR-MODE.P03
             // @requirement REQ-PR-002
             AppMessage::PullRequests(message) => message.into(),
+            AppMessage::Actions(message) => message.into(),
             AppMessage::System(message) => message.into(),
         }
     }

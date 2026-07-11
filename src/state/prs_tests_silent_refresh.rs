@@ -16,7 +16,8 @@ use crate::domain::{
     RepositoryId,
 };
 use crate::state::AppState;
-use crate::state::types::{AppEvent, ScreenMode};
+use crate::state::events::AppEvent;
+use crate::state::types::ScreenMode;
 
 // ── Test fixtures ──────────────────────────────────────────────────────────
 

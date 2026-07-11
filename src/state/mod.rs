@@ -6,9 +6,19 @@
 //!
 //! Pseudocode reference: component-001 lines 01-12
 
+#[cfg(test)]
+mod actions_load_tests;
+mod actions_ops;
+#[cfg(test)]
+mod actions_tests;
 mod dashboard_grab_ops;
+mod events;
+mod form_build;
 mod form_cursor;
 mod form_ops;
+mod form_projection;
+mod form_runtime;
+mod form_workflow_dispatch;
 mod issues_inline_ops;
 mod issues_load_ops;
 mod issues_mutation_ops;
@@ -31,8 +41,14 @@ pub mod theme_picker_view;
 mod types;
 mod util;
 
+pub use events::*;
 pub use state_ops::{delete_selected_agent, delete_selected_repository};
 pub use types::*;
+
+pub use form_projection::{
+    AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds, effective_kinds_hint,
+    is_field_visible, kind_from_form_value, next_visible_focus, prev_visible_focus,
+};
 
 use tracing::{debug, trace};
 
@@ -334,13 +350,14 @@ impl AppState {
                 let handled = self.apply_issues_message(message);
                 debug_assert!(handled, "unhandled issues message in apply_message()");
             }
-            // @plan PLAN-20260624-PR-MODE.P05
-            // @requirement REQ-PR-001
-            // @pseudocode component-004 lines 86-94
             AppMessage::PullRequests(message) => {
                 let msg_debug = format!("{message:?}");
                 let handled = self.apply_prs_message(message);
                 debug_assert!(handled, "unhandled PullRequestsMessage: {msg_debug}");
+            }
+            AppMessage::Actions(message) => {
+                let handled = self.apply_actions_message(message);
+                debug_assert!(handled, "unhandled actions message in apply_message()");
             }
         }
 

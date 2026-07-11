@@ -7,10 +7,10 @@ use iocraft::prelude::*;
 
 use crate::state::{AppState, ModalState, ScreenMode};
 use crate::theme::ThemeColors;
-use crate::ui::screens::{IssuesScreen, PullRequestsScreen};
+use crate::ui::screens::{ActionsScreen, IssuesScreen, PullRequestsScreen, ThemePickerScreen};
 use crate::ui::{
     ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen,
-    ThemePickerScreen,
+    WorkflowDispatchForm,
 };
 
 /// Data needed to render a confirmation modal.
@@ -132,7 +132,32 @@ pub fn build_screen_element(
             )
         }
         .into_any(),
+        ScreenMode::DashboardActions => element! {
+            ActionsScreen(
+                state: Some(snapshot.clone()),
+                colors: Some(colors.clone()),
+                theme_name: theme_name.to_owned(),
+            )
+        }
+        .into_any(),
     }
+}
+
+/// Build a state+colors form modal element for a given iocraft component.
+///
+/// The repository/agent/workflow-dispatch forms all share the same
+/// `(state, colors)` prop shape; this macro keeps the modal dispatch free of
+/// repeated boilerplate (and under the too-many-lines gate).
+macro_rules! form_modal {
+    ($component:ident, $state:expr, $colors:expr) => {
+        element! {
+            $component(
+                state: Some($state.clone()),
+                colors: Some($colors.clone()),
+            )
+        }
+        .into_any()
+    };
 }
 
 /// Build the modal element for the current modal state, if any.
@@ -169,24 +194,15 @@ pub fn build_modal_element(
             }
             .into_any(),
         ),
-        ModalState::NewRepository { .. } | ModalState::EditRepository { .. } => Some(
-            element! {
-                NewRepositoryForm(
-                    state: Some(snapshot.clone()),
-                    colors: Some(colors.clone()),
-                )
-            }
-            .into_any(),
-        ),
-        ModalState::NewAgent { .. } | ModalState::EditAgent { .. } => Some(
-            element! {
-                NewAgentForm(
-                    state: Some(snapshot.clone()),
-                    colors: Some(colors.clone()),
-                )
-            }
-            .into_any(),
-        ),
+        ModalState::NewRepository { .. } | ModalState::EditRepository { .. } => {
+            Some(form_modal!(NewRepositoryForm, snapshot, colors))
+        }
+        ModalState::NewAgent { .. } | ModalState::EditAgent { .. } => {
+            Some(form_modal!(NewAgentForm, snapshot, colors))
+        }
+        ModalState::WorkflowDispatch { .. } => {
+            Some(form_modal!(WorkflowDispatchForm, snapshot, colors))
+        }
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
         | ModalState::ConfirmKillAgent { .. }

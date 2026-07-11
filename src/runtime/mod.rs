@@ -50,6 +50,7 @@ mod tests {
             sandbox_engine: crate::domain::SandboxEngine::Podman,
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
         };
 
         if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
@@ -78,6 +79,7 @@ mod tests {
             sandbox_engine: crate::domain::SandboxEngine::Podman,
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
         };
 
         if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
@@ -111,6 +113,7 @@ mod tests {
             sandbox_engine: crate::domain::SandboxEngine::Podman,
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
         };
 
         if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
@@ -135,6 +138,7 @@ mod tests {
             sandbox_engine: crate::domain::SandboxEngine::Podman,
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
         };
 
         if let Err(error) = mgr.spawn_session_fresh(&agent_id, &work_dir, &signature) {

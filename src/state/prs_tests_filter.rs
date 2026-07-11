@@ -6,7 +6,8 @@
 
 use crate::domain::{PrFilter, PrFilterState, Repository, RepositoryId};
 use crate::state::AppState;
-use crate::state::types::{AppEvent, ScreenMode};
+use crate::state::events::AppEvent;
+use crate::state::types::ScreenMode;
 
 /// Helper: PR-mode state with filter controls open and a selected repo.
 fn prs_filter_open_state() -> AppState {

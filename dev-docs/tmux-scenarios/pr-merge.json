@@ -13,6 +13,8 @@
     { "expect": "m merge" },
     { "capture": "pr-merge-keybind-bar" },
     { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
     { "waitForExit": 3000 }
   ]
 }

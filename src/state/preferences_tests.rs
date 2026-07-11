@@ -8,7 +8,8 @@ use crate::domain::{
     Repository, RepositoryId, UserPreferences,
 };
 use crate::state::AppState;
-use crate::state::types::{AppEvent, ScreenMode};
+use crate::state::events::AppEvent;
+use crate::state::types::ScreenMode;
 use crate::state::{ISSUE_FILTER_FIELD_COUNT, PR_FILTER_FIELD_COUNT};
 
 use super::prs_test_fixtures::prs_state_with_detail;

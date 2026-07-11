@@ -16,6 +16,7 @@ fn base_signature() -> LaunchSignature {
         sandbox_engine: SandboxEngine::Podman,
         sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: crate::domain::RemoteRepositorySettings::default(),
+        agent_kind: crate::domain::AgentKind::Llxprt,
     }
 }
 
@@ -164,6 +165,7 @@ fn tmux_scrub_env_args_strips_all_tmux_client_vars() {
 #[test]
 fn local_pane_command_scrubs_tmux_env_before_llxprt() {
     let plan_no_env = LocalLaunchPlan {
+        agent_kind: AgentKind::Llxprt,
         args: vec!["--continue".to_owned()],
         env: Vec::new(),
         warning: None,
@@ -182,6 +184,7 @@ fn local_pane_command_scrubs_tmux_env_before_llxprt() {
 
     // With an env assignment, the K=V must sit between the scrub and llxprt.
     let plan_with_env = LocalLaunchPlan {
+        agent_kind: AgentKind::Llxprt,
         args: Vec::new(),
         env: vec![("LLXPRT_DEBUG".to_owned(), "trace=1".to_owned())],
         warning: None,
@@ -339,4 +342,97 @@ fn launch_args_omits_continue_when_pass_continue_false() {
             .any(|arg| arg == "--continue"),
         "issue-driven launches must never pass --continue"
     );
+}
+
+#[test]
+fn code_puppy_launch_uses_only_supported_args() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.profile = "ignored-profile".to_owned();
+    signature.mode_flags = vec!["--yolo".to_owned()];
+    signature.pass_continue = true;
+    signature.sandbox_enabled = true;
+
+    assert_eq!(launch_args(&signature), vec!["-i"]);
+
+    let plan = local_launch_plan(&signature);
+    assert!(plan.env.is_empty());
+    let pane_args = local_pane_command_args(&plan);
+    assert!(pane_args.iter().any(|arg| arg == "code-puppy"));
+    assert!(!pane_args.iter().any(|arg| arg == "llxprt"));
+    assert!(!pane_args.iter().any(|arg| arg == "--continue"));
+    assert!(!pane_args.iter().any(|arg| arg == "--sandbox"));
+    assert!(!pane_args.iter().any(|arg| arg == "--profile-load"));
+}
+
+// ── Code Puppy strict args (issue #184) ───────────────────────────────────
+//
+// Code Puppy must output ONLY `-i` for normal launches, and `-i` plus the
+// single positional instruction for fresh (issue/PR-driven) sends. Arbitrary
+// mode_flags must never leak through.
+
+#[test]
+fn code_puppy_normal_launch_outputs_only_interactive_flag() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    // Normal launch with LLxprt-style flags that must be stripped.
+    signature.mode_flags = vec!["--yolo".to_owned()];
+    signature.pass_continue = true;
+
+    assert_eq!(launch_args(&signature), vec!["-i"]);
+}
+
+#[test]
+fn code_puppy_fresh_send_outputs_instruction_positional() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.mode_flags =
+        vec!["Read and work on the GitHub issue described in .jefe/issue-prompt.md".to_owned()];
+    signature.pass_continue = false;
+
+    assert_eq!(
+        launch_args(&signature),
+        vec![
+            "-i",
+            "Read and work on the GitHub issue described in .jefe/issue-prompt.md"
+        ]
+    );
+}
+
+#[test]
+fn code_puppy_strips_all_llxprt_only_flags() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.mode_flags = vec![
+        "--yolo".to_owned(),
+        "--profile-load".to_owned(),
+        "ignored-profile".to_owned(),
+        "--sandbox".to_owned(),
+        "--continue".to_owned(),
+        "Read and work on the GitHub PR described in .jefe/pr-prompt.md".to_owned(),
+    ];
+
+    assert_eq!(launch_args(&signature), vec!["-i"]);
+}
+
+#[test]
+fn code_puppy_empty_mode_flags_outputs_only_interactive_flag() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.mode_flags = Vec::new();
+
+    assert_eq!(launch_args(&signature), vec!["-i"]);
+}
+
+#[test]
+fn code_puppy_discards_unrecognized_positional_flags() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.pass_continue = false;
+    signature.mode_flags = vec![
+        "first instruction".to_owned(),
+        "second instruction".to_owned(),
+    ];
+
+    assert_eq!(launch_args(&signature), vec!["-i"]);
 }

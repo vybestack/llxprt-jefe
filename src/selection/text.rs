@@ -30,6 +30,10 @@ pub enum SelectablePane {
     PrList,
     /// PR detail scrollable document (PR-mode workspace, bottom split).
     PrDetail,
+    /// Actions run list (Actions-mode workspace, top split).
+    ActionsList,
+    /// Actions run detail (Actions-mode workspace, bottom split).
+    ActionsDetail,
     /// Help modal overlay text.
     HelpModal,
     /// Top status bar (low priority, but selectable).

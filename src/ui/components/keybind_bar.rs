@@ -43,6 +43,9 @@ pub fn keybind_hints_for(screen_mode: ScreenMode, terminal_focused: bool) -> &'s
         ScreenMode::DashboardPullRequests => {
             "^/v items | </> panes | Enter detail | f filter | / search | Tab detail focus (j/k) | p list | r reply | R resolve | S send-to-agent | e edit | c comment | o open in browser | m merge | a exit | Esc back/exit"
         }
+        ScreenMode::DashboardActions => {
+            "^/v navigate | Tab cycle focus | f filter | / search | d dispatch | r refresh | Esc/q exit"
+        }
     }
 }
 

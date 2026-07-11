@@ -2,7 +2,7 @@
 
 use std::time::Instant;
 
-use crate::domain::{AgentId, AgentStatus, LaunchSignature, RepositoryId};
+use crate::domain::{AgentId, LaunchSignature, RepositoryId};
 use crate::runtime::PreflightIssue;
 
 // @plan PLAN-20260624-PR-MODE.P03
@@ -100,6 +100,12 @@ pub enum ModalState {
         signature: LaunchSignature,
         payload: crate::github::SendPayload,
     },
+    WorkflowDispatch {
+        workflow: crate::domain::Workflow,
+        fields: WorkflowDispatchFormFields,
+        focus: WorkflowDispatchFormFocus,
+        cursor: WorkflowDispatchFormCursor,
+    },
 }
 
 /// Screen mode variants.
@@ -115,6 +121,7 @@ pub enum ScreenMode {
     /// @requirement REQ-PR-001
     /// @pseudocode component-001 lines 66-76
     DashboardPullRequests,
+    DashboardActions,
 }
 
 /// Pane focus within a view.
@@ -164,6 +171,8 @@ pub struct AppState {
     // Data
     pub repositories: Vec<crate::domain::Repository>,
     pub agents: Vec<crate::domain::Agent>,
+    /// Runtime availability snapshot detected once during startup.
+    pub installed_agent_kinds: Vec<crate::domain::AgentKind>,
 
     // Selection
     pub selected_repository_index: Option<usize>,
@@ -211,6 +220,9 @@ pub struct AppState {
     /// `persistence::State.user_preferences`. The reducer reads/writes this
     /// in memory; the app-shell persists it via `to_persisted_state`.
     pub user_preferences: crate::domain::UserPreferences,
+
+    /// GitHub Actions mode state (runtime-only — omitted from persisted DTO).
+    pub actions_state: ActionsState,
 
     /// Rapid `qqq` quit-sequence bookkeeping. Runtime-only — never persisted.
     pub quit_sequence: QuitSequenceState,
@@ -321,6 +333,115 @@ pub struct PriorAgentFocus {
     pub pane_focus: PaneFocus,
     pub selected_repository_index: Option<usize>,
     pub selected_agent_index: Option<usize>,
+}
+
+/// Focus areas within GitHub Actions mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ActionsFocus {
+    RepoList,
+    #[default]
+    RunList,
+    Detail,
+}
+
+/// Filter field identifier for Actions UpdateDraftFilter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActionsFilterField {
+    Workflow,
+    Status,
+}
+
+/// Loading/pending state for Actions mode async operations.
+#[derive(Debug, Clone, Default)]
+pub struct ActionsLoadingState {
+    pub list: bool,
+    pub detail: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionsDispatchPending {
+    pub scope_repo_id: crate::domain::RepositoryId,
+    pub workflow_id: String,
+    pub request_id: u64,
+}
+
+/// UI control state for Actions mode filter/search overlays.
+#[derive(Debug, Clone, Default)]
+pub struct ActionsUiState {
+    pub filter_ui_open: bool,
+    pub search_input_focused: bool,
+    /// Active field index in the filter bar (0 = workflow, 1 = status).
+    /// Mirrors `issues_state.filter_ui.field_index` so the Actions filter bar
+    /// renders field-active highlighting through the generic `FilterBar`.
+    pub filter_field_index: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ActionsState {
+    pub active: bool,
+    pub runs: Vec<crate::domain::WorkflowRun>,
+    pub selected_run_index: Option<usize>,
+    pub run_detail: Option<crate::domain::WorkflowRunDetail>,
+    pub workflows: Vec<crate::domain::Workflow>,
+    pub committed_filter: crate::domain::ActionsFilter,
+    pub draft_filter: crate::domain::ActionsFilter,
+    pub search_query: String,
+    pub error: Option<String>,
+    pub page: u32,
+    pub focus: ActionsFocus,
+    pub detail_scroll_offset: usize,
+    pub detail_viewport_rows: usize,
+    /// Job ids that are expanded (showing their steps). Jobs not in this set
+    /// are collapsed (JobRow only). Defaults to empty (all collapsed).
+    pub expanded_jobs: std::collections::HashSet<u64>,
+    /// Focused job index within the detail pane's job list (for keyboard
+    /// navigation of expand/collapse). `None` when no detail is loaded.
+    pub focused_job_index: Option<usize>,
+    pub list_reload_pending: Option<ActionsListReloadPending>,
+    pub next_list_request_id: u64,
+    pub detail_pending: Option<ActionsDetailPending>,
+    pub next_detail_request_id: u64,
+    pub workflows_pending: Option<WorkflowsPending>,
+    pub next_workflows_request_id: u64,
+    pub prior_agent_focus: Option<PriorAgentFocus>,
+    pub dispatch_pending: Option<ActionsDispatchPending>,
+    pub next_dispatch_request_id: u64,
+    /// Pagination marker received from the last list load. Currently only page
+    /// 1 is loaded (no load-more path exists); this field is retained for
+    /// future pagination support and is never read for any load decision.
+    pub has_more: bool,
+    /// Decomposed loading/pending state.
+    pub loading: ActionsLoadingState,
+    /// Decomposed UI control state.
+    pub ui: ActionsUiState,
+}
+
+impl ActionsState {
+    #[must_use]
+    pub fn dispatch_pending(&self) -> bool {
+        self.dispatch_pending.is_some()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionsListReloadPending {
+    pub scope_repo_id: RepositoryId,
+    pub filter: crate::domain::ActionsFilter,
+    pub page: u32,
+    pub request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionsDetailPending {
+    pub scope_repo_id: RepositoryId,
+    pub run_id: u64,
+    pub request_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowsPending {
+    pub scope_repo_id: RepositoryId,
+    pub request_id: u64,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -481,520 +602,4 @@ impl IssuesState {
             filter_controls_open,
         ))
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum AppEvent {
-    // Navigation
-    NavigateUp,
-    NavigateDown,
-    NavigateLeft,
-    NavigateRight,
-    SelectRepository(usize),
-    SelectAgent(usize),
-    JumpToAgentByShortcut(u8),
-
-    // Focus
-    CyclePaneFocus,
-    ToggleTerminalFocus,
-    ToggleHideIdleRepositories,
-
-    // Screen mode
-    EnterSplitMode,
-    ExitSplitMode,
-
-    // Grab mode (split view reordering)
-    EnterGrabMode,
-    ExitGrabMode,
-    GrabMoveUp,
-    GrabMoveDown,
-    SetSplitFilter(Option<RepositoryId>),
-
-    // Dashboard reorder grab (Space to grab, arrows to move, Space/Enter to drop)
-    EnterDashboardGrab,
-    ExitDashboardGrab,
-    DashboardGrabMoveUp,
-    DashboardGrabMoveDown,
-
-    // Modal/form actions
-    OpenHelp,
-    OpenSearch,
-    CloseModal,
-    SubmitForm,
-
-    // Form input events
-    FormChar(char),
-    FormBackspace,
-    FormDelete,
-    FormMoveCursorLeft,
-    FormMoveCursorRight,
-    FormNextField,
-    FormPrevField,
-    FormToggleCheckbox,
-
-    // CRUD
-    OpenNewRepository,
-    OpenEditRepository(RepositoryId),
-    OpenDeleteRepository(RepositoryId),
-    OpenNewAgent(RepositoryId),
-    OpenEditAgent(AgentId),
-    OpenDeleteAgent(AgentId),
-    ToggleDeleteWorkDir,
-
-    // Lifecycle
-    KillAgent(AgentId),
-    RelaunchAgent(AgentId),
-    /// Kill and relaunch an agent in one action (Ctrl-r). Surfaces an error
-    /// if any step fails rather than silently dropping the agent (issue #117).
-    RestartAgent(AgentId),
-    AgentStatusChanged(AgentId, AgentStatus),
-
-    // Persistence results
-    PersistenceLoadSuccess,
-    PersistenceLoadFailed(String),
-    PersistenceSaveSuccess,
-    PersistenceSaveFailed(String),
-
-    // Theme
-    SetTheme(String),
-    ThemeResolveFailed(String),
-
-    /// Open the theme picker modal with a snapshot of available themes.
-    /// Payload: `(slug, name)` pairs, plus the currently active slug.
-    OpenThemePicker {
-        available_themes: Vec<(String, String)>,
-        active_slug: String,
-    },
-    ThemePickerNavigateUp,
-    ThemePickerNavigateDown,
-    /// Confirm the current theme-picker selection.
-    /// The slug is derived from the modal's `selected_index` at dispatch time
-    /// (see `modal_handlers::apply_theme_picker_selection`).
-    ThemePickerConfirm,
-    /// Toggle the "Apply jefe theme to agent" theme-picker checkbox (issue #179).
-    ThemePickerToggleOverride,
-    CloseThemePicker,
-
-    // System
-    Quit,
-    ClearError,
-    ClearWarning,
-
-    // Issues Mode events
-    // @plan PLAN-20260329-ISSUES-MODE.P03
-    // @requirement REQ-ISS-001
-    EnterIssuesMode,
-    ExitIssuesMode,
-    RefocusIssueList,
-
-    // Issues Navigation
-    IssuesNavigateUp,
-    IssuesNavigateDown,
-    IssuesNavigatePageUp,
-    IssuesNavigatePageDown,
-    IssuesNavigateHome,
-    IssuesNavigateEnd,
-    IssuesEnter,
-    IssuesCycleFocus,
-    IssuesCycleFocusReverse,
-    IssuesScrollDetailUp,
-    IssuesScrollDetailDown,
-    IssuesScrollDetailPageUp,
-    IssuesScrollDetailPageDown,
-    IssueDetailSubfocusNext,
-    IssueDetailSubfocusPrev,
-
-    // Issue Data Loading
-    IssueListLoaded {
-        scope_repo_id: RepositoryId,
-        filter: Box<crate::domain::IssueFilter>,
-        request_id: u64,
-        issues: Vec<crate::domain::Issue>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    IssueListLoadFailed {
-        scope_repo_id: RepositoryId,
-        filter: Box<crate::domain::IssueFilter>,
-        request_id: u64,
-        request_cursor: Option<String>,
-        error: String,
-    },
-    IssueListPageLoaded {
-        scope_repo_id: RepositoryId,
-        filter: Box<crate::domain::IssueFilter>,
-        request_id: u64,
-        request_cursor: Option<String>,
-        issues: Vec<crate::domain::Issue>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    IssueDetailLoaded {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        request_id: u64,
-        detail: Box<crate::domain::IssueDetail>,
-    },
-    IssueDetailLoadFailed {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        request_id: u64,
-        error: String,
-    },
-    IssueCommentsPageLoaded {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        request_id: u64,
-        request_cursor: Option<String>,
-        comments: Vec<crate::domain::IssueComment>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    IssueCommentsPageFailed {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        request_id: u64,
-        request_cursor: Option<String>,
-        error: String,
-    },
-
-    // Filter/Search
-    OpenFilterControls,
-    CloseFilterControls,
-    ApplyFilter,
-    ClearFilter,
-    ClearDraftFilter,
-    FilterNavigateNext,
-    FilterNavigatePrev,
-    CycleFilterState,
-    FocusSearchInput,
-    BlurSearchInput,
-    SetSearchQuery {
-        query: String,
-    },
-    ApplySearch,
-    ClearSearch,
-    UpdateDraftFilter {
-        field: String,
-        value: String,
-    },
-
-    // Inline Mutation
-    OpenNewIssueComposer,
-    OpenNewCommentComposer,
-    OpenReplyComposer {
-        comment_index: usize,
-    },
-    OpenInlineEditor {
-        target: EditorTarget,
-    },
-    InlineChar(char),
-    InlineNewline,
-    InlineBackspace,
-    InlineDelete,
-    InlineCursorLeft,
-    InlineCursorRight,
-    InlineCursorUp,
-    InlineCursorDown,
-    InlineSubmit,
-    InlineCancelOrEsc,
-    MutationSubmitted {
-        scope_repo_id: RepositoryId,
-        mutation_id: u64,
-        target: InlineState,
-    },
-    IssueCreated {
-        scope_repo_id: RepositoryId,
-        mutation_id: u64,
-        issue_number: u64,
-    },
-    CommentCreated {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        mutation_id: u64,
-        comment: crate::domain::IssueComment,
-    },
-    CommentCreateFailed {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        mutation_id: u64,
-        error: String,
-    },
-    IssueBodyUpdated {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        mutation_id: u64,
-        body: String,
-    },
-    CommentUpdated {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        mutation_id: u64,
-        comment_id: u64,
-        comment_index: usize,
-        body: String,
-    },
-    MutationFailed {
-        scope_repo_id: RepositoryId,
-        issue_number: Option<u64>,
-        mutation_id: Option<u64>,
-        error: String,
-    },
-
-    // Send-to-Agent
-    OpenAgentChooser,
-    AgentChooserNavigateUp,
-    AgentChooserNavigateDown,
-    AgentChooserConfirm,
-    AgentChooserCancel,
-    SendToAgentCompleted,
-    SendToAgentFailed {
-        error: String,
-    },
-
-    // ---- Pull Requests Mode events (additive) ----
-    // @plan PLAN-20260624-PR-MODE.P03
-    // @requirement REQ-PR-001
-
-    // PR Lifecycle
-    /// @pseudocode component-001 lines 66-87
-    EnterPrsMode,
-    ExitPrsMode,
-    RefocusPrList,
-
-    // PR Navigation / Focus
-    /// @pseudocode component-001 lines 99-162
-    PrNavigateUp,
-    PrNavigateDown,
-    PrNavigatePageUp,
-    PrNavigatePageDown,
-    PrNavigateHome,
-    PrNavigateEnd,
-    PrListEnter,
-    PrCycleFocus,
-    PrCycleFocusReverse,
-    PrScrollDetailUp,
-    PrScrollDetailDown,
-    PrScrollDetailPageUp,
-    PrScrollDetailPageDown,
-    PrDetailSubfocusNext,
-    PrDetailSubfocusPrev,
-
-    // PR Data Loading
-    /// @pseudocode component-001 lines 209-247
-    PrListLoaded {
-        scope_repo_id: RepositoryId,
-        filter: Box<crate::domain::PrFilter>,
-        request_id: u64,
-        pull_requests: Vec<crate::domain::PullRequest>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    PrListLoadFailed {
-        scope_repo_id: RepositoryId,
-        request_id: u64,
-        error: String,
-    },
-    PrListPageLoaded {
-        scope_repo_id: RepositoryId,
-        request_id: u64,
-        pull_requests: Vec<crate::domain::PullRequest>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    /// Silent background refresh succeeded (issue #128). Like `PrListLoaded`
-    /// but preserves selection/scroll and does NOT flash the loading spinner.
-    PrListSilentRefreshed {
-        scope_repo_id: RepositoryId,
-        filter: Box<crate::domain::PrFilter>,
-        request_id: u64,
-        pull_requests: Vec<crate::domain::PullRequest>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    /// Silent background refresh failed (issue #128). Clears the pending marker
-    /// WITHOUT surfacing an error (background failures are non-disruptive).
-    PrListSilentRefreshFailed {
-        scope_repo_id: RepositoryId,
-        request_id: u64,
-    },
-    PrDetailLoaded {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        detail: Box<crate::domain::PullRequestDetail>,
-    },
-    PrDetailLoadFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        error: String,
-    },
-    /// Silent background detail refresh succeeded (issue #128). Like
-    /// `PrDetailLoaded` but does NOT set `loading.detail` and preserves
-    /// `detail_subfocus` and `detail_scroll_offset`.
-    PrDetailSilentRefreshed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        detail: Box<crate::domain::PullRequestDetail>,
-    },
-    /// Silent background detail refresh failed (issue #128). Clears
-    /// `detail_pending` silently WITHOUT setting `loading.detail` or an error.
-    PrDetailSilentRefreshFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-    },
-    PrCommentsPageLoaded {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        comments: Vec<crate::domain::IssueComment>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    PrCommentsPageFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        error: String,
-    },
-
-    // PR Filter / Search
-    /// @pseudocode component-001 lines 249-291
-    PrOpenFilterControls,
-    PrCloseFilterControls,
-    PrApplyFilter,
-    PrClearFilter,
-    PrFilterNavigateNext,
-    PrFilterNavigatePrev,
-    PrCycleFilterState,
-    PrCycleDraftFilter,
-    PrCycleReviewFilter,
-    PrCycleChecksFilter,
-    PrUpdateDraftFilter {
-        field: String,
-        value: String,
-    },
-    PrFocusSearchInput,
-    PrBlurSearchInput,
-    PrSetSearchQuery {
-        query: String,
-    },
-    PrApplySearch,
-    PrClearSearch,
-
-    // PR Inline Mutation
-    /// @pseudocode component-001 lines 292-330
-    PrOpenNewCommentComposer,
-    PrOpenReplyComposer {
-        comment_index: usize,
-    },
-    PrInlineChar(char),
-    PrInlineNewline,
-    PrInlineBackspace,
-    PrInlineDelete,
-    PrInlineCursorLeft,
-    PrInlineCursorRight,
-    PrInlineCursorUp,
-    PrInlineCursorDown,
-    PrInlineSubmit,
-    PrInlineCancelOrEsc,
-    PrCommentCreated {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        mutation_id: u64,
-        comment: crate::domain::IssueComment,
-    },
-    PrCommentCreateFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        mutation_id: u64,
-        error: String,
-    },
-    PrMutationFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        mutation_id: u64,
-        error: String,
-    },
-
-    // PR Read-Only Notice (REQ-PR-010/012/013)
-    /// @pseudocode component-003 lines 83-89
-    PrShowNotice(ReadOnlyHintKind),
-
-    // PR Open-in-Browser (REQ-PR-012)
-    /// @pseudocode component-001 lines 349-365
-    PrOpenInBrowser,
-    PrOpenedInBrowser {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-    },
-    PrOpenInBrowserFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        error: String,
-    },
-
-    // PR In-App Merge (issue #92)
-    /// @plan PLAN-20260624-PR-MODE.P03
-    /// @requirement REQ-PR-009
-    PrOpenMergeChooser,
-    PrMergeNavigateUp,
-    PrMergeNavigateDown,
-    PrMergeConfirm,
-    PrMergeCancel,
-    PrMerged {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        method: crate::domain::MergeMethod,
-    },
-    PrMergeFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        mutation_id: u64,
-        error: String,
-    },
-    PrMergeMethodsLoaded {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        allowed_methods: Vec<crate::domain::MergeMethod>,
-    },
-
-    // PR Send-to-Agent
-    /// @pseudocode component-001 lines 331-343
-    PrOpenAgentChooser,
-    PrAgentChooserNavigateUp,
-    PrAgentChooserNavigateDown,
-    PrAgentChooserConfirm,
-    PrAgentChooserCancel,
-    PrSendToAgentCompleted,
-    PrSendToAgentFailed {
-        error: String,
-    },
-
-    // PR Review Threads (issue #119)
-    /// Open the inline reply composer for a review thread.
-    PrOpenThreadReplyComposer {
-        thread_index: usize,
-    },
-    /// Toggle resolve/unresolve on a focused review thread.
-    PrToggleThreadResolve {
-        thread_index: usize,
-    },
-    /// A review-thread resolve/unresolve mutation succeeded.
-    PrThreadResolveSucceeded {
-        scope_repo_id: RepositoryId,
-        thread_index: usize,
-        is_resolved: bool,
-        request_id: u64,
-    },
-    /// A review-thread resolve/unresolve mutation failed.
-    PrThreadResolveFailed {
-        scope_repo_id: RepositoryId,
-        thread_index: usize,
-        request_id: u64,
-        error: String,
-    },
 }

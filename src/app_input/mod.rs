@@ -24,11 +24,19 @@ mod prs_mutation;
 // @plan PLAN-20260624-PR-MODE.P11
 mod prs_orchestration;
 
+mod actions;
+mod actions_orchestration;
 mod gh_async;
 
 mod agent_runtime;
+mod availability;
+mod clone_identity;
+mod fresh_prompt;
 mod issue_git_prep;
+mod issue_prep;
 mod issues_send;
+mod remote_probe;
+mod target_resolution;
 use agent_runtime::{
     clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, pid_on_success, set_agent_runtime_binding,
@@ -128,7 +136,9 @@ use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, RepositoryFormFocus
 fn repository_focus_toggles_checkbox(focus: RepositoryFormFocus) -> bool {
     matches!(
         focus,
-        RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault
+        RepositoryFormFocus::DefaultAgentKind
+            | RepositoryFormFocus::RemoteEnabled
+            | RepositoryFormFocus::SetupEnvDefault
     )
 }
 
@@ -173,6 +183,7 @@ fn launch_signature_for_agent(
         sandbox_engine: agent.sandbox_engine,
         sandbox_flags: agent.sandbox_flags.clone(),
         remote: repository.remote.clone(),
+        agent_kind: agent.agent_kind,
     }
 }
 
@@ -206,13 +217,18 @@ fn close_modal_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext) 
 /// Returns `true` if the launch can proceed immediately (no issues or sandbox
 /// not enabled).  Returns `false` if a `PreflightPrompt` modal was opened and
 /// the caller should abort the immediate launch path.
+///
+/// Preflight is gated to [`AgentKind::Llxprt`] only: CodePuppy does not use
+/// the LLxprt sandbox flags/engine, and stale `sandbox_enabled`/`sandbox_engine`
+/// fields persisted from a prior LLxprt configuration must not trigger LLxprt
+/// preflight for a CodePuppy agent.
 fn preflight_or_prompt(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: &AgentId,
     signature: &LaunchSignature,
 ) -> bool {
-    if !signature.sandbox_enabled {
+    if !should_run_sandbox_preflight(signature) {
         return true;
     }
 
@@ -231,6 +247,19 @@ fn preflight_or_prompt(
     }
 
     true
+}
+
+/// Pure predicate: should sandbox preflight run for this signature?
+///
+/// Preflight runs only when **both** conditions hold:
+/// 1. `sandbox_enabled` is true, AND
+/// 2. `agent_kind == Llxprt` (CodePuppy has no LLxprt sandbox subsystem).
+///
+/// This gates out CodePuppy agents that carry stale `sandbox_enabled = true`
+/// from persisted edit data — they must not run LLxprt preflight.
+#[must_use]
+fn should_run_sandbox_preflight(signature: &LaunchSignature) -> bool {
+    signature.sandbox_enabled && signature.agent_kind == jefe::domain::AgentKind::Llxprt
 }
 
 /// Actually spawn + attach an agent session (shared by fresh-launch and
@@ -331,10 +360,15 @@ fn mark_launch_attached(
     );
     clear_agent_runtime_attachment(&mut state);
     mark_agent_runtime_attached(&mut state, agent_id, true);
-    if let Some(warning) = sandbox_ssh_agent_warning() {
-        state.warning_message = Some(warning);
-    } else {
-        clear_runtime_warning(&mut state);
+    // SSH agent warnings are only relevant for LLxprt sandbox sessions.
+    // CodePuppy does not use the LLxprt sandbox, so stale sandbox_enabled
+    // must not trigger the warning.
+    if signature.agent_kind == jefe::domain::AgentKind::Llxprt {
+        if let Some(warning) = sandbox_ssh_agent_warning() {
+            state.warning_message = Some(warning);
+        } else {
+            clear_runtime_warning(&mut state);
+        }
     }
     let persisted = to_persisted_state(&state);
     drop(state);
@@ -495,6 +529,9 @@ pub fn dispatch_app_message(
         AppMessage::PullRequests(message) => {
             prs_orchestration::dispatch_prs_message(app_state, ctx, message);
         }
+        AppMessage::Actions(message) => {
+            actions_orchestration::dispatch_actions_message(app_state, ctx, message);
+        }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
 }
@@ -603,12 +640,19 @@ fn relaunch_preflight_passed(
     agent_id: &AgentId,
 ) -> bool {
     let state_ro = app_state.read();
-    let signature = agent_and_signature(&state_ro, agent_id).map(|(_, signature)| signature);
+    let agent_sig = agent_and_signature(&state_ro, agent_id);
     drop(state_ro);
-    match signature {
-        Some(signature) => preflight_or_prompt(app_state, ctx, agent_id, &signature),
-        None => true,
+    let Some((_, signature)) = agent_sig else {
+        return true;
+    };
+    if !availability::local_kind_available_or_error(
+        app_state,
+        signature.agent_kind,
+        &signature.remote,
+    ) {
+        return false;
     }
+    preflight_or_prompt(app_state, ctx, agent_id, &signature)
 }
 
 fn relaunch_runtime_session(
@@ -704,7 +748,12 @@ fn persist_relaunch_success(
     relaunch_event: AppEvent,
     pid: Option<u32>,
 ) {
-    if let Some((agent, signature)) = agent_and_signature(state, agent_id) {
+    // Capture agent_kind before `apply` consumes the state snapshot, so the
+    // SSH-agent warning can be gated: only LLxprt uses the sandbox subsystem,
+    // and CodePuppy must not trigger it from stale persisted sandbox flags.
+    let agent_sig = agent_and_signature(state, agent_id);
+    let relaunch_kind = agent_sig.as_ref().map(|(_, sig)| sig.agent_kind);
+    if let Some((agent, signature)) = agent_sig {
         set_agent_runtime_binding(
             state,
             agent_id,
@@ -717,10 +766,13 @@ fn persist_relaunch_success(
     state.terminal_focused = false;
     clear_agent_runtime_attachment(state);
     mark_agent_runtime_attached(state, agent_id, true);
-    if let Some(warning) = sandbox_ssh_agent_warning() {
-        state.warning_message = Some(warning);
-    } else {
-        clear_runtime_warning(state);
+    // Gate the SSH-agent warning to LLxprt only (see comment above).
+    if relaunch_kind == Some(jefe::domain::AgentKind::Llxprt) {
+        if let Some(warning) = sandbox_ssh_agent_warning() {
+            state.warning_message = Some(warning);
+        } else {
+            clear_runtime_warning(state);
+        }
     }
 }
 
@@ -819,6 +871,10 @@ fn refresh_issue_preview_if_changed(app_state: &mut AppStateHandle, prev_issue_i
 #[cfg(test)]
 #[path = "app_input_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "preflight_gating_tests.rs"]
+mod preflight_gating_tests;
 
 // @plan PLAN-20260624-PR-MODE.P15
 // @requirement REQ-PR-001

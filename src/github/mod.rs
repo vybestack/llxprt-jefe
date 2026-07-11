@@ -19,6 +19,12 @@ mod create_issue;
 mod pr_threads;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};
 
+mod actions;
+pub use actions::{
+    WorkflowRunListResponse, build_runs_api_path, parse_api_runs_json, parse_jobs_json,
+    parse_runs_json, parse_single_run_json, parse_workflows_json,
+};
+
 mod parse;
 use parse::{active_issue_type_filter, issue_type_requires_search_filter};
 pub use parse::{

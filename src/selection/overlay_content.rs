@@ -230,6 +230,7 @@ mod tests {
             sandbox_engine: SandboxEngine::Podman,
             sandbox_flags: String::new(),
             remote: crate::domain::RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
         };
         let state = AppState {
             modal: ModalState::PreflightPrompt {
@@ -265,6 +266,7 @@ mod tests {
             sandbox_engine: SandboxEngine::Podman,
             sandbox_flags: String::new(),
             remote: crate::domain::RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
         };
         let payload = SendPayload {
             repository: "o/r".to_string(),

@@ -820,6 +820,7 @@ mod tests {
                     sandbox_engine: crate::domain::SandboxEngine::Podman,
                     sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
                     remote: crate::domain::RemoteRepositorySettings::default(),
+                    agent_kind: crate::domain::AgentKind::Llxprt,
                 },
             );
         }

@@ -308,6 +308,7 @@ fn repository_form_toggles_remote_fields() {
     state = state.apply(AppEvent::FormNextField); // Base Dir
     state = state.apply(AppEvent::FormNextField); // Default Profile
     state = state.apply(AppEvent::FormNextField); // GitHub Repo
+    state = state.apply(AppEvent::FormNextField); // Default Agent Kind
     state = state.apply(AppEvent::FormNextField); // RemoteEnabled
     state = state.apply(AppEvent::FormToggleCheckbox);
     state = state.apply(AppEvent::FormNextField); // LoginUser
@@ -330,6 +331,11 @@ fn repository_form_toggles_remote_fields() {
         panic!("expected new-repository modal, got {:?}", state.modal);
     };
     assert_eq!(focus, RepositoryFormFocus::SetupEnvDefault);
+    assert!(!fields.default_agent_kind.is_empty());
+    assert_eq!(
+        fields.default_agent_kind,
+        jefe::domain::AgentKind::Llxprt.label()
+    );
     assert!(fields.remote_enabled);
     assert_eq!(fields.login_user, "op");
     assert_eq!(fields.host, "10");

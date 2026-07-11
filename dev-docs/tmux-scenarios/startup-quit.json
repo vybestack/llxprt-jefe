@@ -11,6 +11,8 @@
     { "expect": "No terminal attached" },
     { "capture": "startup" },
     { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
     { "waitForExit": 3000 }
   ]
 }

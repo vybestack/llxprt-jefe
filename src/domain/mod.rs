@@ -4,9 +4,17 @@
 //! @requirement REQ-TECH-001
 //! @requirement REQ-TECH-002
 
+/// Shared validated target-resolution predicates for remote settings.
+pub mod target;
+
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+// Actions domain types (workflows, runs, jobs, steps, filters) extracted to
+// keep this file under the source-file-size limit.
+mod actions;
+pub use actions::*;
 
 /// Stable identifier for a repository.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -15,6 +23,51 @@ pub struct RepositoryId(pub String);
 /// Stable identifier for an agent.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AgentId(pub String);
+
+/// Agent runtime used to launch an agent session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentKind {
+    CodePuppy,
+    #[default]
+    Llxprt,
+}
+
+impl AgentKind {
+    /// Executable name for this runtime.
+    #[must_use]
+    pub const fn binary_name(self) -> &'static str {
+        match self {
+            Self::CodePuppy => "code-puppy",
+            Self::Llxprt => "llxprt",
+        }
+    }
+
+    /// User-facing runtime name.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::CodePuppy => "code_puppy",
+            Self::Llxprt => "LLxprt",
+        }
+    }
+
+    /// Parse a value entered or persisted by a form.
+    #[must_use]
+    pub fn from_form_value(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "code_puppy" | "code-puppy" | "codepuppy" => Some(Self::CodePuppy),
+            "llxprt" => Some(Self::Llxprt),
+            _ => None,
+        }
+    }
+
+    /// Whether this runtime uses Kennel-mode branding.
+    #[must_use]
+    pub const fn is_kennel(self) -> bool {
+        matches!(self, Self::CodePuppy)
+    }
+}
 
 /// Default sandbox resource flags passed to llxprt via SANDBOX_FLAGS.
 ///
@@ -41,6 +94,18 @@ const ALL_ENGINES: [SandboxEngine; 3] = [
 
 /// Linux-supported engine variants in canonical order.
 const LINUX_ENGINES: [SandboxEngine; 2] = [SandboxEngine::Podman, SandboxEngine::Docker];
+
+/// Check whether a single GitHub owner/repo component contains only valid
+/// characters: ASCII alphanumerics, hyphens, underscores, and dots.
+///
+/// Shared by the clone-identity layer (`app_input::clone_identity`) and the
+/// repository form layer (`state::form_build`) so validation cannot drift.
+#[must_use]
+pub fn is_valid_github_component(component: &str) -> bool {
+    component
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
 
 impl SandboxEngine {
     /// Convert to llxprt CLI `--sandbox-engine` argument.
@@ -207,6 +272,8 @@ pub struct Repository {
     pub remote: RemoteRepositorySettings,
     #[serde(default)]
     pub issue_base_prompt: String,
+    #[serde(default)]
+    pub default_agent_kind: AgentKind,
     pub agent_ids: Vec<AgentId>,
 }
 /// @requirement REQ-ISS-006
@@ -791,6 +858,8 @@ pub struct Agent {
     pub sandbox_engine: SandboxEngine,
     #[serde(default = "default_sandbox_flags")]
     pub sandbox_flags: String,
+    #[serde(default)]
+    pub agent_kind: AgentKind,
     pub status: AgentStatus,
     pub runtime_binding: Option<RuntimeBinding>,
 }
@@ -830,6 +899,8 @@ pub struct LaunchSignature {
     pub sandbox_flags: String,
     #[serde(default)]
     pub remote: RemoteRepositorySettings,
+    #[serde(default)]
+    pub agent_kind: AgentKind,
 }
 
 impl Agent {
@@ -859,6 +930,7 @@ impl Agent {
             sandbox_enabled: false,
             sandbox_engine: SandboxEngine::Podman,
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+            agent_kind: AgentKind::default(),
             status: AgentStatus::default(),
             runtime_binding: None,
         }
@@ -884,6 +956,7 @@ impl Repository {
             github_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
+            default_agent_kind: AgentKind::default(),
             agent_ids: Vec::new(),
         }
     }

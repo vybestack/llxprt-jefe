@@ -11,7 +11,8 @@
 use crate::domain::{PrCheckStatus, PrState, PullRequest, Repository, RepositoryId};
 use crate::messages::{AppMessage, PullRequestsMessage};
 use crate::state::AppState;
-use crate::state::types::{AppEvent, ReadOnlyHintKind, ScreenMode};
+use crate::state::events::AppEvent;
+use crate::state::types::{ReadOnlyHintKind, ScreenMode};
 
 /// Helper: PR-mode state with a selected PR.
 fn prs_mode_state_with_selected_pr(repo_id: &str, pr_number: u64) -> AppState {

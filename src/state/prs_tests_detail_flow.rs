@@ -11,7 +11,8 @@ use crate::domain::{
     RepositoryId,
 };
 use crate::state::AppState;
-use crate::state::types::{AppEvent, PrFocus, ScreenMode};
+use crate::state::events::AppEvent;
+use crate::state::types::{PrFocus, ScreenMode};
 
 /// Helper: PR-mode state with a selected repo.
 fn prs_mode_state(repo_id: &str) -> AppState {

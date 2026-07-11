@@ -154,9 +154,11 @@ fn forward_to_pty_if_in_terminal(
 fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
     let error_visible = state.error_message.is_some()
         || state.issues_state.error.is_some()
-        || state.prs_state.error.is_some();
-    let filter_open =
-        state.issues_state.filter_ui.controls_open || state.prs_state.filter_ui.controls_open;
+        || state.prs_state.error.is_some()
+        || state.actions_state.error.is_some();
+    let filter_open = state.issues_state.filter_ui.controls_open
+        || state.prs_state.filter_ui.controls_open
+        || state.actions_state.ui.filter_ui_open;
     let overlay = active_overlay_for(state);
     ScreenLayout::new(cols, rows, state.screen_mode, error_visible, filter_open)
         .with_overlay(overlay)
@@ -192,7 +194,10 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
         // ThemePicker renders as a full-screen modal but does not yet have a
         // content projection — no selection, but no PTY forwarding either
         // (pre-existing behavior; the base screen is not visible behind it).
-        | jefe::state::ModalState::ThemePicker { .. } => {}
+        | jefe::state::ModalState::ThemePicker { .. }
+        // WorkflowDispatch is a centered modal form; no selection content
+        // projection yet and no PTY forwarding while open.
+        | jefe::state::ModalState::WorkflowDispatch { .. } => {}
     }
     // Positioned overlays (choosers) — checked only when no full-screen modal.
     if state.issues_state.agent_chooser.is_some() || state.prs_state.agent_chooser.is_some() {
@@ -342,7 +347,7 @@ fn effective_scroll_for_detail(
 ) -> usize {
     use jefe::layout::DETAIL_HEADER_ROWS;
     match pane {
-        SelectablePane::IssueDetail | SelectablePane::PrDetail => {
+        SelectablePane::IssueDetail | SelectablePane::PrDetail | SelectablePane::ActionsDetail => {
             let content_row = usize::from(row.saturating_sub(geometry.content_origin_row));
             if content_row < DETAIL_HEADER_ROWS {
                 0
@@ -368,6 +373,7 @@ fn scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
     match pane {
         SelectablePane::IssueDetail => state.issues_state.detail_scroll_offset,
         SelectablePane::PrDetail => state.prs_state.detail_scroll_offset,
+        SelectablePane::ActionsDetail => state.actions_state.detail_scroll_offset,
         SelectablePane::HelpModal => state.help_scroll_offset,
         _ => 0,
     }
@@ -397,6 +403,13 @@ fn refresh_detail_viewport_rows(state: &mut AppState, pane: SelectablePane, term
                 term_rows,
                 state.prs_state.error.is_some(),
                 state.prs_state.filter_ui.controls_open,
+            );
+        }
+        SelectablePane::ActionsDetail => {
+            state.actions_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
+                term_rows,
+                state.actions_state.error.is_some(),
+                state.actions_state.ui.filter_ui_open,
             );
         }
         _ => {}
@@ -437,6 +450,7 @@ fn max_scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
     match pane {
         SelectablePane::IssueDetail => state.issues_state.max_detail_scroll_offset(),
         SelectablePane::PrDetail => state.pr_detail_max_scroll_offset(),
+        SelectablePane::ActionsDetail => state.actions_max_detail_scroll_offset(),
         _ => 0,
     }
 }
@@ -444,7 +458,7 @@ fn max_scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
 /// Scroll the detail pane under `(col, row)` by one wheel tick.
 ///
 /// Resolves the pane under the cursor via [`resolve_pane`] and, when it is a
-/// scrollable detail pane (`IssueDetail` / `PrDetail`), advances its scroll
+/// scrollable detail pane (`IssueDetail` / `PrDetail` / `ActionsDetail`), advances its scroll
 /// offset by one line in the given direction, clamped to the pane's valid
 /// bounds via [`next_wheel_scroll_offset`]. The cached viewport row count is
 /// refreshed first ([`refresh_detail_viewport_rows`]) so the clamp bound
@@ -468,7 +482,10 @@ fn scroll_detail_pane(
         };
         pane
     };
-    if !matches!(pane, SelectablePane::IssueDetail | SelectablePane::PrDetail) {
+    if !matches!(
+        pane,
+        SelectablePane::IssueDetail | SelectablePane::PrDetail | SelectablePane::ActionsDetail
+    ) {
         return;
     }
     // Refresh the cached detail-viewport row count from the current terminal
@@ -495,6 +512,7 @@ fn scroll_detail_pane(
     match pane {
         SelectablePane::IssueDetail => state.issues_state.detail_scroll_offset = next,
         SelectablePane::PrDetail => state.prs_state.detail_scroll_offset = next,
+        SelectablePane::ActionsDetail => state.actions_state.detail_scroll_offset = next,
         _ => {}
     }
 }

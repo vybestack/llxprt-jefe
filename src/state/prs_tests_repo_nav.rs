@@ -7,7 +7,8 @@
 
 use crate::domain::{PrCheckStatus, PrState, PullRequest, Repository, RepositoryId};
 use crate::state::AppState;
-use crate::state::types::{AppEvent, PaneFocus, PrDetailSubfocus, PrFocus, ScreenMode};
+use crate::state::events::AppEvent;
+use crate::state::types::{PaneFocus, PrDetailSubfocus, PrFocus, ScreenMode};
 
 /// Helper: PR-mode state with multiple repositories.
 fn prs_mode_state() -> AppState {

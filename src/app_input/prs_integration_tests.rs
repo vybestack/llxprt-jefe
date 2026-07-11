@@ -436,6 +436,7 @@ fn sample_signature() -> LaunchSignature {
         sandbox_engine: SandboxEngine::Podman,
         sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: RemoteRepositorySettings::default(),
+        agent_kind: jefe::domain::AgentKind::Llxprt,
     }
 }
 
@@ -456,6 +457,7 @@ fn state_for_send_to_agent(agent_id: &AgentId, work_dir: &std::path::Path) -> Ap
     agent.mode_flags = Vec::new();
 
     let mut state = active_prs_state();
+    state.installed_agent_kinds = vec![jefe::domain::AgentKind::Llxprt];
     state.prs_state.pr_focus = PrFocus::PrDetail;
     state.prs_state.pull_requests = vec![make_test_pr(42)];
     state.prs_state.selected_pr_index = Some(0);

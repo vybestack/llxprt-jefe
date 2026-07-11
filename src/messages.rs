@@ -14,7 +14,10 @@ use crate::state::{EditorTarget, InlineState, ReadOnlyHintKind};
 mod issues_conversion;
 // @plan PLAN-20260624-PR-MODE.P03
 // @requirement REQ-PR-002
+mod actions;
+mod actions_conversion;
 mod prs_conversion;
+pub use actions::ActionsMessage;
 
 // @plan PLAN-20260624-PR-MODE.P03
 // @requirement REQ-PR-002
@@ -34,6 +37,7 @@ pub enum MessageDomain {
     /// @plan PLAN-20260624-PR-MODE.P03
     /// @requirement REQ-PR-001
     PullRequests,
+    Actions,
     System,
 }
 
@@ -625,6 +629,7 @@ pub enum AppMessage {
     /// @plan PLAN-20260624-PR-MODE.P03
     /// @requirement REQ-PR-001
     PullRequests(PullRequestsMessage),
+    Actions(ActionsMessage),
     System(SystemMessage),
 }
 
@@ -642,6 +647,7 @@ impl AppMessage {
             // @plan PLAN-20260624-PR-MODE.P03
             // @requirement REQ-PR-001
             Self::PullRequests(_) => MessageDomain::PullRequests,
+            Self::Actions(_) => MessageDomain::Actions,
             Self::System(_) => MessageDomain::System,
         }
     }
@@ -667,6 +673,7 @@ impl AppMessage {
             // @plan PLAN-20260624-PR-MODE.P03
             // @requirement REQ-PR-002
             Self::PullRequests(message) => message.name(),
+            Self::Actions(message) => message.name(),
             Self::System(message) => message.name(),
         }
     }

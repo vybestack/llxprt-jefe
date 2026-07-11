@@ -162,7 +162,8 @@ pub fn pane_at(
             dashboard_pane_at(col, row, render_cols, render_rows, terminal_input_enabled)
         }
         crate::state::ScreenMode::DashboardIssues
-        | crate::state::ScreenMode::DashboardPullRequests => {
+        | crate::state::ScreenMode::DashboardPullRequests
+        | crate::state::ScreenMode::DashboardActions => {
             issues_pane_at(col, row, render_cols, render_rows, *layout)
         }
     }
@@ -347,6 +348,8 @@ fn list_pane(
 ) -> (SelectablePane, PaneGeometry) {
     let pane = if layout.is_pr_mode() {
         SelectablePane::PrList
+    } else if layout.is_actions_mode() {
+        SelectablePane::ActionsList
     } else {
         SelectablePane::IssueList
     };
@@ -373,6 +376,8 @@ fn detail_pane(
 ) -> (SelectablePane, PaneGeometry) {
     let pane = if layout.is_pr_mode() {
         SelectablePane::PrDetail
+    } else if layout.is_actions_mode() {
+        SelectablePane::ActionsDetail
     } else {
         SelectablePane::IssueDetail
     };

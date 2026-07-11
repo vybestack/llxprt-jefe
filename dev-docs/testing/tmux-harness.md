@@ -146,9 +146,37 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
 - [`scratch-pr-mode.json`](../tmux-scenarios/scratch-pr-mode.json): manual
   scratch scenario for PR-mode screen validation. It is intentionally not a CI
   gate because repository/GitHub configuration can vary by developer machine.
+- [`actions-mode.json`](../tmux-scenarios/actions-mode.json): launches the app,
+  enters Actions mode (`g`), verifies the runs-list pane renders, navigates
+  down, then exits and quits. Intentionally not a CI gate — it requires a
+  configured repository and may vary by developer machine.
 
 ## Future regression scenarios
 
 Once the scratch flows are stable, add scenarios for list viewport following,
 filter controls, and inline composer caret behavior. Keep them local/manual until
 they can be made deterministic with isolated config and predictable data.
+
+## Agent-runtime choice and process-start detection
+
+The `agent-runtime-choice.json` scenario verifies the New Repository modal
+shows a "Default Agent" field. It does **not** cycle the Default Agent kind
+(pressing Space on that field) because the harness cannot deterministically
+control which agent runtimes (`llxprt`, `code-puppy`) are installed on the
+local PATH. The `AppState.installed_agent_kinds` snapshot is captured once at
+process startup by probing the local PATH; the harness starts `jefe` with an
+isolated `--config` directory but has no mechanism to inject a custom PATH or
+seed the runtime snapshot. As a result, cycling is only deterministic when both
+runtimes happen to be installed in the developer's environment, which is not
+guaranteed across CI/local machines.
+
+The cycling behavior itself is covered by unit tests:
+
+- `form_runtime::next_installed_kind` — pure kind cycling logic.
+- `form_ops` tests — Space on `AgentKind`/`DefaultAgentKind` focus cycles to
+  the next installed kind.
+
+Remote availability probing (issue #184 defects 2-4) is covered by
+`remote_probe_tests.rs` — the pure classifier/planner seam tests prove
+unavailable remote means no prep/prompt operation without needing a live SSH
+connection.

@@ -57,8 +57,16 @@ impl AppState {
     }
 
     fn open_new_repository_modal(&mut self) {
+        let default_kind = self
+            .installed_agent_kinds
+            .first()
+            .copied()
+            .unwrap_or_default();
         self.modal = ModalState::NewRepository {
-            fields: RepositoryFormFields::default(),
+            fields: RepositoryFormFields {
+                default_agent_kind: default_kind.label().to_owned(),
+                ..RepositoryFormFields::default()
+            },
             focus: RepositoryFormFocus::default(),
             cursor: RepositoryFormCursor::default(),
         };
@@ -73,6 +81,7 @@ impl AppState {
                 name: r.name.clone(),
                 base_dir: r.base_dir.to_string_lossy().into_owned(),
                 default_profile: r.default_profile.clone(),
+                default_agent_kind: r.default_agent_kind.label().to_owned(),
                 github_repo: r.github_repo.clone(),
                 remote_enabled: r.remote.enabled,
                 login_user: r.remote.login_user.clone(),
@@ -98,7 +107,7 @@ impl AppState {
     }
 
     fn open_new_agent_modal(&mut self, repository_id: RepositoryId) {
-        let (base_dir, default_profile) = self
+        let (base_dir, default_profile, repo_default_kind, remote_enabled) = self
             .repositories
             .iter()
             .find(|r| r.id == repository_id)
@@ -106,12 +115,36 @@ impl AppState {
                 (
                     r.base_dir.to_string_lossy().into_owned(),
                     r.default_profile.clone(),
+                    r.default_agent_kind,
+                    r.remote.enabled,
                 )
             })
             .unwrap_or_default();
 
+        // Initialize the agent kind to the repository's default when it is
+        // installed (or the repo is remote — remote resolution is
+        // authoritative). Otherwise fall back to the first installed kind.
+        let agent_kind =
+            if remote_enabled || self.installed_agent_kinds.contains(&repo_default_kind) {
+                repo_default_kind
+            } else {
+                self.installed_agent_kinds
+                    .first()
+                    .copied()
+                    .unwrap_or_default()
+            };
+
         let work_dir_len = base_dir.chars().count();
         let profile_len = default_profile.chars().count();
+
+        // Default mode string: LLxprt agents launch with `--yolo`; others
+        // start empty. Computed once and reused for both the field value and
+        // the cursor length to keep them in sync.
+        let default_mode = if agent_kind == crate::domain::AgentKind::Llxprt {
+            "--yolo"
+        } else {
+            ""
+        };
 
         self.modal = ModalState::NewAgent {
             repository_id,
@@ -121,7 +154,8 @@ impl AppState {
                 description: String::new(),
                 work_dir: base_dir,
                 profile: default_profile,
-                mode: "--yolo".to_owned(),
+                agent_kind: agent_kind.label().to_owned(),
+                mode: default_mode.to_owned(),
                 llxprt_debug: String::new(),
                 pass_continue: true,
                 sandbox_enabled: false,
@@ -131,7 +165,7 @@ impl AppState {
             cursor: AgentFormCursor {
                 work_dir: work_dir_len,
                 profile: profile_len,
-                mode: "--yolo".chars().count(),
+                mode: default_mode.chars().count(),
                 sandbox_flags: DEFAULT_SANDBOX_FLAGS.chars().count(),
                 ..AgentFormCursor::default()
             },
@@ -151,6 +185,7 @@ impl AppState {
                 description: a.description.clone(),
                 work_dir: a.work_dir.to_string_lossy().into_owned(),
                 profile: a.profile.clone(),
+                agent_kind: a.agent_kind.label().to_owned(),
                 mode: a.mode_flags.join(" "),
                 llxprt_debug: a.llxprt_debug.clone(),
                 pass_continue: a.pass_continue,

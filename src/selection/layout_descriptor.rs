@@ -114,4 +114,11 @@ impl ScreenLayout {
     pub const fn with_overlay(self, overlay: OverlayPane) -> Self {
         Self { overlay, ..self }
     }
+
+    /// Whether this layout is for Actions mode (affects pane identity, not
+    /// geometry — Actions shares the Issues/PR list+detail split).
+    #[must_use]
+    pub fn is_actions_mode(self) -> bool {
+        matches!(self.screen_mode, ScreenMode::DashboardActions)
+    }
 }

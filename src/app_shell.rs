@@ -744,7 +744,10 @@ fn dispatch_mode_specific_key(
         | InputMode::PrsInline
         | InputMode::PrsSearch
         | InputMode::PrsFilter
-        | InputMode::PrsChooser => false,
+        | InputMode::PrsChooser
+        | InputMode::ActionsNormal
+        | InputMode::ActionsFilter
+        | InputMode::ActionsSearch => false,
     }
 }
 

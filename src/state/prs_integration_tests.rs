@@ -22,7 +22,8 @@ use crate::domain::{
 };
 use crate::pr_detail_content::{build_pr_detail_content, pr_detail_content_line_count};
 use crate::state::AppState;
-use crate::state::types::{AppEvent, PaneFocus, PrDetailSubfocus, PrFocus, ScreenMode};
+use crate::state::events::AppEvent;
+use crate::state::types::{PaneFocus, PrDetailSubfocus, PrFocus, ScreenMode};
 
 use std::path::PathBuf;
 

@@ -4,6 +4,8 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P09
 //! @requirement REQ-TECH-001
 
+pub mod actions_view;
+pub mod agent_detection;
 pub mod cli;
 /// OSC 52 clipboard writer with tmux / GNU screen passthrough.
 pub mod clipboard;
@@ -38,7 +40,7 @@ pub mod git_info;
 pub mod github;
 
 #[cfg(test)]
-#[path = "github/tests.rs"]
+#[path = "github/tests/mod.rs"]
 mod github_tests;
 
 #[cfg(test)]

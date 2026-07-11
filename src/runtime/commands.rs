@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use tracing::debug;
 
-use crate::domain::LaunchSignature;
+use crate::domain::{AgentKind, LaunchSignature};
 
 use super::errors::RuntimeError;
 use super::preflight::sandbox_ssh_agent_warning;
@@ -165,7 +165,11 @@ fn shell_join(parts: &[String]) -> String {
 }
 
 fn remote_is_enabled(remote: &crate::domain::RemoteRepositorySettings) -> bool {
-    remote.enabled && !remote.host.trim().is_empty() && !remote.login_user.trim().is_empty()
+    // Delegate to the shared validated contract in domain::target so the
+    // runtime layer's definition of "remote" can never drift from the
+    // availability/prep layers. The shared predicate requires enabled AND
+    // nonempty login_user AND nonempty host.
+    crate::domain::target::is_valid_remote(remote)
 }
 
 fn remote_effective_user(remote: &crate::domain::RemoteRepositorySettings) -> String {
@@ -229,13 +233,43 @@ fn remote_ssh_args(
     remote: &crate::domain::RemoteRepositorySettings,
     remote_command: &str,
 ) -> Vec<String> {
+    // Runtime defense-in-depth: validate SSH identity fields before
+    // constructing the destination. The authoritative validation happens at
+    // form/persistence boundaries via domain::target::validate_remote, but
+    // every SSH command site re-checks at runtime (not just debug builds) so
+    // a stale or unvalidated RemoteRepositorySettings can never reach the
+    // shell. The `--` separator below is the final structural guard: it ends
+    // option parsing so a destination starting with '-' cannot be parsed as
+    // an ssh option even if validation were bypassed.
+    let user = remote.login_user.trim();
+    let host = remote.host.trim();
+    assert!(
+        crate::domain::target::is_valid_ssh_identity(user)
+            && crate::domain::target::is_valid_ssh_identity(host),
+        "SSH identity fields must be validated before reaching remote_ssh_args"
+    );
     vec![
         "-o".to_owned(),
         "BatchMode=yes".to_owned(),
         "-o".to_owned(),
         "ConnectTimeout=10".to_owned(),
+        // Auto-accept the host key on first connect (TOFU) and verify it on
+        // subsequent connections so SSH never hangs waiting for interactive
+        // acceptance in the non-PTY runtime path.
+        "-o".to_owned(),
+        "StrictHostKeyChecking=accept-new".to_owned(),
+        // Post-connect keepalive so a hung remote command is detected within
+        // ~15s instead of blocking indefinitely.
+        "-o".to_owned(),
+        "ServerAliveInterval=5".to_owned(),
+        "-o".to_owned(),
+        "ServerAliveCountMax=3".to_owned(),
         "-tt".to_owned(),
-        format!("{}@{}", remote.login_user.trim(), remote.host.trim()),
+        // `--` ends option parsing so a destination starting with '-' cannot
+        // be misinterpreted as an ssh option (defense in depth; validation
+        // is the primary guard).
+        "--".to_owned(),
+        format!("{user}@{host}"),
         remote_command.to_owned(),
     ]
 }
@@ -332,6 +366,37 @@ fn ensure_remote_success(
     }
 }
 
+fn resolve_remote_agent_command(
+    remote: &crate::domain::RemoteRepositorySettings,
+    work_dir: &Path,
+    setup_env: bool,
+    agent_kind: AgentKind,
+) -> Result<String, RuntimeError> {
+    match agent_kind {
+        AgentKind::CodePuppy => resolve_remote_code_puppy_command(remote, work_dir),
+        AgentKind::Llxprt => resolve_remote_llxprt_command(remote, work_dir, setup_env),
+    }
+}
+
+fn resolve_remote_code_puppy_command(
+    remote: &crate::domain::RemoteRepositorySettings,
+    work_dir: &Path,
+) -> Result<String, RuntimeError> {
+    let work_dir = shell_escape_single(&work_dir.to_string_lossy());
+    let script = format!(
+        "set -e; cd {work_dir}; command -v code-puppy >/dev/null 2>&1; printf '%s\\n' code-puppy"
+    );
+    let output = run_remote_ssh(remote, &remote_tmux_command(remote, &script))?;
+    let resolved = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if output.status.success() && !resolved.is_empty() {
+        Ok(resolved)
+    } else {
+        Err(RuntimeError::RemoteExecutionFailed(
+            "could not resolve remote code-puppy command; verify code-puppy is installed for the remote user".to_owned(),
+        ))
+    }
+}
+
 fn resolve_remote_llxprt_command(
     remote: &crate::domain::RemoteRepositorySettings,
     work_dir: &Path,
@@ -385,6 +450,31 @@ fn resolve_remote_llxprt_command(
 }
 
 fn launch_args(signature: &LaunchSignature) -> Vec<String> {
+    match signature.agent_kind {
+        AgentKind::CodePuppy => code_puppy_launch_args(signature),
+        AgentKind::Llxprt => llxprt_launch_args(signature),
+    }
+}
+
+fn code_puppy_launch_args(signature: &LaunchSignature) -> Vec<String> {
+    // Code Puppy interactive mode: output ONLY `-i` plus, for fresh
+    // (issue/PR-driven) sends, the single positional instruction string.
+    //
+    // Fresh sends replace mode_flags with one positional instruction and
+    // force pass_continue off. That structural contract avoids coupling the
+    // runtime layer to natural-language prompt text while still rejecting all
+    // arbitrary persisted LLxprt flags.
+    let mut args = vec!["-i".to_owned()];
+    if !signature.pass_continue
+        && let [instruction] = signature.mode_flags.as_slice()
+        && !instruction.starts_with('-')
+    {
+        args.push(instruction.clone());
+    }
+    args
+}
+
+fn llxprt_launch_args(signature: &LaunchSignature) -> Vec<String> {
     let mut args = Vec::new();
     if !signature.profile.is_empty() {
         args.push("--profile-load".to_owned());
@@ -410,6 +500,9 @@ fn launch_args(signature: &LaunchSignature) -> Vec<String> {
 
 fn remote_env_exports(signature: &LaunchSignature) -> Vec<String> {
     let mut env_exports = Vec::new();
+    if signature.agent_kind == AgentKind::CodePuppy {
+        return env_exports;
+    }
     if signature.sandbox_enabled {
         env_exports.push(format!(
             "export SANDBOX_FLAGS={};",
@@ -453,9 +546,14 @@ fn build_remote_launch_command(
     let remote = &signature.remote;
     let work_dir_string = work_dir.to_string_lossy().into_owned();
     let escaped_work_dir = shell_escape_single(&work_dir_string);
-    let llxprt_command = resolve_remote_llxprt_command(remote, work_dir, remote.setup_env_default)?;
+    let agent_command = resolve_remote_agent_command(
+        remote,
+        work_dir,
+        remote.setup_env_default,
+        signature.agent_kind,
+    )?;
     let args = launch_args(signature);
-    let cli_command = remote_cli_command(&llxprt_command, &args);
+    let cli_command = remote_cli_command(&agent_command, &args);
     // Scrub jefe's tmux client vars from the remote agent pane for the same
     // reason as the local path (#171): a bare `tmux` inside the agent must not
     // reach the (remote) tmux server hosting the agent session.
@@ -490,6 +588,7 @@ fn build_remote_tmux_script(
 }
 
 struct LocalLaunchPlan {
+    agent_kind: AgentKind,
     args: Vec<String>,
     env: Vec<(String, String)>,
     warning: Option<String>,
@@ -497,22 +596,28 @@ struct LocalLaunchPlan {
 
 fn local_launch_plan(signature: &LaunchSignature) -> LocalLaunchPlan {
     let mut env = Vec::new();
-    let warning = if signature.sandbox_enabled {
-        env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
-        if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
-            env.push((
-                "LLXPRT_SANDBOX_IMAGE".to_owned(),
-                image_ref.to_string_lossy().into_owned(),
-            ));
+    let warning = match signature.agent_kind {
+        AgentKind::Llxprt => {
+            if signature.sandbox_enabled {
+                env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
+                if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
+                    env.push((
+                        "LLXPRT_SANDBOX_IMAGE".to_owned(),
+                        image_ref.to_string_lossy().into_owned(),
+                    ));
+                }
+                sandbox_ssh_agent_warning()
+            } else {
+                None
+            }
         }
-        sandbox_ssh_agent_warning()
-    } else {
-        None
+        AgentKind::CodePuppy => None,
     };
-    if !signature.llxprt_debug.is_empty() {
+    if matches!(signature.agent_kind, AgentKind::Llxprt) && !signature.llxprt_debug.is_empty() {
         env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
     }
     LocalLaunchPlan {
+        agent_kind: signature.agent_kind,
         args: launch_args(signature),
         env,
         warning,
@@ -550,7 +655,7 @@ fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
     for (key, value) in &plan.env {
         args.push(format!("{key}={value}"));
     }
-    args.push("llxprt".to_owned());
+    args.push(plan.agent_kind.binary_name().to_owned());
     args.extend(plan.args.iter().cloned());
     args
 }
