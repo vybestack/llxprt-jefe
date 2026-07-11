@@ -444,4 +444,24 @@ mod tests {
         assert_eq!(row_text(&proj.snapshot, 1), "h4");
         assert_eq!(row_text(&proj.snapshot, 2), "h5");
     }
+
+    #[test]
+    fn empty_live_snapshot_uses_pane_viewport_not_history_length() {
+        // CodeRabbit follow-up: when the live snapshot is empty, the viewport
+        // must use the actual pane dimensions (passed by the caller), NOT the
+        // full retained history length. With a 50-line history and a 5-row
+        // pane, follow-tail must render only the bottom 5 history rows —
+        // never all 50 — otherwise follow-tail/scroll/selection math spans
+        // the whole (up to 2000-line) history.
+        let history: Vec<String> = (1..=50).map(|i| format!("line{i}")).collect();
+        let live = TerminalSnapshot::default();
+        let proj = build_terminal_viewport(&live, &history, None, 5, 40, default_style());
+        assert_eq!(
+            proj.snapshot.rows, 5,
+            "projection must be pane-sized (5 rows), not history-sized (50)"
+        );
+        // Follow-tail windows the bottom 5: line46..line50.
+        assert_eq!(row_text(&proj.snapshot, 0), "line46");
+        assert_eq!(row_text(&proj.snapshot, 4), "line50");
+    }
 }
