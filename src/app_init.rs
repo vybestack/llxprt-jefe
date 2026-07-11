@@ -107,6 +107,7 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     state.pane_focus = crate::app_input::pane_focus_from_persisted(&persisted.pane_focus);
     state.terminal_focused =
         persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;
+    state.user_preferences = persisted.user_preferences;
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
 

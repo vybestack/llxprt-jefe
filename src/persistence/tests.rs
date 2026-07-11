@@ -161,6 +161,7 @@ fn file_persistence_roundtrip_state() {
         last_selected_agent_by_repo: vec![],
         pane_focus: String::new(),
         terminal_focused: false,
+        user_preferences: crate::domain::UserPreferences::default(),
     };
     mgr.save_state(&state).value_or_panic("should save");
     let loaded = mgr.load_state().value_or_panic("should load");
@@ -193,6 +194,7 @@ fn file_persistence_roundtrip_pane_focus_and_terminal_focused() {
         last_selected_agent_by_repo: vec![],
         pane_focus: "terminal".to_string(),
         terminal_focused: true,
+        user_preferences: crate::domain::UserPreferences::default(),
     };
     mgr.save_state(&state).value_or_panic("should save");
     let loaded = mgr.load_state().value_or_panic("should load");
@@ -259,6 +261,7 @@ fn test_issue_base_prompt_state_round_trip() {
         last_selected_agent_by_repo: vec![],
         pane_focus: String::new(),
         terminal_focused: false,
+        user_preferences: crate::domain::UserPreferences::default(),
     };
     let temp = std::env::temp_dir().join("jefe_test_p13_issue_base_prompt_roundtrip");
     let _ = std::fs::remove_dir_all(&temp);
@@ -674,4 +677,241 @@ fn resolve_config_dir_falls_back_to_platform_default() {
 fn resolve_config_dir_ignores_empty_env_values() {
     let dir = resolve_config_dir_from_env(Some(String::new()), Some(String::new()));
     assert!(dir.ends_with("jefe"));
+}
+
+// ── Issue #163: user_preferences round-trip + backward compat ─────────────
+
+#[test]
+fn user_preferences_roundtrip() {
+    use crate::domain::{
+        ChecksFilter, IssueFilter, IssueFilterState, MergeMethod, PrFilter, PrFilterState,
+        RepoPreferences, RepositoryId, ReviewDecisionFilter, UserPreferences,
+    };
+
+    let prefs = UserPreferences {
+        by_repo: vec![(
+            RepositoryId("repo-1".to_string()),
+            RepoPreferences {
+                issue_filter: IssueFilter {
+                    state: Some(IssueFilterState::Closed),
+                    author: "alice".to_string(),
+                    assignee: "bob".to_string(),
+                    labels: vec!["bug".to_string(), "ui".to_string()],
+                    milestone: "v1".to_string(),
+                    ..IssueFilter::default()
+                },
+                pr_filter: PrFilter {
+                    state: Some(PrFilterState::Merged),
+                    author: "carol".to_string(),
+                    reviewer: "dave".to_string(),
+                    is_draft: Some(true),
+                    review_decision: ReviewDecisionFilter::Approved,
+                    checks_status: ChecksFilter::Success,
+                    labels: vec!["needs-review".to_string()],
+                    ..PrFilter::default()
+                },
+                issue_search_query: "issue-search".to_string(),
+                pr_search_query: "pr-search".to_string(),
+                issue_filter_field_index: 3,
+                pr_filter_field_index: 5,
+                last_merge_method: Some(MergeMethod::Squash),
+            },
+        )],
+    };
+
+    let state = State {
+        user_preferences: prefs,
+        ..State::default_with_version()
+    };
+
+    let json = serde_json::to_string(&state).value_or_panic("serialize state");
+    let restored: State = serde_json::from_str(&json).value_or_panic("deserialize state");
+    assert_eq!(restored.user_preferences, state.user_preferences);
+}
+
+#[test]
+fn legacy_state_without_preferences_deserializes_to_default() {
+    // A legacy state.json that predates the user_preferences field must
+    // deserialize cleanly, yielding default (empty) preferences.
+    let legacy_json = r#"{
+        "schema_version": 1,
+        "repositories": [],
+        "agents": [],
+        "selected_repository_index": null,
+        "selected_agent_index": null
+    }"#;
+    let state: State = serde_json::from_str(legacy_json).value_or_panic("deserialize legacy state");
+    assert!(state.user_preferences.by_repo.is_empty());
+}
+
+// ── Issue #163 FIX 8: Full restart-hydration integration test ─────────────
+
+/// End-to-end restart test: save → load → restore → enter-mode proves no
+/// cross-repo leakage through the real persistence layer.
+#[test]
+fn restart_hydration_preserves_per_repo_preferences() {
+    use crate::domain::{
+        IssueFilter, IssueFilterState, PrFilter, PrFilterState, RepoPreferences, Repository,
+        RepositoryId, UserPreferences,
+    };
+
+    let repo1 = Repository::new(
+        RepositoryId("repo-1".to_string()),
+        "Repo 1".to_string(),
+        "repo-1".to_string(),
+        std::path::PathBuf::from("/tmp/repo1"),
+    );
+    let repo2 = Repository::new(
+        RepositoryId("repo-2".to_string()),
+        "Repo 2".to_string(),
+        "repo-2".to_string(),
+        std::path::PathBuf::from("/tmp/repo2"),
+    );
+
+    let prefs1 = RepoPreferences {
+        issue_filter: IssueFilter {
+            state: Some(IssueFilterState::Closed),
+            ..IssueFilter::default()
+        },
+        pr_filter: PrFilter {
+            state: Some(PrFilterState::Merged),
+            ..PrFilter::default()
+        },
+        pr_search_query: "alpha".to_string(),
+        ..RepoPreferences::default()
+    };
+    let prefs2 = RepoPreferences {
+        issue_filter: IssueFilter {
+            state: Some(IssueFilterState::All),
+            ..IssueFilter::default()
+        },
+        ..RepoPreferences::default()
+    };
+
+    let persisted = State {
+        schema_version: STATE_SCHEMA_VERSION,
+        repositories: vec![repo1, repo2],
+        user_preferences: UserPreferences {
+            by_repo: vec![
+                (RepositoryId("repo-1".to_string()), prefs1),
+                (RepositoryId("repo-2".to_string()), prefs2),
+            ],
+        },
+        ..State::default_with_version()
+    };
+
+    let loaded = save_load_roundtrip(&persisted, "jefe_test_restart_hydration_prefs");
+
+    // Round-trip: both repos' prefs intact with correct states + search query.
+    let r1 = loaded
+        .user_preferences
+        .for_repo(&RepositoryId("repo-1".to_string()));
+    assert_eq!(r1.issue_filter.state, Some(IssueFilterState::Closed));
+    assert_eq!(r1.pr_filter.state, Some(PrFilterState::Merged));
+    assert_eq!(r1.pr_search_query, "alpha");
+
+    let r2 = loaded
+        .user_preferences
+        .for_repo(&RepositoryId("repo-2".to_string()));
+    assert_eq!(r2.issue_filter.state, Some(IssueFilterState::All));
+
+    // Simulate init_app_state's restore: copy loaded prefs onto fresh AppState.
+    verify_mode_entry_restore(&loaded);
+}
+
+/// Save and load a State through the real FilePersistenceManager into a temp
+/// dir tagged with `label` and the current process id (so parallel test
+/// invocations never collide and a crash never leaves stale data for the next
+/// run). Returns the deserialized State.
+fn save_load_roundtrip(persisted: &State, label: &str) -> State {
+    let temp = std::env::temp_dir().join(format!("{label}_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp);
+    let paths = PersistencePaths {
+        settings_path: temp.join("settings.toml"),
+        state_path: temp.join("state.json"),
+    };
+    let mgr = FilePersistenceManager::with_paths(paths);
+
+    mgr.save_state(persisted).value_or_panic("should save");
+    let loaded = mgr.load_state().value_or_panic("should load");
+
+    let _ = std::fs::remove_dir_all(&temp);
+    loaded
+}
+
+/// Given a loaded persistence::State, simulate init_app_state's restore onto a
+/// fresh AppState, then verify entering issues mode for each repo restores the
+/// correct per-repo filter state without cross-repo leakage.
+fn verify_mode_entry_restore(loaded: &State) {
+    use crate::domain::IssueFilterState;
+    use crate::state::{AppEvent, AppState};
+
+    let state = AppState {
+        repositories: loaded.repositories.clone(),
+        user_preferences: loaded.user_preferences.clone(),
+        selected_repository_index: Some(0),
+        ..AppState::default()
+    };
+
+    // repo-1 → Closed.
+    let state = state.apply(AppEvent::EnterIssuesMode);
+    assert_eq!(
+        state.issues_state.committed_filter.state,
+        Some(IssueFilterState::Closed)
+    );
+
+    // repo-2 → All (no leakage from repo-1).
+    let state = state.apply(AppEvent::ExitIssuesMode);
+    let state = state.apply(AppEvent::SelectRepository(1));
+    let state = state.apply(AppEvent::EnterIssuesMode);
+    assert_eq!(
+        state.issues_state.committed_filter.state,
+        Some(IssueFilterState::All)
+    );
+}
+
+/// A legacy state.json (without user_preferences) deserializes and then
+/// entering a mode gives Open defaults.
+#[test]
+fn restart_hydration_legacy_state_gives_open_defaults_on_mode_entry() {
+    use crate::domain::{IssueFilterState, RepositoryId};
+    use crate::state::{AppEvent, AppState};
+
+    let legacy_json = r#"{
+        "schema_version": 1,
+        "repositories": [
+            {
+                "id": "legacy-repo",
+                "name": "Legacy",
+                "slug": "legacy",
+                "base_dir": "/tmp/legacy",
+                "default_profile": "",
+                "agent_ids": []
+            }
+        ],
+        "agents": [],
+        "selected_repository_index": 0,
+        "selected_agent_index": null
+    }"#;
+    let loaded: State =
+        serde_json::from_str(legacy_json).value_or_panic("deserialize legacy state");
+
+    let state = AppState {
+        repositories: loaded.repositories.clone(),
+        user_preferences: loaded.user_preferences.clone(),
+        selected_repository_index: Some(0),
+        ..AppState::default()
+    };
+
+    let state = state.apply(AppEvent::EnterIssuesMode);
+    assert_eq!(
+        state.issues_state.committed_filter.state,
+        Some(IssueFilterState::Open)
+    );
+
+    // Ensure the repo is actually the one we loaded.
+    assert_eq!(
+        state.repositories[0].id,
+        RepositoryId("legacy-repo".to_string())
+    );
 }

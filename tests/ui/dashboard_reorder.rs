@@ -513,6 +513,7 @@ fn reordered_repository_vec_order_matches_persisted_order() {
         last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
         pane_focus: String::new(),
         terminal_focused: false,
+        user_preferences: state.user_preferences.clone(),
     };
 
     assert_eq!(persisted.repositories[0].name, "bravo");

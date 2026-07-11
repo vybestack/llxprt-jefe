@@ -34,10 +34,28 @@ impl AppState {
         self.issues_state.agent_chooser = None;
         self.issues_state.filter_ui.controls_open = false;
         self.issues_state.search_input_focused = false;
-        self.issues_state.search_query.clear();
+        self.restore_issue_preferences();
         self.issues_state.detail_subfocus = DetailSubfocus::Body;
         self.issues_state.draft_notice = None;
         self.issues_state.loading.list = true;
+    }
+
+    /// Restore the current repo's issue filter/search/field-index from
+    /// per-repo preferences (issue #163). Falls back to Open defaults.
+    fn restore_issue_preferences(&mut self) {
+        let repo_id = self.current_repo_id();
+        let prefs = match &repo_id {
+            Some(id) => self.user_preferences.for_repo(id),
+            None => crate::domain::RepoPreferences::default(),
+        };
+        self.issues_state.committed_filter = prefs.issue_filter;
+        self.issues_state.draft_filter = self.issues_state.committed_filter.clone();
+        self.issues_state.search_query = prefs.issue_search_query;
+        // Clamp against the current field count so a stale/corrupted persisted
+        // index cannot drive the cursor out of bounds (issue #163).
+        self.issues_state.filter_ui.field_index = prefs
+            .issue_filter_field_index
+            .min(ISSUE_FILTER_FIELD_COUNT.saturating_sub(1));
     }
 
     /// Exit issues mode, restoring prior focus state.
@@ -168,6 +186,9 @@ impl AppState {
     /// @requirement REQ-PR-003
     /// @pseudocode component-001 lines 152-153
     fn navigate_repo_up_in_issues_mode(&mut self) {
+        // Persist the OLD repo's filter/search/cursor before move_repo_selection
+        // changes the selected index (issue #163). Idempotent on a no-op move.
+        self.remember_issue_preferences();
         if self.move_repo_selection(crate::messages::NavDir::Up) {
             self.reset_issues_for_repo_change();
         }
@@ -182,6 +203,9 @@ impl AppState {
     /// @requirement REQ-PR-003
     /// @pseudocode component-001 lines 152-153
     fn navigate_repo_down_in_issues_mode(&mut self) {
+        // Persist the OLD repo's filter/search/cursor before move_repo_selection
+        // changes the selected index (issue #163). Idempotent on a no-op move.
+        self.remember_issue_preferences();
         if self.move_repo_selection(crate::messages::NavDir::Down) {
             self.reset_issues_for_repo_change();
         }
@@ -206,6 +230,7 @@ impl AppState {
         self.issues_state.list_page_pending = None;
         self.issues_state.detail_pending = None;
         self.issues_state.comments_page_pending = None;
+        self.restore_issue_preferences();
     }
 
     fn navigate_issue_list_up(&mut self) {
@@ -366,6 +391,7 @@ impl AppState {
                 self.issues_state.list_page_pending = None;
                 self.issues_state.mutation_pending = None;
                 self.issues_state.inline_state = InlineState::None;
+                self.remember_issue_preferences();
                 true
             }
             message => self.apply_issues_event(message.into()),
@@ -417,35 +443,46 @@ impl AppState {
         match event {
             AppEvent::OpenFilterControls => {
                 self.issues_state.filter_ui.controls_open = true;
-                self.issues_state.filter_ui.field_index = 0;
+                // field_index is kept in sync with per-repo prefs by
+                // restore_issue_preferences (mode entry) and
+                // remember_issue_filter_field_index (navigation), so the live
+                // value is already the persisted value; just clamp it.
+                self.issues_state.filter_ui.field_index = self
+                    .issues_state
+                    .filter_ui
+                    .field_index
+                    .min(ISSUE_FILTER_FIELD_COUNT.saturating_sub(1));
                 self.issues_state.filter_ui.draft_labels_text =
                     self.issues_state.draft_filter.labels.join(",");
             }
-            AppEvent::CloseFilterControls => self.issues_state.filter_ui.controls_open = false,
+            AppEvent::CloseFilterControls => {
+                self.issues_state.filter_ui.controls_open = false;
+                self.remember_issue_filter_field_index();
+            }
             AppEvent::ApplyFilter => {
                 self.issues_state.committed_filter = self.issues_state.draft_filter.clone();
                 self.issues_state.filter_ui.controls_open = false;
                 self.reload_issue_list_for_filter_change();
+                self.remember_issue_preferences();
             }
-            AppEvent::ClearFilter => {
-                self.issues_state.committed_filter = IssueFilter::default();
-                self.issues_state.draft_filter = IssueFilter::default();
-                self.issues_state.filter_ui.draft_labels_text.clear();
-                self.issues_state.filter_ui.controls_open = false;
-                self.reload_issue_list_for_filter_change();
-            }
+            AppEvent::ClearFilter => self.clear_issue_filter(),
             AppEvent::ClearDraftFilter => {
-                self.issues_state.draft_filter = IssueFilter::default();
+                self.issues_state.draft_filter = IssueFilter {
+                    state: Some(IssueFilterState::Open),
+                    ..IssueFilter::default()
+                };
                 self.issues_state.filter_ui.draft_labels_text.clear();
             }
             AppEvent::FilterNavigateNext => {
                 let idx = self.issues_state.filter_ui.field_index;
                 self.issues_state.filter_ui.field_index = (idx + 1) % ISSUE_FILTER_FIELD_COUNT;
+                self.remember_issue_filter_field_index();
             }
             AppEvent::FilterNavigatePrev => {
                 let idx = self.issues_state.filter_ui.field_index;
                 self.issues_state.filter_ui.field_index =
                     (idx + ISSUE_FILTER_FIELD_COUNT - 1) % ISSUE_FILTER_FIELD_COUNT;
+                self.remember_issue_filter_field_index();
             }
             AppEvent::CycleFilterState => {
                 let current = self.issues_state.draft_filter.state;
@@ -458,6 +495,24 @@ impl AppState {
             _ => return false,
         }
         true
+    }
+
+    /// Reset the committed/draft filters to the Open default, clear the search
+    /// query, and persist the result (issue #163).
+    fn clear_issue_filter(&mut self) {
+        self.issues_state.committed_filter = IssueFilter {
+            state: Some(IssueFilterState::Open),
+            ..IssueFilter::default()
+        };
+        self.issues_state.draft_filter = self.issues_state.committed_filter.clone();
+        self.issues_state.filter_ui.draft_labels_text.clear();
+        self.issues_state.filter_ui.controls_open = false;
+        // Clearing all filters also clears the search query so the persisted
+        // state stays consistent.
+        self.issues_state.search_query.clear();
+        self.issues_state.search_input_focused = false;
+        self.reload_issue_list_for_filter_change();
+        self.remember_issue_preferences();
     }
 
     fn apply_agent_chooser_event(&mut self, event: AppEvent) -> bool {
@@ -527,7 +582,10 @@ impl AppState {
             }
             AppEvent::FocusSearchInput => self.issues_state.search_input_focused = true,
             AppEvent::BlurSearchInput => self.issues_state.search_input_focused = false,
-            AppEvent::ClearSearch => self.issues_state.search_query.clear(),
+            AppEvent::ClearSearch => {
+                self.issues_state.search_query.clear();
+                self.remember_issue_preferences();
+            }
             AppEvent::IssueListLoaded { .. }
             | AppEvent::IssueListPageLoaded { .. }
             | AppEvent::IssueDetailLoaded { .. }

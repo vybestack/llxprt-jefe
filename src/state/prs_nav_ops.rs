@@ -47,6 +47,9 @@ impl AppState {
     /// @requirement REQ-PR-003
     /// @pseudocode component-001 lines 146-153
     fn navigate_repo_up_in_prs_mode(&mut self) {
+        // Persist the OLD repo's filter/search/cursor before move_repo_selection
+        // changes the selected index (issue #163). Idempotent on a no-op move.
+        self.remember_pr_preferences();
         if self.move_repo_selection(crate::messages::NavDir::Up) {
             self.reset_prs_for_repo_change();
         }
@@ -58,6 +61,9 @@ impl AppState {
     /// @requirement REQ-PR-003
     /// @pseudocode component-001 lines 146-153
     fn navigate_repo_down_in_prs_mode(&mut self) {
+        // Persist the OLD repo's filter/search/cursor before move_repo_selection
+        // changes the selected index (issue #163). Idempotent on a no-op move.
+        self.remember_pr_preferences();
         if self.move_repo_selection(crate::messages::NavDir::Down) {
             self.reset_prs_for_repo_change();
         }
