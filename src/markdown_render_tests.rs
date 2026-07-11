@@ -168,6 +168,22 @@ fn numeric_html_entities_decoded() {
     assert!(!out.contains("&#"), "no raw numeric entities: {out}");
 }
 
+/// Numeric references to control characters (ESC, NUL, BS, C1 range) never
+/// decode: emitting them could corrupt terminal state or smuggle escape
+/// sequences from untrusted GitHub content.
+#[test]
+fn control_character_entities_not_decoded() {
+    let out = render("a&#27;b &#x1b;c &#0;d &#8;e &#x9b;f");
+    assert!(!out.contains('\u{1b}'), "no ESC in output: {out:?}");
+    assert!(!out.contains('\u{0}'), "no NUL in output: {out:?}");
+    assert!(!out.contains('\u{8}'), "no BS in output: {out:?}");
+    assert!(!out.contains('\u{9b}'), "no C1 CSI in output: {out:?}");
+    // The surrounding text still renders.
+    for t in ["a", "b", "c", "d", "e", "f"] {
+        assert!(out.contains(t), "text {t} preserved: {out:?}");
+    }
+}
+
 #[test]
 fn link_keeps_url_when_distinct() {
     let out = render("[text](https://example.com)");
@@ -500,6 +516,24 @@ fn table_columns_align_by_display_width() {
     assert!(
         data_row.contains(&expected),
         "data cell must pad to the wide header's display width: {data_row:?}"
+    );
+}
+
+/// Consecutive `<br>` tags inside an HTML block render a paragraph gap (one
+/// blank line) between the surrounding text instead of being dropped.
+#[test]
+fn consecutive_br_in_html_block_keeps_paragraph_gap() {
+    let out = render("<div>alpha<br><br>beta</div>");
+    let lines: Vec<&str> = out.lines().collect();
+    let Some(alpha) = lines.iter().position(|l| l.contains("alpha")) else {
+        panic!("alpha rendered: {out}");
+    };
+    let Some(beta) = lines.iter().position(|l| l.contains("beta")) else {
+        panic!("beta rendered: {out}");
+    };
+    assert!(
+        lines[alpha + 1..beta].iter().any(|l| l.trim().is_empty()),
+        "blank line between alpha and beta: {out}"
     );
 }
 

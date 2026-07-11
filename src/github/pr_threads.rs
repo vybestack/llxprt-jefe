@@ -20,16 +20,18 @@ const PR_REVIEW_THREADS_PAGE_SIZE: u32 = 50;
 const PR_REVIEW_THREADS_MAX_PAGES: u32 = 20;
 
 impl GhClient {
-    /// List ALL review threads for a pull request, following pagination.
+    /// List review threads for a pull request, following pagination up to
+    /// `PR_REVIEW_THREADS_MAX_PAGES` × `PR_REVIEW_THREADS_PAGE_SIZE` (1000)
+    /// threads.
     ///
     /// Runs the `build_pr_review_threads_query` GraphQL query targeting
     /// `repository.pullRequest(number:).reviewThreads` and parses each page
     /// via `parse_pr_review_threads`, following `pageInfo.hasNextPage` /
-    /// `endCursor` until the connection is exhausted (issue #155 follow-up:
-    /// a single unpaginated `first=20` fetch silently dropped every thread
-    /// beyond the first page). On parse/network error returns the threads
-    /// collected so far (graceful degradation — the detail load must not fail
-    /// because the threads fetch failed).
+    /// `endCursor` until the connection is exhausted or the page cap is hit
+    /// (issue #155 follow-up: a single unpaginated `first=20` fetch silently
+    /// dropped every thread beyond the first page). On parse/network error
+    /// returns the threads collected so far (graceful degradation — the
+    /// detail load must not fail because the threads fetch failed).
     ///
     /// @requirement REQ-PR-009
     #[must_use]
@@ -80,8 +82,23 @@ impl GhClient {
             args.push("-F".to_string());
             args.push(format!("after={after}"));
         }
-        let stdout = Self::run_gh(&args).ok()?;
-        serde_json::from_str::<serde_json::Value>(&stdout).ok()
+        let stdout = match Self::run_gh(&args) {
+            Ok(stdout) => stdout,
+            Err(err) => {
+                // Degrade gracefully (threads already collected still show),
+                // but surface the failure so truncated results on large PRs
+                // are diagnosable instead of silently shorter.
+                tracing::warn!("review-threads page fetch failed: {err}");
+                return None;
+            }
+        };
+        match serde_json::from_str::<serde_json::Value>(&stdout) {
+            Ok(json) => Some(json),
+            Err(err) => {
+                tracing::warn!("review-threads page parse failed: {err}");
+                None
+            }
+        }
     }
     /// Resolve a review thread via the GraphQL `resolveReviewThread` mutation.
     ///

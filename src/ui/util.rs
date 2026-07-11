@@ -137,10 +137,23 @@ fn parse_hhmm(time: &str) -> Option<String> {
     let mut parts = t.split(':');
     let hh_s = parts.next()?.trim();
     let mm_s = parts.next()?.trim();
-    // An optional seconds component is allowed and dropped, but more than one
-    // extra component is malformed (mirrors parse_date's trailing guard).
+    // An optional seconds component is allowed and dropped, but it must still
+    // be a valid zero-padded 00-60 value (60 = leap second) — a malformed or
+    // out-of-range seconds field means the whole timestamp is suspect, so it
+    // falls through to the raw fallback like parse_date. More than one extra
+    // component is malformed outright.
     match (parts.next(), parts.next()) {
-        (None, _) | (Some(_), None) => {}
+        (None, _) => {}
+        (Some(ss_s), None) => {
+            let ss_s = ss_s.trim();
+            if ss_s.len() != 2 {
+                return None;
+            }
+            let ss: u32 = ss_s.parse().ok()?;
+            if ss > 60 {
+                return None;
+            }
+        }
         _ => return None,
     }
     // Enforce zero-padded 2-2 width, mirroring parse_date, so non-standard
@@ -427,5 +440,15 @@ mod tests {
         // Too many components after HH:MM is malformed: the time is rejected,
         // leaving a date-only result.
         assert_eq!(format_iso_date("2026-07-06T15:26:99:99"), "Jul 6, 2026");
+    }
+
+    /// The dropped seconds component is still validated: out-of-range or
+    /// non-zero-padded seconds mark the whole time as suspect (date-only
+    /// result), matching parse_date's strictness. A leap second (60) passes.
+    #[test]
+    fn format_iso_date_validates_dropped_seconds() {
+        assert_eq!(format_iso_date("2026-07-06T15:26:99Z"), "Jul 6, 2026");
+        assert_eq!(format_iso_date("2026-07-06T15:26:5Z"), "Jul 6, 2026");
+        assert_eq!(format_iso_date("2026-07-06T15:26:60Z"), "Jul 6, 2026 15:26");
     }
 }

@@ -508,13 +508,11 @@ fn resolved_thread_collapses_body_when_not_focused() {
 
 /// Focusing a resolved thread expands its full conversation WITHOUT
 /// mutating the resolve state (read access must not require unresolve).
-#[test]
-fn resolved_thread_expands_on_focus() {
-    let detail = detail_with_threads();
-    // Locate the resolved thread's flat index dynamically (flat order =
-    // review order × thread order) so fixture edits cannot silently retarget
-    // this test at an unresolved thread.
-    let Some(resolved_flat_idx) = detail
+/// Flat index (review order × thread order) of the first RESOLVED thread in
+/// `detail`, so tests target the resolved thread structurally instead of via
+/// a hardcoded index that fixture edits could silently retarget.
+fn resolved_thread_flat_idx(detail: &PullRequestDetail) -> usize {
+    let Some(idx) = detail
         .reviews
         .iter()
         .flat_map(|r| r.review_threads.iter())
@@ -522,9 +520,15 @@ fn resolved_thread_expands_on_focus() {
     else {
         panic!("fixture must contain a resolved thread");
     };
+    idx
+}
+
+#[test]
+fn resolved_thread_expands_on_focus() {
+    let detail = detail_with_threads();
     let content = build_pr_detail_content(
         &detail,
-        PrDetailSubfocus::ReviewThread(resolved_flat_idx),
+        PrDetailSubfocus::ReviewThread(resolved_thread_flat_idx(&detail)),
         &InlineState::None,
         false,
         false,
@@ -604,7 +608,7 @@ fn focused_resolved_thread_shows_unresolve_hint() {
     let detail = detail_with_threads();
     let content = build_pr_detail_content(
         &detail,
-        PrDetailSubfocus::ReviewThread(1),
+        PrDetailSubfocus::ReviewThread(resolved_thread_flat_idx(&detail)),
         &InlineState::None,
         false,
         false,

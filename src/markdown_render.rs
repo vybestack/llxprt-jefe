@@ -105,7 +105,23 @@ impl MarkdownRenderer {
     }
 
     fn push(&mut self, line: impl Into<String>) {
-        self.lines.push(line.into());
+        let line = line.into();
+        // Central sanitization chokepoint: every emitted screen line passes
+        // through here, so control characters (ESC/CSI/NUL/BS…) can never
+        // reach the terminal regardless of their source — comrak decodes
+        // numeric entities like &#27; in ordinary text nodes itself, and code
+        // blocks/raw HTML carry author bytes verbatim. Untrusted GitHub
+        // content must not be able to smuggle escape sequences. Tab is kept
+        // (meaningful in code blocks, benign on screen).
+        if line.chars().any(|c| c.is_control() && c != '\t') {
+            self.lines.push(
+                line.chars()
+                    .filter(|c| !c.is_control() || *c == '\t')
+                    .collect(),
+            );
+        } else {
+            self.lines.push(line);
+        }
     }
 
     /// Push a blank separator line, collapsing consecutive blanks so paragraph
@@ -432,6 +448,13 @@ impl MarkdownRenderer {
         let mut first_toggle_line = is_toggle;
         for line in stripped.split('\n') {
             if line.trim().is_empty() {
+                // Consecutive break tags (`<br><br>`) yield empty split
+                // lines: preserve them as ONE blank (a paragraph gap, the
+                // GitHub-rendered effect) instead of dropping them entirely.
+                // push_blank collapses runs and never opens a block with a
+                // stray blank (the previous block's trailing blank absorbs
+                // it).
+                self.push_blank();
                 continue;
             }
             if first_toggle_line {
@@ -631,8 +654,11 @@ fn wrap_indent_cols(text: &str, pad_cols: usize) -> Vec<String> {
         // Empty AND whitespace-only source lines preserve the paragraph break
         // (previously whitespace-only lines produced zero words and were
         // silently swallowed, collapsing paragraph spacing inside list items).
+        // The break line is TRULY empty — padding it would emit an invisible
+        // whitespace-only line that downstream indent helpers would then
+        // prefix into visible stray whitespace.
         if source_line.trim().is_empty() {
-            out.push(pad.clone());
+            out.push(String::new());
             continue;
         }
         let mut current = String::new();
@@ -909,7 +935,15 @@ fn decode_entity(entity: &str) -> Option<String> {
     } else {
         inner.strip_prefix('#')?.parse::<u32>().ok()?
     };
-    char::from_u32(code).map(|c| c.to_string())
+    let c = char::from_u32(code)?;
+    // Never emit control characters (&#27; ESC, &#0; NUL, &#8; BS, C1 set…):
+    // they can corrupt terminal state or enable escape-sequence injection
+    // from untrusted GitHub content. Tab is not meaningful mid-line here
+    // either, so only fully printable characters pass through.
+    if c.is_control() {
+        return None;
+    }
+    Some(c.to_string())
 }
 
 #[cfg(test)]
