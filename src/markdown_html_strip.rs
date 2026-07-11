@@ -92,11 +92,10 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
     }
     // If the first non-whitespace char is '/', this is a closing tag. Skip
     // past the slash AND any following whitespace so `</ p>` or `< / p >`
-    // scans the bare name "p" (not just "/"). We prepend "/" back when
-    // building the lookup name so html_tag_introduces_break still matches
-    // "/p".
-    let closing = j < bytes.len() && bytes[j] == b'/';
-    if closing {
+    // scans the bare name "p" (not just "/") — `html_tag_introduces_break`
+    // treats opening/closing/self-closing forms uniformly via
+    // `bare_tag_name`, so the slash itself carries no information here.
+    if j < bytes.len() && bytes[j] == b'/' {
         j += 1;
         while j < bytes.len() && bytes[j].is_ascii_whitespace() {
             j += 1;
@@ -131,10 +130,12 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
     // the slice would panic on unterminated tags like `<ahref="foo`.
     let name_end = name_end.min(bytes.len());
     // Trim so markup with whitespace after `<` (e.g. `< br>`, `< /p >`) still
-    // matches its tag name and introduces the block boundary.
+    // matches its tag name and introduces the block boundary. The closing
+    // slash was already skipped above, and `html_tag_introduces_break`
+    // normalizes via `bare_tag_name`, so the bare name is passed directly
+    // (re-prefixing `/` would only be stripped again).
     let bare = html[name_start..name_end].trim().to_ascii_lowercase();
-    let name = if closing { format!("/{bare}") } else { bare };
-    if html_tag_introduces_break(&name) {
+    if html_tag_introduces_break(&bare) {
         out.push('\n');
     }
     // Advance past the closing '>' if one was found. Clamp to bytes.len() so
