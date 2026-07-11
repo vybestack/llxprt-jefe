@@ -28,6 +28,7 @@ use comrak::nodes::{
     TableAlignment,
 };
 use comrak::{Arena, Options, parse_document};
+use unicode_width::UnicodeWidthStr;
 
 /// Render a markdown document into a flat list of plain-text lines.
 ///
@@ -126,11 +127,19 @@ impl MarkdownRenderer {
     fn render_block<'a>(&mut self, node: &'a AstNode<'a>, indent: usize) {
         let value = &node.data().value;
         match value {
-            NodeValue::Paragraph
-            | NodeValue::FootnoteDefinition(_)
-            | NodeValue::FootnoteReference(_)
-            | NodeValue::Alert(_) => {
+            NodeValue::Paragraph | NodeValue::FootnoteReference(_) => {
                 self.render_inline_block(node, indent);
+                self.push_blank();
+            }
+            // Footnote definitions and GFM alerts contain nested BLOCK
+            // content (lists, multiple paragraphs, code blocks), so render
+            // their children as blocks instead of flattening to inline text
+            // (which would fuse paragraphs and drop code-block literals).
+            // Alert is currently unreachable — the alerts extension is off,
+            // so GitHub `> [!NOTE]` syntax parses as a plain blockquote —
+            // but routed correctly in case the extension is ever enabled.
+            NodeValue::FootnoteDefinition(_) | NodeValue::Alert(_) => {
+                self.render_block_children(node, indent);
                 self.push_blank();
             }
             NodeValue::Heading(_) => self.render_heading(node, indent),
@@ -369,7 +378,7 @@ impl MarkdownRenderer {
         let mut widths = vec![0usize; num_cols];
         for row in &rows {
             for (i, cell) in row.iter().enumerate().take(num_cols) {
-                let w = cell.chars().count();
+                let w = cell.width();
                 if w > widths[i] {
                     widths[i] = w;
                 }
@@ -417,7 +426,7 @@ impl MarkdownRenderer {
         let stripped = strip_html_to_text(literal);
         let lower = literal.to_ascii_lowercase();
         let is_toggle =
-            contains_open_tag(&lower, "summary") || contains_open_tag(&lower, "details");
+            contains_open_tag(&lower, "<summary") || contains_open_tag(&lower, "<details");
         // Only the first rendered line of a <details> block is the summary, so
         // only it gets the toggle glyph; subsequent lines render as plain text.
         let mut first_toggle_line = is_toggle;
@@ -628,10 +637,10 @@ fn wrap_indent_cols(text: &str, pad_cols: usize) -> Vec<String> {
         }
         let mut current = String::new();
         for word in source_line.split_whitespace() {
-            // Compare in display columns (char count), not bytes, so
-            // multibyte text (CJK, emoji) does not wrap prematurely.
-            let current_cols = current.chars().count();
-            let word_cols = word.chars().count();
+            // Compare in terminal display columns (unicode-width), not bytes
+            // or codepoints, so CJK/emoji (2 columns each) wrap correctly.
+            let current_cols = current.width();
+            let word_cols = word.width();
             if current.is_empty() {
                 current.push_str(word);
             } else if current_cols + 1 + word_cols <= max {
@@ -649,9 +658,10 @@ fn wrap_indent_cols(text: &str, pad_cols: usize) -> Vec<String> {
     out
 }
 
-/// Pad/align a single table cell to the column width.
+/// Pad/align a single table cell to the column width (terminal display
+/// columns via unicode-width, so wide CJK/emoji cells align correctly).
 fn pad_cell(cell: &str, width: usize, align: TableAlignment) -> String {
-    let len = cell.chars().count();
+    let len = cell.width();
     if len >= width {
         return cell.to_string();
     }
@@ -773,7 +783,9 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
     if name_end == start + 1 {
         name_end = j;
     }
-    let name = html[start + 1..name_end].to_ascii_lowercase();
+    // Trim so markup with whitespace after `<` (e.g. `< br>`, `< /p >`) still
+    // matches its tag name and introduces the block boundary.
+    let name = html[start + 1..name_end].trim().to_ascii_lowercase();
     if html_tag_introduces_break(&name) {
         out.push('\n');
     }
@@ -801,13 +813,14 @@ fn consume_entity(html: &str, start: usize) -> (usize, String) {
     }
 }
 
-/// True when `haystack` (already lowercased) contains a real opening tag for
-/// `name` — i.e. `<name` followed by whitespace, `>`, or `/` — rather than a
-/// mere substring like `<summary-widget>` or prose mentioning `<detailsish`.
-fn contains_open_tag(haystack: &str, name: &str) -> bool {
-    let needle = format!("<{name}");
+/// True when `haystack` (already lowercased) contains a real opening tag —
+/// `needle` is the literal `<name` prefix (e.g. `"<summary"`) — followed by
+/// whitespace, `>`, or `/`, rather than a mere substring like
+/// `<summary-widget>` or prose mentioning `<detailsish`. Taking the prefixed
+/// needle as a static literal avoids a per-call `String` allocation.
+fn contains_open_tag(haystack: &str, needle: &str) -> bool {
     let mut search_from = 0;
-    while let Some(rel) = haystack[search_from..].find(&needle) {
+    while let Some(rel) = haystack[search_from..].find(needle) {
         let after = search_from + rel + needle.len();
         match haystack.as_bytes().get(after) {
             None => return false,

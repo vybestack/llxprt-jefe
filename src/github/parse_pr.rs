@@ -617,12 +617,24 @@ pub fn sort_pull_requests(items: &mut [PullRequest]) {
 /// @requirement REQ-PR-009
 #[must_use]
 pub fn build_pr_review_threads_query(with_cursor: bool) -> String {
-    if with_cursor {
-        "query($owner: String!, $repo: String!, $number: Int!, $first: Int!, $after: String) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: $first, after: $after) { nodes { id isResolved isOutdated path line comments(first: 50) { nodes { databaseId author { login } createdAt lastEditedAt body pullRequestReview { id } } } } pageInfo { hasNextPage endCursor } } } } }"
+    // Single source of truth for the thread selection set: the cursor-bearing
+    // and first-page variants differ ONLY in the `$after` declaration and the
+    // `after:` argument, so they are interpolated into one template (any
+    // schema change applies to both branches automatically).
+    let (after_decl, after_arg) = if with_cursor {
+        (", $after: String", ", after: $after")
     } else {
-        "query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { pullRequest(number: $number) { reviewThreads(first: $first) { nodes { id isResolved isOutdated path line comments(first: 50) { nodes { databaseId author { login } createdAt lastEditedAt body pullRequestReview { id } } } } pageInfo { hasNextPage endCursor } } } } }"
-    }
-    .to_owned()
+        ("", "")
+    };
+    format!(
+        "query($owner: String!, $repo: String!, $number: Int!, $first: Int!{after_decl}) \
+         {{ repository(owner: $owner, name: $repo) {{ pullRequest(number: $number) \
+         {{ reviewThreads(first: $first{after_arg}) \
+         {{ nodes {{ id isResolved isOutdated path line \
+         comments(first: 50) {{ nodes {{ databaseId author {{ login }} createdAt lastEditedAt body \
+         pullRequestReview {{ id }} }} }} }} \
+         pageInfo {{ hasNextPage endCursor }} }} }} }} }}"
+    )
 }
 
 /// Extract the `reviewThreads.pageInfo` cursor from a thread-page response.
@@ -646,11 +658,21 @@ pub fn parse_pr_review_threads_cursor(json: &Value) -> Option<String> {
     {
         return None;
     }
-    page_info
+    let cursor = page_info
         .get("endCursor")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-        .map(String::from)
+        .map(String::from);
+    if cursor.is_none() {
+        // hasNextPage=true without a usable endCursor means pagination stops
+        // early and threads are silently truncated — surface it in the log so
+        // the failure mode is diagnosable (thread fetch itself must not fail).
+        tracing::warn!(
+            "review-threads pageInfo has hasNextPage=true but no endCursor; \
+             stopping pagination early (results may be truncated)"
+        );
+    }
+    cursor
 }
 
 /// Parse review threads from a GraphQL response JSON value.

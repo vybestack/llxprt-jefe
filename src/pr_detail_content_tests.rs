@@ -511,10 +511,20 @@ fn resolved_thread_collapses_body_when_not_focused() {
 #[test]
 fn resolved_thread_expands_on_focus() {
     let detail = detail_with_threads();
-    // Thread flat index 1 is the resolved src/main.rs thread.
+    // Locate the resolved thread's flat index dynamically (flat order =
+    // review order × thread order) so fixture edits cannot silently retarget
+    // this test at an unresolved thread.
+    let Some(resolved_flat_idx) = detail
+        .reviews
+        .iter()
+        .flat_map(|r| r.review_threads.iter())
+        .position(|t| t.is_resolved)
+    else {
+        panic!("fixture must contain a resolved thread");
+    };
     let content = build_pr_detail_content(
         &detail,
-        PrDetailSubfocus::ReviewThread(1),
+        PrDetailSubfocus::ReviewThread(resolved_flat_idx),
         &InlineState::None,
         false,
         false,

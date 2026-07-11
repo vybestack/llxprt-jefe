@@ -357,10 +357,37 @@ mod tests {
 
     #[test]
     fn format_iso_date_round_trips_all_months() {
-        for (m, abbr) in [(1, "Jan"), (4, "Apr"), (12, "Dec")] {
+        for (m, abbr) in [
+            (1, "Jan"),
+            (2, "Feb"),
+            (3, "Mar"),
+            (4, "Apr"),
+            (5, "May"),
+            (6, "Jun"),
+            (7, "Jul"),
+            (8, "Aug"),
+            (9, "Sep"),
+            (10, "Oct"),
+            (11, "Nov"),
+            (12, "Dec"),
+        ] {
             let iso = format!("2026-{m:02}-15");
             assert_eq!(format_iso_date(&iso), format!("{abbr} 15, 2026"));
         }
+    }
+
+    /// A timezone offset directly after HH:MM (no seconds component) parses
+    /// the same as the seconds-bearing form.
+    #[test]
+    fn format_iso_date_offset_without_seconds() {
+        assert_eq!(
+            format_iso_date("2026-07-06T15:26+02:00"),
+            "Jul 6, 2026 15:26"
+        );
+        assert_eq!(
+            format_iso_date("2026-07-06T15:26-07:00"),
+            "Jul 6, 2026 15:26"
+        );
     }
 
     /// A timezone offset (e.g. `+02:00`) must be stripped so the HH:MM is the

@@ -456,7 +456,7 @@ fn wrapped_list_continuation_aligns_under_content() {
 /// stays on one line.
 #[test]
 fn multibyte_text_not_wrapped_prematurely() {
-    // 10 CJK chars = 30 bytes but 10 display columns; well under width 78.
+    // 9 CJK chars = 27 bytes / 18 display columns; well under width 78.
     let md = "中文测试中文测试中";
     let out = render(md);
     let non_empty = out.lines().filter(|l| !l.is_empty()).count();
@@ -465,6 +465,60 @@ fn multibyte_text_not_wrapped_prematurely() {
         "short multibyte text stays on one line: {out}"
     );
     assert!(out.contains("中文测试中文测试中"));
+}
+
+/// Wrap decisions measure DISPLAY columns (unicode-width), not codepoints:
+/// fifteen 3-char CJK words are 45 codepoints but 90 columns (plus gaps), so
+/// they must wrap at the soft width instead of staying on one over-wide line.
+#[test]
+fn wide_chars_wrap_at_display_width() {
+    let md = vec!["中文字"; 15].join(" ");
+    let out = render(&md);
+    let non_empty = out.lines().filter(|l| !l.is_empty()).count();
+    assert!(
+        non_empty >= 2,
+        "15 double-width words (104 cols) must wrap: {out}"
+    );
+}
+
+/// Table column alignment pads by display width: a header with a wide CJK
+/// cell must produce data-row padding that lines the columns up in terminal
+/// columns, not codepoints.
+#[test]
+fn table_columns_align_by_display_width() {
+    let md = "| 中文中文 | b |
+| --- | --- |
+| x | y |";
+    let out = render(md);
+    let lines: Vec<&str> = out.lines().filter(|l| !l.is_empty()).collect();
+    let Some(data_row) = lines.iter().find(|l| l.trim_start().starts_with('x')) else {
+        panic!("data row present: {out}");
+    };
+    // "中文中文" is 8 display columns; the x cell pads to 8 columns
+    // (x + 7 spaces) and the two-space column gap follows → 9 spaces total.
+    let expected = format!("x{}y", " ".repeat(9));
+    assert!(
+        data_row.contains(&expected),
+        "data cell must pad to the wide header's display width: {data_row:?}"
+    );
+}
+
+/// A malformed tag with whitespace after `<` (e.g. `< br>`) still introduces
+/// the block boundary its trimmed tag name implies.
+#[test]
+fn whitespace_after_angle_bracket_still_breaks() {
+    let md = "<div>alpha< br>beta</div>";
+    let out = render(md);
+    let Some(alpha_line) = out.lines().position(|l| l.contains("alpha")) else {
+        panic!("alpha rendered: {out}");
+    };
+    let Some(beta_line) = out.lines().position(|l| l.contains("beta")) else {
+        panic!("beta rendered: {out}");
+    };
+    assert_ne!(
+        alpha_line, beta_line,
+        "`< br>` must introduce a line break: {out}"
+    );
 }
 
 // ── Invariant: one element = one screen line (issue #155 review) ──────
