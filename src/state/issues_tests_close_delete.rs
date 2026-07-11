@@ -54,7 +54,7 @@ fn make_issue(number: u64, node_id: &str) -> Issue {
 
 fn make_detail(number: u64, node_id: &str) -> IssueDetail {
     IssueDetail {
-        repo_owner_name: "owner/repo".to_string(),
+        repo_owner_name: "test/test".to_string(),
         number,
         node_id: node_id.to_string(),
         title: format!("Detail {number}"),
@@ -119,13 +119,38 @@ fn close_issue_with_no_issue_focused_shows_notice() {
 }
 
 #[test]
+fn close_issue_with_no_repo_selected_shows_notice() {
+    // A focused issue but no selected repository: the reducer must NOT create a
+    // close pending with an empty scope (it would never match the async result).
+    let mut state = issues_state_with_list("repo-1");
+    state.selected_repository_index = None;
+    let state = state.apply(AppEvent::CloseIssue);
+    assert!(
+        state.issues_state.close_mutation_pending.is_none(),
+        "no close pending when no repository is selected"
+    );
+    assert!(
+        state.issues_state.draft_notice.is_some(),
+        "a notice must be shown when no repository is selected"
+    );
+}
+
+#[test]
 fn issue_closed_updates_list_and_detail_state() {
     let mut state = issues_state_with_list("repo-1");
     state.issues_state.issue_detail = Some(make_detail(1, "I_1"));
-    let mutation_id = state.issues_state.next_mutation_id + 1;
     let scope = RepositoryId("repo-1".to_string());
-    // First set the close pending via CloseIssue
+    // First set the close pending via CloseIssue, then capture the actual
+    // mutation_id the reducer allocated (avoid coupling to the +1 strategy).
     let state = state.apply(AppEvent::CloseIssue);
+    let mutation_id = state
+        .issues_state
+        .close_mutation_pending
+        .as_ref()
+        .map(|p| p.mutation_id);
+    let Some(mutation_id) = mutation_id else {
+        panic!("close pending should be set after CloseIssue");
+    };
     // Now apply IssueClosed with the same mutation_id
     let state = state.apply(AppEvent::IssueClosed {
         scope_repo_id: scope,
@@ -370,6 +395,39 @@ fn issue_deleted_removes_from_list_and_clears_detail() {
     assert!(
         notice.is_some_and(|n| n.contains("Deleted issue #1")),
         "notice should mention deletion"
+    );
+}
+
+#[test]
+fn issue_deleted_when_last_in_list_clears_selection() {
+    // Start with a single issue so deletion empties the list — exercises the
+    // fix_issue_selection_after_delete empty-list branch.
+    let mut state = issues_state_with_list("repo-1");
+    state.issues_state.issues = vec![make_issue(7, "I_7")];
+    state.issues_state.selected_issue_index = Some(0);
+    state.issues_state.issue_detail = Some(make_detail(7, "I_7"));
+    state.issues_state.delete_mutation_pending = Some(IssueLifecycleMutationPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        mutation_id: 1,
+        issue_number: 7,
+        node_id: Some("I_7".to_string()),
+    });
+    let state = state.apply(AppEvent::IssueDeleted {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        issue_number: 7,
+        mutation_id: 1,
+    });
+    assert!(
+        state.issues_state.issues.is_empty(),
+        "list should be empty after deleting the last issue"
+    );
+    assert!(
+        state.issues_state.selected_issue_index.is_none(),
+        "selection should be cleared when the list becomes empty"
+    );
+    assert!(
+        state.issues_state.delete_mutation_pending.is_none(),
+        "delete pending should be cleared"
     );
 }
 

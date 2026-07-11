@@ -28,19 +28,24 @@ pub(super) fn handle_issue_close(app_state: &mut AppStateHandle, ctx: &SharedCon
     };
 
     let failure_target = MutationFailureTarget {
-        scope_repo_id: pending.scope_repo_id.clone(),
+        scope_repo_id: pending.scope_repo_id,
         issue_number: Some(pending.issue_number),
     };
     let panic_failure_target = failure_target.clone();
     let mutation_id = pending.mutation_id;
     let issue_number = pending.issue_number;
-    let scope = pending.scope_repo_id.clone();
 
     gh_async::spawn_gh_task_with_panic(
         app_state,
         ctx,
         move |mut app_state, ctx| {
-            let event = close_issue_event(&ctx, &repo_target, issue_number, &scope, mutation_id);
+            let event = close_issue_event(
+                &ctx,
+                &repo_target,
+                issue_number,
+                &failure_target.scope_repo_id,
+                mutation_id,
+            );
             apply_close_outcome(&mut app_state, &ctx, event, failure_target, mutation_id);
         },
         move |mut app_state, ctx, message| {
@@ -145,19 +150,24 @@ pub(super) fn handle_issue_delete_confirm(app_state: &mut AppStateHandle, ctx: &
     };
 
     let failure_target = MutationFailureTarget {
-        scope_repo_id: pending.scope_repo_id.clone(),
+        scope_repo_id: pending.scope_repo_id,
         issue_number: Some(pending.issue_number),
     };
     let panic_failure_target = failure_target.clone();
     let mutation_id = pending.mutation_id;
     let issue_number = pending.issue_number;
-    let scope = pending.scope_repo_id.clone();
 
     gh_async::spawn_gh_task_with_panic(
         app_state,
         ctx,
         move |mut app_state, ctx| {
-            let event = delete_issue_event(&ctx, &node_id, issue_number, &scope, mutation_id);
+            let event = delete_issue_event(
+                &ctx,
+                &node_id,
+                issue_number,
+                &failure_target.scope_repo_id,
+                mutation_id,
+            );
             apply_delete_outcome(&mut app_state, &ctx, event, failure_target, mutation_id);
         },
         move |mut app_state, ctx, message| {

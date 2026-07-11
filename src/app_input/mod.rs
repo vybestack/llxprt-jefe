@@ -514,6 +514,10 @@ fn dispatch_issues_lifecycle(
         IssuesMessage::IssueDeleteCancel => {
             apply_and_persist(app_state, ctx, AppEvent::IssueDeleteCancel);
         }
+        // Defensive fallback: the sole caller (dispatch_app_message) pre-filters
+        // to the four lifecycle variants above, so other IssuesMessage variants
+        // never reach here. Kept as a no-op safety net rather than forcing this
+        // match to enumerate every IssuesMessage variant.
         _ => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
 }

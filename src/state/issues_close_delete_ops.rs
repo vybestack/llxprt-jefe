@@ -100,7 +100,12 @@ impl AppState {
             self.show_issue_notice(ReadOnlyHintKind::NoIssueFocused);
             return;
         };
-        let scope = self.current_issue_scope_repo_id();
+        let Some(scope) = self.selected_issue_scope_repo_id() else {
+            // No repository selected: the async result would carry a real scope
+            // and never match this pending, leaving it stuck. Bail with a notice.
+            self.show_issue_notice(ReadOnlyHintKind::NoIssueFocused);
+            return;
+        };
         let mutation_id = self.next_issue_mutation_id();
         self.issues_state.close_mutation_pending = Some(IssueLifecycleMutationPending {
             scope_repo_id: scope,
@@ -140,7 +145,13 @@ impl AppState {
             return;
         }
         let issue_number = confirm.issue_number;
-        let scope = self.current_issue_scope_repo_id();
+        let Some(scope) = self.selected_issue_scope_repo_id() else {
+            // No repository selected: bail so the pending cannot be created
+            // with an empty scope that would never match the async result.
+            self.issues_state.delete_confirm = None;
+            self.show_issue_notice(ReadOnlyHintKind::NoIssueFocused);
+            return;
+        };
         let node_id = self.focused_issue_node_id(issue_number).unwrap_or_default();
         if node_id.is_empty() {
             self.issues_state.delete_confirm = None;
@@ -305,9 +316,10 @@ impl AppState {
         if delete_matches {
             self.issues_state.delete_mutation_pending = None;
         }
-        let num_str = issue_number.map_or_else(String::new, |n| format!("#{n} "));
+        let issue_ref = issue_number
+            .map_or_else(|| "an issue".to_string(), |n| format!("issue #{n}"));
         self.issues_state.error = Some(format!(
-            "Failed to mutate issue {num_str}for {}: {error}",
+            "Failed to mutate {issue_ref} for {}: {error}",
             scope_repo_id.0
         ));
         true
@@ -320,10 +332,14 @@ impl AppState {
     }
 
     /// Resolve the scope repository ID for the currently-selected repository.
-    fn current_issue_scope_repo_id(&self) -> RepositoryId {
+    ///
+    /// Returns `None` when no repository is selected (or the index is stale),
+    /// so callers can bail before creating a mutation pending with an empty
+    /// scope that would never match an async result carrying the real scope.
+    fn selected_issue_scope_repo_id(&self) -> Option<RepositoryId> {
         self.selected_repository_index
             .and_then(|idx| self.repositories.get(idx))
-            .map_or_else(|| RepositoryId(String::new()), |r| r.id.clone())
+            .map(|r| r.id.clone())
     }
 
     /// Set a draft_notice for a read-only hint kind.
