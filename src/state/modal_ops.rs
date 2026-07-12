@@ -15,7 +15,14 @@ use super::types::{
     RepositoryFormFields, RepositoryFormFocus,
 };
 
-type NewAgentRepositoryDefaults = (String, String, String, AgentKind, bool);
+#[derive(Default)]
+struct NewAgentRepositoryDefaults {
+    base_dir: String,
+    profile: String,
+    code_puppy_model: String,
+    agent_kind: AgentKind,
+    remote_enabled: bool,
+}
 
 fn new_agent_repository_defaults(
     repositories: &[Repository],
@@ -24,14 +31,12 @@ fn new_agent_repository_defaults(
     repositories
         .iter()
         .find(|repository| repository.id == *repository_id)
-        .map(|repository| {
-            (
-                repository.base_dir.to_string_lossy().into_owned(),
-                repository.default_profile.clone(),
-                repository.default_code_puppy_model.clone(),
-                repository.default_agent_kind,
-                repository.remote.enabled,
-            )
+        .map(|repository| NewAgentRepositoryDefaults {
+            base_dir: repository.base_dir.to_string_lossy().into_owned(),
+            profile: repository.default_profile.clone(),
+            code_puppy_model: repository.default_code_puppy_model.clone(),
+            agent_kind: repository.default_agent_kind,
+            remote_enabled: repository.remote.enabled,
         })
         .unwrap_or_default()
 }
@@ -132,13 +137,13 @@ impl AppState {
     }
 
     fn open_new_agent_modal(&mut self, repository_id: RepositoryId) {
-        let (
+        let NewAgentRepositoryDefaults {
             base_dir,
-            default_profile,
-            default_code_puppy_model,
-            repo_default_kind,
+            profile: default_profile,
+            code_puppy_model: default_code_puppy_model,
+            agent_kind: repo_default_kind,
             remote_enabled,
-        ) = new_agent_repository_defaults(&self.repositories, &repository_id);
+        } = new_agent_repository_defaults(&self.repositories, &repository_id);
 
         // Remote repositories trust their configured runtime; local ones must
         // fall back when that runtime is not installed.
