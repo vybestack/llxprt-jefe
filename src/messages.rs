@@ -17,6 +17,7 @@ mod issues_conversion;
 mod actions;
 mod actions_conversion;
 mod prs_conversion;
+mod prs_property_conversion;
 pub use actions::ActionsMessage;
 
 // @plan PLAN-20260624-PR-MODE.P03
@@ -322,6 +323,27 @@ pub enum IssuesMessage {
         issue_number: u64,
         error: String,
     },
+    // Property editing (issue #175)
+    OpenPropertyEditor {
+        kind: crate::state::IssuePropertyKind,
+    },
+    PropertyEditorNavigateUp,
+    PropertyEditorNavigateDown,
+    PropertyEditorToggle,
+    PropertyEditorConfirm,
+    PropertyEditorCancel,
+    PropertyEditorOptionsLoaded {
+        options: Vec<(String, bool)>,
+    },
+    PropertyEditSucceeded {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+    },
+    PropertyEditFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        error: String,
+    },
 }
 
 /// Pull Requests mode messages — mirrors `IssuesMessage` shape.
@@ -525,6 +547,27 @@ pub enum PullRequestsMessage {
         scope_repo_id: RepositoryId,
         thread_index: usize,
         request_id: u64,
+        error: String,
+    },
+    // Property editing (issue #175)
+    OpenPropertyEditor {
+        kind: crate::state::PrPropertyKind,
+    },
+    PropertyEditorNavigateUp,
+    PropertyEditorNavigateDown,
+    PropertyEditorToggle,
+    PropertyEditorConfirm,
+    PropertyEditorCancel,
+    PropertyEditorOptionsLoaded {
+        options: Vec<(String, bool)>,
+    },
+    PropertyEditSucceeded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+    },
+    PropertyEditFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
         error: String,
     },
 }
@@ -864,6 +907,15 @@ message_names!(IssuesMessage {
     Self::SendToAgentCompleted => "SendToAgentCompleted",
     Self::SendToAgentFailed { .. } => "SendToAgentFailed",
     Self::IssueSelfAssignmentFailed { .. } => "IssueSelfAssignmentFailed",
+    Self::OpenPropertyEditor { .. } => "IssueOpenPropertyEditor",
+    Self::PropertyEditorNavigateUp => "IssuePropertyEditorNavigateUp",
+    Self::PropertyEditorNavigateDown => "IssuePropertyEditorNavigateDown",
+    Self::PropertyEditorToggle => "IssuePropertyEditorToggle",
+    Self::PropertyEditorConfirm => "IssuePropertyEditorConfirm",
+    Self::PropertyEditorCancel => "IssuePropertyEditorCancel",
+    Self::PropertyEditorOptionsLoaded { .. } => "IssuePropertyEditorOptionsLoaded",
+    Self::PropertyEditSucceeded { .. } => "IssuePropertyEditSucceeded",
+    Self::PropertyEditFailed { .. } => "IssuePropertyEditFailed",
 });
 
 // @plan PLAN-20260624-PR-MODE.P03
@@ -933,4 +985,13 @@ message_names!(PullRequestsMessage {
     Self::ToggleThreadResolve { .. } => "PrToggleThreadResolve",
     Self::ThreadResolveSucceeded { .. } => "PrThreadResolveSucceeded",
     Self::ThreadResolveFailed { .. } => "PrThreadResolveFailed",
+    Self::OpenPropertyEditor { .. } => "PrOpenPropertyEditor",
+    Self::PropertyEditorNavigateUp => "PrPropertyEditorNavigateUp",
+    Self::PropertyEditorNavigateDown => "PrPropertyEditorNavigateDown",
+    Self::PropertyEditorToggle => "PrPropertyEditorToggle",
+    Self::PropertyEditorConfirm => "PrPropertyEditorConfirm",
+    Self::PropertyEditorCancel => "PrPropertyEditorCancel",
+    Self::PropertyEditorOptionsLoaded { .. } => "PrPropertyEditorOptionsLoaded",
+    Self::PropertyEditSucceeded { .. } => "PrPropertyEditSucceeded",
+    Self::PropertyEditFailed { .. } => "PrPropertyEditFailed",
 });

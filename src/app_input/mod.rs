@@ -5,6 +5,8 @@ mod issues_dispatch;
 mod issues_filter;
 mod issues_list_dispatch;
 mod issues_mutation;
+mod issues_orchestration;
+mod issues_property_edit;
 mod issues_subfocus_dispatch;
 mod modal_handlers;
 mod normal;
@@ -26,6 +28,7 @@ mod prs_dispatch;
 mod prs_filter;
 mod prs_list_dispatch;
 mod prs_mutation;
+mod prs_property_edit;
 // @plan PLAN-20260624-PR-MODE.P11
 mod prs_orchestration;
 
@@ -541,40 +544,8 @@ pub fn dispatch_app_message(
         AppMessage::Runtime(RuntimeMessage::RestartAgent(agent_id)) => {
             dispatch_restart_agent(app_state, ctx, agent_id);
         }
-        AppMessage::Issues(
-            message @ (IssuesMessage::NavigateUp
-            | IssuesMessage::NavigateDown
-            | IssuesMessage::NavigatePageUp
-            | IssuesMessage::NavigatePageDown
-            | IssuesMessage::NavigateHome
-            | IssuesMessage::NavigateEnd),
-        ) => {
-            dispatch_issues_navigation(app_state, ctx, message);
-        }
-        AppMessage::Issues(
-            message @ (IssuesMessage::EnterMode
-            | IssuesMessage::RefocusList
-            | IssuesMessage::ApplyFilter
-            | IssuesMessage::ClearFilter
-            | IssuesMessage::ApplySearch),
-        ) => issues_list_dispatch::dispatch_issue_list_reload(app_state, ctx, message),
-        AppMessage::Issues(IssuesMessage::Enter) => {
-            apply_and_persist(app_state, ctx, AppEvent::IssuesEnter);
-            issues_dispatch::load_issue_detail_for_selection(app_state, ctx);
-        }
-        AppMessage::Issues(
-            message @ (IssuesMessage::ScrollDetailDown
-            | IssuesMessage::ScrollDetailPageDown
-            | IssuesMessage::DetailSubfocusNext
-            | IssuesMessage::DetailSubfocusPrev),
-        ) => issues_subfocus_dispatch::dispatch_issues_detail_scroll_or_subfocus(
-            app_state, ctx, message,
-        ),
-        AppMessage::Issues(IssuesMessage::AgentChooserConfirm) => {
-            issues_send::dispatch_agent_chooser_confirm(app_state, ctx);
-        }
-        AppMessage::Issues(IssuesMessage::InlineSubmit) => {
-            issues_mutation::handle_inline_submit(app_state, ctx);
+        AppMessage::Issues(message) => {
+            issues_orchestration::route_issues_message(app_state, ctx, message);
         }
         // ── PR-mode dispatch arms ───────────────────────────────────────────
         // @plan PLAN-20260624-PR-MODE.P11

@@ -107,6 +107,7 @@ pub fn pane_content_lines(
         SelectablePane::RepositoryForm => repository_form_lines(state),
         SelectablePane::AgentChooser => overlay_content::agent_chooser_lines(state),
         SelectablePane::MergeChooser => overlay_content::merge_chooser_lines(state),
+        SelectablePane::PropertyEditor => overlay_content::property_editor_lines(state),
         SelectablePane::ConfirmModal => overlay_content::confirm_modal_lines(state),
     }
 }
@@ -656,6 +657,7 @@ mod tests {
             comments: Vec::new(),
             has_more_comments: false,
             comments_cursor: None,
+            issue_type_name: None,
         });
         let content = pane_content_lines(SelectablePane::IssueDetail, &state, None, &[], 120, 40);
         // Line 0: title, Line 1: state/author, Line 2: labels/assignees/milestone,

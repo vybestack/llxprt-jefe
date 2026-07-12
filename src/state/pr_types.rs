@@ -121,6 +121,7 @@ pub struct PullRequestsState {
     pub draft_notice: Option<String>,
     pub mutation_pending: Option<PrMutationPending>,
     pub next_mutation_id: u64,
+    pub property_editor: Option<super::PrPropertyEditorState>,
     pub list_reload_pending: Option<PrListReloadPending>,
     pub next_pr_list_request_id: u64,
     pub list_page_pending: Option<PrListPagePending>,

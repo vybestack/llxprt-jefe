@@ -321,6 +321,15 @@ impl AppMessage {
                 | AppEvent::SendToAgentCompleted
                 | AppEvent::SendToAgentFailed { .. }
                 | AppEvent::IssueSelfAssignmentFailed { .. }
+                | AppEvent::IssueOpenPropertyEditor { .. }
+                | AppEvent::IssuePropertyEditorNavigateUp
+                | AppEvent::IssuePropertyEditorNavigateDown
+                | AppEvent::IssuePropertyEditorToggle
+                | AppEvent::IssuePropertyEditorConfirm
+                | AppEvent::IssuePropertyEditorCancel
+                | AppEvent::IssuePropertyEditorOptionsLoaded { .. }
+                | AppEvent::IssuePropertyEditSucceeded { .. }
+                | AppEvent::IssuePropertyEditFailed { .. }
         )
     }
 

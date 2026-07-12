@@ -790,6 +790,10 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
     if state.prs_state.merge_chooser.is_some() {
         return OverlayPane::MergeChooser;
     }
+    // Property editor can be open in issues or PR mode (issue #175).
+    if state.issues_state.property_editor.is_some() || state.prs_state.property_editor.is_some() {
+        return OverlayPane::PropertyEditor;
+    }
     OverlayPane::None
 }
 

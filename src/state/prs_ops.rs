@@ -596,6 +596,7 @@ impl AppState {
             || self.apply_pr_mutation_event(event.clone())
             || self.apply_pr_agent_chooser_event(&event)
             || self.apply_pr_merge_event(&event)
+            || self.apply_pr_property_event(&event)
             || self.apply_prs_data_wrapper(&event)
             || self.apply_prs_load_error_wrapper(&event)
             || self.apply_pr_thread_event(&event)

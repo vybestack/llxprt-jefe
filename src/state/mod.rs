@@ -23,6 +23,7 @@ mod issues_inline_ops;
 mod issues_load_ops;
 mod issues_mutation_ops;
 mod issues_ops;
+mod issues_property_ops;
 mod modal_ops;
 // Per-repository user-preference snapshot/restore operations (issue #163).
 mod preferences_ops;
@@ -34,6 +35,7 @@ mod prs_merge_ops;
 mod prs_mutation_ops;
 mod prs_nav_ops;
 mod prs_ops;
+mod prs_property_ops;
 mod prs_thread_ops;
 pub mod scrollback_ops;
 mod selectors;

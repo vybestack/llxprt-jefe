@@ -295,6 +295,7 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         comments,
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     })
 }
 

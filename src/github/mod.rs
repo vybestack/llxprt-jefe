@@ -24,6 +24,16 @@ use repo_merge::parse_repo_merge_methods;
 mod viewer;
 pub use viewer::{build_assign_issue_args, build_viewer_login_args, parse_viewer_login};
 
+mod edit_properties;
+pub use edit_properties::{
+    IssueNodeInfo, PropertyEditTarget, build_assignees_query_args, build_clear_milestone_args,
+    build_close_args, build_edit_assignees_args, build_edit_labels_args,
+    build_issue_node_id_query_args, build_issue_types_query_args, build_labels_query_args,
+    build_milestones_query_args, build_reopen_args, build_set_milestone_args, build_set_title_args,
+    build_update_issue_type_args, compute_assignee_diff, compute_label_diff, parse_assignee_logins,
+    parse_issue_node_info, parse_issue_types, parse_label_names, parse_milestone_titles,
+};
+
 mod actions;
 pub use actions::{
     WorkflowRunListResponse, build_runs_api_path, parse_api_runs_json, parse_jobs_json,
@@ -820,15 +830,8 @@ impl Default for GhClient {
 /// Distribute fetched review threads onto the review structs.
 ///
 /// GitHub's `reviewThreads` connection is on `PullRequest`, not on each
-/// `Review`. Each thread carries the id of the review that opened it (from
-/// its first comment's `pullRequestReview`), so threads are attached to THEIR
-/// parent review — mirroring the github.com grouping where each review card
-/// shows its own batch of inline comments. Threads whose parent review id is
-/// missing or matches no fetched review fall back to the first review so
-/// nothing is dropped. When there are no reviews at all, threads are dropped
-/// (there is no review slot to hold them). The renderer flattens
-/// `reviews.iter().flat_map(|r| &r.review_threads)` so this preserves all
-/// threads for display, in per-review chronological order.
+/// `Review`. Each thread carries the id of its parent review, so threads are
+/// attached to their parent review (or the first review as fallback).
 pub(crate) fn assign_threads_to_reviews(reviews: &mut [PrReview], threads: Vec<PrReviewThread>) {
     if threads.is_empty() || reviews.is_empty() {
         return;

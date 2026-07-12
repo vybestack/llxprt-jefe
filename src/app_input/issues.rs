@@ -8,7 +8,7 @@
 
 use iocraft::prelude::*;
 
-use jefe::state::{AppEvent, AppState, DetailSubfocus, InlineState, IssueFocus};
+use jefe::state::{AppEvent, AppState, DetailSubfocus, InlineState, IssueFocus, IssuePropertyKind};
 
 use super::issues_filter::resolve_filter_key_event;
 
@@ -27,6 +27,12 @@ use super::{AppStateHandle, SharedContext};
 /// @requirement REQ-ISS-002
 /// @pseudocode component-003 lines 01-38
 pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    // P0.5: property editor overlay (issue #175) — checked before inline/chooser
+    // so Up/Down/Space/Enter/Esc route to the editor while it is open.
+    if state.issues_state.property_editor.is_some() {
+        return resolve_property_editor_key_event(key_event);
+    }
+
     if state.issues_state.inline_state != InlineState::None {
         return resolve_inline_key_event(key_event);
     }
@@ -75,6 +81,22 @@ fn resolve_agent_chooser_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
         KeyCode::Down => Some(AppEvent::AgentChooserNavigateDown),
         KeyCode::Enter => Some(AppEvent::AgentChooserConfirm),
         KeyCode::Esc => Some(AppEvent::AgentChooserCancel),
+        _ => None,
+    }
+}
+
+/// Property-editor key router (issue #175).
+///
+/// Mirrors the merge-chooser pattern: Up/Down navigate, Space toggles, Enter
+/// confirms, Esc cancels. All other keys are consumed as `None` so the
+/// overlay is modal.
+fn resolve_property_editor_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Up => Some(AppEvent::IssuePropertyEditorNavigateUp),
+        KeyCode::Down => Some(AppEvent::IssuePropertyEditorNavigateDown),
+        KeyCode::Char(' ') => Some(AppEvent::IssuePropertyEditorToggle),
+        KeyCode::Enter => Some(AppEvent::IssuePropertyEditorConfirm),
+        KeyCode::Esc => Some(AppEvent::IssuePropertyEditorCancel),
         _ => None,
     }
 }
@@ -152,8 +174,30 @@ fn resolve_issue_detail_key_event(state: &AppState, key_event: &KeyEvent) -> Opt
         KeyCode::Char('S') if !state.agents.is_empty() => Some(AppEvent::OpenAgentChooser),
         KeyCode::Tab | KeyCode::Char('j') => Some(AppEvent::IssueDetailSubfocusNext),
         KeyCode::BackTab | KeyCode::Char('k') => Some(AppEvent::IssueDetailSubfocusPrev),
-        _ => None,
+        _ => resolve_issue_property_open_key(state, key_event),
     }
+}
+
+/// Property editor open-key shortcuts (issue #175).
+///
+/// Shift-letter opens the corresponding property editor overlay. Only active
+/// on Body subfocus and when no overlay is already open.
+fn resolve_issue_property_open_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    if state.issues_state.detail_subfocus != DetailSubfocus::Body
+        || state.issues_state.property_editor.is_some()
+    {
+        return None;
+    }
+    let kind = match key_event.code {
+        KeyCode::Char('L') => IssuePropertyKind::Labels,
+        KeyCode::Char('A') => IssuePropertyKind::Assignees,
+        KeyCode::Char('M') => IssuePropertyKind::Milestone,
+        KeyCode::Char('T') => IssuePropertyKind::Title,
+        KeyCode::Char('Y') => IssuePropertyKind::Type,
+        KeyCode::Char('W') => IssuePropertyKind::State,
+        _ => return None,
+    };
+    Some(AppEvent::IssueOpenPropertyEditor { kind })
 }
 
 fn editor_event_for_subfocus(subfocus: DetailSubfocus) -> Option<AppEvent> {

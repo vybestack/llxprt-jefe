@@ -72,6 +72,11 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
                     comments: Vec::new(),
                     has_more_comments: false,
                     comments_cursor: None,
+                    issue_type_name: if issue.issue_type.is_empty() {
+                        None
+                    } else {
+                        Some(issue.issue_type.clone())
+                    },
                 }
             })
     };

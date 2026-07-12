@@ -610,6 +610,7 @@ impl AppState {
             || self.apply_inline_open_event(event.clone())
             || self.apply_inline_event(event.clone())
             || self.apply_issue_mutation_event(event.clone())
+            || self.apply_issue_property_event(&event)
             || self.apply_agent_chooser_event(event.clone())
             || self.apply_issue_error_event(event)
     }

@@ -747,6 +747,7 @@ fn state_with_issue_body(body: &str) -> AppState {
         comments: Vec::new(),
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     });
     state
 }

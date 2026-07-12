@@ -10,7 +10,7 @@ use jefe::domain::{Agent, AgentId, RepositoryId};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::state::{
     AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget,
-    InlineState, IssueFocus, IssuesState, ScreenMode,
+    InlineState, IssueFocus, IssuePropertyEditorState, IssuePropertyKind, IssuesState, ScreenMode,
 };
 use std::path::PathBuf;
 
@@ -819,4 +819,168 @@ line2",
     assert!(matches!(up, Some(AppEvent::InlineCursorUp)));
     let down = resolve_issues_key_event(&state, &key(KeyCode::Down));
     assert!(matches!(down, Some(AppEvent::InlineCursorDown)));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Property Editor — Open keys (issue #175)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Helper: issues state with detail focus on Body subfocus.
+fn issues_detail_body_state() -> AppState {
+    issues_state_with_detail_subfocus(DetailSubfocus::Body)
+}
+
+#[test]
+fn test_shift_l_opens_labels_editor() {
+    let state = issues_detail_body_state();
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('L')));
+    assert!(matches!(
+        event,
+        Some(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Labels
+        })
+    ));
+}
+
+#[test]
+fn test_shift_a_opens_assignees_editor() {
+    let state = issues_detail_body_state();
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('A')));
+    assert!(matches!(
+        event,
+        Some(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Assignees
+        })
+    ));
+}
+
+#[test]
+fn test_shift_m_opens_milestone_editor() {
+    let state = issues_detail_body_state();
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('M')));
+    assert!(matches!(
+        event,
+        Some(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Milestone
+        })
+    ));
+}
+
+#[test]
+fn test_shift_t_opens_title_editor() {
+    let state = issues_detail_body_state();
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('T')));
+    assert!(matches!(
+        event,
+        Some(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Title
+        })
+    ));
+}
+
+#[test]
+fn test_shift_y_opens_type_editor() {
+    let state = issues_detail_body_state();
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('Y')));
+    assert!(matches!(
+        event,
+        Some(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::Type
+        })
+    ));
+}
+
+#[test]
+fn test_shift_w_opens_state_editor() {
+    let state = issues_detail_body_state();
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('W')));
+    assert!(matches!(
+        event,
+        Some(AppEvent::IssueOpenPropertyEditor {
+            kind: IssuePropertyKind::State
+        })
+    ));
+}
+
+/// Property editor keys only fire on Body subfocus, not Comment subfocus.
+#[test]
+fn test_property_keys_noop_on_comment_subfocus() {
+    let state = issues_state_with_detail_subfocus(DetailSubfocus::Comment(0));
+    let l = resolve_issues_key_event(&state, &key(KeyCode::Char('L')));
+    assert!(l.is_none(), "L on Comment subfocus should be None");
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Property Editor — Overlay key routing (issue #175)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Helper: issues state with the property editor already open.
+fn issues_state_with_property_editor() -> AppState {
+    let mut state = issues_detail_body_state();
+    state.issues_state.property_editor = Some(IssuePropertyEditorState {
+        kind: IssuePropertyKind::Labels,
+        options: vec![],
+        selected_index: 0,
+        title_text: String::new(),
+        title_cursor: 0,
+        error: None,
+    });
+    state
+}
+
+#[test]
+fn test_property_editor_up_navigates() {
+    let state = issues_state_with_property_editor();
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Up));
+    assert!(matches!(
+        event,
+        Some(AppEvent::IssuePropertyEditorNavigateUp)
+    ));
+}
+
+#[test]
+fn test_property_editor_down_navigates() {
+    let state = issues_state_with_property_editor();
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Down));
+    assert!(matches!(
+        event,
+        Some(AppEvent::IssuePropertyEditorNavigateDown)
+    ));
+}
+
+#[test]
+fn test_property_editor_space_toggles() {
+    let state = issues_state_with_property_editor();
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Char(' ')));
+    assert!(matches!(event, Some(AppEvent::IssuePropertyEditorToggle)));
+}
+
+#[test]
+fn test_property_editor_enter_confirms() {
+    let state = issues_state_with_property_editor();
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Enter));
+    assert!(matches!(event, Some(AppEvent::IssuePropertyEditorConfirm)));
+}
+
+#[test]
+fn test_property_editor_esc_cancels() {
+    let state = issues_state_with_property_editor();
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Esc));
+    assert!(matches!(event, Some(AppEvent::IssuePropertyEditorCancel)));
+}
+
+/// Property editor is modal: other keys are suppressed (None).
+#[test]
+fn test_property_editor_suppresses_unrelated_keys() {
+    let state = issues_state_with_property_editor();
+    // 'e' would normally open the body editor, but the property editor
+    // intercepts at P0.5.
+    let e = resolve_issues_key_event(&state, &key(KeyCode::Char('e')));
+    assert!(e.is_none(), "property editor should suppress 'e'");
+    // 'c' would open the comment composer.
+    let c = resolve_issues_key_event(&state, &key(KeyCode::Char('c')));
+    assert!(c.is_none(), "property editor should suppress 'c'");
+    // Tab would cycle subfocus.
+    let tab = resolve_issues_key_event(&state, &key(KeyCode::Tab));
+    assert!(tab.is_none(), "property editor should suppress Tab");
 }

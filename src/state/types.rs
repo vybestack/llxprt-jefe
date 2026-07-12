@@ -573,6 +573,7 @@ pub struct IssuesState {
     pub draft_notice: Option<String>,
     pub mutation_pending: Option<IssueMutationPending>,
     pub next_mutation_id: u64,
+    pub property_editor: Option<IssuePropertyEditorState>,
     pub list_reload_pending: Option<IssueListReloadPending>,
     pub next_issue_list_request_id: u64,
     pub list_page_pending: Option<IssueListPagePending>,
@@ -627,6 +628,56 @@ pub struct IssueLoadingState {
 }
 
 pub const ISSUE_FILTER_FIELD_COUNT: usize = 8;
+
+/// Which property of an issue the user is editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IssuePropertyKind {
+    Labels,
+    Assignees,
+    Milestone,
+    Title,
+    Type,
+    State,
+}
+
+/// Which property of a PR the user is editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrPropertyKind {
+    Labels,
+    Assignees,
+    Milestone,
+    Title,
+    State,
+}
+
+/// A selectable option in the property editor list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyOption {
+    pub label: String,
+    pub selected: bool,
+}
+
+/// Property editor overlay state for issues (mirrors `PrMergeChooserState`).
+#[derive(Debug, Clone)]
+pub struct IssuePropertyEditorState {
+    pub kind: IssuePropertyKind,
+    pub options: Vec<PropertyOption>,
+    pub selected_index: usize,
+    pub title_text: String,
+    pub title_cursor: usize,
+    pub error: Option<String>,
+}
+
+/// Property editor overlay state for PRs.
+#[derive(Debug, Clone)]
+pub struct PrPropertyEditorState {
+    pub kind: PrPropertyKind,
+    pub options: Vec<PropertyOption>,
+    pub selected_index: usize,
+    pub title_text: String,
+    pub title_cursor: usize,
+    pub error: Option<String>,
+}
 
 /// Number of PR filter fields for FilterNavigate wrap (issue #163).
 pub const PR_FILTER_FIELD_COUNT: usize = 8;

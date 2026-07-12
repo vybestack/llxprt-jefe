@@ -584,4 +584,48 @@ pub enum AppEvent {
         request_id: u64,
         error: String,
     },
+
+    // Property editing (issue #175) — Issues
+    IssueOpenPropertyEditor {
+        kind: super::IssuePropertyKind,
+    },
+    IssuePropertyEditorNavigateUp,
+    IssuePropertyEditorNavigateDown,
+    IssuePropertyEditorToggle,
+    IssuePropertyEditorConfirm,
+    IssuePropertyEditorCancel,
+    IssuePropertyEditorOptionsLoaded {
+        options: Vec<(String, bool)>,
+    },
+    IssuePropertyEditSucceeded {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+    },
+    IssuePropertyEditFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        error: String,
+    },
+
+    // Property editing (issue #175) — PRs
+    PrOpenPropertyEditor {
+        kind: super::PrPropertyKind,
+    },
+    PrPropertyEditorNavigateUp,
+    PrPropertyEditorNavigateDown,
+    PrPropertyEditorToggle,
+    PrPropertyEditorConfirm,
+    PrPropertyEditorCancel,
+    PrPropertyEditorOptionsLoaded {
+        options: Vec<(String, bool)>,
+    },
+    PrPropertyEditSucceeded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+    },
+    PrPropertyEditFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        error: String,
+    },
 }

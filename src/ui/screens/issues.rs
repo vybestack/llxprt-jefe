@@ -12,8 +12,9 @@ use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
     AgentChooser, IssueDetailProjectionInputs, IssueListLayout, IssueListWindow, KeybindBar,
-    Sidebar, StatusBar, detail_pane_element, filter_bar_element, issue_detail_props,
-    issue_filter_props, issue_list_props, issue_list_status_message, selectable_list_element,
+    PropertyEditor, Sidebar, StatusBar, detail_pane_element, filter_bar_element,
+    issue_detail_props, issue_filter_props, issue_list_props, issue_list_status_message,
+    selectable_list_element,
 };
 
 /// Props for the issues mode screen.
@@ -116,6 +117,43 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
         .as_ref()
         .map_or_else(Vec::new, |c| c.agents.clone());
     let chooser_selected = agent_chooser.as_ref().map_or(0, |c| c.selected_index);
+
+    // Property editor overlay (issue #175)
+    let prop_editor = state.and_then(|s| s.issues_state.property_editor.clone());
+    let prop_visible = prop_editor.is_some();
+    let prop_header = prop_editor.as_ref().map_or_else(String::new, |e| {
+        let kind_label = match e.kind {
+            crate::state::IssuePropertyKind::Labels => "Labels",
+            crate::state::IssuePropertyKind::Assignees => "Assignees",
+            crate::state::IssuePropertyKind::Milestone => "Milestone",
+            crate::state::IssuePropertyKind::Title => "Title",
+            crate::state::IssuePropertyKind::Type => "Type",
+            crate::state::IssuePropertyKind::State => "State",
+        };
+        let num = issue_detail.as_ref().map_or(0, |d| d.number);
+        format!("Edit {kind_label} - Issue #{num}")
+    });
+    let prop_options: Vec<(String, bool)> = prop_editor.as_ref().map_or_else(Vec::new, |e| {
+        e.options
+            .iter()
+            .map(|o| (o.label.clone(), o.selected))
+            .collect()
+    });
+    let prop_selected = prop_editor.as_ref().map_or(0, |e| e.selected_index);
+    let prop_multi = prop_editor.as_ref().is_some_and(|e| {
+        matches!(
+            e.kind,
+            crate::state::IssuePropertyKind::Labels | crate::state::IssuePropertyKind::Assignees
+        )
+    });
+    let prop_is_title = prop_editor
+        .as_ref()
+        .is_some_and(|e| matches!(e.kind, crate::state::IssuePropertyKind::Title));
+    let prop_title_text = prop_editor
+        .as_ref()
+        .map_or_else(String::new, |e| e.title_text.clone());
+    let prop_title_cursor = prop_editor.as_ref().map_or(0, |e| e.title_cursor);
+    let prop_error = prop_editor.as_ref().and_then(|e| e.error.clone());
 
     // Sidebar is highlighted when RepoList focus or PaneFocus::Repositories
     let sidebar_focused =
@@ -244,6 +282,33 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                                     visible: true,
                                     agents: chooser_agents.clone(),
                                     selected_index: chooser_selected,
+                                    colors: colors.clone(),
+                                    selection: selection,
+                                )
+                            }
+                        }]
+                    } else {
+                        vec![]
+                    })
+
+                    // Property editor overlay (issue #175)
+                    #(if prop_visible {
+                        vec![element! {
+                            Box(
+                                position: Position::Absolute,
+                                top: 2,
+                                left: 4,
+                            ) {
+                                PropertyEditor(
+                                    visible: true,
+                                    header: prop_header.clone(),
+                                    options: prop_options.clone(),
+                                    selected_index: prop_selected,
+                                    multi_select: prop_multi,
+                                    title_text: prop_title_text.clone(),
+                                    title_cursor: prop_title_cursor,
+                                    is_title: prop_is_title,
+                                    error: prop_error.clone(),
                                     colors: colors.clone(),
                                     selection: selection,
                                 )

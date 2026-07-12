@@ -226,6 +226,30 @@ impl IssuesMessage {
             | AppEvent::IssueBodyUpdated { .. }
             | AppEvent::CommentUpdated { .. }
             | AppEvent::MutationFailed { .. } => Self::from_app_event_mutation(event),
+            AppEvent::OpenAgentChooser
+            | AppEvent::AgentChooserNavigateUp
+            | AppEvent::AgentChooserNavigateDown
+            | AppEvent::AgentChooserConfirm
+            | AppEvent::AgentChooserCancel
+            | AppEvent::SendToAgentCompleted
+            | AppEvent::SendToAgentFailed { .. }
+            | AppEvent::IssueSelfAssignmentFailed { .. } => Self::from_app_event_agent(event),
+            AppEvent::IssueOpenPropertyEditor { .. }
+            | AppEvent::IssuePropertyEditorNavigateUp
+            | AppEvent::IssuePropertyEditorNavigateDown
+            | AppEvent::IssuePropertyEditorToggle
+            | AppEvent::IssuePropertyEditorConfirm
+            | AppEvent::IssuePropertyEditorCancel
+            | AppEvent::IssuePropertyEditorOptionsLoaded { .. }
+            | AppEvent::IssuePropertyEditSucceeded { .. }
+            | AppEvent::IssuePropertyEditFailed { .. } => Self::from_app_event_property(event),
+            _ => unreachable!("non-issues AppEvent routed to issues converter"),
+        }
+    }
+
+    /// Agent chooser and send-to-agent events.
+    fn from_app_event_agent(event: AppEvent) -> Self {
+        match event {
             AppEvent::OpenAgentChooser => Self::OpenAgentChooser,
             AppEvent::AgentChooserNavigateUp => Self::AgentChooserNavigateUp,
             AppEvent::AgentChooserNavigateDown => Self::AgentChooserNavigateDown,
@@ -242,7 +266,39 @@ impl IssuesMessage {
                 issue_number,
                 error,
             },
-            _ => unreachable!("non-issues AppEvent routed to issues converter"),
+            _ => unreachable!("non-agent AppEvent routed to agent converter"),
+        }
+    }
+
+    /// Property-editor events (issue #175).
+    fn from_app_event_property(event: AppEvent) -> Self {
+        match event {
+            AppEvent::IssueOpenPropertyEditor { kind } => Self::OpenPropertyEditor { kind },
+            AppEvent::IssuePropertyEditorNavigateUp => Self::PropertyEditorNavigateUp,
+            AppEvent::IssuePropertyEditorNavigateDown => Self::PropertyEditorNavigateDown,
+            AppEvent::IssuePropertyEditorToggle => Self::PropertyEditorToggle,
+            AppEvent::IssuePropertyEditorConfirm => Self::PropertyEditorConfirm,
+            AppEvent::IssuePropertyEditorCancel => Self::PropertyEditorCancel,
+            AppEvent::IssuePropertyEditorOptionsLoaded { options } => {
+                Self::PropertyEditorOptionsLoaded { options }
+            }
+            AppEvent::IssuePropertyEditSucceeded {
+                scope_repo_id,
+                issue_number,
+            } => Self::PropertyEditSucceeded {
+                scope_repo_id,
+                issue_number,
+            },
+            AppEvent::IssuePropertyEditFailed {
+                scope_repo_id,
+                issue_number,
+                error,
+            } => Self::PropertyEditFailed {
+                scope_repo_id,
+                issue_number,
+                error,
+            },
+            _ => unreachable!("non-property AppEvent routed to property converter"),
         }
     }
 
@@ -574,6 +630,30 @@ impl IssuesMessage {
             | Self::IssueBodyUpdated { .. }
             | Self::CommentUpdated { .. }
             | Self::MutationFailed { .. } => self.into_app_event_mutation(),
+            Self::OpenAgentChooser
+            | Self::AgentChooserNavigateUp
+            | Self::AgentChooserNavigateDown
+            | Self::AgentChooserConfirm
+            | Self::AgentChooserCancel
+            | Self::SendToAgentCompleted
+            | Self::SendToAgentFailed { .. }
+            | Self::IssueSelfAssignmentFailed { .. } => self.into_app_event_agent(),
+            Self::OpenPropertyEditor { .. }
+            | Self::PropertyEditorNavigateUp
+            | Self::PropertyEditorNavigateDown
+            | Self::PropertyEditorToggle
+            | Self::PropertyEditorConfirm
+            | Self::PropertyEditorCancel
+            | Self::PropertyEditorOptionsLoaded { .. }
+            | Self::PropertyEditSucceeded { .. }
+            | Self::PropertyEditFailed { .. } => self.into_app_event_property(),
+            _ => unreachable!("routed IssuesMessage variant reached controls converter"),
+        }
+    }
+
+    /// Agent chooser and send-to-agent messages → AppEvent.
+    fn into_app_event_agent(self) -> AppEvent {
+        match self {
             Self::OpenAgentChooser => AppEvent::OpenAgentChooser,
             Self::AgentChooserNavigateUp => AppEvent::AgentChooserNavigateUp,
             Self::AgentChooserNavigateDown => AppEvent::AgentChooserNavigateDown,
@@ -590,7 +670,39 @@ impl IssuesMessage {
                 issue_number,
                 error,
             },
-            _ => unreachable!("routed IssuesMessage variant reached controls converter"),
+            _ => unreachable!("routed IssuesMessage variant reached agent converter"),
+        }
+    }
+
+    /// Property-editor messages → AppEvent (issue #175).
+    fn into_app_event_property(self) -> AppEvent {
+        match self {
+            Self::OpenPropertyEditor { kind } => AppEvent::IssueOpenPropertyEditor { kind },
+            Self::PropertyEditorNavigateUp => AppEvent::IssuePropertyEditorNavigateUp,
+            Self::PropertyEditorNavigateDown => AppEvent::IssuePropertyEditorNavigateDown,
+            Self::PropertyEditorToggle => AppEvent::IssuePropertyEditorToggle,
+            Self::PropertyEditorConfirm => AppEvent::IssuePropertyEditorConfirm,
+            Self::PropertyEditorCancel => AppEvent::IssuePropertyEditorCancel,
+            Self::PropertyEditorOptionsLoaded { options } => {
+                AppEvent::IssuePropertyEditorOptionsLoaded { options }
+            }
+            Self::PropertyEditSucceeded {
+                scope_repo_id,
+                issue_number,
+            } => AppEvent::IssuePropertyEditSucceeded {
+                scope_repo_id,
+                issue_number,
+            },
+            Self::PropertyEditFailed {
+                scope_repo_id,
+                issue_number,
+                error,
+            } => AppEvent::IssuePropertyEditFailed {
+                scope_repo_id,
+                issue_number,
+                error,
+            },
+            _ => unreachable!("routed IssuesMessage variant reached property converter"),
         }
     }
 

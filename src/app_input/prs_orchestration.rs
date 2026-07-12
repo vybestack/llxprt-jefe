@@ -103,6 +103,35 @@ fn route_prs_message(
             );
             prs_dispatch::dispatch_pr_open_in_browser(app_state, ctx);
         }
+        PullRequestsMessage::OpenMergeChooser | PullRequestsMessage::MergeConfirm => {
+            route_prs_merge(app_state, ctx, message);
+        }
+        PullRequestsMessage::ToggleThreadResolve { .. } => {
+            apply_and_persist(app_state, ctx, AppEvent::from(message));
+            prs_mutation::handle_pr_thread_resolve(app_state, ctx);
+        }
+        PullRequestsMessage::Merged { .. } | PullRequestsMessage::CommentCreated { .. } => {
+            let is_merged = matches!(message, PullRequestsMessage::Merged { .. });
+            dispatch_prs_post_mutation(app_state, ctx, message, is_merged);
+        }
+        PullRequestsMessage::OpenPropertyEditor { .. }
+        | PullRequestsMessage::PropertyEditorConfirm
+        | PullRequestsMessage::PropertyEditSucceeded { .. } => {
+            route_prs_property(app_state, ctx, message);
+        }
+        // All other PullRequests variants (data-load results, notices, etc.)
+        // route through the reducer only.
+        message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+    }
+}
+
+/// Route merge-chooser PR messages (issue #92).
+fn route_prs_merge(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: PullRequestsMessage,
+) {
+    match message {
         PullRequestsMessage::OpenMergeChooser => {
             apply_and_persist(app_state, ctx, AppEvent::PrOpenMergeChooser);
             let chooser_open = { app_state.read().prs_state.merge_chooser.is_some() };
@@ -114,18 +143,52 @@ fn route_prs_message(
             apply_and_persist(app_state, ctx, AppEvent::PrMergeConfirm);
             prs_dispatch::dispatch_pr_merge(app_state, ctx);
         }
-        PullRequestsMessage::ToggleThreadResolve { .. } => {
-            apply_and_persist(app_state, ctx, AppEvent::from(message));
-            prs_mutation::handle_pr_thread_resolve(app_state, ctx);
-        }
-        PullRequestsMessage::Merged { .. } | PullRequestsMessage::CommentCreated { .. } => {
-            let is_merged = matches!(message, PullRequestsMessage::Merged { .. });
-            dispatch_prs_post_mutation(app_state, ctx, message, is_merged);
-        }
-        // All other PullRequests variants (data-load results, notices, etc.)
-        // route through the reducer only.
-        message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+        other => apply_and_persist(app_state, ctx, AppEvent::from(other)),
     }
+}
+
+/// Route property-editor PR messages (issue #175).
+fn route_prs_property(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: PullRequestsMessage,
+) {
+    match message {
+        PullRequestsMessage::OpenPropertyEditor { kind } => {
+            apply_and_persist(app_state, ctx, AppEvent::PrOpenPropertyEditor { kind });
+            let needs_options = {
+                let state = app_state.read();
+                state
+                    .prs_state
+                    .property_editor
+                    .as_ref()
+                    .is_some_and(|e| needs_pr_background_options(e.kind))
+            };
+            if needs_options {
+                super::prs_property_edit::handle_pr_property_options_load(app_state, ctx);
+            }
+        }
+        PullRequestsMessage::PropertyEditorConfirm => {
+            super::prs_property_edit::handle_pr_property_confirm(app_state, ctx);
+        }
+        PullRequestsMessage::PropertyEditSucceeded { .. } => {
+            super::prs_property_edit::dispatch_pr_property_post_mutation(
+                app_state,
+                ctx,
+                AppEvent::from(message),
+            );
+        }
+        _ => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+    }
+}
+
+/// Whether a PR property kind requires a background fetch of repo options.
+fn needs_pr_background_options(kind: jefe::state::PrPropertyKind) -> bool {
+    use jefe::state::PrPropertyKind;
+    matches!(
+        kind,
+        PrPropertyKind::Labels | PrPropertyKind::Assignees | PrPropertyKind::Milestone
+    )
 }
 
 /// Post-mutation refresh: after a merge or comment, reload the list/detail to

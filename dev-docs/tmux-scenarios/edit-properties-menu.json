@@ -1,0 +1,20 @@
+{
+  "config": {
+    "cols": 200,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "Issues" },
+    { "expect": "L labels A assignees M milestone T title Y type W state" },
+    { "capture": "edit-properties-keybind-bar" },
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}
