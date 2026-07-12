@@ -103,15 +103,17 @@ fn wrap_single_line(line: &str, width: usize, base: usize, rows: &mut Vec<WrapRo
         let ws_len = ws_end - ws_start;
 
         if word_len >= width {
-            // Over-long word: flush any in-progress row first so it starts fresh.
+            // Over-long word: flush any in-progress row first so it starts
+            // fresh. The in-progress row ends at the word's start (contiguous).
             if col > 0 {
-                flush_row_at(rows, &mut row_chars, &mut row_src_start, col);
+                flush_row_to(rows, &mut row_chars, &mut row_src_start, base + word_start);
             }
             let ctx = WordPlaceCtx {
                 chars: &chars,
                 rows,
                 row_chars: &mut row_chars,
                 row_src_start: &mut row_src_start,
+                base,
             };
             col = place_overlong_word(ctx, word_start, word_end, ws_start, ws_len, width);
             // Advance past the word plus the spaces that fit on the final chunk.
@@ -133,9 +135,10 @@ fn wrap_single_line(line: &str, width: usize, base: usize, rows: &mut Vec<WrapRo
             i = ws_end;
         } else {
             // Word fits within `width` but not on the current row: flush, then
-            // start a new row at the word (dropping the leading spaces).
-            flush_row_at(rows, &mut row_chars, &mut row_src_start, col);
-            row_src_start = base + word_start;
+            // start a new row at the word. The flushed row's source extent
+            // reaches the word's start, so dropped leading spaces stay covered
+            // and ranges stay contiguous.
+            flush_row_to(rows, &mut row_chars, &mut row_src_start, base + word_start);
             col = 0;
             place_word_on_row(
                 &chars[word_start..word_end],
@@ -148,8 +151,9 @@ fn wrap_single_line(line: &str, width: usize, base: usize, rows: &mut Vec<WrapRo
         }
     }
 
-    // Flush the final partial row (trailing spaces are trimmed by flush_row_at).
-    flush_row_at(rows, &mut row_chars, &mut row_src_start, col);
+    // Flush the final partial row (trailing spaces are trimmed by flush_row_to).
+    // Its extent reaches the end of the line.
+    flush_row_to(rows, &mut row_chars, &mut row_src_start, base + chars.len());
 }
 
 /// Scan one word + its trailing whitespace run starting at `i` in `chars`.
@@ -191,6 +195,8 @@ struct WordPlaceCtx<'a, 'b, 'c> {
     rows: &'b mut Vec<WrapRow>,
     row_chars: &'c mut String,
     row_src_start: &'c mut usize,
+    /// Global source offset of `chars[0]` (the line base).
+    base: usize,
 }
 
 /// Place a word longer than `width` by emitting width-sized chunks (flushing
@@ -209,6 +215,7 @@ fn place_overlong_word(
         rows,
         row_chars,
         row_src_start,
+        base,
     } = ctx;
     let mut k = word_start;
     let mut col = 0usize;
@@ -218,7 +225,8 @@ fn place_overlong_word(
         col = take;
         k += take;
         if k < word_end {
-            flush_row_at(rows, row_chars, row_src_start, col);
+            // This chunk row ends where the next chunk begins (contiguous).
+            flush_row_to(rows, row_chars, row_src_start, base + k);
         }
     }
     let space_budget = width.saturating_sub(col).min(ws_len);
@@ -226,24 +234,26 @@ fn place_overlong_word(
     col += space_budget;
     col
 }
-/// Flush the in-progress row: push it with a GLOBAL `start` of
-/// `row_src_start`, trim trailing spaces from the DISPLAYED text, but set
-/// `end` to `row_src_start + consumed` (the full SOURCE extent, including
-/// any trimmed/dropped trailing spaces) so source ranges stay contiguous and
-/// a position in trailing spaces still maps to this row.
-fn flush_row_at(
+/// Flush the in-progress row: push it with a GLOBAL `start` of the CURRENT
+/// `row_src_start` and a GLOBAL `end` of `src_end`, trimming trailing spaces
+/// from the DISPLAYED text. `end` is the source extent up to where the NEXT
+/// row begins (including any dropped/dropped-wrap spaces), so source ranges
+/// stay contiguous and a position in trailing/dropped spaces still maps to
+/// this row. `row_src_start` is advanced to `src_end`.
+fn flush_row_to(
     rows: &mut Vec<WrapRow>,
     row_chars: &mut String,
     row_src_start: &mut usize,
-    consumed: usize,
+    src_end: usize,
 ) {
-    if consumed == 0 && row_chars.is_empty() {
+    if row_chars.is_empty() {
         // An empty in-progress row (e.g. blank line): emit one empty row.
         rows.push(WrapRow {
             text: String::new(),
             start: *row_src_start,
-            end: *row_src_start,
+            end: src_end.max(*row_src_start),
         });
+        *row_src_start = src_end.max(*row_src_start);
         return;
     }
     let trailing = row_chars.chars().rev().take_while(|c| *c == ' ').count();
@@ -254,18 +264,14 @@ fn flush_row_at(
     } else {
         row_chars.clone()
     };
-    // `end` is the SOURCE extent (incl. trimmed spaces); the displayed text
-    // is shorter. Consumers map caret/click columns via [start, end].
     rows.push(WrapRow {
         text: trimmed_text,
         start: *row_src_start,
-        end: *row_src_start + consumed,
+        end: src_end.max(*row_src_start),
     });
-    *row_src_start += consumed;
+    *row_src_start = src_end.max(*row_src_start);
     row_chars.clear();
 }
-
-/// Byte length of the first `n` chars of `s`.
 fn byte_len_of_chars(s: &str, n: usize) -> usize {
     s.char_indices().nth(n).map_or(s.len(), |(i, _)| i)
 }
@@ -385,8 +391,8 @@ mod tests {
     /// safely to the next row.
     #[test]
     fn row_for_column_newline_gap_no_underflow() {
-        // "alpha\nbeta": newline is at global col 5 (between [0,5) and [6,10)).
-        let rows = wrap_text("alpha\nbeta", 40);
+        // "alpha<NL>beta": newline is at global col 5 (between [0,5) and [6,10)).
+        let rows = wrap_text(concat!("alpha", "\n", "beta"), 40);
         assert_eq!(rows[0].start, 0);
         assert_eq!(rows[0].end, 5);
         assert_eq!(rows[1].start, 6);
@@ -396,6 +402,26 @@ mod tests {
         };
         assert!(idx == 1, "gap col resolves to or past the next row");
         let _ = rel; // rel is a valid (saturated) offset
+    }
+
+    /// Source ranges stay STRICTLY contiguous even when inter-word spaces are
+    /// dropped at a wrap boundary (a word that fills the width leaves no room
+    /// for the following spaces). Every source char column must map to a row,
+    /// and consecutive rows must satisfy `rows[i].end == rows[i+1].start`.
+    #[test]
+    fn dropped_wrap_spaces_keep_ranges_contiguous() {
+        // width 4: "abcd ef" -> row0 covers "abcd" + the dropped space at col 4
+        // (source [0,5)); row1 covers "ef" (source [5,7)). 'e' (col 5) must map
+        // to row1 at rel 0, and the dropped-space col 4 must map to row0.
+        let rows = wrap_text("abcd ef", 4);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].text, "abcd");
+        assert_eq!(rows[1].text, "ef");
+        // Strict contiguity across the wrap.
+        assert_eq!(rows[0].end, rows[1].start);
+        // The dropped space column (4) maps to row 0; 'e' (col 5) maps to row 1.
+        assert_eq!(row_for_column(&rows, 4).map(|(i, _)| i), Some(0));
+        assert_eq!(row_for_column(&rows, 5), Some((1, 0)));
     }
 
     #[test]

@@ -38,7 +38,10 @@ if [ ! -x "$BIN" ]; then
 fi
 
 PASS=0
-tmux new-session -d -s "$SESSION" -x 80 -y 24 "$BIN --config $CFG"
+# Shell-quote the binary and config paths so spaces survive tmux's shell eval.
+quote_arg() { printf "'%s'" "$1"; }
+tmux new-session -d -s "$SESSION" -x 80 -y 24 \
+  "$(quote_arg "$BIN") --config $(quote_arg "$CFG")"
 # Marker so cleanup() knows the session was launched (value is arbitrary).
 LAUNCHED=1
 # Give the app time to render the dashboard.
@@ -72,8 +75,9 @@ fi
 
 # Assertion 2: the first and last typed words must appear on DIFFERENT rows,
 # proving the line wrapped (the input is far longer than the pane width).
-first_line=$(grep -nE "alpha" "$CAPTURE" | head -1 | cut -d: -f1)
-last_line=$(grep -nE "omicron|lambda|nu" "$CAPTURE" | tail -1 | cut -d: -f1)
+# `grep || true` so a no-match does not abort under `set -e`.
+first_line=$(grep -nE "alpha" "$CAPTURE" | head -1 | cut -d: -f1 || true)
+last_line=$(grep -nE "omicron|lambda|nu" "$CAPTURE" | tail -1 | cut -d: -f1 || true)
 if [ -z "$first_line" ] || [ -z "$last_line" ]; then
   echo "FAIL: could not find first (alpha) or last (omicron/lambda/nu) word"
   PASS=1
