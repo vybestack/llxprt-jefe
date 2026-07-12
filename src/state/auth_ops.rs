@@ -82,6 +82,9 @@ impl AppState {
     fn auth_retry(&mut self) {
         if let ModalState::Auth { state } = &mut self.modal {
             state.phase = AuthDialogPhase::AwaitingCode;
+            // Clear any stale top-level error so the retried flow starts clean
+            // (issue #244 OCR review).
+            self.error_message = None;
         }
     }
 

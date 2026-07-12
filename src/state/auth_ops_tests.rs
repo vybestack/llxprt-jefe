@@ -77,6 +77,15 @@ fn auth_retry_from_failed_returns_to_awaiting_code() {
 }
 
 #[test]
+fn auth_retry_clears_stale_error_message() {
+    // A retried flow should start with a clean error slate (issue #244 OCR).
+    let mut state = AppState::default().apply(AppEvent::OpenAuthDialog);
+    state.error_message = Some("stale".to_string());
+    let next = state.apply(AppEvent::AuthRetry);
+    assert_eq!(next.error_message, None);
+}
+
+#[test]
 fn auth_succeeded_from_confirming_closes_modal() {
     let state =
         AppState::default()

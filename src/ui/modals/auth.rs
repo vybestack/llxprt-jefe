@@ -67,9 +67,12 @@ fn confirming_lines(code: &str, url: &str) -> Vec<AuthDialogLine> {
 
 /// Build the comma-separated scopes string from the single source of truth
 /// (`AUTH_SCOPES`) so the consent text cannot drift from what the subprocess
-/// actually requests (issue #244 OCR review).
-fn scopes_display() -> String {
-    AUTH_SCOPES.join(", ")
+/// actually requests (issue #244 OCR review). Cached in a `OnceLock` because
+/// the scopes are static and the string is rebuilt on every render while the
+/// dialog is in the `Confirming` phase.
+fn scopes_display() -> &'static str {
+    static SCOPES: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SCOPES.get_or_init(|| AUTH_SCOPES.join(", "))
 }
 
 fn failed_lines(error: &str, can_retry: bool) -> Vec<AuthDialogLine> {
@@ -233,6 +236,6 @@ mod tests {
     #[test]
     fn scopes_display_derives_from_auth_scopes() {
         // The consent text must come from AUTH_SCOPES, not a hardcoded copy.
-        assert_eq!(scopes_display(), AUTH_SCOPES.join(", "));
+        assert_eq!(scopes_display(), AUTH_SCOPES.join(", ").as_str());
     }
 }
