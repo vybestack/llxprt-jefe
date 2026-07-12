@@ -123,6 +123,9 @@ pub fn is_field_visible(
         | F::Sandbox
         | F::SandboxEngine
         | F::SandboxFlags => visibility.shows_llxprt_fields(),
+        F::CodePuppyModel | F::CodePuppyYolo => {
+            matches!(visibility, AgentFormFieldVisibility::CodePuppy)
+        }
         F::Shortcut | F::Name | F::Description | F::WorkDir | F::AgentKind => true,
     }
 }
@@ -180,6 +183,7 @@ mod tests {
         assert!(is_field_visible(F::Mode, vis));
         assert!(is_field_visible(F::Sandbox, vis));
         assert!(is_field_visible(F::SandboxFlags, vis));
+        assert!(!is_field_visible(F::CodePuppyModel, vis));
     }
 
     #[test]
@@ -192,6 +196,7 @@ mod tests {
         assert!(!is_field_visible(F::Sandbox, vis));
         assert!(!is_field_visible(F::SandboxEngine, vis));
         assert!(!is_field_visible(F::SandboxFlags, vis));
+        assert!(is_field_visible(F::CodePuppyModel, vis));
     }
 
     #[test]
@@ -207,24 +212,24 @@ mod tests {
     #[test]
     fn code_puppy_next_focus_skips_hidden_fields() {
         let vis = agent_form_visibility(AgentKind::CodePuppy);
-        // Profile → Mode is hidden, so next_visible from Profile skips
-        // Mode, LlxprtDebug, PassContinue, Sandbox, SandboxEngine, SandboxFlags
-        // and lands on AgentKind (the next visible field after Profile).
+        // Runtime selection precedes Code Puppy-specific controls visually.
         let next = next_visible_focus(F::Profile, vis);
         assert_eq!(next, F::AgentKind);
+        assert_eq!(next_visible_focus(F::AgentKind, vis), F::CodePuppyModel);
     }
 
     #[test]
-    fn code_puppy_prev_focus_from_mode_lands_on_agent_kind() {
+    fn code_puppy_prev_focus_from_mode_lands_on_yolo() {
         let vis = agent_form_visibility(AgentKind::CodePuppy);
         let prev = prev_visible_focus(F::Mode, vis);
-        assert_eq!(prev, F::AgentKind);
+        assert_eq!(prev, F::CodePuppyYolo);
     }
 
     #[test]
     fn llxprt_next_focus_uses_normal_order() {
         let vis = agent_form_visibility(AgentKind::Llxprt);
         assert_eq!(next_visible_focus(F::Profile, vis), F::AgentKind);
+        assert_eq!(next_visible_focus(F::AgentKind, vis), F::Mode);
         assert_eq!(prev_visible_focus(F::Mode, vis), F::AgentKind);
     }
 

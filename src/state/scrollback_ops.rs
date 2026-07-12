@@ -112,14 +112,12 @@ pub enum ScrollRequest {
     PageUp,
     PageDown,
     FollowTail,
-    /// Jump to the top of history (max scroll offset). Home key (issue #198
-    /// review fix #8).
+    /// Jump to the top of history (max scroll offset). Home key.
     ToTop,
 }
 
 /// Reconcile a bottom-relative scroll offset when new content is appended,
-/// preserving the viewport's absolute position in the content (issue #198
-/// review fix #3).
+/// preserving the viewport's absolute position in the content.
 ///
 /// When the terminal is scrolled back (`Some(old_offset)`) and new lines are
 /// appended, the "bottom" of the content moves down. To keep the viewport
@@ -157,8 +155,31 @@ pub fn reconcile_offset_for_new_content(
     Some((old_offset + delta).min(new_max))
 }
 
+/// Compute updated terminal scrollback geometry from raw runtime metrics.
+///
+/// Pure: given the current offset/total and the freshly-measured history+live
+/// line counts + viewport rows, return the reconciled `(offset, total_lines)`.
+/// The new total is computed with `saturating_add` so a pathological
+/// `history_count + live_rows` overflow saturates to `usize::MAX` instead of
+/// wrapping, which would break the clamp math in
+/// [`reconcile_offset_for_new_content`]. The caller writes both values back
+/// to `AppState`.
+#[must_use]
+pub fn compute_terminal_scroll_geometry(
+    current_offset: Option<usize>,
+    old_total: usize,
+    history_count: usize,
+    live_rows: usize,
+    viewport_rows: usize,
+) -> (Option<usize>, usize) {
+    let new_total = history_count.saturating_add(live_rows);
+    let new_offset =
+        reconcile_offset_for_new_content(current_offset, old_total, new_total, viewport_rows);
+    (new_offset, new_total)
+}
+
 /// Derive the top-relative content start line for the terminal viewport from a
-/// bottom-relative offset (issue #198 review fix #4).
+/// bottom-relative offset.
 ///
 /// The viewport projection composes history + live rows into a flat array and
 /// windows it starting at `start_line`. When the offset is bottom-relative

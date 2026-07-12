@@ -100,6 +100,20 @@ pub enum ModalState {
         signature: LaunchSignature,
         payload: crate::github::SendPayload,
     },
+    /// Issue send: the working copy is a git repo whose `origin` does not
+    /// match the configured repository. Prompt the user to replace it with a
+    /// fresh clone before the issue-driven launch proceeds. The default is
+    /// no/halt; the user must explicitly opt in (Enter) before the
+    /// destructive remove+reclone. Escape (or `n`) aborts and leaves the
+    /// working copy untouched.
+    ConfirmIssueOriginMismatch {
+        agent_id: AgentId,
+        work_dir: std::path::PathBuf,
+        signature: LaunchSignature,
+        payload: crate::github::SendPayload,
+        actual: String,
+        expected: String,
+    },
     WorkflowDispatch {
         workflow: crate::domain::Workflow,
         fields: WorkflowDispatchFormFields,

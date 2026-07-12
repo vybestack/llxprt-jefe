@@ -95,8 +95,9 @@ pub fn is_default_fg(color: iocraft::Color) -> bool {
 ///   transparent (issue #179 bug fix).
 /// - Override ON: terminal-default channels are replaced with jefe's theme
 ///   colors (`theme_fg`/`theme_bg`); explicitly-colored channels pass through.
-///   A run whose effective background is still `Reset` after resolution yields
-///   `None` (transparent).
+///   Default (`Reset`) backgrounds are normalized to a concrete color (Black
+///   when the theme bg itself is `Reset`), so the background is always
+///   `Some(color)` and never `None`/`Reset`.
 ///
 /// Override guarantees an *opaque* result even if the sourced theme color is
 /// itself `Reset`: a `Reset` theme channel is normalized to a concrete

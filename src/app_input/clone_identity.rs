@@ -97,6 +97,13 @@ impl CloneIdentity {
         format!("https://github.com/{}.git", self.owner_repo)
     }
 
+    /// The validated `owner/repo` string, used as the expected origin
+    /// shortform for the origin-mismatch check (issue #190).
+    #[must_use]
+    pub(super) fn expected_shortform(&self) -> &str {
+        &self.owner_repo
+    }
+
     /// The validated `owner/repo` string.
     #[cfg(test)]
     #[must_use]

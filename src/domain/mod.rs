@@ -264,6 +264,9 @@ pub struct Repository {
     pub slug: String,
     pub base_dir: PathBuf,
     pub default_profile: String,
+    /// Default Code Puppy model. Empty preserves Code Puppy's own default.
+    #[serde(default)]
+    pub default_code_puppy_model: String,
     /// GitHub repository in `"owner/repo"` format (e.g. `"acme/widgets"`).
     /// When set, issues mode uses this instead of auto-detecting from git remotes.
     #[serde(default)]
@@ -848,6 +851,12 @@ pub struct Agent {
     pub description: String,
     pub work_dir: PathBuf,
     pub profile: String,
+    /// Optional Code Puppy model override. Empty inherits the repository default.
+    #[serde(default)]
+    pub code_puppy_model: String,
+    /// Explicit Code Puppy YOLO choice.
+    #[serde(default)]
+    pub code_puppy_yolo: Option<bool>,
     pub mode_flags: Vec<String>,
     #[serde(default)]
     pub llxprt_debug: String,
@@ -890,6 +899,12 @@ pub struct RuntimeBinding {
 pub struct LaunchSignature {
     pub work_dir: PathBuf,
     pub profile: String,
+    /// Effective Code Puppy model for this launch.
+    #[serde(default)]
+    pub code_puppy_model: String,
+    /// Explicit Code Puppy YOLO value for this launch.
+    #[serde(default)]
+    pub code_puppy_yolo: Option<bool>,
     pub mode_flags: Vec<String>,
     #[serde(default)]
     pub llxprt_debug: String,
@@ -924,6 +939,8 @@ impl Agent {
             work_dir,
 
             profile: String::new(),
+            code_puppy_model: String::new(),
+            code_puppy_yolo: None,
             mode_flags: Vec::new(),
             llxprt_debug: String::new(),
             pass_continue: true, // Default per REQ-FUNC-004
@@ -953,6 +970,7 @@ impl Repository {
             slug,
             base_dir,
             default_profile: String::new(),
+            default_code_puppy_model: String::new(),
             github_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),

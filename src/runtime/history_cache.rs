@@ -10,7 +10,7 @@ use crate::domain::AgentId;
 /// Invalidated (re-captured) only when the output generation advances or the
 /// attached session changes. `lines` is `Option<Vec<String>>`:
 /// - `None` = no cache (never captured or invalidated).
-/// - `Some(vec![])` = cached empty capture (review fix #7).
+/// - `Some(vec![])` = cached empty capture.
 /// - `Some(non-empty)` = cached lines.
 ///
 /// Caching the empty result avoids shelling out to `capture-pane` every render
@@ -50,7 +50,7 @@ impl HistoryCache {
         self.lines = lines;
     }
 
-    /// Invalidate the cache for `agent_id` (review fix #8).
+    /// Invalidate the cache for `agent_id`.
     pub fn clear(&mut self, agent_id: &AgentId) {
         if self.cached_agent.as_ref() == Some(agent_id) {
             self.lines = None;
@@ -59,9 +59,9 @@ impl HistoryCache {
     }
 }
 
-/// Strip the last `n` lines from `lines`, returning the remaining prefix
-/// (issue #198 review fix #1). The live snapshot already represents the
-/// visible pane, so the history capture must exclude those rows.
+/// Strip the last `n` lines from `lines`, returning the remaining prefix.
+/// The live snapshot already represents the visible pane, so the history
+/// capture must exclude those rows.
 #[must_use]
 pub fn strip_trailing_rows(lines: Vec<String>, n: usize) -> Vec<String> {
     let keep = lines.len().saturating_sub(n);
@@ -137,8 +137,8 @@ mod tests {
 
     #[test]
     fn store_empty_vec_is_cached_and_returned() {
-        // Review fix #7: an empty capture is cached as Some(vec![]), which
-        // get() returns as a hit so we don't re-shell-out every frame.
+        // An empty capture is cached as Some(vec![]), which get() returns as
+        // a hit so we don't re-shell-out every frame.
         let mut cache = HistoryCache::default();
         cache.store(&agent("a"), 1, Some(Vec::new()));
         assert_eq!(cache.get(&agent("a"), 1), Some(&Vec::<String>::new()));
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn strip_trailing_rows_preserves_blank_content_rows() {
         // After stripping the visible pane rows, remaining trailing blank lines
-        // are real history content and must NOT be stripped (review fix #9).
+        // are real history content and must NOT be stripped.
         // strip_trailing_rows removes the last N lines (the visible pane), not
         // content-blank lines.
         let input: Vec<String> = vec![

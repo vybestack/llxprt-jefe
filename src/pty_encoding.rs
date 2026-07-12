@@ -372,6 +372,62 @@ mod key_tests {
         assert_eq!(key_to_bytes(&key, false), Some(vec![0x1c]));
     }
 
+    // ── Control-chord passthrough bytes (issue #200) ───────────────────────
+    //
+    // Code Puppy's shell-control chords depend on these exact single-byte
+    // encodings reaching the child through jefe's PTY transport. Locking them
+    // here guards the encoding contract independently of the tmux transport.
+
+    #[test]
+    fn ctrl_x_maps_to_can_byte() {
+        let key = key_event(KeyCode::Char('x'), KeyModifiers::CONTROL);
+        assert_eq!(ctrl_char_to_byte('x'), Some(0x18));
+        assert_eq!(key_to_bytes(&key, false), Some(vec![0x18]));
+    }
+
+    #[test]
+    fn ctrl_b_maps_to_stx_byte() {
+        let key = key_event(KeyCode::Char('b'), KeyModifiers::CONTROL);
+        assert_eq!(ctrl_char_to_byte('b'), Some(0x02));
+        assert_eq!(key_to_bytes(&key, false), Some(vec![0x02]));
+    }
+
+    #[test]
+    fn ctrl_c_maps_to_etx_byte() {
+        let key = key_event(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(ctrl_char_to_byte('c'), Some(0x03));
+        assert_eq!(key_to_bytes(&key, false), Some(vec![0x03]));
+    }
+
+    /// A Ctrl-X Ctrl-B chord encodes to the two raw bytes `0x18 0x02` in
+    /// order, matching what Code Puppy's `command_runner` listens for.
+    #[test]
+    fn ctrl_x_ctrl_b_chord_encodes_to_ordered_bytes() {
+        let x = key_event(KeyCode::Char('x'), KeyModifiers::CONTROL);
+        let b = key_event(KeyCode::Char('b'), KeyModifiers::CONTROL);
+        let x_bytes = key_to_bytes(&x, false);
+        let b_bytes = key_to_bytes(&b, false);
+        assert!(x_bytes.is_some(), "Ctrl-X must encode");
+        assert!(b_bytes.is_some(), "Ctrl-B must encode");
+        let mut encoded = Vec::<u8>::new();
+        encoded.extend(x_bytes.unwrap_or_default());
+        encoded.extend(b_bytes.unwrap_or_default());
+        assert_eq!(encoded, [0x18u8, 0x02]);
+    }
+
+    /// A Ctrl-X Ctrl-X chord encodes to `0x18 0x18` in order.
+    #[test]
+    fn ctrl_x_ctrl_x_chord_encodes_to_ordered_bytes() {
+        let x = key_event(KeyCode::Char('x'), KeyModifiers::CONTROL);
+        let x_bytes = key_to_bytes(&x, false);
+        assert!(x_bytes.is_some(), "Ctrl-X must encode");
+        let bytes = x_bytes.unwrap_or_default();
+        let mut encoded = Vec::<u8>::new();
+        encoded.extend(&bytes);
+        encoded.extend(&bytes);
+        assert_eq!(encoded, [0x18u8, 0x18]);
+    }
+
     #[test]
     fn ctrl_underscore_maps_to_us() {
         let key = key_event(KeyCode::Char('_'), KeyModifiers::CONTROL);

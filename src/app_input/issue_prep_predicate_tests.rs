@@ -253,3 +253,91 @@ fn production_seam_malformed_output_never_causes_clone() {
         "malformed output must be Err — never a safe false or true"
     );
 }
+
+// ── classify_origin_url_output: origin-probe classifier (MUST-FIX #1) ──
+//
+// `read_remote_origin_url` must distinguish three outcomes:
+// 1. Origin exists + get-url succeeds → Ok(Some(url)).
+// 2. Origin absent (get-url exits nonzero, swallowed by `|| true`) → Ok(None).
+// 3. SSH/sudo/shell failure → Err.
+//
+// These tests exercise the pure classifier with the exact scenarios the
+// production path encounters.
+
+#[test]
+fn origin_url_classifier_success_with_url() {
+    let result = classify_origin_url_output(Some(0), "git@github.com:acme/widgets.git\n", "");
+    assert_eq!(
+        result,
+        Ok(Some("git@github.com:acme/widgets.git".to_owned()))
+    );
+}
+
+#[test]
+fn origin_url_classifier_success_empty_is_no_origin() {
+    // The classifier treats exit 0 + empty stdout as Ok(None). In production
+    // this state is produced by the read_remote_origin_url wrapper mapping
+    // git's exit-2 (no origin remote) to empty stdout; this test verifies the
+    // classifier's contract for that input directly, independent of how the
+    // shell produced it.
+    let result = classify_origin_url_output(Some(0), "", "");
+    assert_eq!(result, Ok(None));
+}
+
+#[test]
+fn origin_url_classifier_success_whitespace_only_is_no_origin() {
+    let result = classify_origin_url_output(Some(0), "  \n", "");
+    assert_eq!(result, Ok(None));
+}
+
+#[test]
+fn origin_url_classifier_ssh_exit_255_is_err() {
+    let stderr = "Permission denied (publickey).";
+    let result = classify_origin_url_output(Some(255), "", stderr);
+    let Err(err) = &result else {
+        panic!("SSH exit 255 must be Err: {result:?}");
+    };
+    // Pin the fixed message prefix exactly (the stderr detail is appended).
+    // This is robust against reformatting of the classifier's message while
+    // still verifying the exit-255 transport-failure classification.
+    assert!(
+        err.starts_with("SSH transport/auth/host failure (exit 255):"),
+        "error must use the SSH transport-failure prefix: {err}"
+    );
+    assert!(
+        err.contains(stderr),
+        "error must include the raw stderr: {err}"
+    );
+}
+
+#[test]
+fn origin_url_classifier_other_nonzero_is_err() {
+    let result = classify_origin_url_output(Some(126), "", "sudo: a password is required");
+    assert!(result.is_err(), "nonzero exit must be Err");
+}
+
+#[test]
+fn origin_url_classifier_signal_terminated_is_err() {
+    let result = classify_origin_url_output(None, "", "");
+    assert!(result.is_err(), "signal termination must be Err");
+}
+
+#[test]
+fn origin_url_classifier_success_trims_url() {
+    let result = classify_origin_url_output(Some(0), "  https://github.com/acme/widgets.git\n", "");
+    assert_eq!(
+        result,
+        Ok(Some("https://github.com/acme/widgets.git".to_owned()))
+    );
+}
+
+#[test]
+fn origin_url_classifier_success_empty_with_stderr_is_no_origin() {
+    // The classifier keys off exit code + stdout, not stderr: exit 0 with
+    // empty stdout is Ok(None) even if stderr carries incidental text. This
+    // is a distinct edge case from the plain empty-stdout test (which has
+    // empty stderr too) and guards against a future change that keys the
+    // no-origin decision on stderr presence.
+    let result = classify_origin_url_output(Some(0), "", "warning: something");
+    assert_eq!(result, Ok(None));
+}

