@@ -234,7 +234,11 @@ fn large_detail_line_count_bounded_proportionally_to_headers() {
     // small_count + 290 * ~2 = small_count + ~580. It must NOT be
     // small_count + 290 * (many body lines per thread).
     // Assert the marginal cost per thread is small (≤ 3 lines per added thread).
-    let marginal_per_thread = large_count.saturating_sub(small_count) / (300 - 10);
+    assert!(
+        large_count >= small_count,
+        "adding thread headers must not reduce line count"
+    );
+    let marginal_per_thread = (large_count - small_count) / (300 - 10);
     assert!(
         marginal_per_thread <= 3,
         "collapsed thread marginal line cost must be ≤ 3, got {marginal_per_thread} \
@@ -333,7 +337,7 @@ fn collapsed_thread_with_multiple_comments_shows_plural_count() {
 // ── Bodyless review headers render as non-focusable group labels ──────────
 
 /// Build a PR 233-shaped detail: a bodyless COMMENTED review with one child
-/// thread carrying `inline_body`.
+/// thread carrying an inline comment body.
 fn bodyless_review_detail() -> PullRequestDetail {
     PullRequestDetail {
         repo_owner_name: "owner/repo".to_string(),
