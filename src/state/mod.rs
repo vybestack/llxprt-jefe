@@ -991,11 +991,9 @@ mod prs_tests_silent_refresh;
 #[path = "prs_tests_review_threads.rs"]
 mod prs_tests_review_threads;
 
-/// Bodyless-review nav tests (issue #155).
 #[cfg(test)]
 #[path = "prs_tests_bodyless_review_nav.rs"]
 mod prs_tests_bodyless_review_nav;
-
 // @plan PLAN-20260624-PR-MODE.P15 @requirement REQ-PR-001
 #[cfg(test)]
 #[path = "prs_integration_tests.rs"]
