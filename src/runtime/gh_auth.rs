@@ -12,12 +12,21 @@
 //! `spawn_gh_task_with_panic` and delivers `AuthCodeReceived` / `AuthSucceeded`
 //! / `AuthFailed` events back to the state layer.
 
+use std::io::Read;
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use crate::github::{
     AUTH_SCOPES, DeviceCode, GhError, build_auth_login_args, build_auth_login_env,
     parse_device_code,
 };
+
+/// Upper bound on how long `run_device_auth` will wait for `gh auth login --web`
+/// to exit before killing the child and surfacing a retryable error. Generous
+/// by design: it only bounds a hung subprocess (interactive-prompt leak,
+/// network stall, CLI bug) — `gh`'s own device-code flow expires server-side
+/// well before this and the user is authorizing in parallel (issue #244).
+const DEVICE_AUTH_WAIT_DEADLINE: Duration = Duration::from_secs(300);
 
 /// The outcome of running the device-code auth flow.
 ///
@@ -46,12 +55,9 @@ pub struct AuthRunResult {
 /// an `Err` — it is reported via `AuthRunResult::exit_success` so the caller
 /// can surface a retryable failure in-dialog.
 pub fn run_device_auth() -> Result<AuthRunResult, GhError> {
-    let args = build_auth_login_args(AUTH_SCOPES);
-    let env = build_auth_login_env();
-
     let mut command = Command::new("gh");
-    command.args(&args);
-    for (key, value) in &env {
+    command.args(build_auth_login_args(AUTH_SCOPES));
+    for (key, value) in &build_auth_login_env() {
         command.env(key, value);
     }
     // stdin closed so gh takes its non-interactive path (no "Press Enter").
@@ -59,7 +65,7 @@ pub fn run_device_auth() -> Result<AuthRunResult, GhError> {
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
 
-    let child = command.spawn().map_err(|e| {
+    let mut child = command.spawn().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             GhError::NotInstalled
         } else {
@@ -67,31 +73,72 @@ pub fn run_device_auth() -> Result<AuthRunResult, GhError> {
         }
     })?;
 
-    // `wait_with_output` drains stdout and stderr concurrently while waiting,
-    // avoiding the pipe-buffer deadlock that reading one pipe to EOF before
-    // the other can cause on large child output.
-    let output = child
-        .wait_with_output()
-        .map_err(|e| GhError::NetworkError(e.to_string()))?;
-    let exit_success = output.status.success();
+    // Drain stdout/stderr on reader threads so neither pipe can fill its kernel
+    // buffer and deadlock the child, while the main thread polls `try_wait`
+    // against a deadline (see `wait_with_deadline`).
+    let stderr_thread = spawn_pipe_reader(child.stderr.take());
+    let stdout_thread = spawn_pipe_reader(child.stdout.take());
 
-    let stderr_buf = String::from_utf8_lossy(&output.stderr).to_string();
-    let stdout_buf = String::from_utf8_lossy(&output.stdout).to_string();
+    let exit_success = wait_with_deadline(&mut child)?.success();
+
+    let stderr_buf = stderr_thread.join().unwrap_or_default();
+    let stdout_buf = stdout_thread.join().unwrap_or_default();
 
     // gh writes the device code to stderr; fall back to scanning stdout too
     // (defensive — gh's stream choice has changed across versions).
-    let combined = if stderr_buf.is_empty() {
-        stdout_buf
+    let combined: &str = if stderr_buf.is_empty() {
+        &stdout_buf
     } else {
-        stderr_buf.clone()
+        &stderr_buf
     };
-    let code = parse_device_code(&combined);
+    let code = parse_device_code(combined);
 
     Ok(AuthRunResult {
         code,
         exit_success,
         stderr: stderr_buf,
     })
+}
+
+/// Spawn a thread that drains a piped child stream to a `String`. Returns an
+/// empty-string thread if the pipe was not captured. Reading on a dedicated
+/// thread (one per pipe) prevents a pipe-buffer deadlock when the child writes
+/// more than the kernel buffer to one stream while we wait on the other.
+fn spawn_pipe_reader<R: Read + Send + 'static>(pipe: Option<R>) -> std::thread::JoinHandle<String> {
+    std::thread::spawn(move || {
+        pipe.map(|mut s| {
+            let mut buf = String::new();
+            let _ = s.read_to_string(&mut buf);
+            buf
+        })
+        .unwrap_or_default()
+    })
+}
+
+/// Poll `child.try_wait()` against `DEVICE_AUTH_WAIT_DEADLINE`. On expiry, kill
+/// the child and return a retryable `GhError::NetworkError` so the dispatch
+/// layer surfaces the failure in-dialog instead of blocking the worker thread
+/// forever (issue #244 OCR review: hang-safety).
+fn wait_with_deadline(
+    child: &mut std::process::Child,
+) -> Result<std::process::ExitStatus, GhError> {
+    let deadline = std::time::Instant::now() + DEVICE_AUTH_WAIT_DEADLINE;
+    loop {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|e| GhError::NetworkError(e.to_string()))?
+        {
+            return Ok(status);
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            return Err(GhError::NetworkError(format!(
+                "gh auth login did not finish within {} seconds",
+                DEVICE_AUTH_WAIT_DEADLINE.as_secs()
+            )));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
 }
 
 #[cfg(test)]

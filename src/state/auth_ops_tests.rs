@@ -198,3 +198,27 @@ fn auth_dialog_state_default_is_idle() {
     let state = AuthDialogState::default();
     assert!(matches!(state.phase, AuthDialogPhase::Idle));
 }
+
+#[test]
+fn auth_dialog_phase_debug_redacts_device_code() {
+    // The one-time code is a short-lived bearer credential; it must never
+    // leak through Debug output (logs / crash reports / snapshots). The
+    // verification URL is not secret and may appear (issue #244 OCR review).
+    let phase = AuthDialogPhase::Confirming {
+        code: "7701-C5F6".to_string(),
+        url: "https://github.com/login/device".to_string(),
+    };
+    let debug = format!("{phase:?}");
+    assert!(
+        !debug.contains("7701-C5F6"),
+        "Debug must not leak the device code, got: {debug}"
+    );
+    assert!(
+        debug.contains("<redacted>"),
+        "Debug should mark the redacted field, got: {debug}"
+    );
+    assert!(
+        debug.contains("github.com/login/device"),
+        "Debug should keep the non-secret URL, got: {debug}"
+    );
+}

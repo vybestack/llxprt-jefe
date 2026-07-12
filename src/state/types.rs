@@ -67,7 +67,11 @@ pub enum ConfirmFocus {
 /// The dialog drives `gh auth login --web` non-interactively; these phases
 /// track where the flow is so the UI is render-only and the reducer stays
 /// deterministic.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Debug` is implemented manually to redact the one-time device code: it is
+/// a short-lived bearer credential while valid, so it must never leak through
+/// `AppState` debug logs, crash reports, or test snapshots.
+#[derive(Clone, PartialEq, Eq)]
 pub enum AuthDialogPhase {
     /// Dialog not shown (modal closed).
     Idle,
@@ -81,6 +85,26 @@ pub enum AuthDialogPhase {
     Failed { error: String, can_retry: bool },
     /// The user cancelled (Esc); the modal is being dismissed.
     Cancelled,
+}
+
+impl std::fmt::Debug for AuthDialogPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Idle => f.write_str("AuthDialogPhase::Idle"),
+            Self::AwaitingCode => f.write_str("AuthDialogPhase::AwaitingCode"),
+            Self::Confirming { url, .. } => f
+                .debug_struct("AuthDialogPhase::Confirming")
+                .field("code", &"<redacted>")
+                .field("url", url)
+                .finish(),
+            Self::Failed { error, can_retry } => f
+                .debug_struct("AuthDialogPhase::Failed")
+                .field("error", error)
+                .field("can_retry", can_retry)
+                .finish(),
+            Self::Cancelled => f.write_str("AuthDialogPhase::Cancelled"),
+        }
+    }
 }
 
 /// State carried by [`ModalState::Auth`].
