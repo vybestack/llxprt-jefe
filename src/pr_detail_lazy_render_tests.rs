@@ -242,9 +242,9 @@ fn large_detail_line_count_bounded_proportionally_to_headers() {
     );
 }
 
-// ── Comment-less threads do not advertise expansion ──────────────────────
+// ── Commentless threads do not advertise expansion ───────────────────────
 
-/// A comment-less thread should NOT show the "(select to expand)" hint when
+/// A commentless thread should NOT show the "(select to expand)" hint when
 /// collapsed (expanding reveals nothing).
 #[test]
 fn commentless_thread_does_not_advertise_expansion() {
