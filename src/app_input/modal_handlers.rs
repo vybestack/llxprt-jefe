@@ -115,7 +115,7 @@ pub fn handle_mode_confirm_key(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     key_event: &KeyEvent,
-) {
+) -> bool {
     match key_event.code {
         KeyCode::Esc | KeyCode::Char('n' | 'N') => close_modal_and_persist(app_state, ctx),
         KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab => {
@@ -127,6 +127,7 @@ pub fn handle_mode_confirm_key(
         }
         _ => {}
     }
+    true
 }
 
 /// Handle keys while the in-app device-code auth dialog is open (issue #244).
@@ -143,11 +144,14 @@ pub fn handle_mode_confirm_key(
 /// (~15 min), and with stdin null + `GH_BROWSER=/bin/true` it exits on its own
 /// once the code expires or the user authorizes elsewhere. The leak is bounded
 /// and inert (issue #244).
+///
+/// Returns `true` so the caller short-circuits (the auth modal consumes the
+/// key), mirroring the form/search handlers.
 pub fn handle_mode_auth_key(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     key_event: &KeyEvent,
-) {
+) -> bool {
     let in_failed_phase = {
         let state = app_state.read();
         matches!(
@@ -166,6 +170,7 @@ pub fn handle_mode_auth_key(
         }
         _ => {}
     }
+    true
 }
 
 fn handle_confirm_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {

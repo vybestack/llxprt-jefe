@@ -23,13 +23,11 @@ pub use create_issue::{CreatedIssue, parse_created_issue_json};
 pub use issue_lifecycle::{build_close_issue_args, build_delete_issue_args};
 use repo_merge::parse_repo_merge_methods;
 
-/// In-app device-code auth remediation boundary (issue #244).
 mod auth_device;
 pub use auth_device::{
     AUTH_SCOPES, DeviceCode, build_auth_login_args, build_auth_login_env,
     is_not_authenticated_error, parse_device_code,
 };
-
 mod viewer;
 pub use viewer::{build_assign_issue_args, build_viewer_login_args, parse_viewer_login};
 

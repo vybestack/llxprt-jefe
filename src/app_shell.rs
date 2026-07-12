@@ -757,18 +757,12 @@ fn dispatch_mode_specific_key(
             handle_mode_help_key(app_state, &ctx.cloned(), help_scroll, key_event);
             true
         }
-        InputMode::Confirm => {
-            handle_mode_confirm_key(app_state, &ctx.cloned(), key_event);
-            true
-        }
+        InputMode::Confirm => handle_mode_confirm_key(app_state, &ctx.cloned(), key_event),
         InputMode::ThemePicker => {
             handle_mode_theme_picker_key(app_state, &ctx.cloned(), key_event);
             true
         }
-        InputMode::Auth => {
-            handle_mode_auth_key(app_state, &ctx.cloned(), key_event);
-            true
-        }
+        InputMode::Auth => handle_mode_auth_key(app_state, &ctx.cloned(), key_event),
         InputMode::Search => handle_mode_search_key(app_state, &ctx.cloned(), key_event),
         InputMode::Form => handle_mode_form_key(app_state, &ctx.cloned(), key_event),
         // @plan PLAN-20260329-ISSUES-MODE.P03
