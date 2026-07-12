@@ -115,6 +115,12 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
         .and_then(Value::as_u64)
         .ok_or_else(|| GhError::ParseError("Missing or invalid number".to_string()))?;
 
+    let node_id = item
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
     let title = item
         .get("title")
         .and_then(Value::as_str)
@@ -158,6 +164,7 @@ fn parse_issue_from_item(item: &Value) -> Result<Issue, GhError> {
 
     Ok(Issue {
         number,
+        node_id,
         title,
         state,
         author_login,
@@ -251,6 +258,11 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         .and_then(Value::as_u64)
         .ok_or_else(|| GhError::ParseError("Missing or invalid number".to_string()))?;
 
+    let node_id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let title = json_string_field(&value, "title");
     let state = parse_issue_state(&value);
     let author_login = json_login_field(&value, "author");
@@ -282,6 +294,7 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
     Ok(IssueDetail {
         repo_owner_name,
         number,
+        node_id,
         title,
         state,
         author_login,
@@ -796,7 +809,7 @@ fn build_repository_issue_type_args(
         ""
     };
     let query = format!(
-        "query({}) {{ repository(owner: $owner, name: $repo) {{ issues(first: $first{after_arg}, filterBy: {{ {} }}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ nodes {{ number title state author {{ login }} updatedAt assignees(first: 10) {{ nodes {{ login }} }} labels(first: 20) {{ nodes {{ name }} }} issueType {{ name }} milestone {{ title }} comments {{ totalCount }} }} pageInfo {{ hasNextPage endCursor }} }} }} }}",
+        "query({}) {{ repository(owner: $owner, name: $repo) {{ issues(first: $first{after_arg}, filterBy: {{ {} }}, orderBy: {{ field: UPDATED_AT, direction: DESC }}) {{ nodes {{ id number title state author {{ login }} updatedAt assignees(first: 10) {{ nodes {{ login }} }} labels(first: 20) {{ nodes {{ name }} }} issueType {{ name }} milestone {{ title }} comments {{ totalCount }} }} pageInfo {{ hasNextPage endCursor }} }} }} }}",
         variable_defs.join(", "),
         filters.join(", ")
     );
@@ -952,9 +965,9 @@ pub fn build_issue_search_args(
     }
 
     let query = if cursor.is_some() {
-        "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
+        "query($searchQuery: String!, $first: Int!, $after: String) { search(type: ISSUE, query: $searchQuery, first: $first, after: $after) { nodes { ... on Issue { id number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
     } else {
-        "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
+        "query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { id number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }"
     };
     let mut args = vec![
         "api".to_string(),

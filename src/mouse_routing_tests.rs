@@ -734,6 +734,7 @@ fn state_with_issue_body(body: &str) -> AppState {
     state.issues_state.issue_detail = Some(IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 1,
+        node_id: String::new(),
         title: "T".to_string(),
         state: IssueState::Open,
         author_login: "a".to_string(),

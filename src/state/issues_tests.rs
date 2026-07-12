@@ -21,6 +21,7 @@ fn dashboard_issues_state() -> AppState {
 fn make_test_issue(number: u64) -> Issue {
     Issue {
         number,
+        node_id: String::new(),
         title: format!("Test Issue #{number}"),
         state: IssueState::Open,
         author_login: "testuser".to_string(),
@@ -42,6 +43,7 @@ fn make_test_detail(comments: Vec<IssueComment>) -> IssueDetail {
     IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 42,
+        node_id: String::new(),
         title: "Test detail issue".to_string(),
         state: IssueState::Open,
         author_login: "octocat".to_string(),
@@ -713,6 +715,7 @@ fn test_detail_subfocus_tab_with_comments() {
     state.issues_state.issue_detail = Some(IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 1,
+        node_id: String::new(),
         title: "Test Issue".to_string(),
         state: IssueState::Open,
         author_login: "testuser".to_string(),
@@ -784,6 +787,7 @@ fn test_detail_subfocus_tab_no_comments() {
     state.issues_state.issue_detail = Some(IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 1,
+        node_id: String::new(),
         title: "Test Issue".to_string(),
         state: IssueState::Open,
         author_login: "testuser".to_string(),

@@ -20,6 +20,7 @@ mod form_ops;
 mod form_projection;
 mod form_runtime;
 mod form_workflow_dispatch;
+mod issues_close_delete_ops;
 mod issues_inline_ops;
 mod issues_load_ops;
 mod issues_mutation_ops;
@@ -873,6 +874,10 @@ mod issues_tests_subfocus;
 #[cfg(test)]
 #[path = "issues_tests_self_assignment.rs"]
 mod issues_tests_self_assignment;
+
+#[cfg(test)]
+#[path = "issues_tests_close_delete.rs"]
+mod issues_tests_close_delete;
 
 #[cfg(test)]
 #[path = "prs_tests.rs"]

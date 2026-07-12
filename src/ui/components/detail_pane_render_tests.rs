@@ -54,7 +54,7 @@ fn sample_header_rows() -> Vec<DetailHeaderRow> {
             line: 3,
         },
         DetailHeaderRow {
-            content: "─────────────────────────────────────────".to_string(),
+            content: super::SEPARATOR_LINE.to_string(),
             color: DetailHeaderColor::Dim,
             line: 4,
         },

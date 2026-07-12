@@ -568,6 +568,7 @@ mod tests {
         let mut state = AppState::default();
         state.issues_state.list.items_mut().push(Issue {
             number: 3,
+            node_id: String::new(),
             title: "Bug".to_string(),
             state: IssueState::Open,
             author_login: "octocat".to_string(),
@@ -643,6 +644,7 @@ mod tests {
         state.issues_state.issue_detail = Some(IssueDetail {
             repo_owner_name: "o/r".to_string(),
             number: 42,
+            node_id: String::new(),
             title: "My Issue".to_string(),
             state: IssueState::Open,
             author_login: "octocat".to_string(),

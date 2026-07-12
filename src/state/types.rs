@@ -15,6 +15,16 @@ pub use pr_types::*;
 mod form_types;
 pub use form_types::*;
 
+// Issues-mode aggregate state extracted to keep this file under the length limit.
+#[path = "issues_types.rs"]
+mod issues_types;
+pub use issues_types::*;
+
+// `ISSUE_FILTER_FIELD_COUNT` lives in `issues_types.rs`; the PR sibling stays
+// here so each mode filter references its own count.
+/// Number of PR filter fields for FilterNavigate wrap (issue #163).
+pub const PR_FILTER_FIELD_COUNT: usize = 8;
+
 /// Captured issue self-assignment follow-up for an issue-driven launch
 /// (issue #186).
 ///
@@ -570,184 +580,4 @@ pub struct ActionsDetailPending {
 pub struct WorkflowsPending {
     pub scope_repo_id: RepositoryId,
     pub request_id: u64,
-}
-
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-001
-/// Aggregate state for Issues Mode.
-#[derive(Debug, Clone, Default)]
-pub struct IssuesState {
-    pub active: bool,
-    /// Unified list state: issues, selection, pagination continuation, and
-    /// pending load correlation. List loading is derived from this container.
-    pub list: crate::state::pagination::PaginatedList<crate::domain::Issue, IssueListIdentity>,
-    pub issue_detail: Option<crate::domain::IssueDetail>,
-    pub committed_filter: crate::domain::IssueFilter,
-    pub draft_filter: crate::domain::IssueFilter,
-    pub search_query: String,
-    pub loading: IssueLoadingState,
-    pub error: Option<String>,
-    pub issue_focus: IssueFocus,
-    pub detail_subfocus: DetailSubfocus,
-    /// Scroll offset (in lines) for the detail pane viewport.
-    pub detail_scroll_offset: usize,
-    /// Last rendered detail viewport height in rows.
-    pub detail_viewport_rows: usize,
-    pub inline_state: InlineState,
-    pub agent_chooser: Option<AgentChooserState>,
-    pub filter_ui: IssueFilterUiState,
-    pub search_input_focused: bool,
-    pub prior_agent_focus: Option<PriorAgentFocus>,
-    pub draft_notice: Option<String>,
-    pub mutation_pending: Option<IssueMutationPending>,
-    pub next_mutation_id: u64,
-    pub detail_pending: Option<IssueDetailPending>,
-    pub next_issue_detail_request_id: u64,
-    pub comments_page_pending: Option<IssueCommentsPagePending>,
-    pub next_comments_page_request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueListIdentity {
-    pub scope_repo_id: RepositoryId,
-    pub filter: crate::domain::IssueFilter,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueDetailPending {
-    pub scope_repo_id: RepositoryId,
-    pub issue_number: u64,
-    pub request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueCommentsPagePending {
-    pub scope_repo_id: RepositoryId,
-    pub issue_number: u64,
-    pub cursor: Option<String>,
-    pub request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueMutationPending {
-    pub scope_repo_id: RepositoryId,
-    pub id: u64,
-    pub target: InlineState,
-}
-
-/// Loading/pending state for Issues mode async operations.
-///
-/// List loading is now derived from `IssuesState::list` (the
-/// `PaginatedList::is_loading()` / `has_pending_request()` accessors). Only
-/// detail and comments loading remain as explicit flags here.
-#[derive(Debug, Clone, Default)]
-pub struct IssueLoadingState {
-    pub detail: bool,
-    pub comments: bool,
-}
-
-pub const ISSUE_FILTER_FIELD_COUNT: usize = 8;
-
-/// Number of PR filter fields for FilterNavigate wrap (issue #163).
-pub const PR_FILTER_FIELD_COUNT: usize = 8;
-
-#[derive(Debug, Clone, Default)]
-pub struct IssueFilterUiState {
-    pub controls_open: bool,
-    /// Index of the currently focused filter field (0=state, 1=author, 2=assignee, 3=labels, 4=type, 5=milestone, 6=module, 7=query_text).
-    pub field_index: usize,
-    /// Raw labels text while editing (preserves trailing commas). Parsed into Vec on apply.
-    pub draft_labels_text: String,
-}
-
-impl IssuesState {
-    /// Read-only access to the loaded issues.
-    #[must_use]
-    pub fn issues(&self) -> &[crate::domain::Issue] {
-        self.list.items()
-    }
-
-    /// The currently selected issue index, if any.
-    #[must_use]
-    pub fn selected_issue_index(&self) -> Option<usize> {
-        self.list.selected_index()
-    }
-
-    /// Whether the list is visibly loading (reload-visible or page pending).
-    #[must_use]
-    pub fn list_loading(&self) -> bool {
-        self.list.is_loading()
-    }
-
-    /// Whether any list operation is pending (visible or silent).
-    #[must_use]
-    pub fn list_pending(&self) -> bool {
-        self.list.has_pending_request()
-    }
-
-    /// Whether more pages are available.
-    #[must_use]
-    pub fn has_more_issues(&self) -> bool {
-        self.list.has_more()
-    }
-
-    /// Count the number of rendered content lines for the current detail view.
-    #[must_use]
-    pub fn detail_content_line_count(&self) -> usize {
-        let Some(detail) = &self.issue_detail else {
-            return 0;
-        };
-
-        crate::issue_detail_content::detail_content_line_count(
-            detail,
-            &self.inline_state,
-            self.loading.comments,
-        )
-    }
-
-    /// Maximum scroll offset so the last line of content sits at the bottom of the viewport.
-    /// Returns 0 when content fits entirely within the viewport (no scrolling needed).
-    #[must_use]
-    pub fn max_detail_scroll_offset(&self) -> usize {
-        let viewport_rows = if self.detail_viewport_rows == 0 {
-            crate::layout::detail_viewport_rows(40)
-        } else {
-            self.detail_viewport_rows
-        };
-        self.max_detail_scroll_offset_for_viewport(viewport_rows)
-    }
-
-    /// Maximum detail scroll offset for a caller-provided viewport row count.
-    #[must_use]
-    pub fn max_detail_scroll_offset_for_viewport(&self, viewport_rows: usize) -> usize {
-        if self.issue_detail.is_none() {
-            return 0;
-        }
-        let composer_active = matches!(
-            self.inline_state,
-            InlineState::Composer {
-                target: ComposerTarget::NewComment | ComposerTarget::Reply { .. },
-                ..
-            }
-        );
-        self.detail_content_line_count().saturating_sub(
-            crate::layout::issue_detail_document_viewport_rows(viewport_rows, composer_active),
-        )
-    }
-
-    /// Maximum detail scroll offset for the Issues-mode layout bands currently
-    /// visible in the UI.
-    #[must_use]
-    pub fn max_detail_scroll_offset_for_layout(
-        &self,
-        term_rows: usize,
-        error_visible: bool,
-        filter_controls_open: bool,
-    ) -> usize {
-        self.max_detail_scroll_offset_for_viewport(crate::layout::issues_detail_viewport_rows(
-            term_rows,
-            error_visible,
-            filter_controls_open,
-        ))
-    }
 }

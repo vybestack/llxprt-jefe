@@ -9,6 +9,7 @@
 
 mod attach;
 mod attach_scheduler;
+mod capabilities;
 mod commands;
 mod errors;
 mod liveness;
@@ -20,6 +21,10 @@ mod socket;
 mod stub_manager;
 
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
+pub use capabilities::{
+    AgentRuntimeCapabilities, ModelDiscovery, code_puppy_help_supports_yolo, static_capabilities,
+    validate_code_puppy_launch,
+};
 pub use errors::RuntimeError;
 pub use liveness::{check_remote_session_alive, check_session_alive, pid_alive};
 pub use manager::{LivenessCheck, RuntimeManager, TmuxRuntimeManager};

@@ -27,6 +27,10 @@ use super::{AppStateHandle, SharedContext};
 /// @requirement REQ-ISS-002
 /// @pseudocode component-003 lines 01-38
 pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    if state.issues_state.delete_confirm.is_some() {
+        return resolve_delete_confirm_key_event(key_event);
+    }
+
     if state.issues_state.inline_state != InlineState::None {
         return resolve_inline_key_event(key_event);
     }
@@ -75,6 +79,16 @@ fn resolve_agent_chooser_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
         KeyCode::Down => Some(AppEvent::AgentChooserNavigateDown),
         KeyCode::Enter => Some(AppEvent::AgentChooserConfirm),
         KeyCode::Esc => Some(AppEvent::AgentChooserCancel),
+        _ => None,
+    }
+}
+
+/// Route key events when the delete confirm overlay is open.
+/// Enter confirms (arms or dispatches), Esc cancels, everything else is consumed.
+fn resolve_delete_confirm_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Enter => Some(AppEvent::IssueDeleteConfirm),
+        KeyCode::Esc => Some(AppEvent::IssueDeleteCancel),
         _ => None,
     }
 }
@@ -134,6 +148,8 @@ fn resolve_issue_list_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
         KeyCode::Char('n' | 'N') => Some(AppEvent::OpenNewIssueComposer),
         KeyCode::Char('f') => Some(AppEvent::OpenFilterControls),
         KeyCode::Char('/') => Some(AppEvent::FocusSearchInput),
+        KeyCode::Char('C') => Some(AppEvent::CloseIssue),
+        KeyCode::Char('D') => Some(AppEvent::OpenDeleteIssueConfirm),
         _ => None,
     }
 }
@@ -150,6 +166,8 @@ fn resolve_issue_detail_key_event(state: &AppState, key_event: &KeyEvent) -> Opt
         KeyCode::Char('c') => Some(AppEvent::OpenNewCommentComposer),
         KeyCode::Char('r') => reply_event_for_subfocus(state.issues_state.detail_subfocus),
         KeyCode::Char('S') if !state.agents.is_empty() => Some(AppEvent::OpenAgentChooser),
+        KeyCode::Char('C') => Some(AppEvent::CloseIssue),
+        KeyCode::Char('D') => Some(AppEvent::OpenDeleteIssueConfirm),
         KeyCode::Tab | KeyCode::Char('j') => Some(AppEvent::IssueDetailSubfocusNext),
         KeyCode::BackTab | KeyCode::Char('k') => Some(AppEvent::IssueDetailSubfocusPrev),
         _ => None,

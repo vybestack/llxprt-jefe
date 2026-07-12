@@ -16,9 +16,11 @@ use crate::domain::{
 use std::process::Command;
 
 mod create_issue;
+mod issue_lifecycle;
 mod pr_threads;
 mod repo_merge;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};
+pub use issue_lifecycle::{build_close_issue_args, build_delete_issue_args};
 use repo_merge::parse_repo_merge_methods;
 
 mod viewer;
@@ -231,7 +233,7 @@ impl GhClient {
                 &format!("{owner}/{repo}"),
                 &number.to_string(),
                 "--json",
-                "number,title,state,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments",
+                "number,title,state,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id",
             ])
             .output()
             .map_err(|e| {
