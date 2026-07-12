@@ -150,3 +150,27 @@ fn bidi_controls_stripped_in_nested_contexts() {
         );
     }
 }
+
+/// An empty ATX heading (`#` with no text) must not emit a stray
+/// horizontal rule — the label line would be blank, so the rule would
+/// float with nothing above it.
+#[test]
+fn empty_heading_emits_no_stray_rule() {
+    for case in ["#", "# ", "##  \n"] {
+        let lines = render_markdown_lines(case);
+        assert!(
+            lines.is_empty(),
+            "empty heading {case:?} renders nothing: {lines:?}"
+        );
+    }
+    // A heading with text keeps its label + rule.
+    let with_text = render_markdown_lines("# title");
+    assert!(
+        with_text.iter().any(|l| l.contains("title")),
+        "non-empty heading keeps its label: {with_text:?}"
+    );
+    assert!(
+        with_text.iter().any(|l| l.contains('\u{2500}')),
+        "non-empty heading keeps its rule: {with_text:?}"
+    );
+}

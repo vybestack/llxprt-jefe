@@ -248,14 +248,11 @@ impl MarkdownRenderer {
         let line = line.into();
         // Central sanitization chokepoint: every emitted screen line passes
         // through here, so control characters (ESC/CSI/NUL/BS…) and Unicode
-        // bidi override/format chars (Trojan Source display-spoofing vectors)
-        // can never reach the terminal regardless of their source — comrak
-        // decodes numeric entities like &#27; in ordinary text nodes itself,
-        // and code blocks/raw HTML carry author bytes verbatim. Untrusted
-        // GitHub content must not be able to smuggle escape sequences or
-        // bidi overrides. Tab is kept (meaningful in code blocks, benign on
-        // screen). ZWJ/ZWNJ and variation selectors are kept so emoji
-        // sequences survive.
+        // bidi override/format chars (Trojan Source vectors) never reach the
+        // terminal regardless of source (comrak decodes numeric entities in
+        // text nodes; code blocks/raw HTML carry author bytes verbatim).
+        // Tab is kept (meaningful in code blocks); ZWJ/ZWNJ and variation
+        // selectors are kept so emoji sequences survive.
         if line.chars().any(banned_on_screen) {
             self.lines
                 .push(line.chars().filter(|c| !banned_on_screen(*c)).collect());
@@ -336,10 +333,13 @@ impl MarkdownRenderer {
     /// Render a heading as its text plus a trailing rule (issue #155).
     fn render_heading<'a>(&mut self, node: &'a AstNode<'a>, indent: usize) {
         let lines = self.collect_inline(node);
-        // Plain heading label (no raw `#` markers) + a trailing rule; the rule
-        // alone signals the heading (issue #155: markdown syntax must not reach
-        // the screen).
+        // Plain label + trailing rule; the rule alone signals the heading
+        // (issue #155: no raw `#` markers on screen). An EMPTY heading
+        // emits nothing — a rule under a blank label would float stray.
         let heading = lines.join(" ");
+        if heading.trim().is_empty() {
+            return;
+        }
         self.push(indent_str(indent, heading.trim()));
         self.push(rule_line(indent));
         self.push_blank();
