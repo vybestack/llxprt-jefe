@@ -6,7 +6,9 @@
 //! architecture per-file line limit.
 
 use super::modal_handlers::confirm_focus_is_cancel;
-use jefe::domain::{AgentId, LaunchSignature, RepositoryId, SandboxEngine};
+use jefe::domain::{
+    AgentId, AgentKind, LaunchSignature, RemoteRepositorySettings, RepositoryId, SandboxEngine,
+};
 use jefe::github::SendPayload;
 use jefe::runtime::PreflightIssue;
 use jefe::state::{ConfirmFocus, ModalState};
@@ -24,8 +26,8 @@ fn sample_signature() -> LaunchSignature {
         sandbox_enabled: false,
         sandbox_engine: SandboxEngine::Podman,
         sandbox_flags: String::new(),
-        remote: jefe::domain::RemoteRepositorySettings::default(),
-        agent_kind: jefe::domain::AgentKind::Llxprt,
+        remote: RemoteRepositorySettings::default(),
+        agent_kind: AgentKind::Llxprt,
     }
 }
 

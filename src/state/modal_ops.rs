@@ -248,13 +248,13 @@ impl AppState {
     /// Returns `None` for non-confirm modals.
     #[must_use]
     pub fn current_confirm_focus(&self) -> Option<ConfirmFocus> {
-        match self.modal {
+        match &self.modal {
             ModalState::ConfirmDeleteAgent { confirm_focus, .. }
             | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
             | ModalState::ConfirmKillAgent { confirm_focus, .. }
             | ModalState::PreflightPrompt { confirm_focus, .. }
             | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
-            | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => Some(confirm_focus),
+            | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => Some(*confirm_focus),
             _ => None,
         }
     }
