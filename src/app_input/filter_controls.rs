@@ -1,6 +1,6 @@
 //! Shared keyboard behavior for filter controls.
 //!
-//! Domains describe the active editor kind, then translate the resulting
+//! Each domain describes its active editor kind, then translates the resulting
 //! command into their own events. State mutation and query semantics stay in
 //! the domain reducers instead of leaking into a universal filter framework.
 
@@ -110,6 +110,34 @@ mod tests {
         assert_eq!(
             resolve_filter_control_key(FilterEditorKind::Text, &release),
             None
+        );
+    }
+
+    #[test]
+    fn clear_all_and_choice_commands_are_resolved() {
+        let mut clear_all = key(KeyCode::Char('l'));
+        clear_all.modifiers = KeyModifiers::CONTROL;
+        assert_eq!(
+            resolve_filter_control_key(FilterEditorKind::Choice, &clear_all),
+            Some(FilterControlCommand::ClearAll)
+        );
+        assert_eq!(
+            resolve_filter_control_key(FilterEditorKind::Choice, &key(KeyCode::Right)),
+            Some(FilterControlCommand::CycleNext)
+        );
+        assert_eq!(
+            resolve_filter_control_key(FilterEditorKind::Choice, &key(KeyCode::Left)),
+            Some(FilterControlCommand::CyclePrevious)
+        );
+        assert_eq!(
+            resolve_filter_control_key(FilterEditorKind::Choice, &key(KeyCode::Backspace)),
+            Some(FilterControlCommand::Backspace)
+        );
+        let mut shifted = key(KeyCode::Char('X'));
+        shifted.modifiers = KeyModifiers::SHIFT;
+        assert_eq!(
+            resolve_filter_control_key(FilterEditorKind::Choice, &shifted),
+            Some(FilterControlCommand::Append('X'))
         );
     }
 

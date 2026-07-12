@@ -53,10 +53,10 @@ fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<Ap
         FilterControlCommand::Previous => Some(AppEvent::ActionsFilterNavigatePrev),
         FilterControlCommand::ClearAll => Some(AppEvent::ActionsClearDraftFilter),
         FilterControlCommand::ClearCurrent => Some(AppEvent::ActionsUpdateDraftFilter {
-            field: if state.actions_state.ui.filter_field_index == 0 {
-                ActionsFilterField::Workflow
-            } else {
-                ActionsFilterField::Status
+            field: match state.actions_state.ui.filter_field_index {
+                0 => ActionsFilterField::Workflow,
+                1 => ActionsFilterField::Status,
+                _ => return None,
             },
             value: String::new(),
         }),
@@ -159,6 +159,9 @@ mod tests {
                 value
             }) if value.is_empty()
         ));
+
+        state.actions_state.ui.filter_field_index = 2;
+        assert!(resolve_actions_key_event(&state, &key(KeyCode::Delete)).is_none());
 
         let mut clear_all = key(KeyCode::Char('l'));
         clear_all.modifiers = KeyModifiers::CONTROL;
