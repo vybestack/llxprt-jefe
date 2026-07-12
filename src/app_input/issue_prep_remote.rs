@@ -132,7 +132,7 @@ impl RemotePrepPlanner {
         }
 
         // 1. Clone if missing.
-        if inputs.presence == WorkdirPresence::Absent {
+        if *presence == WorkdirPresence::Absent {
             // Path absent → clone if identity present. If no identity is
             // available, the live runner returns Err and no further ops run;
             // mirror that here so the planner cannot emit checkout/prompt

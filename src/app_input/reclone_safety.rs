@@ -8,9 +8,12 @@
 //! 1. A compile-time proof token (`ConfirmedReclone` in `issue_git_prep`)
 //!    guaranteeing the user explicitly confirmed via the modal.
 //! 2. The runtime target validation here: [`validate_reclone_target`] rejects
-//!    catastrophic targets (empty, filesystem root, top-level directory, or
-//!    any symlink on the path) so a misconfigured `work_dir` can never reach
-//!    `remove_dir_all` even with confirmation.
+//!    catastrophic targets (empty, filesystem root, top-level directory, or a
+//!    symlink as the **final component** of `work_dir`) so a misconfigured
+//!    `work_dir` can never reach `remove_dir_all` even with confirmation.
+//!    Ancestor symlinks (e.g. macOS `/var` → `/private/var`) are intentionally
+//!    allowed because `remove_dir_all` resolves the full path and only removes
+//!    the leaf subtree.
 //!
 //! This module is pure (only `std::fs::symlink_metadata` for the symlink
 //! check) so it is exhaustively unit-testable without spawning git.
@@ -47,7 +50,7 @@ pub fn validate_reclone_target(work_dir: &Path) -> Result<(), String> {
     // use `symlink_metadata` (which does NOT follow the link) so a symlink is
     // detected rather than resolved. An ancestor symlink (e.g. macOS
     // `/var` → `/private/var`) is harmless and intentionally allowed.
-    if let Some(offending) = first_symlink_in_path(work_dir) {
+    if let Some(offending) = work_dir_is_symlink(work_dir) {
         return Err(format!(
             "Refusing to force-reclone {}: the path crosses a symlink ({}), and remove_dir_all \
              would follow it and delete the link's target. The work_dir must be a real directory \
@@ -82,10 +85,12 @@ pub fn validate_reclone_target(work_dir: &Path) -> Result<(), String> {
 /// tree. An ancestor symlink (e.g. macOS `/var` → `/private/var`) is harmless:
 /// the path resolves to a real directory and only the leaf subtree is removed.
 ///
-/// Uses [`std::fs::symlink_metadata`] (which does NOT follow the link) so a
-/// symlink is detected rather than resolved. Returns `None` when the path does
-/// not exist or is not a symlink (both are safe for a force-reclone target).
-fn first_symlink_in_path(work_dir: &Path) -> Option<PathBuf> {
+/// Despite the name (kept stable for minimal churn), this checks **only the
+/// final component**, not ancestor components. Uses
+/// [`std::fs::symlink_metadata`] (which does NOT follow the link) so a symlink
+/// is detected rather than resolved. Returns `None` when the path does not
+/// exist or is not a symlink (both are safe for a force-reclone target).
+fn work_dir_is_symlink(work_dir: &Path) -> Option<PathBuf> {
     match std::fs::symlink_metadata(work_dir) {
         Ok(meta) if meta.file_type().is_symlink() => Some(work_dir.to_path_buf()),
         _ => None,
