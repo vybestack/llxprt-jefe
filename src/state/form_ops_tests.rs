@@ -705,4 +705,12 @@ fn code_puppy_yolo_focus_toggles_typed_boolean() {
 
     AppState::toggle_agent_checkbox_fields(&mut fields, AgentFormFocus::CodePuppyYolo);
     assert!(!fields.code_puppy_yolo);
+
+    crate::state::form_runtime::cycle_agent_field(
+        &[],
+        &mut fields,
+        AgentFormFocus::CodePuppyYolo,
+        'x',
+    );
+    assert!(fields.code_puppy_yolo);
 }
