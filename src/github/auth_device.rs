@@ -73,11 +73,63 @@ pub fn build_auth_login_env() -> Vec<(&'static str, &'static str)> {
     vec![("GH_BROWSER", "/bin/true")]
 }
 
+/// Replace anything matching the GitHub device-code shape (`XXXX-XXXX`,
+/// case-insensitive alphanumeric, 4+dash+4) with `<redacted>`.
+///
+/// `gh auth login` can echo the one-time code back to stderr on failure
+/// (expired, denied). Because failure messages flow into `AuthDialogPhase::Failed`
+/// — which is part of `AppState` and therefore logged/printed — scrub the code
+/// shape before the string enters state, so a short-lived bearer credential
+/// cannot leak via crash reports or logs (issue #244 OCR review).
+#[must_use]
+pub fn redact_device_codes(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if is_code_at_boundary(&chars, i) {
+            out.push_str("<redacted>");
+            // Skip the 9-char code (4 + '-' + 4).
+            i += 9;
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// True if `chars[pos..]` starts a standalone `XXXX-XXXX` token (4 alphanumerics,
+/// dash, 4 alphanumerics) with non-alphanumeric boundaries on both sides.
+fn is_code_at_boundary(chars: &[char], pos: usize) -> bool {
+    // 4 alnum, '-', 4 alnum = 9 chars at indices pos..=pos+8.
+    if pos + 8 >= chars.len() {
+        return false;
+    }
+    let code_chars = &chars[pos..=pos + 8];
+    if code_chars[4] != '-' {
+        return false;
+    }
+    let first_four = &code_chars[0..4];
+    let last_four = &code_chars[5..9];
+    if !first_four.iter().all(char::is_ascii_alphanumeric)
+        || !last_four.iter().all(char::is_ascii_alphanumeric)
+    {
+        return false;
+    }
+    // Word boundaries: the char before pos and the char after pos+8 must not
+    // be alphanumeric (so we don't redact a substring of a longer token).
+    let left_ok = pos == 0 || !chars[pos - 1].is_ascii_alphanumeric();
+    let right_ok = pos + 9 >= chars.len() || !chars[pos + 9].is_ascii_alphanumeric();
+    left_ok && right_ok
+}
+
 /// Returns true when an error string indicates a `gh` authentication failure.
 ///
-/// Delegates to [`crate::github::categorize_error`]'s shared
-/// `not_authenticated_matcher` so detection stays a single source of truth —
-/// the dispatch layer cannot drift from the error categorizer (issue #244).
+/// Delegates to the shared `not_authenticated_matcher` (in
+/// `crate::github::parse`) that [`crate::github::categorize_error`] also uses
+/// for its `NotAuthenticated` arm, so detection stays a single source of truth
+/// — the dispatch layer cannot drift from the error categorizer (issue #244).
 /// Used to decide whether to open the auth remediation dialog instead of
 /// surfacing a bare error string.
 #[must_use]
@@ -112,8 +164,10 @@ fn strip_ansi(input: &str) -> String {
                         break;
                     }
                     if inner == '\x1b' {
-                        // Re-feed for the next iteration; push nothing here.
-                        // Simplest correct behavior: stop.
+                        // A nested ESC starts a new sequence; consume it and
+                        // stop this scan (the outer loop's next `chars.next()`
+                        // picks up after it). gh's stderr uses SGR codes only,
+                        // so this branch is rarely hit.
                         break;
                     }
                 }

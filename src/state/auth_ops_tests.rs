@@ -222,3 +222,22 @@ fn auth_dialog_phase_debug_redacts_device_code() {
         "Debug should keep the non-secret URL, got: {debug}"
     );
 }
+
+#[test]
+fn auth_dialog_phase_debug_redacts_code_in_failed_error() {
+    // Defense-in-depth: even if a code-shaped string reaches the Failed error
+    // text, the Debug impl must scrub it (issue #244 OCR review).
+    let phase = AuthDialogPhase::Failed {
+        error: "code 7701-C5F6 expired".to_string(),
+        can_retry: true,
+    };
+    let debug = format!("{phase:?}");
+    assert!(
+        !debug.contains("7701-C5F6"),
+        "Failed Debug must not leak a code-shaped substring, got: {debug}"
+    );
+    assert!(
+        debug.contains("<redacted>"),
+        "Failed Debug should mark the redacted code, got: {debug}"
+    );
+}

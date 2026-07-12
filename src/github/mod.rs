@@ -26,7 +26,7 @@ use repo_merge::parse_repo_merge_methods;
 mod auth_device;
 pub use auth_device::{
     AUTH_SCOPES, DeviceCode, build_auth_login_args, build_auth_login_env,
-    is_not_authenticated_error, parse_device_code,
+    is_not_authenticated_error, parse_device_code, redact_device_codes,
 };
 mod viewer;
 pub use viewer::{build_assign_issue_args, build_viewer_login_args, parse_viewer_login};

@@ -11,7 +11,7 @@
 //! (`runtime::gh_auth`) owns the `gh auth login --web` subprocess; this module
 //! is the seam that connects them.
 
-use jefe::github::is_not_authenticated_error;
+use jefe::github::{is_not_authenticated_error, redact_device_codes};
 use jefe::runtime::run_device_auth;
 use jefe::state::AppEvent;
 
@@ -124,7 +124,7 @@ fn deliver_auth_result(
                 app_state,
                 ctx,
                 AppEvent::AuthFailed {
-                    error: error.to_string(),
+                    error: redact_device_codes(&error.to_string()),
                 },
             );
         }
@@ -132,12 +132,15 @@ fn deliver_auth_result(
 }
 
 /// Build a human-readable failure message from captured stderr.
+///
+/// Scrubs the GitHub device-code shape so a code that `gh` echoed back on a
+/// failed/expired flow cannot leak into state/logs (issue #244 OCR review).
 fn failure_message(stderr: &str) -> String {
     let trimmed = stderr.trim();
     if trimmed.is_empty() {
         "GitHub authentication did not complete.".to_string()
     } else {
-        trimmed.to_string()
+        redact_device_codes(trimmed)
     }
 }
 
@@ -159,6 +162,16 @@ mod tests {
         assert_eq!(
             failure_message("   "),
             "GitHub authentication did not complete."
+        );
+    }
+
+    #[test]
+    fn failure_message_redacts_device_code_from_stderr() {
+        // gh may echo the one-time code back on a failed/expired flow; it must
+        // not survive into state (issue #244 OCR review).
+        assert_eq!(
+            failure_message("error: code WDJB-MJHT has expired"),
+            "error: code <redacted> has expired"
         );
     }
 

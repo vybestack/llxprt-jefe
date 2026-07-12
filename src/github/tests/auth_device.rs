@@ -6,7 +6,7 @@
 
 use crate::github::{
     AUTH_SCOPES, DeviceCode, build_auth_login_args, build_auth_login_env,
-    is_not_authenticated_error, parse_device_code,
+    is_not_authenticated_error, parse_device_code, redact_device_codes,
 };
 
 #[test]
@@ -96,7 +96,7 @@ fn parse_device_code_returns_none_for_malformed_code() {
 }
 
 #[test]
-fn parse_device_code_extracts_url_even_when_embeded_in_sentence() {
+fn parse_device_code_extracts_url_even_when_embedded_in_sentence() {
     let stderr = "! First copy your one-time code: 1234-5678\n\
                   Open this URL to continue in your web browser: https://github.com/login/device/abc123\n";
     let parsed = parse_device_code(stderr).unwrap_or_else(|| panic!("must parse"));
@@ -141,4 +141,44 @@ fn is_not_authenticated_error_rejects_unrelated_errors() {
     assert!(!is_not_authenticated_error("HTTP 403: forbidden"));
     assert!(!is_not_authenticated_error("rate limit exceeded"));
     assert!(!is_not_authenticated_error("some API error"));
+}
+
+#[test]
+fn redact_device_codes_replaces_code_shape() {
+    assert_eq!(
+        redact_device_codes("error: code WDJB-MJHT has expired"),
+        "error: code <redacted> has expired"
+    );
+}
+
+#[test]
+fn redact_device_codes_leaves_non_code_text_intact() {
+    assert_eq!(
+        redact_device_codes("the device code expired"),
+        "the device code expired"
+    );
+    // A 9-char token without the dash is not a code.
+    assert_eq!(redact_device_codes("abcdefghi"), "abcdefghi");
+}
+
+#[test]
+fn redact_device_codes_respects_word_boundaries() {
+    // A code embedded in a longer alphanumeric token is NOT redacted.
+    assert_eq!(
+        redact_device_codes("token=ABCD-EFGH1234"),
+        "token=ABCD-EFGH1234"
+    );
+    // But a standalone code at a word boundary is.
+    assert_eq!(
+        redact_device_codes("code ABCD-EFGH done"),
+        "code <redacted> done"
+    );
+}
+
+#[test]
+fn redact_device_codes_handles_multiple_codes() {
+    assert_eq!(
+        redact_device_codes("ABCD-EFGH then WXYZ-1234"),
+        "<redacted> then <redacted>"
+    );
 }

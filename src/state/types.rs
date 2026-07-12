@@ -97,11 +97,16 @@ impl std::fmt::Debug for AuthDialogPhase {
                 .field("code", &"<redacted>")
                 .field("url", url)
                 .finish(),
-            Self::Failed { error, can_retry } => f
-                .debug_struct("AuthDialogPhase::Failed")
-                .field("error", error)
-                .field("can_retry", can_retry)
-                .finish(),
+            Self::Failed { error, can_retry } => {
+                // Defense-in-depth: the dispatch layer already scrubs the code
+                // shape before storing, but redact again here so a future caller
+                // cannot leak a one-time code via a Debug print (issue #244).
+                let redacted = crate::github::redact_device_codes(error);
+                f.debug_struct("AuthDialogPhase::Failed")
+                    .field("error", &redacted)
+                    .field("can_retry", can_retry)
+                    .finish()
+            }
             Self::Cancelled => f.write_str("AuthDialogPhase::Cancelled"),
         }
     }

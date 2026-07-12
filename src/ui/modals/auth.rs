@@ -33,7 +33,7 @@ pub fn auth_dialog_view(state: &AuthDialogState) -> Vec<AuthDialogLine> {
         AuthDialogPhase::Confirming { code, url } => confirming_lines(code, url),
         AuthDialogPhase::Failed { error, can_retry } => failed_lines(error, *can_retry),
         AuthDialogPhase::Cancelled => vec![AuthDialogLine {
-            text: String::from("Cancelling..."),
+            text: String::from("Cancelled."),
         }],
     }
 }
