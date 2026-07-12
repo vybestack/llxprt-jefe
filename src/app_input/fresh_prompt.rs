@@ -18,6 +18,22 @@ impl FreshPromptKind {
     }
 }
 
+/// Runtime-neutral delivery contract appended to every fresh Send Issue
+/// instruction. Issue-specific content remains in the prompt file; this text
+/// defines how an agent must carry that issue through review and CI.
+const ISSUE_DELIVERY_WORKFLOW: &str = "Complete the issue end to end: start from the latest base branch without deleting unrelated or agent-configuration files; create a dedicated issue branch before changing code; use gh to fetch the issue and all comments; research the codebase and make a test-first implementation plan; implement the change and run the repository's complete verification suite; commit and push the branch; create a detailed pull request linked to the issue; watch every pull-request workflow until terminal completion, continuing to poll with a bounded delay even when a watch command or shell invocation times out; inspect failed workflow logs, fix failures, rerun verification, commit, push, and watch again; collect all project review feedback, including ordinary reviews, inline threads, and automated review comments; address every actionable finding, reply in the corresponding review thread with the fix or why it does not apply, and resolve addressed threads where supported; repeat the checks, reviews, fixes, replies, and workflow watches until all required checks pass and no actionable unresolved review feedback remains. Do not return merely because workflows are pending; report only completion or a genuine external blocker.";
+
+fn fresh_prompt_instruction(prompt_kind: FreshPromptKind, prompt_relative_path: &str) -> String {
+    let base = format!(
+        "Read and work on the GitHub {} described in {prompt_relative_path}",
+        prompt_kind.label()
+    );
+    match prompt_kind {
+        FreshPromptKind::Issue => format!("{base}. {ISSUE_DELIVERY_WORKFLOW}"),
+        FreshPromptKind::PullRequest => base,
+    }
+}
+
 /// Transform a base signature into a fresh, non-resuming prompt launch.
 #[must_use]
 pub(super) fn prepare_fresh_prompt_signature(
@@ -26,10 +42,7 @@ pub(super) fn prepare_fresh_prompt_signature(
     prompt_relative_path: &str,
 ) -> LaunchSignature {
     sig.pass_continue = false;
-    let instruction = format!(
-        "Read and work on the GitHub {} described in {prompt_relative_path}",
-        prompt_kind.label()
-    );
+    let instruction = fresh_prompt_instruction(prompt_kind, prompt_relative_path);
     match sig.agent_kind {
         // LLxprt keeps the agent's persisted mode flags (e.g. `--yolo`) and
         // appends the fresh instruction. Replacing them here dropped `--yolo`,
@@ -74,6 +87,39 @@ mod tests {
     }
 
     #[test]
+    fn issue_delivery_workflow_is_exact_and_runtime_neutral() {
+        let expected = concat!(
+            "Read and work on the GitHub issue described in .jefe/issue-prompt.md. ",
+            "Complete the issue end to end: start from the latest base branch without deleting unrelated or agent-configuration files; create a dedicated issue branch before changing code; use gh to fetch the issue and all comments; research the codebase and make a test-first implementation plan; implement the change and run the repository's complete verification suite; commit and push the branch; create a detailed pull request linked to the issue; watch every pull-request workflow until terminal completion, continuing to poll with a bounded delay even when a watch command or shell invocation times out; inspect failed workflow logs, fix failures, rerun verification, commit, push, and watch again; collect all project review feedback, including ordinary reviews, inline threads, and automated review comments; address every actionable finding, reply in the corresponding review thread with the fix or why it does not apply, and resolve addressed threads where supported; repeat the checks, reviews, fixes, replies, and workflow watches until all required checks pass and no actionable unresolved review feedback remains. Do not return merely because workflows are pending; report only completion or a genuine external blocker."
+        );
+
+        assert_eq!(
+            fresh_prompt_instruction(FreshPromptKind::Issue, ".jefe/issue-prompt.md"),
+            expected
+        );
+        assert!(!ISSUE_DELIVERY_WORKFLOW.contains("OCR"));
+        assert!(!ISSUE_DELIVERY_WORKFLOW.contains("CodeRabbit"));
+    }
+
+    #[test]
+    fn llxprt_and_code_puppy_project_the_identical_issue_contract() {
+        let llxprt = prepare_fresh_prompt_signature(
+            base_sig(AgentKind::Llxprt),
+            FreshPromptKind::Issue,
+            ".jefe/issue-prompt.md",
+        );
+        let code_puppy = prepare_fresh_prompt_signature(
+            base_sig(AgentKind::CodePuppy),
+            FreshPromptKind::Issue,
+            ".jefe/issue-prompt.md",
+        );
+
+        assert_eq!(llxprt.mode_flags.last(), code_puppy.mode_flags.first());
+        assert_eq!(llxprt.mode_flags[llxprt.mode_flags.len() - 2], "-i");
+        assert_eq!(code_puppy.mode_flags.len(), 1);
+    }
+
+    #[test]
     fn llxprt_issue_uses_fresh_issue_instruction() {
         let result = prepare_fresh_prompt_signature(
             base_sig(AgentKind::Llxprt),
@@ -85,9 +131,9 @@ mod tests {
         assert_eq!(
             result.mode_flags,
             vec![
-                "--stale",
-                "-i",
-                "Read and work on the GitHub issue described in .jefe/issue-prompt.md"
+                "--stale".to_owned(),
+                "-i".to_owned(),
+                fresh_prompt_instruction(FreshPromptKind::Issue, ".jefe/issue-prompt.md")
             ]
         );
     }
@@ -116,7 +162,10 @@ mod tests {
         assert!(!result.pass_continue);
         assert_eq!(
             result.mode_flags,
-            vec!["Read and work on the GitHub issue described in .jefe/issue-prompt.md"]
+            vec![fresh_prompt_instruction(
+                FreshPromptKind::Issue,
+                ".jefe/issue-prompt.md"
+            )]
         );
     }
 
@@ -134,9 +183,9 @@ mod tests {
         assert_eq!(
             result.mode_flags,
             vec![
-                "--yolo",
-                "-i",
-                "Read and work on the GitHub issue described in .jefe/issue-prompt.md"
+                "--yolo".to_owned(),
+                "-i".to_owned(),
+                fresh_prompt_instruction(FreshPromptKind::Issue, ".jefe/issue-prompt.md")
             ]
         );
     }
@@ -154,8 +203,8 @@ mod tests {
         assert_eq!(
             result.mode_flags,
             vec![
-                "-i",
-                "Read and work on the GitHub issue described in .jefe/issue-prompt.md"
+                "-i".to_owned(),
+                fresh_prompt_instruction(FreshPromptKind::Issue, ".jefe/issue-prompt.md")
             ]
         );
     }

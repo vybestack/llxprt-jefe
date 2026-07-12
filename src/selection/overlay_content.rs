@@ -299,6 +299,8 @@ mod tests {
         let signature = LaunchSignature {
             work_dir: std::path::PathBuf::from("/tmp"),
             profile: String::new(),
+            code_puppy_model: String::new(),
+            code_puppy_yolo: None,
             mode_flags: Vec::new(),
             llxprt_debug: String::new(),
             pass_continue: false,

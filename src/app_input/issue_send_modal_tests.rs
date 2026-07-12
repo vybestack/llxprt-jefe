@@ -109,13 +109,17 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
         !launch_sig.pass_continue,
         "issue-driven launches must force pass_continue = false"
     );
-    assert!(
-        launch_sig
-            .mode_flags
-            .iter()
-            .any(|flag| flag.contains(".jefe/issue-prompt.md")),
-        "issue launch signature must include the issue prompt instruction"
-    );
+    let instruction = launch_sig
+        .mode_flags
+        .last()
+        .value_or_panic("issue launch signature must include an instruction");
+    assert!(instruction.contains(".jefe/issue-prompt.md"));
+    assert!(instruction.contains("create a dedicated issue branch"));
+    assert!(instruction.contains("create a detailed pull request"));
+    assert!(instruction.contains("continuing to poll with a bounded delay"));
+    assert!(instruction.contains("ordinary reviews, inline threads"));
+    assert!(instruction.contains("reply in the corresponding review thread"));
+    assert!(instruction.contains("no actionable unresolved review feedback remains"));
 }
 
 #[test]
