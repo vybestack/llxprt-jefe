@@ -1,5 +1,8 @@
 use jefe::domain::{AgentId, AgentKind, LaunchSignature, PlatformCapabilities, SandboxEngine};
-use jefe::runtime::{PreflightAction, PreflightIssue, execute_preflight_action, sandbox_preflight};
+use jefe::runtime::{
+    PreflightAction, PreflightIssue, execute_preflight_action, sandbox_preflight,
+    validate_code_puppy_launch,
+};
 use jefe::state::ModalState;
 
 use super::{
@@ -23,27 +26,57 @@ pub fn preflight_or_prompt(
     signature: &LaunchSignature,
     issue_self_assignment: Option<&jefe::state::IssueSelfAssignmentFollowUp>,
 ) -> bool {
+    if let Err(diagnostic) = validate_code_puppy_launch(signature) {
+        open_preflight_prompt(
+            app_state,
+            ctx,
+            agent_id,
+            signature,
+            PreflightIssue::UnsupportedRuntimeOption { diagnostic },
+            issue_self_assignment,
+        );
+        return false;
+    }
+
     if !should_run_sandbox_preflight(signature) {
         return true;
     }
 
     if let Some(issue) = sandbox_preflight(signature.sandbox_engine) {
-        let mut state = app_state.write();
-        state.modal = ModalState::PreflightPrompt {
-            agent_id: agent_id.clone(),
-            signature: signature.clone(),
+        open_preflight_prompt(
+            app_state,
+            ctx,
+            agent_id,
+            signature,
             issue,
-            remaining_issues: Vec::new(),
-            issue_self_assignment: issue_self_assignment.cloned(),
-            confirm_focus: jefe::state::ConfirmFocus::Cancel,
-        };
-        let persisted = to_persisted_state(&state);
-        drop(state);
-        persist_state(ctx, &persisted);
+            issue_self_assignment,
+        );
         return false;
     }
 
     true
+}
+
+fn open_preflight_prompt(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+    signature: &LaunchSignature,
+    issue: PreflightIssue,
+    issue_self_assignment: Option<&jefe::state::IssueSelfAssignmentFollowUp>,
+) {
+    let mut state = app_state.write();
+    state.modal = ModalState::PreflightPrompt {
+        agent_id: agent_id.clone(),
+        signature: signature.clone(),
+        issue,
+        remaining_issues: Vec::new(),
+        issue_self_assignment: issue_self_assignment.cloned(),
+        confirm_focus: jefe::state::ConfirmFocus::Cancel,
+    };
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
 }
 
 /// Pure predicate: should sandbox preflight run for this signature?

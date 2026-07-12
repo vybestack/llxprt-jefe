@@ -22,6 +22,8 @@ pub enum PreflightIssue {
         platform: &'static str,
         fallback: Option<SandboxEngine>,
     },
+    /// A configured runtime option is unavailable on the launch target.
+    UnsupportedRuntimeOption { diagnostic: String },
 }
 
 /// Describes the kind of remediation the user can trigger.
@@ -76,6 +78,9 @@ impl PreflightIssue {
                     platform,
                 ),
             },
+            Self::UnsupportedRuntimeOption { diagnostic } => {
+                format!("{diagnostic}\n\n[Esc] cancel launch")
+            }
         }
     }
 
@@ -90,6 +95,7 @@ impl PreflightIssue {
             Self::UnsupportedEngine { engine, .. } => {
                 format!("{} unsupported", engine.label())
             }
+            Self::UnsupportedRuntimeOption { .. } => "Code Puppy option unsupported".to_owned(),
         }
     }
 
@@ -113,7 +119,8 @@ impl PreflightIssue {
                 fallback: Some(target),
                 ..
             } => PreflightAction::SwitchEngine(*target),
-            Self::UnsupportedEngine { fallback: None, .. } => PreflightAction::NoRemediation,
+            Self::UnsupportedEngine { fallback: None, .. }
+            | Self::UnsupportedRuntimeOption { .. } => PreflightAction::NoRemediation,
         }
     }
 }
