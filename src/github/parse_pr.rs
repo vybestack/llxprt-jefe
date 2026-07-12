@@ -614,19 +614,19 @@ pub fn sort_pull_requests(items: &mut [PullRequest]) {
 /// thread exceeding 50 back-and-forth comments is pathological. Comments
 /// past the cap are not fetched.
 ///
-/// `with_cursor=true` includes the `$after` variable declaration and the
+/// `with_after=true` includes the `$after` variable declaration and the
 /// `after: $after` argument on the reviewThreads connection;
-/// `with_cursor=false` omits both.
+/// `with_after=false` omits both.
 ///
 /// @plan PLAN-20260624-PR-MODE.P08
 /// @requirement REQ-PR-009
 #[must_use]
-pub fn build_pr_review_threads_query(with_cursor: bool) -> String {
+pub fn build_pr_review_threads_query(with_after: bool) -> String {
     // Single source of truth for the thread selection set: the cursor-bearing
     // and first-page variants differ ONLY in the `$after` declaration and the
     // `after:` argument, so they are interpolated into one template (any
     // schema change applies to both branches automatically).
-    let (after_decl, after_arg) = if with_cursor {
+    let (after_decl, after_arg) = if with_after {
         (", $after: String", ", after: $after")
     } else {
         ("", "")

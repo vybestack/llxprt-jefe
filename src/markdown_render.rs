@@ -92,8 +92,9 @@ pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) ->
     result
 }
 
-/// Maximum number of entries retained in [`markdown_render_cache`] before an
-/// epoch clear resets the map.
+/// Maximum number of distinct markdown BODY keys retained before inserting a
+/// new body triggers an epoch clear. Each body may hold a small variant vec of
+/// `(prefix, placeholder)` renderings, so total variants can exceed this cap.
 const MARKDOWN_RENDER_CACHE_CAP: usize = 512;
 
 /// Cache keyed by markdown body; each value is a small vec of `(prefix,
@@ -290,7 +291,9 @@ impl MarkdownRenderer {
             // Paragraphs share the unknown-block shape: render inline text
             // ONLY when non-empty (a paragraph that strips to nothing — e.g.
             // emphasis around an HTML comment — must not leave a stray blank
-            // line), then a trailing blank separator.
+            // line), then a trailing blank separator. FootnoteReference is
+            // normally inline; routing a defensive block-level occurrence
+            // through the same inline collector preserves its visible label.
             NodeValue::Paragraph | NodeValue::FootnoteReference(_) => {
                 self.render_unknown_block(node, indent);
             }

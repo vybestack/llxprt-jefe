@@ -173,8 +173,8 @@ fn is_leap_year(year: i32) -> bool {
 fn parse_hhmm(time: &str) -> Option<String> {
     // Strip a trailing UTC indicator or a timezone offset (e.g. `+02:00`,
     // `-07:00`, `+0530`) so offset timestamps parse to the same HH:MM as a
-    // `Z` timestamp. Offset signs only appear after the seconds, so split at
-    // the first `+`/`-` following the start of the time string.
+    // `Z` timestamp. Split at the first `+`/`-` after the time starts; an
+    // offset may follow minutes directly or follow the optional seconds.
     let mut t = time.trim();
     if let Some(pos) = t
         .char_indices()

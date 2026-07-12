@@ -554,7 +554,7 @@ fn resolved_thread_expands_on_focus() {
     );
     assert!(
         content.text.contains("[RESOLVED]"),
-        "expanding must NOT flip the resolve tag"
+        "focused resolved thread must keep the [RESOLVED] tag"
     );
 }
 
@@ -625,7 +625,7 @@ fn outdated_thread_collapses_and_shows_outdated_tag() {
     );
     assert!(
         focused.text.contains("[OUTDATED]"),
-        "expanding must NOT drop the [OUTDATED] tag"
+        "focused outdated thread must keep the [OUTDATED] tag"
     );
 }
 
