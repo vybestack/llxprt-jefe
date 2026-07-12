@@ -7,7 +7,7 @@ use crate::state::types::{
 
 use super::issues_test_fixtures::begin_issue_list_reload;
 
-fn dashboard_issues_state() -> AppState {
+pub(super) fn dashboard_issues_state() -> AppState {
     AppState {
         screen_mode: ScreenMode::DashboardIssues,
         ..AppState::default()
@@ -90,7 +90,7 @@ fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
 }
 
 /// Helper: create a minimal IssueDetail with given number and empty comments.
-fn p15_detail(number: u64) -> IssueDetail {
+pub(super) fn p15_detail(number: u64) -> IssueDetail {
     IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number,
@@ -111,7 +111,12 @@ fn p15_detail(number: u64) -> IssueDetail {
     }
 }
 
-fn p15_comment(comment_id: u64, author_login: &str, created_at: &str, body: &str) -> IssueComment {
+pub(super) fn p15_comment(
+    comment_id: u64,
+    author_login: &str,
+    created_at: &str,
+    body: &str,
+) -> IssueComment {
     IssueComment {
         comment_id,
         author_login: author_login.to_string(),
@@ -477,32 +482,6 @@ fn test_pagination_issue_list_auto_load() {
     assert_eq!(state.issues_state.issues().len(), 2);
 }
 
-#[test]
-fn test_detail_content_line_count_includes_empty_comments_separator() {
-    let mut state = dashboard_issues_state();
-    state.issues_state.issue_detail = Some(p15_detail(1));
-
-    assert_eq!(state.issues_state.detail_content_line_count(), 8);
-}
-
-#[test]
-fn test_detail_content_line_count_includes_loading_comments_separator() {
-    let mut state = dashboard_issues_state();
-    state.issues_state.issue_detail = Some(p15_detail(1));
-    state.issues_state.loading.comments = true;
-
-    assert_eq!(state.issues_state.detail_content_line_count(), 8);
-}
-
-#[test]
-fn test_detail_content_line_count_includes_non_empty_comments_separator() {
-    let mut detail = p15_detail(1);
-    detail.comments = vec![p15_comment(101, "alice", "2024-01-03T00:00:00Z", "hello")];
-    let mut state = dashboard_issues_state();
-    state.issues_state.issue_detail = Some(detail);
-
-    assert_eq!(state.issues_state.detail_content_line_count(), 10);
-}
 /// P15 Test 9: Load detail, load first comments page, load second — all comments present in order.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15

@@ -859,6 +859,8 @@ mod issues_tests_composer_focus;
 #[path = "issues_tests_detail.rs"]
 mod issues_tests_detail;
 #[cfg(test)]
+mod issues_tests_detail_content;
+#[cfg(test)]
 #[path = "issues_tests_detail_flow.rs"]
 mod issues_tests_detail_flow;
 #[cfg(test)]

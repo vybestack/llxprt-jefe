@@ -847,41 +847,6 @@ fn f12_in_issue_list_is_noop() {
         "F12 at IssueList (terminal unfocused) must be None, got {event:?}"
     );
 }
-
-fn issues_state_with_issue_list() -> AppState {
-    use jefe::domain::{Issue, IssueState};
-    let mut state = issues_base_state();
-    state.issues_state.list.replace_items(vec![Issue {
-        number: 1,
-        node_id: String::new(),
-        title: "Test".to_string(),
-        state: IssueState::Open,
-        author_login: String::new(),
-        updated_at: String::new(),
-        assignee_summary: String::new(),
-        labels_summary: String::new(),
-        assignees: Vec::new(),
-        labels: Vec::new(),
-        issue_type: String::new(),
-        milestone: String::new(),
-        module: String::new(),
-        comment_count: 0,
-        body: String::new(),
-    }]);
-    state.issues_state.list.set_selected_index(Some(0));
-    state
-}
-
-#[test]
-fn shift_c_in_list_resolves_to_close_issue() {
-    let state = issues_state_with_issue_list();
-    let result = resolve_issues_key_event(&state, &key(KeyCode::Char('C')));
-    assert!(
-        matches!(result, Some(AppEvent::CloseIssue)),
-        "Shift-C should resolve to CloseIssue, got {result:?}"
-    );
-}
-
 /// F12 while the terminal is focused defocuses it (issue #164).
 #[test]
 fn f12_while_terminal_focused_defocuses() {
