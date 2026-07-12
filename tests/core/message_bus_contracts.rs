@@ -145,6 +145,7 @@ fn typed_kill_agent_clears_runtime_binding() {
             profile: String::new(),
             code_puppy_model: String::new(),
             code_puppy_yolo: Some(false),
+            code_puppy_quick_resume: false,
             mode_flags: vec!["--yolo".to_string()],
             llxprt_debug: String::new(),
             pass_continue: true,

@@ -80,6 +80,7 @@ impl AppState {
             }
             AgentFormFocus::AgentKind
             | AgentFormFocus::CodePuppyYolo
+            | AgentFormFocus::CodePuppyQuickResume
             | AgentFormFocus::PassContinue
             | AgentFormFocus::Sandbox
             | AgentFormFocus::SandboxEngine => {
@@ -332,6 +333,7 @@ impl AppState {
             }
             AgentFormFocus::AgentKind
             | AgentFormFocus::CodePuppyYolo
+            | AgentFormFocus::CodePuppyQuickResume
             | AgentFormFocus::PassContinue
             | AgentFormFocus::Sandbox
             | AgentFormFocus::SandboxEngine => {}
@@ -351,6 +353,7 @@ impl AppState {
             AgentFormFocus::Shortcut
             | AgentFormFocus::AgentKind
             | AgentFormFocus::CodePuppyYolo
+            | AgentFormFocus::CodePuppyQuickResume
             | AgentFormFocus::PassContinue
             | AgentFormFocus::Sandbox
             | AgentFormFocus::SandboxEngine => {}
@@ -660,6 +663,9 @@ impl AppState {
     fn toggle_agent_checkbox_fields(fields: &mut AgentFormFields, focus: AgentFormFocus) {
         match focus {
             AgentFormFocus::CodePuppyYolo => fields.code_puppy_yolo = !fields.code_puppy_yolo,
+            AgentFormFocus::CodePuppyQuickResume => {
+                fields.code_puppy_quick_resume.toggle();
+            }
             AgentFormFocus::PassContinue => fields.pass_continue = !fields.pass_continue,
             AgentFormFocus::Shortcut => {
                 fields.shortcut_slot = match fields.shortcut_slot {

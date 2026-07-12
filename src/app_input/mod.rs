@@ -192,6 +192,7 @@ fn launch_signature_for_agent(
             agent.code_puppy_model.trim().to_owned()
         },
         code_puppy_yolo: agent.code_puppy_yolo,
+        code_puppy_quick_resume: agent.code_puppy_quick_resume,
         mode_flags: agent.mode_flags.clone(),
         llxprt_debug: agent.llxprt_debug.clone(),
         pass_continue: agent.pass_continue,
