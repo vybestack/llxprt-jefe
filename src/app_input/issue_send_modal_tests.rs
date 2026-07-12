@@ -163,6 +163,7 @@ fn confirm_issue_dirty_copy_modal_routes_to_confirm_input_mode() {
             work_dir: PathBuf::from("/tmp/x"),
             signature: sample_signature(),
             payload: jefe::github::SendPayload::default(),
+            confirm_focus: jefe::state::ConfirmFocus::Cancel,
         },
         ..AppState::default()
     };
@@ -175,7 +176,7 @@ fn confirm_issue_dirty_copy_modal_routes_to_confirm_input_mode() {
 }
 
 /// The `ConfirmIssueOriginMismatch` modal must resolve to `InputMode::Confirm`
-/// so the confirm key handler routes Enter/Esc/n correctly.
+/// so the confirm key handler routes Enter/Esc correctly.
 #[test]
 fn confirm_issue_origin_mismatch_modal_routes_to_confirm_input_mode() {
     use jefe::input::input_mode_for_state;
@@ -188,6 +189,7 @@ fn confirm_issue_origin_mismatch_modal_routes_to_confirm_input_mode() {
             payload: jefe::github::SendPayload::default(),
             actual: String::from("other/repo"),
             expected: String::from("acme/widgets"),
+            confirm_focus: jefe::state::ConfirmFocus::Cancel,
         },
         ..AppState::default()
     };
@@ -226,6 +228,7 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
             payload: jefe::github::SendPayload::default(),
             actual: String::from("other/repo"),
             expected: String::from("acme/widgets"),
+            confirm_focus: jefe::state::ConfirmFocus::Cancel,
         },
         repositories: seeded.repositories.clone(),
         screen_mode: seeded.screen_mode,

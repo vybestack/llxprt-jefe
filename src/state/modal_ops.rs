@@ -9,8 +9,8 @@ use crate::messages::{ModalMessage, RepositoryAgentMessage};
 
 use super::AppState;
 use super::types::{
-    AgentFormCursor, AgentFormFields, AgentFormFocus, ModalState, RepositoryFormCursor,
-    RepositoryFormFields, RepositoryFormFocus,
+    AgentFormCursor, AgentFormFields, AgentFormFocus, ConfirmFocus, ModalState,
+    RepositoryFormCursor, RepositoryFormFields, RepositoryFormFocus,
 };
 
 impl AppState {
@@ -24,6 +24,7 @@ impl AppState {
             }
             ModalMessage::CloseModal => self.modal = ModalState::None,
             ModalMessage::SubmitForm => self.handle_submit_form(),
+            ModalMessage::ConfirmCycleFocus => self.cycle_confirm_focus(),
             ModalMessage::FormChar(c) => self.handle_form_char(c),
             ModalMessage::FormBackspace => self.handle_form_backspace(),
             ModalMessage::FormDelete => self.handle_form_delete(),
@@ -40,7 +41,10 @@ impl AppState {
             RepositoryAgentMessage::OpenNewRepository => self.open_new_repository_modal(),
             RepositoryAgentMessage::OpenEditRepository(id) => self.open_edit_repository_modal(id),
             RepositoryAgentMessage::OpenDeleteRepository(id) => {
-                self.modal = ModalState::ConfirmDeleteRepository { id };
+                self.modal = ModalState::ConfirmDeleteRepository {
+                    id,
+                    confirm_focus: ConfirmFocus::Cancel,
+                };
             }
             RepositoryAgentMessage::OpenNewAgent(repository_id) => {
                 self.open_new_agent_modal(repository_id);
@@ -50,6 +54,7 @@ impl AppState {
                 self.modal = ModalState::ConfirmDeleteAgent {
                     id,
                     delete_work_dir: false,
+                    confirm_focus: ConfirmFocus::Cancel,
                 };
             }
             RepositoryAgentMessage::ToggleDeleteWorkDir => self.toggle_delete_work_dir(),
@@ -224,12 +229,55 @@ impl AppState {
         if let ModalState::ConfirmDeleteAgent {
             id,
             delete_work_dir,
+            confirm_focus,
         } = self.modal.clone()
         {
             self.modal = ModalState::ConfirmDeleteAgent {
                 id,
                 delete_work_dir: !delete_work_dir,
+                confirm_focus,
             };
+        }
+    }
+
+    /// Toggle confirm-dialog button focus between Cancel and Confirm (issue #228).
+    fn cycle_confirm_focus(&mut self) {
+        let next = match self.current_confirm_focus() {
+            Some(ConfirmFocus::Cancel) => ConfirmFocus::Confirm,
+            Some(ConfirmFocus::Confirm) => ConfirmFocus::Cancel,
+            None => return,
+        };
+        self.set_confirm_focus(next);
+    }
+
+    /// Read the confirm focus from whichever confirm variant is active.
+    /// Returns `None` for non-confirm modals.
+    #[must_use]
+    pub fn current_confirm_focus(&self) -> Option<ConfirmFocus> {
+        match self.modal {
+            ModalState::ConfirmDeleteAgent { confirm_focus, .. }
+            | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
+            | ModalState::ConfirmKillAgent { confirm_focus, .. }
+            | ModalState::PreflightPrompt { confirm_focus, .. }
+            | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
+            | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => Some(confirm_focus),
+            _ => None,
+        }
+    }
+
+    /// Replace the confirm focus on the active confirm variant, preserving all
+    /// other fields. No-op for non-confirm modals (issue #228).
+    fn set_confirm_focus(&mut self, focus: ConfirmFocus) {
+        match &mut self.modal {
+            ModalState::ConfirmDeleteAgent { confirm_focus, .. }
+            | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
+            | ModalState::ConfirmKillAgent { confirm_focus, .. }
+            | ModalState::PreflightPrompt { confirm_focus, .. }
+            | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
+            | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => {
+                *confirm_focus = focus;
+            }
+            _ => {}
         }
     }
 }

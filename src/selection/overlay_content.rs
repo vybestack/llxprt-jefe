@@ -113,7 +113,7 @@ pub fn confirm_modal_lines(state: &AppState) -> PaneContent {
     } else {
         lines.push(String::new());
     }
-    lines.push("[ Cancel ]  [ Confirm ]".to_string());
+    lines.push(crate::ui::modals::confirm_button_row(data.confirm_focus));
     lines.push(String::new());
     PaneContent::new(SelectablePane::ConfirmModal, lines)
 }
@@ -132,6 +132,7 @@ mod tests {
             modal: ModalState::ConfirmDeleteAgent {
                 id: agent_id.clone(),
                 delete_work_dir: true,
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
             },
             ..Default::default()
         };
@@ -155,7 +156,7 @@ mod tests {
                 String::new(),
                 "Delete my-agent?".to_string(),
                 "[x] Delete work directory".to_string(),
-                "[ Cancel ]  [ Confirm ]".to_string(),
+                "( Cancel )  [ Confirm ]".to_string(),
                 String::new(),
             ]
         );
@@ -166,6 +167,7 @@ mod tests {
         let mut state = AppState {
             modal: ModalState::ConfirmDeleteRepository {
                 id: RepositoryId("r1".to_string()),
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
             },
             ..Default::default()
         };
@@ -183,7 +185,7 @@ mod tests {
                 String::new(),
                 "Delete my-repo and all its agents?".to_string(),
                 String::new(),
-                "[ Cancel ]  [ Confirm ]".to_string(),
+                "( Cancel )  [ Confirm ]".to_string(),
                 String::new(),
             ]
         );
@@ -196,6 +198,7 @@ mod tests {
         let mut state = AppState {
             modal: ModalState::ConfirmKillAgent {
                 id: agent_id.clone(),
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
             },
             ..Default::default()
         };
@@ -214,6 +217,46 @@ mod tests {
         let content = confirm_modal_lines(&state);
         assert_eq!(content.lines[0], "Kill Agent");
         assert_eq!(content.lines[2], "Kill running-agent?");
+    }
+
+    #[test]
+    fn confirm_modal_focus_rendered_as_cancel_default() {
+        let mut state = AppState {
+            modal: ModalState::ConfirmDeleteRepository {
+                id: RepositoryId("r1".to_string()),
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
+            },
+            ..Default::default()
+        };
+        state.repositories.push(Repository::new(
+            RepositoryId("r1".to_string()),
+            "my-repo".to_string(),
+            "my-repo".to_string(),
+            std::path::PathBuf::from("/tmp/repo"),
+        ));
+        let content = confirm_modal_lines(&state);
+        // Default focus = Cancel → the focused button uses (…)
+        assert_eq!(content.lines[4], "( Cancel )  [ Confirm ]");
+    }
+
+    #[test]
+    fn confirm_modal_focus_rendered_as_confirm() {
+        let mut state = AppState {
+            modal: ModalState::ConfirmDeleteRepository {
+                id: RepositoryId("r1".to_string()),
+                confirm_focus: crate::state::ConfirmFocus::Confirm,
+            },
+            ..Default::default()
+        };
+        state.repositories.push(Repository::new(
+            RepositoryId("r1".to_string()),
+            "my-repo".to_string(),
+            "my-repo".to_string(),
+            std::path::PathBuf::from("/tmp/repo"),
+        ));
+        let content = confirm_modal_lines(&state);
+        // Focus = Confirm → the focused button uses (…)
+        assert_eq!(content.lines[4], "[ Cancel ]  ( Confirm )");
     }
 
     #[test]
@@ -241,6 +284,7 @@ mod tests {
                 signature,
                 issue: PreflightIssue::SshAgentNoIdentities,
                 remaining_issues: Vec::new(),
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
             },
             ..Default::default()
         };
@@ -285,6 +329,7 @@ mod tests {
                 work_dir: std::path::PathBuf::from("/tmp"),
                 signature,
                 payload,
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
             },
             ..Default::default()
         };
@@ -326,6 +371,7 @@ mod tests {
                 payload,
                 actual: "other/repo".to_string(),
                 expected: "acme/widgets".to_string(),
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
             },
             ..Default::default()
         };

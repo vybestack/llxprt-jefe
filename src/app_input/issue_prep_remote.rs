@@ -470,10 +470,10 @@ impl RemotePrepRunner {
             }
             // Origin-mismatch check: only when an expected shortform is
             // configured (identity present).
-            if let Some(id) = identity {
-                if let Some(mismatch) = self.remote_origin_mismatch(work_dir, id)? {
-                    return Ok(mismatch);
-                }
+            if let Some(id) = identity
+                && let Some(mismatch) = self.remote_origin_mismatch(work_dir, id)?
+            {
+                return Ok(mismatch);
             }
         } else {
             // 2. Clone if missing.

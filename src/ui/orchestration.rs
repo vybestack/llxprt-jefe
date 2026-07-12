@@ -5,7 +5,7 @@
 
 use iocraft::prelude::*;
 
-use crate::state::{AppState, ModalState, ScreenMode};
+use crate::state::{AppState, ConfirmFocus, ModalState, ScreenMode};
 use crate::theme::ThemeColors;
 use crate::ui::screens::{ActionsScreen, IssuesScreen, PullRequestsScreen, ThemePickerScreen};
 use crate::ui::{
@@ -19,6 +19,7 @@ pub struct ConfirmModalData {
     pub message: String,
     pub show_delete_work_dir: bool,
     pub delete_work_dir: bool,
+    pub confirm_focus: ConfirmFocus,
 }
 
 /// Terminal render data threaded from the app shell into the dashboard.
@@ -45,50 +46,79 @@ pub fn derive_confirm_modal_data(
     snapshot: &AppState,
     modal: &ModalState,
 ) -> Option<ConfirmModalData> {
+    let focus = confirm_focus_from_modal(modal);
+    confirm_modal_text(modal, snapshot).map(
+        |(title, message, show_delete_work_dir, delete_work_dir)| ConfirmModalData {
+            title,
+            message,
+            show_delete_work_dir,
+            delete_work_dir,
+            confirm_focus: focus,
+        },
+    )
+}
+
+/// Extract the confirm focus from any confirm variant (issue #228).
+fn confirm_focus_from_modal(modal: &ModalState) -> ConfirmFocus {
+    match modal {
+        ModalState::ConfirmDeleteAgent { confirm_focus, .. }
+        | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
+        | ModalState::ConfirmKillAgent { confirm_focus, .. }
+        | ModalState::PreflightPrompt { confirm_focus, .. }
+        | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
+        | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => *confirm_focus,
+        _ => ConfirmFocus::Cancel,
+    }
+}
+
+/// Derive the title, message, and checkbox state from a confirm modal.
+/// Returns `None` for non-confirm modals.
+fn confirm_modal_text(
+    modal: &ModalState,
+    snapshot: &AppState,
+) -> Option<(String, String, bool, bool)> {
     match modal {
         ModalState::ConfirmDeleteAgent {
             id,
             delete_work_dir,
-        } => Some(ConfirmModalData {
-            title: String::from("Delete Agent"),
-            message: format!("Delete {}?", agent_display_name(snapshot, id)),
-            show_delete_work_dir: true,
-            delete_work_dir: *delete_work_dir,
-        }),
-        ModalState::ConfirmKillAgent { id } => Some(ConfirmModalData {
-            title: String::from("Kill Agent"),
-            message: format!("Kill {}?", agent_display_name(snapshot, id)),
-            show_delete_work_dir: false,
-            delete_work_dir: false,
-        }),
-        ModalState::ConfirmDeleteRepository { id } => Some(ConfirmModalData {
-            title: String::from("Delete Repository"),
-            message: format!(
+            ..
+        } => Some((
+            String::from("Delete Agent"),
+            format!("Delete {}?", agent_display_name(snapshot, id)),
+            true,
+            *delete_work_dir,
+        )),
+        ModalState::ConfirmKillAgent { id, .. } => Some((
+            String::from("Kill Agent"),
+            format!("Kill {}?", agent_display_name(snapshot, id)),
+            false,
+            false,
+        )),
+        ModalState::ConfirmDeleteRepository { id, .. } => Some((
+            String::from("Delete Repository"),
+            format!(
                 "Delete {} and all its agents?",
                 repo_display_name(snapshot, id)
             ),
-            show_delete_work_dir: false,
-            delete_work_dir: false,
-        }),
-        ModalState::PreflightPrompt { issue, .. } => Some(ConfirmModalData {
-            title: issue.prompt_title(),
-            message: issue.prompt_message(),
-            show_delete_work_dir: false,
-            delete_work_dir: false,
-        }),
-        ModalState::ConfirmIssueDirtyCopy { .. } => Some(ConfirmModalData {
-            title: String::from("Dirty Working Copy"),
-            message: String::from(
+            false,
+            false,
+        )),
+        ModalState::PreflightPrompt { issue, .. } => {
+            Some((issue.prompt_title(), issue.prompt_message(), false, false))
+        }
+        ModalState::ConfirmIssueDirtyCopy { .. } => Some((
+            String::from("Dirty Working Copy"),
+            String::from(
                 "Working copy has uncommitted changes. Discard them (git reset --hard + git clean)?",
             ),
-            show_delete_work_dir: false,
-            delete_work_dir: false,
-        }),
+            false,
+            false,
+        )),
         ModalState::ConfirmIssueOriginMismatch {
             actual, expected, ..
-        } => Some(ConfirmModalData {
-            title: String::from("Wrong Repository"),
-            message: format!(
+        } => Some((
+            String::from("Wrong Repository"),
+            format!(
                 "Working copy origin is {actual_repr}, expected {expected}. \
                      Replace it with a fresh clone?",
                 actual_repr = if actual.is_empty() {
@@ -97,9 +127,9 @@ pub fn derive_confirm_modal_data(
                     actual
                 },
             ),
-            show_delete_work_dir: false,
-            delete_work_dir: false,
-        }),
+            false,
+            false,
+        )),
         _ => None,
     }
 }
@@ -252,6 +282,7 @@ pub fn build_modal_element(
                     message: data.message,
                     show_delete_work_dir: data.show_delete_work_dir,
                     delete_work_dir: data.delete_work_dir,
+                    confirm_focus: data.confirm_focus,
                     colors: colors.clone(),
                     selection: snapshot.selection,
                 )

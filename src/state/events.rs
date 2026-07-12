@@ -40,6 +40,8 @@ pub enum AppEvent {
     OpenSearch,
     CloseModal,
     SubmitForm,
+    /// Cycle confirm-dialog button focus (Left/Right/Tab in a confirm modal, issue #228).
+    ConfirmCycleFocus,
 
     // Form input events
     FormChar(char),

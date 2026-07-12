@@ -901,6 +901,9 @@ impl AppState {
 mod issues_tests;
 
 #[cfg(test)]
+#[path = "confirm_focus_tests.rs"]
+mod confirm_focus_tests;
+#[cfg(test)]
 #[path = "issues_tests_components.rs"]
 mod issues_tests_components;
 

@@ -73,7 +73,8 @@ fn open_confirm_delete_agent_modal() {
         state.modal,
         ModalState::ConfirmDeleteAgent {
             id: agent_id,
-            delete_work_dir: false
+            delete_work_dir: false,
+            confirm_focus: jefe::state::ConfirmFocus::Cancel,
         }
     );
 }
@@ -135,6 +136,7 @@ fn toggle_delete_work_dir_in_confirm_modal() {
     state.modal = ModalState::ConfirmDeleteAgent {
         id: agent_id.clone(),
         delete_work_dir: false,
+        confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
 
     state = state.apply(AppEvent::ToggleDeleteWorkDir);
@@ -143,7 +145,8 @@ fn toggle_delete_work_dir_in_confirm_modal() {
         state.modal,
         ModalState::ConfirmDeleteAgent {
             id: agent_id,
-            delete_work_dir: true
+            delete_work_dir: true,
+            confirm_focus: jefe::state::ConfirmFocus::Cancel,
         }
     );
 }
@@ -155,6 +158,7 @@ fn cancel_delete_closes_modal_without_deletion() {
     state.modal = ModalState::ConfirmDeleteAgent {
         id: agent_id,
         delete_work_dir: false,
+        confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
 
     state = state.apply(AppEvent::CloseModal);
