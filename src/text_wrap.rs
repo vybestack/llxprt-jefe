@@ -109,7 +109,11 @@ fn wrap_single_line(line: &str, width: usize, base: usize, rows: &mut Vec<WrapRo
             };
             col = place_overlong_word(ctx, word_start, word_end, ws_start, ws_len, width);
             // Advance past the word plus the spaces that fit on the final chunk.
-            let placed = if word_len % width == 0 { width } else { word_len % width };
+            let placed = if word_len % width == 0 {
+                width
+            } else {
+                word_len % width
+            };
             i = ws_start + width.saturating_sub(placed).min(ws_len);
         } else if col + word_len <= width {
             // Word fits on the current row; place it with trailing spaces.
