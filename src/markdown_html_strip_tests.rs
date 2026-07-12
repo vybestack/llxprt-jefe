@@ -256,4 +256,9 @@ fn raw_script_and_style_elements_are_dropped_as_units() {
         strip_html_to_text("a<STYLE type='text/css'>x::after { content: '<b>'; }</style>b"),
         "ab"
     );
+    assert_eq!(
+        strip_html_to_text(r#"x<script data-value="a > b">alert(1)</script>y"#),
+        "xy",
+        "quoted > must not end the script opening tag"
+    );
 }

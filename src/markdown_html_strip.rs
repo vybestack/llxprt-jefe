@@ -163,7 +163,7 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
 /// prose; consume through the matching close so embedded markup cannot leak.
 fn raw_element_end(html: &str, start: usize, tag: &str) -> Option<usize> {
     let tail = html.get(start..)?;
-    let open_end = tail.find('>')?;
+    let open_end = quoted_tag_end(tail.as_bytes(), 1)?;
     let opening = tail.get(1..open_end)?;
     let open_name = opening.split_ascii_whitespace().next()?;
     if !open_name.trim_end_matches('/').eq_ignore_ascii_case(tag) {
@@ -175,6 +175,25 @@ fn raw_element_end(html: &str, start: usize, tag: &str) -> Option<usize> {
         find_ascii_case_insensitive(body, &close)
             .map_or(html.len(), |p| start + open_end + 1 + p + close.len()),
     )
+}
+
+/// Find a tag's closing `>`, ignoring delimiters inside quoted attributes.
+fn quoted_tag_end(bytes: &[u8], mut i: usize) -> Option<usize> {
+    while i < bytes.len() {
+        match bytes[i] {
+            b'>' => return Some(i),
+            b'"' | b'\'' => {
+                let quote = bytes[i];
+                i += 1;
+                while i < bytes.len() && bytes[i] != quote {
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 /// ASCII-case-insensitive substring search for fixed HTML tag literals.
