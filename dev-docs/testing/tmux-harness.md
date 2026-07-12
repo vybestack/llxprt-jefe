@@ -185,6 +185,17 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
   selected cells should highlight (inverse video) and release should copy the
   highlighted text. Holding Shift while dragging must also highlight and copy
   (it is no longer a no-op).
+- [`issue-send-workflow.json`](../tmux-scenarios/issue-send-workflow.json):
+  manual scratch scenario for issue #227 — it enters Issues mode, opens an
+  issue detail, and presses `s` to open the Send-to-agent chooser, then backs
+  out. It is intentionally not a CI gate because it requires a configured
+  repository with a loadable GitHub issue and at least one agent (which varies
+  by developer machine). The deterministic proof that a Send Issue launch
+  includes the generic delivery workflow lives in unit tests:
+  `issue_delivery_contract` (the contract text), `format_issue_prompt_*`
+  (prompt construction), and
+  `local_prep_writes_production_prompt_with_delivery_workflow` (the production
+  prompt written to `.jefe/issue-prompt.md` on disk through the prep path).
 
 ## Future regression scenarios
 

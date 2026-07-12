@@ -33,6 +33,7 @@ mod agent_runtime;
 mod availability;
 mod clone_identity;
 mod fresh_prompt;
+mod issue_delivery_contract;
 mod issue_git_prep;
 mod issue_prep;
 mod issues_send;

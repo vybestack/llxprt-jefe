@@ -116,3 +116,42 @@ After submit, the agent is created and selected.
 - Start with default sandbox flags unless you know you need different limits.
 
 If copy/paste from llxprt ever behaves oddly inside Jefe, check the tmux note in the main README.
+
+---
+
+## Sending a GitHub issue to an agent
+
+When you open a GitHub issue in Issues mode and press `s` (Send), Jefe writes a
+prompt to `.jefe/issue-prompt.md` in the agent's working directory and launches
+the agent fresh (no `--continue`) with an instruction to read that file.
+
+That prompt is made of two parts:
+
+1. **Issue-specific content** — the issue title, body, metadata, any focused
+   comment, and the repository's `issue_base_prompt` (per-repo custom
+   instructions you can edit in the repository form).
+2. **The delivery workflow** — a generic, runtime-neutral contract that Jefe
+   appends to **every** Send Issue prompt. It tells the agent to start from the
+   base branch, create a dedicated issue branch, run the repository's complete
+   verification suite, open a pull request linked to the issue, watch all
+   workflows to completion, collect every review (including automated
+   code-review bots such as Open Code Review and CodeRabbit), reply in-thread,
+   resolve addressed threads, and loop until the checks pass and actionable
+   review feedback is exhausted.
+
+### Why the workflow is injected by Jefe
+
+The delivery workflow is supplied by Jefe so that correct delivery behavior
+does **not** depend on:
+
+- repository-local agent memories (for example `.llxprt/LLXPRT.md`),
+- `AGENTS.md` or other project-specific instruction files,
+- the runtime's defaults (Code Puppy vs LLxprt), or
+- the model's training/memory.
+
+The contract is identical for every runtime; only the command-line arguments
+Jefe uses to launch the runtime differ. Repository-local agent memories may
+**supplement** the contract (for example with extra style preferences), but
+they are **not required** for the delivery semantics above. If you rely on a
+local memory file, keep the delivery workflow in mind: it is always the last,
+authoritative section of the prompt.

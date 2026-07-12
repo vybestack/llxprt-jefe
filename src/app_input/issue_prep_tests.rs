@@ -162,6 +162,56 @@ fn local_existing_clean_prep_writes_prompt_last() {
     cleanup(&work);
 }
 
+/// Issue #227: the production issue-send prompt — built by
+/// `format_issue_prompt` and written through the local prep path — must carry
+/// the generic delivery workflow on disk. This is the deterministic proof that
+/// a fresh Send Issue launch includes the workflow, independent of any
+/// repository-local agent memory or model defaults.
+#[test]
+fn local_prep_writes_production_prompt_with_delivery_workflow() {
+    use crate::app_input::issues_dispatch::format_issue_prompt;
+    use jefe::github::SendPayload;
+
+    let origin = bare_origin_with_commit("workflow");
+    let work = clone_origin(&origin, "workflow");
+
+    let payload = SendPayload {
+        repository: "owner/repo".to_string(),
+        issue_number: 227,
+        issue_title: "Inject delivery workflow".to_string(),
+        issue_body: "Body of the issue.".to_string(),
+        issue_state: "open".to_string(),
+        issue_labels: vec!["enhancement".to_string()],
+        issue_assignees: vec![],
+        focused_comment: None,
+        focused_comment_author: None,
+        issue_base_prompt: "Issue-specific guidance.".to_string(),
+    };
+    let prompt = format_issue_prompt(&payload);
+
+    prepare_local(&work, None, DirtyPolicy::Stop, &prompt)
+        .value_or_panic("prepare_local with production prompt");
+
+    let written = std::fs::read_to_string(work.join(".jefe/issue-prompt.md"))
+        .value_or_panic("read written prompt");
+    assert_eq!(
+        written, prompt,
+        "the production prompt must be written byte-for-byte"
+    );
+    assert!(
+        written.contains("## Delivery Workflow"),
+        "on-disk issue prompt must include the Delivery Workflow; got:
+{written}"
+    );
+    assert!(
+        written.contains("Open Code Review") && written.contains("CodeRabbit"),
+        "on-disk issue prompt must name OCR and CodeRabbit findings"
+    );
+
+    cleanup(origin.parent().unwrap_or(&origin));
+    cleanup(&work);
+}
+
 #[test]
 fn local_linked_worktree_is_detected_as_git() {
     // In a linked worktree, `.git` is a FILE (pointing to the parent's

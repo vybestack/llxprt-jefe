@@ -1,0 +1,25 @@
+{
+  "config": {
+    "cols": 160,
+    "rows": 40,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "Issues" },
+    { "key": "Enter" },
+    { "waitFor": "Body" },
+    { "key": "s" },
+    { "waitFor": "Send to" },
+    { "capture": "issue-send-agent-chooser" },
+    { "key": "Escape" },
+    { "key": "Escape" },
+    { "key": "a" },
+    { "waitFor": "No terminal attached" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}
