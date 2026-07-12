@@ -212,22 +212,24 @@ mod tests {
     #[test]
     fn code_puppy_next_focus_skips_hidden_fields() {
         let vis = agent_form_visibility(AgentKind::CodePuppy);
-        // The runtime-specific model field follows Profile for Code Puppy.
+        // Runtime selection precedes Code Puppy-specific controls visually.
         let next = next_visible_focus(F::Profile, vis);
-        assert_eq!(next, F::CodePuppyModel);
+        assert_eq!(next, F::AgentKind);
+        assert_eq!(next_visible_focus(F::AgentKind, vis), F::CodePuppyModel);
     }
 
     #[test]
-    fn code_puppy_prev_focus_from_mode_lands_on_agent_kind() {
+    fn code_puppy_prev_focus_from_mode_lands_on_yolo() {
         let vis = agent_form_visibility(AgentKind::CodePuppy);
         let prev = prev_visible_focus(F::Mode, vis);
-        assert_eq!(prev, F::AgentKind);
+        assert_eq!(prev, F::CodePuppyYolo);
     }
 
     #[test]
     fn llxprt_next_focus_uses_normal_order() {
         let vis = agent_form_visibility(AgentKind::Llxprt);
         assert_eq!(next_visible_focus(F::Profile, vis), F::AgentKind);
+        assert_eq!(next_visible_focus(F::AgentKind, vis), F::Mode);
         assert_eq!(prev_visible_focus(F::Mode, vis), F::AgentKind);
     }
 
