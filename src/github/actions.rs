@@ -31,11 +31,16 @@ fn percent_encode_path(value: &str) -> String {
 /// endpoint accepts the workflow's filename (e.g. `ci.yml`) but NOT the
 /// full `.github/workflows/ci.yml` path — literal slashes in the path
 /// segment make the API route to a different resource and return 404.
+///
+/// Trailing slashes are trimmed first so a non-canonical path like
+/// `.github/workflows/ci.yml/` resolves to `ci.yml` rather than an empty
+/// segment (which would produce a malformed `/workflows//runs` URL).
 #[must_use]
 fn workflow_filename(path: &str) -> &str {
-    match path.rsplit_once('/') {
+    let trimmed = path.trim_end_matches('/');
+    match trimmed.rsplit_once('/') {
         Some((_, name)) => name,
-        None => path,
+        None => trimmed,
     }
 }
 
@@ -431,6 +436,22 @@ mod tests {
         assert!(
             !encoded.contains('/'),
             "no literal slash may remain, got: {encoded}"
+        );
+    }
+
+    /// A non-canonical trailing slash must not collapse the filename to an
+    /// empty segment (which would yield a malformed `/workflows//runs` URL).
+    #[test]
+    fn build_runs_api_path_trailing_slash_still_uses_filename() {
+        let filter = ActionsFilter {
+            workflow: "CI".to_string(),
+            workflow_path: ".github/workflows/ci.yml/".to_string(),
+            ..ActionsFilter::default()
+        };
+        let path = build_runs_api_path("owner", "repo", &filter, 1, 30);
+        assert_eq!(
+            path, "repos/owner/repo/actions/workflows/ci.yml/runs?page=1&per_page=30",
+            "trailing slash must be trimmed before extracting the filename, got: {path}"
         );
     }
 
