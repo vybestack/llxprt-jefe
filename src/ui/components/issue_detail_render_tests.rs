@@ -293,13 +293,14 @@ fn new_issue_composer_wraps_long_text_via_text_box() {
         text: long_text.clone(),
         cursor: long_text.len(),
     };
+    let cols: u16 = 40;
     let rendered = render_detail(RenderParams {
         detail: &detail,
         subfocus: DetailSubfocus::Body,
         inline_state: &inline,
         scroll_offset: 0,
         pane_height: 24,
-        cols: 40,
+        cols,
     });
     assert!(
         !rendered.contains('\u{2026}'),
@@ -309,9 +310,10 @@ fn new_issue_composer_wraps_long_text_via_text_box() {
         rendered.contains("alpha"),
         "the start of the new-issue editor text must be visible: {rendered}"
     );
+    // No rendered line may exceed the terminal column width.
     for (i, line) in rendered.lines().enumerate() {
         assert!(
-            line.chars().count() <= 60,
+            line.chars().count() <= usize::from(cols),
             "rendered line {i} overflows: {} ({} chars)",
             line,
             line.chars().count()

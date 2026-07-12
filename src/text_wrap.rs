@@ -48,8 +48,11 @@ pub fn wrap_text(text: &str, width: usize) -> Vec<WrapRow> {
         }];
     }
     let mut rows = Vec::new();
+    let mut base = 0usize; // cumulative global char offset, incl. newlines
     for line in split_lines(text) {
-        wrap_single_line(line, width, &mut rows);
+        wrap_single_line(line, width, base, &mut rows);
+        // +1 accounts for the newline delimiter that split() removed.
+        base += line.chars().count() + 1;
     }
     if rows.is_empty() {
         rows.push(WrapRow {
@@ -74,108 +77,198 @@ fn split_lines(text: &str) -> Vec<&str> {
     lines
 }
 
-/// Wrap a single (newline-free) line into rows, appending to `rows`.
-fn wrap_single_line(line: &str, width: usize, rows: &mut Vec<WrapRow>) {
+/// Wrap a single (newline-free) line into rows, appending to `rows`. `base`
+/// is the global source char offset where this line begins (so the emitted
+/// `WrapRow.start`/`end` are global across the whole source text, not just
+/// this line).
+fn wrap_single_line(line: &str, width: usize, base: usize, rows: &mut Vec<WrapRow>) {
     let chars: Vec<char> = line.chars().collect();
-    let mut row_start = 0usize;
-    let mut col = 0usize; // char columns consumed on the current row
+    // `row_src_start` is the GLOBAL source offset of the first char in the
+    // current (in-progress) row. It stays synced to `base + (local i)` at the
+    // moment a row begins, so dropped wrap-spaces never desync the ranges.
+    let mut row_src_start = base;
+    let mut col = 0usize; // char columns consumed on the current row (local)
     let mut row_chars: String = String::with_capacity(width);
 
     let mut i = 0usize;
     while i < chars.len() {
-        let word_start = i;
-        // A "word" is a run of non-whitespace.
-        let mut j = i;
-        while j < chars.len() && !chars[j].is_whitespace() {
-            j += 1;
-        }
-        let word_end = j;
+        let (word_start, word_end, ws_start, ws_end) = scan_word(&chars, i);
         let word_len = word_end - word_start;
-        // The trailing whitespace belongs with this word up to the wrap point.
-        let ws_start = j;
-        while j < chars.len() && chars[j].is_whitespace() {
-            j += 1;
-        }
-        let ws_end = j;
         let ws_len = ws_end - ws_start;
 
         if word_len >= width {
-            // Over-long word: it must be broken across rows. First flush the
-            // current row if it has content so the word starts fresh.
+            // Over-long word: flush any in-progress row first so it starts fresh.
             if col > 0 {
-                flush_row(rows, &mut row_chars, &mut row_start, &mut col);
+                flush_row_at(rows, &mut row_chars, &mut row_src_start, col);
             }
-            let mut k = word_start;
-            while k < word_end {
-                let take = width.min(word_end - k);
-                push_chars(&mut row_chars, &chars[k..k + take]);
-                col = take;
-                k += take;
-                if k < word_end {
-                    flush_row(rows, &mut row_chars, &mut row_start, &mut col);
-                }
-            }
-            // Attach trailing spaces that fit on the final word-row.
-            let space_budget = width.saturating_sub(col).min(ws_len);
-            push_chars(&mut row_chars, &chars[ws_start..ws_start + space_budget]);
-            col += space_budget;
-            i = ws_start + space_budget;
+            let ctx = WordPlaceCtx {
+                chars: &chars,
+                rows,
+                row_chars: &mut row_chars,
+                row_src_start: &mut row_src_start,
+            };
+            col = place_overlong_word(ctx, word_start, word_end, ws_start, ws_len, width);
+            // Advance past the word plus the spaces that fit on the final chunk.
+            let placed = if word_len % width == 0 { width } else { word_len % width };
+            i = ws_start + width.saturating_sub(placed).min(ws_len);
         } else if col + word_len <= width {
-            // Word fits on the current row; place it with as many trailing
-            // spaces as fit.
-            push_chars(&mut row_chars, &chars[word_start..word_end]);
-            col += word_len;
-            let space_budget = width.saturating_sub(col).min(ws_len);
-            push_chars(&mut row_chars, &chars[ws_start..ws_start + space_budget]);
-            col += space_budget;
+            // Word fits on the current row; place it with trailing spaces.
+            place_word_on_row(
+                &chars[word_start..word_end],
+                &chars[ws_start..ws_end],
+                &mut row_chars,
+                &mut col,
+                width,
+            );
             i = ws_end;
         } else {
             // Word fits within `width` but not on the current row: flush, then
-            // start a new row with this word (dropping leading spaces).
-            flush_row(rows, &mut row_chars, &mut row_start, &mut col);
-            push_chars(&mut row_chars, &chars[word_start..word_end]);
-            col = word_len;
-            let space_budget = width.saturating_sub(col).min(ws_len);
-            push_chars(&mut row_chars, &chars[ws_start..ws_start + space_budget]);
-            col += space_budget;
+            // start a new row at the word (dropping the leading spaces).
+            flush_row_at(rows, &mut row_chars, &mut row_src_start, col);
+            row_src_start = base + word_start;
+            col = 0;
+            place_word_on_row(
+                &chars[word_start..word_end],
+                &chars[ws_start..ws_end],
+                &mut row_chars,
+                &mut col,
+                width,
+            );
             i = ws_end;
         }
     }
 
-    // Flush the final partial row (always, so the line produces at least one
-    // row even when empty).
-    rows.push(WrapRow {
-        text: row_chars,
-        start: row_start,
-        end: row_start + col,
-    });
+    // Flush the final partial row, trimming trailing spaces from the text.
+    flush_row_at(rows, &mut row_chars, &mut row_src_start, col);
+    trim_final_row(rows);
 }
 
-/// Push the final partial row accumulated in `row_chars`, resetting the
-/// accumulator and updating `row_start`/`col`. Trailing spaces are trimmed
-/// from the *displayed* row text, but the source `[start, end)` range still
-/// spans them so ranges stay contiguous and every source column maps to
-/// exactly one row.
-fn flush_row(
+/// Scan one word + its trailing whitespace run starting at `i` in `chars`.
+/// Returns `(word_start, word_end, ws_start, ws_end)`.
+fn scan_word(chars: &[char], i: usize) -> (usize, usize, usize, usize) {
+    let word_start = i;
+    let mut j = i;
+    while j < chars.len() && !chars[j].is_whitespace() {
+        j += 1;
+    }
+    let word_end = j;
+    let ws_start = j;
+    while j < chars.len() && chars[j].is_whitespace() {
+        j += 1;
+    }
+    (word_start, word_end, ws_start, j)
+}
+
+/// Place a word (known to fit within `width`) onto the current row. Appends
+/// the word plus as many trailing spaces as fit, updating `col`.
+fn place_word_on_row(
+    word: &[char],
+    ws: &[char],
+    row_chars: &mut String,
+    col: &mut usize,
+    width: usize,
+) {
+    push_chars(row_chars, word);
+    *col += word.len();
+    let space_budget = width.saturating_sub(*col).min(ws.len());
+    push_chars(row_chars, &ws[..space_budget]);
+    *col += space_budget;
+}
+
+/// Bundle the mutable references needed by [`place_overlong_word`] so its
+/// signature stays under the argument-count limit.
+struct WordPlaceCtx<'a, 'b, 'c> {
+    chars: &'a [char],
+    rows: &'b mut Vec<WrapRow>,
+    row_chars: &'c mut String,
+    row_src_start: &'c mut usize,
+}
+
+/// Place a word longer than `width` by emitting width-sized chunks (flushing
+/// between them), then attaching trailing spaces that fit on the final chunk.
+/// Returns the local `col` after the final chunk.
+fn place_overlong_word(
+    ctx: WordPlaceCtx<'_, '_, '_>,
+    word_start: usize,
+    word_end: usize,
+    ws_start: usize,
+    ws_len: usize,
+    width: usize,
+) -> usize {
+    let WordPlaceCtx {
+        chars,
+        rows,
+        row_chars,
+        row_src_start,
+    } = ctx;
+    let mut k = word_start;
+    let mut col = 0usize;
+    while k < word_end {
+        let take = width.min(word_end - k);
+        push_chars(row_chars, &chars[k..k + take]);
+        col = take;
+        k += take;
+        if k < word_end {
+            flush_row_at(rows, row_chars, row_src_start, col);
+        }
+    }
+    let space_budget = width.saturating_sub(col).min(ws_len);
+    push_chars(row_chars, &chars[ws_start..ws_start + space_budget]);
+    col += space_budget;
+    col
+}
+
+/// Trim trailing spaces from the last emitted row's DISPLAYED text only,
+/// leaving `end` (the source extent) intact so a position in the trailing
+/// spaces still maps to this row.
+fn trim_final_row(rows: &mut [WrapRow]) {
+    let Some(last) = rows.last_mut() else {
+        return;
+    };
+    let trailing = last.text.chars().rev().take_while(|c| *c == ' ').count();
+    if trailing > 0 {
+        let keep = last.text.chars().count() - trailing;
+        last.text.truncate(byte_len_of_chars(&last.text, keep));
+    }
+}
+
+/// Flush the in-progress row: push it with a GLOBAL `start` of
+/// `row_src_start`, trim trailing spaces from the DISPLAYED text, but set
+/// `end` to `row_src_start + consumed` (the full SOURCE extent, including
+/// any trimmed/dropped trailing spaces) so source ranges stay contiguous and
+/// a position in trailing spaces still maps to this row.
+fn flush_row_at(
     rows: &mut Vec<WrapRow>,
     row_chars: &mut String,
-    row_start: &mut usize,
-    col: &mut usize,
+    row_src_start: &mut usize,
+    consumed: usize,
 ) {
-    let end = *row_start + *col;
-    // Trim trailing spaces from the rendered text only.
-    let trailing = row_chars.chars().rev().take_while(|c| *c == ' ').count();
-    if trailing > 0 {
-        let keep_cols = row_chars.chars().count() - trailing;
-        row_chars.truncate(byte_len_of_chars(row_chars, keep_cols));
+    if consumed == 0 && row_chars.is_empty() {
+        // An empty in-progress row (e.g. blank line): emit one empty row.
+        rows.push(WrapRow {
+            text: String::new(),
+            start: *row_src_start,
+            end: *row_src_start,
+        });
+        return;
     }
+    let trailing = row_chars.chars().rev().take_while(|c| *c == ' ').count();
+    let trimmed_text = if trailing > 0 {
+        let keep = row_chars.chars().count() - trailing;
+        let byte_len = byte_len_of_chars(row_chars, keep);
+        row_chars[..byte_len].to_string()
+    } else {
+        row_chars.clone()
+    };
+    // `end` is the SOURCE extent (incl. trimmed spaces); the displayed text
+    // is shorter. Consumers map caret/click columns via [start, end].
     rows.push(WrapRow {
-        text: std::mem::take(row_chars),
-        start: *row_start,
-        end,
+        text: trimmed_text,
+        start: *row_src_start,
+        end: *row_src_start + consumed,
     });
-    *row_start = end;
-    *col = 0;
+    *row_src_start += consumed;
+    row_chars.clear();
 }
 
 /// Byte length of the first `n` chars of `s`.
@@ -259,10 +352,24 @@ mod tests {
 
     #[test]
     fn char_column_ranges_are_contiguous() {
-        let rows = wrap_text("alpha bravo charlie delta echo foxtrot", 12);
+        let src = "alpha bravo charlie delta echo foxtrot";
+        let rows = wrap_text(src, 12);
         assert_eq!(rows[0].start, 0);
+        // Row starts are strictly increasing and each row's end >= its start.
         for w in rows.windows(2) {
-            assert_eq!(w[0].end, w[1].start, "rows must be contiguous");
+            assert!(w[1].start > w[0].start, "row starts must increase");
+            assert!(w[0].end >= w[0].start, "end >= start");
+        }
+        // Every non-whitespace source char is covered by exactly one row range.
+        for (global, ch) in src.chars().enumerate() {
+            if ch.is_whitespace() {
+                continue;
+            }
+            let count = rows
+                .iter()
+                .filter(|r| r.start <= global && global < r.end)
+                .count();
+            assert_eq!(count, 1, "source col {global} ('{ch}') covered {count}x");
         }
         assert!(
             rows.last().is_some_and(|r| r.end > 0),
@@ -289,6 +396,53 @@ mod tests {
         let rows = wrap_text("line one\nline two continues", 40);
         let texts: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
         assert_eq!(texts, vec!["line one", "line two continues"]);
+    }
+
+    /// WrapRow ranges are GLOBAL char offsets across the whole source text
+    /// (including the newline that separates logical lines), so a consumer can
+    /// map any source char position to a single row.
+    #[test]
+    fn row_ranges_are_global_across_newlines() {
+        // "alpha\nbeta": 'a' of alpha is global col 0; 'b' of beta is global
+        // col 6 (after "alpha\n" = 5 letters + 1 newline).
+        let rows = wrap_text("alpha\nbeta", 40);
+        assert_eq!(rows[0].start, 0);
+        assert_eq!(rows[0].end, 5);
+        assert_eq!(rows[1].start, 6);
+        assert_eq!(rows[1].end, 10);
+        // row_for_column must map a global col in the second line correctly.
+        assert_eq!(row_for_column(&rows, 7), Some((1, 1)));
+    }
+
+    /// Across BOTH newlines and word-wrap boundaries, every source char
+    /// column maps to exactly one row (ranges are contiguous and global).
+    #[test]
+    fn row_ranges_contiguous_across_wrap_and_newlines() {
+        // "aaaa bbbb" wraps at width 5, then a newline, then "cccc".
+        let rows = wrap_text(
+            "aaaa bbbb
+cccc",
+            5,
+        );
+        // Ranges must be non-decreasing and each row's end >= its start.
+        for w in rows.windows(2) {
+            assert!(
+                w[0].start <= w[1].start,
+                "row starts must be non-decreasing"
+            );
+        }
+        // Every non-whitespace source char is inside some row's range.
+        let src = "aaaa bbbb
+cccc";
+        for (global, ch) in src.chars().enumerate() {
+            if ch.is_whitespace() {
+                continue;
+            }
+            assert!(
+                rows.iter().any(|r| r.start <= global && global < r.end),
+                "source col {global} ('{ch}') is not in any row range: {rows:?}"
+            );
+        }
     }
 
     #[test]

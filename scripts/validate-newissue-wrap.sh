@@ -1,22 +1,45 @@
 #!/usr/bin/env bash
 # Tmux validation for issue #212: the new-issue composer must word-wrap.
+#
 # Launches the app at 80x24, opens the new-issue composer, types a long line
 # of words, and asserts the rendered pane wraps (no ellipsis truncation, and
 # a later word appears on a subsequent row).
+#
+# Portable: resolves the repo root from this script's location and builds the
+# debug binary itself. Requires `cargo`, `tmux`, and a writable Cargo target
+# dir. Skips (exits 0) when tmux is unavailable (CI without tmux).
 set -euo pipefail
 
-SESSION="jefe-wrap-212"
-BIN="/Volumes/XS1000/acoliver/projects/jefe/branch-4/target/debug/jefe"
-CFG="/Volumes/XS1000/acoliver/projects/jefe/branch-4/.config/jefe-dev"
-PASS=0
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CFG="$REPO_ROOT/.config/jefe-dev"
+SESSION="jefe-wrap-212-$$" # include PID for uniqueness across concurrent runs
+CAPTURE=""
+
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "SKIP: tmux not installed"
+  exit 0
+fi
 
 cleanup() {
-  tmux kill-session -t "$SESSION" 2>/dev/null || true
+  if [ -n "${TMUX_PID:-}" ]; then
+    tmux kill-session -t "$SESSION" 2>/dev/null || true
+  fi
+  [ -n "$CAPTURE" ] && rm -f "$CAPTURE"
 }
 trap cleanup EXIT
 
-cleanup
+# Build the debug binary (errors out via set -e if the build fails).
+echo "Building debug binary..."
+cargo build --quiet --bin jefe
+BIN="$REPO_ROOT/target/debug/jefe"
+if [ ! -x "$BIN" ]; then
+  echo "FAIL: binary not found at $BIN after build"
+  exit 1
+fi
+
+PASS=0
 tmux new-session -d -s "$SESSION" -x 80 -y 24 "$BIN --config $CFG"
+TMUX_PID=$$
 # Give the app time to render the dashboard.
 sleep 2.5
 
@@ -29,7 +52,8 @@ tmux send-keys -t "$SESSION" "n"
 sleep 1.5
 
 # Type a long line of words that must wrap at the pane width.
-tmux send-keys -t "$SESSION" "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
+tmux send-keys -t "$SESSION" \
+  "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron"
 sleep 1.5
 
 CAPTURE="$(mktemp)"
@@ -46,10 +70,9 @@ if grep -q $'\u2026' "$CAPTURE"; then
 fi
 
 # Assertion 2: a word from the END of the typed line must be visible (it can
-# only be visible if the line wrapped onto later rows; at 80 cols with the
-# sidebar+chrome the content width is ~70, so "lambda"/"mu" wrap below).
-if ! grep -Eq "lambda|kappa" "$CAPTURE"; then
-  echo "FAIL: a late word (lambda/kappa) is not visible — line did not wrap"
+# only be visible if the line wrapped onto later rows).
+if ! grep -Eq "lambda|omicron|kappa" "$CAPTURE"; then
+  echo "FAIL: a late word (lambda/omicron/kappa) is not visible — line did not wrap"
   PASS=1
 fi
 
@@ -65,8 +88,6 @@ if [ "$LONGEST" -gt 80 ]; then
   echo "FAIL: a rendered line exceeds 80 columns (max=$LONGEST)"
   PASS=1
 fi
-
-rm -f "$CAPTURE"
 
 if [ "$PASS" -eq 0 ]; then
   echo "PASS: new-issue composer wraps long text (issue #212 fixed)"

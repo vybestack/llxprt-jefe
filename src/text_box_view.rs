@@ -717,4 +717,25 @@ mod tests {
         let texts: Vec<&str> = v.rows.iter().map(|r| r.text.as_str()).collect();
         assert_eq!(texts, vec!["aaaa", "bbbb"]);
     }
+
+    /// Caret in trailing spaces past the last word must still be visible and
+    /// land on the (trimmed) row, not vanish because trailing spaces were
+    /// dropped from the display text. Regression for the word-wrap trim path.
+    ///
+    /// @requirement REQ-TEXT-WRAP
+    #[test]
+    fn caret_in_trailing_spaces_still_visible() {
+        // "ab" + 3 spaces at width 10: the row text is trimmed to "ab" but
+        // the caret at col 5 (in the spaces) must remain visible.
+        let v = build_text_box_view("ab   ", 5, 2, 10);
+        let Some(caret_row) = v.rows.iter().find(|r| r.caret_col.is_some()) else {
+            panic!(
+                "caret in trailing spaces must be visible, rows: {:?}",
+                v.rows
+            );
+        };
+        assert_eq!(caret_row.text, "ab");
+        // The caret column must not exceed the content width.
+        assert!(caret_row.caret_col.unwrap_or(0) <= 10);
+    }
 }
