@@ -127,8 +127,11 @@ fn ordered_task_list_increments_ordinal() {
 #[test]
 fn list_item_with_code_block_first_child_emits_marker() {
     let out = render("- ```bash\ncargo test\n```\n");
+    // The marker must be the FIRST rendered line (i.e. precede the code
+    // fence), not merely appear anywhere — code-block content could also
+    // start with '*'.
     assert!(
-        out.lines().any(|l| l.starts_with('*')),
+        out.lines().next().is_some_and(|l| l.starts_with('*')),
         "bullet marker emitted before the code block: {out}"
     );
     assert!(out.contains("cargo test"), "code body present: {out}");

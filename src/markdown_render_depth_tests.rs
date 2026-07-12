@@ -126,3 +126,27 @@ fn blockquote_nested_in_list_keeps_indent_before_quote_bar() {
         "nested quote line starts with the list indent, not the bar: {lines:?}"
     );
 }
+
+/// Bidi override stripping must hold in NESTED inline/block contexts — link
+/// text, emphasis, inline code, code blocks, and headings all reach the
+/// screen through the same `push` chokepoint, so none of them may leak a
+/// bidi override (Trojan Source vector).
+#[test]
+fn bidi_controls_stripped_in_nested_contexts() {
+    let cases = [
+        "[user\u{202E}txt](https://example.com)",
+        "*emph\u{202E}asis*",
+        "`code\u{202E}span`",
+        "```\nblock\u{202E}code\n```",
+        "# head\u{202E}ing",
+        "> quo\u{202E}te",
+        "- item\u{202E}text",
+    ];
+    for case in cases {
+        let out = render_markdown_lines(case).join("\n");
+        assert!(
+            !out.contains('\u{202E}'),
+            "RLO stripped from {case:?}: {out:?}"
+        );
+    }
+}
