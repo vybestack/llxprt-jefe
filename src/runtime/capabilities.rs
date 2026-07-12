@@ -8,7 +8,8 @@ use std::process::Command;
 
 use crate::domain::{AgentKind, LaunchSignature};
 
-use super::commands::run_remote_ssh;
+use super::RuntimeError;
+use super::commands::{run_command_capture, run_remote_ssh};
 
 /// Model discovery support advertised by an agent runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,19 +49,17 @@ pub fn code_puppy_help_supports_yolo(help: &str) -> bool {
 /// `Ok(())` means launch is safe. A diagnostic is returned when the target is
 /// too old or cannot be probed; blindly passing an unsupported flag would turn
 /// a useful preflight error into a cryptic argparse failure.
-pub fn validate_code_puppy_launch(signature: &LaunchSignature) -> Result<(), String> {
+pub fn validate_code_puppy_launch(signature: &LaunchSignature) -> Result<(), RuntimeError> {
     if signature.agent_kind != AgentKind::CodePuppy || signature.code_puppy_yolo.is_none() {
         return Ok(());
     }
 
     let output = if signature.remote.enabled {
-        run_remote_ssh(&signature.remote, "code-puppy --help")
-            .map_err(|error| format!("could not inspect remote Code Puppy: {error}"))?
+        run_remote_ssh(&signature.remote, "code-puppy --help")?
     } else {
-        Command::new(AgentKind::CodePuppy.binary_name())
-            .arg("--help")
-            .output()
-            .map_err(|error| format!("could not inspect Code Puppy: {error}"))?
+        let mut command = Command::new(AgentKind::CodePuppy.binary_name());
+        command.arg("--help");
+        run_command_capture(command, "code-puppy --help")?
     };
 
     let help = format!(
@@ -68,11 +67,16 @@ pub fn validate_code_puppy_launch(signature: &LaunchSignature) -> Result<(), Str
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    if output.status.success() && code_puppy_help_supports_yolo(&help) {
-        Ok(())
-    } else {
-        Err("Code Puppy on the launch target does not advertise `--yolo true|false`. Upgrade Code Puppy or edit the agent with a supported version before launching.".to_owned())
+    validate_code_puppy_help(output.status.success(), &help)
+}
+
+fn validate_code_puppy_help(success: bool, help: &str) -> Result<(), RuntimeError> {
+    if success && code_puppy_help_supports_yolo(help) {
+        return Ok(());
     }
+    Err(RuntimeError::CapabilityCheckFailed(
+        "Code Puppy on the launch target does not advertise `--yolo true|false`. Upgrade Code Puppy or edit the agent with a supported version before launching.".to_owned(),
+    ))
 }
 
 fn strip_terminal_controls(value: &str) -> String {
@@ -102,7 +106,8 @@ fn strip_terminal_controls(value: &str) -> String {
                     }
                 }
             }
-            Some(_) | None => {}
+            Some(next) => plain.push(next),
+            None => {}
         }
     }
     plain
@@ -139,6 +144,21 @@ mod tests {
             "\u{1b}]11;#000000\u{7}\u{1b}[32m--yolo\u{1b}[0m {true,false}"
         ));
         assert!(!code_puppy_help_supports_yolo("--model MODEL"));
+    }
+
+    #[test]
+    fn rejects_help_without_explicit_yolo_support() {
+        let result = validate_code_puppy_help(true, "--model MODEL");
+        assert!(matches!(
+            result,
+            Err(RuntimeError::CapabilityCheckFailed(_))
+        ));
+        assert!(validate_code_puppy_help(false, "--yolo {true,false}").is_err());
+    }
+
+    #[test]
+    fn unknown_escape_sequence_preserves_its_printable_character() {
+        assert!(code_puppy_help_supports_yolo("\u{1b}%--yolo {true,false}"));
     }
 
     #[test]

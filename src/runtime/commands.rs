@@ -283,7 +283,10 @@ fn remote_effective_user(remote: &crate::domain::RemoteRepositorySettings) -> St
     }
 }
 
-fn run_command_capture(cmd: Command, error_context: &str) -> Result<Output, RuntimeError> {
+pub(super) fn run_command_capture(
+    cmd: Command,
+    error_context: &str,
+) -> Result<Output, RuntimeError> {
     run_command_capture_with_timeout(cmd, REMOTE_SSH_COMMAND_TIMEOUT, error_context)
 }
 

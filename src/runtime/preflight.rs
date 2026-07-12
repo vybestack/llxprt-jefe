@@ -95,7 +95,7 @@ impl PreflightIssue {
             Self::UnsupportedEngine { engine, .. } => {
                 format!("{} unsupported", engine.label())
             }
-            Self::UnsupportedRuntimeOption { .. } => "Code Puppy option unsupported".to_owned(),
+            Self::UnsupportedRuntimeOption { .. } => "Unsupported runtime option".to_owned(),
         }
     }
 

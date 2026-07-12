@@ -32,7 +32,9 @@ pub fn preflight_or_prompt(
             ctx,
             agent_id,
             signature,
-            PreflightIssue::UnsupportedRuntimeOption { diagnostic },
+            PreflightIssue::UnsupportedRuntimeOption {
+                diagnostic: diagnostic.to_string(),
+            },
             issue_self_assignment,
         );
         return false;
