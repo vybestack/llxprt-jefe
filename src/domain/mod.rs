@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 // Actions domain types (workflows, runs, jobs, steps, filters) extracted to
 // keep this file under the source-file-size limit.
 mod actions;
+mod quick_resume;
 pub use actions::*;
+pub use quick_resume::QuickResume;
 
 /// Stable identifier for a repository.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -865,6 +867,9 @@ pub struct Agent {
     /// Explicit Code Puppy YOLO choice.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
+    /// Resume the latest Code Puppy autosave for the effective work directory.
+    #[serde(default)]
+    pub code_puppy_quick_resume: bool,
     pub mode_flags: Vec<String>,
     #[serde(default)]
     pub llxprt_debug: String,
@@ -913,6 +918,9 @@ pub struct LaunchSignature {
     /// Explicit Code Puppy YOLO value for this launch.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
+    /// Resume the latest Code Puppy autosave for the effective work directory.
+    #[serde(default)]
+    pub code_puppy_quick_resume: bool,
     pub mode_flags: Vec<String>,
     #[serde(default)]
     pub llxprt_debug: String,
@@ -949,6 +957,7 @@ impl Agent {
             profile: String::new(),
             code_puppy_model: String::new(),
             code_puppy_yolo: None,
+            code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
             llxprt_debug: String::new(),
             pass_continue: true, // Default per REQ-FUNC-004

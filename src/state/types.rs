@@ -15,6 +15,17 @@ pub use pr_types::*;
 mod form_types;
 pub use form_types::*;
 
+/// Which button is focused in a confirm dialog (issue #228).
+///
+/// Defaults to [`ConfirmFocus::Cancel`] so destructive confirms are
+/// defense-in-depth: Enter on a freshly-opened dialog does nothing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ConfirmFocus {
+    #[default]
+    Cancel,
+    Confirm,
+}
+
 /// Modal/form state variants.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ModalState {
@@ -53,6 +64,7 @@ pub enum ModalState {
     },
     ConfirmDeleteRepository {
         id: RepositoryId,
+        confirm_focus: ConfirmFocus,
     },
     NewAgent {
         repository_id: RepositoryId,
@@ -71,9 +83,11 @@ pub enum ModalState {
     ConfirmDeleteAgent {
         id: AgentId,
         delete_work_dir: bool,
+        confirm_focus: ConfirmFocus,
     },
     ConfirmKillAgent {
         id: AgentId,
+        confirm_focus: ConfirmFocus,
     },
     /// Preflight check failed — prompt the user for remediation before launch.
     ///
@@ -88,6 +102,7 @@ pub enum ModalState {
         issue: PreflightIssue,
         /// Placeholder for future multi-issue handling.
         remaining_issues: Vec<PreflightIssue>,
+        confirm_focus: ConfirmFocus,
     },
     /// Issue send: the working copy has uncommitted changes (excluding
     /// jefe/llxprt-owned paths). Prompt the user to discard them before
@@ -99,6 +114,7 @@ pub enum ModalState {
         work_dir: std::path::PathBuf,
         signature: LaunchSignature,
         payload: crate::github::SendPayload,
+        confirm_focus: ConfirmFocus,
     },
     /// Issue send: the working copy is a git repo whose `origin` does not
     /// match the configured repository. Prompt the user to replace it with a
@@ -113,6 +129,7 @@ pub enum ModalState {
         payload: crate::github::SendPayload,
         actual: String,
         expected: String,
+        confirm_focus: ConfirmFocus,
     },
     WorkflowDispatch {
         workflow: crate::domain::Workflow,

@@ -110,6 +110,7 @@ fn persist_next_preflight(
         signature,
         issue,
         remaining_issues: Vec::new(),
+        confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
     persist_state_guard(ctx, state);
 }

@@ -123,7 +123,7 @@ pub fn is_field_visible(
         | F::Sandbox
         | F::SandboxEngine
         | F::SandboxFlags => visibility.shows_llxprt_fields(),
-        F::CodePuppyModel | F::CodePuppyYolo => {
+        F::CodePuppyModel | F::CodePuppyYolo | F::CodePuppyQuickResume => {
             matches!(visibility, AgentFormFieldVisibility::CodePuppy)
         }
         F::Shortcut | F::Name | F::Description | F::WorkDir | F::AgentKind => true,
@@ -219,10 +219,13 @@ mod tests {
     }
 
     #[test]
-    fn code_puppy_prev_focus_from_mode_lands_on_yolo() {
+    fn code_puppy_resume_focus_is_between_yolo_and_mode() {
         let vis = agent_form_visibility(AgentKind::CodePuppy);
-        let prev = prev_visible_focus(F::Mode, vis);
-        assert_eq!(prev, F::CodePuppyYolo);
+        assert_eq!(
+            next_visible_focus(F::CodePuppyYolo, vis),
+            F::CodePuppyQuickResume
+        );
+        assert_eq!(prev_visible_focus(F::Mode, vis), F::CodePuppyQuickResume);
     }
 
     #[test]

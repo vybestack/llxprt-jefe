@@ -89,6 +89,8 @@ pub enum ModalMessage {
     OpenSearch,
     CloseModal,
     SubmitForm,
+    /// Cycle confirm-dialog button focus (issue #228).
+    ConfirmCycleFocus,
     FormChar(char),
     FormBackspace,
     FormDelete,
@@ -735,6 +737,7 @@ message_names!(ModalMessage {
     Self::OpenSearch => "OpenSearch",
     Self::CloseModal => "CloseModal",
     Self::SubmitForm => "SubmitForm",
+    Self::ConfirmCycleFocus => "ConfirmCycleFocus",
     Self::FormChar(_) => "FormChar",
     Self::FormBackspace => "FormBackspace",
     Self::FormDelete => "FormDelete",

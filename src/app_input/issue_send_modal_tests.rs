@@ -109,13 +109,18 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
         !launch_sig.pass_continue,
         "issue-driven launches must force pass_continue = false"
     );
-    assert!(
-        launch_sig
-            .mode_flags
-            .iter()
-            .any(|flag| flag.contains(".jefe/issue-prompt.md")),
-        "issue launch signature must include the issue prompt instruction"
-    );
+    let instruction = launch_sig
+        .mode_flags
+        .iter()
+        .find(|arg| arg.contains(".jefe/issue-prompt.md"))
+        .value_or_panic("issue launch signature must include an instruction");
+    assert!(instruction.contains(".jefe/issue-prompt.md"));
+    assert!(instruction.contains("create a dedicated issue branch"));
+    assert!(instruction.contains("create a detailed pull request"));
+    assert!(instruction.contains("continuing to poll with a bounded delay"));
+    assert!(instruction.contains("ordinary reviews, inline threads"));
+    assert!(instruction.contains("reply in the corresponding review thread"));
+    assert!(instruction.contains("no actionable unresolved review feedback remains"));
 }
 
 #[test]
@@ -158,6 +163,7 @@ fn confirm_issue_dirty_copy_modal_routes_to_confirm_input_mode() {
             work_dir: PathBuf::from("/tmp/x"),
             signature: sample_signature(),
             payload: jefe::github::SendPayload::default(),
+            confirm_focus: jefe::state::ConfirmFocus::Cancel,
         },
         ..AppState::default()
     };
@@ -183,6 +189,7 @@ fn confirm_issue_origin_mismatch_modal_routes_to_confirm_input_mode() {
             payload: jefe::github::SendPayload::default(),
             actual: String::from("other/repo"),
             expected: String::from("acme/widgets"),
+            confirm_focus: jefe::state::ConfirmFocus::Cancel,
         },
         ..AppState::default()
     };
@@ -221,6 +228,7 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
             payload: jefe::github::SendPayload::default(),
             actual: String::from("other/repo"),
             expected: String::from("acme/widgets"),
+            confirm_focus: jefe::state::ConfirmFocus::Cancel,
         },
         repositories: seeded.repositories.clone(),
         screen_mode: seeded.screen_mode,

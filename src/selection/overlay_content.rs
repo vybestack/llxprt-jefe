@@ -113,7 +113,7 @@ pub fn confirm_modal_lines(state: &AppState) -> PaneContent {
     } else {
         lines.push(String::new());
     }
-    lines.push("[ Cancel ]  [ Confirm ]".to_string());
+    lines.push(crate::ui::modals::confirm_button_row(data.confirm_focus));
     lines.push(String::new());
     PaneContent::new(SelectablePane::ConfirmModal, lines)
 }
@@ -132,6 +132,7 @@ mod tests {
             modal: ModalState::ConfirmDeleteAgent {
                 id: agent_id.clone(),
                 delete_work_dir: true,
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
             },
             ..Default::default()
         };
@@ -155,7 +156,7 @@ mod tests {
                 String::new(),
                 "Delete my-agent?".to_string(),
                 "[x] Delete work directory".to_string(),
-                "[ Cancel ]  [ Confirm ]".to_string(),
+                "( Cancel )  [ Confirm ]".to_string(),
                 String::new(),
             ]
         );
@@ -166,6 +167,7 @@ mod tests {
         let mut state = AppState {
             modal: ModalState::ConfirmDeleteRepository {
                 id: RepositoryId("r1".to_string()),
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
             },
             ..Default::default()
         };
@@ -183,7 +185,7 @@ mod tests {
                 String::new(),
                 "Delete my-repo and all its agents?".to_string(),
                 String::new(),
-                "[ Cancel ]  [ Confirm ]".to_string(),
+                "( Cancel )  [ Confirm ]".to_string(),
                 String::new(),
             ]
         );
@@ -196,6 +198,7 @@ mod tests {
         let mut state = AppState {
             modal: ModalState::ConfirmKillAgent {
                 id: agent_id.clone(),
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
             },
             ..Default::default()
         };
@@ -216,6 +219,62 @@ mod tests {
         assert_eq!(content.lines[2], "Kill running-agent?");
     }
 
+    /// Find the confirm-modal button row by its button markers (issue #228).
+    fn confirm_button_row_line(lines: &[String]) -> usize {
+        lines
+            .iter()
+            .position(|l| l.contains("Cancel") && l.contains("Confirm"))
+            .unwrap_or_else(|| {
+                panic!("confirm modal must have a Cancel/Confirm button row, got: {lines:?}")
+            })
+    }
+
+    #[test]
+    fn confirm_modal_focus_rendered_as_cancel_default() {
+        let mut state = AppState {
+            modal: ModalState::ConfirmDeleteRepository {
+                id: RepositoryId("r1".to_string()),
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
+            },
+            ..Default::default()
+        };
+        state.repositories.push(Repository::new(
+            RepositoryId("r1".to_string()),
+            "my-repo".to_string(),
+            "my-repo".to_string(),
+            std::path::PathBuf::from("/tmp/repo"),
+        ));
+        let content = confirm_modal_lines(&state);
+        // Default focus = Cancel → the focused button uses (…)
+        assert_eq!(
+            content.lines[confirm_button_row_line(&content.lines)],
+            "( Cancel )  [ Confirm ]"
+        );
+    }
+
+    #[test]
+    fn confirm_modal_focus_rendered_as_confirm() {
+        let mut state = AppState {
+            modal: ModalState::ConfirmDeleteRepository {
+                id: RepositoryId("r1".to_string()),
+                confirm_focus: crate::state::ConfirmFocus::Confirm,
+            },
+            ..Default::default()
+        };
+        state.repositories.push(Repository::new(
+            RepositoryId("r1".to_string()),
+            "my-repo".to_string(),
+            "my-repo".to_string(),
+            std::path::PathBuf::from("/tmp/repo"),
+        ));
+        let content = confirm_modal_lines(&state);
+        // Focus = Confirm → the focused button uses (…)
+        assert_eq!(
+            content.lines[confirm_button_row_line(&content.lines)],
+            "[ Cancel ]  ( Confirm )"
+        );
+    }
+
     #[test]
     fn confirm_modal_preflight_prompt_has_content() {
         use crate::domain::{LaunchSignature, SandboxEngine};
@@ -225,6 +284,7 @@ mod tests {
             profile: String::new(),
             code_puppy_model: String::new(),
             code_puppy_yolo: Some(false),
+            code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
             llxprt_debug: String::new(),
             pass_continue: false,
@@ -240,6 +300,7 @@ mod tests {
                 signature,
                 issue: PreflightIssue::SshAgentNoIdentities,
                 remaining_issues: Vec::new(),
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
             },
             ..Default::default()
         };
@@ -263,6 +324,7 @@ mod tests {
             profile: String::new(),
             code_puppy_model: String::new(),
             code_puppy_yolo: Some(false),
+            code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
             llxprt_debug: String::new(),
             pass_continue: false,
@@ -283,6 +345,7 @@ mod tests {
                 work_dir: std::path::PathBuf::from("/tmp"),
                 signature,
                 payload,
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
             },
             ..Default::default()
         };
@@ -301,6 +364,7 @@ mod tests {
             profile: String::new(),
             code_puppy_model: String::new(),
             code_puppy_yolo: None,
+            code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
             llxprt_debug: String::new(),
             pass_continue: false,
@@ -323,6 +387,7 @@ mod tests {
                 payload,
                 actual: "other/repo".to_string(),
                 expected: "acme/widgets".to_string(),
+                confirm_focus: crate::state::ConfirmFocus::Cancel,
             },
             ..Default::default()
         };
@@ -392,5 +457,90 @@ mod tests {
         assert!(content.lines[3].contains("( ) beta"));
         // Two agents → lines 2-3 are entries, line 4 is separator, line 5+ hints.
         assert!(content.lines[4].starts_with('─'));
+    }
+
+    /// Every confirm modal variant must render — i.e.
+    /// `derive_confirm_modal_data` must return `Some` for all six confirm
+    /// variants (issue #228). If a new confirm variant is added to
+    /// `ModalState` without a matching arm in `derive_confirm_modal_data`,
+    /// this test will fail (the catch-all `_ => return None` would silently
+    /// suppress rendering otherwise).
+    #[test]
+    fn confirm_modal_renders_all_variants() {
+        use crate::ui::orchestration::derive_confirm_modal_data;
+
+        let state = AppState::default();
+        for modal in overlay_confirm_modal_samples() {
+            assert!(
+                derive_confirm_modal_data(&state, &modal).is_some(),
+                "derive_confirm_modal_data must return Some for confirm variant: {modal:?}"
+            );
+        }
+    }
+
+    /// Build one sample of every confirm modal variant for overlay rendering
+    /// tests (mirrors `all_confirm_modal_samples` in `confirm_focus_tests.rs`).
+    fn overlay_confirm_modal_samples() -> Vec<crate::state::ModalState> {
+        use crate::domain::{LaunchSignature, SandboxEngine};
+        use crate::github::SendPayload;
+        use crate::runtime::PreflightIssue;
+        use crate::state::{ConfirmFocus, ModalState};
+
+        fn sig() -> LaunchSignature {
+            LaunchSignature {
+                work_dir: std::path::PathBuf::from("/tmp"),
+                profile: String::new(),
+                code_puppy_model: String::new(),
+                code_puppy_yolo: Some(false),
+                code_puppy_quick_resume: false,
+                mode_flags: Vec::new(),
+                llxprt_debug: String::new(),
+                pass_continue: false,
+                sandbox_enabled: false,
+                sandbox_engine: SandboxEngine::Podman,
+                sandbox_flags: String::new(),
+                remote: crate::domain::RemoteRepositorySettings::default(),
+                agent_kind: crate::domain::AgentKind::Llxprt,
+            }
+        }
+
+        vec![
+            ModalState::ConfirmDeleteAgent {
+                id: AgentId("a".to_string()),
+                delete_work_dir: false,
+                confirm_focus: ConfirmFocus::Cancel,
+            },
+            ModalState::ConfirmDeleteRepository {
+                id: RepositoryId("r".to_string()),
+                confirm_focus: ConfirmFocus::Cancel,
+            },
+            ModalState::ConfirmKillAgent {
+                id: AgentId("a".to_string()),
+                confirm_focus: ConfirmFocus::Cancel,
+            },
+            ModalState::PreflightPrompt {
+                agent_id: AgentId("a".to_string()),
+                signature: sig(),
+                issue: PreflightIssue::SshAgentNoIdentities,
+                remaining_issues: Vec::new(),
+                confirm_focus: ConfirmFocus::Cancel,
+            },
+            ModalState::ConfirmIssueDirtyCopy {
+                agent_id: AgentId("a".to_string()),
+                work_dir: std::path::PathBuf::from("/tmp"),
+                signature: sig(),
+                payload: SendPayload::default(),
+                confirm_focus: ConfirmFocus::Cancel,
+            },
+            ModalState::ConfirmIssueOriginMismatch {
+                agent_id: AgentId("a".to_string()),
+                work_dir: std::path::PathBuf::from("/tmp"),
+                signature: sig(),
+                payload: SendPayload::default(),
+                actual: String::new(),
+                expected: String::new(),
+                confirm_focus: ConfirmFocus::Cancel,
+            },
+        ]
     }
 }

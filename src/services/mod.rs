@@ -10,7 +10,8 @@ mod normalize;
 use std::path::PathBuf;
 
 use crate::domain::{
-    Agent, AgentId, AgentKind, AgentStatus, PlatformCapabilities, Repository, SandboxEngine,
+    Agent, AgentId, AgentKind, AgentStatus, PlatformCapabilities, QuickResume, Repository,
+    SandboxEngine,
 };
 
 pub(crate) use normalize::{
@@ -48,6 +49,8 @@ pub struct CreateAgentParams<'a> {
     pub code_puppy_model: &'a str,
     /// Explicit Code Puppy YOLO choice.
     pub code_puppy_yolo: bool,
+    /// Whether Code Puppy should resume its latest autosaved session.
+    pub code_puppy_quick_resume: QuickResume,
     /// Agent runtime selected in the form.
     pub agent_kind: &'a str,
     /// Raw mode string, whitespace-split into flags by the service.
@@ -132,6 +135,7 @@ pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
         profile: normalize_profile(params.profile),
         code_puppy_model: params.code_puppy_model.trim().to_owned(),
         code_puppy_yolo: Some(params.code_puppy_yolo),
+        code_puppy_quick_resume: params.code_puppy_quick_resume.enabled(),
         mode_flags,
         llxprt_debug: normalize_llxprt_debug(params.llxprt_debug),
         pass_continue: params.pass_continue,
