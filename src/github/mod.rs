@@ -463,16 +463,17 @@ impl GhClient {
         Ok(())
     }
 
-    /// Update an issue's body text.
+    /// Update an issue's title and body text.
     ///
     /// @plan PLAN-20260329-ISSUES-MODE.P08
     /// @requirement REQ-ISS-011
     /// @pseudocode component-002 lines 57-61
-    pub fn update_issue_body(
+    pub fn update_issue(
         &self,
         owner: &str,
         repo: &str,
         number: u64,
+        title: &str,
         body: &str,
     ) -> Result<(), GhError> {
         let output = Command::new("gh")
@@ -482,6 +483,8 @@ impl GhClient {
                 "--repo",
                 &format!("{owner}/{repo}"),
                 &number.to_string(),
+                "--title",
+                title,
                 "--body",
                 body,
             ])

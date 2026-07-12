@@ -185,7 +185,7 @@ impl AppState {
                     .issues_state
                     .issue_detail
                     .as_ref()
-                    .map(|d| d.body.clone())
+                    .map(|detail| format!("{}\n{}", detail.title, detail.body))
                     .unwrap_or_default(),
                 EditorTarget::Comment { comment_index } => self
                     .issues_state

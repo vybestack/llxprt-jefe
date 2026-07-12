@@ -358,11 +358,13 @@ impl IssuesMessage {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
+                title,
                 body,
             } => Self::IssueBodyUpdated {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
+                title,
                 body,
             },
             AppEvent::CommentUpdated {
@@ -753,11 +755,13 @@ impl IssuesMessage {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
+                title,
                 body,
             } => AppEvent::IssueBodyUpdated {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
+                title,
                 body,
             },
             Self::CommentUpdated {
