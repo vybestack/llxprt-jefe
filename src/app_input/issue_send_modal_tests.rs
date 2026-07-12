@@ -202,6 +202,17 @@ fn confirm_issue_origin_mismatch_modal_routes_to_confirm_input_mode() {
 fn close_modal_dismisses_origin_mismatch_non_destructively() {
     use jefe::state::AppEvent;
 
+    // Seed non-modal state so we can prove CloseModal leaves it untouched.
+    let seeded = AppState {
+        repositories: vec![jefe::domain::Repository::new(
+            jefe::domain::RepositoryId("r1".to_owned()),
+            "Repo".to_owned(),
+            "acme/widgets".to_owned(),
+            PathBuf::from("/tmp/repo"),
+        )],
+        screen_mode: jefe::state::ScreenMode::DashboardIssues,
+        ..AppState::default()
+    };
     let state = AppState {
         modal: ModalState::ConfirmIssueOriginMismatch {
             agent_id: AgentId(String::from("a1")),
@@ -211,6 +222,8 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
             actual: String::from("other/repo"),
             expected: String::from("acme/widgets"),
         },
+        repositories: seeded.repositories.clone(),
+        screen_mode: seeded.screen_mode,
         ..AppState::default()
     };
 
@@ -219,6 +232,18 @@ fn close_modal_dismisses_origin_mismatch_non_destructively() {
         next.modal,
         ModalState::None,
         "CloseModal must dismiss ConfirmIssueOriginMismatch without side effects"
+    );
+    // Non-modal state is preserved: CloseModal is a pure transition that
+    // only touches `modal`, never agents/repositories/screen_mode.
+    assert_eq!(next.repositories.len(), 1, "repositories must be preserved");
+    assert_eq!(
+        next.screen_mode,
+        jefe::state::ScreenMode::DashboardIssues,
+        "screen_mode must be preserved"
+    );
+    assert!(
+        next.agents.is_empty(),
+        "agents must be untouched (no launch fired)"
     );
 }
 
