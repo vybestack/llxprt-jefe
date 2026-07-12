@@ -285,8 +285,8 @@ impl<T, I: Clone> PaginatedList<T, I> {
         self.begin_reload_with_visibility(identity, request_id, ReloadVisibility::Silent)
     }
 
-    /// Core reload begin: supersede any pending operation, reset continuation,
-    /// store identity, and set the pending reload.
+    /// Core reload begin: supersede any pending operation, preserve the current
+    /// continuation until success, store identity, and set the pending reload.
     ///
     /// A reload always wins: any in-flight page request is abandoned (its
     /// result will be `Stale` when it arrives). The return value is always
@@ -297,7 +297,6 @@ impl<T, I: Clone> PaginatedList<T, I> {
         request_id: ListRequestId,
         visibility: ReloadVisibility,
     ) -> BeginOutcome {
-        self.next_page = PageToken::Done;
         self.identity = Some(identity.clone());
         self.pending = Some(PendingLoad::Reload {
             identity,
@@ -838,6 +837,56 @@ mod tests {
         assert!(!list.has_pending_request());
         assert_eq!(list.items(), &[10, 20], "rows preserved on failure");
         assert_eq!(list.selected_index(), Some(1));
+    }
+
+    #[test]
+    fn visible_reload_failure_preserves_continuation() {
+        let mut list = setup_list_with_page_pending();
+        let page_request = list.last_request_id();
+        let page_failure = LoadCorrelation::Page {
+            identity: ident(1),
+            token: PageToken::PageNumber(2),
+            request_id: page_request,
+        };
+        assert_eq!(list.accept_failure(&page_failure), AcceptOutcome::Applied);
+
+        let reload_request = alloc_request_id(&mut list);
+        list.begin_reload(ident(1), reload_request);
+        let outcome = list.accept_failure(&LoadCorrelation::Reload {
+            identity: ident(1),
+            request_id: reload_request,
+        });
+
+        assert_eq!(outcome, AcceptOutcome::Applied);
+        assert!(!list.has_pending_request());
+        assert_eq!(list.items(), &[10, 20]);
+        assert_eq!(list.next_page(), &PageToken::PageNumber(2));
+        assert!(list.has_more());
+    }
+
+    #[test]
+    fn silent_reload_failure_preserves_continuation() {
+        let mut list = setup_list_with_page_pending();
+        let page_request = list.last_request_id();
+        let page_failure = LoadCorrelation::Page {
+            identity: ident(1),
+            token: PageToken::PageNumber(2),
+            request_id: page_request,
+        };
+        assert_eq!(list.accept_failure(&page_failure), AcceptOutcome::Applied);
+
+        let reload_request = alloc_request_id(&mut list);
+        list.begin_silent_reload(ident(1), reload_request);
+        let outcome = list.accept_failure(&LoadCorrelation::Reload {
+            identity: ident(1),
+            request_id: reload_request,
+        });
+
+        assert_eq!(outcome, AcceptOutcome::Applied);
+        assert!(!list.has_pending_request());
+        assert_eq!(list.items(), &[10, 20]);
+        assert_eq!(list.next_page(), &PageToken::PageNumber(2));
+        assert!(list.has_more());
     }
 
     #[test]

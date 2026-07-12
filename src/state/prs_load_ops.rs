@@ -405,9 +405,6 @@ impl AppState {
         if !selected_matches {
             return false;
         }
-        if request_id == 0 {
-            return true;
-        }
         self.prs_state
             .detail_pending
             .as_ref()

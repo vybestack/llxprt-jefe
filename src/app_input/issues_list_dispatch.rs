@@ -9,6 +9,7 @@ use jefe::state::AppEvent;
 
 use super::{
     AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client, issues_dispatch,
+    list_loader::{ListLoad, ListLoader},
     persist_state, to_persisted_state,
 };
 
@@ -104,24 +105,24 @@ fn mark_issue_list_fetch_loading(
     // not spawn I/O, so it returns None.
     {
         let mut state = app_state.write();
-        let request_id = state.issues_state.list.next_request_id().ok()?;
-        let request_id = request_id.get();
-        let started = if params.fresh_reload {
-            state.mark_issue_list_reload_loading(
-                params.scope_repo_id.clone(),
-                params.filter.clone(),
-                request_id,
-            );
-            true
-        } else {
-            state.mark_issue_list_page_loading_with_request_id(
-                params.scope_repo_id.clone(),
-                params.filter.clone(),
-                params.cursor.clone(),
-                request_id,
-            )
+        let identity = jefe::state::IssueListIdentity {
+            scope_repo_id: params.scope_repo_id.clone(),
+            filter: params.filter.clone(),
         };
-        started.then_some(request_id)
+        let load = if params.fresh_reload {
+            ListLoad::Reload
+        } else {
+            ListLoad::Page(params.cursor.clone().map_or(
+                jefe::domain::PageToken::Done,
+                jefe::domain::PageToken::Cursor,
+            ))
+        };
+        let request_id = ListLoader::begin(&mut state.issues_state.list, identity, load)?;
+        if params.fresh_reload {
+            state.issues_state.detail_pending = None;
+        }
+        drop(state);
+        Some(request_id.get())
     }
 }
 

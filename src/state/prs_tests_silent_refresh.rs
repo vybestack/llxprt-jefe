@@ -346,7 +346,23 @@ fn test_silent_refresh_does_not_set_loading_or_error() {
 #[test]
 fn test_silent_refresh_failed_clears_pending_without_error() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.list.replace_items(vec![make_test_pr(1)]);
+    let identity = PrListIdentity {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: PrFilter::default(),
+    };
+    state
+        .prs_state
+        .list
+        .begin_reload(identity.clone(), crate::domain::ListRequestId::from_raw(99));
+    state
+        .prs_state
+        .list
+        .accept_loaded(crate::state::pagination::ReloadResult {
+            identity,
+            request_id: crate::domain::ListRequestId::from_raw(99),
+            items: vec![make_test_pr(1)],
+            next_page: crate::domain::PageToken::Cursor("next".to_string()),
+        });
     state.prs_state.error = None;
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
@@ -362,6 +378,15 @@ fn test_silent_refresh_failed_clears_pending_without_error() {
     assert!(
         new_state.prs_state.error.is_none(),
         "silent refresh failure must NOT set error"
+    );
+    assert_eq!(
+        new_state.prs_state.list.next_page(),
+        &crate::domain::PageToken::Cursor("next".to_string()),
+        "silent refresh failure must preserve the original cursor"
+    );
+    assert!(
+        new_state.prs_state.list.has_more(),
+        "silent refresh failure must preserve load-more continuation"
     );
 }
 

@@ -33,6 +33,7 @@ mod prs_orchestration;
 mod actions;
 mod actions_orchestration;
 mod gh_async;
+mod list_loader;
 
 mod agent_runtime;
 mod availability;

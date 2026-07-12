@@ -89,13 +89,13 @@ fn test_detail_loaded_sets_subfocus_body_and_clears_loading() {
     let mut state = prs_mode_state("repo-1");
     state.prs_state.list.replace_items(vec![make_test_pr(1)]);
     state.prs_state.list.set_selected_index(Some(0));
-    state.prs_state.loading.detail = true;
     state.prs_state.detail_subfocus = PrDetailSubfocus::Review(0);
+    state.mark_pr_detail_loading(RepositoryId("repo-1".to_string()), 1, 1);
 
     let new_state = state.apply(AppEvent::PrDetailLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         pr_number: 1,
-        request_id: 0,
+        request_id: 1,
         detail: Box::new(make_test_pr_detail(1)),
     });
 

@@ -280,7 +280,7 @@ impl AppState {
         if let Some(idx) = previous {
             self.issues_state
                 .list
-                .set_selected_index(Some(idx.saturating_sub(10)));
+                .set_selected_index(Some(idx.saturating_sub(super::VIEWPORT_PAGE_JUMP)));
         }
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
@@ -291,7 +291,7 @@ impl AppState {
             let max = self.issues_state.issues().len().saturating_sub(1);
             self.issues_state
                 .list
-                .set_selected_index(Some((idx + 10).min(max)));
+                .set_selected_index(Some((idx + super::VIEWPORT_PAGE_JUMP).min(max)));
         }
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
@@ -431,13 +431,15 @@ impl AppState {
                 }
             }
             AppEvent::IssuesScrollDetailPageUp => {
-                self.issues_state.detail_scroll_offset =
-                    self.issues_state.detail_scroll_offset.saturating_sub(10);
+                self.issues_state.detail_scroll_offset = self
+                    .issues_state
+                    .detail_scroll_offset
+                    .saturating_sub(super::VIEWPORT_PAGE_JUMP);
             }
             AppEvent::IssuesScrollDetailPageDown => {
                 let max = self.issues_state.max_detail_scroll_offset();
                 self.issues_state.detail_scroll_offset =
-                    (self.issues_state.detail_scroll_offset + 10).min(max);
+                    (self.issues_state.detail_scroll_offset + super::VIEWPORT_PAGE_JUMP).min(max);
             }
             _ => return false,
         }

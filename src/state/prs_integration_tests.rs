@@ -174,10 +174,11 @@ impl ApplyInPlace for AppState {
 fn state_with_loaded_pr_detail() -> AppState {
     let mut state = active_prs_state_with_list();
     state.apply_in_place(AppEvent::PrListEnter);
+    state.mark_pr_detail_loading(RepositoryId("repo-1".to_string()), 1, 1);
     state.apply_in_place(AppEvent::PrDetailLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         pr_number: 1,
-        request_id: 0,
+        request_id: 1,
         detail: std::boxed::Box::new(make_test_pr_detail(1)),
     });
     state
@@ -225,10 +226,11 @@ fn it_select_pr_loads_detail_with_reviews_and_checks() {
     // event (the event the background thread would produce).
     let scope = RepositoryId("repo-1".to_string());
     let detail = make_test_pr_detail(1);
+    state.mark_pr_detail_loading(scope.clone(), 1, 1);
     state.apply_in_place(AppEvent::PrDetailLoaded {
         scope_repo_id: scope,
         pr_number: 1,
-        request_id: 0,
+        request_id: 1,
         detail: std::boxed::Box::new(detail.clone()),
     });
 
@@ -300,10 +302,11 @@ fn it_scroll_detail_paginates_comments() {
     let mut detail = make_test_pr_detail(1);
     detail.has_more_comments = true;
     detail.comments_cursor = Some("cursor-1".to_string());
+    state.mark_pr_detail_loading(scope.clone(), 1, 1);
     state.apply_in_place(AppEvent::PrDetailLoaded {
         scope_repo_id: scope.clone(),
         pr_number: 1,
-        request_id: 0,
+        request_id: 1,
         detail: std::boxed::Box::new(detail),
     });
 

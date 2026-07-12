@@ -5,8 +5,9 @@ use jefe::messages::ActionsMessage;
 use jefe::state::AppEvent;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client, persist_state,
-    to_persisted_state,
+    AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client,
+    list_loader::{ListLoad, ListLoader},
+    persist_state, to_persisted_state,
 };
 
 /// Resolve the GitHub client and parse a `owner/repo` slug into its parts.
@@ -24,6 +25,33 @@ fn gh_client_and_slug<'a>(
         )));
     }
     Ok((client, owner_repo[0], owner_repo[1]))
+}
+
+fn dispatch_actions_navigation(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    dir: jefe::messages::NavDir,
+) {
+    let previous_repo_id = app_state
+        .read()
+        .selected_repository()
+        .map(|repo| repo.id.clone());
+    apply_and_persist(
+        app_state,
+        ctx,
+        AppEvent::from(ActionsMessage::Navigate(dir)),
+    );
+    let current_repo_id = app_state
+        .read()
+        .selected_repository()
+        .map(|repo| repo.id.clone());
+    if previous_repo_id == current_repo_id {
+        dispatch_run_detail_reload(app_state, ctx);
+        load_more_runs_if_at_end(app_state, ctx);
+    } else {
+        dispatch_actions_list_reload(app_state, ctx);
+        dispatch_workflows_reload(app_state, ctx);
+    }
 }
 
 /// Route an `ActionsMessage` to the appropriate dispatcher.
@@ -44,15 +72,7 @@ pub(super) fn dispatch_actions_message(
             dispatch_actions_list_reload(app_state, ctx);
             dispatch_workflows_reload(app_state, ctx);
         }
-        ActionsMessage::Navigate(dir) => {
-            apply_and_persist(
-                app_state,
-                ctx,
-                AppEvent::from(ActionsMessage::Navigate(dir)),
-            );
-            dispatch_run_detail_reload(app_state, ctx);
-            load_more_runs_if_at_end(app_state, ctx);
-        }
+        ActionsMessage::Navigate(dir) => dispatch_actions_navigation(app_state, ctx, dir),
         ActionsMessage::ScrollDetail(dir) => {
             apply_and_persist(
                 app_state,
@@ -271,6 +291,7 @@ struct ActionsListRequest {
 /// Clear list loading and surface a no-repo error.
 fn persist_no_repo_error_list(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let mut state = app_state.write();
+    state.actions_state.list.clear();
     state.actions_state.error = Some(NO_REPO_MSG.to_string());
     let persisted = to_persisted_state(&state);
     drop(state);
@@ -315,20 +336,21 @@ fn dispatch_actions_list_reload(app_state: &mut AppStateHandle, ctx: &SharedCont
 
     let request_id = {
         let mut write_state = app_state.write();
-        match write_state.actions_state.list.next_request_id() {
-            Ok(id) => {
-                let identity = jefe::state::ActionsListIdentity {
-                    scope_repo_id: repo.id.clone(),
-                    filter: filter.clone(),
-                };
-                write_state.actions_state.list.begin_reload(identity, id);
-                let persisted = to_persisted_state(&write_state);
-                drop(write_state);
-                persist_state(ctx, &persisted);
-                id.get()
-            }
-            Err(_) => return,
-        }
+        let identity = jefe::state::ActionsListIdentity {
+            scope_repo_id: repo.id.clone(),
+            filter: filter.clone(),
+        };
+        let Some(id) = ListLoader::begin(
+            &mut write_state.actions_state.list,
+            identity,
+            ListLoad::Reload,
+        ) else {
+            return;
+        };
+        let persisted = to_persisted_state(&write_state);
+        drop(write_state);
+        persist_state(ctx, &persisted);
+        id.get()
     };
 
     spawn_list_task(
@@ -366,24 +388,21 @@ fn dispatch_actions_page_fetch(app_state: &mut AppStateHandle, ctx: &SharedConte
         drop(state);
 
         let mut write_state = app_state.write();
-        let request_id = write_state.actions_state.list.next_request_id();
-        match request_id {
-            Ok(id) => {
-                let outcome = write_state
-                    .actions_state
-                    .list
-                    .begin_page(jefe::domain::PageToken::PageNumber(page), id);
-                if !matches!(outcome, jefe::state::pagination::BeginOutcome::Started) {
-                    drop(write_state);
-                    return;
-                }
-                let persisted = to_persisted_state(&write_state);
-                drop(write_state);
-                persist_state(ctx, &persisted);
-                (repo, filter, page, id.get())
-            }
-            Err(_) => return,
-        }
+        let identity = jefe::state::ActionsListIdentity {
+            scope_repo_id: repo.id.clone(),
+            filter: filter.clone(),
+        };
+        let Some(id) = ListLoader::begin(
+            &mut write_state.actions_state.list,
+            identity,
+            ListLoad::Page(jefe::domain::PageToken::PageNumber(page)),
+        ) else {
+            return;
+        };
+        let persisted = to_persisted_state(&write_state);
+        drop(write_state);
+        persist_state(ctx, &persisted);
+        (repo, filter, page, id.get())
     };
 
     spawn_list_task(

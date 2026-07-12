@@ -99,8 +99,8 @@ impl AppState {
         let new_idx = match dir {
             crate::messages::NavDir::Up => current.saturating_sub(1),
             crate::messages::NavDir::Down => (current + 1).min(last),
-            crate::messages::NavDir::PageUp => current.saturating_sub(10),
-            crate::messages::NavDir::PageDown => (current + 10).min(last),
+            crate::messages::NavDir::PageUp => current.saturating_sub(super::VIEWPORT_PAGE_JUMP),
+            crate::messages::NavDir::PageDown => (current + super::VIEWPORT_PAGE_JUMP).min(last),
             crate::messages::NavDir::Home => 0,
             crate::messages::NavDir::End => last,
             crate::messages::NavDir::Next | crate::messages::NavDir::Prev => current,
@@ -195,10 +195,12 @@ impl AppState {
                 self.actions_state.detail_scroll_offset = (current + 1).min(max);
             }
             crate::messages::ScrollDir::PageUp => {
-                self.actions_state.detail_scroll_offset = current.saturating_sub(10);
+                self.actions_state.detail_scroll_offset =
+                    current.saturating_sub(super::VIEWPORT_PAGE_JUMP);
             }
             crate::messages::ScrollDir::PageDown => {
-                self.actions_state.detail_scroll_offset = (current + 10).min(max);
+                self.actions_state.detail_scroll_offset =
+                    (current + super::VIEWPORT_PAGE_JUMP).min(max);
             }
         }
         true
