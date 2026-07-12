@@ -141,3 +141,177 @@ fn resolve_empty_github_repo_falls_back_to_git_detection() {
     let info = GitRepoInfo::resolve("", false, Path::new("/nonexistent"));
     assert!(info.origin_shortform.is_none());
 }
+
+// ── parse_repository_origin: host-aware parsing (issue #190 MUST-FIX #3) ─
+
+#[test]
+fn parse_repository_origin_ssh_form() {
+    assert_eq!(
+        parse_repository_origin("git@github.com:acme/widgets.git"),
+        Some(ParsedRepositoryOrigin {
+            host: "github.com".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_https_form() {
+    assert_eq!(
+        parse_repository_origin("https://github.com/acme/widgets.git"),
+        Some(ParsedRepositoryOrigin {
+            host: "github.com".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_ssh_scheme_form() {
+    assert_eq!(
+        parse_repository_origin("ssh://git@github.com/acme/widgets.git"),
+        Some(ParsedRepositoryOrigin {
+            host: "github.com".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_bare_form_has_empty_host() {
+    assert_eq!(
+        parse_repository_origin("acme/widgets"),
+        Some(ParsedRepositoryOrigin {
+            host: String::new(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_lowercases_host() {
+    assert_eq!(
+        parse_repository_origin("git@GitHub.COM:acme/widgets.git"),
+        Some(ParsedRepositoryOrigin {
+            host: "github.com".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_https_uppercase_host() {
+    assert_eq!(
+        parse_repository_origin("https://GitHub.COM/acme/widgets.git"),
+        Some(ParsedRepositoryOrigin {
+            host: "github.com".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_gitlab_host() {
+    assert_eq!(
+        parse_repository_origin("https://gitlab.com/acme/widgets.git"),
+        Some(ParsedRepositoryOrigin {
+            host: "gitlab.com".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_attacker_host() {
+    assert_eq!(
+        parse_repository_origin("git@attacker.example:acme/widgets.git"),
+        Some(ParsedRepositoryOrigin {
+            host: "attacker.example".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_no_git_suffix() {
+    assert_eq!(
+        parse_repository_origin("https://github.com/acme/widgets"),
+        Some(ParsedRepositoryOrigin {
+            host: "github.com".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_strips_whitespace() {
+    assert_eq!(
+        parse_repository_origin("  git@github.com:acme/widgets.git  "),
+        Some(ParsedRepositoryOrigin {
+            host: "github.com".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_empty_returns_none() {
+    assert!(parse_repository_origin("").is_none());
+    assert!(parse_repository_origin("   ").is_none());
+}
+
+#[test]
+fn parse_repository_origin_missing_owner_returns_none() {
+    assert!(parse_repository_origin("git@github.com:/widgets.git").is_none());
+    assert!(parse_repository_origin("https://github.com//widgets.git").is_none());
+}
+
+#[test]
+fn parse_repository_origin_missing_repo_returns_none() {
+    assert!(parse_repository_origin("git@github.com:acme/").is_none());
+    assert!(parse_repository_origin("https://github.com/acme/").is_none());
+}
+
+#[test]
+fn parse_repository_origin_extra_segments_returns_none() {
+    assert!(parse_repository_origin("https://github.com/acme/widgets/extra").is_none());
+}
+
+#[test]
+fn parse_repository_origin_rejects_file_scheme() {
+    // file:// reads the local filesystem, NOT a remote host. It must be
+    // rejected regardless of the authority string.
+    assert!(parse_repository_origin("file://github.com/acme/widgets.git").is_none());
+    assert!(parse_repository_origin("file:///srv/repos/widgets.git").is_none());
+}
+
+#[test]
+fn parse_repository_origin_rejects_unknown_scheme() {
+    // Git supports pluggable remote helpers for arbitrary schemes; an unknown
+    // scheme cannot be trusted to target the named host.
+    assert!(parse_repository_origin("ftp://github.com/acme/widgets.git").is_none());
+    assert!(parse_repository_origin("myhelper://github.com/acme/widgets.git").is_none());
+}
+
+#[test]
+fn parse_repository_origin_scheme_is_case_insensitive() {
+    // HTTPS:// and https:// are the same scheme.
+    assert_eq!(
+        parse_repository_origin("HTTPS://github.com/acme/widgets.git"),
+        Some(ParsedRepositoryOrigin {
+            host: "github.com".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_accepts_git_scheme() {
+    assert_eq!(
+        parse_repository_origin("git://github.com/acme/widgets.git"),
+        Some(ParsedRepositoryOrigin {
+            host: "github.com".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}

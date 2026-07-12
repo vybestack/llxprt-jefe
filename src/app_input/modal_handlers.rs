@@ -118,7 +118,7 @@ pub fn handle_mode_confirm_key(
     // the agent/repository delete confirms.
     if matches!(
         app_state.read().modal,
-        ModalState::ConfirmIssueDirtyCopy { .. }
+        ModalState::ConfirmIssueDirtyCopy { .. } | ModalState::ConfirmIssueOriginMismatch { .. }
     ) {
         match key_event.code {
             KeyCode::Enter => handle_confirm_enter(app_state, ctx),
@@ -165,6 +165,15 @@ fn handle_confirm_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {
             signature,
             payload,
         } => super::issues_send::confirm_issue_dirty_copy_enter(
+            app_state, ctx, agent_id, work_dir, signature, payload,
+        ),
+        ModalState::ConfirmIssueOriginMismatch {
+            agent_id,
+            work_dir,
+            signature,
+            payload,
+            ..
+        } => super::issues_send::confirm_issue_origin_mismatch_enter(
             app_state, ctx, agent_id, work_dir, signature, payload,
         ),
         _ => {}

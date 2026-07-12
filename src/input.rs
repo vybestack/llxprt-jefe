@@ -66,22 +66,34 @@ pub enum SearchKeyRoute {
 
 /// Resolve the active input mode from current app state.
 #[must_use]
-pub fn input_mode_for_state(state: &AppState) -> InputMode {
-    match state.modal {
-        ModalState::Help => return InputMode::Help,
-        ModalState::Search { .. } => return InputMode::Search,
-        ModalState::ThemePicker { .. } => return InputMode::ThemePicker,
+/// Resolve the input mode from the active modal, if any.
+///
+/// Returns `None` when no modal is active (fall through to screen-mode
+/// detection).
+fn modal_input_mode(modal: &ModalState) -> Option<InputMode> {
+    match modal {
+        ModalState::Help => Some(InputMode::Help),
+        ModalState::Search { .. } => Some(InputMode::Search),
+        ModalState::ThemePicker { .. } => Some(InputMode::ThemePicker),
         ModalState::NewRepository { .. }
         | ModalState::EditRepository { .. }
         | ModalState::NewAgent { .. }
         | ModalState::EditAgent { .. }
-        | ModalState::WorkflowDispatch { .. } => return InputMode::Form,
+        | ModalState::WorkflowDispatch { .. } => Some(InputMode::Form),
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
         | ModalState::ConfirmKillAgent { .. }
         | ModalState::PreflightPrompt { .. }
-        | ModalState::ConfirmIssueDirtyCopy { .. } => return InputMode::Confirm,
-        ModalState::None => {}
+        | ModalState::ConfirmIssueDirtyCopy { .. }
+        | ModalState::ConfirmIssueOriginMismatch { .. } => Some(InputMode::Confirm),
+        ModalState::None => None,
+    }
+}
+
+#[must_use]
+pub fn input_mode_for_state(state: &AppState) -> InputMode {
+    if let Some(mode) = modal_input_mode(&state.modal) {
+        return mode;
     }
 
     // Issues mode detection — must be before Normal fallback

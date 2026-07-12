@@ -289,6 +289,51 @@ mod tests {
     }
 
     #[test]
+    fn confirm_modal_origin_mismatch_renders_actual_expected() {
+        use crate::domain::{LaunchSignature, SandboxEngine};
+        use crate::github::SendPayload;
+        let signature = LaunchSignature {
+            work_dir: std::path::PathBuf::from("/tmp"),
+            profile: String::new(),
+            mode_flags: Vec::new(),
+            llxprt_debug: String::new(),
+            pass_continue: false,
+            sandbox_enabled: false,
+            sandbox_engine: SandboxEngine::Podman,
+            sandbox_flags: String::new(),
+            remote: crate::domain::RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
+        };
+        let payload = SendPayload {
+            repository: "o/r".to_string(),
+            issue_number: 42,
+            ..Default::default()
+        };
+        let state = AppState {
+            modal: ModalState::ConfirmIssueOriginMismatch {
+                agent_id: AgentId("a1".to_string()),
+                work_dir: std::path::PathBuf::from("/tmp"),
+                signature,
+                payload,
+                actual: "other/repo".to_string(),
+                expected: "acme/widgets".to_string(),
+            },
+            ..Default::default()
+        };
+        let content = confirm_modal_lines(&state);
+        assert!(!content.lines.is_empty());
+        assert_eq!(content.lines[0], "Wrong Repository");
+        assert!(
+            content.lines[2].contains("other/repo"),
+            "modal must show actual origin: {content:?}"
+        );
+        assert!(
+            content.lines[2].contains("acme/widgets"),
+            "modal must show expected origin: {content:?}"
+        );
+    }
+
+    #[test]
     fn agent_chooser_empty_has_two_line_empty_state() {
         let state = AppState {
             issues_state: crate::state::IssuesState {

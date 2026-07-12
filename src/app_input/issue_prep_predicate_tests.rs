@@ -253,3 +253,77 @@ fn production_seam_malformed_output_never_causes_clone() {
         "malformed output must be Err — never a safe false or true"
     );
 }
+
+// ── classify_origin_url_output: origin-probe classifier (MUST-FIX #1) ──
+//
+// `read_remote_origin_url` must distinguish three outcomes:
+// 1. Origin exists + get-url succeeds → Ok(Some(url)).
+// 2. Origin absent (get-url exits nonzero, swallowed by `|| true`) → Ok(None).
+// 3. SSH/sudo/shell failure → Err.
+//
+// These tests exercise the pure classifier with the exact scenarios the
+// production path encounters.
+
+#[test]
+fn origin_url_classifier_success_with_url() {
+    let result = classify_origin_url_output(Some(0), "git@github.com:acme/widgets.git\n", "");
+    assert_eq!(
+        result,
+        Ok(Some("git@github.com:acme/widgets.git".to_owned()))
+    );
+}
+
+#[test]
+fn origin_url_classifier_success_empty_is_no_origin() {
+    // Exit 0 + empty stdout means the `|| true` swallowed a nonzero git exit
+    // (no origin remote). This is Ok(None), NOT an error.
+    let result = classify_origin_url_output(Some(0), "", "");
+    assert_eq!(result, Ok(None));
+}
+
+#[test]
+fn origin_url_classifier_success_whitespace_only_is_no_origin() {
+    let result = classify_origin_url_output(Some(0), "  \n", "");
+    assert_eq!(result, Ok(None));
+}
+
+#[test]
+fn origin_url_classifier_ssh_exit_255_is_err() {
+    let result = classify_origin_url_output(Some(255), "", "Permission denied (publickey).");
+    let Err(err) = &result else {
+        panic!("SSH exit 255 must be Err: {result:?}");
+    };
+    assert!(
+        err.contains("255") || err.contains("transport") || err.contains("auth"),
+        "error must mention transport/auth/255: {err}"
+    );
+}
+
+#[test]
+fn origin_url_classifier_other_nonzero_is_err() {
+    let result = classify_origin_url_output(Some(126), "", "sudo: a password is required");
+    assert!(result.is_err(), "nonzero exit must be Err");
+}
+
+#[test]
+fn origin_url_classifier_signal_terminated_is_err() {
+    let result = classify_origin_url_output(None, "", "");
+    assert!(result.is_err(), "signal termination must be Err");
+}
+
+#[test]
+fn origin_url_classifier_success_trims_url() {
+    let result = classify_origin_url_output(Some(0), "  https://github.com/acme/widgets.git\n", "");
+    assert_eq!(
+        result,
+        Ok(Some("https://github.com/acme/widgets.git".to_owned()))
+    );
+}
+
+#[test]
+fn origin_url_classifier_no_origin_never_causes_error() {
+    // The critical safety property: a missing origin (Ok(None)) must NOT be
+    // an error — it must surface as OriginMismatch at the caller level.
+    let result = classify_origin_url_output(Some(0), "", "");
+    assert_eq!(result, Ok(None));
+}

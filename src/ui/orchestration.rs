@@ -66,6 +66,22 @@ pub fn derive_confirm_modal_data(
             show_delete_work_dir: false,
             delete_work_dir: false,
         }),
+        ModalState::ConfirmIssueOriginMismatch {
+            actual, expected, ..
+        } => Some(ConfirmModalData {
+            title: String::from("Wrong Repository"),
+            message: format!(
+                "Working copy origin is {actual_repr}, expected {expected}. \
+                     Replace it with a fresh clone?",
+                actual_repr = if actual.is_empty() {
+                    "(no origin remote)"
+                } else {
+                    actual
+                },
+            ),
+            show_delete_work_dir: false,
+            delete_work_dir: false,
+        }),
         _ => None,
     }
 }
@@ -209,7 +225,8 @@ pub fn build_modal_element(
         | ModalState::ConfirmDeleteAgent { .. }
         | ModalState::ConfirmKillAgent { .. }
         | ModalState::PreflightPrompt { .. }
-        | ModalState::ConfirmIssueDirtyCopy { .. } => confirm_data.map(|data| {
+        | ModalState::ConfirmIssueDirtyCopy { .. }
+        | ModalState::ConfirmIssueOriginMismatch { .. } => confirm_data.map(|data| {
             element! {
                 ConfirmModal(
                     title: data.title,

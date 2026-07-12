@@ -55,23 +55,172 @@ pub(super) fn path_exists(work_dir: &Path) -> bool {
 /// and prep flow handle them). Only a **missing** workdir triggers a clone;
 /// an existing non-git directory fails safely.
 pub(super) fn ensure_workdir_cloned(work_dir: &Path, clone_url: Option<&str>) -> PrepResult {
+    let assurance = ensure_workdir_with_origin(work_dir, clone_url, None)?;
+    // No expected shortform → mismatch is impossible, all variants map to Ok.
+    let _ = assurance;
+    Ok(())
+}
+
+/// Remove the working copy directory entirely (for the force-reclone path).
+///
+/// This is destructive: it deletes the entire `work_dir` and all its
+/// contents. The caller must have obtained explicit user confirmation before
+/// invoking this.
+pub(super) fn remove_workdir(work_dir: &Path) -> Result<(), String> {
+    std::fs::remove_dir_all(work_dir)
+        .map_err(|e| format!("Failed to remove workdir {}: {e}", work_dir.display()))
+}
+
+/// Outcome of ensuring a working copy exists with an optional origin check.
+///
+/// Distinguishes three states so the caller can decide whether to proceed,
+/// skip a fresh-clone's dirty check, or prompt the user before clobbering a
+/// foreign repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum WorkdirAssurance {
+    /// Already a git repo with a matching origin (or no expected shortform to
+    /// compare against). Proceed with the normal prep flow.
+    Ready,
+    /// Was missing and has just been cloned. Proceed (the clone lands on the
+    /// remote's default branch, so the origin already matches by
+    /// construction).
+    JustCloned,
+    /// Exists and is a git repo, but the origin does not match the configured
+    /// repository. The caller must prompt the user before any destructive
+    /// action.
+    OriginMismatch { actual: String, expected: String },
+}
+
+/// Ensure the agent working copy exists, optionally checking that its `origin`
+/// remote matches the configured repository.
+///
+/// Returns:
+/// - [`WorkdirAssurance::Ready`] when `work_dir` is already a git repo and
+///   either no `expected_shortform` was supplied or the origin matches.
+/// - [`WorkdirAssurance::JustCloned`] when `work_dir` was missing and has been
+///   freshly cloned (origin matches by construction).
+/// - [`WorkdirAssurance::OriginMismatch`] when `work_dir` is a git repo but its
+///   origin does not match `expected_shortform` (or has no `origin` remote at
+///   all while an expected shortform IS configured).
+///
+/// # Errors
+///
+/// Returns `Err` with a human-readable message if the path exists but is not a
+/// git worktree, the clone fails, or no clone URL is provided for a missing
+/// workdir.
+pub(super) fn ensure_workdir_with_origin(
+    work_dir: &Path,
+    clone_url: Option<&str>,
+    expected_shortform: Option<&str>,
+) -> Result<WorkdirAssurance, String> {
     if is_git_workdir(work_dir) {
-        return Ok(());
-    }
-    if path_exists(work_dir) {
-        return Err(format!(
+        if let Some(expected) = expected_shortform {
+            let expected = expected.trim();
+            match origin_raw_url(work_dir) {
+                Some(raw_url) if origins_match(&raw_url, expected) => Ok(WorkdirAssurance::Ready),
+                Some(raw_url) => {
+                    // Normalize the raw URL for display in the mismatch modal.
+                    let actual = jefe::git_info::parse_origin_url(&raw_url).unwrap_or_default();
+                    Ok(WorkdirAssurance::OriginMismatch {
+                        actual,
+                        expected: expected.to_owned(),
+                    })
+                }
+                // A git repo with no `origin` remote while an expected
+                // shortform IS configured is a mismatch — it is not the
+                // configured repository.
+                None => Ok(WorkdirAssurance::OriginMismatch {
+                    actual: String::new(),
+                    expected: expected.to_owned(),
+                }),
+            }
+        } else {
+            Ok(WorkdirAssurance::Ready)
+        }
+    } else if path_exists(work_dir) {
+        Err(format!(
             "Working copy {} exists but is not a git worktree.",
             work_dir.display()
-        ));
+        ))
+    } else {
+        let Some(url) = clone_url else {
+            return Err(format!(
+                "Working copy {} does not exist and no valid github_repo (owner/repo) is \
+                 configured to clone from.",
+                work_dir.display()
+            ));
+        };
+        clone_repository(work_dir, url)?;
+        Ok(WorkdirAssurance::JustCloned)
     }
-    let Some(url) = clone_url else {
-        return Err(format!(
-            "Working copy {} does not exist and no valid github_repo (owner/repo) is \
-             configured to clone from.",
-            work_dir.display()
-        ));
+}
+
+/// Read the raw `origin` remote URL of the working copy at `work_dir`.
+///
+/// Runs `git -C <work_dir> remote get-url origin`, trims the output, and
+/// returns the **raw** URL (not normalized). The host-aware comparison in
+/// [`origins_match`] needs the raw URL to verify the host is GitHub.
+/// Returns `None` on git failure or when the URL is empty.
+pub(super) fn origin_raw_url(work_dir: &Path) -> Option<String> {
+    let output = git_capture_optional(work_dir, ["remote", "get-url", "origin"])?;
+    if !output.status.success() {
+        return None;
+    }
+    let url = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if url.is_empty() {
+        return None;
+    }
+    Some(url)
+}
+
+/// The expected GitHub host for origin-mismatch comparison. The configured
+/// clone identity always uses `github.com` (see `CloneIdentity::clone_url`).
+const EXPECTED_GITHUB_HOST: &str = "github.com";
+
+/// Host-aware predicate: verify the actual origin URL is on GitHub
+/// (`github.com`) and its `owner/repo` matches the expected shortform.
+///
+/// This is the **central safety check** for issue #190: it prevents operating
+/// against a foreign repository (GitLab, attacker host) that happens to share
+/// the same `owner/repo` path as the configured GitHub repository.
+///
+/// The comparison:
+/// - Parses the raw actual URL via [`jefe::git_info::parse_repository_origin`],
+///   which preserves the **lowercased host**.
+/// - Requires the host to be exactly `github.com` (case-insensitive, already
+///   lowercased by the parser).
+/// - Requires the `owner/repo` to match `expected` **case-insensitively**,
+///   because GitHub repository identity (`owner/repo`) is ASCII
+///   case-insensitive — `Acme/Widgets` and `acme/widgets` refer to the same
+///   repository. Comparing case-sensitively would surface false
+///   mismatch prompts and could encourage users to approve unnecessary
+///   destructive replacements.
+///
+/// # Fail-closed behavior
+///
+/// A bare `owner/repo` actual (no host) is a **mismatch**: a real GitHub
+/// clone always has a host in its `origin` URL, so a bare form means the URL
+/// was manually set or is from an unknown source. Empty/malformed actuals are
+/// also mismatches.
+#[must_use]
+pub(super) fn origins_match(actual_raw_url: &str, expected: &str) -> bool {
+    let expected = expected.trim();
+    if expected.is_empty() {
+        return false;
+    }
+    let Some(parsed) = jefe::git_info::parse_repository_origin(actual_raw_url) else {
+        return false;
     };
-    clone_repository(work_dir, url)
+    parsed.host == EXPECTED_GITHUB_HOST && same_owner_repo(&parsed.owner_repo, expected)
+}
+
+/// Compare two `owner/repo` shortforms case-insensitively (ASCII).
+///
+/// GitHub repository identity is case-insensitive, so `Acme/Widgets` matches
+/// `acme/widgets`. Kept as a named helper so the comparison policy is explicit
+/// and unit-testable in isolation.
+fn same_owner_repo(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
 }
 
 /// Clone the repository into `work_dir` using the given clone URL.
@@ -581,5 +730,137 @@ mod tests {
     /// production code uses.
     fn is_dirty_from(porcelain: &str) -> bool {
         porcelain_is_dirty(porcelain)
+    }
+
+    // ── origins_match: host-aware predicate (issue #190 MUST-FIX #3) ───
+
+    #[test]
+    fn origins_match_accepts_github_ssh() {
+        assert!(origins_match(
+            "git@github.com:acme/widgets.git",
+            "acme/widgets"
+        ));
+    }
+
+    #[test]
+    fn origins_match_accepts_github_https() {
+        assert!(origins_match(
+            "https://github.com/acme/widgets.git",
+            "acme/widgets"
+        ));
+    }
+
+    #[test]
+    fn origins_match_rejects_gitlab_host() {
+        assert!(!origins_match(
+            "https://gitlab.com/acme/widgets.git",
+            "acme/widgets"
+        ));
+    }
+
+    #[test]
+    fn origins_match_rejects_attacker_host() {
+        assert!(!origins_match(
+            "git@attacker.example:acme/widgets.git",
+            "acme/widgets"
+        ));
+    }
+
+    #[test]
+    fn origins_match_rejects_different_owner() {
+        assert!(!origins_match(
+            "git@github.com:other/widgets.git",
+            "acme/widgets"
+        ));
+    }
+
+    #[test]
+    fn origins_match_rejects_different_repo() {
+        assert!(!origins_match(
+            "git@github.com:acme/gadgets.git",
+            "acme/widgets"
+        ));
+    }
+
+    #[test]
+    fn origins_match_rejects_bare_form_no_host() {
+        // A bare owner/repo with no host is fail-closed: we cannot verify
+        // it is GitHub, so it must NOT match.
+        assert!(!origins_match("acme/widgets", "acme/widgets"));
+    }
+
+    #[test]
+    fn origins_match_rejects_empty_actual() {
+        assert!(!origins_match("", "acme/widgets"));
+    }
+
+    #[test]
+    fn origins_match_rejects_file_scheme_with_github_authority() {
+        // A file:// URL is a different transport — it reads the local
+        // filesystem, NOT github.com. It must NOT match even though the
+        // authority syntactically reads github.com.
+        assert!(!origins_match(
+            "file://github.com/acme/widgets.git",
+            "acme/widgets"
+        ));
+    }
+
+    #[test]
+    fn origins_match_rejects_unknown_scheme_with_github_authority() {
+        // Git supports pluggable remote helpers for arbitrary schemes. An
+        // unknown scheme like ftp:// or myhelper:// cannot be trusted to
+        // target GitHub even when the host matches.
+        assert!(!origins_match(
+            "ftp://github.com/acme/widgets.git",
+            "acme/widgets"
+        ));
+        assert!(!origins_match(
+            "myhelper://github.com/acme/widgets.git",
+            "acme/widgets"
+        ));
+    }
+
+    #[test]
+    fn origins_match_accepts_ssh_scheme() {
+        assert!(origins_match(
+            "ssh://git@github.com/acme/widgets.git",
+            "acme/widgets"
+        ));
+    }
+
+    #[test]
+    fn origins_match_accepts_git_scheme() {
+        assert!(origins_match(
+            "git://github.com/acme/widgets.git",
+            "acme/widgets"
+        ));
+    }
+
+    #[test]
+    fn origins_match_case_insensitive_owner_repo() {
+        // GitHub repository identity is ASCII case-insensitive: Acme/Widgets
+        // and acme/widgets refer to the same repository. A mixed-case
+        // configured value must NOT surface a false mismatch prompt.
+        assert!(origins_match(
+            "https://github.com/acme/widgets.git",
+            "Acme/Widgets"
+        ));
+        assert!(origins_match(
+            "git@github.com:Acme/Widgets.git",
+            "acme/widgets"
+        ));
+    }
+
+    #[test]
+    fn origins_match_rejects_malformed_actual() {
+        assert!(!origins_match("garbage", "acme/widgets"));
+    }
+
+    #[test]
+    fn origins_match_accepts_uppercase_host() {
+        assert!(origins_match(
+            "https://GitHub.COM/acme/widgets.git",
+            "acme/widgets"
+        ));
     }
 }

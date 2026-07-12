@@ -959,6 +959,10 @@ fn refresh_issue_preview_if_changed(app_state: &mut AppStateHandle, prev_issue_i
 mod tests;
 
 #[cfg(test)]
+#[path = "issue_send_modal_tests.rs"]
+mod issue_send_modal_tests;
+
+#[cfg(test)]
 #[path = "preflight_gating_tests.rs"]
 mod preflight_gating_tests;
 

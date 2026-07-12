@@ -257,6 +257,130 @@ fn detect_origin_shortform(work_dir: &Path) -> Option<String> {
     parse_origin_url(&url)
 }
 
+/// A parsed repository origin with host identity preserved.
+///
+/// Unlike [`parse_origin_url`] (which strips the host and returns only an
+/// `owner/repo` shortform for display), this type retains the **lowercased
+/// host** so callers can perform host-aware security comparisons.
+///
+/// This is the foundation of the origin-mismatch safety check (issue #190):
+/// a working copy whose `origin` points at `gitlab.com/owner/repo` or
+/// `git@attacker.example:owner/repo` must NOT match a configured GitHub
+/// repository even if the `owner/repo` path is identical.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedRepositoryOrigin {
+    /// Lowercased host (e.g. `"github.com"`). Empty string for the bare
+    /// `owner/repo` form (no host present in the URL).
+    pub host: String,
+    /// The `owner/repo` path component (e.g. `"acme/widgets"`).
+    pub owner_repo: String,
+}
+
+/// Parse a git remote URL into a [`ParsedRepositoryOrigin`] that preserves
+/// the host for security-aware comparison.
+///
+/// Handles:
+/// - SSH: `git@github.com:owner/repo.git` → host=`github.com`
+/// - HTTPS: `https://github.com/owner/repo.git` → host=`github.com`
+/// - SSH with scheme: `ssh://git@github.com/owner/repo.git` → host=`github.com`
+/// - Bare: `owner/repo` → host=`""` (empty — no host present in the URL)
+///
+/// For scheme URLs and scp-style SSH, the host is extracted and **lowercased**.
+/// For the bare `owner/repo` form (no host), `host` is an empty string.
+/// Trailing `.git` is stripped from the path.
+///
+/// **Scheme allowlist (security):** only `https`, `http`, `ssh`, and `git`
+/// scheme URLs are accepted. Other schemes (e.g. `file://`, `ftp://`, or a
+/// custom Git remote helper scheme like `myhelper://github.com/...`) are
+/// rejected with `None`, even if the authority syntactically reads
+/// `github.com`. Git supports pluggable remote helpers for arbitrary schemes,
+/// so a non-allowlisted scheme cannot be trusted to target GitHub even when
+/// the host matches.
+///
+/// Returns `None` for empty/malformed input, unallowed schemes, missing
+/// owner/repo, or extra path segments.
+#[must_use]
+pub fn parse_repository_origin(url: &str) -> Option<ParsedRepositoryOrigin> {
+    let url = url.trim();
+    if url.is_empty() {
+        return None;
+    }
+
+    if !url.contains("://") {
+        // Try scp-style SSH: `user@host:owner/repo.git`
+        if let Some(colon_pos) = url.rfind(':') {
+            let host_part = &url[..colon_pos];
+            let path_part = &url[colon_pos + 1..];
+            // SSH form: host_part is `user@host` (no '/'), path is `owner/repo.git`.
+            if !host_part.contains('/') {
+                let owner_repo = extract_owner_repo(path_part)?;
+                let host = extract_host_from_scp(host_part);
+                return Some(ParsedRepositoryOrigin { host, owner_repo });
+            }
+        }
+        // Bare form: `owner/repo` (no colon, no scheme). No host.
+        let owner_repo = extract_owner_repo(url)?;
+        return Some(ParsedRepositoryOrigin {
+            host: String::new(),
+            owner_repo,
+        });
+    }
+
+    // Scheme URL form: `scheme://authority/path`. Validate the scheme against
+    // an allowlist before trusting the host. A non-allowlisted scheme (e.g.
+    // file://, ftp://, or a custom remote-helper scheme) is rejected even if
+    // the authority reads github.com — Git remote helpers can resolve
+    // arbitrary schemes to anywhere.
+    let (scheme, after_scheme) = url.split_once("://")?;
+    let scheme = scheme.to_lowercase();
+    if !ALLOWED_REMOTE_SCHEMES.contains(&scheme.as_str()) {
+        return None;
+    }
+    // The host is everything between the scheme and the first `/`.
+    // For `ssh://git@github.com/owner/repo.git`, host_part = `git@github.com`.
+    let path_start = after_scheme.find('/')?;
+    let host_part = &after_scheme[..path_start];
+    let path = &after_scheme[path_start + 1..];
+    let owner_repo = extract_owner_repo(path)?;
+    let host = extract_host_from_scheme(host_part);
+    Some(ParsedRepositoryOrigin { host, owner_repo })
+}
+
+/// Remote-URL schemes trusted to target the host named in their authority.
+///
+/// Only these schemes map the host segment to the actual Git host. Any other
+/// scheme (e.g. `file://`, `ftp://`, or a custom remote-helper scheme) may
+/// resolve elsewhere, so `parse_repository_origin` rejects them regardless of
+/// the authority string.
+const ALLOWED_REMOTE_SCHEMES: [&str; 4] = ["https", "http", "ssh", "git"];
+
+/// Extract the lowercased host from a scp-style `user@host` component.
+///
+/// For `git@github.com` → `github.com`. For `github.com` → `github.com`.
+fn extract_host_from_scp(host_part: &str) -> String {
+    match host_part.rfind('@') {
+        Some(pos) => host_part[pos + 1..].to_lowercase(),
+        None => host_part.to_lowercase(),
+    }
+}
+
+/// Extract the lowercased host from a scheme-style authority component.
+///
+/// For `git@github.com` → `github.com`. For `github.com` → `github.com`.
+/// Strips any port suffix (e.g., `github.com:22` → `github.com`).
+fn extract_host_from_scheme(authority: &str) -> String {
+    let after_user = match authority.rfind('@') {
+        Some(pos) => &authority[pos + 1..],
+        None => authority,
+    };
+    // Strip port if present.
+    let host = match after_user.rfind(':') {
+        Some(pos) => &after_user[..pos],
+        None => after_user,
+    };
+    host.to_lowercase()
+}
+
 /// Parse a git remote URL into an `owner/repo` shortform.
 ///
 /// Handles:
@@ -264,35 +388,15 @@ fn detect_origin_shortform(work_dir: &Path) -> Option<String> {
 /// - HTTPS: `https://github.com/owner/repo.git`
 /// - SSH with scheme: `ssh://git@github.com/owner/repo.git`
 /// - Bare: `owner/repo`
-pub(crate) fn parse_origin_url(url: &str) -> Option<String> {
-    let url = url.trim();
-    if url.is_empty() {
-        return None;
-    }
-
-    // Try SSH form: everything after the last ':' if the left side has no '/'
-    // (i.e., it's `user@host:path`).
-    if !url.contains("://") {
-        if let Some(colon_pos) = url.rfind(':') {
-            let host_part = &url[..colon_pos];
-            let path_part = &url[colon_pos + 1..];
-            // SSH form: host_part is `user@host` (no '/'), path is `owner/repo.git`.
-            if !host_part.contains('/') {
-                return extract_owner_repo(path_part);
-            }
-        }
-        // Bare form: `owner/repo` (no colon, no scheme).
-        return extract_owner_repo(url);
-    }
-
-    // HTTPS / SSH-with-scheme form: strip the scheme and host, keep the path.
-    // `https://github.com/owner/repo.git` → `owner/repo`
-    // `ssh://git@github.com/owner/repo.git` → `owner/repo`
-    let after_scheme = url.split("://").nth(1)?;
-    // Skip the host: find the first '/' after the host.
-    let path_start = after_scheme.find('/')?;
-    let path = &after_scheme[path_start + 1..];
-    extract_owner_repo(path)
+///
+/// Reused by the issue-send origin-mismatch check (issue #190) to normalize
+/// a working copy's `origin` URL for comparison against the configured
+/// `Repository.github_repo`. Note: this function **strips the host** and is
+/// kept for backwards-compatible display use; for host-aware security
+/// comparison use [`parse_repository_origin`].
+#[must_use]
+pub fn parse_origin_url(url: &str) -> Option<String> {
+    parse_repository_origin(url).map(|parsed| parsed.owner_repo)
 }
 
 /// Extract `owner/repo` from a path like `owner/repo.git` or `owner/repo`.
