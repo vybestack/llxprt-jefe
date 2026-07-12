@@ -11,6 +11,21 @@ use super::types::{
 use super::util::{delete_char_at, delete_char_before, insert_char_at};
 
 impl AppState {
+    fn adjacent_repository_focus(
+        fields: &RepositoryFormFields,
+        focus: RepositoryFormFocus,
+        step: fn(RepositoryFormFocus) -> RepositoryFormFocus,
+    ) -> RepositoryFormFocus {
+        let candidate = step(focus);
+        if candidate == RepositoryFormFocus::DefaultCodePuppyModel
+            && AgentKind::from_form_value(&fields.default_agent_kind) != Some(AgentKind::CodePuppy)
+        {
+            step(candidate)
+        } else {
+            candidate
+        }
+    }
+
     fn handle_agent_shortcut_char(fields: &mut AgentFormFields, c: char) {
         if c == '0' {
             fields.shortcut_slot = None;
@@ -554,13 +569,7 @@ impl AppState {
         match &mut self.modal {
             ModalState::NewRepository { fields, focus, .. }
             | ModalState::EditRepository { fields, focus, .. } => {
-                *focus = focus.next();
-                if *focus == RepositoryFormFocus::DefaultCodePuppyModel
-                    && AgentKind::from_form_value(&fields.default_agent_kind)
-                        != Some(AgentKind::CodePuppy)
-                {
-                    *focus = focus.next();
-                }
+                *focus = Self::adjacent_repository_focus(fields, *focus, RepositoryFormFocus::next);
             }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => {
@@ -580,13 +589,7 @@ impl AppState {
         match &mut self.modal {
             ModalState::NewRepository { fields, focus, .. }
             | ModalState::EditRepository { fields, focus, .. } => {
-                *focus = focus.prev();
-                if *focus == RepositoryFormFocus::DefaultCodePuppyModel
-                    && AgentKind::from_form_value(&fields.default_agent_kind)
-                        != Some(AgentKind::CodePuppy)
-                {
-                    *focus = focus.prev();
-                }
+                *focus = Self::adjacent_repository_focus(fields, *focus, RepositoryFormFocus::prev);
             }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => {
