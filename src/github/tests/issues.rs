@@ -1,8 +1,9 @@
 use crate::domain::{Issue, IssueComment, IssueDetail, IssueFilter, IssueFilterState, IssueState};
 use crate::github::{
-    GhClient, GhError, build_list_issues_args, categorize_error, parse_comments_json,
-    parse_created_comment_json, parse_created_issue_json, parse_issue_detail_json,
-    parse_issue_search_json, parse_issues_json, sort_issues,
+    GhClient, GhError, build_assign_issue_args, build_list_issues_args, build_viewer_login_args,
+    categorize_error, parse_comments_json, parse_created_comment_json, parse_created_issue_json,
+    parse_issue_detail_json, parse_issue_search_json, parse_issues_json, parse_viewer_login,
+    sort_issues,
 };
 
 trait TestResultExt<T> {
@@ -804,4 +805,113 @@ fn test_parse_issue_detail_json_propagates_comment_errors() {
         Err(e) => panic!("expected ParseError, got {e:?}"),
         Ok(_) => panic!("should not succeed"),
     }
+}
+
+#[test]
+fn test_parse_viewer_login_bare_jq_string() {
+    let login = parse_viewer_login("acoliver\n").value_or_panic("bare login should parse");
+    assert_eq!(login, "acoliver");
+}
+
+#[test]
+fn test_parse_viewer_login_trims_surrounding_whitespace() {
+    let login = parse_viewer_login("\n  acoliver  \n").value_or_panic("trimmed login parses");
+    assert_eq!(login, "acoliver");
+}
+
+#[test]
+fn test_parse_viewer_login_strips_surrounding_quotes() {
+    let login = parse_viewer_login(r#""acoliver""#).value_or_panic("quoted login parses");
+    assert_eq!(login, "acoliver");
+}
+
+#[test]
+fn test_parse_viewer_login_rejects_multiline_garbage() {
+    // A bare-form output with embedded newlines/whitespace inside the login
+    // is not a valid GitHub login and must be rejected.
+    let result = parse_viewer_login("warning: something\nacoliver");
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "multiline bare output must be rejected, got {result:?}"
+    );
+}
+
+#[test]
+fn test_parse_viewer_login_rejects_valid_first_line_with_trailing_garbage() {
+    // Even when the first line is itself a valid login, trailing lines mean
+    // the gh output was malformed; reject rather than silently taking line 1.
+    let result = parse_viewer_login("acoliver\nunexpected garbage");
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "multiline output with a valid first line must be rejected, got {result:?}"
+    );
+}
+
+#[test]
+fn test_parse_viewer_login_rejects_invalid_login_chars() {
+    // GitHub logins cannot contain '@' or spaces; reject rather than passing
+    // a malformed value to the assignment request.
+    let result = parse_viewer_login("not a login");
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "login with invalid chars must be rejected, got {result:?}"
+    );
+}
+
+#[test]
+fn test_parse_viewer_login_empty_is_error() {
+    let result = parse_viewer_login("   \n  ");
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "empty viewer output must be a ParseError, got {result:?}"
+    );
+}
+
+#[test]
+fn test_parse_viewer_login_missing_login_field_is_error() {
+    let json = r#"{"id": 1234, "name": "No Login"}"#;
+    let result = parse_viewer_login(json);
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "missing login field must be a ParseError, got {result:?}"
+    );
+}
+
+#[test]
+fn test_parse_viewer_login_malformed_json_is_error() {
+    let result = parse_viewer_login("{ not json");
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "malformed JSON must be a ParseError, got {result:?}"
+    );
+}
+
+#[test]
+fn test_build_viewer_login_args_shape() {
+    let args = build_viewer_login_args();
+    assert_eq!(
+        args,
+        vec![
+            "api".to_string(),
+            "user".to_string(),
+            "--jq".to_string(),
+            ".login".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_build_assign_issue_args_shape() {
+    let args = build_assign_issue_args("acme", "widgets", 166, "acoliver");
+    assert_eq!(
+        args,
+        vec![
+            "api".to_string(),
+            "--method".to_string(),
+            "POST".to_string(),
+            "/repos/acme/widgets/issues/166/assignees".to_string(),
+            "-f".to_string(),
+            "assignees[]=acoliver".to_string(),
+        ]
+    );
 }

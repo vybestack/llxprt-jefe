@@ -51,6 +51,15 @@ fn app_events_route_to_domain_channels() {
             MessageDomain::System,
             "ClearWarning",
         ),
+        (
+            AppEvent::IssueSelfAssignmentFailed {
+                owner_repo: "owner/repo".into(),
+                issue_number: 42,
+                error: "boom".into(),
+            },
+            MessageDomain::Issues,
+            "IssueSelfAssignmentFailed",
+        ),
     ];
 
     for (event, domain, name) in routes {
@@ -193,6 +202,50 @@ fn typed_apply_search_commits_query_and_starts_reload() {
     assert_eq!(state.issues_state.list_cursor, None);
     assert!(!state.issues_state.has_more_issues);
     assert!(state.issues_state.loading.list);
+}
+
+#[test]
+fn issue_self_assignment_failed_round_trips_through_message_bus() {
+    // The non-blocking self-assignment failure must survive the
+    // AppEvent -> AppMessage -> AppEvent conversion with all fields intact
+    // (issue #186), so the reducer always sees owner_repo + issue_number +
+    // error for the warning message.
+    let event = AppEvent::IssueSelfAssignmentFailed {
+        owner_repo: "owner/repo".to_string(),
+        issue_number: 42,
+        error: "repo restricts assignees".to_string(),
+    };
+
+    let message: AppMessage = event.into();
+    let AppMessage::Issues(IssuesMessage::IssueSelfAssignmentFailed {
+        owner_repo,
+        issue_number,
+        error,
+    }) = message
+    else {
+        panic!("event must convert to an Issues::IssueSelfAssignmentFailed message");
+    };
+    assert_eq!(owner_repo, "owner/repo");
+    assert_eq!(issue_number, 42);
+    assert_eq!(error, "repo restricts assignees");
+
+    let round_tripped: AppEvent = IssuesMessage::IssueSelfAssignmentFailed {
+        owner_repo,
+        issue_number,
+        error,
+    }
+    .into();
+    let AppEvent::IssueSelfAssignmentFailed {
+        owner_repo,
+        issue_number,
+        error,
+    } = round_tripped
+    else {
+        panic!("message must convert back to AppEvent::IssueSelfAssignmentFailed");
+    };
+    assert_eq!(owner_repo, "owner/repo");
+    assert_eq!(issue_number, 42);
+    assert_eq!(error, "repo restricts assignees");
 }
 
 #[test]

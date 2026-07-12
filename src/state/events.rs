@@ -275,6 +275,14 @@ pub enum AppEvent {
     SendToAgentFailed {
         error: String,
     },
+    /// Non-blocking warning: an issue send-to-agent succeeded, but the
+    /// follow-up self-assignment to the authenticated viewer failed (issue
+    /// #186). Sets `warning_message` without affecting the launch.
+    IssueSelfAssignmentFailed {
+        owner_repo: String,
+        issue_number: u64,
+        error: String,
+    },
 
     // Pull Requests Mode events
     EnterPrsMode,

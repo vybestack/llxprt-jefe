@@ -17,7 +17,12 @@ use std::process::Command;
 
 mod create_issue;
 mod pr_threads;
+mod repo_merge;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};
+use repo_merge::parse_repo_merge_methods;
+
+mod viewer;
+pub use viewer::{build_assign_issue_args, build_viewer_login_args, parse_viewer_login};
 
 mod actions;
 pub use actions::{
@@ -354,6 +359,29 @@ impl GhClient {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         parse_created_issue_json(&stdout)
+    }
+
+    /// Resolve the authenticated viewer's login (`gh api user --jq .login`).
+    ///
+    /// Used to self-assign an issue on send-to-agent (issue #186).
+    pub fn viewer_login(&self) -> Result<String, GhError> {
+        let stdout = Self::run_gh(&build_viewer_login_args())?;
+        parse_viewer_login(&stdout)
+    }
+
+    /// Assign an issue to `assignee` via the assignees REST endpoint. Used for
+    /// self-assignment on send-to-agent (issue #186); failures are non-blocking
+    /// warnings at the caller, so this surfaces the raw `GhError`.
+    pub fn assign_issue(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        assignee: &str,
+    ) -> Result<(), GhError> {
+        let args = build_assign_issue_args(owner, repo, number, assignee);
+        Self::run_gh(&args)?;
+        Ok(())
     }
 
     /// Create a new comment on an issue.
@@ -959,42 +987,4 @@ fn fetch_issue_search_raw_page(
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     parse_issue_search_json(&stdout)
-}
-
-/// Parse the `gh api repos/{owner}/{repo} --jq {...}` output into the allowed
-/// merge methods. The `--jq` flag emits a compact JSON object with the three
-/// boolean fields. Any parse failure yields an empty Vec (graceful degradation
-/// — the chooser treats unknown as "all available").
-///
-/// @plan PLAN-20260624-PR-MODE.P08
-/// @requirement REQ-PR-009
-/// @pseudocode component-002 lines 115-122
-fn parse_repo_merge_methods(jq_output: &str) -> Vec<crate::domain::MergeMethod> {
-    use crate::domain::MergeMethod;
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(jq_output.trim()) else {
-        return Vec::new();
-    };
-    let mut methods = Vec::new();
-    if value
-        .get("allow_merge_commit")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-    {
-        methods.push(MergeMethod::Merge);
-    }
-    if value
-        .get("allow_squash_merge")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-    {
-        methods.push(MergeMethod::Squash);
-    }
-    if value
-        .get("allow_rebase_merge")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-    {
-        methods.push(MergeMethod::Rebase);
-    }
-    methods
 }
