@@ -119,8 +119,14 @@ pub(super) fn ensure_workdir_with_origin(
             match origin_raw_url(work_dir) {
                 Some(raw_url) if origins_match(&raw_url, expected) => Ok(WorkdirAssurance::Ready),
                 Some(raw_url) => {
-                    // Normalize the raw URL for display in the mismatch modal.
-                    let actual = jefe::git_info::parse_origin_url(&raw_url).unwrap_or_default();
+                    // Display the normalized owner/repo when it parses, else
+                    // the raw URL — so a malformed/unexpected origin (not just
+                    // a missing one) surfaces a diagnosable actual value
+                    // rather than an empty string indistinguishable from
+                    // "no origin".
+                    let actual = jefe::git_info::parse_origin_url(&raw_url)
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| raw_url.clone());
                     Ok(WorkdirAssurance::OriginMismatch {
                         actual,
                         expected: expected.to_owned(),

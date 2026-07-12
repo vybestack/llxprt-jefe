@@ -119,15 +119,21 @@ impl RemotePrepPlanner {
 
         // 1. Clone if missing.
         if inputs.presence == WorkdirPresence::Absent {
-            // Path absent → clone if identity present.
-            if let Some(id) = identity {
-                let url = id.clone_url();
-                let script = format!(
-                    "set -e; {mkdir_parent} git clone -- {url} {escaped_work}",
-                    mkdir_parent = mkdir_parent_for(work_dir),
-                    url = shell_escape(&url),
-                );
-                ops.push(self.wrapped_ssh_op(&script, None));
+            // Path absent → clone if identity present. If no identity is
+            // available, the live runner returns Err and no further ops run;
+            // mirror that here so the planner cannot emit checkout/prompt
+            // operations against a path that was never created.
+            match identity {
+                Some(id) => {
+                    let url = id.clone_url();
+                    let script = format!(
+                        "set -e; {mkdir_parent} git clone -- {url} {escaped_work}",
+                        mkdir_parent = mkdir_parent_for(work_dir),
+                        url = shell_escape(&url),
+                    );
+                    ops.push(self.wrapped_ssh_op(&script, None));
+                }
+                None => return ops,
             }
         }
 
@@ -302,6 +308,7 @@ impl RemotePrepPlanner {
 /// caller can return `OriginMismatch` (a git repo with no `origin` while an
 /// expected shortform IS configured is a mismatch — see
 /// [`super::remote_origin_mismatch`]).
+#[must_use = "the origin classification distinguishes Ok(Some)/Ok(None)/Err; ignoring Err conflates an SSH/auth failure with a missing origin"]
 pub fn classify_origin_url_output(
     exit_code: Option<i32>,
     stdout: &str,
@@ -349,6 +356,7 @@ const PREDICATE_FALSE: &str = "JEFE_PREDICATE_FALSE";
 ///
 /// This is **fail-closed**: any ambiguity is an `Err`, so infrastructure
 /// failures never masquerade as a safe `false` predicate.
+#[must_use = "the predicate classification distinguishes Ok(true)/Ok(false)/Err; ignoring Err conflates an SSH/auth failure with a safe false"]
 pub fn classify_predicate_output(
     exit_code: Option<i32>,
     stdout: &str,
@@ -532,7 +540,14 @@ impl RemotePrepRunner {
                 if super::super::issue_git_prep::origins_match(raw_url, expected) {
                     Ok(None)
                 } else {
-                    let actual = jefe::git_info::parse_origin_url(raw_url).unwrap_or_default();
+                    // Display the normalized owner/repo when it parses, else
+                    // the raw URL — so a malformed/unexpected origin (not
+                    // just a missing one) surfaces a diagnosable actual value
+                    // rather than an empty string indistinguishable from
+                    // "no origin".
+                    let actual = jefe::git_info::parse_origin_url(raw_url)
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| raw_url.to_owned());
                     Ok(Some(PrepOutcome::OriginMismatch {
                         actual,
                         expected: expected.to_owned(),
@@ -592,6 +607,15 @@ impl RemotePrepRunner {
     /// the required `identity` BEFORE the `rm -rf`. Since `identity` is a
     /// non-optional `&CloneIdentity`, removal can never happen without a
     /// valid replacement URL.
+    ///
+    /// **Partial-failure note:** if the `git clone` fails after the `rm -rf`
+    /// (network/auth/disk error), the existing workdir is already destroyed
+    /// and this returns `Err`. The user explicitly confirmed the replacement
+    /// via the `ConfirmIssueOriginMismatch` modal, and recovery is to retry
+    /// the send (which will clone fresh from the resolved URL). The
+    /// remove-then-clone ordering is defined by issue #190; a fully
+    /// transactional clone-to-temp-then-atomic-swap is intentionally out of
+    /// scope here.
     pub(super) fn run_force_reclone(
         &self,
         work_dir: &Path,

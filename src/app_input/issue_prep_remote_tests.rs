@@ -283,6 +283,28 @@ fn plan_clone_when_missing() {
 }
 
 #[test]
+fn plan_absent_without_identity_emits_no_ops() {
+    // When the workdir is absent AND no clone identity is available, the
+    // live runner returns Err. The planner must mirror that by emitting NO
+    // ops — it must not plan checkout/prompt-write operations against a
+    // path that was never created.
+    let planner = RemotePrepPlanner::new(remote_settings());
+    let ops = planner.plan(&PlanInputs {
+        work_dir: Path::new(PLAN_WORK_DIR),
+        identity: None,
+        policy: DirtyPolicy::Stop,
+        presence: WorkdirPresence::Absent,
+        is_dirty: false,
+        origin_mismatch: false,
+        prompt: "prompt",
+    });
+    assert!(
+        ops.is_empty(),
+        "absent workdir with no identity must emit no ops: {ops:?}"
+    );
+}
+
+#[test]
 fn plan_https_url_regardless_of_remote_enabled() {
     // Remote is enabled but clone URL must still be HTTPS (no SSH
     // inference from remote.enabled).
