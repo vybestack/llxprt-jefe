@@ -9,6 +9,7 @@
 
 use iocraft::prelude::*;
 
+use crate::github::AUTH_SCOPES;
 use crate::selection::{SelectablePane, TextSelection};
 use crate::state::{AuthDialogPhase, AuthDialogState};
 use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
@@ -59,9 +60,16 @@ fn confirming_lines(code: &str, url: &str) -> Vec<AuthDialogLine> {
         line(format!("One-time code: {code}")),
         line(format!("Open this URL: {url}")),
         line("Enter the code in your browser to authorize Jefe."),
-        line("Scopes requested: repo, read:org, gist"),
+        line(format!("Scopes requested: {}", scopes_display())),
         line("Waiting for authorization... Press Esc to cancel."),
     ]
+}
+
+/// Build the comma-separated scopes string from the single source of truth
+/// (`AUTH_SCOPES`) so the consent text cannot drift from what the subprocess
+/// actually requests (issue #244 OCR review).
+fn scopes_display() -> String {
+    AUTH_SCOPES.join(", ")
 }
 
 fn failed_lines(error: &str, can_retry: bool) -> Vec<AuthDialogLine> {
@@ -110,7 +118,10 @@ pub fn AuthModal(props: &AuthModalProps) -> impl Into<AnyElement<'static>> {
     element! {
         Box(
             flex_direction: FlexDirection::Column,
-            width: 64u32,
+            // Wide enough for the device URL + a session id (the URL line is
+            // the longest projected line). Bumped from 64 after OCR review
+            // noted a ~50-char URL plus surrounding text could truncate.
+            width: 72u32,
             height: height,
             border_style: BorderStyle::Round,
             border_color: rc.border_focused,
@@ -200,5 +211,28 @@ mod tests {
         let idle = auth_dialog_view(&phase(AuthDialogPhase::Idle));
         let awaiting = auth_dialog_view(&phase(AuthDialogPhase::AwaitingCode));
         assert_eq!(idle, awaiting);
+    }
+
+    #[test]
+    fn cancelled_view_announces_completion() {
+        // The Cancelled phase is a completed state, so the text must read as
+        // done, not in-progress (issue #244 OCR review).
+        let view = auth_dialog_view(&phase(AuthDialogPhase::Cancelled));
+        let joined = view
+            .iter()
+            .map(|l| l.text.as_str())
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            );
+        assert!(joined.contains("Cancelled."), "got: {joined}");
+        assert!(!joined.contains("Cancelling..."));
+    }
+
+    #[test]
+    fn scopes_display_derives_from_auth_scopes() {
+        // The consent text must come from AUTH_SCOPES, not a hardcoded copy.
+        assert_eq!(scopes_display(), AUTH_SCOPES.join(", "));
     }
 }

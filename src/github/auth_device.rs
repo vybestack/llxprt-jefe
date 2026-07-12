@@ -218,14 +218,16 @@ fn extract_device_code(clean: &str) -> Option<String> {
     }
 }
 
-/// A device code is `XXXX-XXXX` (or longer segments separated by a single
-/// dash): letters/digits, a dash, letters/digits.
+/// A device code is exactly `XXXX-XXXX`: 4 ASCII alphanumerics, a dash, 4
+/// ASCII alphanumerics (GitHub's device-code format). Kept in lockstep with
+/// [`is_code_at_boundary`] so anything [`parse_device_code`] accepts is also
+/// redacted by [`redact_device_codes`] (defense-in-depth for the credential).
 fn is_valid_device_code(candidate: &str) -> bool {
     let Some((left, right)) = candidate.split_once('-') else {
         return false;
     };
-    !left.is_empty()
-        && !right.is_empty()
+    left.len() == 4
+        && right.len() == 4
         && segment_is_alphanumeric(left)
         && segment_is_alphanumeric(right)
 }
@@ -243,12 +245,14 @@ fn extract_verification_url(clean: &str) -> Option<String> {
     // Find the github.com device URL anywhere in the output.
     let url_start = clean.find("https://github.com/login/device")?;
     let rest = &clean[url_start..];
-    // URL ends at the first whitespace.
+    // URL ends at the first whitespace; then strip trailing sentence
+    // punctuation that gh may append when the URL ends a clause (issue #244
+    // OCR review: only trimming periods missed ')', ']', '}', etc.).
     let url = rest
         .split_whitespace()
         .next()
         .unwrap_or(rest)
-        .trim_end_matches('.');
+        .trim_end_matches(['.', ')', ']', '}', ',', ';', ':', '!', '?', '\'', '"']);
     Some(url.to_string())
 }
 
@@ -274,5 +278,54 @@ mod tests {
         assert!(!is_valid_device_code("1234"));
         assert!(!is_valid_device_code("-1234"));
         assert!(!is_valid_device_code("1234-"));
+    }
+
+    #[test]
+    fn is_valid_device_code_requires_strict_4_plus_4() {
+        // Anything other than exactly 4+4 is rejected, so the parser and the
+        // redactor stay in lockstep (issue #244 OCR review).
+        assert!(!is_valid_device_code("A-B"));
+        assert!(!is_valid_device_code("ABC-DEFG"));
+        assert!(!is_valid_device_code("ABCDE-FGHI"));
+        assert!(is_valid_device_code("7701-C5F6"));
+    }
+
+    #[test]
+    fn extract_verification_url_strips_trailing_punctuation() {
+        // Trailing sentence punctuation must not become part of the URL.
+        assert_eq!(
+            extract_verification_url("Open this URL: https://github.com/login/device/abc."),
+            Some("https://github.com/login/device/abc".to_string())
+        );
+        assert_eq!(
+            extract_verification_url("(see https://github.com/login/device/abc))"),
+            Some("https://github.com/login/device/abc".to_string())
+        );
+        assert_eq!(
+            extract_verification_url("url: https://github.com/login/device/abc]."),
+            Some("https://github.com/login/device/abc".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_verification_url_returns_none_when_absent() {
+        assert!(extract_verification_url("no url here").is_none());
+    }
+
+    #[test]
+    fn is_code_at_boundary_matches_standalone_code() {
+        let chars: Vec<char> = "code 7701-C5F6 done".chars().collect();
+        let pos = "code ".len();
+        assert!(is_code_at_boundary(&chars, pos));
+    }
+
+    #[test]
+    fn is_code_at_boundary_rejects_mid_token() {
+        // The 4+4 shape exists starting at index 4 of "tokenABCD-EFGH", but it
+        // is preceded by an alphanumeric, so it must not be treated as a code.
+        let s = "tokenABCD-EFGH";
+        let chars: Vec<char> = s.chars().collect();
+        let pos = "token".len();
+        assert!(!is_code_at_boundary(&chars, pos));
     }
 }

@@ -79,10 +79,13 @@ pub fn run_device_auth() -> Result<AuthRunResult, GhError> {
     let stderr_thread = spawn_pipe_reader(child.stderr.take());
     let stdout_thread = spawn_pipe_reader(child.stdout.take());
 
-    let exit_success = wait_with_deadline(&mut child)?.success();
-
+    // On timeout `wait_with_deadline` kills the child, so the reader threads
+    // return promptly once their pipes close. Join them on BOTH paths so we
+    // never leak detached reader threads on an error (issue #244 OCR review).
+    let exit_status = wait_with_deadline(&mut child);
     let stderr_buf = stderr_thread.join().unwrap_or_default();
     let stdout_buf = stdout_thread.join().unwrap_or_default();
+    let exit_success = exit_status?.success();
 
     // gh writes the device code to stderr; fall back to scanning stdout too
     // (defensive — gh's stream choice has changed across versions).
