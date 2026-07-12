@@ -78,3 +78,22 @@ body line";
         "AA result must not contain BB-prefixed lines: {aa_again:?}"
     );
 }
+
+/// Symmetric variant-vec coverage for the OTHER axis: same body and prefix
+/// but different placeholders must be distinct variants. Placeholders only
+/// surface for empty bodies, so an empty body exercises the axis end-to-end
+/// (warm one placeholder, read the other, re-read the first).
+#[test]
+fn render_markdown_block_same_body_different_placeholders_via_value_vec() {
+    let first = render_markdown_block("", "  ", "(no description)");
+    assert_eq!(first.as_ref(), &["  (no description)".to_string()]);
+
+    let second = render_markdown_block("", "  ", "(no body)");
+    assert_eq!(second.as_ref(), &["  (no body)".to_string()]);
+
+    let first_again = render_markdown_block("", "  ", "(no description)");
+    assert_eq!(
+        first, first_again,
+        "repeating the first placeholder returns its own variant"
+    );
+}
