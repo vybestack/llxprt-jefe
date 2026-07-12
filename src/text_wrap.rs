@@ -1,10 +1,15 @@
 //! Pure, iocraft-free word-wrap projection.
 //!
-//! Splits text into wrapped rows of at most `width` display columns, breaking
+//! Splits text into wrapped rows of at most `width` characters, breaking
 //! at word boundaries (whitespace) so words are never split mid-character.
 //! Each row records the half-open `[start, end)` char-column range it covers
 //! within the source text, so consumers (the editor caret, the displayer
 //! selection) can map a source position onto the wrapped row that contains it.
+//!
+//! `width` is counted in Unicode scalar values (one per `char`), not terminal
+//! display columns: a wide glyph (CJK, emoji) or combining mark counts as one.
+//! This matches the editor's caret model, which is char-based. Terminal-cell
+//! width would require a separate measurement pass and is out of scope here.
 //!
 //! This is the single shared wrapping primitive for the app: the editor
 //! (`TextBox`) and the read-only displayer (`ScrollableText`) both consume it
@@ -33,8 +38,9 @@ pub struct WrapRow {
     pub end: usize,
 }
 
-/// Wrap `text` into rows of at most `width` display columns, breaking at word
-/// boundaries. See the module docs for the full semantics.
+/// Wrap `text` into rows of at most `width` characters, breaking at word
+/// boundaries. See the module docs for the full semantics (including the
+/// char-count width convention).
 ///
 /// `width == 0` yields a single empty row. The result is never empty: even
 /// empty input produces one row.
@@ -142,9 +148,8 @@ fn wrap_single_line(line: &str, width: usize, base: usize, rows: &mut Vec<WrapRo
         }
     }
 
-    // Flush the final partial row, trimming trailing spaces from the text.
+    // Flush the final partial row (trailing spaces are trimmed by flush_row_at).
     flush_row_at(rows, &mut row_chars, &mut row_src_start, col);
-    trim_final_row(rows);
 }
 
 /// Scan one word + its trailing whitespace run starting at `i` in `chars`.
@@ -221,21 +226,6 @@ fn place_overlong_word(
     col += space_budget;
     col
 }
-
-/// Trim trailing spaces from the last emitted row's DISPLAYED text only,
-/// leaving `end` (the source extent) intact so a position in the trailing
-/// spaces still maps to this row.
-fn trim_final_row(rows: &mut [WrapRow]) {
-    let Some(last) = rows.last_mut() else {
-        return;
-    };
-    let trailing = last.text.chars().rev().take_while(|c| *c == ' ').count();
-    if trailing > 0 {
-        let keep = last.text.chars().count() - trailing;
-        last.text.truncate(byte_len_of_chars(&last.text, keep));
-    }
-}
-
 /// Flush the in-progress row: push it with a GLOBAL `start` of
 /// `row_src_start`, trim trailing spaces from the DISPLAYED text, but set
 /// `end` to `row_src_start + consumed` (the full SOURCE extent, including
