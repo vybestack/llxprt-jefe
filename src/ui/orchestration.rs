@@ -41,96 +41,127 @@ pub struct TerminalRenderData {
 }
 
 /// Derive confirmation modal data from current state, if applicable.
+///
+/// A single exhaustive match over `modal` produces the full
+/// [`ConfirmModalData`] for every confirm variant. This ensures the compiler
+/// enforces coverage: adding a new confirm variant without supplying its
+/// `confirm_focus` is a compile error, preventing the focus from silently
+/// defaulting to `Cancel`.
 #[must_use]
 pub fn derive_confirm_modal_data(
     snapshot: &AppState,
     modal: &ModalState,
 ) -> Option<ConfirmModalData> {
-    let focus = confirm_focus_from_modal(modal);
-    confirm_modal_text(modal, snapshot).map(
-        |(title, message, show_delete_work_dir, delete_work_dir)| ConfirmModalData {
-            title,
-            message,
-            show_delete_work_dir,
-            delete_work_dir,
-            confirm_focus: focus,
-        },
-    )
-}
-
-/// Extract the confirm focus from any confirm variant (issue #228).
-fn confirm_focus_from_modal(modal: &ModalState) -> ConfirmFocus {
-    match modal {
-        ModalState::ConfirmDeleteAgent { confirm_focus, .. }
-        | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
-        | ModalState::ConfirmKillAgent { confirm_focus, .. }
-        | ModalState::PreflightPrompt { confirm_focus, .. }
-        | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
-        | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => *confirm_focus,
-        _ => ConfirmFocus::Cancel,
-    }
-}
-
-/// Derive the title, message, and checkbox state from a confirm modal.
-/// Returns `None` for non-confirm modals.
-fn confirm_modal_text(
-    modal: &ModalState,
-    snapshot: &AppState,
-) -> Option<(String, String, bool, bool)> {
-    match modal {
+    let (title, message, show_delete_work_dir, delete_work_dir, confirm_focus) = match modal {
         ModalState::ConfirmDeleteAgent {
             id,
             delete_work_dir,
+            confirm_focus,
+        } => {
+            let (title, message, show) = confirm_text(snapshot, ConfirmKind::DeleteAgent(id));
+            (title, message, show, *delete_work_dir, *confirm_focus)
+        }
+        ModalState::ConfirmKillAgent { id, confirm_focus } => {
+            let (title, message, show) = confirm_text(snapshot, ConfirmKind::KillAgent(id));
+            (title, message, show, false, *confirm_focus)
+        }
+        ModalState::ConfirmDeleteRepository { id, confirm_focus } => {
+            let (title, message, show) = confirm_text(snapshot, ConfirmKind::DeleteRepository(id));
+            (title, message, show, false, *confirm_focus)
+        }
+        ModalState::PreflightPrompt {
+            issue,
+            confirm_focus,
             ..
-        } => Some((
+        } => (
+            issue.prompt_title(),
+            issue.prompt_message(),
+            false,
+            false,
+            *confirm_focus,
+        ),
+        ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. } => {
+            let (title, message, show) = confirm_text(snapshot, ConfirmKind::IssueDirtyCopy);
+            (title, message, show, false, *confirm_focus)
+        }
+        ModalState::ConfirmIssueOriginMismatch {
+            actual,
+            expected,
+            confirm_focus,
+            ..
+        } => {
+            let (title, message, show) = confirm_text(
+                snapshot,
+                ConfirmKind::IssueOriginMismatch { actual, expected },
+            );
+            (title, message, show, false, *confirm_focus)
+        }
+        _ => return None,
+    };
+    Some(ConfirmModalData {
+        title,
+        message,
+        show_delete_work_dir,
+        delete_work_dir,
+        confirm_focus,
+    })
+}
+
+/// Which confirm variant to format, carrying only the fields needed for
+/// title/message construction.
+enum ConfirmKind<'a> {
+    DeleteAgent(&'a crate::domain::AgentId),
+    KillAgent(&'a crate::domain::AgentId),
+    DeleteRepository(&'a crate::domain::RepositoryId),
+    IssueDirtyCopy,
+    IssueOriginMismatch {
+        actual: &'a String,
+        expected: &'a String,
+    },
+}
+
+/// Build `(title, message, show_delete_work_dir)` for a confirm variant.
+fn confirm_text(snapshot: &AppState, kind: ConfirmKind) -> (String, String, bool) {
+    match kind {
+        ConfirmKind::DeleteAgent(id) => (
             String::from("Delete Agent"),
             format!("Delete {}?", agent_display_name(snapshot, id)),
             true,
-            *delete_work_dir,
-        )),
-        ModalState::ConfirmKillAgent { id, .. } => Some((
+        ),
+        ConfirmKind::KillAgent(id) => (
             String::from("Kill Agent"),
             format!("Kill {}?", agent_display_name(snapshot, id)),
             false,
-            false,
-        )),
-        ModalState::ConfirmDeleteRepository { id, .. } => Some((
+        ),
+        ConfirmKind::DeleteRepository(id) => (
             String::from("Delete Repository"),
             format!(
                 "Delete {} and all its agents?",
                 repo_display_name(snapshot, id)
             ),
             false,
-            false,
-        )),
-        ModalState::PreflightPrompt { issue, .. } => {
-            Some((issue.prompt_title(), issue.prompt_message(), false, false))
-        }
-        ModalState::ConfirmIssueDirtyCopy { .. } => Some((
+        ),
+        ConfirmKind::IssueDirtyCopy => (
             String::from("Dirty Working Copy"),
             String::from(
                 "Working copy has uncommitted changes. Discard them (git reset --hard + git clean)?",
             ),
             false,
-            false,
-        )),
-        ModalState::ConfirmIssueOriginMismatch {
-            actual, expected, ..
-        } => Some((
-            String::from("Wrong Repository"),
-            format!(
-                "Working copy origin is {actual_repr}, expected {expected}. \
-                     Replace it with a fresh clone?",
-                actual_repr = if actual.is_empty() {
-                    "(no origin remote)"
-                } else {
-                    actual
-                },
-            ),
-            false,
-            false,
-        )),
-        _ => None,
+        ),
+        ConfirmKind::IssueOriginMismatch { actual, expected } => {
+            let actual_repr = if actual.is_empty() {
+                "(no origin remote)"
+            } else {
+                actual
+            };
+            (
+                String::from("Wrong Repository"),
+                format!(
+                    "Working copy origin is {actual_repr}, expected {expected}. Replace it with a fresh clone?"
+                ),
+                false,
+            )
+        }
     }
 }
 

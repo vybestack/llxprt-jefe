@@ -227,16 +227,10 @@ impl AppState {
 
     fn toggle_delete_work_dir(&mut self) {
         if let ModalState::ConfirmDeleteAgent {
-            id,
-            delete_work_dir,
-            confirm_focus,
-        } = self.modal.clone()
+            delete_work_dir, ..
+        } = &mut self.modal
         {
-            self.modal = ModalState::ConfirmDeleteAgent {
-                id,
-                delete_work_dir: !delete_work_dir,
-                confirm_focus,
-            };
+            *delete_work_dir = !*delete_work_dir;
         }
     }
 
