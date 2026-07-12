@@ -233,6 +233,15 @@ impl IssuesMessage {
             AppEvent::AgentChooserCancel => Self::AgentChooserCancel,
             AppEvent::SendToAgentCompleted => Self::SendToAgentCompleted,
             AppEvent::SendToAgentFailed { error } => Self::SendToAgentFailed { error },
+            AppEvent::IssueSelfAssignmentFailed {
+                owner_repo,
+                issue_number,
+                error,
+            } => Self::IssueSelfAssignmentFailed {
+                owner_repo,
+                issue_number,
+                error,
+            },
             _ => unreachable!("non-issues AppEvent routed to issues converter"),
         }
     }
@@ -572,6 +581,15 @@ impl IssuesMessage {
             Self::AgentChooserCancel => AppEvent::AgentChooserCancel,
             Self::SendToAgentCompleted => AppEvent::SendToAgentCompleted,
             Self::SendToAgentFailed { error } => AppEvent::SendToAgentFailed { error },
+            Self::IssueSelfAssignmentFailed {
+                owner_repo,
+                issue_number,
+                error,
+            } => AppEvent::IssueSelfAssignmentFailed {
+                owner_repo,
+                issue_number,
+                error,
+            },
             _ => unreachable!("routed IssuesMessage variant reached controls converter"),
         }
     }

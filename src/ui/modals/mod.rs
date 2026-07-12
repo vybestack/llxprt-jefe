@@ -11,3 +11,5 @@ pub use help::{
     HELP_CHROME_ROWS, HELP_MODAL_WIDTH, HELP_TITLE, HelpModal, HelpModalProps, help_content_lines,
     help_viewport_rows,
 };
+
+pub(crate) use confirm::confirm_button_row;

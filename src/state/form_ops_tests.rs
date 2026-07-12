@@ -54,6 +54,27 @@ fn open_new_agent_initializes_llxprt_debug_blank() {
 }
 
 #[test]
+fn open_new_agent_copies_repository_code_puppy_model() {
+    let mut repo = seed_repository();
+    repo.default_code_puppy_model = "repo/default-model".to_owned();
+    let mut state = AppState {
+        repositories: vec![repo],
+        ..AppState::default()
+    };
+
+    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+
+    let ModalState::NewAgent { fields, cursor, .. } = state.modal else {
+        panic!("expected new-agent modal, got {:?}", state.modal);
+    };
+    assert_eq!(fields.code_puppy_model, "repo/default-model");
+    assert_eq!(
+        cursor.code_puppy_model,
+        "repo/default-model".chars().count()
+    );
+}
+
+#[test]
 fn open_new_agent_defaults_to_repo_kind_when_installed() {
     let mut repo = seed_repository();
     repo.default_agent_kind = crate::domain::AgentKind::CodePuppy;
@@ -250,6 +271,7 @@ fn create_agent_rejects_whitespace_only_work_dir() {
         profile: String::new(),
         code_puppy_model: String::new(),
         code_puppy_yolo: false,
+        code_puppy_quick_resume: crate::domain::QuickResume::default(),
         agent_kind: "LLxprt".to_owned(),
         mode: "--yolo".to_owned(),
         llxprt_debug: String::new(),
@@ -276,6 +298,7 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         profile: String::new(),
         code_puppy_model: String::new(),
         code_puppy_yolo: Some(false),
+        code_puppy_quick_resume: false,
         mode_flags: vec!["--yolo".to_owned()],
         llxprt_debug: String::new(),
         pass_continue: true,
@@ -295,6 +318,7 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         profile: String::new(),
         code_puppy_model: String::new(),
         code_puppy_yolo: false,
+        code_puppy_quick_resume: crate::domain::QuickResume::default(),
         agent_kind: "LLxprt".to_owned(),
         mode: "--yolo".to_owned(),
         llxprt_debug: String::new(),
@@ -325,6 +349,7 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         profile: String::new(),
         code_puppy_model: String::new(),
         code_puppy_yolo: Some(false),
+        code_puppy_quick_resume: false,
         mode_flags: vec!["--fast".to_owned()],
         llxprt_debug: String::new(),
         pass_continue: true,
@@ -343,6 +368,7 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         profile: String::new(),
         code_puppy_model: String::new(),
         code_puppy_yolo: false,
+        code_puppy_quick_resume: crate::domain::QuickResume::default(),
         agent_kind: "LLxprt".to_owned(),
         mode: "   ".to_owned(),
         llxprt_debug: String::new(),

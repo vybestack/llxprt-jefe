@@ -14,6 +14,10 @@ pub mod input;
 pub mod issue_detail_content;
 pub mod layout;
 pub mod logging;
+/// Single-pass HTML-to-text stripping for untrusted markdown (issue #155).
+pub(crate) mod markdown_html_strip;
+/// Plain-text markdown rendering for the detail panes (issue #155).
+pub(crate) mod markdown_render;
 pub mod messages;
 pub mod persistence;
 /// @plan PLAN-20260624-PR-MODE.P12
@@ -31,6 +35,10 @@ pub mod state;
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-010
 pub mod text_box_view;
+/// Pure, iocraft-free word-wrap projection shared by the editor and displayer.
+///
+/// @requirement REQ-TEXT-WRAP
+pub mod text_wrap;
 pub mod theme;
 pub mod ui;
 

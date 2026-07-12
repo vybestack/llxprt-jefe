@@ -38,28 +38,25 @@ pub struct IssueDetailHeaderView {
 
 /// Pure projection of the issue detail's four fixed header rows exactly as the
 /// component renders them.
+///
+/// Issue #155 redesign (shared with the PR detail header): human dates replace
+/// raw ISO timestamps, empty fields show `—` instead of `-`.
 #[must_use]
 pub fn issue_detail_header_view(detail: &IssueDetail) -> IssueDetailHeaderView {
     let state_tag = match detail.state {
         IssueState::Open => "OPEN",
         IssueState::Closed => "CLOSED",
     };
-    let labels_str = if detail.labels.is_empty() {
-        "-".to_string()
-    } else {
-        detail.labels.join(", ")
-    };
-    let assignees_str = if detail.assignees.is_empty() {
-        "-".to_string()
-    } else {
-        detail.assignees.join(", ")
-    };
-    let milestone_str = detail.milestone.as_deref().unwrap_or("-").to_string();
+    let created = crate::ui::util::format_iso_date(&detail.created_at);
+    let updated = crate::ui::util::format_iso_date(&detail.updated_at);
+    let labels_str = crate::ui::util::field_list(&detail.labels);
+    let assignees_str = crate::ui::util::field_list(&detail.assignees);
+    let milestone_str = crate::ui::util::field_opt(detail.milestone.as_deref());
     IssueDetailHeaderView {
         title: format!("#{} {}", detail.number, detail.title),
         state: format!(
-            "{}  by @{}  opened: {}  updated: {}",
-            state_tag, detail.author_login, detail.created_at, detail.updated_at
+            "{state_tag}  by @{}  opened: {created}  updated: {updated}",
+            detail.author_login
         ),
         labels: format!(
             "labels: {labels_str}  assignees: {assignees_str}  milestone: {milestone_str}"
@@ -313,7 +310,7 @@ mod tests {
     use crate::state::{ComposerTarget, InlineState};
 
     #[test]
-    fn build_new_issue_content_renders_prompt_and_cursor() {
+    fn build_new_issue_content_renders_static_prompt_only() {
         let inline = InlineState::Composer {
             target: ComposerTarget::NewIssue,
             text: "Issue title\nIssue body".to_string(),
@@ -325,10 +322,15 @@ mod tests {
         assert!(text.contains("New Issue"));
         assert!(text.contains("Title: first line | Body: remaining lines"));
         assert!(text.contains("Ctrl+Enter submit | Esc cancel"));
-        assert!(cursor.is_some());
-        if let Some((line, col)) = cursor {
-            assert!(line > 0, "cursor should be on a text line");
-            assert!(col > 0, "cursor column should be non-zero at end of text");
-        }
+        // The editor text is rendered by the embedded wrapping TextBox, so it
+        // must NOT be flattened into the read-only document (issue #212).
+        assert!(
+            !text.contains("Issue title"),
+            "editor text must not be flattened into the document: {text}"
+        );
+        assert!(
+            cursor.is_none(),
+            "the TextBox owns the caret; the document must carry no cursor"
+        );
     }
 }

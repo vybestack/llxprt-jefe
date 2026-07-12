@@ -12,6 +12,7 @@ fn base_signature() -> LaunchSignature {
         profile: String::new(),
         code_puppy_model: String::new(),
         code_puppy_yolo: Some(false),
+        code_puppy_quick_resume: false,
         mode_flags: Vec::new(),
         llxprt_debug: String::new(),
         pass_continue: true,
@@ -30,6 +31,40 @@ fn code_puppy_omits_yolo_argument_for_legacy_unconfigured_agent() {
     signature.code_puppy_yolo = None;
 
     assert_eq!(code_puppy_launch_args(&signature), vec!["-i"]);
+}
+
+#[test]
+fn code_puppy_quick_resume_uses_exact_work_dir_and_preserves_argv_order() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.work_dir = std::path::PathBuf::from("/remote/work/puppy");
+    signature.code_puppy_quick_resume = true;
+    signature.code_puppy_model = "puppy-pro".to_owned();
+    signature.code_puppy_yolo = Some(true);
+
+    assert_eq!(
+        code_puppy_launch_args(&signature),
+        vec![
+            "-i",
+            "--quick-resume",
+            "/remote/work/puppy",
+            "--model",
+            "puppy-pro",
+            "--yolo",
+            "true"
+        ]
+    );
+}
+
+#[test]
+fn code_puppy_does_not_infer_quick_resume_from_llxprt_continue() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.pass_continue = true;
+
+    let args = code_puppy_launch_args(&signature);
+    assert!(!args.iter().any(|arg| arg == "--continue"));
+    assert!(!args.iter().any(|arg| arg == "--quick-resume"));
 }
 
 #[test]
@@ -53,6 +88,17 @@ fn code_puppy_passes_configured_model_as_exact_argv() {
         code_puppy_launch_args(&signature),
         vec!["-i", "--model", "openrouter/puppy-pro", "--yolo", "false"]
     );
+}
+
+#[test]
+fn llxprt_ignores_code_puppy_model() {
+    let mut signature = base_signature();
+    signature.code_puppy_model = "puppy-only".to_owned();
+
+    let args = llxprt_launch_args(&signature);
+
+    assert!(!args.iter().any(|arg| arg == "--model"));
+    assert!(!args.iter().any(|arg| arg == "puppy-only"));
 }
 
 #[test]

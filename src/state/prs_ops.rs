@@ -547,6 +547,8 @@ impl AppState {
             }
             AppEvent::RefocusPrList => {
                 self.prs_state.pr_focus = PrFocus::PrList;
+                self.prs_state.detail_pending = None;
+                self.prs_state.loading.detail = false;
                 true
             }
             _ => false,

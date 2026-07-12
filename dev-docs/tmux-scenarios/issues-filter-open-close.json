@@ -18,7 +18,7 @@
     { "key": "a" },
     { "waitFor": "No terminal attached" },
     { "capture": "dashboard-after-issues-mode" },
-    { "key": "q" },
+    { "key": "C-q" },
     { "waitForExit": 3000 }
   ]
 }

@@ -59,8 +59,10 @@ pub struct TextBoxRow {
 pub struct TextBoxView {
     /// Exactly `viewport_rows` rows (or empty when `viewport_rows == 0`).
     pub rows: Vec<TextBoxRow>,
-    /// The first source line visible in the viewport.
-    pub first_visible_line: usize,
+    /// The first visible display-row index in the viewport. Wrapping may make
+    /// a single logical line span several display rows, so this is a row
+    /// index, not a logical-line index.
+    pub first_visible_row: usize,
     /// Total logical line count of the source text.
     pub total_lines: usize,
 }
@@ -113,65 +115,56 @@ fn floor_char_boundary(text: &str, idx: usize) -> usize {
     i
 }
 
-/// Horizontal window for a single row: produce the substring of `line` that
-/// fits within `content_width` characters AND keeps `caret_col` visible. When
-/// the caret is beyond the right edge, the window scrolls right so the caret
-/// is the last visible column; otherwise the window starts at column 0.
+/// One wrapped segment of a logical line: the text of the segment plus the
+/// half-open `[start, end)` char-column range it covers within the source
+/// line. Used internally to build display rows and map the caret onto them.
+struct WrapSegment {
+    text: String,
+    start: usize,
+    end: usize,
+}
+
+/// Split a single logical line into wrapped segments of at most
+/// `content_width` display columns, breaking at word boundaries. Returns one
+/// segment for a short line, multiple for a long line, and a single empty
+/// segment for an empty line.
 ///
-/// Returns the windowed text and the caret column relative to the window
-/// start (still `Some` only when this row carries the caret).
+/// Word-wrap (never splitting a word) is delegated to the shared
+/// [`crate::text_wrap`] primitive so the editor and the read-only displayer
+/// wrap identically.
 ///
-/// @plan PLAN-20260624-PR-MODE.P14
+/// `content_width == 0` yields a single empty segment (the caller suppresses
+/// the caret for width 0 anyway).
+///
 /// @requirement REQ-PR-009
-/// @pseudocode component-001 lines 169-176
-fn window_row(
-    line: &str,
-    caret_col: Option<usize>,
-    content_width: usize,
-) -> (String, Option<usize>) {
-    if content_width == 0 {
-        return (String::new(), None);
-    }
-    let caret = caret_col.unwrap_or(0);
-    // Window start in char columns.
-    let start = if caret < content_width {
-        0
-    } else {
-        // Keep the caret inside the visible width, not as an extra column.
-        caret.saturating_add(1).saturating_sub(content_width)
-    };
-    let (windowed, window_len) = if start == 0 {
-        let windowed: String = line.chars().take(content_width).collect();
-        let window_len = windowed.chars().count();
-        (windowed, window_len)
-    } else {
-        let chars: Vec<char> = line.chars().collect();
-        let windowed: String = chars
-            .iter()
-            .skip(start)
-            .take(content_width)
-            .copied()
-            .collect();
-        let window_len = chars.len().saturating_sub(start).min(content_width);
-        (windowed, window_len)
-    };
-    let rel_caret = caret_col.map(|c| c.saturating_sub(start).min(window_len));
-    (windowed, rel_caret)
+/// @requirement REQ-TEXT-WRAP
+fn wrap_line(line: &str, content_width: usize) -> Vec<WrapSegment> {
+    crate::text_wrap::wrap_text(line, content_width)
+        .into_iter()
+        .map(|r| WrapSegment {
+            text: r.text,
+            start: r.start,
+            end: r.end,
+        })
+        .collect()
 }
 
 /// Build a fixed-size [`TextBoxView`] projection of `text`.
 ///
 /// - `byte_cursor` is floored to a UTF-8 char boundary before use.
-/// - Vertical viewport: the caret line is always visible; `first_visible_line`
-///   is derived from the caret (no stored scroll state).
-/// - Horizontal viewport: each visible row is windowed to `content_width`
-///   characters, keeping the caret column visible on the caret row.
+/// - Wrapping: each logical line is split into wrapped display rows of at
+///   most `content_width` characters, so long lines fold onto the next row
+///   instead of scrolling off the right edge.
+/// - Vertical viewport: the caret's wrapped row is always visible;
+///   `first_visible_row` is the first visible display-row index (derived
+///   from the caret, no stored scroll state).
 /// - `rows.len() == viewport_rows` for `viewport_rows > 0` (padded blank);
 ///   `rows` is empty when `viewport_rows == 0`.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-010
+/// @requirement REQ-TEXTBOX-WRAP
 /// @pseudocode component-001 lines 169-176
 #[must_use]
 pub fn build_text_box_view(
@@ -187,28 +180,25 @@ pub fn build_text_box_view(
     if viewport_rows == 0 {
         return TextBoxView {
             rows: Vec::new(),
-            first_visible_line: 0,
+            first_visible_row: 0,
             total_lines,
         };
     }
 
-    // Vertical viewport: keep the caret visible without stored scroll.
-    let first = vertical_first_visible(caret.line, viewport_rows, total_lines);
+    let (display_rows, caret_row_idx) =
+        build_wrapped_display_rows(&lines, caret, content_width, viewport_rows);
+
+    // If no caret row was recorded (e.g. content_width == 0 suppresses the
+    // caret), anchor the viewport at the top.
+    let caret_row = caret_row_idx.unwrap_or(0);
+    let total_display = display_rows.len();
+    let first = vertical_first_visible(caret_row, viewport_rows, total_display);
 
     let mut rows: Vec<TextBoxRow> = Vec::with_capacity(viewport_rows);
     for vp_idx in 0..viewport_rows {
-        let line_idx = first + vp_idx;
-        if line_idx < total_lines {
-            let caret_col = if caret.line == line_idx {
-                Some(caret.col)
-            } else {
-                None
-            };
-            let (windowed, rel_caret) = window_row(lines[line_idx], caret_col, content_width);
-            rows.push(TextBoxRow {
-                text: windowed,
-                caret_col: rel_caret,
-            });
+        let disp_idx = first + vp_idx;
+        if disp_idx < total_display {
+            rows.push(display_rows[disp_idx].clone());
         } else {
             // Pad blank rows so the component occupies a fixed height.
             rows.push(TextBoxRow {
@@ -220,32 +210,151 @@ pub fn build_text_box_view(
 
     TextBoxView {
         rows,
-        first_visible_line: first,
+        first_visible_row: first,
         total_lines,
     }
 }
 
-/// Compute the first visible line so the caret stays in the window
-/// `[first, first + viewport_rows)` and the view never scrolls past the last
-/// full page.
+/// Build the flat list of wrapped display rows for every logical line, plus
+/// the index of the row that carries the caret (`None` when suppressed, e.g.
+/// `content_width == 0`). Each logical line is wrapped to `content_width`
+/// characters; a trailing caret at the end of a full-width line gets its own
+/// empty row so it never overflows the visible width.
+///
+/// @requirement REQ-PR-009
+/// @requirement REQ-TEXTBOX-WRAP
+fn build_wrapped_display_rows(
+    lines: &[&str],
+    caret: TextCaret,
+    content_width: usize,
+    viewport_rows: usize,
+) -> (Vec<TextBoxRow>, Option<usize>) {
+    // Pre-allocate a conservative capacity: at least one row per logical line,
+    // plus the headroom for full-width trailing caret rows.
+    let mut display_rows: Vec<TextBoxRow> = Vec::with_capacity(lines.len() + 1);
+    let mut caret_row_idx: Option<usize> = None;
+    for (line_idx, line) in lines.iter().enumerate() {
+        // Only the caret line can trigger the full-width-trailing-caret case,
+        // so defer the O(n) char count to that line.
+        let caret_line_len = if line_idx == caret.line {
+            line.chars().count()
+        } else {
+            0
+        };
+        for seg in wrap_line(line, content_width) {
+            // Use the RENDERED length (after trimming trailing spaces), not the
+            // source extent, so a full-width segment whose trailing spaces were
+            // trimmed is not mistaken for an exact-width row.
+            let seg_rendered_len = seg.text.chars().count();
+            // A trailing caret at the end of a line that fills the full width
+            // would overflow; emit the full segment row then a trailing empty
+            // row that carries the caret inside the width. With a single-row
+            // viewport that extra row would displace the text, so in that case
+            // keep the caret on the text row itself (clipped, but text visible).
+            let full_width_end = content_width != 0
+                && line_idx == caret.line
+                && seg.end == caret_line_len
+                && seg_rendered_len == content_width
+                && caret.col == seg.end;
+            if full_width_end && viewport_rows >= 2 {
+                display_rows.push(TextBoxRow {
+                    text: seg.text,
+                    caret_col: None,
+                });
+                caret_row_idx = Some(display_rows.len());
+                display_rows.push(TextBoxRow {
+                    text: String::new(),
+                    caret_col: Some(0),
+                });
+                continue;
+            }
+
+            let caret_col = if full_width_end {
+                // Single-row viewport: keep the caret on the text row at the
+                // width boundary (the cell is clipped by the container, but the
+                // text row is not displaced).
+                Some(seg_rendered_len)
+            } else {
+                caret_col_for_segment(&seg, seg_rendered_len, caret, line_idx, content_width)
+            };
+            if caret_col.is_some() {
+                caret_row_idx = Some(display_rows.len());
+            }
+            display_rows.push(TextBoxRow {
+                text: seg.text,
+                caret_col,
+            });
+        }
+    }
+    (display_rows, caret_row_idx)
+}
+
+/// Decide whether the caret belongs to one wrapped segment and, if so,
+/// return its column relative to the segment start.
+///
+/// The caret belongs to this segment when:
+/// - its column is inside the half-open `[start, end)` range, or
+/// - it sits at the segment end on a non-full segment (a trailing caret that
+///   fits on this row), or
+/// - the segment is empty (`start == end`) and the caret sits at that
+///   position (a blank line / trailing-newline row).
+///
+/// @requirement REQ-PR-009
+/// @requirement REQ-TEXTBOX-WRAP
+fn caret_col_for_segment(
+    seg: &WrapSegment,
+    seg_len: usize,
+    caret: TextCaret,
+    line_idx: usize,
+    content_width: usize,
+) -> Option<usize> {
+    if content_width == 0 || line_idx != caret.line {
+        return None;
+    }
+    // Segment membership, expressed as independent predicates so the operands
+    // stay grouped by source (segment fields together, caret position alone).
+    let caret_at_seg_end = caret.col == seg.end;
+    let in_range = seg.start <= caret.col && caret.col < seg.end;
+    let seg_has_room = seg_len < content_width;
+    let seg_is_empty = seg.start == seg.end;
+    let trailing_at_end = caret_at_seg_end && seg_has_room;
+    let on_blank_row = seg_is_empty && caret_at_seg_end;
+    if in_range || trailing_at_end || on_blank_row {
+        Some(caret.col - seg.start)
+    } else {
+        None
+    }
+}
+
+/// Compute the first visible display-row index so the caret row stays in the
+/// window `[first, first + viewport_rows)` and the view never scrolls past
+/// the last full page.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
-/// @pseudocode component-001 lines 169-176
-fn vertical_first_visible(caret_line: usize, viewport_rows: usize, total_lines: usize) -> usize {
+/// @requirement REQ-TEXTBOX-WRAP
+fn vertical_first_visible(caret_row: usize, viewport_rows: usize, total_rows: usize) -> usize {
     if viewport_rows == 0 {
         return 0;
     }
     // Prefer the caret on the last row of the window when below it.
-    let caret_first = caret_line.saturating_sub(viewport_rows.saturating_sub(1));
+    let caret_first = caret_row.saturating_sub(viewport_rows.saturating_sub(1));
     // Never scroll past the last full page.
-    let max_first = total_lines.saturating_sub(viewport_rows);
+    let max_first = total_rows.saturating_sub(viewport_rows);
     caret_first.min(max_first)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Find the (first) row carrying the caret, or panic with a clear message.
+    fn caret_row(view: &TextBoxView) -> &TextBoxRow {
+        let Some(row) = view.rows.iter().find(|r| r.caret_col.is_some()) else {
+            panic!("expected a row carrying the caret, rows: {:?}", view.rows);
+        };
+        row
+    }
 
     /// Empty text produces one blank row and the caret lands on it.
     ///
@@ -256,7 +365,7 @@ mod tests {
         let v = build_text_box_view("", 0, 3, 20);
         assert_eq!(v.rows.len(), 3);
         assert_eq!(v.total_lines, 1);
-        assert_eq!(v.first_visible_line, 0);
+        assert_eq!(v.first_visible_row, 0);
         // Caret is on the first (blank) row at column 0.
         assert_eq!(v.rows[0].text, "");
         assert_eq!(v.rows[0].caret_col, Some(0));
@@ -275,7 +384,7 @@ mod tests {
         let v = build_text_box_view(text, text.len(), 3, 20);
         assert_eq!(v.rows.len(), 3);
         // Caret is on line 7 ("l8"); viewport is 3 -> first = 7-2 = 5.
-        assert_eq!(v.first_visible_line, 5);
+        assert_eq!(v.first_visible_row, 5);
         // Rows 5,6,7 = "l6","l7","l8"; caret on row index 2.
         assert_eq!(v.rows[0].text, "l6");
         assert_eq!(v.rows[1].text, "l7");
@@ -295,16 +404,18 @@ mod tests {
         let text = "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8";
         // Cursor on line 0 ("l1").
         let v = build_text_box_view(text, 0, 3, 20);
-        assert_eq!(v.first_visible_line, 0);
+        assert_eq!(v.first_visible_row, 0);
         assert_eq!(v.rows[0].text, "l1");
         assert_eq!(v.rows[0].caret_col, Some(0));
     }
 
-    /// A long single line keeps the caret visible within `content_width` by
-    /// scrolling the window right.
+    /// A long single line WRAPS onto multiple display rows so the caret is
+    /// always visible within `content_width` (no horizontal scroll off-screen).
+    /// Caret at column 25 ('z') with width 10 lands on the wrapped row
+    /// "uvwxyz" at relative col 5.
     ///
-    /// @plan PLAN-20260624-PR-MODE.P14
     /// @requirement REQ-PR-009
+    /// @requirement REQ-TEXTBOX-WRAP
     #[test]
     fn long_single_line_caret_visible_with_width() {
         let text = "abcdefghijklmnopqrstuvwxyz";
@@ -312,23 +423,28 @@ mod tests {
         let v = build_text_box_view(text, 25, 1, 10);
         assert_eq!(v.rows.len(), 1);
         let row = &v.rows[0];
-        // Window keeps caret as last visible column: start = 25+1-10 = 16.
-        assert_eq!(row.text, "qrstuvwxyz");
-        // Caret relative col = 25 - 16 = 9.
-        assert_eq!(row.caret_col, Some(9));
+        // The caret's wrapped row is "uvwxyz" (cols 20..26).
+        assert_eq!(row.text, "uvwxyz");
+        // Caret relative col = 25 - 20 = 5.
+        assert_eq!(row.caret_col, Some(5));
     }
 
-    /// A caret exactly at `content_width` shifts one column so the caret cell
-    /// remains inside the visible width instead of rendering an extra column.
+    /// A line exactly `content_width` long fits on one row (no premature wrap),
+    /// and the caret at the end gets its own trailing empty wrapped row.
     ///
-    /// @plan PLAN-20260624-PR-MODE.P14
     /// @requirement REQ-PR-009
+    /// @requirement REQ-TEXTBOX-WRAP
     #[test]
     fn exact_width_line_caret_at_end_stays_inside_window() {
         let text = "abcdefghij";
-        let v = build_text_box_view(text, text.len(), 1, 10);
-        assert_eq!(v.rows[0].text, "bcdefghij");
-        assert_eq!(v.rows[0].caret_col, Some(9));
+        let v = build_text_box_view(text, text.len(), 3, 10);
+        assert_eq!(v.rows[0].text, "abcdefghij");
+        assert!(v.rows[0].caret_col.is_none());
+        // The caret at the end of a full-width line lands on a trailing empty
+        // wrapped row so it never overflows the visible width.
+        let caret_row = caret_row(&v);
+        assert_eq!(caret_row.text, "");
+        assert_eq!(caret_row.caret_col, Some(0));
     }
     /// Multibyte input must not panic and the caret column must count chars.
     ///
@@ -399,7 +515,7 @@ mod tests {
     fn zero_viewport_empty_no_panic() {
         let v = build_text_box_view("hello\nworld", 5, 0, 20);
         assert!(v.rows.is_empty());
-        assert_eq!(v.first_visible_line, 0);
+        assert_eq!(v.first_visible_row, 0);
         assert_eq!(v.total_lines, 2);
     }
 
@@ -425,5 +541,238 @@ mod tests {
         let v = build_text_box_view("ab", 1, 1, 10);
         assert_eq!(v.rows[0].text, "ab");
         assert_eq!(v.rows[0].caret_col, Some(1));
+    }
+
+    /// A line longer than `content_width` WRAPS onto multiple display rows
+    /// instead of being truncated off-screen. No row may exceed the width.
+    ///
+    /// Regression for issue #212: text boxes don't wrap.
+    ///
+    /// @requirement REQ-TEXTBOX-WRAP
+    #[test]
+    fn long_line_wraps_across_rows() {
+        // 26 chars at content_width 10 -> 3 wrapped rows.
+        let v = build_text_box_view("abcdefghijklmnopqrstuvwxyz", 0, 5, 10);
+        assert_eq!(v.rows[0].text, "abcdefghij");
+        assert_eq!(v.rows[1].text, "klmnopqrst");
+        assert_eq!(v.rows[2].text, "uvwxyz");
+        // Caret at col 0 lands on the first wrapped row.
+        assert_eq!(v.rows[0].caret_col, Some(0));
+        for r in &v.rows {
+            assert!(
+                r.text.chars().count() <= 10,
+                "wrapped row must not exceed content_width: {:?}",
+                r.text
+            );
+        }
+    }
+
+    /// When wrapping, the caret must map onto the correct wrapped row at the
+    /// correct relative column. Caret at col 25 ('z') on a width-10 wrap.
+    ///
+    /// Regression for issue #212: text boxes don't wrap.
+    ///
+    /// @requirement REQ-TEXTBOX-WRAP
+    #[test]
+    fn long_line_caret_lands_on_correct_wrapped_row() {
+        let v = build_text_box_view("abcdefghijklmnopqrstuvwxyz", 25, 5, 10);
+        // col 25 is on the third wrapped row "uvwxyz" (cols 20..26), at
+        // relative col 5 ('z').
+        let caret_row = caret_row(&v);
+        assert_eq!(caret_row.text, "uvwxyz");
+        assert_eq!(caret_row.caret_col, Some(5));
+    }
+
+    /// A caret in the middle of a wrapped line lands on the middle row.
+    ///
+    /// Regression for issue #212: text boxes don't wrap.
+    ///
+    /// @requirement REQ-TEXTBOX-WRAP
+    #[test]
+    fn long_line_caret_in_middle_wrapped_row() {
+        // col 15 lands on the second wrapped row "klmnopqrst" (cols 10..20),
+        // at relative col 5 ('p').
+        let v = build_text_box_view("abcdefghijklmnopqrstuvwxyz", 15, 3, 10);
+        let caret_row = caret_row(&v);
+        assert_eq!(caret_row.text, "klmnopqrst");
+        assert_eq!(caret_row.caret_col, Some(5));
+    }
+
+    /// When a single logical line wraps to more rows than the viewport, the
+    /// caret's wrapped row must stay visible (vertical viewport follows the
+    /// caret across wrapped rows).
+    ///
+    /// Regression for issue #212: text boxes don't wrap.
+    ///
+    /// @requirement REQ-TEXTBOX-WRAP
+    #[test]
+    fn caret_wrapped_row_visible_when_exceeds_viewport() {
+        // 30 chars at width 10 -> 3 wrapped rows; viewport of 1 must show the
+        // caret's wrapped row.
+        let text = "abcdefghijklmnopqrstuvwxyz0123";
+        let v = build_text_box_view(text, 25, 1, 10);
+        assert_eq!(v.rows.len(), 1);
+        // col 25 is on the third wrapped row "uvwxyz0123" (cols 20..30), at
+        // relative col 5.
+        assert_eq!(v.rows[0].text, "uvwxyz0123");
+        assert_eq!(v.rows[0].caret_col, Some(5));
+    }
+
+    /// A line exactly `content_width` long fits on one row (no premature wrap),
+    /// and the caret at the end gets its own trailing empty wrapped row so the
+    /// caret cell stays inside the visible width.
+    ///
+    /// Regression for issue #212: text boxes don't wrap.
+    ///
+    /// @requirement REQ-TEXTBOX-WRAP
+    #[test]
+    fn exact_width_line_no_premature_wrap_caret_on_trailing_row() {
+        // 10 chars exactly fill width 10; caret at end (col 10) needs a cell.
+        let v = build_text_box_view("abcdefghij", 10, 3, 10);
+        assert_eq!(v.rows[0].text, "abcdefghij");
+        assert!(v.rows[0].caret_col.is_none());
+        // Caret lands on a trailing empty row so it never overflows the width.
+        let caret_row = caret_row(&v);
+        assert_eq!(caret_row.text, "");
+        assert_eq!(caret_row.caret_col, Some(0));
+    }
+
+    /// With a single-row viewport, a full-width line's trailing caret must NOT
+    /// displace the text row with an empty caret row (the text stays visible;
+    /// the caret sits at the width boundary on the text row).
+    ///
+    /// @requirement REQ-TEXTBOX-WRAP
+    #[test]
+    fn single_row_viewport_full_width_caret_keeps_text_visible() {
+        let v = build_text_box_view("abcdefghij", 10, 1, 10);
+        assert_eq!(v.rows.len(), 1);
+        // The text row must remain visible (not displaced by an empty row).
+        assert_eq!(v.rows[0].text, "abcdefghij");
+        // The caret stays on the text row at the width boundary.
+        assert_eq!(v.rows[0].caret_col, Some(10));
+    }
+
+    /// Mixing explicit newlines with wrapping: each logical line wraps
+    /// independently, and the caret follows.
+    ///
+    /// Regression for issue #212: text boxes don't wrap.
+    ///
+    /// @requirement REQ-TEXTBOX-WRAP
+    #[test]
+    fn wrap_with_explicit_newlines() {
+        // Line 0 ("abcdefghijkl") wraps to ["abcdefgh", "ijkl"]; line 1
+        // ("mnop") is short. Caret at end of all text (col 4 of "mnop").
+        let text = "abcdefghijkl\nmnop";
+        let v = build_text_box_view(text, text.len(), 5, 8);
+        assert_eq!(v.rows[0].text, "abcdefgh");
+        assert_eq!(v.rows[1].text, "ijkl");
+        assert_eq!(v.rows[2].text, "mnop");
+        assert_eq!(v.rows[2].caret_col, Some(4));
+    }
+
+    /// Wrapping respects multibyte character boundaries: a wide-ish multibyte
+    /// sequence still splits on char boundaries and the caret counts chars.
+    ///
+    /// Regression for issue #212: text boxes don't wrap.
+    ///
+    /// @requirement REQ-TEXTBOX-WRAP
+    #[test]
+    fn wrap_multibyte_on_char_boundary() {
+        // "héllo" + "WORLD" = h é l l o W O R L D = 10 chars at width 4.
+        // Wrapped: ["héll", "oWOR", "LD"].
+        let text = "hélloWORLD";
+        let v = build_text_box_view(text, 0, 5, 4);
+        assert_eq!(v.rows[0].text, "héll");
+        assert_eq!(v.rows[1].text, "oWOR");
+        assert_eq!(v.rows[2].text, "LD");
+    }
+
+    /// A very long single line in a narrow viewport still keeps every wrapped
+    /// row within the width and keeps the caret visible (no horizontal scroll
+    /// off-screen).
+    ///
+    /// Regression for issue #212: text boxes don't wrap.
+    ///
+    /// @requirement REQ-TEXTBOX-WRAP
+    #[test]
+    fn very_long_line_never_overflows_width() {
+        let text = "x".repeat(200);
+        let v = build_text_box_view(&text, 150, 6, 20);
+        for r in &v.rows {
+            assert!(
+                r.text.chars().count() <= 20,
+                "no wrapped row may exceed content_width: {:?}",
+                r.text.chars().count()
+            );
+        }
+        let caret_row = caret_row(&v);
+        assert_eq!(caret_row.caret_col, Some(10));
+    }
+
+    /// The editor wraps at WORD boundaries: a row never splits a word, and the
+    /// caret maps correctly onto the word-wrapped row it lands in.
+    ///
+    /// Regression for issue #212: text boxes don't wrap (word-wrap, not char).
+    ///
+    /// @requirement REQ-TEXT-WRAP
+    #[test]
+    fn editor_wraps_at_word_boundary_not_mid_word() {
+        // "alpha beta gamma" at width 8 -> ["alpha", "beta", "gamma"] (each
+        // word is wider than the remaining budget on the row).
+        let v = build_text_box_view("alpha beta gamma", 0, 3, 8);
+        let texts: Vec<&str> = v.rows.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(texts, vec!["alpha", "beta", "gamma"]);
+        // No row may start with a space or split a word.
+        for t in &texts {
+            assert!(!t.starts_with(' '), "row must not start with space: {t:?}");
+        }
+    }
+
+    /// Word-wrap with a caret in the middle of a word on a later row: the
+    /// caret column is relative to that word-row's start.
+    ///
+    /// @requirement REQ-TEXT-WRAP
+    #[test]
+    fn editor_word_wrap_caret_in_middle_word() {
+        // "alpha beta gamma" at width 8 -> rows "alpha"(0-5),"beta"(6-10),
+        // "gamma"(11-16). Caret at source col 8 (inside "beta" at rel 2).
+        let v = build_text_box_view("alpha beta gamma", 8, 3, 8);
+        let caret_row = caret_row(&v);
+        assert_eq!(caret_row.text, "beta");
+        assert_eq!(caret_row.caret_col, Some(2));
+    }
+
+    /// A word that fits within the width but not on the current row moves to
+    /// the next row whole (not split).
+    ///
+    /// @requirement REQ-TEXT-WRAP
+    #[test]
+    fn editor_word_fits_wraps_whole_to_next_row() {
+        // "aaaa bbbb" at width 5 -> "aaaa" fits (4), "bbbb" (4) fits width but
+        // 4+1(space)+4 > 5 so it wraps whole to row 1.
+        let v = build_text_box_view("aaaa bbbb", 0, 2, 5);
+        let texts: Vec<&str> = v.rows.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(texts, vec!["aaaa", "bbbb"]);
+    }
+
+    /// Caret in trailing spaces past the last word must still be visible and
+    /// land on the (trimmed) row, not vanish because trailing spaces were
+    /// dropped from the display text. Regression for the word-wrap trim path.
+    ///
+    /// @requirement REQ-TEXT-WRAP
+    #[test]
+    fn caret_in_trailing_spaces_still_visible() {
+        // "ab" + 3 spaces at width 10: the row text is trimmed to "ab" but
+        // the caret at col 5 (in the spaces) must remain visible.
+        let v = build_text_box_view("ab   ", 5, 2, 10);
+        let Some(caret_row) = v.rows.iter().find(|r| r.caret_col.is_some()) else {
+            panic!(
+                "caret in trailing spaces must be visible, rows: {:?}",
+                v.rows
+            );
+        };
+        assert_eq!(caret_row.text, "ab");
+        // The caret column must not exceed the content width.
+        assert!(caret_row.caret_col.unwrap_or(0) <= 10);
     }
 }

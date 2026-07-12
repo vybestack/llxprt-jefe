@@ -49,7 +49,6 @@ pub(super) fn key(code: KeyCode) -> KeyEvent {
 /// Minimal PR list-row fixture.
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-006
-/// @pseudocode component-002 lines 22-34
 pub(super) fn make_test_pr(number: u64) -> PullRequest {
     PullRequest {
         number,
@@ -450,6 +449,7 @@ fn sample_signature() -> LaunchSignature {
         profile: String::new(),
         code_puppy_model: String::new(),
         code_puppy_yolo: Some(false),
+        code_puppy_quick_resume: false,
         mode_flags: vec![String::from("--yolo")],
         llxprt_debug: String::new(),
         pass_continue: true,

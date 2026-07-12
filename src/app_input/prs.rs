@@ -348,6 +348,13 @@ fn handle_esc_in_prs_mode(state: &AppState, _key_event: &KeyEvent) -> AppEvent {
     if state.prs_state.filter_ui.controls_open {
         return AppEvent::PrCloseFilterControls;
     }
+    // No overlay active: if the PrDetail pane is focused, Esc refocuses the
+    // PR list instead of exiting the whole mode — mirroring issues-mode where
+    // Esc on IssueDetail emits RefocusIssueList. Only a bare Esc from
+    // RepoList/PrList exits the mode.
+    if state.prs_state.pr_focus == PrFocus::PrDetail {
+        return AppEvent::RefocusPrList;
+    }
     AppEvent::ExitPrsMode
 }
 

@@ -410,6 +410,18 @@ impl AppState {
             AppEvent::SendToAgentFailed { error } => {
                 self.issues_state.error = Some(error);
             }
+            // Self-assignment is a non-blocking follow-up to a successful
+            // send (issue #186): its failure surfaces a warning without
+            // affecting the launch or the issues error state.
+            AppEvent::IssueSelfAssignmentFailed {
+                owner_repo,
+                issue_number,
+                error,
+            } => {
+                self.warning_message = Some(format!(
+                    "Issue {owner_repo}#{issue_number} sent but could not be assigned: {error}"
+                ));
+            }
             _ => {}
         }
     }

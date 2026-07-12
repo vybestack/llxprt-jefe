@@ -25,9 +25,9 @@ pub(crate) const PR_REPLY_ANCHOR: &str = "    [Reply]";
 ///
 /// Mirrors `issue_detail_content::detail_content_line_count` so the PR scroll
 /// bounds derive from the REAL rendered length and cannot drift from what
-/// `build_pr_detail_content` emits. Like Issues mode, the reducer NEVER wraps:
-/// the renderer (ScrollableText) truncates long lines, so line counts and
-/// cursor coordinates can never drift between the two layers.
+/// `build_pr_detail_content` emits. The scroll offset stays in CONTENT-LINE
+/// units (the renderer word-wraps each line into display rows at render time),
+/// so line counts and cursor coordinates stay consistent between the layers.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
@@ -392,12 +392,17 @@ fn build_body_section(
     builder.lines.push("Description".to_string());
     if detail_loading {
         builder.lines.push("  Loading pull request...".to_string());
-    } else if detail.body.is_empty() {
+    } else if detail.body.trim().is_empty() {
         builder.lines.push("  (no description)".to_string());
     } else {
-        for body_line in detail.body.lines() {
-            builder.lines.push(format!("  {body_line}"));
-        }
+        // Render the markdown body through comrak instead of dumping it raw
+        // (issue #155): headings/rules/lists/code fences/HTML are converted to
+        // plain text, indented two spaces to sit under the section label.
+        builder.lines.extend(
+            crate::markdown_render::render_markdown_block(&detail.body, "  ", "(no description)")
+                .iter()
+                .cloned(),
+        );
     }
 }
 
@@ -430,7 +435,10 @@ fn build_reviews_section(
     }
 }
 
-/// Render a single review header line (author, state, submitted_at, body).
+/// Render a single review: a one-line header (author, state, submitted_at)
+/// followed by the review body rendered as markdown (issue #155). The previous
+/// implementation appended the ENTIRE body as a quoted excerpt onto the header
+/// line, turning a multi-paragraph review into one wrapped "header" line.
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
@@ -446,18 +454,36 @@ fn build_single_review(
         "- "
     };
     let state_label = review_state_label(review.state);
-    let body_excerpt = review
-        .body
-        .as_deref()
-        .filter(|b| !b.is_empty())
-        .map_or_else(String::new, |b| format!("  \"{b}\""));
+    // Header line = author + state badge + date ONLY (no body excerpt).
     builder.lines.push(format!(
-        "{prefix}{:<8} {:<18} {}{}",
-        review.author_login, state_label, review.submitted_at, body_excerpt
+        "{prefix}{:<8} {:<18} {}",
+        review.author_login, state_label, review.submitted_at
     ));
+    // Render the review body as markdown below the header, indented under it.
+    // Empty review bodies are SUPPRESSED here (unlike comments/thread comments):
+    // plain approvals typically have no body, and rendering "(no body)" under
+    // every approval would be pure noise.
+    if let Some(body) = review.body.as_deref()
+        && !body.trim().is_empty()
+    {
+        builder.lines.extend(
+            crate::markdown_render::render_markdown_block(body, "    ", "(no body)")
+                .iter()
+                .cloned(),
+        );
+    }
+    // Every review ends with a blank separator (with or without a body) so
+    // consecutive reviews never render visually glued together.
+    builder.lines.push(String::new());
 }
 
 /// Render a review thread with its comments (indented under the review).
+///
+/// Every thread COLLAPSES to its header line when not focused (mirroring
+/// github.com, which folds conversations by default); moving the selector onto
+/// the thread expands its full conversation WITHOUT mutating the thread's
+/// resolve state (issue #155 lazy-render). Comment-bearing collapsed threads
+/// show a "(select to expand)" hint with the comment count.
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
@@ -474,29 +500,73 @@ fn build_review_thread(
     } else {
         "[UNRESOLVED]"
     };
+    let outdated_tag = if thread.is_outdated {
+        "  [OUTDATED]"
+    } else {
+        ""
+    };
     let location = match (&thread.path, thread.line) {
         (Some(path), Some(line)) => format!("{path}:{line}"),
         (Some(path), None) => path.clone(),
         (None, _) => "(no file)".to_string(),
     };
-    builder
-        .lines
-        .push(format!("{marker}    {location}  {resolve_tag}"));
+    let collapsed = thread_collapsed(thread, focused);
+    // No expand hint for a comment-less thread: "0 comments (select to
+    // expand)" would advertise a dead-end (expanding reveals nothing).
+    let collapse_hint = if collapsed && !thread.comments.is_empty() {
+        let n = thread.comments.len();
+        let noun = if n == 1 { "comment" } else { "comments" };
+        format!("  · {n} {noun} (select to expand)")
+    } else {
+        String::new()
+    };
+    builder.lines.push(format!(
+        "{marker}    {location}  {resolve_tag}{outdated_tag}{collapse_hint}"
+    ));
+    if !collapsed {
+        build_review_thread_comments(thread, builder);
+    }
+    if focused {
+        let resolve_label = if thread.is_resolved {
+            "[ R unresolve ]"
+        } else {
+            "[ R resolve ]"
+        };
+        builder
+            .lines
+            .push(format!("      [ r reply ]  {resolve_label}"));
+    }
+    builder.lines.push(String::new());
+}
+
+/// Whether a thread renders collapsed to its header line: every thread
+/// collapses unless focused, regardless of resolved/outdated status. This is
+/// the lazy-render semantic (issue #155): a PR with hundreds of threads
+/// renders compactly (headers only) and never calls markdown rendering for
+/// the comment bodies of non-focused threads.
+fn thread_collapsed(_thread: &crate::domain::PrReviewThread, focused: bool) -> bool {
+    !focused
+}
+
+/// Render the expanded comment conversation of a review thread.
+fn build_review_thread_comments(
+    thread: &crate::domain::PrReviewThread,
+    builder: &mut ContentBuilder,
+) {
     for comment in &thread.comments {
         builder.lines.push(format!(
             "      {}  {}",
             comment.author_login, comment.created_at
         ));
-        for body_line in comment.body.lines() {
-            builder.lines.push(format!("        {body_line}"));
-        }
+        // Bodies are passed unconditionally: thread comments virtually always
+        // have content, and a bare author/date header with nothing under it
+        // would look broken. An empty body renders the "(no body)" placeholder.
+        builder.lines.extend(
+            crate::markdown_render::render_markdown_block(&comment.body, "        ", "(no body)")
+                .iter()
+                .cloned(),
+        );
     }
-    if focused {
-        builder
-            .lines
-            .push("      [ r reply ]  [ R resolve ]".to_string());
-    }
-    builder.lines.push(String::new());
 }
 
 /// @plan PLAN-20260624-PR-MODE.P12
@@ -573,9 +643,14 @@ fn build_single_comment(
         "{}{}  {}",
         prefix, comment.author_login, comment.created_at
     ));
-    for body_line in comment.body.lines() {
-        builder.lines.push(format!("    {body_line}"));
-    }
+    // Bodies are passed unconditionally: comments virtually always have
+    // content, and a bare author/date header with nothing under it would look
+    // broken. An empty body renders the "(no body)" placeholder.
+    builder.lines.extend(
+        crate::markdown_render::render_markdown_block(&comment.body, "    ", "(no body)")
+            .iter()
+            .cloned(),
+    );
 
     if let InlineState::Composer {
         target: ComposerTarget::Reply { comment_index, .. },

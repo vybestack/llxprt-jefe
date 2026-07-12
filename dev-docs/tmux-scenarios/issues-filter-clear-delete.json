@@ -33,7 +33,7 @@
     { "waitFor": "assignee:[any]" },
     { "waitFor": "Filter:" },
     { "key": "Escape" },
-    { "key": "q" },
+    { "key": "C-q" },
     { "waitForExit": 3000 }
   ]
 }

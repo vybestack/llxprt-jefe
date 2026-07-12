@@ -206,6 +206,7 @@ impl AppState {
             profile: &fields.profile,
             code_puppy_model: &fields.code_puppy_model,
             code_puppy_yolo: fields.code_puppy_yolo,
+            code_puppy_quick_resume: fields.code_puppy_quick_resume,
             agent_kind: &fields.agent_kind,
             mode: &fields.mode,
             llxprt_debug: &fields.llxprt_debug,
@@ -264,6 +265,7 @@ impl AppState {
             .trim()
             .clone_into(&mut agent.code_puppy_model);
         agent.code_puppy_yolo = Some(fields.code_puppy_yolo);
+        agent.code_puppy_quick_resume = fields.code_puppy_quick_resume.enabled();
         agent.agent_kind =
             AgentKind::from_form_value(&fields.agent_kind).unwrap_or(agent.agent_kind);
         // The mode field is the single source of truth for mode flags. An

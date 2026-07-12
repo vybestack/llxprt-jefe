@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 // Actions domain types (workflows, runs, jobs, steps, filters) extracted to
 // keep this file under the source-file-size limit.
 mod actions;
+mod quick_resume;
 pub use actions::*;
+pub use quick_resume::QuickResume;
 
 /// Pagination contracts (PageToken, ListRequestId) shared across list state
 /// and boundary messages. Pure value types, no project-internal deps.
@@ -285,7 +287,6 @@ pub struct Repository {
     pub agent_ids: Vec<AgentId>,
 }
 /// @requirement REQ-ISS-006
-/// @pseudocode component-001 lines 83-96
 /// Issue state for list display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IssueState {
@@ -396,7 +397,6 @@ pub struct IssueFilter {
 impl IssueFilter {
     /// @plan PLAN-20260329-ISSUES-MODE.P03
     /// @requirement REQ-ISS-008
-    /// @pseudocode component-011 lines 1-9
     #[must_use]
     pub fn has_active_non_default_filters(&self) -> bool {
         matches!(
@@ -434,7 +434,6 @@ fn sentinel_filter_is_active(value: &str) -> bool {
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-006
 /// @requirement REQ-PR-009
-/// @pseudocode component-002 lines 74-101
 /// PR lifecycle state (derived from `gh pr` JSON `state` + `mergedAt`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrState {
@@ -447,7 +446,6 @@ pub enum PrState {
 ///
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-009
-/// @pseudocode component-002 lines 74-101
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MergeMethod {
     /// Create a merge commit (`--merge`).
@@ -462,7 +460,6 @@ pub enum MergeMethod {
 ///
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-009
-/// @pseudocode component-002 lines 74-101
 pub const MERGE_METHODS: [MergeMethod; 3] =
     [MergeMethod::Merge, MergeMethod::Squash, MergeMethod::Rebase];
 
@@ -471,7 +468,6 @@ impl MergeMethod {
     ///
     /// @plan PLAN-20260624-PR-MODE.P03
     /// @requirement REQ-PR-009
-    /// @pseudocode component-002 lines 74-101
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
@@ -551,6 +547,9 @@ pub struct PullRequest {
 /// Review summary item (read-only).
 #[derive(Debug, Clone)]
 pub struct PrReview {
+    /// GraphQL node id of this review (`PRR_...`), used to attach review
+    /// threads to their parent review. `None` when the API omitted it.
+    pub review_id: Option<String>,
     pub author_login: String,
     pub state: PrReviewState,
     pub submitted_at: String,
@@ -575,6 +574,11 @@ pub struct PrReviewThread {
     pub thread_id: String,
     /// Whether the thread is currently resolved.
     pub is_resolved: bool,
+    /// Whether the thread is outdated (the code it was attached to changed).
+    pub is_outdated: bool,
+    /// GraphQL node id of the parent review (`PRR_...`) this thread belongs
+    /// to, taken from the thread's first comment. `None` when unavailable.
+    pub review_id: Option<String>,
     /// File path the thread is attached to (`None` for PR-level threads).
     pub path: Option<String>,
     /// Line number the thread is attached to (`None` for PR-level threads).
@@ -862,6 +866,9 @@ pub struct Agent {
     /// Explicit Code Puppy YOLO choice.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
+    /// Resume the latest Code Puppy autosave for the effective work directory.
+    #[serde(default)]
+    pub code_puppy_quick_resume: bool,
     pub mode_flags: Vec<String>,
     #[serde(default)]
     pub llxprt_debug: String,
@@ -910,6 +917,9 @@ pub struct LaunchSignature {
     /// Explicit Code Puppy YOLO value for this launch.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
+    /// Resume the latest Code Puppy autosave for the effective work directory.
+    #[serde(default)]
+    pub code_puppy_quick_resume: bool,
     pub mode_flags: Vec<String>,
     #[serde(default)]
     pub llxprt_debug: String,
@@ -946,6 +956,7 @@ impl Agent {
             profile: String::new(),
             code_puppy_model: String::new(),
             code_puppy_yolo: None,
+            code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
             llxprt_debug: String::new(),
             pass_continue: true, // Default per REQ-FUNC-004
@@ -984,6 +995,5 @@ impl Repository {
         }
     }
 }
-
 #[cfg(test)]
 mod tests;

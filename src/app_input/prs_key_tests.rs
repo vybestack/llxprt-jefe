@@ -647,6 +647,29 @@ fn test_esc_precedence_inline_then_chooser_then_search_then_filter_then_exit() {
     assert!(matches!(e, Some(AppEvent::ExitPrsMode)));
 }
 
+/// Esc while focused on PrDetail (no overlays) must refocus the PR list, NOT
+/// exit the whole mode — mirroring issues-mode behavior where Esc on
+/// IssueDetail emits RefocusIssueList. Esc from PrList still exits the mode.
+///
+/// @plan PLAN-20260624-PR-MODE.P11
+/// @requirement REQ-PR-004
+#[test]
+fn esc_in_pr_detail_refocuses_list_not_exit() {
+    // PrDetail focus, no overlays active => Esc yields RefocusPrList.
+    let detail = prs_state_with_focus(PrFocus::PrDetail);
+    let e = resolve_prs_key_event(&detail, &key(KeyCode::Esc));
+    assert!(
+        matches!(e, Some(AppEvent::RefocusPrList)),
+        "Esc in PrDetail (no overlays) must yield RefocusPrList, got {e:?}"
+    );
+    // PrList focus, no overlays => Esc still exits the mode.
+    let list = prs_base_state();
+    let e = resolve_prs_key_event(&list, &key(KeyCode::Esc));
+    assert!(
+        matches!(e, Some(AppEvent::ExitPrsMode)),
+        "Esc in PrList must still yield ExitPrsMode, got {e:?}"
+    );
+}
 // ═══════════════════════════════════════════════════════════════════════
 // Read-Only Notices: c / r / e (tests 20-23)
 // ═══════════════════════════════════════════════════════════════════════

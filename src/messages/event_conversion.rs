@@ -56,6 +56,7 @@ impl From<AppEvent> for AppMessage {
             AppEvent::OpenSearch => Self::Modal(ModalMessage::OpenSearch),
             AppEvent::CloseModal => Self::Modal(ModalMessage::CloseModal),
             AppEvent::SubmitForm => Self::Modal(ModalMessage::SubmitForm),
+            AppEvent::ConfirmCycleFocus => Self::Modal(ModalMessage::ConfirmCycleFocus),
             AppEvent::FormChar(c) => Self::Modal(ModalMessage::FormChar(c)),
             AppEvent::FormBackspace => Self::Modal(ModalMessage::FormBackspace),
             AppEvent::FormDelete => Self::Modal(ModalMessage::FormDelete),
@@ -321,6 +322,7 @@ impl AppMessage {
                 | AppEvent::AgentChooserCancel
                 | AppEvent::SendToAgentCompleted
                 | AppEvent::SendToAgentFailed { .. }
+                | AppEvent::IssueSelfAssignmentFailed { .. }
         )
     }
 
@@ -392,6 +394,7 @@ impl From<ModalMessage> for AppEvent {
             ModalMessage::OpenSearch => Self::OpenSearch,
             ModalMessage::CloseModal => Self::CloseModal,
             ModalMessage::SubmitForm => Self::SubmitForm,
+            ModalMessage::ConfirmCycleFocus => Self::ConfirmCycleFocus,
             ModalMessage::FormChar(c) => Self::FormChar(c),
             ModalMessage::FormBackspace => Self::FormBackspace,
             ModalMessage::FormDelete => Self::FormDelete,

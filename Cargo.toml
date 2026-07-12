@@ -1,6 +1,6 @@
 [package]
 name = "jefe"
-version = "0.0.27"
+version = "0.0.28"
 edition = "2024"
 authors = ["Vybestack LLC"]
 description = "Terminal application for managing multiple llxprt coding agents"
@@ -42,6 +42,13 @@ dirs = "6.0"
 # Bounded cache for dead-session signatures (prevents unbounded memory growth
 # from repeated kill/recreate cycles of different agents).
 lru = "0.12"
+
+# Markdown parsing for the PR/Issue detail body rendering (issue #155).
+# comrak is the maintained Rust cmark-gfm successor (BSD-2-Clause, permissive).
+# A thin renderer walks its AST into jefe text lines; iocraft has no markdown
+# support and ratatui-markdown produces ratatui-specific types that do not fit
+# jefe's iocraft pipeline.
+comrak = { version = "0.53", default-features = false }
 
 [patch.crates-io]
 iocraft = { path = "vendor/iocraft" }

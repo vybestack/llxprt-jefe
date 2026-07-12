@@ -513,3 +513,68 @@ fn test_list_loaded_non_empty_clears_stale_pr_detail() {
 }
 
 // Silent background refresh tests moved to prs_tests_silent_refresh.rs (issue #128).
+
+// ── Esc during detail loading (issue #155 responsiveness regression) ──────
+
+/// Escape from PrDetail while `loading.detail` is active (before the detail
+/// load finishes) must immediately return focus to the PR list. This proves
+/// the background network loading state cannot trap keyboard input.
+#[test]
+fn esc_from_pr_detail_during_loading_refocuses_list() {
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.list.replace_items(vec![make_test_pr(1)]);
+    state.prs_state.list.set_selected_index(Some(0));
+    state.prs_state.pr_focus = PrFocus::PrDetail;
+    state.prs_state.loading.detail = true;
+    state.prs_state.detail_pending = Some(crate::state::types::PrDetailPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
+        request_id: 41,
+    });
+
+    // Apply RefocusPrList (what Esc emits from PrDetail focus).
+    let new_state = state.apply(AppEvent::RefocusPrList);
+    assert_eq!(
+        new_state.prs_state.pr_focus,
+        PrFocus::PrList,
+        "Esc must return focus to PR list even while loading.detail is active"
+    );
+    assert!(
+        !new_state.prs_state.loading.detail,
+        "Esc must clear the visible detail-loading state immediately"
+    );
+    assert!(
+        new_state.prs_state.detail_pending.is_none(),
+        "Esc must invalidate the in-flight detail request"
+    );
+}
+
+/// A detail result arriving AFTER Esc invalidated its nonzero request must be
+/// ignored: it cannot replace the current preview or steal focus back.
+#[test]
+fn stale_detail_result_after_refocus_is_ignored() {
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.list.replace_items(vec![make_test_pr(1)]);
+    state.prs_state.list.set_selected_index(Some(0));
+    state.prs_state.pr_focus = PrFocus::PrDetail;
+    state.prs_state.loading.detail = true;
+    state.prs_state.detail_pending = Some(crate::state::types::PrDetailPending {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
+        request_id: 41,
+    });
+
+    let state = state.apply(AppEvent::RefocusPrList);
+    let new_state = state.apply(AppEvent::PrDetailLoaded {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
+        request_id: 41,
+        detail: Box::new(make_test_pr_detail(1, vec![])),
+    });
+
+    assert_eq!(new_state.prs_state.pr_focus, PrFocus::PrList);
+    assert!(
+        new_state.prs_state.pr_detail.is_none(),
+        "cancelled request result must not be applied"
+    );
+}

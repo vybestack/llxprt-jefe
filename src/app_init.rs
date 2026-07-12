@@ -23,12 +23,9 @@ fn launch_signature_for_agent(
     LaunchSignature {
         work_dir: agent.work_dir.clone(),
         profile: agent.profile.clone(),
-        code_puppy_model: if agent.code_puppy_model.trim().is_empty() {
-            repository.default_code_puppy_model.trim().to_owned()
-        } else {
-            agent.code_puppy_model.trim().to_owned()
-        },
+        code_puppy_model: agent.code_puppy_model.trim().to_owned(),
         code_puppy_yolo: agent.code_puppy_yolo,
+        code_puppy_quick_resume: agent.code_puppy_quick_resume,
         mode_flags: agent.mode_flags.clone(),
         llxprt_debug: agent.llxprt_debug.clone(),
         pass_continue: agent.pass_continue,
@@ -467,6 +464,46 @@ fn apply_restored_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use jefe::domain::{AgentKind, Repository, RepositoryId};
+
+    fn code_puppy_agent_and_repository() -> (Agent, Repository) {
+        let repository_id = RepositoryId("repo-model".to_owned());
+        let mut repository = Repository::new(
+            repository_id.clone(),
+            "Model Repo".to_owned(),
+            "model-repo".to_owned(),
+            std::path::PathBuf::from("/tmp/model-repo"),
+        );
+        repository.default_code_puppy_model = "  repo/default-model  ".to_owned();
+
+        let mut agent = Agent::new(
+            AgentId("agent-model".to_owned()),
+            repository_id,
+            "Model Agent".to_owned(),
+            std::path::PathBuf::from("/tmp/model-agent"),
+        );
+        agent.agent_kind = AgentKind::CodePuppy;
+        (agent, repository)
+    }
+
+    #[test]
+    fn launch_signature_uses_agent_code_puppy_model() {
+        let (mut agent, repository) = code_puppy_agent_and_repository();
+        agent.code_puppy_model = "  agent/model  ".to_owned();
+
+        let signature = launch_signature_for_agent(&agent, &repository);
+
+        assert_eq!(signature.code_puppy_model, "agent/model");
+    }
+
+    #[test]
+    fn launch_signature_does_not_dynamically_inherit_repository_model() {
+        let (agent, repository) = code_puppy_agent_and_repository();
+
+        let signature = launch_signature_for_agent(&agent, &repository);
+
+        assert!(signature.code_puppy_model.is_empty());
+    }
 
     /// Session still exists → never dead, regardless of PID.
     #[test]
