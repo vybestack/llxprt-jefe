@@ -46,6 +46,8 @@ pub struct CreateAgentParams<'a> {
     pub profile: &'a str,
     /// Optional Code Puppy model override.
     pub code_puppy_model: &'a str,
+    /// Explicit Code Puppy YOLO choice.
+    pub code_puppy_yolo: bool,
     /// Agent runtime selected in the form.
     pub agent_kind: &'a str,
     /// Raw mode string, whitespace-split into flags by the service.
@@ -129,6 +131,7 @@ pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
         work_dir: PathBuf::from(&work_dir),
         profile: normalize_profile(params.profile),
         code_puppy_model: params.code_puppy_model.trim().to_owned(),
+        code_puppy_yolo: Some(params.code_puppy_yolo),
         mode_flags,
         llxprt_debug: normalize_llxprt_debug(params.llxprt_debug),
         pass_continue: params.pass_continue,

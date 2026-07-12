@@ -123,7 +123,9 @@ pub fn is_field_visible(
         | F::Sandbox
         | F::SandboxEngine
         | F::SandboxFlags => visibility.shows_llxprt_fields(),
-        F::CodePuppyModel => matches!(visibility, AgentFormFieldVisibility::CodePuppy),
+        F::CodePuppyModel | F::CodePuppyYolo => {
+            matches!(visibility, AgentFormFieldVisibility::CodePuppy)
+        }
         F::Shortcut | F::Name | F::Description | F::WorkDir | F::AgentKind => true,
     }
 }

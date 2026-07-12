@@ -28,6 +28,7 @@ fn launch_signature_for_agent(
         } else {
             agent.code_puppy_model.trim().to_owned()
         },
+        code_puppy_yolo: agent.code_puppy_yolo,
         mode_flags: agent.mode_flags.clone(),
         llxprt_debug: agent.llxprt_debug.clone(),
         pass_continue: agent.pass_continue,

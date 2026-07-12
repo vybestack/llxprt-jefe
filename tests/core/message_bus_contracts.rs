@@ -135,6 +135,7 @@ fn typed_kill_agent_clears_runtime_binding() {
             work_dir: PathBuf::from("/repo-one/agent-one"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            code_puppy_yolo: Some(false),
             mode_flags: vec!["--yolo".to_string()],
             llxprt_debug: String::new(),
             pass_continue: true,

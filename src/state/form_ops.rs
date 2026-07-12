@@ -64,6 +64,7 @@ impl AppState {
                 false
             }
             AgentFormFocus::AgentKind
+            | AgentFormFocus::CodePuppyYolo
             | AgentFormFocus::PassContinue
             | AgentFormFocus::Sandbox
             | AgentFormFocus::SandboxEngine => {
@@ -315,6 +316,7 @@ impl AppState {
                     delete_char_before(&mut fields.llxprt_debug, cursor.llxprt_debug);
             }
             AgentFormFocus::AgentKind
+            | AgentFormFocus::CodePuppyYolo
             | AgentFormFocus::PassContinue
             | AgentFormFocus::Sandbox
             | AgentFormFocus::SandboxEngine => {}
@@ -333,6 +335,7 @@ impl AppState {
         match focus {
             AgentFormFocus::Shortcut
             | AgentFormFocus::AgentKind
+            | AgentFormFocus::CodePuppyYolo
             | AgentFormFocus::PassContinue
             | AgentFormFocus::Sandbox
             | AgentFormFocus::SandboxEngine => {}
@@ -653,6 +656,7 @@ impl AppState {
     /// because it depends on the effective kind list (remote vs local).
     fn toggle_agent_checkbox_fields(fields: &mut AgentFormFields, focus: AgentFormFocus) {
         match focus {
+            AgentFormFocus::CodePuppyYolo => fields.code_puppy_yolo = !fields.code_puppy_yolo,
             AgentFormFocus::PassContinue => fields.pass_continue = !fields.pass_continue,
             AgentFormFocus::Shortcut => {
                 fields.shortcut_slot = match fields.shortcut_slot {

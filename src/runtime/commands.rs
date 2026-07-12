@@ -469,6 +469,10 @@ fn code_puppy_launch_args(signature: &LaunchSignature) -> Vec<String> {
         args.push("--model".to_owned());
         args.push(signature.code_puppy_model.trim().to_owned());
     }
+    if let Some(yolo) = signature.code_puppy_yolo {
+        args.push("--yolo".to_owned());
+        args.push(yolo.to_string());
+    }
     if !signature.pass_continue
         && let [instruction] = signature.mode_flags.as_slice()
         && !instruction.starts_with('-')

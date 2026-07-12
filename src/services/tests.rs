@@ -42,6 +42,7 @@ fn params<'a>(
         work_dir,
         profile: "",
         code_puppy_model: "",
+        code_puppy_yolo: false,
         agent_kind: "LLxprt",
         mode: "",
         llxprt_debug: "",

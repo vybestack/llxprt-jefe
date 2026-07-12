@@ -61,6 +61,7 @@ mod tests {
             work_dir: PathBuf::from("/tmp/work"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            code_puppy_yolo: Some(false),
             mode_flags: vec!["--stale".to_owned()],
             llxprt_debug: String::new(),
             pass_continue: true,

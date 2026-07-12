@@ -236,6 +236,26 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         ));
     }
 
+    // Explicit Code Puppy YOLO boolean; unlike LLxprt mode flags this always
+    // launches as exactly `--yolo true|false`.
+    if !visibility.shows_llxprt_fields() {
+        let yolo_focused = focus == AgentFormFocus::CodePuppyYolo;
+        let yolo_mark = if fields.code_puppy_yolo { "x" } else { " " };
+        let yolo_line = format!("  {:<16} [{}]  (space toggles)", "YOLO", yolo_mark);
+        all_lines.push(selectable_line(
+            &yolo_line,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            if yolo_focused { rc.bright } else { rc.fg },
+            sel,
+        ));
+    }
+
     // Content line: Pass --continue checkbox (LLxprt-only).
     if visibility.shows_llxprt_fields() {
         let continue_focused = focus == AgentFormFocus::PassContinue;

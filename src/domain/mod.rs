@@ -854,6 +854,9 @@ pub struct Agent {
     /// Optional Code Puppy model override. Empty inherits the repository default.
     #[serde(default)]
     pub code_puppy_model: String,
+    /// Explicit Code Puppy YOLO choice.
+    #[serde(default)]
+    pub code_puppy_yolo: Option<bool>,
     pub mode_flags: Vec<String>,
     #[serde(default)]
     pub llxprt_debug: String,
@@ -899,6 +902,9 @@ pub struct LaunchSignature {
     /// Effective Code Puppy model for this launch.
     #[serde(default)]
     pub code_puppy_model: String,
+    /// Explicit Code Puppy YOLO value for this launch.
+    #[serde(default)]
+    pub code_puppy_yolo: Option<bool>,
     pub mode_flags: Vec<String>,
     #[serde(default)]
     pub llxprt_debug: String,
@@ -934,6 +940,7 @@ impl Agent {
 
             profile: String::new(),
             code_puppy_model: String::new(),
+            code_puppy_yolo: None,
             mode_flags: Vec::new(),
             llxprt_debug: String::new(),
             pass_continue: true, // Default per REQ-FUNC-004

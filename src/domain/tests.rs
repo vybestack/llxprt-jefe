@@ -404,6 +404,7 @@ fn runtime_binding_roundtrips_pid_when_present() {
             work_dir: PathBuf::from("/tmp/agent-2"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            code_puppy_yolo: Some(false),
             mode_flags: vec![],
             llxprt_debug: String::new(),
             pass_continue: true,

@@ -10,6 +10,7 @@ fn base_signature() -> LaunchSignature {
         work_dir: std::path::PathBuf::from("/tmp"),
         profile: String::new(),
         code_puppy_model: String::new(),
+        code_puppy_yolo: Some(false),
         mode_flags: Vec::new(),
         llxprt_debug: String::new(),
         pass_continue: true,
@@ -22,11 +23,23 @@ fn base_signature() -> LaunchSignature {
 }
 
 #[test]
+fn code_puppy_omits_yolo_argument_for_legacy_unconfigured_agent() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_yolo = None;
+
+    assert_eq!(code_puppy_launch_args(&signature), vec!["-i"]);
+}
+
+#[test]
 fn code_puppy_omits_model_argument_when_unset() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;
 
-    assert_eq!(code_puppy_launch_args(&signature), vec!["-i"]);
+    assert_eq!(
+        code_puppy_launch_args(&signature),
+        vec!["-i", "--yolo", "false"]
+    );
 }
 
 #[test]
@@ -37,7 +50,19 @@ fn code_puppy_passes_configured_model_as_exact_argv() {
 
     assert_eq!(
         code_puppy_launch_args(&signature),
-        vec!["-i", "--model", "openrouter/puppy-pro"]
+        vec!["-i", "--model", "openrouter/puppy-pro", "--yolo", "false"]
+    );
+}
+
+#[test]
+fn code_puppy_passes_explicit_true_yolo_value() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_yolo = Some(true);
+
+    assert_eq!(
+        code_puppy_launch_args(&signature),
+        vec!["-i", "--yolo", "true"]
     );
 }
 
@@ -51,7 +76,14 @@ fn code_puppy_fresh_prompt_keeps_model_before_instruction() {
 
     assert_eq!(
         code_puppy_launch_args(&signature),
-        vec!["-i", "--model", "puppy-pro", "Read the issue prompt"]
+        vec![
+            "-i",
+            "--model",
+            "puppy-pro",
+            "--yolo",
+            "false",
+            "Read the issue prompt"
+        ]
     );
 }
 
@@ -388,7 +420,7 @@ fn code_puppy_launch_uses_only_supported_args() {
     signature.pass_continue = true;
     signature.sandbox_enabled = true;
 
-    assert_eq!(launch_args(&signature), vec!["-i"]);
+    assert_eq!(launch_args(&signature), vec!["-i", "--yolo", "false"]);
 
     let plan = local_launch_plan(&signature);
     assert!(plan.env.is_empty());
@@ -402,9 +434,9 @@ fn code_puppy_launch_uses_only_supported_args() {
 
 // ── Code Puppy strict args (issue #184) ───────────────────────────────────
 //
-// Code Puppy must output ONLY `-i` for normal launches, and `-i` plus the
-// single positional instruction for fresh (issue/PR-driven) sends. Arbitrary
-// mode_flags must never leak through.
+// Code Puppy outputs interactive mode plus its typed YOLO value for normal
+// launches, and appends one positional instruction for fresh sends. Arbitrary
+// LLxprt mode_flags must never leak through.
 
 #[test]
 fn code_puppy_normal_launch_outputs_only_interactive_flag() {
@@ -414,7 +446,7 @@ fn code_puppy_normal_launch_outputs_only_interactive_flag() {
     signature.mode_flags = vec!["--yolo".to_owned()];
     signature.pass_continue = true;
 
-    assert_eq!(launch_args(&signature), vec!["-i"]);
+    assert_eq!(launch_args(&signature), vec!["-i", "--yolo", "false"]);
 }
 
 #[test]
@@ -429,6 +461,8 @@ fn code_puppy_fresh_send_outputs_instruction_positional() {
         launch_args(&signature),
         vec![
             "-i",
+            "--yolo",
+            "false",
             "Read and work on the GitHub issue described in .jefe/issue-prompt.md"
         ]
     );
@@ -447,7 +481,7 @@ fn code_puppy_strips_all_llxprt_only_flags() {
         "Read and work on the GitHub PR described in .jefe/pr-prompt.md".to_owned(),
     ];
 
-    assert_eq!(launch_args(&signature), vec!["-i"]);
+    assert_eq!(launch_args(&signature), vec!["-i", "--yolo", "false"]);
 }
 
 #[test]
@@ -456,7 +490,7 @@ fn code_puppy_empty_mode_flags_outputs_only_interactive_flag() {
     signature.agent_kind = AgentKind::CodePuppy;
     signature.mode_flags = Vec::new();
 
-    assert_eq!(launch_args(&signature), vec!["-i"]);
+    assert_eq!(launch_args(&signature), vec!["-i", "--yolo", "false"]);
 }
 
 #[test]
@@ -469,7 +503,7 @@ fn code_puppy_discards_unrecognized_positional_flags() {
         "second instruction".to_owned(),
     ];
 
-    assert_eq!(launch_args(&signature), vec!["-i"]);
+    assert_eq!(launch_args(&signature), vec!["-i", "--yolo", "false"]);
 }
 
 // ── Issue #198: history-aware capture-pane argv builder ───────────────────
