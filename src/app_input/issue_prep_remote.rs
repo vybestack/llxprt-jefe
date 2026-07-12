@@ -399,6 +399,15 @@ pub fn classify_predicate_output(
 /// when it succeeds or `JEFE_PREDICATE_FALSE` when it fails — in both cases
 /// the script itself exits 0. This lets the caller distinguish a legitimate
 /// false predicate from an infrastructure failure via [`classify_predicate_output`].
+///
+/// # Escaping contract
+///
+/// `condition` is interpolated verbatim into the shell script. Callers MUST
+/// pre-shell-escape any dynamic content (paths, remote-supplied values) via
+/// [`shell_escape`] before passing it here. All current call sites pass
+/// pre-escaped literals or `shell_escape`-d values. The function lives in a
+/// private module and is re-exported only `pub(super)` to `app_input`, so no
+/// code outside that boundary can reach it with untrusted input.
 pub fn wrap_predicate(condition: &str) -> String {
     format!(
         "{{ {condition}; }} && printf '%s' {sentinel_true} || printf '%s' {sentinel_false}",
@@ -470,7 +479,11 @@ impl RemotePrepRunner {
         }
 
         // 3. Dirty check (only meaningful if the worktree pre-existed).
-        let dirty_script = format!("cd {escaped_work}; git status --porcelain=v1");
+        // `set -e` makes the script fail fast if `cd` fails (e.g., a TOCTOU
+        // race that removed the dir between the existence check and here),
+        // so `git status` can never run in the wrong directory and produce a
+        // misleading porcelain result.
+        let dirty_script = format!("set -e; cd {escaped_work}; git status --porcelain=v1");
         let porcelain = self.run_wrapped_capture(&dirty_script)?;
         let dirty = super::super::issue_git_prep::porcelain_is_dirty(&porcelain);
 
@@ -626,6 +639,12 @@ impl RemotePrepRunner {
         identity: &CloneIdentity,
         prompt: &str,
     ) -> Result<PrepOutcome, String> {
+        // Defense-in-depth: refuse catastrophic targets (root, empty,
+        // top-level entry) even though the user confirmed. This runs BEFORE
+        // constructing the rm -rf shell command so a misconfigured work_dir
+        // can never reach the remote shell.
+        super::super::issue_git_prep::validate_reclone_target(work_dir)?;
+
         let escaped_work = shell_escape(&work_dir.to_string_lossy());
 
         // 1. Resolve the clone URL BEFORE any destructive action.

@@ -216,13 +216,12 @@ fn plan_dirty_stop_emits_no_cleanup() {
         origin_mismatch: false,
         prompt: "prompt",
     });
-    // Dirty + Stop: no reset/clean, no checkout, no prompt write.
+    // Dirty + Stop: the planner short-circuits with NO operations at all —
+    // no reset/clean, no checkout, no prompt write. Assert emptiness directly
+    // (not a vacuous `.all()`) so an accidental no-op/log op would be caught.
     assert!(
-        ops.iter().all(|op| !op
-            .ssh_argv
-            .iter()
-            .any(|a| a.contains("git reset") || a.contains("git clean"))),
-        "Stop policy must not plan reset/clean: {ops:?}"
+        ops.is_empty(),
+        "Stop policy must emit no ops at all: {ops:?}"
     );
 }
 

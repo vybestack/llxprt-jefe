@@ -68,6 +68,45 @@ pub(super) fn ensure_workdir_cloned(work_dir: &Path, clone_url: Option<&str>) ->
     }
 }
 
+/// Validate that `work_dir` is a safe target for a destructive force-reclone.
+///
+/// Rejects targets that would cause catastrophic data loss if removed:
+/// - empty/whitespace-only paths,
+/// - the filesystem root (`/` on Unix, `` on Windows),
+/// - a bare drive root (`C:`) on Windows,
+/// - a path with fewer than two named components (e.g. `/home`, `/tmp`),
+///   which is too broad to remove in an automated reclone.
+///
+/// This is a defense-in-depth guard: the `ConfirmedReclone` token already
+/// proves the user confirmed, but a misconfigured `work_dir` (root, empty,
+/// or a top-level directory) must never reach `rm -rf` even with
+/// confirmation. The check is locale- and platform-independent and has no
+/// side effects.
+pub(super) fn validate_reclone_target(work_dir: &Path) -> Result<(), String> {
+    let lossy = work_dir.to_string_lossy();
+    let trimmed = lossy.trim();
+    if trimmed.is_empty() {
+        return Err("Refusing to force-reclone: work_dir is empty.".to_owned());
+    }
+    // Count named components (Normal). Root/prefix/curdir/parent don't count.
+    // A safe work_dir has at least two named components (e.g. /home/user,
+    // /tmp/agent1), so removing it cannot nuke a top-level OS directory like
+    // /home or /tmp.
+    let named_count = work_dir
+        .components()
+        .filter(|c| matches!(c, std::path::Component::Normal(_)))
+        .count();
+    if named_count < 2 {
+        return Err(format!(
+            "Refusing to force-reclone {}: it resolves to a filesystem root or a top-level \
+             directory, which would delete too much. The work_dir must have at least two path \
+             components.",
+            work_dir.display()
+        ));
+    }
+    Ok(())
+}
+
 /// Zero-sized proof token that the caller has obtained explicit user
 /// confirmation for a destructive workdir replacement.
 ///
@@ -906,5 +945,38 @@ mod tests {
             "https://GitHub.COM/acme/widgets.git",
             "acme/widgets"
         ));
+    }
+
+    // ── validate_reclone_target: catastrophic-target guard ───────────
+
+    #[test]
+    fn validate_reclone_target_rejects_empty() {
+        assert!(validate_reclone_target(Path::new("")).is_err());
+        assert!(validate_reclone_target(Path::new("   ")).is_err());
+    }
+
+    #[test]
+    fn validate_reclone_target_rejects_filesystem_root() {
+        assert!(
+            validate_reclone_target(Path::new("/")).is_err(),
+            "root must be rejected"
+        );
+    }
+
+    #[test]
+    fn validate_reclone_target_rejects_top_level_entry() {
+        // A single component directly under root (no meaningful parent)
+        // is too destructive for an automated reclone.
+        assert!(validate_reclone_target(Path::new("/home")).is_err());
+        assert!(validate_reclone_target(Path::new("/tmp")).is_err());
+    }
+
+    #[test]
+    fn validate_reclone_target_accepts_nested_path() {
+        assert!(
+            validate_reclone_target(Path::new("/home/user/work/agent1")).is_ok(),
+            "a normal nested work_dir must be accepted"
+        );
+        assert!(validate_reclone_target(Path::new("/srv/repos/jefe/agents/a1")).is_ok(),);
     }
 }

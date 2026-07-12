@@ -388,16 +388,19 @@ pub(super) fn confirm_issue_origin_mismatch_enter(
             "Working copy is dirty after force-reclone".to_owned(),
         ),
         Ok(PrepOutcome::OriginMismatch { actual, expected }) => {
-            prompt_origin_mismatch_confirm(
+            // A force-reclone clones from the validated configured identity,
+            // so an OriginMismatch here is an unexpected error (the clone did
+            // not land on the configured origin), NOT a re-prompt. Re-opening
+            // the modal could loop indefinitely, so fail hard with a clear
+            // message instead.
+            apply_send_to_agent_failed(
                 app_state,
                 ctx,
-                &PrepOutcomeContext {
-                    agent_id,
-                    work_dir,
-                    launch_sig,
-                    payload,
-                },
-                OriginMismatchInfo { actual, expected },
+                format!(
+                    "Force-reclone completed but the working copy origin is {actual}, expected \
+                     {expected}. This should not happen after a fresh clone; please verify the \
+                     configured github_repo and retry."
+                ),
             );
         }
         Err(error) => apply_send_to_agent_failed(app_state, ctx, error),

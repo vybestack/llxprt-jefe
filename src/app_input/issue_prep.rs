@@ -186,6 +186,10 @@ pub(super) fn force_reclone_local_with_url(
     clone_url: &str,
     prompt: &str,
 ) -> Result<PrepOutcome, String> {
+    // Defense-in-depth: refuse catastrophic targets (root, empty, top-level)
+    // even though the user confirmed. This guards against a misconfigured
+    // work_dir reaching `rm -rf`.
+    super::issue_git_prep::validate_reclone_target(work_dir)?;
     // Remove the mismatched workdir. The confirmation token is the
     // compile-time guarantee that the user confirmed via the modal; this
     // function is only reached from confirm_issue_origin_mismatch_enter.
