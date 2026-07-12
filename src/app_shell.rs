@@ -669,8 +669,14 @@ fn handle_key_event(
 
     update_paste_enter_suppression(app_state, suppress_next_enter, &key_event);
 
+    // F12 toggles terminal focus in Dashboard/Split/Actions. In Issues/PR
+    // mode F12 is mode-aware (defocus / return to list) and is handled by
+    // the mode-specific resolvers below, so it must NOT be intercepted here.
     if key_event.code == KeyCode::F(12)
-        && matches!(screen_mode, ScreenMode::Dashboard | ScreenMode::Split)
+        && matches!(
+            screen_mode,
+            ScreenMode::Dashboard | ScreenMode::Split | ScreenMode::DashboardActions
+        )
     {
         handle_f12_toggle(app_state, &ctx.cloned());
         return;

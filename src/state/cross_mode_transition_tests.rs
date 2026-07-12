@@ -228,3 +228,56 @@ fn enter_issues_mode_does_not_clobber_existing_prior_focus() {
         "selected_agent_index must be preserved"
     );
 }
+
+/// EnterPrsMode must not clobber an existing saved `prior_agent_focus` when
+/// re-entering PR mode after a Dashboard → PRs → Issues → PRs round-trip
+/// (symmetric to `enter_issues_mode_does_not_clobber_existing_prior_focus`).
+#[test]
+fn enter_prs_mode_does_not_clobber_existing_prior_focus() {
+    use crate::domain::{Agent, AgentId};
+    use crate::state::PaneFocus;
+    use crate::state::PriorAgentFocus;
+
+    let mut state = state_with_repo_and_prefs("repo-1", RepoPreferences::default());
+    // Add an agent so selected_agent_index is Some(0) after enter-mode saves.
+    state.agents.push(Agent::new(
+        AgentId("agent-1".to_string()),
+        RepositoryId("repo-1".to_string()),
+        "Agent One".to_string(),
+        std::path::PathBuf::from("/tmp/agent"),
+    ));
+    state.selected_agent_index = Some(0);
+
+    // Enter PR mode so prior_agent_focus is set by the reducer.
+    let mut state = state.apply(AppEvent::EnterPrsMode);
+    // Now overwrite with a KNOWN sentinel value that differs from what the
+    // current pane_focus/selections would produce on re-entry.
+    let original_prior = PriorAgentFocus {
+        pane_focus: PaneFocus::Repositories,
+        selected_repository_index: Some(0),
+        selected_agent_index: None, // sentinel: None, but live selection is Some(0)
+    };
+    state.prs_state.prior_agent_focus = Some(original_prior.clone());
+
+    // Switch to Issues mode then back to PR mode.
+    let state = state.apply(AppEvent::EnterIssuesMode);
+    let state = state.apply(AppEvent::EnterPrsMode);
+
+    let saved = state
+        .prs_state
+        .prior_agent_focus
+        .as_ref()
+        .unwrap_or_else(|| panic!("prior_agent_focus must be Some after EnterPrsMode"));
+    assert_eq!(
+        saved.pane_focus, original_prior.pane_focus,
+        "prior_agent_focus must not be clobbered by re-entry"
+    );
+    assert_eq!(
+        saved.selected_repository_index, original_prior.selected_repository_index,
+        "selected_repository_index must be preserved"
+    );
+    assert_eq!(
+        saved.selected_agent_index, original_prior.selected_agent_index,
+        "selected_agent_index must be preserved"
+    );
+}
