@@ -15,6 +15,32 @@ pub use pr_types::*;
 mod form_types;
 pub use form_types::*;
 
+/// Captured issue self-assignment follow-up for an issue-driven launch
+/// (issue #186).
+///
+/// Carried through the preflight modal so the non-blocking
+/// assignment (or its warning) fires after a successful post-preflight
+/// launch.
+///
+/// - [`IssueSelfAssignmentFollowUp::Resolved`]: a valid `owner/repo` was
+///   resolved from the agent's repository; the background task will resolve
+///   the viewer and POST the assignment.
+/// - [`IssueSelfAssignmentFollowUp::Unavailable`]: the repository has no valid
+///   `github_repo`, so assignment cannot run; a non-blocking warning must be
+///   surfaced instead of silently skipping (consistent with the direct path).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IssueSelfAssignmentFollowUp {
+    Resolved {
+        /// Validated `owner/repo` shortform (never the slug).
+        owner_repo: String,
+        issue_number: u64,
+    },
+    Unavailable {
+        issue_number: u64,
+        reason: String,
+    },
+}
+
 /// Modal/form state variants.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ModalState {
@@ -88,6 +114,11 @@ pub enum ModalState {
         issue: PreflightIssue,
         /// Placeholder for future multi-issue handling.
         remaining_issues: Vec<PreflightIssue>,
+        /// Captured issue self-assignment follow-up for issue-driven launches
+        /// (issue #186). `None` for non-issue launches (e.g. relaunch). When
+        /// present, the assignment (or its warning) fires after a successful
+        /// post-preflight launch.
+        issue_self_assignment: Option<IssueSelfAssignmentFollowUp>,
     },
     /// Issue send: the working copy has uncommitted changes (excluding
     /// jefe/llxprt-owned paths). Prompt the user to discard them before

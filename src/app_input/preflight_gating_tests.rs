@@ -5,7 +5,7 @@
 //! persisted edit data; preflight must NOT fire for it. LLxprt with
 //! sandbox_enabled must still fire preflight.
 
-use super::*;
+use super::preflight::should_run_sandbox_preflight;
 use std::path::PathBuf;
 
 use jefe::domain::{

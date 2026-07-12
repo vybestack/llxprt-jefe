@@ -139,7 +139,7 @@ fn handle_initial_prep_outcome(
             &prep_ctx.agent_id,
             prep_ctx.work_dir,
             prep_ctx.launch_sig,
-            SelfAssignment::from_send_context(
+            IssueAssignment::from_send_context(
                 prep_ctx.clone_identity.as_ref(),
                 prep_ctx.payload.issue_number,
             ),
@@ -188,9 +188,10 @@ fn preflight_and_launch_issue(
     agent_id: &AgentId,
     work_dir: PathBuf,
     launch_sig: LaunchSignature,
-    assignment: Option<SelfAssignment>,
+    assignment: IssueAssignment,
 ) {
-    if preflight_or_prompt(app_state, ctx, agent_id, &launch_sig) {
+    let carried = assignment.carried();
+    if preflight_or_prompt(app_state, ctx, agent_id, &launch_sig, Some(&carried)) {
         launch_issue_agent(
             app_state,
             ctx,
@@ -331,7 +332,7 @@ pub(super) fn confirm_issue_dirty_copy_enter(
                 &agent_id,
                 work_dir,
                 launch_sig,
-                SelfAssignment::from_send_context(clone_identity.as_ref(), payload.issue_number),
+                IssueAssignment::from_send_context(clone_identity.as_ref(), payload.issue_number),
             );
         }
         // Discard policy cleans first, so Dirty should not occur — but treat
@@ -401,7 +402,7 @@ pub(super) fn confirm_issue_origin_mismatch_enter(
                 &agent_id,
                 work_dir,
                 launch_sig,
-                SelfAssignment::from_send_context(Some(&clone_identity), payload.issue_number),
+                IssueAssignment::from_send_context(Some(&clone_identity), payload.issue_number),
             );
         }
         Ok(PrepOutcome::Dirty) => apply_send_to_agent_failed(
@@ -504,7 +505,7 @@ fn launch_issue_agent(
     agent_id: AgentId,
     work_dir: PathBuf,
     launch_sig: LaunchSignature,
-    assignment: Option<SelfAssignment>,
+    assignment: IssueAssignment,
 ) {
     let launched = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
     // Resolve the worker PID for the persisted binding's PID-liveness
@@ -525,10 +526,20 @@ fn launch_issue_agent(
 
     // Self-assign the issue to the authenticated viewer only on a successful
     // launch (issue #186). Non-blocking: failures surface a warning, not a
-    // send failure.
+    // send failure. When no valid GitHub repo is configured the assignment is
+    // skipped, but the user is warned so the missing configuration is visible
+    // rather than silently ignored.
     if launched {
-        if let Some(assignment) = assignment {
-            spawn_issue_self_assignment(app_state, ctx, assignment);
+        match assignment.assignment {
+            Some(resolved) => spawn_issue_self_assignment(app_state, ctx, resolved),
+            None => fail_assignment(
+                app_state,
+                ctx,
+                "",
+                assignment.issue_number,
+                "No valid GitHub repo (owner/repo) configured for this agent's repository; \
+                 could not self-assign the issue",
+            ),
         }
     }
 }
@@ -600,15 +611,16 @@ fn apply_send_to_agent_failed(app_state: &mut AppStateHandle, ctx: &SharedContex
 
 /// Split a validated `owner/repo` identity into its `(owner, repo)` components.
 ///
-/// Pure seam so the self-assignment path can be unit-tested without a network
-/// round-trip: the caller passes the validated clone-identity shortform and
-/// the issue number, and the test asserts the resolved components flow into
-/// the assignment request (issue #186).
+/// Requires exactly two non-empty components (rejecting extra segments like
+/// `owner/repo/extra`), so the value cannot alter the REST endpoint path
+/// unexpectedly. Pure seam so the self-assignment path can be unit-tested
+/// without a network round-trip (issue #186).
 fn split_owner_repo(owner_repo: &str) -> Option<(String, String)> {
-    let (owner, repo) = owner_repo.split_once('/')?;
-    let owner = owner.trim();
-    let repo = repo.trim();
-    if owner.is_empty() || repo.is_empty() {
+    let mut parts = owner_repo.split('/');
+    let owner = parts.next()?.trim();
+    let repo = parts.next()?.trim();
+    // Reject a third segment so `owner/repo/extra` is not silently accepted.
+    if parts.next().is_some() || owner.is_empty() || repo.is_empty() {
         return None;
     }
     Some((owner.to_string(), repo.to_string()))
@@ -624,6 +636,56 @@ pub(super) struct SelfAssignment {
     pub(super) issue_number: u64,
 }
 
+/// The assignment intent carried through the issue-driven launch path: the
+/// issue number (always known) plus the optional resolved identity. Bundling
+/// them keeps the launch/preflight helpers under the argument-count limit
+/// (issue #186).
+pub(super) struct IssueAssignment {
+    pub(super) issue_number: u64,
+    pub(super) assignment: Option<SelfAssignment>,
+}
+
+/// The reason used when an issue-driven launch has no valid repository
+/// identity to self-assign against (issue #186). Kept as a constant so the
+/// direct and post-preflight paths surface an identical warning.
+const NO_REPO_IDENTITY_REASON: &str = "No valid GitHub repo (owner/repo) configured for this agent's repository; could not \
+     self-assign the issue";
+
+impl IssueAssignment {
+    /// Build the intent from a validated clone identity and the issue number.
+    /// When the identity is missing/invalid, `assignment` is `None` so the
+    /// launch path can surface a warning instead of silently skipping.
+    pub(super) fn from_send_context(
+        clone_identity: Option<&CloneIdentity>,
+        issue_number: u64,
+    ) -> Self {
+        Self {
+            issue_number,
+            assignment: SelfAssignment::from_send_context(clone_identity, issue_number),
+        }
+    }
+
+    /// Project the assignment intent to the state-level follow-up carried
+    /// through the preflight modal. Distinguishes a resolved target from an
+    /// unavailable one so the post-preflight path can still warn when the
+    /// repository identity is missing (issue #186). Returns `None` only for
+    /// launches that did not originate from issue sending.
+    /// Project the assignment intent to the state-level follow-up carried
+    /// through the preflight modal. Distinguishes a resolved target from an
+    /// unavailable one so the post-preflight path can still warn when the
+    /// repository identity is missing (issue #186).
+    pub(super) fn carried(&self) -> jefe::state::IssueSelfAssignmentFollowUp {
+        use jefe::state::IssueSelfAssignmentFollowUp as FollowUp;
+        match &self.assignment {
+            Some(resolved) => resolved.to_state(),
+            None => FollowUp::Unavailable {
+                issue_number: self.issue_number,
+                reason: NO_REPO_IDENTITY_REASON.to_string(),
+            },
+        }
+    }
+}
+
 impl SelfAssignment {
     /// Build from a validated clone identity's `owner/repo` shortform and the
     /// issue number carried by the send payload. Returns `None` when the
@@ -634,6 +696,39 @@ impl SelfAssignment {
     ) -> Option<Self> {
         let identity = clone_identity?;
         let owner_repo = identity.expected_shortform().to_string();
+        let (owner, repo) = split_owner_repo(&owner_repo)?;
+        Some(Self {
+            owner,
+            repo,
+            owner_repo,
+            issue_number,
+        })
+    }
+
+    /// Project to the state-level representation carried through the preflight
+    /// modal (issue #186). The modal lives in the `state` layer, which cannot
+    /// depend on this binary-crate type.
+    /// Project to the state-level follow-up carried through the preflight
+    /// modal (issue #186). The modal lives in the `state` layer, which cannot
+    /// depend on this binary-crate type.
+    pub(super) fn to_state(&self) -> jefe::state::IssueSelfAssignmentFollowUp {
+        jefe::state::IssueSelfAssignmentFollowUp::Resolved {
+            owner_repo: self.owner_repo.clone(),
+            issue_number: self.issue_number,
+        }
+    }
+
+    /// Reconstruct from the state-level follow-up after a post-preflight
+    /// launch. Returns `None` unless the carried variant is `Resolved` with a
+    /// re-valid `owner/repo` split.
+    pub(super) fn from_state(state: &jefe::state::IssueSelfAssignmentFollowUp) -> Option<Self> {
+        let (owner_repo, issue_number) = match state {
+            jefe::state::IssueSelfAssignmentFollowUp::Resolved {
+                owner_repo,
+                issue_number,
+            } => (owner_repo.clone(), *issue_number),
+            jefe::state::IssueSelfAssignmentFollowUp::Unavailable { .. } => return None,
+        };
         let (owner, repo) = split_owner_repo(&owner_repo)?;
         Some(Self {
             owner,
@@ -735,6 +830,38 @@ fn fail_assignment(
     );
 }
 
+/// Reconstruct the self-assignment from the state-level follow-up carried
+/// through the preflight modal and fire it after a successful post-preflight
+/// issue-driven launch (issue #186). Called by the preflight confirm path.
+///
+/// - `Resolved` with a re-valid shortform starts the background assignment.
+/// - `Unavailable` surfaces the non-blocking warning (consistent with the
+///   direct launch path) instead of silently skipping.
+/// - outer `None` is a non-issue launch and is a no-op.
+pub(super) fn spawn_post_preflight_issue_self_assignment(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    carried: Option<&jefe::state::IssueSelfAssignmentFollowUp>,
+) {
+    use jefe::state::IssueSelfAssignmentFollowUp as FollowUp;
+    let Some(carried) = carried else {
+        return;
+    };
+    match carried {
+        FollowUp::Resolved { .. } => {
+            if let Some(assignment) = SelfAssignment::from_state(carried) {
+                spawn_issue_self_assignment(app_state, ctx, assignment);
+            }
+        }
+        FollowUp::Unavailable {
+            issue_number,
+            reason,
+        } => {
+            fail_assignment(app_state, ctx, "", *issue_number, reason);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::split_owner_repo;
@@ -759,13 +886,29 @@ mod tests {
     }
 
     #[test]
-    fn split_owner_repo_extra_components_returns_first_two() {
-        // The clone identity is already validated to exactly two components,
-        // but split_once is intentionally greedy-only-once so a validated
-        // `owner/repo` with a dot (e.g. owner/repo.name) still parses.
+    fn split_owner_repo_dot_in_repo_name_keeps_two_components() {
+        // A validated `owner/repo` may contain a dot (e.g. owner/repo.name);
+        // the split must keep the dotted repo as a single component.
         assert_eq!(
             split_owner_repo("owner/repo.name"),
             Some(("owner".to_string(), "repo.name".to_string()))
+        );
+    }
+
+    #[test]
+    fn split_owner_repo_rejects_extra_components() {
+        // A third segment (owner/repo/extra) must not silently resolve to the
+        // first two — it could alter the REST endpoint path unexpectedly.
+        assert_eq!(split_owner_repo("owner/repo/extra"), None);
+    }
+
+    #[test]
+    fn split_owner_repo_trims_surrounding_whitespace() {
+        // The source is the validated CloneIdentity shortform; surrounding
+        // whitespace around the two components is trimmed.
+        assert_eq!(
+            split_owner_repo("owner / repo"),
+            Some(("owner".to_string(), "repo".to_string()))
         );
     }
 }

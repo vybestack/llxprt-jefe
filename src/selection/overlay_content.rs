@@ -240,6 +240,7 @@ mod tests {
                 signature,
                 issue: PreflightIssue::SshAgentNoIdentities,
                 remaining_issues: Vec::new(),
+                issue_self_assignment: None,
             },
             ..Default::default()
         };

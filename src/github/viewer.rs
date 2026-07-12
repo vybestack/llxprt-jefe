@@ -22,7 +22,15 @@ pub fn parse_viewer_login(output: &str) -> Result<String, GhError> {
         ));
     }
     if !trimmed.starts_with('{') {
-        let line = trimmed.lines().next().unwrap_or_default().trim_matches('"');
+        // `gh api user --jq .login` emits exactly one bare login token. Reject
+        // any multiline output rather than silently taking the first line,
+        // so a garbled response is not forwarded to the assignment request.
+        if trimmed.lines().count() != 1 {
+            return Err(GhError::ParseError(format!(
+                "Unexpected multiline viewer login output: {trimmed}"
+            )));
+        }
+        let line = trimmed.trim_matches('"');
         return validate_login(line);
     }
     let value: Value = serde_json::from_str(trimmed)
@@ -34,7 +42,6 @@ pub fn parse_viewer_login(output: &str) -> Result<String, GhError> {
             .unwrap_or_default(),
     )
 }
-
 /// Validate a resolved login as a nonempty GitHub component, returning it
 /// owned on success. Centralizes the plausible-login check shared by the bare
 /// and JSON parse paths.

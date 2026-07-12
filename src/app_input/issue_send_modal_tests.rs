@@ -7,16 +7,17 @@
 //! `TestResultExt`, `TestOptionExt`) come from the sibling `tests` module via
 //! `super::tests`.
 
+use super::clone_identity::CloneIdentity;
 use super::tests::{TestOptionExt, sample_agent, sample_signature};
 use super::*;
 
 use std::path::PathBuf;
 
 use super::issues_send::{
-    SelfAssignment, issue_send_info_from_state, prepare_issue_launch_signature,
+    IssueAssignment, SelfAssignment, issue_send_info_from_state, prepare_issue_launch_signature,
 };
 use jefe::domain::{AgentId, IssueDetail, IssueState, RepositoryId};
-use jefe::state::{AgentChooserState, ScreenMode};
+use jefe::state::{AgentChooserState, ModalState, ScreenMode};
 
 // ── Issue send-to-agent: default-branch prep + dirty-copy guard (issue #166) ─
 
@@ -404,4 +405,101 @@ fn self_assignment_skipped_when_no_valid_clone_identity() {
         assignment.is_none(),
         "no self-assignment must be produced without a valid clone identity"
     );
+}
+
+/// The self-assignment context survives the to_state/from_state round-trip
+/// through the preflight modal (issue #186). After a post-preflight launch,
+/// `from_state` must reconstruct the same owner/repo/issue_number so the
+/// non-blocking assignment still fires.
+#[test]
+fn self_assignment_survives_preflight_modal_round_trip() {
+    use jefe::state::IssueSelfAssignmentFollowUp as FollowUp;
+
+    let identity = CloneIdentity::parse("vybestack/llxprt-jefe")
+        .value_or_panic("valid owner/repo parses into a clone identity");
+    let assignment =
+        SelfAssignment::from_send_context(Some(&identity), 186).value_or_panic("identity is valid");
+
+    let carried = assignment.to_state();
+    let (owner_repo, issue_number) = match &carried {
+        FollowUp::Resolved {
+            owner_repo,
+            issue_number,
+        } => (owner_repo.clone(), *issue_number),
+        FollowUp::Unavailable { .. } => panic!("resolved identity must carry as Resolved"),
+    };
+    assert_eq!(owner_repo, "vybestack/llxprt-jefe");
+    assert_eq!(issue_number, 186);
+
+    let reconstructed = SelfAssignment::from_state(&carried)
+        .value_or_panic("round-trip must reconstruct from the carried shortform");
+    assert_eq!(reconstructed.owner, assignment.owner);
+    assert_eq!(reconstructed.repo, assignment.repo);
+    assert_eq!(reconstructed.owner_repo, assignment.owner_repo);
+    assert_eq!(reconstructed.issue_number, assignment.issue_number);
+}
+
+/// `from_state` rejects a malformed carried shortform so a corrupted modal
+/// payload cannot trigger an assignment against an unintended target.
+#[test]
+fn self_assignment_from_state_rejects_malformed_shortform() {
+    use jefe::state::IssueSelfAssignmentFollowUp as FollowUp;
+
+    let malformed = FollowUp::Resolved {
+        owner_repo: "not-a-valid-shortform".to_string(),
+        issue_number: 186,
+    };
+    assert!(
+        SelfAssignment::from_state(&malformed).is_none(),
+        "a shortform without exactly one '/' must not reconstruct"
+    );
+}
+
+/// `IssueAssignment::carried` distinguishes a resolved target from an
+/// unavailable one, so the post-preflight path can still warn instead of
+/// silently skipping (issue #186).
+#[test]
+fn issue_assignment_carried_unavailable_when_no_identity() {
+    use jefe::state::IssueSelfAssignmentFollowUp as FollowUp;
+
+    let intent = IssueAssignment::from_send_context(None, 186);
+    let carried = intent.carried();
+    match carried {
+        FollowUp::Unavailable {
+            issue_number,
+            reason,
+        } => {
+            assert_eq!(issue_number, 186);
+            assert!(
+                reason.contains("No valid GitHub repo"),
+                "unavailable reason must explain the missing repo: {reason}"
+            );
+        }
+        other @ FollowUp::Resolved { .. } => {
+            panic!("missing identity must carry as Unavailable, got {other:?}")
+        }
+    }
+}
+
+/// A resolved identity carries as `Resolved` with the validated shortform.
+#[test]
+fn issue_assignment_carried_resolved_when_identity_present() {
+    use jefe::state::IssueSelfAssignmentFollowUp as FollowUp;
+
+    let identity = CloneIdentity::parse("vybestack/llxprt-jefe")
+        .value_or_panic("valid owner/repo parses into a clone identity");
+    let intent = IssueAssignment::from_send_context(Some(&identity), 186);
+    let carried = intent.carried();
+    match carried {
+        FollowUp::Resolved {
+            owner_repo,
+            issue_number,
+        } => {
+            assert_eq!(owner_repo, "vybestack/llxprt-jefe");
+            assert_eq!(issue_number, 186);
+        }
+        other @ FollowUp::Unavailable { .. } => {
+            panic!("resolved identity must carry as Resolved, got {other:?}")
+        }
+    }
 }

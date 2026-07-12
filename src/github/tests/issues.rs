@@ -837,6 +837,17 @@ fn test_parse_viewer_login_rejects_multiline_garbage() {
 }
 
 #[test]
+fn test_parse_viewer_login_rejects_valid_first_line_with_trailing_garbage() {
+    // Even when the first line is itself a valid login, trailing lines mean
+    // the gh output was malformed; reject rather than silently taking line 1.
+    let result = parse_viewer_login("acoliver\nunexpected garbage");
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "multiline output with a valid first line must be rejected, got {result:?}"
+    );
+}
+
+#[test]
 fn test_parse_viewer_login_rejects_invalid_login_chars() {
     // GitHub logins cannot contain '@' or spaces; reject rather than passing
     // a malformed value to the assignment request.

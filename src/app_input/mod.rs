@@ -12,6 +12,10 @@ mod persist_focus;
 mod preflight;
 mod pty_passthrough;
 
+// Re-export so sibling modules importing `super::preflight_or_prompt` keep
+// resolving after the helper moved into the `preflight` submodule.
+pub use preflight::preflight_or_prompt;
+
 // PR-mode key-routing + dispatch surface.
 // @plan PLAN-20260624-PR-MODE.P11
 // @requirement REQ-PR-001
@@ -82,7 +86,7 @@ use jefe::messages::{AppMessage, IssuesMessage, RuntimeMessage, UiNavigationMess
 use jefe::persistence::State as PersistedState;
 const REMOTE_ATTACH_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
-use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_preflight, sandbox_ssh_agent_warning};
+use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_ssh_agent_warning};
 
 #[must_use]
 fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, slot: u8) -> bool {
@@ -136,7 +140,7 @@ fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, s
     }
 }
 
-use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, RepositoryFormFocus};
+use jefe::state::{AppEvent, AppState, PaneFocus, RepositoryFormFocus};
 
 fn repository_focus_toggles_checkbox(focus: RepositoryFormFocus) -> bool {
     matches!(
@@ -223,58 +227,10 @@ fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: A
 fn close_modal_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     apply_and_persist(app_state, ctx, AppEvent::CloseModal);
 }
-/// Run sandbox preflight checks and either show a prompt or proceed with launch.
-///
-/// Returns `true` if the launch can proceed immediately (no issues or sandbox
-/// not enabled).  Returns `false` if a `PreflightPrompt` modal was opened and
-/// the caller should abort the immediate launch path.
-///
-/// Preflight is gated to [`AgentKind::Llxprt`] only: CodePuppy does not use
-/// the LLxprt sandbox flags/engine, and stale `sandbox_enabled`/`sandbox_engine`
-/// fields persisted from a prior LLxprt configuration must not trigger LLxprt
-/// preflight for a CodePuppy agent.
-fn preflight_or_prompt(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    agent_id: &AgentId,
-    signature: &LaunchSignature,
-) -> bool {
-    if !should_run_sandbox_preflight(signature) {
-        return true;
-    }
 
-    if let Some(issue) = sandbox_preflight(signature.sandbox_engine) {
-        let mut state = app_state.write();
-        state.modal = ModalState::PreflightPrompt {
-            agent_id: agent_id.clone(),
-            signature: signature.clone(),
-            issue,
-            remaining_issues: Vec::new(),
-        };
-        let persisted = to_persisted_state(&state);
-        drop(state);
-        persist_state(ctx, &persisted);
-        return false;
-    }
-
-    true
-}
-
-/// Pure predicate: should sandbox preflight run for this signature?
-///
-/// Preflight runs only when **both** conditions hold:
-/// 1. `sandbox_enabled` is true, AND
-/// 2. `agent_kind == Llxprt` (CodePuppy has no LLxprt sandbox subsystem).
-///
-/// This gates out CodePuppy agents that carry stale `sandbox_enabled = true`
-/// from persisted edit data — they must not run LLxprt preflight.
-#[must_use]
-fn should_run_sandbox_preflight(signature: &LaunchSignature) -> bool {
-    signature.sandbox_enabled && signature.agent_kind == jefe::domain::AgentKind::Llxprt
-}
-
-/// Actually spawn + attach an agent session (shared by fresh-launch and
-/// post-preflight resume paths).
+/// Spawn + attach an agent session (shared by fresh-launch and post-preflight
+/// resume paths). Returns `Ok` only on a successful launch so callers can gate
+/// side effects (e.g. issue self-assignment) on the actual outcome.
 fn execute_agent_launch(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -282,14 +238,17 @@ fn execute_agent_launch(
     work_dir: &std::path::Path,
     signature: &LaunchSignature,
     is_relaunch: bool,
-) {
-    let attach_result = spawn_and_attach(ctx, agent_id, work_dir, signature, is_relaunch);
-
-    if let Err(e) = attach_result {
-        warn!(error = %e, "could not spawn or attach session for agent");
-        mark_launch_failed(app_state, ctx, agent_id, e);
-    } else {
-        mark_launch_attached(app_state, ctx, agent_id, signature);
+) -> Result<(), RuntimeError> {
+    match spawn_and_attach(ctx, agent_id, work_dir, signature, is_relaunch) {
+        Ok(()) => {
+            mark_launch_attached(app_state, ctx, agent_id, signature);
+            Ok(())
+        }
+        Err(error) => {
+            warn!(error = %error, "could not spawn or attach session for agent");
+            mark_launch_failed(app_state, ctx, agent_id, error.clone());
+            Err(error)
+        }
     }
 }
 
@@ -749,7 +708,7 @@ fn relaunch_preflight_passed(
     ) {
         return false;
     }
-    preflight_or_prompt(app_state, ctx, agent_id, &signature)
+    preflight_or_prompt(app_state, ctx, agent_id, &signature, None)
 }
 
 fn relaunch_runtime_session(

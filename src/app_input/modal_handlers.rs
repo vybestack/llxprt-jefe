@@ -155,9 +155,15 @@ fn handle_confirm_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {
             agent_id,
             signature,
             issue,
+            issue_self_assignment,
             ..
         } => super::preflight::handle_preflight_prompt_enter(
-            app_state, ctx, agent_id, signature, issue,
+            app_state,
+            ctx,
+            agent_id,
+            signature,
+            issue,
+            issue_self_assignment,
         ),
         ModalState::ConfirmIssueDirtyCopy {
             agent_id,
@@ -462,11 +468,11 @@ fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
         return;
     }
 
-    if !preflight_or_prompt(app_state, ctx, &agent_id, &signature) {
+    if !preflight_or_prompt(app_state, ctx, &agent_id, &signature, None) {
         return;
     }
     focus_terminal_after_submit(app_state, ctx);
-    execute_agent_launch(app_state, ctx, &agent_id, &work_dir, &signature, false);
+    let _ = execute_agent_launch(app_state, ctx, &agent_id, &work_dir, &signature, false);
 }
 
 /// Pre-submit validation: check that the selected agent kind is locally

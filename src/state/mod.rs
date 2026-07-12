@@ -917,6 +917,10 @@ mod issues_tests_subfocus;
 mod issues_tests_detail_flow;
 
 #[cfg(test)]
+#[path = "issues_tests_self_assignment.rs"]
+mod issues_tests_self_assignment;
+
+#[cfg(test)]
 #[path = "issues_tests_repo_nav.rs"]
 mod issues_tests_repo_nav;
 
@@ -981,7 +985,6 @@ mod prs_tests_detail_flow;
 #[path = "prs_tests_components.rs"]
 mod prs_tests_components;
 
-/// Review-thread state tests (issue #119): open reply composer, toggle resolve.
 /// Silent background refresh state-transition tests (issue #128).
 #[cfg(test)]
 #[path = "prs_tests_silent_refresh.rs"]
