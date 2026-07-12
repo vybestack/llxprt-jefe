@@ -181,8 +181,12 @@ impl RemotePrepPlanner {
             );
             ops.push(self.wrapped_ssh_op(&script, None));
 
-            // 5. mkdir .jefe + write prompt via stdin (cat > file).
-            let prompt_path = format!("{escaped_work}/{ISSUE_PROMPT_RELATIVE_PATH}");
+            // 5. mkdir .jefe + write prompt via stdin (cat > file). Escape
+            // the full joined prompt path (consistent with plan_force_reclone
+            // and the live run() path) so a metacharacter in the work dir or
+            // the constant can never break the shell command.
+            let prompt_path =
+                shell_escape(&work_dir.join(ISSUE_PROMPT_RELATIVE_PATH).to_string_lossy());
             let script = format!(
                 "set -e; mkdir -p {jefe_dir}; cat > {prompt_path}",
                 jefe_dir = shell_escape(&work_dir.join(".jefe").to_string_lossy()),

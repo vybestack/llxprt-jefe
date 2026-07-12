@@ -471,13 +471,13 @@ fn local_force_reclone_replaces_mismatched_repo() {
     cleanup(&work);
 }
 
-// ── Target-aware PR prompt writing (reuses write_prompt_to_target) ──────
+// ── Local PR prompt writing (reuses write_prompt_to_target) ────────────
 //
 // The PR send path (`prs_orchestration::dispatch_pr_agent_chooser_confirm`)
 // reuses the issue-prep safe target prompt writer for writing
-// `.jefe/pr-prompt.md` to the local filesystem or a remote host. These tests
-// exercise both paths, including adversarial content that must never appear
-// in any shell argv.
+// `.jefe/pr-prompt.md` to the local filesystem. These tests exercise the
+// local path, including adversarial content that must never appear in any
+// shell argv. The remote-host path is covered in `issue_prep_remote_tests.rs`.
 
 /// Relative path for the PR prompt — must match `prs_orchestration`.
 const PR_PROMPT_RELATIVE_PATH: &str = ".jefe/pr-prompt.md";

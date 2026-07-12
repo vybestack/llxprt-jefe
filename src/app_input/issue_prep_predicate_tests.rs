@@ -292,13 +292,21 @@ fn origin_url_classifier_success_whitespace_only_is_no_origin() {
 
 #[test]
 fn origin_url_classifier_ssh_exit_255_is_err() {
-    let result = classify_origin_url_output(Some(255), "", "Permission denied (publickey).");
+    let stderr = "Permission denied (publickey).";
+    let result = classify_origin_url_output(Some(255), "", stderr);
     let Err(err) = &result else {
         panic!("SSH exit 255 must be Err: {result:?}");
     };
+    // Pin the fixed message prefix exactly (the stderr detail is appended).
+    // This is robust against reformatting of the classifier's message while
+    // still verifying the exit-255 transport-failure classification.
     assert!(
-        err.contains("255") || err.contains("transport") || err.contains("auth"),
-        "error must mention transport/auth/255: {err}"
+        err.starts_with("SSH transport/auth/host failure (exit 255):"),
+        "error must use the SSH transport-failure prefix: {err}"
+    );
+    assert!(
+        err.contains(stderr),
+        "error must include the raw stderr: {err}"
     );
 }
 
