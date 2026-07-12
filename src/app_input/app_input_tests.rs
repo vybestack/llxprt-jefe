@@ -8,9 +8,9 @@ use jefe::domain::{
     RepositoryId, RuntimeBinding, SandboxEngine,
 };
 use jefe::domain::{IssueDetail, IssueState};
-use jefe::state::{AgentChooserState, ScreenMode};
+use jefe::state::{AgentChooserState, ModalState, ScreenMode};
 
-trait TestResultExt<T> {
+pub(super) trait TestResultExt<T> {
     fn value_or_panic(self, context: &str) -> T;
 }
 
@@ -23,10 +23,26 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
     }
 }
 
-fn sample_signature() -> LaunchSignature {
+pub(super) trait TestOptionExt<T> {
+    fn value_or_panic(self, context: &str) -> T;
+}
+
+impl<T> TestOptionExt<T> for Option<T> {
+    fn value_or_panic(self, context: &str) -> T {
+        match self {
+            Some(value) => value,
+            None => panic!("{context}: expected Some, got None"),
+        }
+    }
+}
+
+pub(super) fn sample_signature() -> LaunchSignature {
     LaunchSignature {
         work_dir: PathBuf::from("/tmp/agent"),
         profile: String::new(),
+        code_puppy_model: String::new(),
+        code_puppy_yolo: Some(false),
+        code_puppy_quick_resume: false,
         mode_flags: vec![String::from("--yolo")],
         llxprt_debug: String::new(),
         pass_continue: true,
@@ -34,10 +50,11 @@ fn sample_signature() -> LaunchSignature {
         sandbox_engine: SandboxEngine::Podman,
         sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: RemoteRepositorySettings::default(),
+        agent_kind: jefe::domain::AgentKind::Llxprt,
     }
 }
 
-fn sample_agent(agent_id: &AgentId) -> Agent {
+pub(super) fn sample_agent(agent_id: &AgentId) -> Agent {
     Agent::new(
         agent_id.clone(),
         RepositoryId(String::from("repo-1")),
@@ -816,6 +833,7 @@ fn confirm_issue_dirty_copy_modal_routes_to_confirm_input_mode() {
             work_dir: PathBuf::from("/tmp/x"),
             signature: sample_signature(),
             payload: jefe::github::SendPayload::default(),
+            confirm_focus: jefe::state::ConfirmFocus::Cancel,
         },
         ..AppState::default()
     };

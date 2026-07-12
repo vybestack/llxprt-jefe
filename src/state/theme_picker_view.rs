@@ -30,6 +30,7 @@ pub fn theme_picker_view(state: &AppState) -> Option<Vec<ThemePickerRow>> {
         available_themes,
         selected_index,
         active_slug,
+        ..
     } = &state.modal
     else {
         return None;
@@ -49,6 +50,17 @@ pub fn theme_picker_view(state: &AppState) -> Option<Vec<ThemePickerRow>> {
     Some(rows)
 }
 
+/// Pure projection of the theme picker's "Apply jefe theme to agent" toggle.
+///
+/// Returns `None` when no theme picker modal is open.
+#[must_use]
+pub fn theme_picker_override_view(state: &AppState) -> Option<bool> {
+    let ModalState::ThemePicker { override_theme, .. } = &state.modal else {
+        return None;
+    };
+    Some(*override_theme)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -60,6 +72,7 @@ mod tests {
                 available_themes: themes,
                 selected_index: selected,
                 active_slug: active.to_owned(),
+                override_theme: false,
             },
             ..AppState::default()
         }

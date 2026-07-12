@@ -8,6 +8,11 @@
 /// chooser, agent chooser, delete-confirm overlay, and detail panes.
 pub(crate) const SEPARATOR_LINE: &str = "─────────────────────────────────────────";
 
+/// Actions run-detail pane projection. Builds [`DetailPaneProps`] from the
+/// workflow run detail and delegates rendering to the generic [`DetailPane`].
+pub(crate) mod actions_detail;
+/// Actions run-list pane projection for the generic [`SelectableList`].
+pub(crate) mod actions_list;
 mod agent_chooser;
 mod agent_list;
 /// Generic bordered, header + scrollable + optional-composer detail pane.
@@ -16,6 +21,7 @@ mod agent_list;
 /// helpers (`header_highlight`, `header_row`) live here so both detail panes
 /// share one source of truth.
 pub(crate) mod detail_pane;
+pub mod doc_wrap;
 /// Generic bordered filter bar with labeled `[value]` fields and action hints.
 /// Domain layers (`filter_controls` for Issues, `pr_filter_controls` for PRs)
 /// project into [`FilterBarProps`] and delegate rendering through
@@ -73,7 +79,12 @@ mod selectable_line;
 pub(crate) mod selectable_list;
 mod sidebar;
 mod status_bar;
+/// Jefe-theme override logic for the embedded agent terminal (issue #179).
+mod terminal_theme;
 mod terminal_view;
+/// Pure viewport projection for terminal scrollback (issue #198).
+/// iocraft-free, `#[must_use]`, unit-testable directly.
+pub(crate) mod terminal_viewport;
 /// Fixed-size multiline text-box component with an inline caret.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
@@ -82,6 +93,10 @@ mod terminal_view;
 /// @pseudocode component-001 lines 169-176
 mod text_box;
 
+pub use actions_detail::{ActionsDetailProjectionInputs, actions_detail_props};
+pub use actions_list::{
+    ActionsListLayout, ActionsListWindow, actions_list_props, actions_list_status_message,
+};
 pub use agent_chooser::{AgentChooser, AgentChooserProps};
 pub use agent_list::{AgentListSelection, agent_list_props};
 pub use detail_pane::{
@@ -89,7 +104,10 @@ pub use detail_pane::{
     composer_from_inline_state, detail_pane_element, header_highlight, header_row,
 };
 pub use filter_bar::{FilterBar, FilterBarProps, FilterFieldView, filter_bar_element};
-pub use filter_controls::{issue_filter_action_hints, issue_filter_fields, issue_filter_props};
+pub use filter_controls::{
+    actions_filter_action_hints, actions_filter_fields, actions_filter_props,
+    issue_filter_action_hints, issue_filter_fields, issue_filter_props,
+};
 pub use issue_delete_confirm::{IssueDeleteConfirmOverlay, IssueDeleteConfirmProps};
 pub use issue_detail::{IssueDetailProjectionInputs, issue_detail_props};
 pub use issue_list::{
@@ -117,6 +135,7 @@ pub use selectable_list::{
 pub use sidebar::{Sidebar, SidebarProps};
 pub use status_bar::{StatusBar, StatusBarProps};
 pub use terminal_view::{TerminalView, TerminalViewProps, terminal_empty_message};
+pub use terminal_viewport::{TerminalViewportProjection, build_terminal_viewport};
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-010

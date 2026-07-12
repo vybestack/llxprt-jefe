@@ -14,7 +14,8 @@
 
 use super::prs_test_fixtures::prs_state_with_detail;
 use crate::state::AppState;
-use crate::state::types::{AppEvent, InlineState};
+use crate::state::events::AppEvent;
+use crate::state::types::InlineState;
 
 /// Extract the active (text, cursor) pair from the inline composer/editor so
 /// cursor-movement tests can assert on byte offsets without rebuilding content.

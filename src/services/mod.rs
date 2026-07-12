@@ -9,7 +9,10 @@ mod normalize;
 
 use std::path::PathBuf;
 
-use crate::domain::{Agent, AgentId, AgentStatus, PlatformCapabilities, Repository, SandboxEngine};
+use crate::domain::{
+    Agent, AgentId, AgentKind, AgentStatus, PlatformCapabilities, QuickResume, Repository,
+    SandboxEngine,
+};
 
 pub(crate) use normalize::{
     expand_tilde, normalize_llxprt_debug, normalize_profile, normalize_sandbox_flags,
@@ -42,6 +45,14 @@ pub struct CreateAgentParams<'a> {
     pub work_dir: &'a str,
     /// Raw profile value (normalized by the service).
     pub profile: &'a str,
+    /// Optional Code Puppy model override.
+    pub code_puppy_model: &'a str,
+    /// Explicit Code Puppy YOLO choice.
+    pub code_puppy_yolo: bool,
+    /// Whether Code Puppy should resume its latest autosaved session.
+    pub code_puppy_quick_resume: QuickResume,
+    /// Agent runtime selected in the form.
+    pub agent_kind: &'a str,
     /// Raw mode string, whitespace-split into flags by the service.
     pub mode: &'a str,
     /// Raw llxprt debug value (trimmed by the service).
@@ -103,11 +114,10 @@ pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
 
     let work_dir = resolve_agent_work_dir(params.repository, params.work_dir)?;
 
-    let mode_flags: Vec<String> = if params.mode.trim().is_empty() {
-        vec!["--yolo".to_owned()]
-    } else {
-        params.mode.split_whitespace().map(String::from).collect()
-    };
+    // The mode field is the single source of truth for whether --yolo (or any
+    // flag) is passed. An empty mode yields no flags so an agent can run
+    // non-yolo; the new-agent form pre-fills --yolo as the default instead.
+    let mode_flags: Vec<String> = params.mode.split_whitespace().map(String::from).collect();
 
     let caps = PlatformCapabilities::current();
     let sandbox_engine = SandboxEngine::from_form_value(params.sandbox_engine)
@@ -123,12 +133,17 @@ pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
         description: params.description.to_owned(),
         work_dir: PathBuf::from(&work_dir),
         profile: normalize_profile(params.profile),
+        code_puppy_model: params.code_puppy_model.trim().to_owned(),
+        code_puppy_yolo: Some(params.code_puppy_yolo),
+        code_puppy_quick_resume: params.code_puppy_quick_resume.enabled(),
         mode_flags,
         llxprt_debug: normalize_llxprt_debug(params.llxprt_debug),
         pass_continue: params.pass_continue,
         sandbox_enabled: params.sandbox_enabled,
         sandbox_engine,
         sandbox_flags: normalize_sandbox_flags(params.sandbox_flags),
+        agent_kind: AgentKind::from_form_value(params.agent_kind)
+            .unwrap_or(params.repository.default_agent_kind),
         // App-created agents start Running because creation triggers immediate launch.
         status: AgentStatus::Running,
         runtime_binding: None,

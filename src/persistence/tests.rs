@@ -129,6 +129,7 @@ fn file_persistence_roundtrip_settings() {
     let settings = Settings {
         schema_version: SETTINGS_SCHEMA_VERSION,
         theme: "dracula".into(),
+        override_agent_theme: false,
     };
 
     mgr.save_settings(&settings).value_or_panic("should save");
@@ -138,6 +139,60 @@ fn file_persistence_roundtrip_settings() {
     assert_eq!(loaded.schema_version, SETTINGS_SCHEMA_VERSION);
 
     // Cleanup
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+// ── Issue #179: override_agent_theme persistence ──────────────────────────
+
+#[test]
+fn override_agent_theme_defaults_false_in_default_with_version() {
+    let settings = Settings::default_with_version();
+    assert!(
+        !settings.override_agent_theme,
+        "override_agent_theme must default to false"
+    );
+}
+
+#[test]
+fn override_agent_theme_absent_in_toml_deserializes_false() {
+    // A settings.toml without the override_agent_theme field (legacy file)
+    // must deserialize with override_agent_theme == false.
+    let toml_str = r#"
+schema_version = 1
+theme = "green-screen"
+"#;
+    let settings: Settings =
+        toml::from_str(toml_str).value_or_panic("legacy settings should deserialize");
+    assert!(
+        !settings.override_agent_theme,
+        "absent field must default to false"
+    );
+}
+
+#[test]
+fn override_agent_theme_true_round_trips() {
+    let temp = std::env::temp_dir().join("jefe_test_override_theme_roundtrip");
+    let _ = std::fs::remove_dir_all(&temp);
+    let paths = PersistencePaths {
+        settings_path: temp.join("settings.toml"),
+        state_path: temp.join("state.json"),
+    };
+    let mgr = FilePersistenceManager::with_paths(paths);
+
+    let settings = Settings {
+        schema_version: SETTINGS_SCHEMA_VERSION,
+        theme: "dracula".into(),
+        override_agent_theme: true,
+    };
+
+    mgr.save_settings(&settings).value_or_panic("should save");
+    let loaded = mgr.load_settings().value_or_panic("should load");
+
+    assert!(
+        loaded.override_agent_theme,
+        "override_agent_theme must survive a save/load round-trip when true"
+    );
+
     let _ = std::fs::remove_dir_all(&temp);
 }
 
@@ -245,9 +300,11 @@ fn test_issue_base_prompt_state_round_trip() {
         slug: "issues-repo".to_string(),
         base_dir: PathBuf::from("/tmp/issues-repo"),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: "Always reproduce the bug first".to_string(),
+        default_agent_kind: crate::domain::AgentKind::Llxprt,
         agent_ids: vec![],
     };
 

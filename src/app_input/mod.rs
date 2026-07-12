@@ -11,6 +11,11 @@ mod modal_handlers;
 mod normal;
 mod persist_focus;
 mod preflight;
+mod pty_passthrough;
+
+// Re-export so sibling modules importing `super::preflight_or_prompt` keep
+// resolving after the helper moved into the `preflight` submodule.
+pub use preflight::preflight_or_prompt;
 
 // PR-mode key-routing + dispatch surface.
 // @plan PLAN-20260624-PR-MODE.P11
@@ -25,11 +30,20 @@ mod prs_mutation;
 // @plan PLAN-20260624-PR-MODE.P11
 mod prs_orchestration;
 
+mod actions;
+mod actions_orchestration;
 mod gh_async;
 
 mod agent_runtime;
+mod availability;
+mod clone_identity;
+mod fresh_prompt;
 mod issue_git_prep;
+mod issue_prep;
+mod issue_self_assignment;
 mod issues_send;
+mod remote_probe;
+mod target_resolution;
 use agent_runtime::{
     clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, pid_on_success, set_agent_runtime_binding,
@@ -45,6 +59,10 @@ pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
 // Re-export the background-refresh orchestration helper so `app_shell` can
 // import it from `app_input` (issue #128).
 pub use prs_orchestration::request_pr_background_refresh;
+
+// Re-export the PTY-forwarding helpers so `app_shell` can drive the agent
+// terminal without owning the encoding/forwarding logic (issue #200).
+pub use pty_passthrough::{forward_key_to_pty, try_ctrl_c_interrupt_passthrough};
 
 use iocraft::hooks::State as HookState;
 use iocraft::prelude::*;
@@ -70,7 +88,7 @@ use jefe::messages::{AppMessage, IssuesMessage, RuntimeMessage, UiNavigationMess
 use jefe::persistence::State as PersistedState;
 const REMOTE_ATTACH_SETTLE_DELAY: Duration = Duration::from_millis(150);
 
-use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_preflight, sandbox_ssh_agent_warning};
+use jefe::runtime::{RuntimeError, RuntimeManager, sandbox_ssh_agent_warning};
 
 #[must_use]
 fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, slot: u8) -> bool {
@@ -124,12 +142,14 @@ fn jump_to_shortcut_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, s
     }
 }
 
-use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, RepositoryFormFocus};
+use jefe::state::{AppEvent, AppState, PaneFocus, RepositoryFormFocus};
 
 fn repository_focus_toggles_checkbox(focus: RepositoryFormFocus) -> bool {
     matches!(
         focus,
-        RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault
+        RepositoryFormFocus::DefaultAgentKind
+            | RepositoryFormFocus::RemoteEnabled
+            | RepositoryFormFocus::SetupEnvDefault
     )
 }
 
@@ -167,6 +187,13 @@ fn launch_signature_for_agent(
     LaunchSignature {
         work_dir: agent.work_dir.clone(),
         profile: agent.profile.clone(),
+        code_puppy_model: if agent.code_puppy_model.trim().is_empty() {
+            repository.default_code_puppy_model.trim().to_owned()
+        } else {
+            agent.code_puppy_model.trim().to_owned()
+        },
+        code_puppy_yolo: agent.code_puppy_yolo,
+        code_puppy_quick_resume: agent.code_puppy_quick_resume,
         mode_flags: agent.mode_flags.clone(),
         llxprt_debug: agent.llxprt_debug.clone(),
         pass_continue: agent.pass_continue,
@@ -174,6 +201,7 @@ fn launch_signature_for_agent(
         sandbox_engine: agent.sandbox_engine,
         sandbox_flags: agent.sandbox_flags.clone(),
         remote: repository.remote.clone(),
+        agent_kind: agent.agent_kind,
     }
 }
 
@@ -202,40 +230,10 @@ fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: A
 fn close_modal_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     apply_and_persist(app_state, ctx, AppEvent::CloseModal);
 }
-/// Run sandbox preflight checks and either show a prompt or proceed with launch.
-///
-/// Returns `true` if the launch can proceed immediately (no issues or sandbox
-/// not enabled).  Returns `false` if a `PreflightPrompt` modal was opened and
-/// the caller should abort the immediate launch path.
-fn preflight_or_prompt(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    agent_id: &AgentId,
-    signature: &LaunchSignature,
-) -> bool {
-    if !signature.sandbox_enabled {
-        return true;
-    }
 
-    if let Some(issue) = sandbox_preflight(signature.sandbox_engine) {
-        let mut state = app_state.write();
-        state.modal = ModalState::PreflightPrompt {
-            agent_id: agent_id.clone(),
-            signature: signature.clone(),
-            issue,
-            remaining_issues: Vec::new(),
-        };
-        let persisted = to_persisted_state(&state);
-        drop(state);
-        persist_state(ctx, &persisted);
-        return false;
-    }
-
-    true
-}
-
-/// Actually spawn + attach an agent session (shared by fresh-launch and
-/// post-preflight resume paths).
+/// Spawn + attach an agent session (shared by fresh-launch and post-preflight
+/// resume paths). Returns `Ok` only on a successful launch so callers can gate
+/// side effects (e.g. issue self-assignment) on the actual outcome.
 fn execute_agent_launch(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -243,14 +241,17 @@ fn execute_agent_launch(
     work_dir: &std::path::Path,
     signature: &LaunchSignature,
     is_relaunch: bool,
-) {
-    let attach_result = spawn_and_attach(ctx, agent_id, work_dir, signature, is_relaunch);
-
-    if let Err(e) = attach_result {
-        warn!(error = %e, "could not spawn or attach session for agent");
-        mark_launch_failed(app_state, ctx, agent_id, e);
-    } else {
-        mark_launch_attached(app_state, ctx, agent_id, signature);
+) -> Result<(), RuntimeError> {
+    match spawn_and_attach(ctx, agent_id, work_dir, signature, is_relaunch) {
+        Ok(()) => {
+            mark_launch_attached(app_state, ctx, agent_id, signature);
+            Ok(())
+        }
+        Err(error) => {
+            warn!(error = %error, "could not spawn or attach session for agent");
+            mark_launch_failed(app_state, ctx, agent_id, error.clone());
+            Err(error)
+        }
     }
 }
 
@@ -332,10 +333,15 @@ fn mark_launch_attached(
     );
     clear_agent_runtime_attachment(&mut state);
     mark_agent_runtime_attached(&mut state, agent_id, true);
-    if let Some(warning) = sandbox_ssh_agent_warning() {
-        state.warning_message = Some(warning);
-    } else {
-        clear_runtime_warning(&mut state);
+    // SSH agent warnings are only relevant for LLxprt sandbox sessions.
+    // CodePuppy does not use the LLxprt sandbox, so stale sandbox_enabled
+    // must not trigger the warning.
+    if signature.agent_kind == jefe::domain::AgentKind::Llxprt {
+        if let Some(warning) = sandbox_ssh_agent_warning() {
+            state.warning_message = Some(warning);
+        } else {
+            clear_runtime_warning(&mut state);
+        }
     }
     let persisted = to_persisted_state(&state);
     drop(state);
@@ -430,6 +436,92 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
     dispatch_app_message(app_state, ctx, evt.into());
 }
 
+/// Dispatch a terminal scrollback event (issue #198).
+///
+/// Refreshes cached scroll geometry BEFORE applying the event so the reducer's
+/// clamp bounds match rendered content. Uses apply-only (no persist) since
+/// scrollback fields are runtime-only.
+pub fn dispatch_terminal_scroll(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    evt: AppEvent,
+) {
+    refresh_terminal_scroll_geometry(app_state, ctx);
+    let mut state = app_state.write();
+    *state = std::mem::take(&mut *state).apply(evt);
+}
+
+/// Try to intercept a scrollback-control key while the terminal is focused
+/// (issue #198). Returns `true` when the key was consumed as a terminal
+/// scrollback viewport event (and must NOT be forwarded to the PTY).
+///
+/// PageUp/PageDown/Home intercept from both states; End/Up/Down only intercept
+/// when scrolled back. Modifier chords are forwarded. The decision is made by
+/// the pure [`jefe::input::should_intercept_for_scrollback`] helper so it stays
+/// unit-testable.
+pub fn try_intercept_terminal_scrollback(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    key_event: &KeyEvent,
+) -> bool {
+    let offset_is_some = app_state.read().terminal_history_offset.is_some();
+    let Some(scroll_evt) = jefe::input::should_intercept_for_scrollback(key_event, offset_is_some)
+    else {
+        return false;
+    };
+    dispatch_terminal_scroll(app_state, ctx, scroll_evt);
+    true
+}
+
+/// Refresh cached terminal scrollback geometry (issue #198). Computes
+/// viewport rows from PTY layout and total lines from history + snapshot.
+/// When ctx is None or the lock is contended, preserves existing geometry
+/// instead of zeroing it (zeroing would clear the scroll offset).
+pub fn refresh_terminal_scroll_geometry(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let pty_layout = jefe::layout::compute_pty_layout(term_cols, term_rows);
+
+    // Capture retained history + live snapshot rows under the ctx lock so the
+    // total reflects the currently attached session. try_lock keeps this
+    // non-blocking when a background attach holds the mutex (the geometry is
+    // simply not refreshed that frame, falling back to the stale cache).
+    let (history_count, live_rows) = match ctx.as_ref() {
+        Some(ctx_arc) => match ctx_arc.try_lock() {
+            Ok(mut guard) => {
+                let history_count = guard.runtime.capture_history().map_or(0, |v| v.len());
+                let live_rows = guard.runtime.snapshot().map_or(0, |s| s.rows);
+                (history_count, live_rows)
+            }
+            Err(_) => {
+                // Lock contention: preserve existing geometry instead of
+                // zeroing it. Zeroing would clear the scroll offset and jump
+                // to follow-tail during attach.
+                return;
+            }
+        },
+        None => {
+            // No context: preserve existing geometry instead of zeroing it.
+            // Zeroing would clear the scroll offset.
+            return;
+        }
+    };
+
+    let mut state = app_state.write();
+    let old_total = state.terminal_total_lines;
+    let viewport_rows = usize::from(pty_layout.pty_rows);
+
+    let (new_offset, new_total) = jefe::state::scrollback_ops::compute_terminal_scroll_geometry(
+        state.terminal_history_offset,
+        old_total,
+        history_count,
+        live_rows,
+        viewport_rows,
+    );
+    state.terminal_history_offset = new_offset;
+    state.terminal_viewport_rows = viewport_rows;
+    state.terminal_total_lines = new_total;
+}
+
 pub fn dispatch_app_message(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -450,47 +542,9 @@ pub fn dispatch_app_message(
         AppMessage::Runtime(RuntimeMessage::RestartAgent(agent_id)) => {
             dispatch_restart_agent(app_state, ctx, agent_id);
         }
-        AppMessage::Issues(
-            message @ (IssuesMessage::NavigateUp
-            | IssuesMessage::NavigateDown
-            | IssuesMessage::NavigatePageUp
-            | IssuesMessage::NavigatePageDown
-            | IssuesMessage::NavigateHome
-            | IssuesMessage::NavigateEnd),
-        ) => {
-            dispatch_issues_navigation(app_state, ctx, message);
+        AppMessage::Issues(message) => {
+            issues_dispatch::dispatch_issues_message(app_state, ctx, message);
         }
-        AppMessage::Issues(
-            message @ (IssuesMessage::EnterMode
-            | IssuesMessage::RefocusList
-            | IssuesMessage::ApplyFilter
-            | IssuesMessage::ClearFilter
-            | IssuesMessage::ApplySearch),
-        ) => issues_list_dispatch::dispatch_issue_list_reload(app_state, ctx, message),
-        AppMessage::Issues(IssuesMessage::Enter) => {
-            apply_and_persist(app_state, ctx, AppEvent::IssuesEnter);
-            issues_dispatch::load_issue_detail_for_selection(app_state, ctx);
-        }
-        AppMessage::Issues(
-            message @ (IssuesMessage::ScrollDetailDown
-            | IssuesMessage::ScrollDetailPageDown
-            | IssuesMessage::DetailSubfocusNext
-            | IssuesMessage::DetailSubfocusPrev),
-        ) => issues_subfocus_dispatch::dispatch_issues_detail_scroll_or_subfocus(
-            app_state, ctx, message,
-        ),
-        AppMessage::Issues(IssuesMessage::AgentChooserConfirm) => {
-            issues_send::dispatch_agent_chooser_confirm(app_state, ctx);
-        }
-        AppMessage::Issues(IssuesMessage::InlineSubmit) => {
-            issues_mutation::handle_inline_submit(app_state, ctx);
-        }
-        AppMessage::Issues(
-            message @ (IssuesMessage::CloseIssue
-            | IssuesMessage::OpenDeleteIssueConfirm
-            | IssuesMessage::IssueDeleteConfirm
-            | IssuesMessage::IssueDeleteCancel),
-        ) => dispatch_issues_lifecycle(app_state, ctx, message),
         // ── PR-mode dispatch arms ───────────────────────────────────────────
         // @plan PLAN-20260624-PR-MODE.P11
         // @requirement REQ-PR-001
@@ -501,6 +555,9 @@ pub fn dispatch_app_message(
         // @pseudocode component-004 lines 97-118
         AppMessage::PullRequests(message) => {
             prs_orchestration::dispatch_prs_message(app_state, ctx, message);
+        }
+        AppMessage::Actions(message) => {
+            actions_orchestration::dispatch_actions_message(app_state, ctx, message);
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
@@ -642,12 +699,19 @@ fn relaunch_preflight_passed(
     agent_id: &AgentId,
 ) -> bool {
     let state_ro = app_state.read();
-    let signature = agent_and_signature(&state_ro, agent_id).map(|(_, signature)| signature);
+    let agent_sig = agent_and_signature(&state_ro, agent_id);
     drop(state_ro);
-    match signature {
-        Some(signature) => preflight_or_prompt(app_state, ctx, agent_id, &signature),
-        None => true,
+    let Some((_, signature)) = agent_sig else {
+        return true;
+    };
+    if !availability::local_kind_available_or_error(
+        app_state,
+        signature.agent_kind,
+        &signature.remote,
+    ) {
+        return false;
     }
+    preflight_or_prompt(app_state, ctx, agent_id, &signature, None)
 }
 
 fn relaunch_runtime_session(
@@ -743,7 +807,12 @@ fn persist_relaunch_success(
     relaunch_event: AppEvent,
     pid: Option<u32>,
 ) {
-    if let Some((agent, signature)) = agent_and_signature(state, agent_id) {
+    // Capture agent_kind before `apply` consumes the state snapshot, so the
+    // SSH-agent warning can be gated: only LLxprt uses the sandbox subsystem,
+    // and CodePuppy must not trigger it from stale persisted sandbox flags.
+    let agent_sig = agent_and_signature(state, agent_id);
+    let relaunch_kind = agent_sig.as_ref().map(|(_, sig)| sig.agent_kind);
+    if let Some((agent, signature)) = agent_sig {
         set_agent_runtime_binding(
             state,
             agent_id,
@@ -756,10 +825,13 @@ fn persist_relaunch_success(
     state.terminal_focused = false;
     clear_agent_runtime_attachment(state);
     mark_agent_runtime_attached(state, agent_id, true);
-    if let Some(warning) = sandbox_ssh_agent_warning() {
-        state.warning_message = Some(warning);
-    } else {
-        clear_runtime_warning(state);
+    // Gate the SSH-agent warning to LLxprt only (see comment above).
+    if relaunch_kind == Some(jefe::domain::AgentKind::Llxprt) {
+        if let Some(warning) = sandbox_ssh_agent_warning() {
+            state.warning_message = Some(warning);
+        } else {
+            clear_runtime_warning(state);
+        }
     }
 }
 
@@ -859,9 +931,18 @@ fn refresh_issue_preview_if_changed(app_state: &mut AppStateHandle, prev_issue_i
 #[path = "app_input_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "issue_send_modal_tests.rs"]
+mod issue_send_modal_tests;
+#[cfg(test)]
+#[path = "modal_handlers_tests.rs"]
+mod modal_handlers_tests;
+#[cfg(test)]
+#[path = "preflight_gating_tests.rs"]
+mod preflight_gating_tests;
+
 // @plan PLAN-20260624-PR-MODE.P15
 // @requirement REQ-PR-001
-// @pseudocode component-001 lines 66-291
 #[cfg(test)]
 #[path = "prs_integration_tests.rs"]
 mod prs_integration_tests;
@@ -872,7 +953,6 @@ mod prs_integration_tests;
 #[cfg(test)]
 #[path = "prs_integration_tests_lifecycle.rs"]
 mod prs_integration_tests_lifecycle;
-
 // Extracted from `prs_dispatch.rs` to keep that handler module under the
 // per-file line limit.
 #[cfg(test)]

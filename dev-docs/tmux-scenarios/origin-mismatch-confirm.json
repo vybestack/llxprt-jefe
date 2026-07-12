@@ -1,0 +1,26 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "Issues" },
+    { "key": "Enter" },
+    { "key": "S" },
+    { "waitFor": "Send to Agent" },
+    { "key": "Enter" },
+    { "waitFor": "Wrong Repository" },
+    { "expect": "Replace it with a fresh clone?" },
+    { "capture": "origin-mismatch-modal" },
+    { "key": "Escape" },
+    { "waitForNot": "Wrong Repository" },
+    { "capture": "origin-mismatch-cancelled" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

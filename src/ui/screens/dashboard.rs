@@ -28,6 +28,14 @@ pub struct DashboardProps {
     pub theme_name: String,
     /// Terminal snapshot for the active agent's PTY.
     pub terminal_snapshot: Option<TerminalSnapshot>,
+    /// Retained scrollback history lines for the attached terminal (issue #198).
+    pub history_lines: Vec<String>,
+    /// Actual embedded-terminal pane dimensions (PTY layout). Used as the
+    /// viewport projection size when the live snapshot is absent/empty so
+    /// follow-tail/scroll math reflects the physical pane, not the whole
+    /// retained history (issue #198 follow-up).
+    pub terminal_pane_rows: usize,
+    pub terminal_pane_cols: usize,
 }
 
 /// The main dashboard screen: sidebar + middle (agents + terminal) + preview.
@@ -154,6 +162,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                 agent_count: agent_count,
                 theme_name: props.theme_name.clone(),
                 version: crate::VERSION.to_owned(),
+                kennel_mode: state.is_some_and(crate::state::AppState::is_kennel_mode),
                 warning_message: state.and_then(|s| s.warning_message.clone()),
                 colors: colors.clone(),
                 selection: selection,
@@ -199,11 +208,41 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                     }
                     Box(height: terminal_rows, width: 100pct) {
                         TerminalView(
-                            snapshot: props.terminal_snapshot.clone(),
+                            // When a Jefe-owned terminal selection is active,
+                            // use the snapshot that was captured at gesture
+                            // start (selection_snapshot) so the highlight and
+                            // copy use the SAME grid data (Finding B, issue
+                            // #197). Gate on the selection targeting the
+                            // terminal pane: a sidebar/agent-list selection
+                            // renders from app state, not the terminal grid,
+                            // so it must not pin the terminal to a stale
+                            // snapshot (issue #197 review). Otherwise use the
+                            // live render snapshot.
+                            snapshot: {
+                                let pinned = state.and_then(|s| {
+                                    let sel_is_terminal = s
+                                        .selection
+                                        .is_some_and(|sel| {
+                                            sel.pane()
+                                                == crate::selection::SelectablePane::TerminalView
+                                        });
+                                    if sel_is_terminal {
+                                        s.selection_snapshot.clone()
+                                    } else {
+                                        None
+                                    }
+                                });
+                                pinned.or_else(|| props.terminal_snapshot.clone())
+                            },
                             focused: terminal_focused,
                             colors: colors.clone(),
                             selection: selection,
                             session_live: session_live,
+                            history_lines: props.history_lines.clone(),
+                            terminal_history_offset: state.and_then(|s| s.terminal_history_offset),
+                            override_theme: state.is_some_and(|s| s.override_agent_theme),
+                            pane_rows: props.terminal_pane_rows,
+                            pane_cols: props.terminal_pane_cols,
                         )
                     }
                 }

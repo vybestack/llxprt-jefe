@@ -164,6 +164,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                 agent_count: agent_count,
                 theme_name: props.theme_name.clone(),
                 version: crate::VERSION.to_owned(),
+                kennel_mode: state.is_some_and(crate::state::AppState::is_kennel_mode),
                 warning_message: state.and_then(|s| s.warning_message.clone()),
                 colors: colors.clone(),
                 selection: selection,

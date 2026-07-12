@@ -156,8 +156,11 @@ pub fn build_detail_content(
 }
 
 /// Build a full-screen content block for creating a new issue.
+///
+/// The editor text itself is rendered by the embedded wrapping `TextBox`
+/// (issue #212), so this document only carries the static prompt lines.
 #[must_use]
-pub fn build_new_issue_content(inline_state: &InlineState) -> DetailContent {
+pub fn build_new_issue_content(_inline_state: &InlineState) -> DetailContent {
     let mut builder = ContentBuilder::new();
 
     builder.lines.push("New Issue".to_string());
@@ -165,15 +168,6 @@ pub fn build_new_issue_content(inline_state: &InlineState) -> DetailContent {
         .lines
         .push("Title: first line | Body: remaining lines".to_string());
     builder.lines.push(String::new());
-
-    if let InlineState::Composer {
-        target: ComposerTarget::NewIssue,
-        text,
-        cursor,
-    } = inline_state
-    {
-        builder.push_editor_lines(text.as_str(), *cursor, true, "  │ ", "  │ ");
-    }
 
     builder
         .lines
@@ -222,6 +216,7 @@ struct ContentBuilder {
 }
 
 impl ContentBuilder {
+    /// Create an empty builder.
     fn new() -> Self {
         Self {
             lines: Vec::new(),
@@ -294,7 +289,19 @@ fn build_body_section(
     if body_editing {
         builder.lines.push("[editing]".to_string());
     }
-    builder.push_editor_lines(body_text, body_cursor, body_editing, "  │ ", "    ");
+    if body_editing {
+        // While editing, render the raw composer text with a gutter so the
+        // caret projection matches the live TextBox.
+        builder.push_editor_lines(body_text, body_cursor, true, "  │ ", "    ");
+    } else {
+        // View mode: render the markdown body through comrak instead of
+        // dumping it raw (issue #155 — shared with the PR detail bug).
+        builder.lines.extend(
+            crate::markdown_render::render_markdown_block(body_text, "    ", "(no description)")
+                .iter()
+                .cloned(),
+        );
+    }
     if body_editing {
         builder
             .lines
@@ -350,13 +357,18 @@ fn build_single_comment(
     if comment_editing {
         builder.lines.push("  [editing]".to_string());
     }
-    builder.push_editor_lines(
-        comment_text,
-        comment_cursor,
-        comment_editing,
-        "    │ ",
-        "      ",
-    );
+    if comment_editing {
+        builder.push_editor_lines(comment_text, comment_cursor, true, "    │ ", "      ");
+    } else {
+        // View mode: render the comment body as markdown (issue #155). An
+        // empty/whitespace-only body renders a placeholder so the comment is
+        // never a visually empty gap.
+        builder.lines.extend(
+            crate::markdown_render::render_markdown_block(comment_text, "      ", "(no body)")
+                .iter()
+                .cloned(),
+        );
+    }
     if comment_editing {
         builder
             .lines

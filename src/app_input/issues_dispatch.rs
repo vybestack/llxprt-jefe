@@ -2,9 +2,14 @@
 //!
 //! Extracted from mod.rs to keep file sizes manageable.
 
+use jefe::messages::IssuesMessage;
 use jefe::state::AppEvent;
 
-use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client};
+use super::{
+    AppStateHandle, SharedContext, apply_and_persist, dispatch_issues_lifecycle,
+    dispatch_issues_navigation, gh_async, github_client,
+};
+use super::{issues_list_dispatch, issues_mutation, issues_send, issues_subfocus_dispatch};
 
 /// Resolve the GitHub owner/repo for the currently selected repository.
 /// Reads from the explicit `github_repo` field (format: `"owner/repo"`).
@@ -413,6 +418,59 @@ pub(super) fn format_issue_prompt(payload: &jefe::github::SendPayload) -> String
     }
 
     out
+}
+
+/// Dispatch Issues-mode messages that need orchestration beyond a plain reducer
+/// event (navigation reloads, detail load, send-to-agent, inline submit, and
+/// the close/delete lifecycle). Plain issues messages fall through to the
+/// generic `AppEvent::from` arm in `dispatch_app_message`.
+pub(super) fn dispatch_issues_message(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: IssuesMessage,
+) {
+    match message {
+        message @ (IssuesMessage::NavigateUp
+        | IssuesMessage::NavigateDown
+        | IssuesMessage::NavigatePageUp
+        | IssuesMessage::NavigatePageDown
+        | IssuesMessage::NavigateHome
+        | IssuesMessage::NavigateEnd) => {
+            dispatch_issues_navigation(app_state, ctx, message);
+        }
+        message @ (IssuesMessage::EnterMode
+        | IssuesMessage::RefocusList
+        | IssuesMessage::ApplyFilter
+        | IssuesMessage::ClearFilter
+        | IssuesMessage::ApplySearch) => {
+            issues_list_dispatch::dispatch_issue_list_reload(app_state, ctx, message);
+        }
+        IssuesMessage::Enter => {
+            apply_and_persist(app_state, ctx, AppEvent::IssuesEnter);
+            load_issue_detail_for_selection(app_state, ctx);
+        }
+        message @ (IssuesMessage::ScrollDetailDown
+        | IssuesMessage::ScrollDetailPageDown
+        | IssuesMessage::DetailSubfocusNext
+        | IssuesMessage::DetailSubfocusPrev) => {
+            issues_subfocus_dispatch::dispatch_issues_detail_scroll_or_subfocus(
+                app_state, ctx, message,
+            );
+        }
+        IssuesMessage::AgentChooserConfirm => {
+            issues_send::dispatch_agent_chooser_confirm(app_state, ctx);
+        }
+        IssuesMessage::InlineSubmit => {
+            issues_mutation::handle_inline_submit(app_state, ctx);
+        }
+        message @ (IssuesMessage::CloseIssue
+        | IssuesMessage::OpenDeleteIssueConfirm
+        | IssuesMessage::IssueDeleteConfirm
+        | IssuesMessage::IssueDeleteCancel) => {
+            dispatch_issues_lifecycle(app_state, ctx, message);
+        }
+        message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+    }
 }
 
 #[cfg(test)]

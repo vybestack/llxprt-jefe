@@ -4,8 +4,7 @@ use iocraft::hooks::State as HookState;
 use tracing::warn;
 
 use jefe::domain::{
-    Agent, AgentId, AgentStatus, LaunchSignature, PlatformCapabilities, RemoteRepositorySettings,
-    SandboxEngine,
+    Agent, AgentId, AgentStatus, LaunchSignature, PlatformCapabilities, SandboxEngine,
 };
 use jefe::persistence::{PersistenceManager, Settings, State as PersistedState};
 use jefe::runtime::{
@@ -17,17 +16,24 @@ use jefe::theme::ThemeManager;
 
 use crate::app_input::{SharedContext, persist_state, to_persisted_state};
 
-fn launch_signature_for_agent(agent: &Agent, remote: &RemoteRepositorySettings) -> LaunchSignature {
+fn launch_signature_for_agent(
+    agent: &Agent,
+    repository: &jefe::domain::Repository,
+) -> LaunchSignature {
     LaunchSignature {
         work_dir: agent.work_dir.clone(),
         profile: agent.profile.clone(),
+        code_puppy_model: agent.code_puppy_model.trim().to_owned(),
+        code_puppy_yolo: agent.code_puppy_yolo,
+        code_puppy_quick_resume: agent.code_puppy_quick_resume,
         mode_flags: agent.mode_flags.clone(),
         llxprt_debug: agent.llxprt_debug.clone(),
         pass_continue: agent.pass_continue,
         sandbox_enabled: agent.sandbox_enabled,
         sandbox_engine: agent.sandbox_engine,
         sandbox_flags: agent.sandbox_flags.clone(),
-        remote: remote.clone(),
+        remote: repository.remote.clone(),
+        agent_kind: agent.agent_kind,
     }
 }
 
@@ -95,6 +101,7 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     let mut state = app_state.write();
     state.repositories = persisted.repositories;
     state.agents = persisted.agents;
+    state.installed_agent_kinds = jefe::agent_detection::installed_agent_kinds().to_vec();
     state.selected_repository_index = persisted.selected_repository_index;
     state.selected_agent_index = persisted.selected_agent_index;
     state.hide_idle_repositories = persisted.hide_idle_repositories;
@@ -108,6 +115,10 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     state.terminal_focused =
         persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;
     state.user_preferences = persisted.user_preferences;
+    // Mirror the persisted "apply jefe theme to agent" toggle (issue #179).
+    // settings.toml is the source of truth; this runtime copy is read every
+    // render frame by the terminal view.
+    state.override_agent_theme = settings.override_agent_theme;
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
 
@@ -193,7 +204,7 @@ fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> V
 
         running_agents.push((
             agent.id.clone(),
-            launch_signature_for_agent(agent, &repository.remote),
+            launch_signature_for_agent(agent, repository),
             agent.runtime_binding.as_ref().and_then(|b| b.pid),
         ));
     }
@@ -297,7 +308,7 @@ fn restore_one_agent(
     else {
         return RestoreOneOutcome::Dead;
     };
-    let signature = launch_signature_for_agent(agent, &repository.remote);
+    let signature = launch_signature_for_agent(agent, &repository);
     let pid = agent.runtime_binding.as_ref().and_then(|b| b.pid);
     let session_exists = runtime.session_exists_for_signature(&agent.id, &signature);
 
@@ -402,7 +413,9 @@ fn revive_agent_session(
 ) -> ReviveOutcome {
     match runtime.spawn_session(&agent.id, &agent.work_dir, signature) {
         Ok(()) | Err(RuntimeError::AlreadyRunning(_)) => {
-            if runtime_warning.is_none() {
+            // SSH-agent warning is only relevant for LLxprt sandbox sessions;
+            // CodePuppy does not use the LLxprt sandbox subsystem.
+            if runtime_warning.is_none() && agent.agent_kind == jefe::domain::AgentKind::Llxprt {
                 *runtime_warning = jefe::runtime::sandbox_ssh_agent_warning();
             }
             ReviveOutcome::Revived
@@ -451,6 +464,46 @@ fn apply_restored_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use jefe::domain::{AgentKind, Repository, RepositoryId};
+
+    fn code_puppy_agent_and_repository() -> (Agent, Repository) {
+        let repository_id = RepositoryId("repo-model".to_owned());
+        let mut repository = Repository::new(
+            repository_id.clone(),
+            "Model Repo".to_owned(),
+            "model-repo".to_owned(),
+            std::path::PathBuf::from("/tmp/model-repo"),
+        );
+        repository.default_code_puppy_model = "  repo/default-model  ".to_owned();
+
+        let mut agent = Agent::new(
+            AgentId("agent-model".to_owned()),
+            repository_id,
+            "Model Agent".to_owned(),
+            std::path::PathBuf::from("/tmp/model-agent"),
+        );
+        agent.agent_kind = AgentKind::CodePuppy;
+        (agent, repository)
+    }
+
+    #[test]
+    fn launch_signature_uses_agent_code_puppy_model() {
+        let (mut agent, repository) = code_puppy_agent_and_repository();
+        agent.code_puppy_model = "  agent/model  ".to_owned();
+
+        let signature = launch_signature_for_agent(&agent, &repository);
+
+        assert_eq!(signature.code_puppy_model, "agent/model");
+    }
+
+    #[test]
+    fn launch_signature_does_not_dynamically_inherit_repository_model() {
+        let (agent, repository) = code_puppy_agent_and_repository();
+
+        let signature = launch_signature_for_agent(&agent, &repository);
+
+        assert!(signature.code_puppy_model.is_empty());
+    }
 
     /// Session still exists → never dead, regardless of PID.
     #[test]

@@ -5,7 +5,8 @@
 
 use crate::domain::{IssueComment, IssueDetail, IssueState};
 use crate::state::AppState;
-use crate::state::types::{AppEvent, DetailSubfocus, ScreenMode};
+use crate::state::events::AppEvent;
+use crate::state::types::{DetailSubfocus, ScreenMode};
 
 fn dashboard_issues_state() -> AppState {
     AppState {

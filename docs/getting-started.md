@@ -73,7 +73,8 @@ With your repository selected, press `n` (lowercase n) to open **New Agent**.
 
 - **Mode Flags**
   - Extra llxprt CLI flags.
-  - Defaults to `--yolo` when empty.
+  - The new-agent form pre-fills `--yolo`; clear it to run non-yolo. What you
+    save is what is passed.
 
 - **LLXPRT_DEBUG**
   - Optional debug env value for llxprt.
@@ -104,6 +105,28 @@ With your repository selected, press `n` (lowercase n) to open **New Agent**.
 - `Esc`: cancel
 
 After submit, the agent is created and selected.
+
+---
+
+## Sending a GitHub issue to an agent
+
+**Send Issue** writes the selected issue's details to `.jefe/issue-prompt.md` and
+launches the agent with Jefe's generic end-to-end delivery contract. The agent
+is instructed to create an issue branch, implement and verify the change,
+commit and push it, open a linked pull request, watch required workflows to
+completion, and loop on failures and actionable review feedback. It must reply
+in the relevant review threads and resolve addressed threads where the hosting
+platform supports that operation.
+
+This contract is the same for LLxprt, Code Puppy, and future runtimes; only the
+runtime-specific command-line transport differs. Repository-local instructions
+such as `AGENTS.md`, `.llxprt/LLXPRT.md`, or other agent memories may supplement
+project conventions, but Jefe does not require them to provide the delivery
+workflow.
+
+If a workflow-watch command or shell invocation times out while checks are
+pending, the agent is told to continue polling with a bounded delay. Pending
+checks alone are not completion and should not cause the agent to return.
 
 ---
 

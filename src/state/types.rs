@@ -2,7 +2,7 @@
 
 use std::time::Instant;
 
-use crate::domain::{AgentId, AgentStatus, LaunchSignature, RepositoryId};
+use crate::domain::{AgentId, LaunchSignature, RepositoryId};
 use crate::runtime::PreflightIssue;
 
 // @plan PLAN-20260624-PR-MODE.P03
@@ -10,15 +10,57 @@ use crate::runtime::PreflightIssue;
 mod pr_types;
 pub use pr_types::*;
 
+// Form-field types extracted to keep this file under the length limit.
+#[path = "form_types.rs"]
+mod form_types;
+pub use form_types::*;
+
 // Issues-mode aggregate state extracted to keep this file under the length limit.
 #[path = "issues_types.rs"]
 mod issues_types;
 pub use issues_types::*;
 
-// Form-field types extracted to keep this file under the length limit.
-#[path = "form_types.rs"]
-mod form_types;
-pub use form_types::*;
+// `ISSUE_FILTER_FIELD_COUNT` lives in `issues_types.rs`; the PR sibling stays
+// here so each mode filter references its own count.
+/// Number of PR filter fields for FilterNavigate wrap (issue #163).
+pub const PR_FILTER_FIELD_COUNT: usize = 8;
+
+/// Captured issue self-assignment follow-up for an issue-driven launch
+/// (issue #186).
+///
+/// Carried through the preflight modal so the non-blocking
+/// assignment (or its warning) fires after a successful post-preflight
+/// launch.
+///
+/// - [`IssueSelfAssignmentFollowUp::Resolved`]: a valid `owner/repo` was
+///   resolved from the agent's repository; the background task will resolve
+///   the viewer and POST the assignment.
+/// - [`IssueSelfAssignmentFollowUp::Unavailable`]: the repository has no valid
+///   `github_repo`, so assignment cannot run; a non-blocking warning must be
+///   surfaced instead of silently skipping (consistent with the direct path).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IssueSelfAssignmentFollowUp {
+    Resolved {
+        /// Validated `owner/repo` shortform (never the slug).
+        owner_repo: String,
+        issue_number: u64,
+    },
+    Unavailable {
+        issue_number: u64,
+        reason: String,
+    },
+}
+
+/// Which button is focused in a confirm dialog (issue #228).
+///
+/// Defaults to [`ConfirmFocus::Cancel`] so destructive confirms are
+/// defense-in-depth: Enter on a freshly-opened dialog does nothing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ConfirmFocus {
+    #[default]
+    Cancel,
+    Confirm,
+}
 
 /// Modal/form state variants.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -41,6 +83,9 @@ pub enum ModalState {
         selected_index: usize,
         /// Slug of the currently-applied theme (for the active marker).
         active_slug: String,
+        /// In-dialog "Apply jefe theme to agent" toggle (issue #179).
+        /// Initialized from `AppState.override_agent_theme`; persisted on Enter.
+        override_theme: bool,
     },
     NewRepository {
         fields: RepositoryFormFields,
@@ -55,6 +100,7 @@ pub enum ModalState {
     },
     ConfirmDeleteRepository {
         id: RepositoryId,
+        confirm_focus: ConfirmFocus,
     },
     NewAgent {
         repository_id: RepositoryId,
@@ -73,9 +119,11 @@ pub enum ModalState {
     ConfirmDeleteAgent {
         id: AgentId,
         delete_work_dir: bool,
+        confirm_focus: ConfirmFocus,
     },
     ConfirmKillAgent {
         id: AgentId,
+        confirm_focus: ConfirmFocus,
     },
     /// Preflight check failed — prompt the user for remediation before launch.
     ///
@@ -90,6 +138,12 @@ pub enum ModalState {
         issue: PreflightIssue,
         /// Placeholder for future multi-issue handling.
         remaining_issues: Vec<PreflightIssue>,
+        /// Captured issue self-assignment follow-up for issue-driven launches
+        /// (issue #186). `None` for non-issue launches (e.g. relaunch). When
+        /// present, the assignment (or its warning) fires after a successful
+        /// post-preflight launch.
+        issue_self_assignment: Option<IssueSelfAssignmentFollowUp>,
+        confirm_focus: ConfirmFocus,
     },
     /// Issue send: the working copy has uncommitted changes (excluding
     /// jefe/llxprt-owned paths). Prompt the user to discard them before
@@ -101,6 +155,28 @@ pub enum ModalState {
         work_dir: std::path::PathBuf,
         signature: LaunchSignature,
         payload: crate::github::SendPayload,
+        confirm_focus: ConfirmFocus,
+    },
+    /// Issue send: the working copy is a git repo whose `origin` does not
+    /// match the configured repository. Prompt the user to replace it with a
+    /// fresh clone before the issue-driven launch proceeds. The default is
+    /// no/halt; the user must explicitly opt in (Enter) before the
+    /// destructive remove+reclone. Escape (or `n`) aborts and leaves the
+    /// working copy untouched.
+    ConfirmIssueOriginMismatch {
+        agent_id: AgentId,
+        work_dir: std::path::PathBuf,
+        signature: LaunchSignature,
+        payload: crate::github::SendPayload,
+        actual: String,
+        expected: String,
+        confirm_focus: ConfirmFocus,
+    },
+    WorkflowDispatch {
+        workflow: crate::domain::Workflow,
+        fields: WorkflowDispatchFormFields,
+        focus: WorkflowDispatchFormFocus,
+        cursor: WorkflowDispatchFormCursor,
     },
 }
 
@@ -117,6 +193,7 @@ pub enum ScreenMode {
     /// @requirement REQ-PR-001
     /// @pseudocode component-001 lines 66-76
     DashboardPullRequests,
+    DashboardActions,
 }
 
 /// Pane focus within a view.
@@ -166,6 +243,8 @@ pub struct AppState {
     // Data
     pub repositories: Vec<crate::domain::Repository>,
     pub agents: Vec<crate::domain::Agent>,
+    /// Runtime availability snapshot detected once during startup.
+    pub installed_agent_kinds: Vec<crate::domain::AgentKind>,
 
     // Selection
     pub selected_repository_index: Option<usize>,
@@ -214,6 +293,9 @@ pub struct AppState {
     /// in memory; the app-shell persists it via `to_persisted_state`.
     pub user_preferences: crate::domain::UserPreferences,
 
+    /// GitHub Actions mode state (runtime-only — omitted from persisted DTO).
+    pub actions_state: ActionsState,
+
     /// Rapid `qqq` quit-sequence bookkeeping. Runtime-only — never persisted.
     pub quit_sequence: QuitSequenceState,
 
@@ -225,11 +307,51 @@ pub struct AppState {
     /// inverse-video highlight over the selected cells.
     pub selection: Option<crate::selection::TextSelection>,
 
+    /// The terminal snapshot bound to the active selection (issue #197).
+    ///
+    /// Captured when a terminal selection gesture begins and reused for BOTH
+    /// the highlight rendering and the copy-at-release so copied text always
+    /// matches what the user highlighted — even when the live grid streams new
+    /// output between the last drag frame and mouse-up. Cleared together with
+    /// `selection`. Runtime-only — never persisted.
+    pub selection_snapshot: Option<crate::runtime::TerminalSnapshot>,
+
+    /// Gesture-ownership state for the terminal mouse router (issue #197).
+    ///
+    /// Persists the left-button gesture ownership decision (Jefe vs PTY) across
+    /// events within a single down→drag→up cycle. Reset to idle on release.
+    /// Runtime-only — never persisted.
+    pub terminal_gesture_state: crate::selection::GestureState,
+
     /// Help modal scroll offset (lines scrolled from the top). Mirrored from
     /// the app-shell hook state so the selection content projection can map
     /// screen coordinates to the correct help content line (issue #178).
     /// Runtime-only — never persisted.
     pub help_scroll_offset: usize,
+
+    /// Terminal scrollback offset for the embedded terminal pane (issue #198).
+    ///
+    /// `None` (default) means **follow-tail**: render the live snapshot at the
+    /// bottom (current behavior). `Some(n)` means the viewport is scrolled back
+    /// `n` lines from the bottom; follow-tail is paused and a follow indicator
+    /// renders. Runtime-only — never persisted (like `selection`,
+    /// `quit_sequence`).
+    pub terminal_history_offset: Option<usize>,
+
+    /// Cached number of terminal viewport rows (for scrollback offset math,
+    /// issue #198). Mirrors `detail_viewport_rows` for detail panes. Updated by
+    /// the render/layout layer so the deterministic reducer can compute clamp
+    /// bounds without I/O. Runtime-only — never persisted.
+    pub terminal_viewport_rows: usize,
+
+    /// Cached total lines of scrollback content (history + live snapshot rows,
+    /// issue #198). Updated by the render layer from the runtime history
+    /// capture + live snapshot. Runtime-only — never persisted.
+    pub terminal_total_lines: usize,
+
+    /// Runtime mirror of `persistence::Settings.override_agent_theme` (issue
+    /// #179). settings.toml is the source of truth; the render path reads this.
+    pub override_agent_theme: bool,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -321,545 +443,111 @@ pub struct PriorAgentFocus {
     pub selected_agent_index: Option<usize>,
 }
 
-// IssuesState and its helper structs live in issues_types.rs (extracted to keep
-// this file under the source-length limit). PR_FILTER_FIELD_COUNT is declared
-// here; ISSUE_FILTER_FIELD_COUNT lives in issues_types.rs. Both constants stay
-// public so each mode filter references its sibling count.
-/// Number of PR filter fields for FilterNavigate wrap (issue #163).
-pub const PR_FILTER_FIELD_COUNT: usize = 8;
+/// Focus areas within GitHub Actions mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ActionsFocus {
+    RepoList,
+    #[default]
+    RunList,
+    Detail,
+}
 
-#[derive(Debug, Clone)]
-pub enum AppEvent {
-    // Navigation
-    NavigateUp,
-    NavigateDown,
-    NavigateLeft,
-    NavigateRight,
-    SelectRepository(usize),
-    SelectAgent(usize),
-    JumpToAgentByShortcut(u8),
+/// Filter field identifier for Actions UpdateDraftFilter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActionsFilterField {
+    Workflow,
+    Status,
+}
 
-    // Focus
-    CyclePaneFocus,
-    ToggleTerminalFocus,
-    ToggleHideIdleRepositories,
+/// Loading/pending state for Actions mode async operations.
+#[derive(Debug, Clone, Default)]
+pub struct ActionsLoadingState {
+    pub list: bool,
+    pub detail: bool,
+}
 
-    // Screen mode
-    EnterSplitMode,
-    ExitSplitMode,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionsDispatchPending {
+    pub scope_repo_id: crate::domain::RepositoryId,
+    pub workflow_id: String,
+    pub request_id: u64,
+}
 
-    // Grab mode (split view reordering)
-    EnterGrabMode,
-    ExitGrabMode,
-    GrabMoveUp,
-    GrabMoveDown,
-    SetSplitFilter(Option<RepositoryId>),
+/// UI control state for Actions mode filter/search overlays.
+#[derive(Debug, Clone, Default)]
+pub struct ActionsUiState {
+    pub filter_ui_open: bool,
+    pub search_input_focused: bool,
+    /// Active field index in the filter bar (0 = workflow, 1 = status).
+    /// Mirrors `issues_state.filter_ui.field_index` so the Actions filter bar
+    /// renders field-active highlighting through the generic `FilterBar`.
+    pub filter_field_index: usize,
+}
 
-    // Dashboard reorder grab (Space to grab, arrows to move, Space/Enter to drop)
-    EnterDashboardGrab,
-    ExitDashboardGrab,
-    DashboardGrabMoveUp,
-    DashboardGrabMoveDown,
+#[derive(Debug, Clone, Default)]
+pub struct ActionsState {
+    pub active: bool,
+    pub runs: Vec<crate::domain::WorkflowRun>,
+    pub selected_run_index: Option<usize>,
+    pub run_detail: Option<crate::domain::WorkflowRunDetail>,
+    pub workflows: Vec<crate::domain::Workflow>,
+    pub committed_filter: crate::domain::ActionsFilter,
+    pub draft_filter: crate::domain::ActionsFilter,
+    pub search_query: String,
+    pub error: Option<String>,
+    pub page: u32,
+    pub focus: ActionsFocus,
+    pub detail_scroll_offset: usize,
+    pub detail_viewport_rows: usize,
+    /// Job ids that are expanded (showing their steps). Jobs not in this set
+    /// are collapsed (JobRow only). Defaults to empty (all collapsed).
+    pub expanded_jobs: std::collections::HashSet<u64>,
+    /// Focused job index within the detail pane's job list (for keyboard
+    /// navigation of expand/collapse). `None` when no detail is loaded.
+    pub focused_job_index: Option<usize>,
+    pub list_reload_pending: Option<ActionsListReloadPending>,
+    pub next_list_request_id: u64,
+    pub detail_pending: Option<ActionsDetailPending>,
+    pub next_detail_request_id: u64,
+    pub workflows_pending: Option<WorkflowsPending>,
+    pub next_workflows_request_id: u64,
+    pub prior_agent_focus: Option<PriorAgentFocus>,
+    pub dispatch_pending: Option<ActionsDispatchPending>,
+    pub next_dispatch_request_id: u64,
+    /// Pagination marker received from the last list load. Currently only page
+    /// 1 is loaded (no load-more path exists); this field is retained for
+    /// future pagination support and is never read for any load decision.
+    pub has_more: bool,
+    /// Decomposed loading/pending state.
+    pub loading: ActionsLoadingState,
+    /// Decomposed UI control state.
+    pub ui: ActionsUiState,
+}
 
-    // Modal/form actions
-    OpenHelp,
-    OpenSearch,
-    CloseModal,
-    SubmitForm,
+impl ActionsState {
+    #[must_use]
+    pub fn dispatch_pending(&self) -> bool {
+        self.dispatch_pending.is_some()
+    }
+}
 
-    // Form input events
-    FormChar(char),
-    FormBackspace,
-    FormDelete,
-    FormMoveCursorLeft,
-    FormMoveCursorRight,
-    FormNextField,
-    FormPrevField,
-    FormToggleCheckbox,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionsListReloadPending {
+    pub scope_repo_id: RepositoryId,
+    pub filter: crate::domain::ActionsFilter,
+    pub page: u32,
+    pub request_id: u64,
+}
 
-    // CRUD
-    OpenNewRepository,
-    OpenEditRepository(RepositoryId),
-    OpenDeleteRepository(RepositoryId),
-    OpenNewAgent(RepositoryId),
-    OpenEditAgent(AgentId),
-    OpenDeleteAgent(AgentId),
-    ToggleDeleteWorkDir,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionsDetailPending {
+    pub scope_repo_id: RepositoryId,
+    pub run_id: u64,
+    pub request_id: u64,
+}
 
-    // Lifecycle
-    KillAgent(AgentId),
-    RelaunchAgent(AgentId),
-    /// Kill and relaunch an agent in one action (Ctrl-r). Surfaces an error
-    /// if any step fails rather than silently dropping the agent (issue #117).
-    RestartAgent(AgentId),
-    AgentStatusChanged(AgentId, AgentStatus),
-
-    // Persistence results
-    PersistenceLoadSuccess,
-    PersistenceLoadFailed(String),
-    PersistenceSaveSuccess,
-    PersistenceSaveFailed(String),
-
-    // Theme
-    SetTheme(String),
-    ThemeResolveFailed(String),
-
-    /// Open the theme picker modal with a snapshot of available themes.
-    /// Payload: `(slug, name)` pairs, plus the currently active slug.
-    OpenThemePicker {
-        available_themes: Vec<(String, String)>,
-        active_slug: String,
-    },
-    ThemePickerNavigateUp,
-    ThemePickerNavigateDown,
-    /// Confirm the current theme-picker selection.
-    /// The slug is derived from the modal's `selected_index` at dispatch time
-    /// (see `modal_handlers::apply_theme_picker_selection`).
-    ThemePickerConfirm,
-    CloseThemePicker,
-
-    // System
-    Quit,
-    ClearError,
-    ClearWarning,
-
-    // Issues Mode events
-    // @plan PLAN-20260329-ISSUES-MODE.P03
-    // @requirement REQ-ISS-001
-    EnterIssuesMode,
-    ExitIssuesMode,
-    RefocusIssueList,
-
-    // Issues Navigation
-    IssuesNavigateUp,
-    IssuesNavigateDown,
-    IssuesNavigatePageUp,
-    IssuesNavigatePageDown,
-    IssuesNavigateHome,
-    IssuesNavigateEnd,
-    IssuesEnter,
-    IssuesCycleFocus,
-    IssuesCycleFocusReverse,
-    IssuesScrollDetailUp,
-    IssuesScrollDetailDown,
-    IssuesScrollDetailPageUp,
-    IssuesScrollDetailPageDown,
-    IssueDetailSubfocusNext,
-    IssueDetailSubfocusPrev,
-
-    // Issue Data Loading
-    IssueListLoaded {
-        scope_repo_id: RepositoryId,
-        filter: Box<crate::domain::IssueFilter>,
-        request_id: u64,
-        issues: Vec<crate::domain::Issue>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    IssueListLoadFailed {
-        scope_repo_id: RepositoryId,
-        filter: Box<crate::domain::IssueFilter>,
-        request_id: u64,
-        request_cursor: Option<String>,
-        error: String,
-    },
-    IssueListPageLoaded {
-        scope_repo_id: RepositoryId,
-        filter: Box<crate::domain::IssueFilter>,
-        request_id: u64,
-        request_cursor: Option<String>,
-        issues: Vec<crate::domain::Issue>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    IssueDetailLoaded {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        request_id: u64,
-        detail: Box<crate::domain::IssueDetail>,
-    },
-    IssueDetailLoadFailed {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        request_id: u64,
-        error: String,
-    },
-    IssueCommentsPageLoaded {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        request_id: u64,
-        request_cursor: Option<String>,
-        comments: Vec<crate::domain::IssueComment>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    IssueCommentsPageFailed {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        request_id: u64,
-        request_cursor: Option<String>,
-        error: String,
-    },
-
-    // Filter/Search
-    OpenFilterControls,
-    CloseFilterControls,
-    ApplyFilter,
-    ClearFilter,
-    ClearDraftFilter,
-    FilterNavigateNext,
-    FilterNavigatePrev,
-    CycleFilterState,
-    FocusSearchInput,
-    BlurSearchInput,
-    SetSearchQuery {
-        query: String,
-    },
-    ApplySearch,
-    ClearSearch,
-    UpdateDraftFilter {
-        field: String,
-        value: String,
-    },
-
-    // Inline Mutation
-    OpenNewIssueComposer,
-    OpenNewCommentComposer,
-    OpenReplyComposer {
-        comment_index: usize,
-    },
-    OpenInlineEditor {
-        target: EditorTarget,
-    },
-    InlineChar(char),
-    InlineNewline,
-    InlineBackspace,
-    InlineDelete,
-    InlineCursorLeft,
-    InlineCursorRight,
-    InlineCursorUp,
-    InlineCursorDown,
-    InlineSubmit,
-    InlineCancelOrEsc,
-    MutationSubmitted {
-        scope_repo_id: RepositoryId,
-        mutation_id: u64,
-        target: InlineState,
-    },
-    IssueCreated {
-        scope_repo_id: RepositoryId,
-        mutation_id: u64,
-        issue_number: u64,
-    },
-    CommentCreated {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        mutation_id: u64,
-        comment: crate::domain::IssueComment,
-    },
-    CommentCreateFailed {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        mutation_id: u64,
-        error: String,
-    },
-    IssueBodyUpdated {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        mutation_id: u64,
-        body: String,
-    },
-    CommentUpdated {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        mutation_id: u64,
-        comment_id: u64,
-        comment_index: usize,
-        body: String,
-    },
-    MutationFailed {
-        scope_repo_id: RepositoryId,
-        issue_number: Option<u64>,
-        mutation_id: Option<u64>,
-        error: String,
-    },
-
-    // Issue Close / Delete lifecycle (issue #182)
-    /// Key-layer request: close the focused issue (dispatch resolves context).
-    CloseIssue,
-    /// Key-layer request: open the delete confirm overlay.
-    OpenDeleteIssueConfirm,
-    /// Delete confirm overlay arm/confirm signal (two-step like merge chooser).
-    IssueDeleteConfirm,
-    /// Delete confirm overlay cancel.
-    IssueDeleteCancel,
-    /// Close mutation succeeded.
-    IssueClosed {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        mutation_id: u64,
-    },
-    /// Delete mutation succeeded.
-    IssueDeleted {
-        scope_repo_id: RepositoryId,
-        issue_number: u64,
-        mutation_id: u64,
-    },
-
-    // Send-to-Agent
-    OpenAgentChooser,
-    AgentChooserNavigateUp,
-    AgentChooserNavigateDown,
-    AgentChooserConfirm,
-    AgentChooserCancel,
-    SendToAgentCompleted,
-    SendToAgentFailed {
-        error: String,
-    },
-
-    // ---- Pull Requests Mode events (additive) ----
-    // @plan PLAN-20260624-PR-MODE.P03
-    // @requirement REQ-PR-001
-
-    // PR Lifecycle
-    /// @pseudocode component-001 lines 66-87
-    EnterPrsMode,
-    ExitPrsMode,
-    RefocusPrList,
-
-    // PR Navigation / Focus
-    /// @pseudocode component-001 lines 99-162
-    PrNavigateUp,
-    PrNavigateDown,
-    PrNavigatePageUp,
-    PrNavigatePageDown,
-    PrNavigateHome,
-    PrNavigateEnd,
-    PrListEnter,
-    PrCycleFocus,
-    PrCycleFocusReverse,
-    PrScrollDetailUp,
-    PrScrollDetailDown,
-    PrScrollDetailPageUp,
-    PrScrollDetailPageDown,
-    PrDetailSubfocusNext,
-    PrDetailSubfocusPrev,
-
-    // PR Data Loading
-    /// @pseudocode component-001 lines 209-247
-    PrListLoaded {
-        scope_repo_id: RepositoryId,
-        filter: Box<crate::domain::PrFilter>,
-        request_id: u64,
-        pull_requests: Vec<crate::domain::PullRequest>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    PrListLoadFailed {
-        scope_repo_id: RepositoryId,
-        request_id: u64,
-        error: String,
-    },
-    PrListPageLoaded {
-        scope_repo_id: RepositoryId,
-        request_id: u64,
-        pull_requests: Vec<crate::domain::PullRequest>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    /// Silent background refresh succeeded (issue #128). Like `PrListLoaded`
-    /// but preserves selection/scroll and does NOT flash the loading spinner.
-    PrListSilentRefreshed {
-        scope_repo_id: RepositoryId,
-        filter: Box<crate::domain::PrFilter>,
-        request_id: u64,
-        pull_requests: Vec<crate::domain::PullRequest>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    /// Silent background refresh failed (issue #128). Clears the pending marker
-    /// WITHOUT surfacing an error (background failures are non-disruptive).
-    PrListSilentRefreshFailed {
-        scope_repo_id: RepositoryId,
-        request_id: u64,
-    },
-    PrDetailLoaded {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        detail: Box<crate::domain::PullRequestDetail>,
-    },
-    PrDetailLoadFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        error: String,
-    },
-    /// Silent background detail refresh succeeded (issue #128). Like
-    /// `PrDetailLoaded` but does NOT set `loading.detail` and preserves
-    /// `detail_subfocus` and `detail_scroll_offset`.
-    PrDetailSilentRefreshed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        detail: Box<crate::domain::PullRequestDetail>,
-    },
-    /// Silent background detail refresh failed (issue #128). Clears
-    /// `detail_pending` silently WITHOUT setting `loading.detail` or an error.
-    PrDetailSilentRefreshFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-    },
-    PrCommentsPageLoaded {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        comments: Vec<crate::domain::IssueComment>,
-        cursor: Option<String>,
-        has_more: bool,
-    },
-    PrCommentsPageFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-        error: String,
-    },
-
-    // PR Filter / Search
-    /// @pseudocode component-001 lines 249-291
-    PrOpenFilterControls,
-    PrCloseFilterControls,
-    PrApplyFilter,
-    PrClearFilter,
-    PrFilterNavigateNext,
-    PrFilterNavigatePrev,
-    PrCycleFilterState,
-    PrCycleDraftFilter,
-    PrCycleReviewFilter,
-    PrCycleChecksFilter,
-    PrUpdateDraftFilter {
-        field: String,
-        value: String,
-    },
-    PrFocusSearchInput,
-    PrBlurSearchInput,
-    PrSetSearchQuery {
-        query: String,
-    },
-    PrApplySearch,
-    PrClearSearch,
-
-    // PR Inline Mutation
-    /// @pseudocode component-001 lines 292-330
-    PrOpenNewCommentComposer,
-    PrOpenReplyComposer {
-        comment_index: usize,
-    },
-    PrInlineChar(char),
-    PrInlineNewline,
-    PrInlineBackspace,
-    PrInlineDelete,
-    PrInlineCursorLeft,
-    PrInlineCursorRight,
-    PrInlineCursorUp,
-    PrInlineCursorDown,
-    PrInlineSubmit,
-    PrInlineCancelOrEsc,
-    PrCommentCreated {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        mutation_id: u64,
-        comment: crate::domain::IssueComment,
-    },
-    PrCommentCreateFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        mutation_id: u64,
-        error: String,
-    },
-    PrMutationFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        mutation_id: u64,
-        error: String,
-    },
-
-    // PR Read-Only Notice (REQ-PR-010/012/013)
-    /// @pseudocode component-003 lines 83-89
-    PrShowNotice(ReadOnlyHintKind),
-
-    // PR Open-in-Browser (REQ-PR-012)
-    /// @pseudocode component-001 lines 349-365
-    PrOpenInBrowser,
-    PrOpenedInBrowser {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-    },
-    PrOpenInBrowserFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        error: String,
-    },
-
-    // PR In-App Merge (issue #92)
-    /// @plan PLAN-20260624-PR-MODE.P03
-    /// @requirement REQ-PR-009
-    PrOpenMergeChooser,
-    PrMergeNavigateUp,
-    PrMergeNavigateDown,
-    PrMergeConfirm,
-    PrMergeCancel,
-    PrMerged {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        method: crate::domain::MergeMethod,
-    },
-    PrMergeFailed {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        mutation_id: u64,
-        error: String,
-    },
-    PrMergeMethodsLoaded {
-        scope_repo_id: RepositoryId,
-        pr_number: u64,
-        allowed_methods: Vec<crate::domain::MergeMethod>,
-    },
-
-    // PR Send-to-Agent
-    /// @pseudocode component-001 lines 331-343
-    PrOpenAgentChooser,
-    PrAgentChooserNavigateUp,
-    PrAgentChooserNavigateDown,
-    PrAgentChooserConfirm,
-    PrAgentChooserCancel,
-    PrSendToAgentCompleted,
-    PrSendToAgentFailed {
-        error: String,
-    },
-
-    // PR Review Threads (issue #119)
-    /// Open the inline reply composer for a review thread.
-    PrOpenThreadReplyComposer {
-        thread_index: usize,
-    },
-    /// Toggle resolve/unresolve on a focused review thread.
-    PrToggleThreadResolve {
-        thread_index: usize,
-    },
-    /// A review-thread resolve/unresolve mutation succeeded.
-    PrThreadResolveSucceeded {
-        scope_repo_id: RepositoryId,
-        thread_index: usize,
-        is_resolved: bool,
-        request_id: u64,
-    },
-    /// A review-thread resolve/unresolve mutation failed.
-    PrThreadResolveFailed {
-        scope_repo_id: RepositoryId,
-        thread_index: usize,
-        request_id: u64,
-        error: String,
-    },
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowsPending {
+    pub scope_repo_id: RepositoryId,
+    pub request_id: u64,
 }

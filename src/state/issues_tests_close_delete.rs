@@ -7,7 +7,7 @@
 
 use crate::domain::{Issue, IssueDetail, IssueState, RepositoryId};
 use crate::state::AppState;
-use crate::state::types::{
+use crate::state::{
     AppEvent, InlineState, IssueDeleteConfirmState, IssueFocus, IssueLifecycleMutationPending,
 };
 

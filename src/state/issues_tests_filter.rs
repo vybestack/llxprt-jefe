@@ -1,5 +1,6 @@
 use crate::domain::{Issue, IssueFilter, IssueFilterState, IssueState, Repository, RepositoryId};
-use crate::state::types::{AppEvent, ScreenMode};
+use crate::state::events::AppEvent;
+use crate::state::types::ScreenMode;
 use crate::state::{AppState, ISSUE_FILTER_FIELD_COUNT};
 
 fn dashboard_issues_state() -> AppState {

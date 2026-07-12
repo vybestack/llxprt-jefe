@@ -9,7 +9,8 @@
 use super::prs_test_fixtures::prs_state_with_detail;
 use crate::domain::{IssueComment, PrCheck, PrCheckStatus, PrReview, PrReviewState, RepositoryId};
 use crate::state::AppState;
-use crate::state::types::{AppEvent, ComposerTarget, InlineState, PrDetailSubfocus};
+use crate::state::events::AppEvent;
+use crate::state::types::{ComposerTarget, InlineState, PrDetailSubfocus};
 
 /// Helper: a test comment.
 fn make_comment(id: u64, author: &str) -> IssueComment {
@@ -193,6 +194,7 @@ fn test_comment_created_scrolls_to_real_rendered_bottom_with_reviews_and_checks(
 #[test]
 fn test_agent_chooser_open_navigate_confirm_cancel() {
     let mut state = prs_state_with_detail("repo-1", 1);
+    state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
     // Provide agents so the chooser opens.
     state.agents.push(crate::domain::Agent::new(
         crate::domain::AgentId("agent-1".to_string()),
@@ -249,6 +251,71 @@ fn test_agent_chooser_open_navigate_confirm_cancel() {
     );
 }
 
+/// NavigateDown must be bounded by the chooser's filtered agent list, not the
+/// full `self.agents` list. When some agents are filtered out (e.g. running
+/// agents), pressing Down must not advance `selected_index` past the last
+/// chooser entry. Regression test for a CodeRabbit finding where the bound used
+/// `self.agents.len()` instead of `chooser.agents.len()`.
+///
+/// @plan PLAN-20260624-PR-MODE.P04
+/// @requirement REQ-PR-011
+#[test]
+fn test_agent_chooser_navigate_down_bounds_by_chooser_agents_not_state_agents() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
+
+    // Create agents that will be FILTERED OUT of the chooser: running agents
+    // are excluded by `chooser_agents_for_repository`.
+    for i in 0..5 {
+        let mut running_agent = crate::domain::Agent::new(
+            crate::domain::AgentId(format!("running-agent-{i}")),
+            RepositoryId("repo-1".to_string()),
+            format!("Running Agent {i}"),
+            std::path::PathBuf::from(format!("/tmp/running{i}")),
+        );
+        running_agent.status = crate::domain::AgentStatus::Running;
+        state.agents.push(running_agent);
+    }
+
+    // Create one non-running agent that WILL appear in the chooser.
+    state.agents.push(crate::domain::Agent::new(
+        crate::domain::AgentId("idle-agent".to_string()),
+        RepositoryId("repo-1".to_string()),
+        "Idle Agent".to_string(),
+        std::path::PathBuf::from("/tmp/idle"),
+    ));
+
+    // Open the chooser: should contain only the 1 idle agent.
+    let state = state.apply(AppEvent::PrOpenAgentChooser);
+    let chooser = state
+        .prs_state
+        .agent_chooser
+        .as_ref()
+        .unwrap_or_else(|| panic!("chooser must open with at least one idle agent"));
+    assert_eq!(
+        chooser.agents.len(),
+        1,
+        "chooser should contain only the 1 non-running agent"
+    );
+
+    // Before fix: NavigateDown would bound by self.agents.len() (6) and
+    // advance selected_index to 1, which is past the chooser list. After fix:
+    // the bound is chooser.agents.len() (1), so selected_index stays at 0.
+    let state = state.apply(AppEvent::PrAgentChooserNavigateDown);
+    let chooser = state
+        .prs_state
+        .agent_chooser
+        .as_ref()
+        .unwrap_or_else(|| panic!("chooser should remain open after navigate down"));
+    assert_eq!(
+        chooser.selected_index, 0,
+        "selected_index must not advance past the last chooser agent"
+    );
+    // Confirm the chooser is still usable (no out-of-bounds panic on confirm).
+    let state = state.apply(AppEvent::PrAgentChooserCancel);
+    assert!(state.prs_state.agent_chooser.is_none());
+}
+
 /// Helper: populate body + reviews + checks + comments on the selected PR
 /// detail so the rendered content overflows a small viewport. Exercises the
 /// sections the old heuristic ignored (reviews, checks, separators, headers).
@@ -268,6 +335,7 @@ Line C"
         .to_string();
     detail.reviews = vec![
         PrReview {
+            review_id: None,
             author_login: "rev1".to_string(),
             state: PrReviewState::Approved,
             submitted_at: "2024-01-02T00:00:00Z".to_string(),
@@ -275,6 +343,7 @@ Line C"
             review_threads: vec![],
         },
         PrReview {
+            review_id: None,
             author_login: "rev2".to_string(),
             state: PrReviewState::ChangesRequested,
             submitted_at: "2024-01-02T01:00:00Z".to_string(),

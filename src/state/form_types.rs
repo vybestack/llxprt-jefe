@@ -11,6 +11,10 @@ pub struct AgentFormFields {
     pub description: String,
     pub work_dir: String,
     pub profile: String,
+    pub code_puppy_model: String,
+    pub code_puppy_yolo: bool,
+    pub code_puppy_quick_resume: crate::domain::QuickResume,
+    pub agent_kind: String,
     pub mode: String,
     pub llxprt_debug: String,
     pub pass_continue: bool,
@@ -26,6 +30,7 @@ pub struct AgentFormCursor {
     pub description: usize,
     pub work_dir: usize,
     pub profile: usize,
+    pub code_puppy_model: usize,
     pub mode: usize,
     pub llxprt_debug: usize,
     pub sandbox_flags: usize,
@@ -40,6 +45,10 @@ pub enum AgentFormFocus {
     Description,
     WorkDir,
     Profile,
+    CodePuppyModel,
+    CodePuppyYolo,
+    CodePuppyQuickResume,
+    AgentKind,
     Mode,
     LlxprtDebug,
     PassContinue,
@@ -57,7 +66,11 @@ impl AgentFormFocus {
             Self::Name => Self::Description,
             Self::Description => Self::WorkDir,
             Self::WorkDir => Self::Profile,
-            Self::Profile => Self::Mode,
+            Self::Profile => Self::AgentKind,
+            Self::AgentKind => Self::CodePuppyModel,
+            Self::CodePuppyModel => Self::CodePuppyYolo,
+            Self::CodePuppyYolo => Self::CodePuppyQuickResume,
+            Self::CodePuppyQuickResume => Self::Mode,
             Self::Mode => Self::LlxprtDebug,
             Self::LlxprtDebug => Self::PassContinue,
             Self::PassContinue => Self::Sandbox,
@@ -76,7 +89,11 @@ impl AgentFormFocus {
             Self::Description => Self::Name,
             Self::WorkDir => Self::Description,
             Self::Profile => Self::WorkDir,
-            Self::Mode => Self::Profile,
+            Self::AgentKind => Self::Profile,
+            Self::CodePuppyModel => Self::AgentKind,
+            Self::CodePuppyYolo => Self::CodePuppyModel,
+            Self::CodePuppyQuickResume => Self::CodePuppyYolo,
+            Self::Mode => Self::CodePuppyQuickResume,
             Self::LlxprtDebug => Self::Mode,
             Self::PassContinue => Self::LlxprtDebug,
             Self::Sandbox => Self::PassContinue,
@@ -92,6 +109,8 @@ pub struct RepositoryFormFields {
     pub name: String,
     pub base_dir: String,
     pub default_profile: String,
+    pub default_code_puppy_model: String,
+    pub default_agent_kind: String,
     /// GitHub repository slug in `"owner/repo"` format.
     pub github_repo: String,
     pub remote_enabled: bool,
@@ -107,6 +126,7 @@ pub struct RepositoryFormCursor {
     pub name: usize,
     pub base_dir: usize,
     pub default_profile: usize,
+    pub default_code_puppy_model: usize,
     pub github_repo: usize,
     pub login_user: usize,
     pub host: usize,
@@ -120,6 +140,8 @@ pub enum RepositoryFormFocus {
     Name,
     BaseDir,
     DefaultProfile,
+    DefaultCodePuppyModel,
+    DefaultAgentKind,
     GitHubRepo,
     RemoteEnabled,
     LoginUser,
@@ -135,7 +157,9 @@ impl RepositoryFormFocus {
         match self {
             Self::Name => Self::BaseDir,
             Self::BaseDir => Self::DefaultProfile,
-            Self::DefaultProfile => Self::GitHubRepo,
+            Self::DefaultProfile => Self::DefaultCodePuppyModel,
+            Self::DefaultCodePuppyModel => Self::DefaultAgentKind,
+            Self::DefaultAgentKind => Self::GitHubRepo,
             Self::GitHubRepo => Self::RemoteEnabled,
             Self::RemoteEnabled => Self::LoginUser,
             Self::LoginUser => Self::Host,
@@ -152,12 +176,60 @@ impl RepositoryFormFocus {
             Self::Name => Self::SetupEnvDefault,
             Self::BaseDir => Self::Name,
             Self::DefaultProfile => Self::BaseDir,
-            Self::GitHubRepo => Self::DefaultProfile,
+            Self::DefaultCodePuppyModel => Self::DefaultProfile,
+            Self::DefaultAgentKind => Self::DefaultCodePuppyModel,
+            Self::GitHubRepo => Self::DefaultAgentKind,
             Self::RemoteEnabled => Self::GitHubRepo,
             Self::LoginUser => Self::RemoteEnabled,
             Self::Host => Self::LoginUser,
             Self::RunAsUser => Self::Host,
             Self::SetupEnvDefault => Self::RunAsUser,
+        }
+    }
+}
+
+/// Form fields for dispatching a GitHub Actions workflow manually.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkflowDispatchFormFields {
+    pub ref_name: String,
+    pub inputs: String,
+}
+
+/// Cursor positions for workflow dispatch form text fields.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkflowDispatchFormCursor {
+    pub ref_name: usize,
+    pub inputs: usize,
+}
+
+/// Focus states for workflow dispatch form fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WorkflowDispatchFormFocus {
+    #[default]
+    RefName,
+    Inputs,
+    Submit,
+    Cancel,
+}
+
+impl WorkflowDispatchFormFocus {
+    #[must_use]
+    pub fn next(self) -> Self {
+        match self {
+            Self::RefName => Self::Inputs,
+            Self::Inputs => Self::Submit,
+            Self::Submit => Self::Cancel,
+            Self::Cancel => Self::RefName,
+        }
+    }
+
+    #[must_use]
+    pub fn prev(self) -> Self {
+        match self {
+            Self::RefName => Self::Cancel,
+            Self::Cancel => Self::Submit,
+            Self::Submit => Self::Inputs,
+            Self::Inputs => Self::RefName,
         }
     }
 }

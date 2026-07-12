@@ -73,7 +73,8 @@ fn open_confirm_delete_agent_modal() {
         state.modal,
         ModalState::ConfirmDeleteAgent {
             id: agent_id,
-            delete_work_dir: false
+            delete_work_dir: false,
+            confirm_focus: jefe::state::ConfirmFocus::Cancel,
         }
     );
 }
@@ -135,6 +136,7 @@ fn toggle_delete_work_dir_in_confirm_modal() {
     state.modal = ModalState::ConfirmDeleteAgent {
         id: agent_id.clone(),
         delete_work_dir: false,
+        confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
 
     state = state.apply(AppEvent::ToggleDeleteWorkDir);
@@ -143,7 +145,8 @@ fn toggle_delete_work_dir_in_confirm_modal() {
         state.modal,
         ModalState::ConfirmDeleteAgent {
             id: agent_id,
-            delete_work_dir: true
+            delete_work_dir: true,
+            confirm_focus: jefe::state::ConfirmFocus::Cancel,
         }
     );
 }
@@ -155,6 +158,7 @@ fn cancel_delete_closes_modal_without_deletion() {
     state.modal = ModalState::ConfirmDeleteAgent {
         id: agent_id,
         delete_work_dir: false,
+        confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
 
     state = state.apply(AppEvent::CloseModal);
@@ -308,6 +312,7 @@ fn repository_form_toggles_remote_fields() {
     state = state.apply(AppEvent::FormNextField); // Base Dir
     state = state.apply(AppEvent::FormNextField); // Default Profile
     state = state.apply(AppEvent::FormNextField); // GitHub Repo
+    state = state.apply(AppEvent::FormNextField); // Default Agent Kind
     state = state.apply(AppEvent::FormNextField); // RemoteEnabled
     state = state.apply(AppEvent::FormToggleCheckbox);
     state = state.apply(AppEvent::FormNextField); // LoginUser
@@ -330,6 +335,11 @@ fn repository_form_toggles_remote_fields() {
         panic!("expected new-repository modal, got {:?}", state.modal);
     };
     assert_eq!(focus, RepositoryFormFocus::SetupEnvDefault);
+    assert!(!fields.default_agent_kind.is_empty());
+    assert_eq!(
+        fields.default_agent_kind,
+        jefe::domain::AgentKind::Llxprt.label()
+    );
     assert!(fields.remote_enabled);
     assert_eq!(fields.login_user, "op");
     assert_eq!(fields.host, "10");

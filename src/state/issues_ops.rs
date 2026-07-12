@@ -333,12 +333,11 @@ impl AppState {
             AppEvent::IssuesNavigatePageDown => self.navigate_issue_list_page_down(),
             AppEvent::IssuesNavigateHome => self.navigate_issue_list_home(),
             AppEvent::IssuesNavigateEnd => self.navigate_issue_list_end(),
-            AppEvent::IssuesEnter => {
+            AppEvent::IssuesEnter
                 if self.issues_state.issue_focus == IssueFocus::IssueList
-                    && self.issues_state.selected_issue_index.is_some()
-                {
-                    self.issues_state.issue_focus = IssueFocus::IssueDetail;
-                }
+                    && self.issues_state.selected_issue_index.is_some() =>
+            {
+                self.issues_state.issue_focus = IssueFocus::IssueDetail;
             }
             AppEvent::IssuesCycleFocus => self.cycle_issues_focus(),
             AppEvent::IssuesCycleFocusReverse => self.cycle_issues_focus_reverse(),
@@ -550,14 +549,7 @@ impl AppState {
 
     fn open_agent_chooser(&mut self) {
         let repo_id = self.selected_repository_id().cloned();
-        let agents: Vec<_> = self
-            .agents
-            .iter()
-            .filter(|a| {
-                repo_id.as_ref().is_some_and(|rid| a.repository_id == *rid) && !a.is_running()
-            })
-            .map(|a| (a.id.clone(), a.name.clone()))
-            .collect();
+        let agents = self.chooser_agents_for_repository(repo_id.as_ref());
         if !agents.is_empty() {
             self.issues_state.agent_chooser = Some(AgentChooserState {
                 selected_index: 0,
@@ -612,7 +604,8 @@ impl AppState {
             | AppEvent::IssueCommentsPageFailed { .. }
             | AppEvent::CommentCreateFailed { .. }
             | AppEvent::MutationFailed { .. }
-            | AppEvent::SendToAgentFailed { .. } => self.apply_issues_error(event),
+            | AppEvent::SendToAgentFailed { .. }
+            | AppEvent::IssueSelfAssignmentFailed { .. } => self.apply_issues_error(event),
             _ => return false,
         }
         true

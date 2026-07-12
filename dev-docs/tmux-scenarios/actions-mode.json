@@ -1,0 +1,23 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 32,
+    "history_limit": 2000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "g" },
+    { "waitFor": "WORKFLOW RUNS" },
+    { "expect": "navigate" },
+    { "capture": "actions-mode-entered" },
+    { "key": "Down" },
+    { "wait": 100 },
+    { "capture": "actions-mode-navigated" },
+    { "key": "Escape" },
+    { "waitForNot": "WORKFLOW RUNS" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

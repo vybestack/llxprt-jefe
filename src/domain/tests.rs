@@ -74,6 +74,52 @@ fn agent_pass_continue_defaults_true() {
         PathBuf::from("/tmp/test"),
     );
     assert!(agent.pass_continue);
+    assert!(!agent.code_puppy_quick_resume);
+}
+
+#[test]
+fn agent_kind_defaults_to_llxprt() {
+    let agent = Agent::new(
+        AgentId("test-1".into()),
+        RepositoryId("repo-1".into()),
+        "Test Agent".into(),
+        PathBuf::from("/tmp/test"),
+    );
+    assert_eq!(agent.agent_kind, AgentKind::Llxprt);
+    assert_eq!(agent.agent_kind.binary_name(), "llxprt");
+    assert!(!agent.agent_kind.is_kennel());
+}
+
+#[test]
+fn code_puppy_kind_has_expected_identity() {
+    assert_eq!(AgentKind::CodePuppy.binary_name(), "code-puppy");
+    assert_eq!(AgentKind::CodePuppy.label(), "code_puppy");
+    assert!(AgentKind::CodePuppy.is_kennel());
+    assert_eq!(
+        AgentKind::from_form_value("code-puppy"),
+        Some(AgentKind::CodePuppy)
+    );
+}
+
+#[test]
+fn persisted_kinds_default_to_llxprt_when_missing() {
+    let agent_json = json!({
+        "id": "agent-1", "display_id": "#1", "repository_id": "repo-1",
+        "name": "Agent", "description": "", "work_dir": "/tmp/a",
+        "profile": "", "mode_flags": [], "pass_continue": true,
+        "sandbox_enabled": false, "sandbox_engine": "podman",
+        "sandbox_flags": DEFAULT_SANDBOX_FLAGS, "status": "Queued",
+        "runtime_binding": null
+    });
+    let agent: Agent = serde_json::from_value(agent_json).value_or_panic("agent serde");
+    assert_eq!(agent.agent_kind, AgentKind::Llxprt);
+
+    let repo_json = json!({
+        "id": "repo-1", "name": "Repo", "slug": "repo",
+        "base_dir": "/tmp/repo", "default_profile": "", "agent_ids": []
+    });
+    let repo: Repository = serde_json::from_value(repo_json).value_or_panic("repo serde");
+    assert_eq!(repo.default_agent_kind, AgentKind::Llxprt);
 }
 
 #[test]
@@ -124,6 +170,7 @@ fn agent_deserializes_missing_llxprt_debug_as_empty() {
         panic!("agent should deserialize");
     };
     assert!(agent.llxprt_debug.is_empty());
+    assert!(!agent.code_puppy_quick_resume);
 }
 
 #[test]
@@ -142,6 +189,7 @@ fn launch_signature_deserializes_missing_llxprt_debug_as_empty() {
         panic!("launch signature should deserialize");
     };
     assert!(signature.llxprt_debug.is_empty());
+    assert!(!signature.code_puppy_quick_resume);
     assert_eq!(signature.remote, RemoteRepositorySettings::default());
 }
 
@@ -284,9 +332,11 @@ fn test_issue_base_prompt_serde_roundtrip() {
         slug: "test-repo".to_string(),
         base_dir: PathBuf::from("/tmp/test-repo"),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: "Prioritize diagnosis".to_string(),
+        default_agent_kind: crate::domain::AgentKind::Llxprt,
         agent_ids: vec![],
     };
 
@@ -356,6 +406,9 @@ fn runtime_binding_roundtrips_pid_when_present() {
         launch_signature: LaunchSignature {
             work_dir: PathBuf::from("/tmp/agent-2"),
             profile: String::new(),
+            code_puppy_model: String::new(),
+            code_puppy_yolo: Some(false),
+            code_puppy_quick_resume: false,
             mode_flags: vec![],
             llxprt_debug: String::new(),
             pass_continue: true,
@@ -363,6 +416,7 @@ fn runtime_binding_roundtrips_pid_when_present() {
             sandbox_engine: SandboxEngine::Podman,
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
         },
         attached: false,
         last_seen: None,
@@ -386,6 +440,8 @@ fn pr_review_thread_constructs_with_thread_id_and_resolved_flag() {
     let thread = PrReviewThread {
         thread_id: "PRRT_kwAAA".to_string(),
         is_resolved: false,
+        is_outdated: false,
+        review_id: None,
         path: Some("src/lib.rs".to_string()),
         line: Some(42),
         comments: vec![IssueComment {
@@ -398,6 +454,7 @@ fn pr_review_thread_constructs_with_thread_id_and_resolved_flag() {
     };
     assert_eq!(thread.thread_id, "PRRT_kwAAA");
     assert!(!thread.is_resolved);
+    assert!(!thread.is_outdated);
     assert_eq!(thread.path.as_deref(), Some("src/lib.rs"));
     assert_eq!(thread.line, Some(42));
     assert_eq!(thread.comments.len(), 1);
@@ -408,6 +465,7 @@ fn pr_review_thread_constructs_with_thread_id_and_resolved_flag() {
 #[test]
 fn pr_review_carries_review_threads_field() {
     let review = PrReview {
+        review_id: Some("PRR_kw001".to_string()),
         author_login: "reviewer1".to_string(),
         state: PrReviewState::Commented,
         submitted_at: "2026-07-01T10:00:00Z".to_string(),
@@ -415,6 +473,8 @@ fn pr_review_carries_review_threads_field() {
         review_threads: vec![PrReviewThread {
             thread_id: "PRRT_kwBBB".to_string(),
             is_resolved: true,
+            is_outdated: false,
+            review_id: Some("PRR_kw001".to_string()),
             path: None,
             line: None,
             comments: vec![],
@@ -435,6 +495,8 @@ fn pr_review_thread_supports_unresolved_with_location() {
     let thread = PrReviewThread {
         thread_id: "PRRT_kwCCC".to_string(),
         is_resolved: false,
+        is_outdated: false,
+        review_id: None,
         path: Some("src/main.rs".to_string()),
         line: Some(10),
         comments: vec![

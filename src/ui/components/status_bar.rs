@@ -21,6 +21,8 @@ pub struct StatusBarProps {
     pub theme_name: String,
     /// App version string.
     pub version: String,
+    /// Whether to show "(Kennel mode)" branding for a code_puppy agent.
+    pub kennel_mode: bool,
     /// Optional warning text shown in the center status area.
     pub warning_message: Option<String>,
     /// Theme colors.
@@ -44,6 +46,11 @@ pub fn StatusBar(props: &StatusBarProps) -> impl Into<AnyElement<'static>> {
     let bar_bg = if highlighted { rc.sel_bg } else { rc.border };
     let text_color = if highlighted { rc.sel_fg } else { rc.bg };
 
+    let title_suffix = if props.kennel_mode {
+        " (Kennel mode)"
+    } else {
+        ""
+    };
     let stats = props.warning_message.as_ref().map_or_else(
         || {
             format!(
@@ -66,7 +73,7 @@ pub fn StatusBar(props: &StatusBarProps) -> impl Into<AnyElement<'static>> {
         ) {
             // Left: app title
             Text(
-                content: format!("LLxprt Jefe - {}", props.version),
+                content: format!("LLxprt Jefe{title_suffix} - {}", props.version),
                 weight: Weight::Bold,
                 color: text_color,
             )

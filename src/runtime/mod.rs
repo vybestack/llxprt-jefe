@@ -13,20 +13,23 @@ mod commands;
 mod errors;
 mod liveness;
 mod manager;
+mod pane_capture;
 mod preflight;
 mod session;
 mod socket;
+mod stub_manager;
 
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use errors::RuntimeError;
 pub use liveness::{check_remote_session_alive, check_session_alive, pid_alive};
-pub use manager::{LivenessCheck, RuntimeManager, StubRuntimeManager, TmuxRuntimeManager};
+pub use manager::{LivenessCheck, RuntimeManager, TmuxRuntimeManager};
 pub use preflight::{
     PreflightAction, PreflightIssue, execute_preflight_action, platform_engine_diagnostic,
     sandbox_preflight, sandbox_ssh_agent_warning,
 };
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 pub use socket::jefe_tmux_socket_path;
+pub use stub_manager::StubRuntimeManager;
 
 #[cfg(test)]
 mod tests {
@@ -43,6 +46,9 @@ mod tests {
         let signature = LaunchSignature {
             work_dir: work_dir.clone(),
             profile: "default".into(),
+            code_puppy_model: String::new(),
+            code_puppy_yolo: Some(false),
+            code_puppy_quick_resume: false,
             mode_flags: vec![],
             llxprt_debug: String::new(),
             pass_continue: true,
@@ -50,6 +56,7 @@ mod tests {
             sandbox_engine: crate::domain::SandboxEngine::Podman,
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
         };
 
         if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
@@ -71,6 +78,9 @@ mod tests {
         let signature = LaunchSignature {
             work_dir: work_dir.clone(),
             profile: "default".into(),
+            code_puppy_model: String::new(),
+            code_puppy_yolo: Some(false),
+            code_puppy_quick_resume: false,
             mode_flags: vec![],
             llxprt_debug: String::new(),
             pass_continue: true,
@@ -78,6 +88,7 @@ mod tests {
             sandbox_engine: crate::domain::SandboxEngine::Podman,
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
         };
 
         if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
@@ -104,6 +115,9 @@ mod tests {
         let signature = LaunchSignature {
             work_dir: work_dir.clone(),
             profile: "default".into(),
+            code_puppy_model: String::new(),
+            code_puppy_yolo: Some(false),
+            code_puppy_quick_resume: false,
             mode_flags: vec![],
             llxprt_debug: String::new(),
             pass_continue: true,
@@ -111,6 +125,7 @@ mod tests {
             sandbox_engine: crate::domain::SandboxEngine::Podman,
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
         };
 
         if let Err(error) = mgr.spawn_session(&agent_id, &work_dir, &signature) {
@@ -128,6 +143,9 @@ mod tests {
         let signature = LaunchSignature {
             work_dir: work_dir.clone(),
             profile: "default".into(),
+            code_puppy_model: String::new(),
+            code_puppy_yolo: Some(false),
+            code_puppy_quick_resume: false,
             mode_flags: vec![],
             llxprt_debug: String::new(),
             pass_continue: true,
@@ -135,6 +153,7 @@ mod tests {
             sandbox_engine: crate::domain::SandboxEngine::Podman,
             sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: crate::domain::RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
         };
 
         if let Err(error) = mgr.spawn_session_fresh(&agent_id, &work_dir, &signature) {

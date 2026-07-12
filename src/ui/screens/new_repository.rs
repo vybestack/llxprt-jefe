@@ -89,26 +89,15 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         sel,
     ));
 
-    // Content lines 2-5: text fields.
-    let labels = ["Name", "Base Dir", "Default Profile", "GitHub Repo"];
-    let values = [
-        &fields.name,
-        &fields.base_dir,
-        &fields.default_profile,
-        &fields.github_repo,
-    ];
+    // Initial text fields precede the runtime selector.
+    let labels = ["Name", "Base Dir", "Default Profile"];
+    let values = [&fields.name, &fields.base_dir, &fields.default_profile];
     let focuses = [
         RepositoryFormFocus::Name,
         RepositoryFormFocus::BaseDir,
         RepositoryFormFocus::DefaultProfile,
-        RepositoryFormFocus::GitHubRepo,
     ];
-    let cursors = [
-        cursor.name,
-        cursor.base_dir,
-        cursor.default_profile,
-        cursor.github_repo,
-    ];
+    let cursors = [cursor.name, cursor.base_dir, cursor.default_profile];
     for (((label, value), field_focus), field_cursor) in labels
         .iter()
         .zip(values.iter())
@@ -136,6 +125,80 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
             sel,
         ));
     }
+
+    if crate::state::kind_from_form_value(&fields.default_agent_kind)
+        == crate::domain::AgentKind::CodePuppy
+    {
+        let model_focused = focus == RepositoryFormFocus::DefaultCodePuppyModel;
+        let model_value = if model_focused {
+            text_with_caret(
+                &fields.default_code_puppy_model,
+                cursor.default_code_puppy_model,
+            )
+        } else {
+            fields.default_code_puppy_model.clone()
+        };
+        let model_line = format!("  {:<16} [{model_value}]", "Default Model");
+        all_lines.push(selectable_line(
+            &model_line,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            if model_focused { rc.bright } else { rc.fg },
+            sel,
+        ));
+    }
+
+    let kind_focused = focus == RepositoryFormFocus::DefaultAgentKind;
+    let kind_color = if kind_focused { rc.bright } else { rc.fg };
+    let effective_kinds = crate::state::effective_agent_kinds(
+        props
+            .state
+            .as_ref()
+            .map_or(&[][..], |s| s.installed_agent_kinds.as_slice()),
+        fields.remote_enabled,
+    );
+    let kind_hint = crate::state::effective_kinds_hint(&effective_kinds);
+    let kind_line = format!(
+        "  {:<16} [{}]  ({kind_hint})",
+        "Default Agent", fields.default_agent_kind
+    );
+    all_lines.push(selectable_line(
+        &kind_line,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        kind_color,
+        sel,
+    ));
+
+    let github_focused = focus == RepositoryFormFocus::GitHubRepo;
+    let github_value = if github_focused {
+        text_with_caret(&fields.github_repo, cursor.github_repo)
+    } else {
+        fields.github_repo.clone()
+    };
+    let github_line = format!("  {:<16} [{github_value}]", "GitHub Repo");
+    all_lines.push(selectable_line(
+        &github_line,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        if github_focused { rc.bright } else { rc.fg },
+        sel,
+    ));
 
     // Content line 6: Remote Repository checkbox.
     let remote_focused = focus == RepositoryFormFocus::RemoteEnabled;

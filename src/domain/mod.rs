@@ -4,9 +4,24 @@
 //! @requirement REQ-TECH-001
 //! @requirement REQ-TECH-002
 
+/// Shared validated target-resolution predicates for remote settings.
+pub mod target;
+
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+// Actions domain types (workflows, runs, jobs, steps, filters) extracted to
+// keep this file under the source-file-size limit.
+mod actions;
+mod quick_resume;
+pub use actions::*;
+pub use quick_resume::QuickResume;
+
+// Issues Mode domain entities extracted to keep this file under the
+// source-file-size limit.
+mod issues;
+pub use issues::*;
 
 /// Stable identifier for a repository.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -15,6 +30,51 @@ pub struct RepositoryId(pub String);
 /// Stable identifier for an agent.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AgentId(pub String);
+
+/// Agent runtime used to launch an agent session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentKind {
+    CodePuppy,
+    #[default]
+    Llxprt,
+}
+
+impl AgentKind {
+    /// Executable name for this runtime.
+    #[must_use]
+    pub const fn binary_name(self) -> &'static str {
+        match self {
+            Self::CodePuppy => "code-puppy",
+            Self::Llxprt => "llxprt",
+        }
+    }
+
+    /// User-facing runtime name.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::CodePuppy => "code_puppy",
+            Self::Llxprt => "LLxprt",
+        }
+    }
+
+    /// Parse a value entered or persisted by a form.
+    #[must_use]
+    pub fn from_form_value(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "code_puppy" | "code-puppy" | "codepuppy" => Some(Self::CodePuppy),
+            "llxprt" => Some(Self::Llxprt),
+            _ => None,
+        }
+    }
+
+    /// Whether this runtime uses Kennel-mode branding.
+    #[must_use]
+    pub const fn is_kennel(self) -> bool {
+        matches!(self, Self::CodePuppy)
+    }
+}
 
 /// Default sandbox resource flags passed to llxprt via SANDBOX_FLAGS.
 ///
@@ -41,6 +101,18 @@ const ALL_ENGINES: [SandboxEngine; 3] = [
 
 /// Linux-supported engine variants in canonical order.
 const LINUX_ENGINES: [SandboxEngine; 2] = [SandboxEngine::Podman, SandboxEngine::Docker];
+
+/// Check whether a single GitHub owner/repo component contains only valid
+/// characters: ASCII alphanumerics, hyphens, underscores, and dots.
+///
+/// Shared by the clone-identity layer (`app_input::clone_identity`) and the
+/// repository form layer (`state::form_build`) so validation cannot drift.
+#[must_use]
+pub fn is_valid_github_component(component: &str) -> bool {
+    component
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
 
 impl SandboxEngine {
     /// Convert to llxprt CLI `--sandbox-engine` argument.
@@ -199,6 +271,9 @@ pub struct Repository {
     pub slug: String,
     pub base_dir: PathBuf,
     pub default_profile: String,
+    /// Default Code Puppy model. Empty preserves Code Puppy's own default.
+    #[serde(default)]
+    pub default_code_puppy_model: String,
     /// GitHub repository in `"owner/repo"` format (e.g. `"acme/widgets"`).
     /// When set, issues mode uses this instead of auto-detecting from git remotes.
     #[serde(default)]
@@ -207,146 +282,9 @@ pub struct Repository {
     pub remote: RemoteRepositorySettings,
     #[serde(default)]
     pub issue_base_prompt: String,
+    #[serde(default)]
+    pub default_agent_kind: AgentKind,
     pub agent_ids: Vec<AgentId>,
-}
-/// @requirement REQ-ISS-006
-/// @pseudocode component-001 lines 83-96
-/// Issue state for list display.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum IssueState {
-    Open,
-    Closed,
-}
-
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-006
-/// Issue list representation.
-#[derive(Debug, Clone)]
-pub struct Issue {
-    pub number: u64,
-    /// GraphQL node id (e.g. `I_kwDO...`); required for `deleteIssue`.
-    pub node_id: String,
-    pub title: String,
-    pub state: IssueState,
-    pub author_login: String,
-    pub updated_at: String,
-    pub assignee_summary: String,
-    pub labels_summary: String,
-    pub assignees: Vec<String>,
-    pub labels: Vec<String>,
-    pub issue_type: String,
-    pub milestone: String,
-    pub module: String,
-    pub comment_count: u64,
-    /// Optional lightweight preview body; list/search fetches may leave this empty
-    /// so full body content is loaded through `IssueDetail` instead.
-    pub body: String,
-}
-
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-009
-/// Full issue detail with comments.
-#[derive(Debug, Clone)]
-pub struct IssueDetail {
-    pub repo_owner_name: String,
-    pub number: u64,
-    /// GraphQL node id (e.g. `I_kwDO...`); required for `deleteIssue`.
-    pub node_id: String,
-    pub title: String,
-    pub state: IssueState,
-    pub author_login: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub labels: Vec<String>,
-    pub assignees: Vec<String>,
-    pub milestone: Option<String>,
-    pub body: String,
-    pub external_url: String,
-    pub comments: Vec<IssueComment>,
-    pub has_more_comments: bool,
-    pub comments_cursor: Option<String>,
-}
-
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-009
-/// Single issue comment.
-#[derive(Debug, Clone)]
-pub struct IssueComment {
-    pub comment_id: u64,
-    pub author_login: String,
-    pub created_at: String,
-    pub edited_at: Option<String>,
-    pub body: String,
-}
-
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-008
-/// Filter state options.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum IssueFilterState {
-    #[default]
-    Open,
-    Closed,
-    All,
-}
-
-pub const FILTER_CHOICE_ANY: &str = "any";
-pub const FILTER_CHOICE_NONE: &str = "none";
-
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-008
-/// Issue list filter criteria.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IssueFilter {
-    #[serde(default)]
-    pub query_text: String,
-    #[serde(default)]
-    pub state: Option<IssueFilterState>,
-    #[serde(default)]
-    pub author: String,
-    #[serde(default)]
-    pub assignee: String,
-    #[serde(default)]
-    pub labels: Vec<String>,
-    #[serde(default)]
-    pub issue_type: String,
-    #[serde(default)]
-    pub milestone: String,
-    #[serde(default)]
-    pub module: String,
-    #[serde(default)]
-    pub mentioned: String,
-    #[serde(default)]
-    pub updated_before: String,
-    #[serde(default)]
-    pub updated_after: String,
-}
-
-impl IssueFilter {
-    /// @plan PLAN-20260329-ISSUES-MODE.P03
-    /// @requirement REQ-ISS-008
-    /// @pseudocode component-011 lines 1-9
-    #[must_use]
-    pub fn has_active_non_default_filters(&self) -> bool {
-        matches!(
-            self.state,
-            Some(IssueFilterState::Closed | IssueFilterState::All)
-        ) || !self.query_text.trim().is_empty()
-            || sentinel_filter_is_active(&self.author)
-            || sentinel_filter_is_active(&self.assignee)
-            || !self.labels.is_empty()
-            || sentinel_filter_is_active(&self.issue_type)
-            || sentinel_filter_is_active(&self.milestone)
-            || sentinel_filter_is_active(&self.module)
-            || sentinel_filter_is_active(&self.mentioned)
-            || sentinel_filter_is_active(&self.updated_before)
-            || sentinel_filter_is_active(&self.updated_after)
-    }
-}
-
-fn sentinel_filter_is_active(value: &str) -> bool {
-    let trimmed = value.trim();
-    !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case(FILTER_CHOICE_ANY)
 }
 
 // =============================================================================
@@ -480,6 +418,9 @@ pub struct PullRequest {
 /// Review summary item (read-only).
 #[derive(Debug, Clone)]
 pub struct PrReview {
+    /// GraphQL node id of this review (`PRR_...`), used to attach review
+    /// threads to their parent review. `None` when the API omitted it.
+    pub review_id: Option<String>,
     pub author_login: String,
     pub state: PrReviewState,
     pub submitted_at: String,
@@ -504,6 +445,11 @@ pub struct PrReviewThread {
     pub thread_id: String,
     /// Whether the thread is currently resolved.
     pub is_resolved: bool,
+    /// Whether the thread is outdated (the code it was attached to changed).
+    pub is_outdated: bool,
+    /// GraphQL node id of the parent review (`PRR_...`) this thread belongs
+    /// to, taken from the thread's first comment. `None` when unavailable.
+    pub review_id: Option<String>,
     /// File path the thread is attached to (`None` for PR-level threads).
     pub path: Option<String>,
     /// Line number the thread is attached to (`None` for PR-level threads).
@@ -785,6 +731,15 @@ pub struct Agent {
     pub description: String,
     pub work_dir: PathBuf,
     pub profile: String,
+    /// Optional Code Puppy model override. Empty inherits the repository default.
+    #[serde(default)]
+    pub code_puppy_model: String,
+    /// Explicit Code Puppy YOLO choice.
+    #[serde(default)]
+    pub code_puppy_yolo: Option<bool>,
+    /// Resume the latest Code Puppy autosave for the effective work directory.
+    #[serde(default)]
+    pub code_puppy_quick_resume: bool,
     pub mode_flags: Vec<String>,
     #[serde(default)]
     pub llxprt_debug: String,
@@ -795,6 +750,8 @@ pub struct Agent {
     pub sandbox_engine: SandboxEngine,
     #[serde(default = "default_sandbox_flags")]
     pub sandbox_flags: String,
+    #[serde(default)]
+    pub agent_kind: AgentKind,
     pub status: AgentStatus,
     pub runtime_binding: Option<RuntimeBinding>,
 }
@@ -825,6 +782,15 @@ pub struct RuntimeBinding {
 pub struct LaunchSignature {
     pub work_dir: PathBuf,
     pub profile: String,
+    /// Effective Code Puppy model for this launch.
+    #[serde(default)]
+    pub code_puppy_model: String,
+    /// Explicit Code Puppy YOLO value for this launch.
+    #[serde(default)]
+    pub code_puppy_yolo: Option<bool>,
+    /// Resume the latest Code Puppy autosave for the effective work directory.
+    #[serde(default)]
+    pub code_puppy_quick_resume: bool,
     pub mode_flags: Vec<String>,
     #[serde(default)]
     pub llxprt_debug: String,
@@ -834,6 +800,8 @@ pub struct LaunchSignature {
     pub sandbox_flags: String,
     #[serde(default)]
     pub remote: RemoteRepositorySettings,
+    #[serde(default)]
+    pub agent_kind: AgentKind,
 }
 
 impl Agent {
@@ -857,12 +825,16 @@ impl Agent {
             work_dir,
 
             profile: String::new(),
+            code_puppy_model: String::new(),
+            code_puppy_yolo: None,
+            code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
             llxprt_debug: String::new(),
             pass_continue: true, // Default per REQ-FUNC-004
             sandbox_enabled: false,
             sandbox_engine: SandboxEngine::Podman,
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+            agent_kind: AgentKind::default(),
             status: AgentStatus::default(),
             runtime_binding: None,
         }
@@ -885,13 +857,14 @@ impl Repository {
             slug,
             base_dir,
             default_profile: String::new(),
+            default_code_puppy_model: String::new(),
             github_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
+            default_agent_kind: AgentKind::default(),
             agent_ids: Vec::new(),
         }
     }
 }
-
 #[cfg(test)]
 mod tests;

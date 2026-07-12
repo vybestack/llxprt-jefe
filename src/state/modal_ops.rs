@@ -4,14 +4,42 @@
 //! length limit. These methods open/close/edit modal forms and handle
 //! repository/agent-related UI messages.
 
-use crate::domain::{AgentId, DEFAULT_SANDBOX_FLAGS, RepositoryId, SandboxEngine};
+use crate::domain::{
+    AgentId, AgentKind, DEFAULT_SANDBOX_FLAGS, Repository, RepositoryId, SandboxEngine,
+};
 use crate::messages::{ModalMessage, RepositoryAgentMessage};
 
 use super::AppState;
 use super::types::{
-    AgentFormCursor, AgentFormFields, AgentFormFocus, ModalState, RepositoryFormCursor,
-    RepositoryFormFields, RepositoryFormFocus,
+    AgentFormCursor, AgentFormFields, AgentFormFocus, ConfirmFocus, ModalState,
+    RepositoryFormCursor, RepositoryFormFields, RepositoryFormFocus,
 };
+
+#[derive(Default)]
+struct NewAgentRepositoryDefaults {
+    base_dir: String,
+    profile: String,
+    code_puppy_model: String,
+    agent_kind: AgentKind,
+    remote_enabled: bool,
+}
+
+fn new_agent_repository_defaults(
+    repositories: &[Repository],
+    repository_id: &RepositoryId,
+) -> NewAgentRepositoryDefaults {
+    repositories
+        .iter()
+        .find(|repository| repository.id == *repository_id)
+        .map(|repository| NewAgentRepositoryDefaults {
+            base_dir: repository.base_dir.to_string_lossy().into_owned(),
+            profile: repository.default_profile.clone(),
+            code_puppy_model: repository.default_code_puppy_model.clone(),
+            agent_kind: repository.default_agent_kind,
+            remote_enabled: repository.remote.enabled,
+        })
+        .unwrap_or_default()
+}
 
 impl AppState {
     pub(super) fn apply_modal_message(&mut self, message: ModalMessage) {
@@ -24,6 +52,7 @@ impl AppState {
             }
             ModalMessage::CloseModal => self.modal = ModalState::None,
             ModalMessage::SubmitForm => self.handle_submit_form(),
+            ModalMessage::ConfirmCycleFocus => self.cycle_confirm_focus(),
             ModalMessage::FormChar(c) => self.handle_form_char(c),
             ModalMessage::FormBackspace => self.handle_form_backspace(),
             ModalMessage::FormDelete => self.handle_form_delete(),
@@ -40,7 +69,10 @@ impl AppState {
             RepositoryAgentMessage::OpenNewRepository => self.open_new_repository_modal(),
             RepositoryAgentMessage::OpenEditRepository(id) => self.open_edit_repository_modal(id),
             RepositoryAgentMessage::OpenDeleteRepository(id) => {
-                self.modal = ModalState::ConfirmDeleteRepository { id };
+                self.modal = ModalState::ConfirmDeleteRepository {
+                    id,
+                    confirm_focus: ConfirmFocus::Cancel,
+                };
             }
             RepositoryAgentMessage::OpenNewAgent(repository_id) => {
                 self.open_new_agent_modal(repository_id);
@@ -50,6 +82,7 @@ impl AppState {
                 self.modal = ModalState::ConfirmDeleteAgent {
                     id,
                     delete_work_dir: false,
+                    confirm_focus: ConfirmFocus::Cancel,
                 };
             }
             RepositoryAgentMessage::ToggleDeleteWorkDir => self.toggle_delete_work_dir(),
@@ -57,8 +90,16 @@ impl AppState {
     }
 
     fn open_new_repository_modal(&mut self) {
+        let default_kind = self
+            .installed_agent_kinds
+            .first()
+            .copied()
+            .unwrap_or_default();
         self.modal = ModalState::NewRepository {
-            fields: RepositoryFormFields::default(),
+            fields: RepositoryFormFields {
+                default_agent_kind: default_kind.label().to_owned(),
+                ..RepositoryFormFields::default()
+            },
             focus: RepositoryFormFocus::default(),
             cursor: RepositoryFormCursor::default(),
         };
@@ -73,6 +114,8 @@ impl AppState {
                 name: r.name.clone(),
                 base_dir: r.base_dir.to_string_lossy().into_owned(),
                 default_profile: r.default_profile.clone(),
+                default_code_puppy_model: r.default_code_puppy_model.clone(),
+                default_agent_kind: r.default_agent_kind.label().to_owned(),
                 github_repo: r.github_repo.clone(),
                 remote_enabled: r.remote.enabled,
                 login_user: r.remote.login_user.clone(),
@@ -87,6 +130,7 @@ impl AppState {
                 name: fields.name.chars().count(),
                 base_dir: fields.base_dir.chars().count(),
                 default_profile: fields.default_profile.chars().count(),
+                default_code_puppy_model: fields.default_code_puppy_model.chars().count(),
                 github_repo: fields.github_repo.chars().count(),
                 login_user: fields.login_user.chars().count(),
                 host: fields.host.chars().count(),
@@ -98,20 +142,35 @@ impl AppState {
     }
 
     fn open_new_agent_modal(&mut self, repository_id: RepositoryId) {
-        let (base_dir, default_profile) = self
-            .repositories
-            .iter()
-            .find(|r| r.id == repository_id)
-            .map(|r| {
-                (
-                    r.base_dir.to_string_lossy().into_owned(),
-                    r.default_profile.clone(),
-                )
-            })
-            .unwrap_or_default();
+        let NewAgentRepositoryDefaults {
+            base_dir,
+            profile: default_profile,
+            code_puppy_model: default_code_puppy_model,
+            agent_kind: repo_default_kind,
+            remote_enabled,
+        } = new_agent_repository_defaults(&self.repositories, &repository_id);
+
+        // Remote repositories trust their configured runtime; local ones must
+        // fall back when that runtime is not installed.
+        let agent_kind =
+            if remote_enabled || self.installed_agent_kinds.contains(&repo_default_kind) {
+                repo_default_kind
+            } else {
+                self.installed_agent_kinds
+                    .first()
+                    .copied()
+                    .unwrap_or_default()
+            };
 
         let work_dir_len = base_dir.chars().count();
         let profile_len = default_profile.chars().count();
+        let code_puppy_model_len = default_code_puppy_model.chars().count();
+
+        let default_mode = if agent_kind == crate::domain::AgentKind::Llxprt {
+            "--yolo"
+        } else {
+            ""
+        };
 
         self.modal = ModalState::NewAgent {
             repository_id,
@@ -121,7 +180,11 @@ impl AppState {
                 description: String::new(),
                 work_dir: base_dir,
                 profile: default_profile,
-                mode: "--yolo".to_owned(),
+                code_puppy_model: default_code_puppy_model,
+                code_puppy_yolo: false,
+                code_puppy_quick_resume: crate::domain::QuickResume::default(),
+                agent_kind: agent_kind.label().to_owned(),
+                mode: default_mode.to_owned(),
                 llxprt_debug: String::new(),
                 pass_continue: true,
                 sandbox_enabled: false,
@@ -131,7 +194,8 @@ impl AppState {
             cursor: AgentFormCursor {
                 work_dir: work_dir_len,
                 profile: profile_len,
-                mode: "--yolo".chars().count(),
+                code_puppy_model: code_puppy_model_len,
+                mode: default_mode.chars().count(),
                 sandbox_flags: DEFAULT_SANDBOX_FLAGS.chars().count(),
                 ..AgentFormCursor::default()
             },
@@ -151,6 +215,10 @@ impl AppState {
                 description: a.description.clone(),
                 work_dir: a.work_dir.to_string_lossy().into_owned(),
                 profile: a.profile.clone(),
+                code_puppy_model: a.code_puppy_model.clone(),
+                code_puppy_yolo: a.code_puppy_yolo.unwrap_or(false),
+                code_puppy_quick_resume: a.code_puppy_quick_resume.into(),
+                agent_kind: a.agent_kind.label().to_owned(),
                 mode: a.mode_flags.join(" "),
                 llxprt_debug: a.llxprt_debug.clone(),
                 pass_continue: a.pass_continue,
@@ -166,6 +234,7 @@ impl AppState {
                 description: fields.description.chars().count(),
                 work_dir: fields.work_dir.chars().count(),
                 profile: fields.profile.chars().count(),
+                code_puppy_model: fields.code_puppy_model.chars().count(),
                 mode: fields.mode.chars().count(),
                 llxprt_debug: fields.llxprt_debug.chars().count(),
                 sandbox_flags: fields.sandbox_flags.chars().count(),
@@ -177,14 +246,51 @@ impl AppState {
 
     fn toggle_delete_work_dir(&mut self) {
         if let ModalState::ConfirmDeleteAgent {
-            id,
-            delete_work_dir,
-        } = self.modal.clone()
+            delete_work_dir, ..
+        } = &mut self.modal
         {
-            self.modal = ModalState::ConfirmDeleteAgent {
-                id,
-                delete_work_dir: !delete_work_dir,
-            };
+            *delete_work_dir = !*delete_work_dir;
+        }
+    }
+
+    /// Toggle confirm-dialog button focus between Cancel and Confirm (issue #228).
+    fn cycle_confirm_focus(&mut self) {
+        let next = match self.current_confirm_focus() {
+            Some(ConfirmFocus::Cancel) => ConfirmFocus::Confirm,
+            Some(ConfirmFocus::Confirm) => ConfirmFocus::Cancel,
+            None => return,
+        };
+        self.set_confirm_focus(next);
+    }
+
+    /// Read the confirm focus from whichever confirm variant is active.
+    /// Returns `None` for non-confirm modals.
+    #[must_use]
+    pub fn current_confirm_focus(&self) -> Option<ConfirmFocus> {
+        match &self.modal {
+            ModalState::ConfirmDeleteAgent { confirm_focus, .. }
+            | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
+            | ModalState::ConfirmKillAgent { confirm_focus, .. }
+            | ModalState::PreflightPrompt { confirm_focus, .. }
+            | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
+            | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => Some(*confirm_focus),
+            _ => None,
+        }
+    }
+
+    /// Replace the confirm focus on the active confirm variant, preserving all
+    /// other fields. No-op for non-confirm modals (issue #228).
+    fn set_confirm_focus(&mut self, focus: ConfirmFocus) {
+        match &mut self.modal {
+            ModalState::ConfirmDeleteAgent { confirm_focus, .. }
+            | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
+            | ModalState::ConfirmKillAgent { confirm_focus, .. }
+            | ModalState::PreflightPrompt { confirm_focus, .. }
+            | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
+            | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => {
+                *confirm_focus = focus;
+            }
+            _ => {}
         }
     }
 }

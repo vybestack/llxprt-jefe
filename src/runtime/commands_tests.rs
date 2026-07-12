@@ -3,12 +3,16 @@
 
 use super::*;
 use crate::domain::SandboxEngine;
+use crate::runtime::pane_capture::{capture_pane_history_args, parse_pane_pid};
 use std::time::Duration;
 
 fn base_signature() -> LaunchSignature {
     LaunchSignature {
         work_dir: std::path::PathBuf::from("/tmp"),
         profile: String::new(),
+        code_puppy_model: String::new(),
+        code_puppy_yolo: Some(false),
+        code_puppy_quick_resume: false,
         mode_flags: Vec::new(),
         llxprt_debug: String::new(),
         pass_continue: true,
@@ -16,7 +20,118 @@ fn base_signature() -> LaunchSignature {
         sandbox_engine: SandboxEngine::Podman,
         sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: crate::domain::RemoteRepositorySettings::default(),
+        agent_kind: crate::domain::AgentKind::Llxprt,
     }
+}
+
+#[test]
+fn code_puppy_omits_yolo_argument_for_legacy_unconfigured_agent() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_yolo = None;
+
+    assert_eq!(code_puppy_launch_args(&signature), vec!["-i"]);
+}
+
+#[test]
+fn code_puppy_quick_resume_uses_exact_work_dir_and_preserves_argv_order() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.work_dir = std::path::PathBuf::from("/remote/work/puppy");
+    signature.code_puppy_quick_resume = true;
+    signature.code_puppy_model = "puppy-pro".to_owned();
+    signature.code_puppy_yolo = Some(true);
+
+    assert_eq!(
+        code_puppy_launch_args(&signature),
+        vec![
+            "-i",
+            "--quick-resume",
+            "/remote/work/puppy",
+            "--model",
+            "puppy-pro",
+            "--yolo",
+            "true"
+        ]
+    );
+}
+
+#[test]
+fn code_puppy_does_not_infer_quick_resume_from_llxprt_continue() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.pass_continue = true;
+
+    let args = code_puppy_launch_args(&signature);
+    assert!(!args.iter().any(|arg| arg == "--continue"));
+    assert!(!args.iter().any(|arg| arg == "--quick-resume"));
+}
+
+#[test]
+fn code_puppy_omits_model_argument_when_unset() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+
+    assert_eq!(
+        code_puppy_launch_args(&signature),
+        vec!["-i", "--yolo", "false"]
+    );
+}
+
+#[test]
+fn code_puppy_passes_configured_model_as_exact_argv() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_model = "  openrouter/puppy-pro  ".to_owned();
+
+    assert_eq!(
+        code_puppy_launch_args(&signature),
+        vec!["-i", "--model", "openrouter/puppy-pro", "--yolo", "false"]
+    );
+}
+
+#[test]
+fn llxprt_ignores_code_puppy_model() {
+    let mut signature = base_signature();
+    signature.code_puppy_model = "puppy-only".to_owned();
+
+    let args = llxprt_launch_args(&signature);
+
+    assert!(!args.iter().any(|arg| arg == "--model"));
+    assert!(!args.iter().any(|arg| arg == "puppy-only"));
+}
+
+#[test]
+fn code_puppy_passes_explicit_true_yolo_value() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_yolo = Some(true);
+
+    assert_eq!(
+        code_puppy_launch_args(&signature),
+        vec!["-i", "--yolo", "true"]
+    );
+}
+
+#[test]
+fn code_puppy_fresh_prompt_keeps_model_before_instruction() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_model = "puppy-pro".to_owned();
+    signature.pass_continue = false;
+    signature.mode_flags = vec!["Read the issue prompt".to_owned()];
+
+    assert_eq!(
+        code_puppy_launch_args(&signature),
+        vec![
+            "-i",
+            "--model",
+            "puppy-pro",
+            "--yolo",
+            "false",
+            "Read the issue prompt"
+        ]
+    );
 }
 
 /// The local launch plan omits the `LLXPRT_DEBUG` env assignment when the
@@ -139,6 +254,136 @@ fn remote_launch_command_enables_remain_on_exit() {
     assert!(tmux_script.contains("set-option -t 'jefe-agent-test' remain-on-exit on"));
 }
 
+/// The remote tmux startup script must disable both the primary and secondary
+/// tmux prefix keys so the remote attach client does not consume `C-b`
+/// (`0x02`) from application control chords like Code Puppy's
+/// `Ctrl-X Ctrl-B` (`0x18 0x02`) before they reach the agent (#200). The
+/// options must target the exact session and appear after `remain-on-exit`.
+#[test]
+fn remote_launch_script_disables_tmux_prefix() {
+    let session_name = shell_escape_single("jefe-agent-prefix");
+    let work_dir = shell_escape_single("/tmp/work");
+    let cli_command = shell_escape_single("llxprt");
+    let env_prefix = String::new();
+
+    let tmux_script = build_remote_tmux_script(&work_dir, &env_prefix, &session_name, &cli_command);
+
+    assert!(
+        tmux_script.contains("set-option -t 'jefe-agent-prefix' prefix None"),
+        "remote script must disable the primary tmux prefix: {tmux_script}"
+    );
+    assert!(
+        tmux_script.contains("set-option -t 'jefe-agent-prefix' prefix2 None"),
+        "remote script must disable the secondary tmux prefix: {tmux_script}"
+    );
+
+    // The prefix options must follow remain-on-exit so the session exists
+    // before the options are applied (regression guard against reordering).
+    let Some(remain_pos) = tmux_script.find("set-option -t 'jefe-agent-prefix' remain-on-exit on")
+    else {
+        panic!("remain-on-exit missing: {tmux_script}");
+    };
+    let Some(prefix_pos) = tmux_script.find("set-option -t 'jefe-agent-prefix' prefix None") else {
+        panic!("prefix None missing: {tmux_script}");
+    };
+    assert!(
+        prefix_pos > remain_pos,
+        "prefix option must appear after remain-on-exit: {tmux_script}"
+    );
+}
+
+/// The remote reattach command for disabling the prefix targets the exact
+/// session (escaped), sets both `prefix` and `prefix2` in one tmux invocation
+/// using the `\;` separator, and is wrapped through the remote user-escalation
+/// path. This is the reattach-side remediation for pre-existing remote
+/// sessions (#200).
+#[test]
+fn remote_disable_prefix_command_targets_session_with_both_options() {
+    let remote = crate::domain::RemoteRepositorySettings {
+        enabled: true,
+        login_user: "ubuntu".to_owned(),
+        host: "example.com".to_owned(),
+        run_as_user: String::new(),
+        setup_env_default: false,
+    };
+
+    let command = remote_disable_prefix_command(&remote, "jefe-agent-prefix");
+
+    // Wrapped through the remote user path: no run_as_user means the inner
+    // command is used verbatim.
+    assert!(
+        command.contains("tmux set-option -t 'jefe-agent-prefix' prefix None"),
+        "remote disable-prefix command must set prefix None: {command}"
+    );
+    assert!(
+        command.contains("set-option -t 'jefe-agent-prefix' prefix2 None"),
+        "remote disable-prefix command must set prefix2 None: {command}"
+    );
+    // Single tmux invocation with the command separator, not two tmux calls.
+    assert!(
+        command.contains(r"\;"),
+        "remote disable-prefix command must use the tmux command separator: {command}"
+    );
+    assert_eq!(
+        command.matches("tmux set-option").count(),
+        1,
+        "both options must be in one tmux invocation: {command}"
+    );
+}
+
+/// A remote with a distinct `run_as_user` wraps the disable-prefix fragment
+/// through `sudo -n su`, matching the rest of the remote command path.
+#[test]
+fn remote_disable_prefix_command_wraps_through_run_as_user() {
+    let remote = crate::domain::RemoteRepositorySettings {
+        enabled: true,
+        login_user: "ubuntu".to_owned(),
+        host: "example.com".to_owned(),
+        run_as_user: "acoliver".to_owned(),
+        setup_env_default: false,
+    };
+
+    let command = remote_disable_prefix_command(&remote, "s");
+    assert!(
+        command.starts_with("sudo -n su - 'acoliver' -c "),
+        "run_as_user must wrap the command: {command}"
+    );
+    assert!(
+        command.contains("prefix None"),
+        "wrapped command must still disable prefix: {command}"
+    );
+}
+
+/// The shared `prefix_disable_tmux_subcommands` builder emits one
+/// `set-option` sub-command per option from `prefix_disable_option_names`,
+/// separated by tmux's `\;`, with no leading `tmux` keyword. Locking this
+/// format guards both the remote reattach fragment and the remote creation
+/// script against drift (#200).
+#[test]
+fn prefix_disable_tmux_subcommands_joins_all_options_with_separator() {
+    let seq = prefix_disable_tmux_subcommands("'s'");
+    assert_eq!(
+        seq, r"set-option -t 's' prefix None \; set-option -t 's' prefix2 None",
+        "sub-commands must cover every option joined by the tmux separator"
+    );
+    // No leading tmux keyword: callers embed this in their own tmux context.
+    assert!(
+        !seq.starts_with("tmux"),
+        "sub-command sequence must not include the leading tmux keyword: {seq}"
+    );
+    // Every production option appears as its own `set-option -t 's' <name>`
+    // sub-command exactly once (matched on the full " None" suffix so "prefix"
+    // is not double-counted inside "prefix2").
+    for option in prefix_disable_option_names() {
+        let needle = format!(" {option} None");
+        assert_eq!(
+            seq.matches(&needle).count(),
+            1,
+            "option {option} must appear exactly once: {seq}"
+        );
+    }
+}
+
 /// The `env -u` scrub prefix must strip every tmux client var so an agent's
 /// bare `tmux` can never reach jefe's private server (#171).
 #[test]
@@ -164,6 +409,7 @@ fn tmux_scrub_env_args_strips_all_tmux_client_vars() {
 #[test]
 fn local_pane_command_scrubs_tmux_env_before_llxprt() {
     let plan_no_env = LocalLaunchPlan {
+        agent_kind: AgentKind::Llxprt,
         args: vec!["--continue".to_owned()],
         env: Vec::new(),
         warning: None,
@@ -182,6 +428,7 @@ fn local_pane_command_scrubs_tmux_env_before_llxprt() {
 
     // With an env assignment, the K=V must sit between the scrub and llxprt.
     let plan_with_env = LocalLaunchPlan {
+        agent_kind: AgentKind::Llxprt,
         args: Vec::new(),
         env: vec![("LLXPRT_DEBUG".to_owned(), "trace=1".to_owned())],
         warning: None,
@@ -339,4 +586,166 @@ fn launch_args_omits_continue_when_pass_continue_false() {
             .any(|arg| arg == "--continue"),
         "issue-driven launches must never pass --continue"
     );
+}
+
+#[test]
+fn code_puppy_launch_uses_only_supported_args() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.profile = "ignored-profile".to_owned();
+    signature.mode_flags = vec!["--yolo".to_owned()];
+    signature.pass_continue = true;
+    signature.sandbox_enabled = true;
+
+    assert_eq!(launch_args(&signature), vec!["-i", "--yolo", "false"]);
+
+    let plan = local_launch_plan(&signature);
+    assert!(plan.env.is_empty());
+    let pane_args = local_pane_command_args(&plan);
+    assert!(pane_args.iter().any(|arg| arg == "code-puppy"));
+    assert!(!pane_args.iter().any(|arg| arg == "llxprt"));
+    assert!(!pane_args.iter().any(|arg| arg == "--continue"));
+    assert!(!pane_args.iter().any(|arg| arg == "--sandbox"));
+    assert!(!pane_args.iter().any(|arg| arg == "--profile-load"));
+}
+
+// ── Code Puppy strict args (issue #184) ───────────────────────────────────
+//
+// Code Puppy outputs interactive mode plus its typed YOLO value for normal
+// launches, and appends one positional instruction for fresh sends. Arbitrary
+// LLxprt mode_flags must never leak through.
+
+#[test]
+fn code_puppy_normal_launch_outputs_only_interactive_flag() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    // Normal launch with LLxprt-style flags that must be stripped.
+    signature.mode_flags = vec!["--yolo".to_owned()];
+    signature.pass_continue = true;
+
+    assert_eq!(launch_args(&signature), vec!["-i", "--yolo", "false"]);
+}
+
+#[test]
+fn code_puppy_fresh_send_outputs_instruction_positional() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.mode_flags =
+        vec!["Read and work on the GitHub issue described in .jefe/issue-prompt.md".to_owned()];
+    signature.pass_continue = false;
+
+    assert_eq!(
+        launch_args(&signature),
+        vec![
+            "-i",
+            "--yolo",
+            "false",
+            "Read and work on the GitHub issue described in .jefe/issue-prompt.md"
+        ]
+    );
+}
+
+#[test]
+fn code_puppy_strips_all_llxprt_only_flags() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.mode_flags = vec![
+        "--yolo".to_owned(),
+        "--profile-load".to_owned(),
+        "ignored-profile".to_owned(),
+        "--sandbox".to_owned(),
+        "--continue".to_owned(),
+        "Read and work on the GitHub PR described in .jefe/pr-prompt.md".to_owned(),
+    ];
+
+    assert_eq!(launch_args(&signature), vec!["-i", "--yolo", "false"]);
+}
+
+#[test]
+fn code_puppy_empty_mode_flags_outputs_only_interactive_flag() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.mode_flags = Vec::new();
+
+    assert_eq!(launch_args(&signature), vec!["-i", "--yolo", "false"]);
+}
+
+#[test]
+fn code_puppy_discards_unrecognized_positional_flags() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.pass_continue = false;
+    signature.mode_flags = vec![
+        "first instruction".to_owned(),
+        "second instruction".to_owned(),
+    ];
+
+    assert_eq!(launch_args(&signature), vec!["-i", "--yolo", "false"]);
+}
+
+// ── Issue #198: history-aware capture-pane argv builder ───────────────────
+//
+// `capture-pane -p -S -<N> -E -` captures the last N lines of tmux scrollback
+// history including the visible pane. The argv builder is a pure function so
+// it can be unit-tested without spawning tmux.
+
+/// The history-capture argv builder produces the correct flag sequence for a
+/// bounded history request.
+#[test]
+fn capture_pane_history_argv_builds_correct_flags() {
+    let argv = capture_pane_history_args("jefe-agent-1", 500);
+    // Must include capture-pane, -p (plain text), -t <session>, -S -<N>, -E -
+    assert!(argv.contains(&"capture-pane".to_owned()), "argv: {argv:?}");
+    assert!(argv.contains(&"-p".to_owned()), "argv: {argv:?}");
+    assert!(argv.contains(&"-t".to_owned()), "argv: {argv:?}");
+    assert!(argv.contains(&"jefe-agent-1".to_owned()), "argv: {argv:?}");
+    assert!(argv.contains(&"-S".to_owned()), "missing -S flag: {argv:?}");
+    assert!(argv.contains(&"-E".to_owned()), "missing -E flag: {argv:?}");
+    // -S value must be the negation of the requested line count.
+    let s_idx = argv.iter().position(|a| a == "-S");
+    let Some(s_idx) = s_idx else {
+        panic!("-S must be present: {argv:?}");
+    };
+    let Some(s_value) = argv.get(s_idx + 1) else {
+        panic!("-S must be followed by a value: {argv:?}");
+    };
+    assert_eq!(*s_value, "-500", "-S value must be -<history_lines>");
+    // -E value must be "-" (end at the bottom of the visible pane).
+    let e_idx = argv.iter().position(|a| a == "-E");
+    let Some(e_idx) = e_idx else {
+        panic!("-E must be present: {argv:?}");
+    };
+    let Some(e_value) = argv.get(e_idx + 1) else {
+        panic!("-E must be followed by a value: {argv:?}");
+    };
+    assert_eq!(*e_value, "-", "-E value must be -");
+}
+
+/// The history-capture argv builder respects the requested line count.
+#[test]
+fn capture_pane_history_argv_respects_line_count() {
+    let argv = capture_pane_history_args("jefe-agent-1", 2000);
+    let s_idx = argv.iter().position(|a| a == "-S");
+    let Some(s_idx) = s_idx else {
+        panic!("-S must be present: {argv:?}");
+    };
+    let Some(s_value) = argv.get(s_idx + 1) else {
+        panic!("-S must have a value: {argv:?}");
+    };
+    assert_eq!(*s_value, "-2000");
+}
+
+/// Zero history lines is clamped to 1 so -S is always a negative offset,
+/// never the ambiguous `-S 0` (which means "capture entire scrollback").
+#[test]
+fn capture_pane_history_argv_zero_lines_clamps_to_one() {
+    let argv = capture_pane_history_args("jefe-agent-1", 0);
+    let s_idx = argv.iter().position(|a| a == "-S");
+    let Some(s_idx) = s_idx else {
+        panic!("-S must be present: {argv:?}");
+    };
+    let Some(s_value) = argv.get(s_idx + 1) else {
+        panic!("-S must have a value: {argv:?}");
+    };
+    assert_eq!(*s_value, "-1", "zero lines should clamp to -S -1");
 }

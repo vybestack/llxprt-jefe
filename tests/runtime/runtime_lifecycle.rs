@@ -26,6 +26,9 @@ fn make_signature(agent: &Agent) -> LaunchSignature {
     LaunchSignature {
         work_dir: agent.work_dir.clone(),
         profile: agent.profile.clone(),
+        code_puppy_model: String::new(),
+        code_puppy_yolo: None,
+        code_puppy_quick_resume: false,
         mode_flags: agent.mode_flags.clone(),
         llxprt_debug: agent.llxprt_debug.clone(),
         pass_continue: agent.pass_continue,
@@ -33,6 +36,7 @@ fn make_signature(agent: &Agent) -> LaunchSignature {
         sandbox_engine: agent.sandbox_engine,
         sandbox_flags: agent.sandbox_flags.clone(),
         remote: RemoteRepositorySettings::default(),
+        agent_kind: agent.agent_kind,
     }
 }
 

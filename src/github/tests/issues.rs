@@ -1,8 +1,9 @@
 use crate::domain::{Issue, IssueComment, IssueDetail, IssueFilter, IssueFilterState, IssueState};
 use crate::github::{
-    GhClient, GhError, build_list_issues_args, categorize_error, parse_comments_json,
-    parse_created_comment_json, parse_created_issue_json, parse_issue_detail_json,
-    parse_issue_search_json, parse_issues_json, sort_issues,
+    GhClient, GhError, build_assign_issue_args, build_list_issues_args, build_viewer_login_args,
+    categorize_error, parse_comments_json, parse_created_comment_json, parse_created_issue_json,
+    parse_issue_detail_json, parse_issue_search_json, parse_issues_json, parse_viewer_login,
+    sort_issues,
 };
 
 trait TestResultExt<T> {
@@ -18,24 +19,14 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
     }
 }
 
-// =============================================================================
-
 fn state_arg_is_open(args: &[String]) -> bool {
     args.windows(2)
         .any(|window| window[0] == "--state" && window[1] == "open")
 }
-// Error Categorization Tests
-// =============================================================================
 
-/// Test 1: categorize_error returns success when exit code is 0.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-013
-/// @pseudocode component-002 lines 105-120
 #[test]
 fn test_check_auth_success() {
-    // When exit code is 0, no error should be categorized
     let error = categorize_error(0, "");
-    // Should NOT be an error variant
     assert!(!matches!(
         error,
         GhError::NotAuthenticated(_)
@@ -45,10 +36,6 @@ fn test_check_auth_success() {
     ));
 }
 
-/// Test 2: categorize_error detects "not logged in" → NotAuthenticated.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-013
-/// @pseudocode component-002 lines 105-120
 #[test]
 fn test_check_auth_not_authenticated() {
     let stderr = "Welcome to GitHub CLI! To authenticate, please run `gh auth login`.\n\
@@ -57,10 +44,6 @@ fn test_check_auth_not_authenticated() {
     assert!(matches!(error, GhError::NotAuthenticated(_)));
 }
 
-/// Test 3: parse_issues_json parses valid gh CLI JSON output.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-006
-/// @pseudocode component-002 lines 35-45
 #[test]
 fn test_list_issues_parses_json() {
     let json = r#"[
@@ -97,10 +80,6 @@ fn test_list_issues_parses_json() {
     assert_eq!(issues[0].assignee_summary, "acoliver");
 }
 
-/// Test 4: sort_issues sorts by updated_at desc, then number asc.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-006
-/// @pseudocode component-002 lines 46-54
 #[test]
 fn test_list_issues_sorts_by_updated_desc() {
     let mut issues = vec![
@@ -159,16 +138,11 @@ fn test_list_issues_sorts_by_updated_desc() {
 
     sort_issues(&mut issues);
 
-    // Should be sorted by updated_at desc, then number asc
     assert_eq!(issues[0].number, 1);
     assert_eq!(issues[1].number, 2);
     assert_eq!(issues[2].number, 3);
 }
 
-/// Test 5: build_list_issues_args constructs correct CLI arguments from filter.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-008
-/// @pseudocode component-002 lines 25-34
 #[test]
 fn test_list_issues_filter_args_construction() {
     let filter = IssueFilter {
@@ -182,7 +156,6 @@ fn test_list_issues_filter_args_construction() {
 
     let args = build_list_issues_args("owner", "repo", &filter, None, 30);
 
-    // Should contain base command parts
     assert!(args.iter().any(|a| a.contains("owner/repo")));
     assert!(args.iter().any(|a| a == "--json"));
     assert!(
@@ -218,7 +191,6 @@ fn test_parse_issue_search_json_pagination() {
                         "state": "OPEN",
                         "author": {"login": "acoliver"},
                         "updatedAt": "2026-03-29T10:00:00Z",
-
                         "assignees": {"nodes": [{"login": "acoliver"}]},
                         "labels": {"nodes": [{"name": "enhancement"}]},
                         "comments": {"totalCount": 3},
@@ -275,7 +247,6 @@ fn test_parse_repository_issues_json_pagination() {
 
     assert_eq!(response.issues.len(), 1);
     assert_eq!(response.issues[0].number, 21);
-
     assert_eq!(response.issues[0].issue_type, "Bug");
     assert_eq!(response.issues[0].milestone, "Sprint 1");
     assert_eq!(response.issues[0].module, "ui");
@@ -283,10 +254,6 @@ fn test_parse_repository_issues_json_pagination() {
     assert!(response.has_more);
 }
 
-/// Test 6: parse_issues_json handles empty result.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-006
-/// @pseudocode component-002 lines 35-45
 #[test]
 fn test_list_issues_empty_result() {
     let json = "[]";
@@ -294,10 +261,6 @@ fn test_list_issues_empty_result() {
     assert!(issues.is_empty());
 }
 
-/// Test 7: parse_issue_detail_json parses complete detail JSON.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-009
-/// @pseudocode component-002 lines 55-65
 #[test]
 fn test_get_issue_detail_parses_json() {
     let json = r#"{
@@ -317,7 +280,6 @@ fn test_get_issue_detail_parses_json() {
                 "id": "IC_123",
                 "author": {"login": "bob"},
                 "createdAt": "2026-03-29T11:00:00Z",
-
                 "body": "Comment body"
             }
         ]
@@ -340,6 +302,7 @@ fn test_get_issue_detail_parses_json() {
     assert_eq!(detail.comments.len(), 1);
     assert_eq!(detail.comments[0].body, "Comment body");
 }
+
 #[test]
 fn test_parse_issue_detail_json_disables_pagination_until_graphql_comments_are_loaded() {
     let json = r#"{
@@ -363,10 +326,6 @@ fn test_parse_issue_detail_json_disables_pagination_until_graphql_comments_are_l
     assert_eq!(detail.comments_cursor, None);
 }
 
-/// Test 8: parse_issue_detail_json handles missing milestone.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-009
-/// @pseudocode component-002 lines 55-65
 #[test]
 fn test_get_issue_detail_optional_milestone() {
     let json_with_milestone = r#"{
@@ -376,7 +335,6 @@ fn test_get_issue_detail_optional_milestone() {
         "author": {"login": "alice"},
         "createdAt": "2026-03-28T10:00:00Z",
         "updatedAt": "2026-03-29T10:00:00Z",
-
         "labels": [],
         "assignees": [],
         "milestone": {"title": "v1.0"},
@@ -408,10 +366,6 @@ fn test_get_issue_detail_optional_milestone() {
     assert_eq!(detail_without.milestone, None);
 }
 
-/// Test 9: parse_comments_json parses GraphQL comments response.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-009
-/// @pseudocode component-002 lines 75-85
 #[test]
 fn test_list_comments_parses_json() {
     let json = r#"{
@@ -529,10 +483,6 @@ fn test_issue_detail_comments_parse_opaque_node_id_from_url_fragment() {
     assert_eq!(detail.comments[0].comment_id, 4_187_858_306);
 }
 
-/// Test 10: parse_comments_json extracts pagination info.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-009
-/// @pseudocode component-002 lines 75-85
 #[test]
 fn test_list_comments_pagination() {
     let json = r#"{
@@ -565,10 +515,6 @@ fn test_list_comments_pagination() {
     assert!(has_more);
 }
 
-/// Test 11: parse_created_comment_json parses POST response.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-011
-/// @pseudocode component-002 lines 95-100
 #[test]
 fn test_create_comment_success() {
     let json = r#"{
@@ -585,9 +531,6 @@ fn test_create_comment_success() {
     assert_eq!(comment.body, "This is a new comment");
 }
 
-/// Test 11a: parse_created_issue_json parses created issue payload.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-011
 #[test]
 fn test_create_issue_success() {
     let json = r#"{
@@ -602,9 +545,6 @@ fn test_create_issue_success() {
     assert_eq!(issue.body, "Issue body details");
 }
 
-/// Test 11b: parse_created_comment_json handles REST API format (numeric id, "user", "created_at").
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-011
 #[test]
 fn test_create_comment_rest_format() {
     let json = r#"{
@@ -623,15 +563,9 @@ fn test_create_comment_rest_format() {
     assert_eq!(comment.created_at, "2026-04-03T20:17:41Z");
 }
 
-/// Test 12: update_comment returns success (unit test for parsing non-error).
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-011
-/// @pseudocode component-002 lines 120-125
 #[test]
 fn test_update_comment_success() {
-    // For update operations, we test that categorize_error doesn't flag success as error
     let error = categorize_error(0, "");
-    // Success path - should not be an error variant
     assert!(!matches!(
         error,
         GhError::NotAuthenticated(_)
@@ -641,13 +575,8 @@ fn test_update_comment_success() {
     ));
 }
 
-/// Test 13: update_issue_body returns success (unit test for parsing non-error).
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-011
-/// @pseudocode component-002 lines 126-131
 #[test]
 fn test_update_issue_body_success() {
-    // Similar to test_update_comment_success
     let error = categorize_error(0, "");
     assert!(!matches!(
         error,
@@ -658,10 +587,6 @@ fn test_update_issue_body_success() {
     ));
 }
 
-/// Test 14: build_send_payload with focused comment.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-011
-/// @pseudocode component-002 lines 70-83
 #[test]
 fn test_build_send_payload_with_comment() {
     let detail = IssueDetail {
@@ -712,10 +637,6 @@ fn test_build_send_payload_with_comment() {
     assert_eq!(payload.issue_base_prompt, "Please help with this issue");
 }
 
-/// Test 15: build_send_payload without focused comment.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-011
-/// @pseudocode component-002 lines 70-83
 #[test]
 fn test_build_send_payload_without_comment() {
     let detail = IssueDetail {
@@ -745,10 +666,6 @@ fn test_build_send_payload_without_comment() {
     assert!(payload.focused_comment_author.is_none());
 }
 
-/// Test 16: categorize_error detects rate limit.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-013
-/// @pseudocode component-002 lines 105-120
 #[test]
 fn test_error_categorization_rate_limit() {
     let stderr = "API rate limit exceeded. Please wait a few minutes and try again.";
@@ -756,10 +673,6 @@ fn test_error_categorization_rate_limit() {
     assert!(matches!(error, GhError::RateLimited));
 }
 
-/// Test 17: categorize_error detects authentication error.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-013
-/// @pseudocode component-002 lines 105-120
 #[test]
 fn test_error_categorization_not_authenticated() {
     let stderr = "401 Bad credentials - authentication required";
@@ -767,10 +680,6 @@ fn test_error_categorization_not_authenticated() {
     assert!(matches!(error, GhError::NotAuthenticated(_)));
 }
 
-/// Test 18: categorize_error detects access denied.
-/// @plan PLAN-20260329-ISSUES-MODE.P08
-/// @requirement REQ-ISS-013
-/// @pseudocode component-002 lines 105-120
 #[test]
 fn test_error_categorization_access_denied() {
     let stderr = "HTTP 403: Resource not accessible by personal access token";
@@ -778,8 +687,6 @@ fn test_error_categorization_access_denied() {
     assert!(matches!(error, GhError::AccessDenied(_)));
 }
 
-/// Test 19: parse_issues_json supports direct array format for assignees/labels.
-/// Some `gh` CLI responses return bare arrays instead of GraphQL `{nodes:[...]}`.
 #[test]
 fn test_parse_issues_json_direct_array_assignees_labels() {
     let json = r#"[
@@ -801,7 +708,6 @@ fn test_parse_issues_json_direct_array_assignees_labels() {
     assert_eq!(issues[0].labels_summary, "bug");
 }
 
-/// Test 20: parse_issues_json supports GraphQL nodes format for assignees/labels.
 #[test]
 fn test_parse_issues_json_graphql_nodes_assignees_labels() {
     let json = r#"[
@@ -866,8 +772,6 @@ fn test_issue_type_repository_args_preserve_module_none_as_manual_text() {
     assert!(query.contains("labels: [\"module:none\"]"));
 }
 
-/// Test 21: parse_issue_detail_json propagates comment parse errors instead of
-/// silently swallowing them.
 #[test]
 fn test_parse_issue_detail_json_propagates_comment_errors() {
     let json = r#"{
@@ -958,4 +862,113 @@ fn test_parse_issue_detail_json_node_id() {
         "detail node_id should be parsed from the id field"
     );
     assert_eq!(detail.number, 42);
+}
+
+#[test]
+fn test_parse_viewer_login_bare_jq_string() {
+    let login = parse_viewer_login("acoliver\n").value_or_panic("bare login should parse");
+    assert_eq!(login, "acoliver");
+}
+
+#[test]
+fn test_parse_viewer_login_trims_surrounding_whitespace() {
+    let login = parse_viewer_login("\n  acoliver  \n").value_or_panic("trimmed login parses");
+    assert_eq!(login, "acoliver");
+}
+
+#[test]
+fn test_parse_viewer_login_strips_surrounding_quotes() {
+    let login = parse_viewer_login(r#""acoliver""#).value_or_panic("quoted login parses");
+    assert_eq!(login, "acoliver");
+}
+
+#[test]
+fn test_parse_viewer_login_rejects_multiline_garbage() {
+    // A bare-form output with embedded newlines/whitespace inside the login
+    // is not a valid GitHub login and must be rejected.
+    let result = parse_viewer_login("warning: something\nacoliver");
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "multiline bare output must be rejected, got {result:?}"
+    );
+}
+
+#[test]
+fn test_parse_viewer_login_rejects_valid_first_line_with_trailing_garbage() {
+    // Even when the first line is itself a valid login, trailing lines mean
+    // the gh output was malformed; reject rather than silently taking line 1.
+    let result = parse_viewer_login("acoliver\nunexpected garbage");
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "multiline output with a valid first line must be rejected, got {result:?}"
+    );
+}
+
+#[test]
+fn test_parse_viewer_login_rejects_invalid_login_chars() {
+    // GitHub logins cannot contain '@' or spaces; reject rather than passing
+    // a malformed value to the assignment request.
+    let result = parse_viewer_login("not a login");
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "login with invalid chars must be rejected, got {result:?}"
+    );
+}
+
+#[test]
+fn test_parse_viewer_login_empty_is_error() {
+    let result = parse_viewer_login("   \n  ");
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "empty viewer output must be a ParseError, got {result:?}"
+    );
+}
+
+#[test]
+fn test_parse_viewer_login_missing_login_field_is_error() {
+    let json = r#"{"id": 1234, "name": "No Login"}"#;
+    let result = parse_viewer_login(json);
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "missing login field must be a ParseError, got {result:?}"
+    );
+}
+
+#[test]
+fn test_parse_viewer_login_malformed_json_is_error() {
+    let result = parse_viewer_login("{ not json");
+    assert!(
+        matches!(result, Err(GhError::ParseError(_))),
+        "malformed JSON must be a ParseError, got {result:?}"
+    );
+}
+
+#[test]
+fn test_build_viewer_login_args_shape() {
+    let args = build_viewer_login_args();
+    assert_eq!(
+        args,
+        vec![
+            "api".to_string(),
+            "user".to_string(),
+            "--jq".to_string(),
+            ".login".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_build_assign_issue_args_shape() {
+    let args = build_assign_issue_args("acme", "widgets", 166, "acoliver");
+    assert_eq!(
+        args,
+        vec![
+            "api".to_string(),
+            "--method".to_string(),
+            "POST".to_string(),
+            "/repos/acme/widgets/issues/166/assignees".to_string(),
+            "-f".to_string(),
+            "assignees[]=acoliver".to_string(),
+        ]
+    );
 }

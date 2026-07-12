@@ -41,6 +41,7 @@ fn sample_detail() -> PullRequestDetail {
         review_decision: Some(PrReviewState::ReviewRequired),
         checks_status: PrCheckStatus::Success,
         reviews: vec![PrReview {
+            review_id: Some("PRR_kw001".to_string()),
             author_login: "ada".to_string(),
             state: PrReviewState::ChangesRequested,
             submitted_at: "2026-06-23".to_string(),
@@ -342,6 +343,8 @@ fn detail_with_threads() -> PullRequestDetail {
         PrReviewThread {
             thread_id: "PRRT_kw1".to_string(),
             is_resolved: false,
+            is_outdated: false,
+            review_id: Some("PRR_kw001".to_string()),
             path: Some("src/parser.rs".to_string()),
             line: Some(42),
             comments: vec![
@@ -364,6 +367,8 @@ fn detail_with_threads() -> PullRequestDetail {
         PrReviewThread {
             thread_id: "PRRT_kw2".to_string(),
             is_resolved: true,
+            is_outdated: false,
+            review_id: Some("PRR_kw001".to_string()),
             path: Some("src/main.rs".to_string()),
             line: Some(5),
             comments: vec![IssueComment {
@@ -381,9 +386,10 @@ fn detail_with_threads() -> PullRequestDetail {
 #[test]
 fn reviews_section_renders_nested_thread_comments() {
     let detail = detail_with_threads();
+    // Focus the first review thread so its comment conversation expands.
     let content = build_pr_detail_content(
         &detail,
-        PrDetailSubfocus::Body,
+        PrDetailSubfocus::ReviewThread(0),
         &InlineState::None,
         false,
         false,
@@ -470,6 +476,184 @@ fn review_thread_focused_shows_focus_marker() {
     assert!(
         content.text.contains(">     src/parser.rs:42"),
         "focused thread must have > marker"
+    );
+}
+
+// ── Collapse/expand-on-focus for resolved/outdated threads (#155 f-up) ───
+
+/// Resolved threads collapse to their header line when NOT focused: the
+/// conversation body is hidden and a "(select to expand)" hint shows instead.
+#[test]
+fn resolved_thread_collapses_body_when_not_focused() {
+    let detail = detail_with_threads();
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        !content.text.contains("Looks good."),
+        "resolved thread body must be hidden while unfocused"
+    );
+    assert!(
+        content.text.contains("(select to expand)"),
+        "collapsed thread must hint how to expand"
+    );
+    assert!(
+        content.text.contains("1 comment"),
+        "collapsed thread must show its comment count"
+    );
+}
+
+/// Focusing a resolved thread expands its full conversation WITHOUT
+/// mutating the resolve state (read access must not require unresolve).
+/// Flat index (review order × thread order) of the first RESOLVED thread in
+/// `detail`, so tests target the resolved thread structurally instead of via
+/// a hardcoded index that fixture edits could silently retarget.
+fn resolved_thread_flat_idx(detail: &PullRequestDetail) -> usize {
+    thread_flat_idx(detail, |t| t.is_resolved, "resolved")
+}
+
+/// Flat index of the first thread matching `pred`, so tests target threads
+/// structurally instead of via hardcoded indices that fixture edits could
+/// silently retarget.
+fn thread_flat_idx(
+    detail: &PullRequestDetail,
+    pred: impl Fn(&crate::domain::PrReviewThread) -> bool,
+    label: &str,
+) -> usize {
+    let Some(idx) = detail
+        .reviews
+        .iter()
+        .flat_map(|r| r.review_threads.iter())
+        .position(pred)
+    else {
+        panic!("fixture must contain a {label} thread");
+    };
+    idx
+}
+
+#[test]
+fn resolved_thread_expands_on_focus() {
+    let detail = detail_with_threads();
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::ReviewThread(resolved_thread_flat_idx(&detail)),
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        content.text.contains("Looks good."),
+        "focused resolved thread must render its conversation"
+    );
+    assert!(
+        content.text.contains("carol"),
+        "focused resolved thread must render comment authors"
+    );
+    assert!(
+        content.text.contains("[RESOLVED]"),
+        "focused resolved thread must keep the [RESOLVED] tag"
+    );
+}
+
+/// Unresolved current threads collapse to their header when not focused
+/// (issue #155 lazy render): the body is hidden, the header renders.
+#[test]
+fn unresolved_thread_collapses_when_unfocused() {
+    let detail = detail_with_threads();
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        !content.text.contains("This unwrap can panic."),
+        "unresolved thread body must be HIDDEN when not focused (lazy render)"
+    );
+    assert!(
+        content.text.contains("src/parser.rs:42"),
+        "unresolved thread header must still render"
+    );
+}
+
+/// Outdated (but unresolved) threads collapse like resolved ones and carry
+/// an [OUTDATED] tag on the header line.
+#[test]
+fn outdated_thread_collapses_and_shows_outdated_tag() {
+    let mut detail = detail_with_threads();
+    // Locate the unresolved thread structurally instead of hardcoding [0][0]:
+    // the assertions below assume the mutated thread is the UNRESOLVED one
+    // whose body is "This unwrap can panic.".
+    let (review_idx, thread_idx) = detail
+        .reviews
+        .iter()
+        .enumerate()
+        .find_map(|(ri, r)| {
+            r.review_threads
+                .iter()
+                .position(|t| !t.is_resolved)
+                .map(|ti| (ri, ti))
+        })
+        .unwrap_or_else(|| panic!("fixture must contain an unresolved thread"));
+    detail.reviews[review_idx].review_threads[thread_idx].is_outdated = true;
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        content.text.contains("[OUTDATED]"),
+        "outdated thread must show the [OUTDATED] tag"
+    );
+    assert!(
+        !content.text.contains("This unwrap can panic."),
+        "outdated thread body must collapse while unfocused"
+    );
+
+    // Focus expands it, tag stays.
+    let focused = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::ReviewThread(thread_flat_idx(&detail, |t| t.is_outdated, "outdated")),
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        focused.text.contains("This unwrap can panic."),
+        "focused outdated thread must expand"
+    );
+    assert!(
+        focused.text.contains("[OUTDATED]"),
+        "focused outdated thread must keep the [OUTDATED] tag"
+    );
+}
+
+/// The focused resolve hint flips to "unresolve" for resolved threads so the
+/// toggle's effect is honest.
+#[test]
+fn focused_resolved_thread_shows_unresolve_hint() {
+    let detail = detail_with_threads();
+    let content = build_pr_detail_content(
+        &detail,
+        PrDetailSubfocus::ReviewThread(resolved_thread_flat_idx(&detail)),
+        &InlineState::None,
+        false,
+        false,
+    );
+    assert!(
+        content.text.contains("[ R unresolve ]"),
+        "resolved thread hint must say unresolve"
+    );
+    assert!(
+        !content.text.contains("[ R resolve ]"),
+        "resolved thread must not show the resolve label"
     );
 }
 
@@ -701,3 +885,102 @@ fn pr_subfocus_line_range_returns_none_for_out_of_bounds_index() {
         "out-of-bounds comment index must return None"
     );
 }
+
+/// Build a bodyless bot review for separator tests.
+fn bodyless_review(id: &str, date: &str) -> PrReview {
+    PrReview {
+        review_id: Some(id.to_string()),
+        author_login: "bot".to_string(),
+        state: PrReviewState::Commented,
+        submitted_at: date.to_string(),
+        body: None,
+        review_threads: vec![],
+    }
+}
+
+/// Render `detail` and return the content lines plus the index of the line
+/// containing `anchor` (panics when absent).
+fn rendered_lines_at(detail: &PullRequestDetail, anchor: &str) -> (Vec<String>, usize) {
+    let content = build_pr_detail_content(
+        detail,
+        PrDetailSubfocus::Body,
+        &InlineState::None,
+        false,
+        false,
+    );
+    let lines: Vec<String> = content.text.lines().map(str::to_string).collect();
+    let Some(first) = lines.iter().position(|l| l.contains(anchor)) else {
+        panic!("anchor line {anchor:?} absent from rendered content");
+    };
+    (lines, first)
+}
+
+/// Consecutive bodyless reviews (e.g. bot reviews whose content lives in
+/// threads) still get a blank separator line between their headers so they
+/// never render visually glued together — including runs of three or more.
+#[test]
+fn bodyless_reviews_are_separated_by_blank_lines() {
+    let mut detail = sample_detail();
+    detail.reviews = vec![
+        bodyless_review("PRR_kw001", "2026-06-23"),
+        bodyless_review("PRR_kw002", "2026-06-24"),
+        bodyless_review("PRR_kw003", "2026-06-25"),
+    ];
+    let (lines, first) = rendered_lines_at(&detail, "2026-06-23");
+    // header, blank, header, blank, header (no doubled blanks, no glue).
+    for (offset, expected_date) in [(2usize, "2026-06-24"), (4usize, "2026-06-25")] {
+        assert_eq!(
+            lines.get(first + offset - 1).map(String::as_str),
+            Some(""),
+            "blank separator before the header at offset {offset}"
+        );
+        assert!(
+            lines
+                .get(first + offset)
+                .is_some_and(|l| l.contains(expected_date)),
+            "bodyless review header at offset {offset} follows a single separator"
+        );
+    }
+}
+
+/// A bodyless review followed by a body-bearing review keeps the same
+/// single-separator shape, and the body renders under its own header.
+#[test]
+fn bodyless_review_followed_by_body_review_keeps_single_separator() {
+    let mut detail = sample_detail();
+    detail.reviews = vec![
+        bodyless_review("PRR_kw001", "2026-06-25"),
+        PrReview {
+            review_id: Some("PRR_kw004".to_string()),
+            author_login: "human".to_string(),
+            state: PrReviewState::Approved,
+            submitted_at: "2026-06-26".to_string(),
+            body: Some("Looks good".to_string()),
+            review_threads: vec![],
+        },
+    ];
+    let (lines, first) = rendered_lines_at(&detail, "2026-06-25");
+    assert_eq!(
+        lines.get(first + 1).map(String::as_str),
+        Some(""),
+        "blank separator between the bodyless review and the body-bearing one"
+    );
+    assert!(
+        lines
+            .get(first + 2)
+            .is_some_and(|l| l.contains("2026-06-26")),
+        "body-bearing review header follows the separator"
+    );
+    assert!(
+        lines
+            .get(first + 3)
+            .is_some_and(|l| l.contains("Looks good")),
+        "review body renders under its header"
+    );
+}
+
+#[path = "pr_detail_thread_hint_tests.rs"]
+mod thread_hint_tests;
+
+#[path = "pr_detail_lazy_render_tests.rs"]
+mod lazy_render_tests;

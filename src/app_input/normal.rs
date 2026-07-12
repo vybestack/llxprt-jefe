@@ -120,6 +120,11 @@ pub fn handle_normal_key_event(
     {
         return event;
     }
+    if let KeyHandling::Handled(event) =
+        handle_dashboard_actions_key(app_state, ctx, key_event, screen_mode)
+    {
+        return event;
+    }
     if let KeyHandling::Handled(event) = resolve_dashboard_grab_key(app_state, key_event) {
         return event;
     }
@@ -182,6 +187,7 @@ fn quit_shortcut_active(state: &AppState, screen_mode: ScreenMode) -> bool {
         ScreenMode::Dashboard | ScreenMode::Split => true,
         ScreenMode::DashboardIssues => issues_quit_shortcut_active(state),
         ScreenMode::DashboardPullRequests => prs_quit_shortcut_active(state),
+        ScreenMode::DashboardActions => actions_quit_shortcut_active(state),
     }
 }
 
@@ -279,6 +285,29 @@ fn handle_dashboard_prs_key(
     // Quit is resolved centrally by `resolve_quit` before this handler runs;
     // every remaining key is delegated to PR mode (and consumed).
     KeyHandling::Handled(super::prs::handle_prs_mode_key(app_state, ctx, key_event))
+}
+
+fn actions_quit_shortcut_active(state: &AppState) -> bool {
+    matches!(input_mode_for_state(state), InputMode::ActionsNormal)
+}
+
+fn handle_dashboard_actions_key(
+    app_state: &AppStateHandle,
+    ctx: &SharedContext,
+    key_event: &KeyEvent,
+    screen_mode: ScreenMode,
+) -> KeyHandling {
+    if screen_mode != ScreenMode::DashboardActions {
+        return KeyHandling::Unhandled;
+    }
+
+    let _ = ctx;
+    // Quit is resolved centrally by `resolve_quit` before this handler runs;
+    // every remaining key is delegated to Actions mode (and consumed).
+    KeyHandling::Handled(super::actions::resolve_actions_key_event(
+        &app_state.read(),
+        key_event,
+    ))
 }
 
 /// Dashboard reorder grab interaction: Space grabs, arrows move, Space/Enter drops.
@@ -443,6 +472,9 @@ pub(super) fn resolve_mode_key(key_event: &KeyEvent, screen_mode: ScreenMode) ->
         // @pseudocode component-003 lines 01-09
         KeyCode::Char('p' | 'P') if screen_mode == ScreenMode::Dashboard => {
             KeyHandling::Handled(Some(AppEvent::EnterPrsMode))
+        }
+        KeyCode::Char('g' | 'G') if screen_mode == ScreenMode::Dashboard => {
+            KeyHandling::Handled(Some(AppEvent::EnterActionsMode))
         }
         KeyCode::Char('s' | 'S') if screen_mode == ScreenMode::Dashboard => {
             KeyHandling::Handled(Some(AppEvent::EnterSplitMode))

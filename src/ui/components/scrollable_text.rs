@@ -1,18 +1,29 @@
 //! Scrollable text viewport with scrollbar.
 //!
-//! Renders a FIXED number of line rows (`viewport_rows`) regardless of content length.
-//! Content is windowed by `scroll_offset`. Empty rows are padded so the component
-//! always occupies the same layout space — preventing layout shifts.
+//! Renders a FIXED number of display rows (`viewport_rows`) regardless of
+//! content length. Content lines that exceed the pane width WORD-WRAP onto
+//! multiple display rows (via the shared [`super::doc_wrap`] projection built
+//! on [`crate::text_wrap`]) instead of being truncated, so long bodies and
+//! comments fold onto the next visible row.
+//!
+//! Content is windowed by `scroll_offset`, which stays in CONTENT-LINE units
+//! (the space the selection model and scroll bounds use); this component
+//! converts it to a display-row window start via [`super::doc_wrap::line_first_row`].
+//! Empty rows are padded so the component always occupies the same layout
+//! space — preventing layout shifts.
 //!
 //! When a [`TextSelection`] is supplied (and its pane matches), the selected
 //! cells are painted in inverse video so the user sees live drag-selection
-//! feedback. The selection lives in *content* coordinates; this component maps
-//! each display row back to its content line via `scroll_offset`.
+//! feedback. The selection lives in *content* coordinates (line + char column);
+//! each wrapped display row clips the selection range to its own
+//! `[line_char_start, line_char_end)` char range within its content line.
 
 use iocraft::prelude::*;
 
 use crate::selection::{HighlightRange, TextSelection, row_highlight_range};
 use crate::theme::SelectionColors;
+
+use super::doc_wrap::{DocDisplayRow, caret_row_for_line_col, line_first_row, wrap_document};
 
 /// Background color used for the selection highlight when no explicit color is
 /// supplied. Swapped against the foreground for an inverse-video effect.
@@ -31,8 +42,10 @@ pub struct ScrollableTextProps {
     /// Fixed number of rows this viewport occupies. Must be set by the parent.
     /// The component always renders exactly this many `Box(height: 1u32)` elements.
     pub viewport_rows: usize,
-    /// Max display width in characters. Lines exceeding this are truncated with "…".
-    /// When 0, lines are truncated to terminal width minus a safety margin.
+    /// Max display width in characters. Lines exceeding this WORD-WRAP onto
+    /// additional display rows at word boundaries (a single over-long word
+    /// hard-breaks at the width). When 0, the width falls back to terminal
+    /// width minus a safety margin.
     pub max_line_width: usize,
     /// Cursor line index (0-based, relative to content lines). When set, shows a
     /// reverse-video cursor at `(cursor_line, cursor_col)`.
@@ -103,11 +116,14 @@ fn split_for_highlight(line: &str, range: HighlightRange) -> (String, String, St
     (before, selected, after)
 }
 
-/// Scrollable text viewport — renders exactly `viewport_rows` line boxes.
+/// Scrollable text viewport — renders exactly `viewport_rows` display boxes.
 ///
-/// Content is windowed from `scroll_offset`. Lines beyond content are blank.
-/// A scrollbar is drawn on the right when content exceeds the viewport. When a
-/// selection is active, selected cells are painted in inverse video.
+/// Content lines WORD-WRAP at `max_line_width`; the viewport windows wrapped
+/// display rows starting from the row where content line `scroll_offset`
+/// begins. Rows beyond content are blank. A scrollbar is drawn on the right
+/// when the wrapped-row count exceeds the viewport. When a selection is
+/// active, selected cells are painted in inverse video, clipped per wrapped
+/// row to that row's char range within its content line.
 #[component]
 pub fn ScrollableText(props: &ScrollableTextProps) -> impl Into<AnyElement<'static>> {
     let fg = props.color.unwrap_or(Color::Reset);
@@ -127,33 +143,44 @@ pub fn ScrollableText(props: &ScrollableTextProps) -> impl Into<AnyElement<'stat
         term_cols.saturating_sub(28)
     };
 
-    let all_lines: Vec<&str> = if props.content.is_empty() {
-        Vec::new()
-    } else {
-        props.content.lines().collect()
-    };
-    let total = all_lines.len();
-    let max_offset = total.saturating_sub(vp);
-    let offset = props.scroll_offset.min(max_offset);
+    // Wrap the whole document into flat display rows. The scroll offset is in
+    // CONTENT-LINE units; convert to a display-row window start so the viewport
+    // begins at the top of the scrolled-to line.
+    let all_rows: Vec<DocDisplayRow> = wrap_document(&props.content, max_w);
+    let total = all_rows.len();
+    let first_visible = line_first_row(&all_rows, props.scroll_offset);
 
-    // Build exactly `vp` display lines — pad with empty if content is short
-    let display_lines: Vec<String> = (0..vp)
+    // Build exactly `vp` display rows. Past the content, render blank rows
+    // (content line `usize::MAX` so they never match a selection or caret).
+    let blank = DocDisplayRow {
+        text: String::new(),
+        line: usize::MAX,
+        line_char_start: 0,
+        line_char_end: 0,
+    };
+    let display_rows: Vec<DocDisplayRow> = (0..vp)
         .map(|row| {
-            let line_idx = offset + row;
-            if line_idx < total {
-                crate::ui::util::truncate_with_ellipsis(all_lines[line_idx], max_w)
+            let idx = first_visible + row;
+            if idx < total {
+                all_rows[idx].clone()
             } else {
-                String::new()
+                blank.clone()
             }
         })
         .collect();
 
+    // The scrollbar reflects DISPLAY-ROW count (wrapping grows the document).
     let show_scrollbar = total > vp;
-    let (thumb_pos, thumb_size) = scrollbar_geometry(total, vp, offset);
+    let (thumb_pos, thumb_size) = scrollbar_geometry(total, vp, first_visible);
 
-    // Cursor position relative to the viewport (adjusted for scroll offset)
-    let cursor_vp_line = props.cursor_line.map(|l| l.saturating_sub(offset));
-    let cursor_col = props.cursor_col.unwrap_or(0);
+    // Resolve the caret to its specific wrapped subrow. The cursor props are in
+    // content-(line, col) space; map onto the wrapped row that carries that col
+    // and compute the column relative to that row's start.
+    let (cursor_vp_line, cursor_rel_col) = props
+        .cursor_line
+        .zip(props.cursor_col)
+        .and_then(|(line, col)| caret_row_for_line_col(&all_rows, line, col))
+        .map_or((None, 0), |(gr, rel)| (gr.checked_sub(first_visible), rel));
     let cursor_colors = CursorColors {
         fg: props.cursor_color.unwrap_or(Color::Black),
         bg: props.cursor_bg.unwrap_or(Color::White),
@@ -163,22 +190,23 @@ pub fn ScrollableText(props: &ScrollableTextProps) -> impl Into<AnyElement<'stat
         Box(flex_direction: FlexDirection::Row, width: 100pct) {
             // Text content column — exactly `vp` rows
             Box(flex_direction: FlexDirection::Column, flex_grow: 1.0_f32) {
-                #(display_lines.iter().enumerate().map(|(row_idx, line)| {
+                #(display_rows.iter().enumerate().map(|(row_idx, drow)| {
                     render_display_row(
                         RowContext {
                             row_idx,
-                            offset,
                             content_line_offset: props.content_line_offset,
+                            content_line: drow.line,
+                            line_char_start: drow.line_char_start,
+                            line_char_end: drow.line_char_end,
                         },
-                        line,
+                        &drow.text,
                         PlainRowColors {
                             fg,
                             bg: props.bg,
                         },
                         CursorPos {
-                            line: props.cursor_line,
                             vp_line: cursor_vp_line,
-                            col: cursor_col,
+                            col: cursor_rel_col,
                         },
                         cursor_colors,
                         SelectionState {
@@ -236,11 +264,10 @@ struct CursorColors {
 /// Bundled cursor position info for [`render_display_row`].
 #[derive(Clone, Copy)]
 struct CursorPos {
-    /// Content line index of the cursor (0-based), or `None` if no cursor.
-    line: Option<usize>,
-    /// Viewport-relative line index (already adjusted for scroll offset).
+    /// Viewport-relative row index of the caret (already mapped onto its
+    /// wrapped subrow), or `None` when there is no caret in view.
     vp_line: Option<usize>,
-    /// Column index within the display line.
+    /// Column index within this wrapped row (relative to the row's start).
     col: usize,
 }
 
@@ -249,10 +276,14 @@ struct CursorPos {
 struct RowContext {
     /// Viewport row index (0-based).
     row_idx: usize,
-    /// Scroll offset of the viewport.
-    offset: usize,
     /// Content lines preceding the scrollable region (header rows).
     content_line_offset: usize,
+    /// Content-line index this wrapped row belongs to.
+    content_line: usize,
+    /// Inclusive start char column of this row within its content line.
+    line_char_start: usize,
+    /// Exclusive end char column of this row within its content line.
+    line_char_end: usize,
 }
 
 /// Bundled selection state + colors for [`render_display_row`].
@@ -273,60 +304,17 @@ fn render_display_row(
     cursor_colors: CursorColors,
     selection: SelectionState<'_>,
 ) -> AnyElement<'static> {
-    let row_idx = ctx.row_idx;
-    let offset = ctx.offset;
     let fg = plain_colors.fg;
-    let cursor_line = cursor.line;
-    let cursor_vp_line = cursor.vp_line;
-    let cursor_col = cursor.col;
-    let has_cursor = cursor_line.is_some()
-        && Some(row_idx) == cursor_vp_line
-        && (offset + row_idx) == cursor_line.unwrap_or(usize::MAX);
+    let has_cursor = Some(ctx.row_idx) == cursor.vp_line;
 
-    let content_line = ctx.content_line_offset + offset + row_idx;
-    let highlight = selection
-        .selection
-        .and_then(|s| row_highlight_range(s, content_line));
+    let highlight = row_highlight(selection, ctx);
 
     if let Some(range) = highlight {
-        let (before, selected, after) = split_for_highlight(line, range);
-        let sel_text = if selected.is_empty() {
-            " ".to_string()
-        } else {
-            selected
-        };
-        return element! {
-            Box(height: 1u32) {
-                Text(content: before, color: fg, wrap: TextWrap::NoWrap)
-                Box(background_color: selection.colors.bg) {
-                    Text(content: sel_text, color: selection.colors.fg, wrap: TextWrap::NoWrap)
-                }
-                Text(content: after, color: fg, wrap: TextWrap::NoWrap)
-            }
-        }
-        .into_any();
+        return highlight_row_element(line, range, fg, selection.colors);
     }
 
     if has_cursor {
-        let chars: Vec<char> = line.chars().collect();
-        let before: String = chars.iter().take(cursor_col).collect();
-        let cursor_ch: String = chars.iter().skip(cursor_col).take(1).collect();
-        let after: String = chars.iter().skip(cursor_col + 1).collect();
-        let cursor_display = if cursor_ch.is_empty() {
-            " ".to_string()
-        } else {
-            cursor_ch
-        };
-        return element! {
-            Box(height: 1u32) {
-                Text(content: before, color: fg, wrap: TextWrap::NoWrap)
-                Box(background_color: cursor_colors.bg) {
-                    Text(content: cursor_display, color: cursor_colors.fg, wrap: TextWrap::NoWrap)
-                }
-                Text(content: after, color: fg, wrap: TextWrap::NoWrap)
-            }
-        }
-        .into_any();
+        return cursor_row_element(line, cursor.col, fg, cursor_colors);
     }
 
     element! {
@@ -335,6 +323,101 @@ fn render_display_row(
         }
     }
     .into_any()
+}
+
+/// Resolve the selection highlight range for one wrapped row, clipped to the
+/// row's char window. Returns `None` when the row does not overlap the
+/// selection (no highlight painted on this row).
+fn row_highlight(selection: SelectionState<'_>, ctx: RowContext) -> Option<HighlightRange> {
+    let sel_content_line = ctx.content_line.saturating_add(ctx.content_line_offset);
+    selection
+        .selection
+        .and_then(|s| row_highlight_range(s, sel_content_line))
+        .and_then(|range| {
+            let clipped = clip_range_to_row(range, ctx.line_char_start, ctx.line_char_end);
+            // An empty clipped range means this wrapped row does not overlap
+            // the selection's column window — paint no highlight here.
+            (clipped.start < clipped.end).then_some(clipped)
+        })
+}
+
+/// Render a row with the selection highlight (inverse video on the selected span).
+fn highlight_row_element(
+    line: &str,
+    range: HighlightRange,
+    fg: Color,
+    colors: SelectionColors,
+) -> AnyElement<'static> {
+    let (before, selected, after) = split_for_highlight(line, range);
+    let sel_text = if selected.is_empty() {
+        " ".to_string()
+    } else {
+        selected
+    };
+    element! {
+        Box(height: 1u32) {
+            Text(content: before, color: fg, wrap: TextWrap::NoWrap)
+            Box(background_color: colors.bg) {
+                Text(content: sel_text, color: colors.fg, wrap: TextWrap::NoWrap)
+            }
+            Text(content: after, color: fg, wrap: TextWrap::NoWrap)
+        }
+    }
+    .into_any()
+}
+
+/// Render a row carrying the caret (inverse video on the caret cell).
+fn cursor_row_element(
+    line: &str,
+    cursor_col: usize,
+    fg: Color,
+    cursor_colors: CursorColors,
+) -> AnyElement<'static> {
+    let chars: Vec<char> = line.chars().collect();
+    let before: String = chars.iter().take(cursor_col).collect();
+    let cursor_ch: String = chars.iter().skip(cursor_col).take(1).collect();
+    let after: String = chars.iter().skip(cursor_col + 1).collect();
+    let cursor_display = if cursor_ch.is_empty() {
+        " ".to_string()
+    } else {
+        cursor_ch
+    };
+    element! {
+        Box(height: 1u32) {
+            Text(content: before, color: fg, wrap: TextWrap::NoWrap)
+            Box(background_color: cursor_colors.bg) {
+                Text(content: cursor_display, color: cursor_colors.fg, wrap: TextWrap::NoWrap)
+            }
+            Text(content: after, color: fg, wrap: TextWrap::NoWrap)
+        }
+    }
+    .into_any()
+}
+
+/// Clip a content-line highlight range to the `[row_start, row_end)` char
+/// window a single wrapped row covers, shifting it to be relative to `row_start`.
+///
+/// Returns a range in row-relative columns. When the selection does not
+/// overlap this row's window, the result is an empty range (start == end),
+/// which the caller renders as no highlight on this row.
+fn clip_range_to_row(range: HighlightRange, row_start: usize, row_end: usize) -> HighlightRange {
+    let sel_start = range.start;
+    // `usize::MAX` means "to end of line": treat it as the row's end so the
+    // tail of a multi-line selection paints the full row.
+    let sel_end = if range.end == usize::MAX {
+        row_end
+    } else {
+        range.end
+    };
+    let lo = sel_start.max(row_start);
+    let hi = sel_end.min(row_end);
+    if lo >= hi {
+        return HighlightRange { start: 0, end: 0 };
+    }
+    HighlightRange {
+        start: lo - row_start,
+        end: hi - row_start,
+    }
 }
 
 #[cfg(test)]
@@ -392,5 +475,153 @@ mod tests {
         assert!(before.is_empty());
         assert_eq!(sel, "hel");
         assert_eq!(after, "lo");
+    }
+
+    /// Render `ScrollableText` into a plain-text canvas string at a fixed size.
+    fn render_text(content: &str, viewport_rows: u16, max_w: usize, cols: u16) -> String {
+        let mut elem = element! {
+            Box(width: u32::from(cols), height: u32::from(viewport_rows)) {
+                ScrollableText(
+                    content: content.to_string(),
+                    scroll_offset: 0usize,
+                    viewport_rows: usize::from(viewport_rows),
+                    max_line_width: max_w,
+                    color: Some(Color::Reset),
+                    bg: None,
+                )
+            }
+        };
+        let canvas = elem.render(Some(usize::from(cols)));
+        let mut buf = Vec::new();
+        canvas
+            .write_ansi(&mut buf)
+            .unwrap_or_else(|e| panic!("write_ansi failed: {e}"));
+        String::from_utf8_lossy(&buf).to_string()
+    }
+
+    /// A long line must WORD-WRAP: both the start and the tail of a long body
+    /// must be visible (truncation would drop the tail). This is the core
+    /// regression guard for issue #212's read-only comment display follow-up.
+    #[test]
+    fn long_line_wraps_so_full_text_is_visible() {
+        let body = "alpha bravo charlie delta echo foxtrot golf hotel india juliett";
+        // viewport tall enough to hold every wrapped row at width 10.
+        let rendered = render_text(body, 12, 10, 12);
+        // The start AND the end of the body must both be visible — only
+        // possible if the line wrapped onto several rows.
+        assert!(
+            rendered.contains("alpha"),
+            "wrap must show the start: {rendered}"
+        );
+        assert!(
+            rendered.contains("juliett"),
+            "wrap must show the tail (truncation would drop it): {rendered}"
+        );
+    }
+
+    /// Strip ANSI CSI escape sequences from a rendered string so column-width
+    /// assertions measure visible glyphs, not SGR codes.
+    fn strip_ansi(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let bytes = s.as_bytes();
+        let mut i = 0usize;
+        while i < bytes.len() {
+            if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+                // Skip to the terminating letter of the CSI sequence.
+                i += 2;
+                while i < bytes.len() && !bytes[i].is_ascii_alphabetic() {
+                    i += 1;
+                }
+            } else {
+                out.push(bytes[i] as char);
+            }
+            i += 1;
+        }
+        out
+    }
+
+    /// No wrapped row may exceed the pane column width (text + scrollbar).
+    #[test]
+    fn no_wrapped_row_exceeds_width() {
+        let body = "supercalifragilisticexpialidocious and some normal words here";
+        let cols = 16u16;
+        let rendered = render_text(body, 10, 12, cols);
+        let clean = strip_ansi(&rendered);
+        for (i, line) in clean.lines().enumerate() {
+            assert!(
+                line.chars().count() <= usize::from(cols),
+                "wrapped row {i} exceeds {cols} cols: {:?} ({} chars)",
+                line,
+                line.chars().count()
+            );
+        }
+    }
+
+    /// A short line that fits within the width stays on a single row (no
+    /// spurious wrapping).
+    #[test]
+    fn short_line_does_not_wrap() {
+        let rendered = render_text("hello", 2, 50, 60);
+        // Exactly one non-blank row carrying "hello".
+        let non_blank: Vec<&str> = rendered.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert!(
+            non_blank.iter().any(|l| l.contains("hello")),
+            "short line must render on one row: {rendered}"
+        );
+    }
+
+    /// A selection whose column window does NOT overlap a wrapped row must
+    /// paint NO highlight on that row (regression: the clipped range is empty,
+    /// which previously rendered a spurious inverse-space cell).
+    #[test]
+    fn non_overlapping_selection_paints_no_highlight_on_row() {
+        use crate::selection::{SelectablePane, SelectionPoint, TextSelection};
+        // At width 10, "alpha" fits on row 0 and "bravo charlie ..." continues
+        // on row 1. A selection covering only cols 0..5 (the "alpha" part,
+        // row 0) must NOT paint any highlight cell on row 1.
+        let content = "alpha bravo charlie delta";
+        let selection = TextSelection {
+            anchor: SelectionPoint::new(SelectablePane::IssueDetail, 0, 0),
+            focus: SelectionPoint::new(SelectablePane::IssueDetail, 0, 5),
+        };
+        let mut elem = element! {
+            Box(width: 12u32, height: 3u32) {
+                ScrollableText(
+                    content: content.to_string(),
+                    scroll_offset: 0usize,
+                    viewport_rows: 3usize,
+                    max_line_width: 10usize,
+                    color: Some(Color::Reset),
+                    bg: None,
+                    selection: Some(selection),
+                    selection_bg: Some(Color::White),
+                    selection_fg: Some(Color::Black),
+                )
+            }
+        };
+        let canvas = elem.render(Some(12));
+        let mut buf = Vec::new();
+        canvas
+            .write_ansi(&mut buf)
+            .unwrap_or_else(|e| panic!("write_ansi failed: {e}"));
+        let ansi = String::from_utf8_lossy(&buf);
+        // The "alpha" row carries a selection background SGR; the "charlie"
+        // row must NOT carry one (it is outside the 0..5 selection window).
+        let rows: Vec<&str> = ansi.lines().collect();
+        let non_blank: Vec<&&str> = rows.iter().filter(|l| !l.trim().is_empty()).collect();
+        assert!(
+            non_blank.len() >= 2,
+            "expected at least 2 wrapped rows, got {non_blank:?}: {ansi}"
+        );
+        // Row with selection (alpha) has a background SGR; the next row
+        // (charlie) must have NONE.
+        assert!(
+            non_blank[0].contains("\u{1b}[48") || non_blank[0].contains("\u{1b}[7m"),
+            "the alpha row must carry a selection highlight SGR: {ansi}"
+        );
+        assert!(
+            !non_blank[1].contains("\u{1b}[48") && !non_blank[1].contains("\u{1b}[7m"),
+            "the charlie row must carry NO selection highlight (selection does not overlap it): {ansi}"
+        );
     }
 }

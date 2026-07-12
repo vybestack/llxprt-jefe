@@ -3,9 +3,10 @@ use crate::domain::{
     RepositoryId,
 };
 use crate::state::AppState;
+use crate::state::events::AppEvent;
 use crate::state::types::{
-    AgentChooserState, AppEvent, ComposerTarget, DetailSubfocus, EditorTarget, InlineState,
-    IssueFocus, PaneFocus, PriorAgentFocus, ScreenMode,
+    AgentChooserState, ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueFocus,
+    PaneFocus, PriorAgentFocus, ScreenMode,
 };
 use std::path::PathBuf;
 

@@ -400,7 +400,7 @@ impl AppState {
             }
             AppEvent::PrAgentChooserNavigateDown => {
                 if let Some(chooser) = &mut self.prs_state.agent_chooser {
-                    let max = self.agents.len().saturating_sub(1);
+                    let max = chooser.agents.len().saturating_sub(1);
                     if chooser.selected_index < max {
                         chooser.selected_index += 1;
                     }
@@ -427,15 +427,12 @@ impl AppState {
         {
             return;
         }
-        if self.agents.is_empty() {
+        let repo_id = self.selected_repository_id().cloned();
+        let agents = self.chooser_agents_for_repository(repo_id.as_ref());
+        if agents.is_empty() {
             self.prs_state.draft_notice = Some("No agents available".to_string());
             return;
         }
-        let agents: Vec<(crate::domain::AgentId, String)> = self
-            .agents
-            .iter()
-            .map(|a| (a.id.clone(), a.name.clone()))
-            .collect();
         self.prs_state.agent_chooser = Some(AgentChooserState {
             selected_index: 0,
             agents,
@@ -558,6 +555,8 @@ impl AppState {
             }
             AppEvent::RefocusPrList => {
                 self.prs_state.pr_focus = PrFocus::PrList;
+                self.prs_state.detail_pending = None;
+                self.prs_state.loading.detail = false;
                 true
             }
             _ => false,

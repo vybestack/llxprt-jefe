@@ -1,0 +1,88 @@
+//! Pure runtime-choice transitions shared by agent and repository forms.
+
+use crate::domain::{AgentKind, SandboxEngine};
+
+use super::{AgentFormFields, AgentFormFocus};
+
+/// Resolve the effective agent-kind choices for the currently open agent form.
+///
+/// Delegates to [`super::form_projection::effective_agent_kinds`] — the single
+/// shared pure projection consumed by form cycling, UI rendering, and
+/// selection content.
+pub(super) fn effective_agent_kinds(installed: &[AgentKind], is_remote: bool) -> Vec<AgentKind> {
+    super::form_projection::effective_agent_kinds(installed, is_remote)
+}
+
+pub(super) fn cycle_agent_field(
+    installed: &[AgentKind],
+    fields: &mut AgentFormFields,
+    focus: AgentFormFocus,
+    c: char,
+) {
+    if c != ' ' && c != 'x' && c != 'X' {
+        return;
+    }
+
+    match focus {
+        AgentFormFocus::AgentKind => {
+            if let Some(next) = next_installed_kind(installed, &fields.agent_kind) {
+                next.label().clone_into(&mut fields.agent_kind);
+            }
+        }
+        AgentFormFocus::CodePuppyYolo => fields.code_puppy_yolo = !fields.code_puppy_yolo,
+        AgentFormFocus::CodePuppyQuickResume => {
+            fields.code_puppy_quick_resume.toggle();
+        }
+        AgentFormFocus::PassContinue => fields.pass_continue = !fields.pass_continue,
+        AgentFormFocus::Sandbox => fields.sandbox_enabled = !fields.sandbox_enabled,
+        AgentFormFocus::SandboxEngine => {
+            SandboxEngine::next_from_form_value(&fields.sandbox_engine)
+                .label()
+                .clone_into(&mut fields.sandbox_engine);
+        }
+        _ => {}
+    }
+}
+
+/// Slugify a name: lowercase, spaces to dashes, keep only alphanumerics and
+/// dashes. Shared by [`repository_slug_from_name`] and
+/// [`derive_work_dir_from_name`] so the slug rule has a single source of
+/// truth.
+fn slugify(name: &str) -> String {
+    name.to_lowercase()
+        .replace(' ', "-")
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-')
+        .collect()
+}
+
+/// Derive a repository slug from its display name.
+pub(super) fn repository_slug_from_name(name: &str) -> String {
+    slugify(name)
+}
+
+/// Derive the agent work directory from the agent name and repository base dir.
+///
+/// Agent names map to a single directory segment under `base_dir`; slash is
+/// intentionally excluded so users cannot create nested paths via the name
+/// field. Use the work_dir field for custom nested paths when needed.
+pub(super) fn derive_work_dir_from_name(name: &str, base_dir: &str) -> String {
+    let slug = slugify(name);
+    if slug.is_empty() {
+        base_dir.to_owned()
+    } else {
+        let base_dir = base_dir.trim_end_matches('/');
+        format!("{base_dir}/{slug}")
+    }
+}
+
+pub(super) fn next_installed_kind(installed: &[AgentKind], value: &str) -> Option<AgentKind> {
+    let current = AgentKind::from_form_value(value).unwrap_or_default();
+    installed
+        .iter()
+        .position(|kind| *kind == current)
+        .map_or_else(
+            || installed.first().copied(),
+            |index| installed.get((index + 1) % installed.len()).copied(),
+        )
+}

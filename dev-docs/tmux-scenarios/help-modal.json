@@ -14,7 +14,7 @@
     { "capture": "help-modal" },
     { "key": "Escape" },
     { "waitForNot": "Help - Keyboard Shortcuts" },
-    { "key": "q" },
+    { "key": "C-q" },
     { "waitForExit": 3000 }
   ]
 }

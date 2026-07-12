@@ -15,6 +15,7 @@ use jefe::runtime::RuntimeManager;
 use jefe::state::{AppEvent, AppState};
 use tracing::warn;
 
+use super::fresh_prompt::{FreshPromptKind, prepare_fresh_prompt_signature};
 use super::{
     AppStateHandle, REMOTE_ATTACH_SETTLE_DELAY, SharedContext, apply_and_persist,
     clear_agent_runtime_attachment, dispatch_app_event, gh_async, github_client,
@@ -399,6 +400,12 @@ fn update_pr_detail_viewport_rows(app_state: &mut AppStateHandle) {
     );
 }
 
+/// The PR prompt file written into the agent work dir and referenced in
+/// the launch instruction. Both the fresh-prompt signature construction
+/// (the agent instruction string) and `write_pr_prompt` (the on-disk path)
+/// must use exactly this relative path.
+const PR_PROMPT_RELATIVE_PATH: &str = ".jefe/pr-prompt.md";
+
 /// Dispatch the PR agent-chooser confirm (send-to-agent) side effects.
 ///
 /// Mirrors `dispatch_agent_chooser_confirm` exactly: resolve send info, apply
@@ -416,17 +423,75 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
     let Some(send_info) = send_info else {
         return;
     };
-    if let Err(error) = write_pr_prompt(&send_info.work_dir, &send_info.payload) {
+
+    // Use the shared kind-specific prompt construction so CodePuppy PR sends
+    // do not get a duplicate -i (the runtime layer prepends it) and the
+    // issue/PR send paths agree on the exact arg shape.
+    let launch_sig = prepare_fresh_prompt_signature(
+        send_info.signature,
+        FreshPromptKind::PullRequest,
+        PR_PROMPT_RELATIVE_PATH,
+    );
+
+    // Availability + target validation BEFORE any prompt side effect: a
+    // missing agent runtime or an invalid/incomplete remote config must not
+    // trigger a local or remote prompt write.
+    if !super::availability::local_kind_available_or_error(
+        app_state,
+        launch_sig.agent_kind,
+        &launch_sig.remote,
+    ) {
+        return;
+    }
+    let target = match super::target_resolution::resolve_target(&launch_sig.remote) {
+        Ok(target) => target,
+        Err(error) => {
+            apply_pr_send_to_agent_failed(app_state, ctx, error);
+            return;
+        }
+    };
+
+    // Centralized pre-side-effect availability probe (defect 2): BEFORE any
+    // PR prompt write, probe the selected runtime on the resolved target.
+    // For local targets this reuses the session snapshot; for remote targets
+    // this is a no-install/no-setup/side-effect-free ssh -T probe for the
+    // exact binary executed as the effective run_as_user. Unavailable remote
+    // means no prompt write operation.
+    if !super::remote_probe::pre_side_effect_runtime_available_or_error(
+        app_state,
+        &target,
+        &send_info.work_dir,
+        launch_sig.agent_kind,
+    ) {
+        return;
+    }
+
+    // Write the PR prompt to the selected WorkTarget (local fs or remote
+    // ssh -T with prompt bytes via stdin). The remote path reuses the exact
+    // production remote prompt planning seam from `remote_probe` so `.jefe/
+    // pr-prompt.md` is targeted, prompt bytes are stdin, and adversarial
+    // content is absent from argv.
+    let prompt_content = prs_dispatch::format_pr_prompt(&send_info.payload);
+    let write_result = match &target {
+        super::issue_prep::WorkTarget::Local => super::issue_prep::write_prompt_to_target(
+            &target,
+            &send_info.work_dir,
+            PR_PROMPT_RELATIVE_PATH,
+            &prompt_content,
+        ),
+        super::issue_prep::WorkTarget::Remote(remote) => super::remote_probe::write_remote_prompt(
+            remote,
+            &send_info.work_dir,
+            PR_PROMPT_RELATIVE_PATH,
+            &prompt_content,
+        ),
+    };
+    if let Err(error) = write_result {
         apply_pr_send_to_agent_failed(app_state, ctx, error);
         return;
     }
 
-    let mut launch_sig = send_info.signature;
-    launch_sig.mode_flags.push("-i".to_owned());
-    launch_sig
-        .mode_flags
-        .push("Read and work on the GitHub PR described in .jefe/pr-prompt.md".to_owned());
-    if preflight_or_prompt(app_state, ctx, &send_info.agent_id, &launch_sig) {
+    if preflight_or_prompt(app_state, ctx, &send_info.agent_id, &launch_sig, None) {
         launch_pr_agent(
             app_state,
             ctx,
@@ -437,16 +502,15 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
     }
 }
 
-/// Write the PR agent prompt to disk.
+/// Write the PR agent prompt to disk (local only).
 ///
-/// Mirrors `write_issue_prompt`: creates `{work_dir}/.jefe`, renders the
-/// prompt via `prs_dispatch::format_pr_prompt`, and writes
-/// `.jefe/pr-prompt.md`. This is prompt-file I/O (like the issues path),
-/// NOT a runtime agent spawn.
+/// Retained for tests that verify the local PR prompt write step in isolation.
+/// The production dispatch path uses [`issue_prep::write_prompt_to_target`] so
+/// remote PR prompts travel via stdin over `ssh -T`.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 157-163
+#[cfg(test)]
 pub(super) fn write_pr_prompt(
     work_dir: &std::path::Path,
     payload: &jefe::github::PrSendPayload,

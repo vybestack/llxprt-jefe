@@ -1,7 +1,8 @@
 use crate::domain::{Issue, IssueComment, IssueDetail, IssueState, Repository, RepositoryId};
 use crate::state::AppState;
+use crate::state::events::AppEvent;
 use crate::state::types::{
-    AppEvent, ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueFocus, ScreenMode,
+    ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueFocus, ScreenMode,
 };
 
 fn dashboard_issues_state() -> AppState {

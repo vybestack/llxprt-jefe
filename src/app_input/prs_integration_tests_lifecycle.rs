@@ -168,14 +168,24 @@ fn esc_l4_filter_controls_close() {
     );
 }
 
-/// L5: nothing open — Esc (via the REAL key router) emits `ExitPrsMode`; the
-/// mode becomes inactive and the screen returns to the Dashboard.
+/// L5: nothing open — Esc (via the REAL key router) from PrDetail focus emits
+/// `RefocusPrList` (the detail pane is focused, so Esc returns to the list
+/// rather than exiting the whole mode). A subsequent Esc from PrList focus
+/// then emits `ExitPrsMode`; the mode becomes inactive and the screen returns
+/// to the Dashboard. This mirrors issues-mode Esc semantics.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-004
 /// @pseudocode component-003 lines 92-98
 fn esc_l5_nothing_open_exits() {
     let mut state = esc_chain_base_state();
+    // PrDetail focus, nothing open => Esc refocuses to the list (not exit).
+    resolve_esc_and_apply(&mut state, |ev| matches!(ev, AppEvent::RefocusPrList));
+    assert!(
+        state.prs_state.active,
+        "mode must stay active after Esc in PrDetail (refocus, not exit)"
+    );
+    // PrList focus, nothing open => Esc exits the mode.
     resolve_esc_and_apply(&mut state, |ev| matches!(ev, AppEvent::ExitPrsMode));
     assert!(
         !state.prs_state.active,
@@ -186,11 +196,12 @@ fn esc_l5_nothing_open_exits() {
 
 /// Checkpoint 10 (REQ-PR-004): Esc unwinds by the full 6-level precedence
 /// chain — inline composer → agent chooser → search-clear → search-blur →
-/// filter controls → exit mode. Each Esc peels exactly one layer, leaving the
-/// mode active until the final (nothing-open) Esc exits.
+/// filter controls → refocus-list (from PrDetail) → exit mode. Each Esc peels
+/// exactly one layer, leaving the mode active until the final (nothing-open,
+/// PrList-focused) Esc exits.
 ///
 /// Drives the REAL key router `prs::resolve_prs_key_event(&state,
-/// &key(KeyCode::Esc))` at EACH precedence level (the genuine 8-level
+/// &key(KeyCode::Esc))` at EACH precedence level (the genuine 7-outcome
 /// resolver in `src/app_input/prs.rs`), asserting the EXACT emitted
 /// `AppEvent` variant via `matches!`, THEN applying it through the reducer
 /// (`AppState::apply`) and asserting the resulting state. Each level is
