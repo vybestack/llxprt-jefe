@@ -61,17 +61,25 @@ fn wheel_intercept_inactive_for_non_kennel_shift() {
     );
 }
 
-/// Integration assertion (issue #245): for a non-kennel agent with mouse
-/// reporting active, the wheel is NOT intercepted by Jefe scrollback (the pure
-/// helper returns false), so it falls through to the gesture state machine
-/// which forwards it to the PTY. This proves the end-to-end routing contract:
-/// non-kennel wheel → helper says no → gesture machine forwards to PTY.
+/// Composite assertion (issue #245) validating the two pure components that
+/// the production router (`route_terminal_gesture`) composes for a non-kennel
+/// wheel event:
 ///
-/// This mirrors the existing `wheel_forwards_when_mouse_reporting_active`
-/// test in `tests/runtime/terminal_focus_routing.rs` but adds the routing-layer
-/// gate assertion that was missing.
+/// 1. the routing-layer gate helper `wheel_intercept_active_for_agent` returns
+///    `false` for a non-kennel agent, so the router does NOT intercept the
+///    wheel for Jefe scrollback;
+/// 2. the gesture state machine (the fallback the router delegates to when the
+///    gate is false) forwards the wheel to the PTY when mouse reporting is
+///    active.
+///
+/// This validates the helper and the gesture machine in isolation. The router
+/// itself takes an iocraft `HookState<AppState>` that cannot be constructed
+/// outside a hook context, so it is not unit-testable here; the router's
+/// composition of these two pure components is instead covered by the truth
+/// table above and the existing `wheel_forwards_when_mouse_reporting_active`
+/// integration test in `tests/runtime/terminal_focus_routing.rs`.
 #[test]
-fn non_kennel_wheel_not_intercepted_and_forwards_to_pty() {
+fn non_kennel_wheel_gate_and_gesture_machine_forward_to_pty() {
     use jefe::selection::SelectionPoint;
 
     // The routing-layer gate: non-kennel + no shift → NOT intercepted. The

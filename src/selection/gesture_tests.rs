@@ -470,10 +470,17 @@ fn pty_owned_other_button_resets_to_idle_and_forwards() {
     assert_eq!(state, GestureState::PtyOwned);
     let (action, state) =
         state.process(ev_nk(GestureEventKind::OtherButton, false, true), &resolver);
-    assert!(
-        matches!(action, GestureAction::ForwardToPty(_)),
-        "other-button while PtyOwned must forward to PTY, got {action:?}"
-    );
+    match action {
+        GestureAction::ForwardToPty(replays) => {
+            assert_eq!(
+                replays.len(),
+                1,
+                "other-button while PtyOwned must forward exactly one replay"
+            );
+            assert_eq!(replays[0].kind, GestureEventKind::OtherButton);
+        }
+        other => panic!("other-button while PtyOwned must forward to PTY, got {other:?}"),
+    }
     assert_eq!(
         state,
         GestureState::Idle,
