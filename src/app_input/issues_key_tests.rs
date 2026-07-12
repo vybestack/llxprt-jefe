@@ -963,8 +963,13 @@ fn p_in_search_input_does_not_switch_modes() {
 fn p_in_filter_controls_does_not_switch_modes() {
     let mut state = issues_base_state();
     state.issues_state.filter_ui.controls_open = true;
-    // Default field_index is 0 (state cycle field); 'p' is consumed as None.
+    // Default field_index is 0 (state cycle field); 'p' matches no filter
+    // arm and is consumed as None by the filter resolver's fallthrough.
     let event = resolve_issues_key_event(&state, &key(KeyCode::Char('p')));
+    assert!(
+        event.is_none(),
+        "'p' with filter controls open must be consumed as None, got {event:?}"
+    );
     assert!(
         !matches!(event, Some(AppEvent::EnterPrsMode)),
         "'p' with filter controls open must NOT yield EnterPrsMode, got {event:?}"
