@@ -422,6 +422,16 @@ fn test_filter_controls_tab_space_text_enter_clear_esc() {
     // Enter => apply.
     let enter = resolve_prs_key_event(&state, &key(KeyCode::Enter));
     assert!(matches!(enter, Some(AppEvent::PrApplyFilter)));
+
+    // Delete clears the active text field without applying the form.
+    let mut text_state = prs_state_with_filter_open(4);
+    text_state.prs_state.draft_filter.author = "octocat".to_string();
+    let delete = resolve_prs_key_event(&text_state, &key(KeyCode::Delete));
+    assert!(matches!(
+        delete,
+        Some(AppEvent::PrUpdateDraftFilter { field, value })
+            if field == "author" && value.is_empty()
+    ));
 }
 
 /// Filter field cycling wraps through all eight fields (state, draft,

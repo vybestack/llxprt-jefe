@@ -127,3 +127,35 @@ fn resolve_focus_key_event(state: &AppState, key_event: &KeyEvent) -> Option<App
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iocraft::prelude::KeyEventKind;
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(KeyEventKind::Press, code)
+    }
+
+    #[test]
+    fn actions_filter_supports_advertised_clear_commands() {
+        let mut state = AppState::default();
+        state.actions_state.ui.filter_ui_open = true;
+        state.actions_state.ui.filter_field_index = 0;
+
+        assert!(matches!(
+            resolve_actions_key_event(&state, &key(KeyCode::Delete)),
+            Some(AppEvent::ActionsUpdateDraftFilter {
+                field: ActionsFilterField::Workflow,
+                value
+            }) if value.is_empty()
+        ));
+
+        let mut clear_all = key(KeyCode::Char('l'));
+        clear_all.modifiers = KeyModifiers::CONTROL;
+        assert!(matches!(
+            resolve_actions_key_event(&state, &clear_all),
+            Some(AppEvent::ActionsClearDraftFilter)
+        ));
+    }
+}

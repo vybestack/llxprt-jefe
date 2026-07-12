@@ -4,7 +4,7 @@
 //! command into their own events. State mutation and query semantics stay in
 //! the domain reducers instead of leaking into a universal filter framework.
 
-use iocraft::prelude::{KeyCode, KeyEvent, KeyModifiers};
+use iocraft::prelude::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum FilterEditorKind {
@@ -31,6 +31,9 @@ pub(super) fn resolve_filter_control_key(
     editor: FilterEditorKind,
     key_event: &KeyEvent,
 ) -> Option<FilterControlCommand> {
+    if key_event.kind != KeyEventKind::Press {
+        return None;
+    }
     match key_event.code {
         KeyCode::Enter => Some(FilterControlCommand::Apply),
         KeyCode::Esc => Some(FilterControlCommand::Cancel),
@@ -95,6 +98,16 @@ mod tests {
         assert_eq!(
             resolve_filter_control_key(editor, &key(KeyCode::Delete)),
             Some(FilterControlCommand::ClearCurrent)
+        );
+    }
+
+    #[test]
+    fn ignores_non_press_events() {
+        let mut release = key(KeyCode::Enter);
+        release.kind = KeyEventKind::Release;
+        assert_eq!(
+            resolve_filter_control_key(FilterEditorKind::Text, &release),
+            None
         );
     }
 
