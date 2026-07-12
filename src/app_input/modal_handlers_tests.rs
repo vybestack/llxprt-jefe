@@ -28,36 +28,36 @@ fn sample_signature() -> LaunchSignature {
     }
 }
 
-/// All six confirm variants focused on Cancel must be recognized as such.
-#[test]
-fn confirm_focus_is_cancel_returns_true_for_cancel_focused_confirm() {
-    let modals = [
+/// Build all six confirm-modal variants parameterized by `focus`, so that
+/// adding a new variant only requires updating one place (issue #228).
+fn sample_confirm_modals(focus: ConfirmFocus) -> [ModalState; 6] {
+    [
         ModalState::ConfirmDeleteAgent {
             id: AgentId("a1".into()),
             delete_work_dir: false,
-            confirm_focus: ConfirmFocus::Cancel,
+            confirm_focus: focus,
         },
         ModalState::ConfirmDeleteRepository {
             id: RepositoryId("r1".into()),
-            confirm_focus: ConfirmFocus::Cancel,
+            confirm_focus: focus,
         },
         ModalState::ConfirmKillAgent {
             id: AgentId("a1".into()),
-            confirm_focus: ConfirmFocus::Cancel,
+            confirm_focus: focus,
         },
         ModalState::PreflightPrompt {
             agent_id: AgentId("a1".into()),
             signature: sample_signature(),
             issue: PreflightIssue::SshAgentNoIdentities,
             remaining_issues: Vec::new(),
-            confirm_focus: ConfirmFocus::Cancel,
+            confirm_focus: focus,
         },
         ModalState::ConfirmIssueDirtyCopy {
             agent_id: AgentId("a1".into()),
             work_dir: std::path::PathBuf::from("/tmp"),
             signature: sample_signature(),
             payload: SendPayload::default(),
-            confirm_focus: ConfirmFocus::Cancel,
+            confirm_focus: focus,
         },
         ModalState::ConfirmIssueOriginMismatch {
             agent_id: AgentId("a1".into()),
@@ -66,9 +66,15 @@ fn confirm_focus_is_cancel_returns_true_for_cancel_focused_confirm() {
             payload: SendPayload::default(),
             actual: String::from("other/repo"),
             expected: String::from("acme/widgets"),
-            confirm_focus: ConfirmFocus::Cancel,
+            confirm_focus: focus,
         },
-    ];
+    ]
+}
+
+/// All six confirm variants focused on Cancel must be recognized as such.
+#[test]
+fn confirm_focus_is_cancel_returns_true_for_cancel_focused_confirm() {
+    let modals = sample_confirm_modals(ConfirmFocus::Cancel);
     for modal in &modals {
         assert!(
             confirm_focus_is_cancel(modal),
@@ -81,44 +87,7 @@ fn confirm_focus_is_cancel_returns_true_for_cancel_focused_confirm() {
 /// Cancel.
 #[test]
 fn confirm_focus_is_cancel_returns_false_for_confirm_focused() {
-    let modals = [
-        ModalState::ConfirmDeleteAgent {
-            id: AgentId("a1".into()),
-            delete_work_dir: false,
-            confirm_focus: ConfirmFocus::Confirm,
-        },
-        ModalState::ConfirmDeleteRepository {
-            id: RepositoryId("r1".into()),
-            confirm_focus: ConfirmFocus::Confirm,
-        },
-        ModalState::ConfirmKillAgent {
-            id: AgentId("a1".into()),
-            confirm_focus: ConfirmFocus::Confirm,
-        },
-        ModalState::PreflightPrompt {
-            agent_id: AgentId("a1".into()),
-            signature: sample_signature(),
-            issue: PreflightIssue::SshAgentNoIdentities,
-            remaining_issues: Vec::new(),
-            confirm_focus: ConfirmFocus::Confirm,
-        },
-        ModalState::ConfirmIssueDirtyCopy {
-            agent_id: AgentId("a1".into()),
-            work_dir: std::path::PathBuf::from("/tmp"),
-            signature: sample_signature(),
-            payload: SendPayload::default(),
-            confirm_focus: ConfirmFocus::Confirm,
-        },
-        ModalState::ConfirmIssueOriginMismatch {
-            agent_id: AgentId("a1".into()),
-            work_dir: std::path::PathBuf::from("/tmp"),
-            signature: sample_signature(),
-            payload: SendPayload::default(),
-            actual: String::from("other/repo"),
-            expected: String::from("acme/widgets"),
-            confirm_focus: ConfirmFocus::Confirm,
-        },
-    ];
+    let modals = sample_confirm_modals(ConfirmFocus::Confirm);
     for modal in &modals {
         assert!(
             !confirm_focus_is_cancel(modal),
