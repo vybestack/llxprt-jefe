@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::domain::SandboxEngine;
+use crate::runtime::pane_capture::{capture_pane_history_args, parse_pane_pid};
 use std::time::Duration;
 
 fn base_signature() -> LaunchSignature {
@@ -138,6 +139,136 @@ fn remote_launch_command_enables_remain_on_exit() {
 
     assert!(tmux_script.contains("tmux new-session -d -s 'jefe-agent-test'"));
     assert!(tmux_script.contains("set-option -t 'jefe-agent-test' remain-on-exit on"));
+}
+
+/// The remote tmux startup script must disable both the primary and secondary
+/// tmux prefix keys so the remote attach client does not consume `C-b`
+/// (`0x02`) from application control chords like Code Puppy's
+/// `Ctrl-X Ctrl-B` (`0x18 0x02`) before they reach the agent (#200). The
+/// options must target the exact session and appear after `remain-on-exit`.
+#[test]
+fn remote_launch_script_disables_tmux_prefix() {
+    let session_name = shell_escape_single("jefe-agent-prefix");
+    let work_dir = shell_escape_single("/tmp/work");
+    let cli_command = shell_escape_single("llxprt");
+    let env_prefix = String::new();
+
+    let tmux_script = build_remote_tmux_script(&work_dir, &env_prefix, &session_name, &cli_command);
+
+    assert!(
+        tmux_script.contains("set-option -t 'jefe-agent-prefix' prefix None"),
+        "remote script must disable the primary tmux prefix: {tmux_script}"
+    );
+    assert!(
+        tmux_script.contains("set-option -t 'jefe-agent-prefix' prefix2 None"),
+        "remote script must disable the secondary tmux prefix: {tmux_script}"
+    );
+
+    // The prefix options must follow remain-on-exit so the session exists
+    // before the options are applied (regression guard against reordering).
+    let Some(remain_pos) = tmux_script.find("set-option -t 'jefe-agent-prefix' remain-on-exit on")
+    else {
+        panic!("remain-on-exit missing: {tmux_script}");
+    };
+    let Some(prefix_pos) = tmux_script.find("set-option -t 'jefe-agent-prefix' prefix None") else {
+        panic!("prefix None missing: {tmux_script}");
+    };
+    assert!(
+        prefix_pos > remain_pos,
+        "prefix option must appear after remain-on-exit: {tmux_script}"
+    );
+}
+
+/// The remote reattach command for disabling the prefix targets the exact
+/// session (escaped), sets both `prefix` and `prefix2` in one tmux invocation
+/// using the `\;` separator, and is wrapped through the remote user-escalation
+/// path. This is the reattach-side remediation for pre-existing remote
+/// sessions (#200).
+#[test]
+fn remote_disable_prefix_command_targets_session_with_both_options() {
+    let remote = crate::domain::RemoteRepositorySettings {
+        enabled: true,
+        login_user: "ubuntu".to_owned(),
+        host: "example.com".to_owned(),
+        run_as_user: String::new(),
+        setup_env_default: false,
+    };
+
+    let command = remote_disable_prefix_command(&remote, "jefe-agent-prefix");
+
+    // Wrapped through the remote user path: no run_as_user means the inner
+    // command is used verbatim.
+    assert!(
+        command.contains("tmux set-option -t 'jefe-agent-prefix' prefix None"),
+        "remote disable-prefix command must set prefix None: {command}"
+    );
+    assert!(
+        command.contains("set-option -t 'jefe-agent-prefix' prefix2 None"),
+        "remote disable-prefix command must set prefix2 None: {command}"
+    );
+    // Single tmux invocation with the command separator, not two tmux calls.
+    assert!(
+        command.contains(r"\;"),
+        "remote disable-prefix command must use the tmux command separator: {command}"
+    );
+    assert_eq!(
+        command.matches("tmux set-option").count(),
+        1,
+        "both options must be in one tmux invocation: {command}"
+    );
+}
+
+/// A remote with a distinct `run_as_user` wraps the disable-prefix fragment
+/// through `sudo -n su`, matching the rest of the remote command path.
+#[test]
+fn remote_disable_prefix_command_wraps_through_run_as_user() {
+    let remote = crate::domain::RemoteRepositorySettings {
+        enabled: true,
+        login_user: "ubuntu".to_owned(),
+        host: "example.com".to_owned(),
+        run_as_user: "acoliver".to_owned(),
+        setup_env_default: false,
+    };
+
+    let command = remote_disable_prefix_command(&remote, "s");
+    assert!(
+        command.starts_with("sudo -n su - 'acoliver' -c "),
+        "run_as_user must wrap the command: {command}"
+    );
+    assert!(
+        command.contains("prefix None"),
+        "wrapped command must still disable prefix: {command}"
+    );
+}
+
+/// The shared `prefix_disable_tmux_subcommands` builder emits one
+/// `set-option` sub-command per option from `prefix_disable_option_names`,
+/// separated by tmux's `\;`, with no leading `tmux` keyword. Locking this
+/// format guards both the remote reattach fragment and the remote creation
+/// script against drift (#200).
+#[test]
+fn prefix_disable_tmux_subcommands_joins_all_options_with_separator() {
+    let seq = prefix_disable_tmux_subcommands("'s'");
+    assert_eq!(
+        seq, r"set-option -t 's' prefix None \; set-option -t 's' prefix2 None",
+        "sub-commands must cover every option joined by the tmux separator"
+    );
+    // No leading tmux keyword: callers embed this in their own tmux context.
+    assert!(
+        !seq.starts_with("tmux"),
+        "sub-command sequence must not include the leading tmux keyword: {seq}"
+    );
+    // Every production option appears as its own `set-option -t 's' <name>`
+    // sub-command exactly once (matched on the full " None" suffix so "prefix"
+    // is not double-counted inside "prefix2").
+    for option in prefix_disable_option_names() {
+        let needle = format!(" {option} None");
+        assert_eq!(
+            seq.matches(&needle).count(),
+            1,
+            "option {option} must appear exactly once: {seq}"
+        );
+    }
 }
 
 /// The `env -u` scrub prefix must strip every tmux client var so an agent's

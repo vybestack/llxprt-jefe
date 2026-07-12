@@ -374,8 +374,8 @@ impl AppState {
 
     fn terminal_blocks(message: &AppMessage) -> bool {
         // Scrollback events and focus toggles are never blocked (issue #198).
-        if let AppMessage::UiNavigation(msg) = message {
-            if matches!(
+        if let AppMessage::UiNavigation(msg) = message
+            && matches!(
                 msg,
                 UiNavigationMessage::TerminalScrollUp
                     | UiNavigationMessage::TerminalScrollDown
@@ -385,9 +385,9 @@ impl AppState {
                     | UiNavigationMessage::TerminalScrollToTop
                     | UiNavigationMessage::ToggleTerminalFocus
                     | UiNavigationMessage::CyclePaneFocus
-            ) {
-                return false;
-            }
+            )
+        {
+            return false;
         }
         matches!(
             message,

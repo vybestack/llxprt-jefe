@@ -10,6 +10,7 @@ mod modal_handlers;
 mod normal;
 mod persist_focus;
 mod preflight;
+mod pty_passthrough;
 
 // PR-mode key-routing + dispatch surface.
 // @plan PLAN-20260624-PR-MODE.P11
@@ -52,6 +53,10 @@ pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
 // Re-export the background-refresh orchestration helper so `app_shell` can
 // import it from `app_input` (issue #128).
 pub use prs_orchestration::request_pr_background_refresh;
+
+// Re-export the PTY-forwarding helpers so `app_shell` can drive the agent
+// terminal without owning the encoding/forwarding logic (issue #200).
+pub use pty_passthrough::{forward_key_to_pty, try_ctrl_c_interrupt_passthrough};
 
 use iocraft::hooks::State as HookState;
 use iocraft::prelude::*;

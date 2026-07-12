@@ -618,10 +618,10 @@ fn finalize_terminal_selection(
         selection_text(&selection, &content.lines)
     };
 
-    if !text.is_empty() {
-        if let Err(err) = writer(&text) {
-            tracing::warn!(error = %err, "OSC 52 clipboard write failed");
-        }
+    if !text.is_empty()
+        && let Err(err) = writer(&text)
+    {
+        tracing::warn!(error = %err, "OSC 52 clipboard write failed");
     }
 }
 
