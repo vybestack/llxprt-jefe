@@ -43,6 +43,7 @@ fn params<'a>(
         profile: "",
         code_puppy_model: "",
         code_puppy_yolo: false,
+        code_puppy_quick_resume: crate::domain::QuickResume::default(),
         agent_kind: "LLxprt",
         mode: "",
         llxprt_debug: "",

@@ -568,6 +568,10 @@ fn code_puppy_launch_args(signature: &LaunchSignature) -> Vec<String> {
     // runtime layer to natural-language prompt text while still rejecting all
     // arbitrary persisted LLxprt flags.
     let mut args = vec!["-i".to_owned()];
+    if signature.code_puppy_quick_resume {
+        args.push("--quick-resume".to_owned());
+        args.push(signature.work_dir.to_string_lossy().into_owned());
+    }
     if !signature.code_puppy_model.trim().is_empty() {
         args.push("--model".to_owned());
         args.push(signature.code_puppy_model.trim().to_owned());

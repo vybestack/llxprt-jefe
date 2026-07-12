@@ -57,6 +57,7 @@ pub(super) fn prepare_fresh_prompt_signature(
     prompt_relative_path: &str,
 ) -> LaunchSignature {
     sig.pass_continue = false;
+    sig.code_puppy_quick_resume = false;
     let instruction = fresh_prompt_instruction(prompt_kind, prompt_relative_path);
     match sig.agent_kind {
         // LLxprt keeps the agent's persisted mode flags (e.g. `--yolo`) and
@@ -90,6 +91,7 @@ mod tests {
             profile: String::new(),
             code_puppy_model: String::new(),
             code_puppy_yolo: Some(false),
+            code_puppy_quick_resume: false,
             mode_flags: vec!["--stale".to_owned()],
             llxprt_debug: String::new(),
             pass_continue: true,

@@ -113,6 +113,10 @@ brew install llxprt
 npm i -g @vybestack/llxprt-code
 ```
 
+## Code Puppy session recovery
+
+Code Puppy agents expose a **Quick resume** setting. When enabled, Jefe relaunches the agent with `--quick-resume AGENT_WORK_DIR`, using the effective local or remote work directory. This restores Code Puppy's most recent autosaved checkpoint for that Git root and branch; it cannot restore an in-flight shell process or an unsaved partial response. Newly created agents and fresh issue/PR sends default to a fresh session. The installed Code Puppy version must support `--quick-resume`; otherwise its CLI reports the unsupported option during launch.
+
 ## Persistence and paths
 
 By default, `jefe` resolves settings/state using platform paths, with env var overrides:

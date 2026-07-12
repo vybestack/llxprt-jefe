@@ -18,6 +18,7 @@ fn sample_signature() -> LaunchSignature {
         profile: String::new(),
         code_puppy_model: String::new(),
         code_puppy_yolo: Some(false),
+        code_puppy_quick_resume: false,
         mode_flags: vec![],
         llxprt_debug: String::new(),
         pass_continue: true,
