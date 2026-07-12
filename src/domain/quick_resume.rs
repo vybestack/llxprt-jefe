@@ -1,6 +1,12 @@
 /// Typed checkbox value for Code Puppy autosave continuation.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct QuickResume(pub bool);
+pub struct QuickResume(bool);
+
+impl From<bool> for QuickResume {
+    fn from(enabled: bool) -> Self {
+        Self(enabled)
+    }
+}
 
 impl QuickResume {
     #[must_use]

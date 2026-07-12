@@ -193,7 +193,7 @@ impl AppState {
                 profile: a.profile.clone(),
                 code_puppy_model: a.code_puppy_model.clone(),
                 code_puppy_yolo: a.code_puppy_yolo.unwrap_or(false),
-                code_puppy_quick_resume: crate::domain::QuickResume(a.code_puppy_quick_resume),
+                code_puppy_quick_resume: a.code_puppy_quick_resume.into(),
                 agent_kind: a.agent_kind.label().to_owned(),
                 mode: a.mode_flags.join(" "),
                 llxprt_debug: a.llxprt_debug.clone(),
