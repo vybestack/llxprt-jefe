@@ -247,12 +247,9 @@ fn it_repo_nav_switches_scope_and_reloads() {
 /// applying the filter copies the draft to `committed_filter` and flags a list
 /// reload (`loading.list = true`) — the interactive filter path (#38/#40).
 ///
-/// Drives the REAL key handlers for the filter-controls sub-focus: `f` (open
-/// controls) via `resolve_prs_key_event` in the filter tier is not a direct
-/// key — instead we open via `PrOpenFilterControls`, then cycle a draft field
-/// via the REAL filter-controls key handler, and apply via the Enter key
-/// handler. Then delivers a `PrListLoaded` for the new filter and asserts the
-/// list updates.
+/// Drives the REAL key handlers for the complete filter path: `f` opens the
+/// controls, Space cycles a draft field, and Enter applies it. Then delivers a
+/// `PrListLoaded` for the new filter and asserts the list updates.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-008
@@ -263,8 +260,13 @@ fn it_filter_apply_reloads_and_updates_list() {
     let mut state = active_prs_state();
     state.prs_state.pr_focus = PrFocus::PrList;
 
-    // Open filter controls (the dispatch arm runs this reducer transition).
-    state.apply_in_place(AppEvent::PrOpenFilterControls);
+    // Open filter controls through the same key router users exercise.
+    let event = prs::resolve_prs_key_event(&state, &key(KeyCode::Char('f')));
+    assert!(
+        matches!(event, Some(AppEvent::PrOpenFilterControls)),
+        "f must emit PrOpenFilterControls (got {event:?})"
+    );
+    state.apply_in_place(event.unwrap_or_else(|| panic!("f must emit an event")));
     assert!(state.prs_state.filter_ui.controls_open);
 
     // Cycle the review-decision draft filter via the REAL filter-controls handler.

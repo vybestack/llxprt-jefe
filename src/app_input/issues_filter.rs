@@ -7,6 +7,8 @@ use std::collections::BTreeSet;
 use jefe::domain::{FILTER_CHOICE_ANY, FILTER_CHOICE_NONE};
 use jefe::state::{AppEvent, AppState, ISSUE_FILTER_FIELD_COUNT};
 
+use super::filter_controls::{FilterControlCommand, FilterEditorKind, resolve_filter_control_key};
+
 /// Filter field names indexed by `filter_field_index`.
 /// 0=state (cycle-only), 1..7 are text/choice fields.
 const FILTER_FIELD_NAMES: [&str; ISSUE_FILTER_FIELD_COUNT] = [
@@ -25,48 +27,36 @@ const FILTER_FIELD_NAMES: [&str; ISSUE_FILTER_FIELD_COUNT] = [
 pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     let field_idx = state.issues_state.filter_ui.field_index;
 
-    match key_event.code {
-        KeyCode::Enter => Some(AppEvent::ApplyFilter),
-        KeyCode::Esc => Some(AppEvent::CloseFilterControls),
-        KeyCode::Tab => Some(AppEvent::FilterNavigateNext),
-        KeyCode::BackTab => Some(AppEvent::FilterNavigatePrev),
-        KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(AppEvent::ExitIssuesMode)
-        }
-        KeyCode::Char('l') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(AppEvent::ClearDraftFilter)
-        }
-        KeyCode::Delete => active_field_clear_event(field_idx),
-        // Field-specific input
-        KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') if field_idx == 0 => {
-            // State field: cycle through open/closed/all
+    if matches!(key_event.code, KeyCode::Char('c'))
+        && key_event.modifiers.contains(KeyModifiers::CONTROL)
+    {
+        return Some(AppEvent::ExitIssuesMode);
+    }
+    let editor = if field_idx == 0 {
+        FilterEditorKind::Cycle
+    } else if is_choice_field(field_idx) {
+        FilterEditorKind::Choice
+    } else {
+        FilterEditorKind::Text
+    };
+    match resolve_filter_control_key(editor, key_event)? {
+        FilterControlCommand::Apply => Some(AppEvent::ApplyFilter),
+        FilterControlCommand::Cancel => Some(AppEvent::CloseFilterControls),
+        FilterControlCommand::Next => Some(AppEvent::FilterNavigateNext),
+        FilterControlCommand::Previous => Some(AppEvent::FilterNavigatePrev),
+        FilterControlCommand::ClearAll => Some(AppEvent::ClearDraftFilter),
+        FilterControlCommand::ClearCurrent => active_field_clear_event(field_idx),
+        FilterControlCommand::CycleNext | FilterControlCommand::CyclePrevious if field_idx == 0 => {
             Some(AppEvent::CycleFilterState)
         }
-        KeyCode::Right if is_choice_field(field_idx) => {
+        FilterControlCommand::CycleNext => {
             choice_cycle_event(state, field_idx, ChoiceDirection::Next)
         }
-        KeyCode::Left if is_choice_field(field_idx) => {
+        FilterControlCommand::CyclePrevious => {
             choice_cycle_event(state, field_idx, ChoiceDirection::Previous)
         }
-        KeyCode::Char(c) if field_idx > 0 => {
-            let &field_name = FILTER_FIELD_NAMES.get(field_idx)?;
-            let mut value = current_filter_field_value(state, field_name);
-            value.push(c);
-            Some(AppEvent::UpdateDraftFilter {
-                field: field_name.to_string(),
-                value,
-            })
-        }
-        KeyCode::Backspace if field_idx > 0 => {
-            let &field_name = FILTER_FIELD_NAMES.get(field_idx)?;
-            let mut value = current_filter_field_value(state, field_name);
-            value.pop();
-            Some(AppEvent::UpdateDraftFilter {
-                field: field_name.to_string(),
-                value,
-            })
-        }
-        _ => None, // consumed, no leak
+        FilterControlCommand::Append(c) => update_text_event(state, field_idx, Some(c)),
+        FilterControlCommand::Backspace => update_text_event(state, field_idx, None),
     }
 }
 
@@ -90,6 +80,24 @@ fn active_field_clear_event(field_idx: usize) -> Option<AppEvent> {
     Some(AppEvent::UpdateDraftFilter {
         field: field_name.to_string(),
         value: String::new(),
+    })
+}
+
+fn update_text_event(
+    state: &AppState,
+    field_idx: usize,
+    character: Option<char>,
+) -> Option<AppEvent> {
+    let &field_name = FILTER_FIELD_NAMES.get(field_idx)?;
+    let mut value = current_filter_field_value(state, field_name);
+    if let Some(character) = character {
+        value.push(character);
+    } else {
+        value.pop();
+    }
+    Some(AppEvent::UpdateDraftFilter {
+        field: field_name.to_string(),
+        value,
     })
 }
 

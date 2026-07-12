@@ -98,6 +98,7 @@ fn resolve_pr_global_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEv
         KeyCode::Esc => Some(handle_esc_in_prs_mode(state, key_event)),
         KeyCode::Char('a') => Some(AppEvent::ExitPrsMode),
         KeyCode::Char('p' | 'P') => Some(AppEvent::RefocusPrList),
+        KeyCode::Char('f') => Some(AppEvent::PrOpenFilterControls),
         // Cross-mode navigation: `i` from PRs switches to Issues mode (issue #164).
         KeyCode::Char('i' | 'I') => Some(AppEvent::EnterIssuesMode),
         // F12 defocuses the terminal or returns to the PR list (issue #164).

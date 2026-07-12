@@ -1,5 +1,7 @@
 use iocraft::prelude::*;
-use jefe::state::{ActionsFocus, AppEvent, AppState};
+use jefe::state::{ActionsFilterField, ActionsFocus, AppEvent, AppState};
+
+use super::filter_controls::{FilterControlCommand, FilterEditorKind, resolve_filter_control_key};
 
 /// Pure key resolver for Actions mode.
 pub fn resolve_actions_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
@@ -43,14 +45,25 @@ fn resolve_search_key_event(state: &AppState, key_event: &KeyEvent) -> Option<Ap
     }
 }
 
-fn resolve_filter_key_event(_state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
-    match key_event.code {
-        KeyCode::Esc => Some(AppEvent::ActionsCloseFilterControls),
-        KeyCode::Enter => Some(AppEvent::ActionsApplyFilter),
-        KeyCode::Tab => Some(AppEvent::ActionsFilterNavigateNext),
-        KeyCode::BackTab => Some(AppEvent::ActionsFilterNavigatePrev),
-        KeyCode::Up | KeyCode::Down => Some(AppEvent::ActionsCycleFilterStatus),
-        _ => None,
+fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    match resolve_filter_control_key(FilterEditorKind::Cycle, key_event)? {
+        FilterControlCommand::Apply => Some(AppEvent::ActionsApplyFilter),
+        FilterControlCommand::Cancel => Some(AppEvent::ActionsCloseFilterControls),
+        FilterControlCommand::Next => Some(AppEvent::ActionsFilterNavigateNext),
+        FilterControlCommand::Previous => Some(AppEvent::ActionsFilterNavigatePrev),
+        FilterControlCommand::ClearAll => Some(AppEvent::ActionsClearDraftFilter),
+        FilterControlCommand::ClearCurrent => Some(AppEvent::ActionsUpdateDraftFilter {
+            field: if state.actions_state.ui.filter_field_index == 0 {
+                ActionsFilterField::Workflow
+            } else {
+                ActionsFilterField::Status
+            },
+            value: String::new(),
+        }),
+        FilterControlCommand::CycleNext | FilterControlCommand::CyclePrevious => {
+            Some(AppEvent::ActionsCycleFilterStatus)
+        }
+        FilterControlCommand::Append(_) | FilterControlCommand::Backspace => None,
     }
 }
 

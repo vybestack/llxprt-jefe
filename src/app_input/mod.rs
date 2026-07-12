@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+mod filter_controls;
 mod issues;
 mod issues_dispatch;
 mod issues_filter;

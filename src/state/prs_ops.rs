@@ -214,6 +214,8 @@ impl AppState {
                     .field_index
                     .min(PR_FILTER_FIELD_COUNT.saturating_sub(1));
                 self.prs_state.draft_filter = self.prs_state.committed_filter.clone();
+                self.prs_state.filter_ui.draft_labels_text =
+                    self.prs_state.committed_filter.labels.join(",");
                 true
             }
             AppEvent::PrCloseFilterControls => {
