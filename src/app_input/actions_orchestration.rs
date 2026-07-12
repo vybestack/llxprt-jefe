@@ -146,13 +146,20 @@ fn handle_list_reload_result(
             runs: res.runs,
             has_more: res.has_more,
         },
-        Err(e) => AppEvent::ActionsRunsLoadFailed {
-            scope_repo_id: repo_id,
-            filter: Box::new(filter),
-            page,
-            request_id,
-            error: e.to_string(),
-        },
+        Err(e) => {
+            let error = e.to_string();
+            // Offer the in-app auth dialog when gh is unauthenticated (issue #244).
+            if super::auth_remediation::offer_auth_remediation(&mut app_state, ctx, &error) {
+                return;
+            }
+            AppEvent::ActionsRunsLoadFailed {
+                scope_repo_id: repo_id,
+                filter: Box::new(filter),
+                page,
+                request_id,
+                error,
+            }
+        }
     };
     apply_and_persist(&mut app_state, ctx, event);
     if should_reload_detail {

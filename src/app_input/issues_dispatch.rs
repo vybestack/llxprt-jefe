@@ -124,6 +124,12 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
         ctx,
         move |mut app_state, ctx| {
             let event = detail_load_event(&ctx, params);
+            // Offer the in-app auth dialog when gh is unauthenticated (issue #244).
+            if let AppEvent::IssueDetailLoadFailed { error, .. } = &event {
+                if super::auth_remediation::offer_auth_remediation(&mut app_state, &ctx, error) {
+                    return;
+                }
+            }
             apply_and_persist(&mut app_state, &ctx, event);
         },
         move |mut app_state, ctx, message| {

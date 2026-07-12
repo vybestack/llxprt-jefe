@@ -646,6 +646,23 @@ pub enum SystemMessage {
     Quit,
     ClearError,
     ClearWarning,
+    /// Open the in-app device-code auth dialog (issue #244).
+    OpenAuthDialog,
+    /// One-time code + verification URL parsed from `gh auth login` stderr.
+    AuthCodeReceived {
+        code: String,
+        url: String,
+    },
+    /// Device-code flow succeeded.
+    AuthSucceeded,
+    /// Device-code flow failed (transient — retry offered).
+    AuthFailed {
+        error: String,
+    },
+    /// User cancelled the auth dialog.
+    AuthCancelled,
+    /// User requested a retry of the auth flow.
+    AuthRetry,
 }
 
 /// Top-level typed message routed by the bus.
@@ -809,6 +826,12 @@ message_names!(SystemMessage {
     Self::Quit => "Quit",
     Self::ClearError => "ClearError",
     Self::ClearWarning => "ClearWarning",
+    Self::OpenAuthDialog => "OpenAuthDialog",
+    Self::AuthCodeReceived { .. } => "AuthCodeReceived",
+    Self::AuthSucceeded => "AuthSucceeded",
+    Self::AuthFailed { .. } => "AuthFailed",
+    Self::AuthCancelled => "AuthCancelled",
+    Self::AuthRetry => "AuthRetry",
 });
 
 message_names!(IssuesMessage {

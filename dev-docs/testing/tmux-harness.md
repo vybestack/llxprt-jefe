@@ -185,6 +185,18 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
   selected cells should highlight (inverse video) and release should copy the
   highlighted text. Holding Shift while dragging must also highlight and copy
   (it is no longer a no-op).
+- [`auth-dialog.json`](../tmux-scenarios/auth-dialog.json): manual scenario for
+  issue #244 — the in-app device-code auth remediation dialog. It enters Issues
+  mode, waits for the "Authenticate with GitHub" dialog to appear (when `gh` is
+  unauthenticated), and cancels with Esc. It is intentionally **not** a CI gate
+  because it requires an unauthenticated `gh` and a real browser authorization
+  to complete the device-code flow. The deterministic proof that the dialog
+  opens on a `NotAuthenticated` failure, that the one-time code + URL are
+  parsed from `gh auth login --web` stderr, that the requested scopes are
+  exactly `repo`, `read:org`, `gist`, and that the state machine transitions
+  (idle → awaiting-code → confirming → success / failure / cancelled) live in
+  unit tests (`github_tests::auth_device`, `state::auth_ops_tests`,
+  `app_input::auth_remediation`, and `ui::modals::auth`).
 
 ## Future regression scenarios
 

@@ -12,6 +12,8 @@ mod attach_scheduler;
 mod capabilities;
 mod commands;
 mod errors;
+/// One-shot `gh auth login --web` device-code subprocess driver (issue #244).
+mod gh_auth;
 mod liveness;
 mod manager;
 mod pane_capture;
@@ -26,6 +28,7 @@ pub use capabilities::{
     validate_code_puppy_launch,
 };
 pub use errors::RuntimeError;
+pub use gh_auth::{AuthRunResult, run_device_auth};
 pub use liveness::{check_remote_session_alive, check_session_alive, pid_alive};
 pub use manager::{LivenessCheck, RuntimeManager, TmuxRuntimeManager};
 pub use preflight::{

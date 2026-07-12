@@ -32,6 +32,8 @@ mod prs_orchestration;
 
 mod actions;
 mod actions_orchestration;
+// In-app device-code auth remediation dispatch (issue #244).
+mod auth_remediation;
 mod gh_async;
 mod list_loader;
 
@@ -52,7 +54,8 @@ use agent_runtime::{
 };
 
 pub use modal_handlers::{
-    handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key, handle_mode_theme_picker_key,
+    handle_f12_toggle, handle_mode_auth_key, handle_mode_confirm_key, handle_mode_form_key,
+    handle_mode_theme_picker_key,
 };
 
 pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
@@ -465,8 +468,15 @@ pub fn try_intercept_terminal_scrollback(
     ctx: &SharedContext,
     key_event: &KeyEvent,
 ) -> bool {
-    let offset_is_some = app_state.read().terminal_history_offset.is_some();
-    let Some(scroll_evt) = jefe::input::should_intercept_for_scrollback(key_event, offset_is_some)
+    let (offset_is_some, kennel_mode) = {
+        let state = app_state.read();
+        (
+            state.terminal_history_offset.is_some(),
+            state.is_kennel_mode(),
+        )
+    };
+    let Some(scroll_evt) =
+        jefe::input::should_intercept_for_scrollback(key_event, offset_is_some, kennel_mode)
     else {
         return false;
     };

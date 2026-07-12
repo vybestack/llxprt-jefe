@@ -101,6 +101,25 @@ pub enum AppEvent {
     ClearError,
     ClearWarning,
 
+    // In-app device-code auth remediation (issue #244)
+    /// Open the auth dialog and start the device-code flow.
+    OpenAuthDialog,
+    /// The one-time code + verification URL were parsed from `gh` stderr.
+    AuthCodeReceived {
+        code: String,
+        url: String,
+    },
+    /// The device-code flow completed successfully (token stored by `gh`).
+    AuthSucceeded,
+    /// The device-code flow failed (network, code expiry, denied).
+    AuthFailed {
+        error: String,
+    },
+    /// The user cancelled the auth dialog (Esc).
+    AuthCancelled,
+    /// The user requested a retry from the Failed phase.
+    AuthRetry,
+
     // Terminal scrollback (issue #198)
     /// Scroll the terminal viewport up (back in history) by one line.
     TerminalScrollUp,

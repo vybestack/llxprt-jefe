@@ -34,11 +34,7 @@ pub fn categorize_error(exit_code: i32, stderr: &str) -> GhError {
         return GhError::RateLimited;
     }
 
-    if stderr_lower.contains("401")
-        || stderr_lower.contains("not logged in")
-        || stderr_lower.contains("authentication")
-        || stderr_lower.contains("not authenticated")
-    {
+    if not_authenticated_matcher(&stderr_lower) {
         return GhError::NotAuthenticated(stderr.to_string());
     }
 
@@ -52,6 +48,21 @@ pub fn categorize_error(exit_code: i32, stderr: &str) -> GhError {
     }
 
     GhError::ApiError(stderr.to_string())
+}
+
+/// The single source of truth for recognizing a `gh` authentication failure
+/// from a lowercased error/stderr string. Shared by [`categorize_error`]'s
+/// `NotAuthenticated` arm and [`crate::github::is_not_authenticated_error`]
+/// so the dispatch-layer auth-remediation trigger cannot drift from the
+/// error categorizer (issue #244).
+///
+/// @must_use
+#[must_use]
+pub(super) fn not_authenticated_matcher(stderr_lower: &str) -> bool {
+    stderr_lower.contains("401")
+        || stderr_lower.contains("not logged in")
+        || stderr_lower.contains("authentication")
+        || stderr_lower.contains("not authenticated")
 }
 
 /// Parse JSON output from `gh issue list --json` into Issue vector.

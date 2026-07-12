@@ -15,7 +15,7 @@ pub mod util;
 
 // Re-export commonly used types
 pub use components::{KeybindBar, Preview, SelectableList, Sidebar, StatusBar, TerminalView};
-pub use modals::{ConfirmModal, HelpModal};
+pub use modals::{AuthModal, ConfirmModal, HelpModal};
 pub use screens::{
     ActionsScreen, Dashboard, NewAgentForm, NewRepositoryForm, SplitScreen, ThemePickerScreen,
     WorkflowDispatchForm,

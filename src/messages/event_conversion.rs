@@ -114,27 +114,6 @@ impl AppMessage {
     /// within the clippy line budget without a complexity suppression.
     fn from_non_ui_nav_event(event: AppEvent) -> Self {
         match event {
-            AppEvent::OpenNewRepository => {
-                Self::RepositoryAgent(RepositoryAgentMessage::OpenNewRepository)
-            }
-            AppEvent::OpenEditRepository(id) => {
-                Self::RepositoryAgent(RepositoryAgentMessage::OpenEditRepository(id))
-            }
-            AppEvent::OpenDeleteRepository(id) => {
-                Self::RepositoryAgent(RepositoryAgentMessage::OpenDeleteRepository(id))
-            }
-            AppEvent::OpenNewAgent(id) => {
-                Self::RepositoryAgent(RepositoryAgentMessage::OpenNewAgent(id))
-            }
-            AppEvent::OpenEditAgent(id) => {
-                Self::RepositoryAgent(RepositoryAgentMessage::OpenEditAgent(id))
-            }
-            AppEvent::OpenDeleteAgent(id) => {
-                Self::RepositoryAgent(RepositoryAgentMessage::OpenDeleteAgent(id))
-            }
-            AppEvent::ToggleDeleteWorkDir => {
-                Self::RepositoryAgent(RepositoryAgentMessage::ToggleDeleteWorkDir)
-            }
             AppEvent::KillAgent(id) => Self::Runtime(RuntimeMessage::KillAgent(id)),
             AppEvent::RelaunchAgent(id) => Self::Runtime(RuntimeMessage::RelaunchAgent(id)),
             AppEvent::RestartAgent(id) => Self::Runtime(RuntimeMessage::RestartAgent(id)),
@@ -168,7 +147,44 @@ impl AppMessage {
             AppEvent::Quit => Self::System(SystemMessage::Quit),
             AppEvent::ClearError => Self::System(SystemMessage::ClearError),
             AppEvent::ClearWarning => Self::System(SystemMessage::ClearWarning),
-            // Catch-all delegates issues/PRs/actions events.
+            // Auth remediation events route to the System channel (issue #244).
+            AppEvent::OpenAuthDialog => Self::System(SystemMessage::OpenAuthDialog),
+            AppEvent::AuthCodeReceived { code, url } => {
+                Self::System(SystemMessage::AuthCodeReceived { code, url })
+            }
+            AppEvent::AuthSucceeded => Self::System(SystemMessage::AuthSucceeded),
+            AppEvent::AuthFailed { error } => Self::System(SystemMessage::AuthFailed { error }),
+            AppEvent::AuthCancelled => Self::System(SystemMessage::AuthCancelled),
+            AppEvent::AuthRetry => Self::System(SystemMessage::AuthRetry),
+            // Catch-all: repository/agent events, then issues/PRs/actions.
+            other => Self::from_repository_agent_event(other),
+        }
+    }
+
+    /// Convert repository/agent [`AppEvent`] variants into the typed message bus.
+    fn from_repository_agent_event(event: AppEvent) -> Self {
+        match event {
+            AppEvent::OpenNewRepository => {
+                Self::RepositoryAgent(RepositoryAgentMessage::OpenNewRepository)
+            }
+            AppEvent::OpenEditRepository(id) => {
+                Self::RepositoryAgent(RepositoryAgentMessage::OpenEditRepository(id))
+            }
+            AppEvent::OpenDeleteRepository(id) => {
+                Self::RepositoryAgent(RepositoryAgentMessage::OpenDeleteRepository(id))
+            }
+            AppEvent::OpenNewAgent(id) => {
+                Self::RepositoryAgent(RepositoryAgentMessage::OpenNewAgent(id))
+            }
+            AppEvent::OpenEditAgent(id) => {
+                Self::RepositoryAgent(RepositoryAgentMessage::OpenEditAgent(id))
+            }
+            AppEvent::OpenDeleteAgent(id) => {
+                Self::RepositoryAgent(RepositoryAgentMessage::OpenDeleteAgent(id))
+            }
+            AppEvent::ToggleDeleteWorkDir => {
+                Self::RepositoryAgent(RepositoryAgentMessage::ToggleDeleteWorkDir)
+            }
             other => Self::from_issues_event(other),
         }
     }
@@ -476,6 +492,12 @@ impl From<SystemMessage> for AppEvent {
             SystemMessage::Quit => Self::Quit,
             SystemMessage::ClearError => Self::ClearError,
             SystemMessage::ClearWarning => Self::ClearWarning,
+            SystemMessage::OpenAuthDialog => Self::OpenAuthDialog,
+            SystemMessage::AuthCodeReceived { code, url } => Self::AuthCodeReceived { code, url },
+            SystemMessage::AuthSucceeded => Self::AuthSucceeded,
+            SystemMessage::AuthFailed { error } => Self::AuthFailed { error },
+            SystemMessage::AuthCancelled => Self::AuthCancelled,
+            SystemMessage::AuthRetry => Self::AuthRetry,
         }
     }
 }

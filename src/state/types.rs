@@ -62,6 +62,83 @@ pub enum ConfirmFocus {
     Confirm,
 }
 
+/// Phase of the in-app device-code auth dialog state machine (issue #244).
+///
+/// The dialog drives `gh auth login --web` non-interactively; these phases
+/// track where the flow is so the UI is render-only and the reducer stays
+/// deterministic.
+///
+/// `Debug` is implemented manually to redact the one-time device code: it is
+/// a short-lived bearer credential while valid, so it must never leak through
+/// `AppState` debug logs, crash reports, or test snapshots.
+#[derive(Clone, PartialEq, Eq)]
+pub enum AuthDialogPhase {
+    /// Dialog not shown (modal closed).
+    Idle,
+    /// `gh auth login` subprocess spawned; waiting for the one-time code to
+    /// be parsed from its stderr.
+    AwaitingCode,
+    /// Code + URL have been parsed and shown to the user; the subprocess is
+    /// polling until the user authorizes in a browser.
+    Confirming { code: String, url: String },
+    /// A transient failure occurred (network, code expiry); a retry is offered.
+    Failed { error: String, can_retry: bool },
+    /// The user cancelled (Esc); the modal is being dismissed.
+    Cancelled,
+}
+
+impl std::fmt::Debug for AuthDialogPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Idle => f.write_str("AuthDialogPhase::Idle"),
+            Self::AwaitingCode => f.write_str("AuthDialogPhase::AwaitingCode"),
+            Self::Confirming { url, .. } => f
+                .debug_struct("AuthDialogPhase::Confirming")
+                .field("code", &"<redacted>")
+                .field("url", url)
+                .finish(),
+            Self::Failed { error, can_retry } => {
+                // Defense-in-depth: the dispatch layer already scrubs the code
+                // shape before storing, but redact again here so a future caller
+                // cannot leak a one-time code via a Debug print (issue #244).
+                let redacted = crate::github::redact_device_codes(error);
+                f.debug_struct("AuthDialogPhase::Failed")
+                    .field("error", &redacted)
+                    .field("can_retry", can_retry)
+                    .finish()
+            }
+            Self::Cancelled => f.write_str("AuthDialogPhase::Cancelled"),
+        }
+    }
+}
+
+/// State carried by [`ModalState::Auth`].
+///
+/// Runtime-only — never persisted (auth is an interactive, ephemeral flow).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthDialogState {
+    pub phase: AuthDialogPhase,
+}
+
+impl Default for AuthDialogState {
+    fn default() -> Self {
+        Self {
+            phase: AuthDialogPhase::Idle,
+        }
+    }
+}
+
+impl AuthDialogState {
+    /// Construct a fresh dialog in the [`AuthDialogPhase::AwaitingCode`]
+    /// phase — the entry point when the auth flow starts.
+    #[must_use]
+    pub fn awaiting_code() -> Self {
+        Self {
+            phase: AuthDialogPhase::AwaitingCode,
+        }
+    }
+}
+
 /// Modal/form state variants.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ModalState {
@@ -177,6 +254,11 @@ pub enum ModalState {
         fields: WorkflowDispatchFormFields,
         focus: WorkflowDispatchFormFocus,
         cursor: WorkflowDispatchFormCursor,
+    },
+    /// In-app device-code auth remediation dialog (issue #244). Render-only
+    /// data: the runtime layer owns the `gh auth login --web` subprocess.
+    Auth {
+        state: AuthDialogState,
     },
 }
 

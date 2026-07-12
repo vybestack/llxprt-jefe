@@ -9,7 +9,7 @@ use crate::state::{AppState, ConfirmFocus, ModalState, ScreenMode};
 use crate::theme::ThemeColors;
 use crate::ui::screens::{ActionsScreen, IssuesScreen, PullRequestsScreen, ThemePickerScreen};
 use crate::ui::{
-    ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen,
+    AuthModal, ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen,
     WorkflowDispatchForm,
 };
 
@@ -324,6 +324,25 @@ pub fn build_modal_element(
             }
             .into_any()
         }),
+        // In-app device-code auth remediation dialog (issue #244). Render-only:
+        // receives the dialog state as plain data.
+        ModalState::Auth { state } => Some(auth_modal_element(state, colors, snapshot)),
         _ => None,
     }
+}
+
+/// Build the render-only auth remediation modal element (issue #244).
+fn auth_modal_element(
+    state: &crate::state::AuthDialogState,
+    colors: &ThemeColors,
+    snapshot: &AppState,
+) -> AnyElement<'static> {
+    element! {
+        AuthModal(
+            state: state.clone(),
+            colors: colors.clone(),
+            selection: snapshot.selection,
+        )
+    }
+    .into_any()
 }
