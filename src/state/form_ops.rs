@@ -49,6 +49,11 @@ impl AppState {
                 cursor.profile = insert_char_at(&mut fields.profile, cursor.profile, c);
                 false
             }
+            AgentFormFocus::CodePuppyModel => {
+                cursor.code_puppy_model =
+                    insert_char_at(&mut fields.code_puppy_model, cursor.code_puppy_model, c);
+                false
+            }
             AgentFormFocus::Mode => {
                 cursor.mode = insert_char_at(&mut fields.mode, cursor.mode, c);
                 false
@@ -211,6 +216,12 @@ impl AppState {
                 cursor.default_profile =
                     delete_char_before(&mut fields.default_profile, cursor.default_profile);
             }
+            RepositoryFormFocus::DefaultCodePuppyModel => {
+                cursor.default_code_puppy_model = delete_char_before(
+                    &mut fields.default_code_puppy_model,
+                    cursor.default_code_puppy_model,
+                );
+            }
             RepositoryFormFocus::GitHubRepo => {
                 cursor.github_repo =
                     delete_char_before(&mut fields.github_repo, cursor.github_repo);
@@ -245,6 +256,12 @@ impl AppState {
             }
             RepositoryFormFocus::DefaultProfile => {
                 delete_char_at(&mut fields.default_profile, cursor.default_profile);
+            }
+            RepositoryFormFocus::DefaultCodePuppyModel => {
+                delete_char_at(
+                    &mut fields.default_code_puppy_model,
+                    cursor.default_code_puppy_model,
+                );
             }
             RepositoryFormFocus::GitHubRepo => {
                 delete_char_at(&mut fields.github_repo, cursor.github_repo);
@@ -286,6 +303,10 @@ impl AppState {
             AgentFormFocus::Profile => {
                 cursor.profile = delete_char_before(&mut fields.profile, cursor.profile);
             }
+            AgentFormFocus::CodePuppyModel => {
+                cursor.code_puppy_model =
+                    delete_char_before(&mut fields.code_puppy_model, cursor.code_puppy_model);
+            }
             AgentFormFocus::Mode => {
                 cursor.mode = delete_char_before(&mut fields.mode, cursor.mode);
             }
@@ -326,6 +347,9 @@ impl AppState {
             }
             AgentFormFocus::Profile => {
                 delete_char_at(&mut fields.profile, cursor.profile);
+            }
+            AgentFormFocus::CodePuppyModel => {
+                delete_char_at(&mut fields.code_puppy_model, cursor.code_puppy_model);
             }
             AgentFormFocus::Mode => {
                 delete_char_at(&mut fields.mode, cursor.mode);
@@ -525,8 +549,15 @@ impl AppState {
 
     pub(super) fn handle_form_next_field(&mut self) {
         match &mut self.modal {
-            ModalState::NewRepository { focus, .. } | ModalState::EditRepository { focus, .. } => {
+            ModalState::NewRepository { fields, focus, .. }
+            | ModalState::EditRepository { fields, focus, .. } => {
                 *focus = focus.next();
+                if *focus == RepositoryFormFocus::DefaultCodePuppyModel
+                    && AgentKind::from_form_value(&fields.default_agent_kind)
+                        != Some(AgentKind::CodePuppy)
+                {
+                    *focus = focus.next();
+                }
             }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => {
@@ -544,8 +575,15 @@ impl AppState {
 
     pub(super) fn handle_form_prev_field(&mut self) {
         match &mut self.modal {
-            ModalState::NewRepository { focus, .. } | ModalState::EditRepository { focus, .. } => {
+            ModalState::NewRepository { fields, focus, .. }
+            | ModalState::EditRepository { fields, focus, .. } => {
                 *focus = focus.prev();
+                if *focus == RepositoryFormFocus::DefaultCodePuppyModel
+                    && AgentKind::from_form_value(&fields.default_agent_kind)
+                        != Some(AgentKind::CodePuppy)
+                {
+                    *focus = focus.prev();
+                }
             }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => {

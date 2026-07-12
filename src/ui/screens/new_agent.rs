@@ -105,7 +105,13 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
     ];
 
     // Fields rendered AFTER the Agent Runtime selector.
-    let post_kind_text_fields: [(&str, &str, AgentFormFocus, usize); 2] = [
+    let post_kind_text_fields: [(&str, &str, AgentFormFocus, usize); 3] = [
+        (
+            "Model",
+            &fields.code_puppy_model,
+            AgentFormFocus::CodePuppyModel,
+            cursor.code_puppy_model,
+        ),
         (
             "Mode Flags",
             &fields.mode,

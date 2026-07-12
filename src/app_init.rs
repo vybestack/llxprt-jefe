@@ -4,8 +4,7 @@ use iocraft::hooks::State as HookState;
 use tracing::warn;
 
 use jefe::domain::{
-    Agent, AgentId, AgentStatus, LaunchSignature, PlatformCapabilities, RemoteRepositorySettings,
-    SandboxEngine,
+    Agent, AgentId, AgentStatus, LaunchSignature, PlatformCapabilities, SandboxEngine,
 };
 use jefe::persistence::{PersistenceManager, Settings, State as PersistedState};
 use jefe::runtime::{
@@ -17,17 +16,25 @@ use jefe::theme::ThemeManager;
 
 use crate::app_input::{SharedContext, persist_state, to_persisted_state};
 
-fn launch_signature_for_agent(agent: &Agent, remote: &RemoteRepositorySettings) -> LaunchSignature {
+fn launch_signature_for_agent(
+    agent: &Agent,
+    repository: &jefe::domain::Repository,
+) -> LaunchSignature {
     LaunchSignature {
         work_dir: agent.work_dir.clone(),
         profile: agent.profile.clone(),
+        code_puppy_model: if agent.code_puppy_model.trim().is_empty() {
+            repository.default_code_puppy_model.trim().to_owned()
+        } else {
+            agent.code_puppy_model.trim().to_owned()
+        },
         mode_flags: agent.mode_flags.clone(),
         llxprt_debug: agent.llxprt_debug.clone(),
         pass_continue: agent.pass_continue,
         sandbox_enabled: agent.sandbox_enabled,
         sandbox_engine: agent.sandbox_engine,
         sandbox_flags: agent.sandbox_flags.clone(),
-        remote: remote.clone(),
+        remote: repository.remote.clone(),
         agent_kind: agent.agent_kind,
     }
 }
@@ -199,7 +206,7 @@ fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> V
 
         running_agents.push((
             agent.id.clone(),
-            launch_signature_for_agent(agent, &repository.remote),
+            launch_signature_for_agent(agent, repository),
             agent.runtime_binding.as_ref().and_then(|b| b.pid),
         ));
     }
@@ -303,7 +310,7 @@ fn restore_one_agent(
     else {
         return RestoreOneOutcome::Dead;
     };
-    let signature = launch_signature_for_agent(agent, &repository.remote);
+    let signature = launch_signature_for_agent(agent, &repository);
     let pid = agent.runtime_binding.as_ref().and_then(|b| b.pid);
     let session_exists = runtime.session_exists_for_signature(&agent.id, &signature);
 

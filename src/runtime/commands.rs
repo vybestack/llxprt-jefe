@@ -457,14 +457,18 @@ fn launch_args(signature: &LaunchSignature) -> Vec<String> {
 }
 
 fn code_puppy_launch_args(signature: &LaunchSignature) -> Vec<String> {
-    // Code Puppy interactive mode: output ONLY `-i` plus, for fresh
-    // (issue/PR-driven) sends, the single positional instruction string.
+    // Code Puppy interactive mode: output `-i`, an optional explicit model,
+    // and, for fresh (issue/PR-driven) sends, one positional instruction.
     //
     // Fresh sends replace mode_flags with one positional instruction and
     // force pass_continue off. That structural contract avoids coupling the
     // runtime layer to natural-language prompt text while still rejecting all
     // arbitrary persisted LLxprt flags.
     let mut args = vec!["-i".to_owned()];
+    if !signature.code_puppy_model.trim().is_empty() {
+        args.push("--model".to_owned());
+        args.push(signature.code_puppy_model.trim().to_owned());
+    }
     if !signature.pass_continue
         && let [instruction] = signature.mode_flags.as_slice()
         && !instruction.starts_with('-')

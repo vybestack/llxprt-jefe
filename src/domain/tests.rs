@@ -329,6 +329,7 @@ fn test_issue_base_prompt_serde_roundtrip() {
         slug: "test-repo".to_string(),
         base_dir: PathBuf::from("/tmp/test-repo"),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: "Prioritize diagnosis".to_string(),
@@ -402,6 +403,7 @@ fn runtime_binding_roundtrips_pid_when_present() {
         launch_signature: LaunchSignature {
             work_dir: PathBuf::from("/tmp/agent-2"),
             profile: String::new(),
+            code_puppy_model: String::new(),
             mode_flags: vec![],
             llxprt_debug: String::new(),
             pass_continue: true,

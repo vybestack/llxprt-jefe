@@ -9,6 +9,7 @@ fn base_signature() -> LaunchSignature {
     LaunchSignature {
         work_dir: std::path::PathBuf::from("/tmp"),
         profile: String::new(),
+        code_puppy_model: String::new(),
         mode_flags: Vec::new(),
         llxprt_debug: String::new(),
         pass_continue: true,
@@ -18,6 +19,40 @@ fn base_signature() -> LaunchSignature {
         remote: crate::domain::RemoteRepositorySettings::default(),
         agent_kind: crate::domain::AgentKind::Llxprt,
     }
+}
+
+#[test]
+fn code_puppy_omits_model_argument_when_unset() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+
+    assert_eq!(code_puppy_launch_args(&signature), vec!["-i"]);
+}
+
+#[test]
+fn code_puppy_passes_configured_model_as_exact_argv() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_model = "  openrouter/puppy-pro  ".to_owned();
+
+    assert_eq!(
+        code_puppy_launch_args(&signature),
+        vec!["-i", "--model", "openrouter/puppy-pro"]
+    );
+}
+
+#[test]
+fn code_puppy_fresh_prompt_keeps_model_before_instruction() {
+    let mut signature = base_signature();
+    signature.agent_kind = AgentKind::CodePuppy;
+    signature.code_puppy_model = "puppy-pro".to_owned();
+    signature.pass_continue = false;
+    signature.mode_flags = vec!["Read the issue prompt".to_owned()];
+
+    assert_eq!(
+        code_puppy_launch_args(&signature),
+        vec!["-i", "--model", "puppy-pro", "Read the issue prompt"]
+    );
 }
 
 /// The local launch plan omits the `LLXPRT_DEBUG` env assignment when the

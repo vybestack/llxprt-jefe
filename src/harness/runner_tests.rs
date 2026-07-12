@@ -560,6 +560,7 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         launch_signature: LaunchSignature {
             work_dir: std::path::PathBuf::from("/tmp"),
             profile: String::new(),
+            code_puppy_model: String::new(),
             mode_flags: vec![],
             llxprt_debug: String::new(),
             pass_continue: true,
@@ -805,6 +806,7 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         launch_signature: LaunchSignature {
             work_dir: std::path::PathBuf::from("/tmp"),
             profile: String::new(),
+            code_puppy_model: String::new(),
             mode_flags: vec![],
             llxprt_debug: String::new(),
             pass_continue: true,

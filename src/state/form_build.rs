@@ -126,6 +126,7 @@ impl AppState {
             slug,
             base_dir: std::path::PathBuf::from(&base_dir),
             default_profile: normalize_profile(&fields.default_profile),
+            default_code_puppy_model: fields.default_code_puppy_model.trim().to_owned(),
             github_repo: fields.github_repo.trim().to_owned(),
             remote: remote_settings,
             issue_base_prompt: String::new(),
@@ -173,6 +174,10 @@ impl AppState {
         }
 
         repo.default_profile = normalize_profile(&fields.default_profile);
+        fields
+            .default_code_puppy_model
+            .trim()
+            .clone_into(&mut repo.default_code_puppy_model);
         repo.default_agent_kind = AgentKind::from_form_value(&fields.default_agent_kind)
             .unwrap_or(repo.default_agent_kind);
         fields.github_repo.trim().clone_into(&mut repo.github_repo);
@@ -199,6 +204,7 @@ impl AppState {
             description: &fields.description,
             work_dir: &fields.work_dir,
             profile: &fields.profile,
+            code_puppy_model: &fields.code_puppy_model,
             agent_kind: &fields.agent_kind,
             mode: &fields.mode,
             llxprt_debug: &fields.llxprt_debug,
@@ -252,6 +258,10 @@ impl AppState {
         }
 
         agent.profile = normalize_profile(&fields.profile);
+        fields
+            .code_puppy_model
+            .trim()
+            .clone_into(&mut agent.code_puppy_model);
         agent.agent_kind =
             AgentKind::from_form_value(&fields.agent_kind).unwrap_or(agent.agent_kind);
         // The mode field is the single source of truth for mode flags. An

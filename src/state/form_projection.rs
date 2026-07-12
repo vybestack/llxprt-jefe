@@ -123,6 +123,7 @@ pub fn is_field_visible(
         | F::Sandbox
         | F::SandboxEngine
         | F::SandboxFlags => visibility.shows_llxprt_fields(),
+        F::CodePuppyModel => matches!(visibility, AgentFormFieldVisibility::CodePuppy),
         F::Shortcut | F::Name | F::Description | F::WorkDir | F::AgentKind => true,
     }
 }
@@ -180,6 +181,7 @@ mod tests {
         assert!(is_field_visible(F::Mode, vis));
         assert!(is_field_visible(F::Sandbox, vis));
         assert!(is_field_visible(F::SandboxFlags, vis));
+        assert!(!is_field_visible(F::CodePuppyModel, vis));
     }
 
     #[test]
@@ -192,6 +194,7 @@ mod tests {
         assert!(!is_field_visible(F::Sandbox, vis));
         assert!(!is_field_visible(F::SandboxEngine, vis));
         assert!(!is_field_visible(F::SandboxFlags, vis));
+        assert!(is_field_visible(F::CodePuppyModel, vis));
     }
 
     #[test]
@@ -207,11 +210,9 @@ mod tests {
     #[test]
     fn code_puppy_next_focus_skips_hidden_fields() {
         let vis = agent_form_visibility(AgentKind::CodePuppy);
-        // Profile → Mode is hidden, so next_visible from Profile skips
-        // Mode, LlxprtDebug, PassContinue, Sandbox, SandboxEngine, SandboxFlags
-        // and lands on AgentKind (the next visible field after Profile).
+        // The runtime-specific model field follows Profile for Code Puppy.
         let next = next_visible_focus(F::Profile, vis);
-        assert_eq!(next, F::AgentKind);
+        assert_eq!(next, F::CodePuppyModel);
     }
 
     #[test]
