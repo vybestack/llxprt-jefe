@@ -7,15 +7,14 @@ use std::fmt::Write;
 use std::process::Command;
 
 /// Percent-encode a value for use in a URL path segment (RFC 3986). Keeps
-/// unreserved characters (`A-Za-z0-9-._~`) verbatim; encodes everything else.
-/// Callers pass a bare workflow filename (see [`workflow_filename`]), so `/`
-/// passthrough is retained only for robustness, not because path segments
-/// contain slashes.
+/// unreserved characters (`A-Za-z0-9-._~`) verbatim; encodes everything else,
+/// including `/` (as `%2F`) so a stray full path can never silently leak
+/// slashes into a single path segment and reproduce the #206 404.
 fn percent_encode_path(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for &b in value.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
                 out.push(b as char);
             }
             _ => {
@@ -418,6 +417,22 @@ impl GhClient {
 mod tests {
     use super::*;
     use crate::domain::ActionsFilter;
+
+    /// `percent_encode_path` must encode `/` as `%2F` so a stray full path
+    /// passed without going through `workflow_filename` can never silently
+    /// leak slashes into a single path segment (the #206 404 regression).
+    #[test]
+    fn percent_encode_path_encodes_slash() {
+        let encoded = percent_encode_path(".github/workflows/ci.yml");
+        assert!(
+            encoded.contains("%2F"),
+            "slash must be percent-encoded, got: {encoded}"
+        );
+        assert!(
+            !encoded.contains('/'),
+            "no literal slash may remain, got: {encoded}"
+        );
+    }
 
     /// The API path must use the workflow FILENAME (last path segment), not
     /// the full `.github/workflows/ci.yml` path. The GitHub REST endpoint
