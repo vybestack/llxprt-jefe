@@ -12,8 +12,8 @@ use super::*;
 /// module's own guarantee holds independently of MarkdownRenderer::push.
 #[test]
 fn strip_html_drops_raw_control_characters() {
-    let out = strip_html_to_text("a\u{1b}[31mred\u{0}b\u{9b}c");
-    assert_eq!(out, "a[31mredbc", "ESC/NUL/C1-CSI removed: {out:?}");
+    let out = strip_html_to_text("a\u{1b}[31mred\u{0}b\u{7f}\u{9b}c");
+    assert_eq!(out, "a[31mredbc", "ESC/NUL/DEL/C1-CSI removed: {out:?}");
     // Newlines (block boundaries) and tabs are meaningful and must survive.
     assert_eq!(
         strip_html_to_text("line1\nline2"),
