@@ -6,10 +6,14 @@ use crate::domain::{
 use std::fmt::Write;
 use std::process::Command;
 
-/// Percent-encode a value for use in a URL path segment (RFC 3986). Keeps
-/// unreserved characters (`A-Za-z0-9-._~`) verbatim; encodes everything else,
-/// including `/` (as `%2F`) so a stray full path can never silently leak
-/// slashes into a single path segment and reproduce the #206 404.
+/// Percent-encode a SINGLE URL path segment (RFC 3986). Keeps unreserved
+/// characters (`A-Za-z0-9-._~`) verbatim; encodes everything else, including
+/// `/` (as `%2F`) so a stray full path can never silently leak slashes into
+/// one segment and reproduce the #206 404.
+///
+/// This is intentionally segment-only: it does NOT preserve `/` as a path
+/// separator. Callers building multi-segment paths must join already-encoded
+/// segments with literal `/` themselves; do not pass a composite path here.
 fn percent_encode_path(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for &b in value.as_bytes() {
