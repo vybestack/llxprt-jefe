@@ -609,6 +609,11 @@ pub fn sort_pull_requests(items: &mut [PullRequest]) {
 /// to their parent review, and `pageInfo` drives cursor pagination so PRs
 /// with more threads than one page lose nothing (issue #155 follow-up).
 ///
+/// The per-thread `comments(first: 50)` cap is an intentional trade-off:
+/// threads (not their comments) are the paginated axis, and a single review
+/// thread exceeding 50 back-and-forth comments is pathological. Comments
+/// past the cap are not fetched.
+///
 /// `with_cursor=true` includes the `$after` variable declaration and the
 /// `after: $after` argument on the reviewThreads connection;
 /// `with_cursor=false` omits both.

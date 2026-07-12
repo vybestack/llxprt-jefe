@@ -548,11 +548,8 @@ impl GhClient {
         ];
         let repo = format!("{owner}/{name}");
 
-        // Run the three gh subprocess fetches CONCURRENTLY so a detail load
-        // takes max(fetch) instead of sum(fetch) (each gh call takes 1-3s).
-        // GhClient is a Sync ZST, so scoped &self borrows across threads are
-        // safe. join() returns Err only on worker panic; that is mapped to a
-        // GhError (never panic-propagated).
+        // Run the three gh fetches CONCURRENTLY (max(fetch) not sum(fetch)).
+        // GhClient is Sync; join() Err = worker panic, mapped to GhError.
         let (detail, comments, threads) = std::thread::scope(|s| {
             let detail_handle = s.spawn(|| {
                 let stdout = Self::run_gh(&args)?;
@@ -563,15 +560,19 @@ impl GhClient {
             });
             let threads_handle = s.spawn(|| self.list_pr_review_threads(owner, name, number));
 
+            let worker_panic = |what: &str| {
+                GhError::ApiError(format!(
+                    "{what} worker panicked for {owner}/{name}#{number}"
+                ))
+            };
             let detail = detail_handle
                 .join()
-                .map_err(|_| GhError::ApiError("metadata fetch worker panicked".to_string()))??;
+                .map_err(|_| worker_panic("metadata fetch"))??;
             let comments = comments_handle
                 .join()
-                .map_err(|_| GhError::ApiError("comments fetch worker panicked".to_string()))??;
+                .map_err(|_| worker_panic("comments fetch"))??;
             // Threads are best-effort: a worker panic degrades to "no
-            // threads" rather than failing the whole load, but is logged so
-            // the missing section is diagnosable instead of silent.
+            // threads" (logged) rather than failing the whole load.
             let threads = threads_handle.join().unwrap_or_else(|_| {
                 tracing::warn!(
                     "review-threads fetch worker panicked for {owner}/{name}#{number}; \
@@ -582,9 +583,8 @@ impl GhClient {
             Ok::<_, GhError>((detail, comments, threads))
         })?;
 
-        // Assemble exactly as before: metadata error OR comments error still
-        // fails the whole load (Result propagated above); threads are
-        // best-effort.
+        // Assemble exactly as before: metadata/comments errors fail the
+        // whole load (propagated above); threads are best-effort.
         let mut detail = detail;
         detail.comments = comments.comments;
         detail.comments_cursor = comments.cursor;
