@@ -30,7 +30,7 @@ pub struct AgentRuntimeCapabilities {
 pub const fn static_capabilities(kind: AgentKind) -> AgentRuntimeCapabilities {
     match kind {
         AgentKind::Llxprt | AgentKind::CodePuppy => AgentRuntimeCapabilities {
-            // Code Puppy 0.0.634 has no stable non-interactive model-list API.
+            // Upstream has no stable non-interactive model-list API.
             model_discovery: ModelDiscovery::Unavailable,
             // Code Puppy YOLO support is feature-probed before a configured launch.
             explicit_yolo: false,
@@ -95,7 +95,7 @@ fn strip_terminal_controls(value: &str) -> String {
                     }
                 }
             }
-            Some(']') => {
+            Some(']' | 'P' | 'X' | '^' | '_') => {
                 while let Some(next) = chars.next() {
                     if next == '\u{7}' {
                         break;
@@ -159,6 +159,21 @@ mod tests {
     #[test]
     fn unknown_escape_sequence_preserves_its_printable_character() {
         assert!(code_puppy_help_supports_yolo("\u{1b}%--yolo {true,false}"));
+    }
+
+    #[test]
+    fn strips_terminal_string_sequences_and_handles_edge_cases() {
+        assert_eq!(strip_terminal_controls(""), "");
+        assert_eq!(strip_terminal_controls("\u{1b}[32m\u{1b}[0m"), "");
+        assert_eq!(strip_terminal_controls("\u{1b}]title\u{7}--yolo"), "--yolo");
+        assert_eq!(
+            strip_terminal_controls("\u{1b}Ppayload\u{1b}\\--yolo"),
+            "--yolo"
+        );
+        assert_eq!(
+            strip_terminal_controls("before\u{1b}]unterminated"),
+            "before"
+        );
     }
 
     #[test]
