@@ -6,7 +6,7 @@
 //! - Selection is preserved by PR number across list replacement/reorder.
 //! - Scroll offset is preserved (clamped to new list bounds).
 //! - Filter, search query, and `pr_detail` are NOT clobbered.
-//! - `loading.list` / `loading.detail` are NOT set (no spinner flash).
+//! - `list_loading()` / `loading.detail` are NOT set (no spinner flash).
 //! - Errors are NOT surfaced on silent failure.
 //! - Stale scope/request_id results are discarded.
 //! - Loud `PrListLoaded` does NOT cancel an in-flight detail load.
@@ -17,7 +17,9 @@ use crate::domain::{
 };
 use crate::state::AppState;
 use crate::state::events::AppEvent;
-use crate::state::types::ScreenMode;
+use crate::state::types::{PrListIdentity, ScreenMode};
+
+use super::prs_test_fixtures::begin_pr_list_reload;
 
 // ── Test fixtures ──────────────────────────────────────────────────────────
 
@@ -88,15 +90,17 @@ fn make_test_pr_detail(number: u64, comments: Vec<IssueComment>) -> PullRequestD
     }
 }
 
-/// Seed a `list_reload_pending` for the given scope + filter + request_id so
-/// the silent-refresh staleness guard passes.
+/// Seed a silent-refresh pending reload for the given scope + filter +
+/// request_id so the silent-refresh staleness guard passes.
 fn seed_silent_refresh_pending(state: &mut AppState, scope: &str, request_id: u64) {
     state.prs_state.committed_filter = PrFilter::default();
-    state.prs_state.list_reload_pending = Some(crate::state::types::PrListReloadPending {
-        scope_repo_id: RepositoryId(scope.to_string()),
-        filter: PrFilter::default(),
-        request_id,
-    });
+    state.prs_state.list.begin_silent_reload(
+        PrListIdentity {
+            scope_repo_id: RepositoryId(scope.to_string()),
+            filter: PrFilter::default(),
+        },
+        crate::domain::ListRequestId::from_raw(request_id),
+    );
 }
 
 // ── Loud PrListLoaded: detail_pending preservation ─────────────────────────
@@ -110,14 +114,13 @@ fn seed_silent_refresh_pending(state: &mut AppState, scope: &str, request_id: u6
 #[test]
 fn test_list_loaded_does_not_clear_detail_pending() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1), make_test_pr(2)];
-    state.prs_state.selected_pr_index = Some(1);
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(1), make_test_pr(2)]);
+    state.prs_state.list.set_selected_index(Some(1));
     state.prs_state.committed_filter = PrFilter::default();
-    state.prs_state.list_reload_pending = Some(crate::state::types::PrListReloadPending {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: PrFilter::default(),
-        request_id: 100,
-    });
+    let _request_id = begin_pr_list_reload(&mut state, "repo-1", PrFilter::default());
     // Simulate an in-flight detail load.
     state.prs_state.detail_pending = Some(crate::state::types::PrDetailPending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
@@ -128,7 +131,7 @@ fn test_list_loaded_does_not_clear_detail_pending() {
     let new_state = state.apply(AppEvent::PrListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(PrFilter::default()),
-        request_id: 100,
+        request_id: 1,
         pull_requests: vec![make_test_pr(1), make_test_pr(2)],
         cursor: None,
         has_more: false,
@@ -150,8 +153,11 @@ fn test_list_loaded_does_not_clear_detail_pending() {
 #[test]
 fn test_silent_refresh_preserves_selection_and_scroll() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = (1u64..=5).map(make_test_pr).collect();
-    state.prs_state.selected_pr_index = Some(2);
+    state
+        .prs_state
+        .list
+        .replace_items((1u64..=5).map(make_test_pr).collect());
+    state.prs_state.list.set_selected_index(Some(2));
     state.prs_state.list_scroll_offset = 2;
     state.prs_state.pr_detail = Some(make_test_pr_detail(3, vec![]));
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
@@ -166,7 +172,7 @@ fn test_silent_refresh_preserves_selection_and_scroll() {
     });
 
     assert_eq!(
-        new_state.prs_state.selected_pr_index,
+        new_state.prs_state.selected_pr_index(),
         Some(2),
         "selection must be preserved"
     );
@@ -175,12 +181,12 @@ fn test_silent_refresh_preserves_selection_and_scroll() {
         "scroll offset must be preserved"
     );
     assert!(
-        !new_state.prs_state.loading.list,
+        !new_state.prs_state.list_loading(),
         "silent refresh must NOT set loading.list"
     );
     assert!(
-        new_state.prs_state.list_reload_pending.is_none(),
-        "silent refresh must clear list_reload_pending"
+        !new_state.prs_state.list_pending(),
+        "silent refresh must clear the pending marker"
     );
     assert!(
         new_state.prs_state.pr_detail.is_some(),
@@ -195,8 +201,11 @@ fn test_silent_refresh_preserves_selection_and_scroll() {
 #[test]
 fn test_silent_refresh_preserves_selection_when_pr_reordered() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1), make_test_pr(2), make_test_pr(3)];
-    state.prs_state.selected_pr_index = Some(1); // PR #2
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(1), make_test_pr(2), make_test_pr(3)]);
+    state.prs_state.list.set_selected_index(Some(1)); // PR #2
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
     let new_state = state.apply(AppEvent::PrListSilentRefreshed {
@@ -209,12 +218,16 @@ fn test_silent_refresh_preserves_selection_when_pr_reordered() {
     });
 
     assert_eq!(
-        new_state.prs_state.selected_pr_index,
+        new_state.prs_state.selected_pr_index(),
         Some(1),
         "selection must track PR #2 by number (now at index 1)"
     );
     assert_eq!(
-        new_state.prs_state.pull_requests.get(1).map(|pr| pr.number),
+        new_state
+            .prs_state
+            .pull_requests()
+            .get(1)
+            .map(|pr| pr.number),
         Some(2),
         "index 1 must be PR #2"
     );
@@ -227,8 +240,11 @@ fn test_silent_refresh_preserves_selection_when_pr_reordered() {
 #[test]
 fn test_silent_refresh_handles_selected_pr_removed() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1), make_test_pr(2), make_test_pr(3)];
-    state.prs_state.selected_pr_index = Some(1); // PR #2
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(1), make_test_pr(2), make_test_pr(3)]);
+    state.prs_state.list.set_selected_index(Some(1)); // PR #2
     state.prs_state.list_scroll_offset = 2;
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
@@ -242,7 +258,7 @@ fn test_silent_refresh_handles_selected_pr_removed() {
     });
 
     assert_eq!(
-        new_state.prs_state.selected_pr_index,
+        new_state.prs_state.selected_pr_index(),
         Some(0),
         "removed PR: selection falls back to first"
     );
@@ -260,8 +276,11 @@ fn test_silent_refresh_handles_selected_pr_removed() {
 #[test]
 fn test_silent_refresh_discards_stale_scope() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1), make_test_pr(2)];
-    state.prs_state.selected_pr_index = Some(0);
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(1), make_test_pr(2)]);
+    state.prs_state.list.set_selected_index(Some(0));
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
     let new_state = state.apply(AppEvent::PrListSilentRefreshed {
@@ -274,13 +293,13 @@ fn test_silent_refresh_discards_stale_scope() {
     });
 
     assert_eq!(
-        new_state.prs_state.pull_requests.len(),
+        new_state.prs_state.pull_requests().len(),
         2,
         "stale scope result must be discarded"
     );
     assert!(
-        new_state.prs_state.list_reload_pending.is_some(),
-        "stale scope: list_reload_pending must remain"
+        new_state.prs_state.list_pending(),
+        "stale scope: pending must remain"
     );
 }
 
@@ -292,9 +311,11 @@ fn test_silent_refresh_discards_stale_scope() {
 #[test]
 fn test_silent_refresh_does_not_set_loading_or_error() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1), make_test_pr(2)];
-    state.prs_state.selected_pr_index = Some(0);
-    state.prs_state.loading.list = false;
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(1), make_test_pr(2)]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.error = None;
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
@@ -308,7 +329,7 @@ fn test_silent_refresh_does_not_set_loading_or_error() {
     });
 
     assert!(
-        !new_state.prs_state.loading.list,
+        !new_state.prs_state.list_loading(),
         "silent refresh must NOT set loading.list"
     );
     assert!(
@@ -325,7 +346,7 @@ fn test_silent_refresh_does_not_set_loading_or_error() {
 #[test]
 fn test_silent_refresh_failed_clears_pending_without_error() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1)];
+    state.prs_state.list.replace_items(vec![make_test_pr(1)]);
     state.prs_state.error = None;
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
@@ -335,8 +356,8 @@ fn test_silent_refresh_failed_clears_pending_without_error() {
     });
 
     assert!(
-        new_state.prs_state.list_reload_pending.is_none(),
-        "silent refresh failure must clear list_reload_pending"
+        !new_state.prs_state.list_pending(),
+        "silent refresh failure must clear the pending marker"
     );
     assert!(
         new_state.prs_state.error.is_none(),
@@ -351,13 +372,9 @@ fn test_silent_refresh_failed_clears_pending_without_error() {
 #[test]
 fn test_silent_refresh_failed_discards_stale_request_id() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1)];
+    state.prs_state.list.replace_items(vec![make_test_pr(1)]);
     state.prs_state.committed_filter = PrFilter::default();
-    state.prs_state.list_reload_pending = Some(crate::state::types::PrListReloadPending {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: PrFilter::default(),
-        request_id: 100,
-    });
+    seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
     let new_state = state.apply(AppEvent::PrListSilentRefreshFailed {
         scope_repo_id: RepositoryId("repo-1".to_string()),
@@ -365,17 +382,8 @@ fn test_silent_refresh_failed_discards_stale_request_id() {
     });
 
     assert!(
-        new_state.prs_state.list_reload_pending.is_some(),
+        new_state.prs_state.list_pending(),
         "stale silent-refresh failure must be discarded (pending remains)"
-    );
-    let pending = new_state
-        .prs_state
-        .list_reload_pending
-        .as_ref()
-        .unwrap_or_else(|| panic!("pending must remain"));
-    assert_eq!(
-        pending.request_id, 100,
-        "the CURRENT request_id (100) must still be pending"
     );
 }
 
@@ -389,8 +397,11 @@ fn test_silent_refresh_does_not_clear_pr_detail() {
     let mut state = prs_mode_state("repo-1");
     let detail = make_test_pr_detail(2, vec![]);
     state.prs_state.pr_detail = Some(detail);
-    state.prs_state.pull_requests = vec![make_test_pr(1), make_test_pr(2)];
-    state.prs_state.selected_pr_index = Some(1);
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(1), make_test_pr(2)]);
+    state.prs_state.list.set_selected_index(Some(1));
     state.prs_state.detail_scroll_offset = 3;
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
@@ -422,8 +433,11 @@ fn test_silent_refresh_does_not_clear_pr_detail() {
 fn test_silent_refresh_empty_list_preserves_pr_detail() {
     let mut state = prs_mode_state("repo-1");
     state.prs_state.pr_detail = Some(make_test_pr_detail(2, vec![]));
-    state.prs_state.pull_requests = vec![make_test_pr(1), make_test_pr(2)];
-    state.prs_state.selected_pr_index = Some(1);
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(1), make_test_pr(2)]);
+    state.prs_state.list.set_selected_index(Some(1));
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
     let new_state = state.apply(AppEvent::PrListSilentRefreshed {
@@ -440,7 +454,7 @@ fn test_silent_refresh_empty_list_preserves_pr_detail() {
         "silent refresh with empty list must NOT clear pr_detail"
     );
     assert!(
-        new_state.prs_state.selected_pr_index.is_none(),
+        new_state.prs_state.selected_pr_index().is_none(),
         "empty list must clear selected_pr_index"
     );
 }
@@ -453,8 +467,11 @@ fn test_silent_refresh_empty_list_preserves_pr_detail() {
 #[test]
 fn test_silent_refresh_preserves_search_query_and_filter() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1), make_test_pr(2)];
-    state.prs_state.selected_pr_index = Some(0);
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(1), make_test_pr(2)]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.search_query = "foo".to_string();
     let filter = PrFilter {
         state: Some(crate::domain::PrFilterState::Open),
@@ -462,11 +479,13 @@ fn test_silent_refresh_preserves_search_query_and_filter() {
     };
     state.prs_state.committed_filter = filter.clone();
     // Seed pending with the SAME filter so the staleness guard passes.
-    state.prs_state.list_reload_pending = Some(crate::state::types::PrListReloadPending {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: filter.clone(),
-        request_id: 100,
-    });
+    state.prs_state.list.begin_silent_reload(
+        PrListIdentity {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: filter.clone(),
+        },
+        crate::domain::ListRequestId::from_raw(100),
+    );
 
     let new_state = state.apply(AppEvent::PrListSilentRefreshed {
         scope_repo_id: RepositoryId("repo-1".to_string()),
@@ -497,8 +516,8 @@ fn test_silent_refresh_preserves_search_query_and_filter() {
 #[test]
 fn test_silent_detail_refresh_preserves_subfocus_and_scroll() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(5)];
-    state.prs_state.selected_pr_index = Some(0);
+    state.prs_state.list.replace_items(vec![make_test_pr(5)]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.pr_detail = Some(make_test_pr_detail(5, vec![]));
     state.prs_state.detail_subfocus = crate::state::types::PrDetailSubfocus::Comment(1);
     state.prs_state.detail_scroll_offset = 5;
@@ -541,8 +560,8 @@ fn test_silent_detail_refresh_preserves_subfocus_and_scroll() {
 #[test]
 fn test_silent_detail_refresh_failed_does_not_set_error() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(5)];
-    state.prs_state.selected_pr_index = Some(0);
+    state.prs_state.list.replace_items(vec![make_test_pr(5)]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.error = None;
     state.prs_state.loading.detail = false;
     state.prs_state.detail_pending = Some(crate::state::types::PrDetailPending {

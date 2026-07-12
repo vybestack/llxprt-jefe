@@ -28,7 +28,7 @@ fn prs_mode_state_with_selected_pr(repo_id: &str, pr_number: u64) -> AppState {
     ));
     state.selected_repository_index = Some(0);
     state.prs_state.active = true;
-    state.prs_state.pull_requests = vec![PullRequest {
+    state.prs_state.list.replace_items(vec![PullRequest {
         number: pr_number,
         title: format!("PR #{pr_number}"),
         state: PrState::Open,
@@ -42,8 +42,8 @@ fn prs_mode_state_with_selected_pr(repo_id: &str, pr_number: u64) -> AppState {
         assignee_summary: String::new(),
         labels_summary: String::new(),
         comment_count: 0,
-    }];
-    state.prs_state.selected_pr_index = Some(0);
+    }]);
+    state.prs_state.list.set_selected_index(Some(0));
     state
 }
 
@@ -102,8 +102,8 @@ fn test_open_in_browser_reducer_is_pure_sets_opening_notice() {
     // WITH a selected PR.
     let state = prs_mode_state_with_selected_pr("repo-1", 7);
     let detail_was_present = state.prs_state.pr_detail.is_some();
-    let list_len = state.prs_state.pull_requests.len();
-    let selection_snapshot = state.prs_state.selected_pr_index;
+    let list_len = state.prs_state.pull_requests().len();
+    let selection_snapshot = state.prs_state.selected_pr_index();
 
     // Drive through the REAL dispatch hub (apply_message → apply_prs_message).
     let state = state.apply_message(AppMessage::PullRequests(PullRequestsMessage::OpenInBrowser));
@@ -120,9 +120,9 @@ fn test_open_in_browser_reducer_is_pure_sets_opening_notice() {
         "notice should mention opening/browser, got: {notice}"
     );
     // Pure: no I/O, no list/detail mutation (counts and selection preserved).
-    assert_eq!(state.prs_state.pull_requests.len(), list_len);
+    assert_eq!(state.prs_state.pull_requests().len(), list_len);
     assert_eq!(state.prs_state.pr_detail.is_some(), detail_was_present);
-    assert_eq!(state.prs_state.selected_pr_index, selection_snapshot);
+    assert_eq!(state.prs_state.selected_pr_index(), selection_snapshot);
 }
 
 /// PrOpenInBrowser WITHOUT a selected PR must set a NoSelectionToOpen-style
@@ -135,8 +135,8 @@ fn test_open_in_browser_reducer_is_pure_sets_opening_notice() {
 fn test_open_in_browser_no_selection_sets_notice() {
     let mut state = AppState::default();
     state.prs_state.active = true;
-    state.prs_state.selected_pr_index = None;
-    state.prs_state.pull_requests = vec![];
+    state.prs_state.list.set_selected_index(None);
+    state.prs_state.list.clear_items();
 
     // Drive through the REAL dispatch hub (apply_message → apply_prs_message).
     state = state.apply_message(AppMessage::PullRequests(PullRequestsMessage::OpenInBrowser));

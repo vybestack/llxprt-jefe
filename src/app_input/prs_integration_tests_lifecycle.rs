@@ -32,8 +32,8 @@ use super::{prs, to_persisted_state};
 fn esc_chain_base_state() -> AppState {
     let mut state = active_prs_state();
     state.prs_state.pr_focus = PrFocus::PrDetail;
-    state.prs_state.pull_requests = vec![make_test_pr(1)];
-    state.prs_state.selected_pr_index = Some(0);
+    state.prs_state.list.replace_items(vec![make_test_pr(1)]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.pr_detail = Some(make_test_pr_detail(1));
     state
 }
@@ -239,8 +239,8 @@ fn state_with_active_prs_and_persisted_fields() -> AppState {
 
     // ACTIVE, populated prs_state (transient — must be excluded).
     state.apply_in_place(AppEvent::EnterPrsMode);
-    state.prs_state.pull_requests = vec![make_test_pr(1)];
-    state.prs_state.selected_pr_index = Some(0);
+    state.prs_state.list.replace_items(vec![make_test_pr(1)]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.pr_detail = Some(make_test_pr_detail(1));
     state.prs_state.pr_focus = PrFocus::PrDetail;
     state
@@ -341,7 +341,7 @@ fn it_persisted_state_excludes_prs_state() {
     let state = state_with_active_prs_and_persisted_fields();
     // Precondition: PR mode is active and populated (meaningful test).
     assert!(state.prs_state.active);
-    assert!(!state.prs_state.pull_requests.is_empty());
+    assert!(!state.prs_state.pull_requests().is_empty());
 
     // Drive the REAL production mapper (same path as app_input_tests.rs:284).
     let persisted = to_persisted_state(&state);
@@ -367,9 +367,9 @@ fn it_persisted_state_excludes_prs_state() {
         "fresh AppState prs_state must be inactive"
     );
     assert!(
-        fresh.prs_state.pull_requests.is_empty()
+        fresh.prs_state.pull_requests().is_empty()
             && fresh.prs_state.pr_detail.is_none()
-            && fresh.prs_state.selected_pr_index.is_none(),
+            && fresh.prs_state.selected_pr_index().is_none(),
         "fresh AppState prs_state must be at defaults (transient, never rehydrated)"
     );
 }

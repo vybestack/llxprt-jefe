@@ -146,10 +146,18 @@ impl<T, I> PaginatedList<T, I> {
         &self.items
     }
 
-    /// Mutable access to the items vector (test-only).
+    /// Mutable access to the items vector (lib test-only).
     #[cfg(test)]
     pub(crate) fn items_mut(&mut self) -> &mut Vec<T> {
         &mut self.items
+    }
+
+    /// Replace the entire item set without touching selection or pagination
+    /// (seed/snapshot-restore). Intended for test setup and restoring a
+    /// persisted snapshot where the full item set is known but the reload
+    /// lifecycle should not be re-driven.
+    pub fn replace_items(&mut self, items: Vec<T>) {
+        self.items = items;
     }
 
     /// Returns the selected row index, if any.

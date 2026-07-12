@@ -339,13 +339,13 @@ fn state_with_active_prs() -> jefe::state::AppState {
     use jefe::state::ScreenMode;
     use std::path::PathBuf;
 
-    let prs_state = jefe::state::PullRequestsState {
+    let mut prs_state = jefe::state::PullRequestsState {
         active: true,
-        pull_requests: vec![test_pr(1)],
-        selected_pr_index: Some(0),
         pr_detail: Some(test_pr_detail(1)),
         ..jefe::state::PullRequestsState::default()
     };
+    prs_state.list.replace_items(vec![test_pr(1)]);
+    prs_state.list.set_selected_index(Some(0));
     let mut state = jefe::state::AppState {
         screen_mode: ScreenMode::DashboardPullRequests,
         prs_state,
@@ -469,11 +469,14 @@ fn test_open_in_browser_no_selection_sets_notice_through_handler() {
 
     let state = AppState {
         screen_mode: ScreenMode::DashboardPullRequests,
-        prs_state: PullRequestsState {
-            active: true,
-            pr_focus: jefe::state::PrFocus::PrList,
-            selected_pr_index: None,
-            ..PullRequestsState::default()
+        prs_state: {
+            let mut ps = PullRequestsState {
+                active: true,
+                pr_focus: jefe::state::PrFocus::PrList,
+                ..PullRequestsState::default()
+            };
+            ps.list.set_selected_index(None);
+            ps
         },
         ..AppState::default()
     };
@@ -507,7 +510,7 @@ fn test_open_in_browser_no_selection_sets_notice_through_handler() {
     // No loading/pending flags set — the no-selection path never reaches the
     // dispatch spawn.
     assert!(
-        !after.prs_state.loading.list,
+        !after.prs_state.list_loading(),
         "no-selection path must not set loading.list"
     );
     assert!(
@@ -543,10 +546,8 @@ fn state_for_pr_agent_chooser_confirm(
     agent.profile = String::new();
     agent.mode_flags = Vec::new();
 
-    let prs_state = jefe::state::PullRequestsState {
+    let mut prs_state = jefe::state::PullRequestsState {
         active: true,
-        pull_requests: vec![test_pr(42)],
-        selected_pr_index: Some(0),
         pr_detail: Some(test_pr_detail(42)),
         agent_chooser: Some(AgentChooserState {
             selected_index: 0,
@@ -554,6 +555,8 @@ fn state_for_pr_agent_chooser_confirm(
         }),
         ..jefe::state::PullRequestsState::default()
     };
+    prs_state.list.replace_items(vec![test_pr(42)]);
+    prs_state.list.set_selected_index(Some(0));
     let mut state = jefe::state::AppState {
         screen_mode: ScreenMode::DashboardPullRequests,
         prs_state,

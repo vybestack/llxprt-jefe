@@ -295,7 +295,7 @@ fn pr_open_in_browser_or_notice(target_present: bool) -> AppEvent {
 /// @requirement REQ-PR-012
 /// @pseudocode component-003 lines 68-69
 fn selected_pr_present(state: &AppState) -> bool {
-    state.prs_state.selected_pr_index.is_some()
+    state.prs_state.selected_pr_index().is_some()
 }
 
 /// Whether a loaded PR detail is present (REQ-PR-012 presence check).

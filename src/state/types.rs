@@ -526,20 +526,18 @@ pub struct WorkflowsPending {
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-001
-/// @pseudocode component-001 lines 33-40
 /// Aggregate state for Issues Mode.
 #[derive(Debug, Clone, Default)]
 pub struct IssuesState {
     pub active: bool,
-    pub issues: Vec<crate::domain::Issue>,
-    pub selected_issue_index: Option<usize>,
+    /// Unified list state: issues, selection, pagination continuation, and
+    /// pending load correlation. List loading is derived from this container.
+    pub list: crate::state::pagination::PaginatedList<crate::domain::Issue, IssueListIdentity>,
     pub issue_detail: Option<crate::domain::IssueDetail>,
     pub committed_filter: crate::domain::IssueFilter,
     pub draft_filter: crate::domain::IssueFilter,
     pub search_query: String,
     pub loading: IssueLoadingState,
-    pub list_cursor: Option<String>,
-    pub has_more_issues: bool,
     pub error: Option<String>,
     pub issue_focus: IssueFocus,
     pub detail_subfocus: DetailSubfocus,
@@ -555,9 +553,6 @@ pub struct IssuesState {
     pub draft_notice: Option<String>,
     pub mutation_pending: Option<IssueMutationPending>,
     pub next_mutation_id: u64,
-    pub list_reload_pending: Option<IssueListReloadPending>,
-    pub next_issue_list_request_id: u64,
-    pub list_page_pending: Option<IssueListPagePending>,
     pub detail_pending: Option<IssueDetailPending>,
     pub next_issue_detail_request_id: u64,
     pub comments_page_pending: Option<IssueCommentsPagePending>,
@@ -565,18 +560,9 @@ pub struct IssuesState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueListReloadPending {
+pub struct IssueListIdentity {
     pub scope_repo_id: RepositoryId,
     pub filter: crate::domain::IssueFilter,
-    pub request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueListPagePending {
-    pub scope_repo_id: RepositoryId,
-    pub filter: crate::domain::IssueFilter,
-    pub cursor: Option<String>,
-    pub request_id: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -601,9 +587,13 @@ pub struct IssueMutationPending {
     pub target: InlineState,
 }
 
+/// Loading/pending state for Issues mode async operations.
+///
+/// List loading is now derived from `IssuesState::list` (the
+/// `PaginatedList::is_loading()` / `has_pending_request()` accessors). Only
+/// detail and comments loading remain as explicit flags here.
 #[derive(Debug, Clone, Default)]
 pub struct IssueLoadingState {
-    pub list: bool,
     pub detail: bool,
     pub comments: bool,
 }
@@ -623,6 +613,36 @@ pub struct IssueFilterUiState {
 }
 
 impl IssuesState {
+    /// Read-only access to the loaded issues.
+    #[must_use]
+    pub fn issues(&self) -> &[crate::domain::Issue] {
+        self.list.items()
+    }
+
+    /// The currently selected issue index, if any.
+    #[must_use]
+    pub fn selected_issue_index(&self) -> Option<usize> {
+        self.list.selected_index()
+    }
+
+    /// Whether the list is visibly loading (reload-visible or page pending).
+    #[must_use]
+    pub fn list_loading(&self) -> bool {
+        self.list.is_loading()
+    }
+
+    /// Whether any list operation is pending (visible or silent).
+    #[must_use]
+    pub fn list_pending(&self) -> bool {
+        self.list.has_pending_request()
+    }
+
+    /// Whether more pages are available.
+    #[must_use]
+    pub fn has_more_issues(&self) -> bool {
+        self.list.has_more()
+    }
+
     /// Count the number of rendered content lines for the current detail view.
     #[must_use]
     pub fn detail_content_line_count(&self) -> usize {

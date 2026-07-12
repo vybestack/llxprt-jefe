@@ -8,10 +8,9 @@
 //! @requirement REQ-PR-NFR-002
 //! @pseudocode component-001 lines 209-247
 
-use super::{
-    AppEvent, AppState, PrDetailPending, PrDetailSubfocus, PrListPagePending, PrListReloadPending,
-};
-use crate::domain::{PrFilter, PullRequest, RepositoryId};
+use super::{AppEvent, AppState, PrDetailPending, PrDetailSubfocus, PrListIdentity};
+use crate::domain::{ListRequestId, PageToken, PrFilter, PullRequest, RepositoryId};
+use crate::state::pagination::{AcceptOutcome, LoadCorrelation, PageResult, ReloadResult};
 
 pub(super) struct PrListLoadedData {
     scope_repo_id: RepositoryId,
@@ -50,43 +49,51 @@ pub(super) struct PrCommentsPageLoadedData {
     pub(super) has_more: bool,
 }
 
+/// Build the cursor-based [`PageToken`] used to request a page from the cursor
+/// the dispatch layer intends to fetch. A `None` cursor collapses to `Done`
+/// (matching `PageToken::from_cursor`).
+fn pr_page_token(cursor: Option<String>) -> PageToken {
+    cursor.map_or(PageToken::Done, PageToken::Cursor)
+}
+
 impl AppState {
-    /// Apply a PR list loaded result with staleness guards.
+    /// Apply a PR list loaded result via `PaginatedList::accept_loaded`.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-006
     /// @requirement REQ-PR-014
     /// @pseudocode component-001 lines 209-223
     pub(super) fn apply_pr_list_loaded(&mut self, list: PrListLoadedData) {
-        if !self.pr_list_reload_pending_matches(&list.scope_repo_id, &list.filter, list.request_id)
-        {
-            return;
+        let identity = PrListIdentity {
+            scope_repo_id: list.scope_repo_id,
+            filter: list.filter,
+        };
+        let result = ReloadResult {
+            identity,
+            request_id: ListRequestId::from_raw(list.request_id),
+            items: list.pull_requests,
+            next_page: PageToken::from_cursor(list.cursor, list.has_more),
+        };
+        let outcome = self.prs_state.list.accept_loaded(result);
+        if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
+            self.prs_state.error = None;
+            // Do NOT clear detail_pending here — clearing it cancels any
+            // in-flight detail load (e.g. the post-merge detail reload). The
+            // detail staleness guard (pr_detail_pending_matches) already
+            // discards stale results when the scope or selected PR number
+            // changes (issue #128).
+            if self.prs_state.list.items().is_empty() {
+                self.prs_state.pr_detail = None;
+            } else {
+                // The previous pr_detail is STALE (it is for a PR from the
+                // prior list). Clear it so the detail pane does not show old
+                // content until the fresh detail/preview load repopulates it.
+                self.prs_state.pr_detail = None;
+                self.prs_state.detail_subfocus = PrDetailSubfocus::Body;
+                self.prs_state.detail_scroll_offset = 0;
+            }
+            self.prs_state.list_scroll_offset = 0;
         }
-        self.prs_state.error = None;
-        self.prs_state.pull_requests = list.pull_requests;
-        self.prs_state.list_cursor = list.cursor;
-        self.prs_state.has_more_prs = list.has_more;
-        self.prs_state.loading.list = false;
-        self.prs_state.list_reload_pending = None;
-        self.prs_state.list_page_pending = None;
-        // Do NOT clear detail_pending here — clearing it cancels any in-flight
-        // detail load (e.g. the post-merge detail reload). The detail staleness
-        // guard (pr_detail_pending_matches) already discards stale results when
-        // the scope or selected PR number changes (issue #128).
-        if self.prs_state.pull_requests.is_empty() {
-            self.prs_state.selected_pr_index = None;
-            self.prs_state.pr_detail = None;
-        } else {
-            // The previous pr_detail is STALE (it is for a PR from the prior
-            // list). Clear it so the detail pane does not show old content
-            // until the fresh detail/preview load repopulates it — mirroring
-            // the empty branch and reset_prs_for_repo_change.
-            self.prs_state.selected_pr_index = Some(0);
-            self.prs_state.pr_detail = None;
-            self.prs_state.detail_subfocus = PrDetailSubfocus::Body;
-            self.prs_state.detail_scroll_offset = 0;
-        }
-        self.prs_state.list_scroll_offset = 0;
     }
 
     /// Apply a silent background refresh (issue #128). Mirrors
@@ -95,33 +102,37 @@ impl AppState {
     ///
     /// @requirement issue #128
     pub(super) fn apply_pr_list_silent_refreshed(&mut self, data: PrListSilentRefreshedData) {
-        if !self.pr_list_reload_pending_matches(&data.scope_repo_id, &data.filter, data.request_id)
-        {
-            return;
-        }
+        let identity = PrListIdentity {
+            scope_repo_id: data.scope_repo_id,
+            filter: data.filter,
+        };
         // Remember the selected PR by number so we can follow it across a
         // reorder or list replacement.
         let selected_pr_number = self
             .prs_state
-            .selected_pr_index
-            .and_then(|idx| self.prs_state.pull_requests.get(idx))
+            .selected_pr_index()
+            .and_then(|idx| self.prs_state.pull_requests().get(idx))
             .map(|pr| pr.number);
-        self.prs_state.error = None;
-        self.prs_state.pull_requests = data.pull_requests;
-        self.prs_state.list_cursor = data.cursor;
-        self.prs_state.has_more_prs = data.has_more;
-        // Do NOT set loading.list — this is a silent background refresh.
-        self.prs_state.list_reload_pending = None;
-        self.prs_state.list_page_pending = None;
-        // Do NOT clear detail_pending or pr_detail — the detail reload is a
-        // separate operation; preserve the current detail until it arrives.
-        self.preserve_silent_refresh_selection(selected_pr_number);
+        let result = ReloadResult {
+            identity,
+            request_id: ListRequestId::from_raw(data.request_id),
+            items: data.pull_requests,
+            next_page: PageToken::from_cursor(data.cursor, data.has_more),
+        };
+        let outcome = self.prs_state.list.accept_loaded(result);
+        if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
+            self.prs_state.error = None;
+            // Do NOT clear detail_pending or pr_detail — the detail reload is
+            // a separate operation; preserve the current detail until it
+            // arrives.
+            self.preserve_silent_refresh_selection(selected_pr_number);
+        }
     }
 
     /// Re-derive selection + scroll after a silent refresh (issue #128 helper).
     fn preserve_silent_refresh_selection(&mut self, selected_pr_number: Option<u64>) {
-        if self.prs_state.pull_requests.is_empty() {
-            self.prs_state.selected_pr_index = None;
+        if self.prs_state.pull_requests().is_empty() {
+            self.prs_state.list.set_selected_index(None);
             // Do NOT clear pr_detail on an empty silent refresh (issue #128):
             // the detail pane keeps showing the last-loaded detail until the
             // next manual reload, avoiding an empty flash.
@@ -131,14 +142,14 @@ impl AppState {
         let new_index = selected_pr_number
             .and_then(|num| {
                 self.prs_state
-                    .pull_requests
+                    .pull_requests()
                     .iter()
                     .position(|pr| pr.number == num)
             })
             .unwrap_or(0);
-        self.prs_state.selected_pr_index = Some(new_index);
+        self.prs_state.list.set_selected_index(Some(new_index));
         // Clamp the scroll offset so it never exceeds the new list bounds.
-        let max_scroll = self.prs_state.pull_requests.len().saturating_sub(1);
+        let max_scroll = self.prs_state.pull_requests().len().saturating_sub(1);
         if self.prs_state.list_scroll_offset > max_scroll {
             self.prs_state.list_scroll_offset = max_scroll;
         }
@@ -153,26 +164,52 @@ impl AppState {
         scope_repo_id: &RepositoryId,
         request_id: u64,
     ) {
-        if self.pr_list_reload_pending_matches_id(scope_repo_id, request_id) {
-            self.prs_state.list_reload_pending = None;
-            // Do NOT set error — background failures are silent.
+        // The event scope must match the list's stored identity scope so a
+        // silent failure from a different repository cannot cancel the current
+        // refresh.
+        let Some(identity) = self.prs_state.list.identity().cloned() else {
+            return;
+        };
+        if identity.scope_repo_id != *scope_repo_id {
+            return;
         }
+        let correlation = LoadCorrelation::Reload {
+            identity,
+            request_id: ListRequestId::from_raw(request_id),
+        };
+        self.prs_state.list.accept_failure(&correlation);
+        // Do NOT set error — background failures are silent.
     }
 
-    /// Apply a PR list page (append) with staleness guards.
+    /// Apply a PR list page (append) via `PaginatedList::accept_page`.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-007
     /// @pseudocode component-001 lines 224-229
     pub(super) fn apply_pr_list_page_loaded(&mut self, page: PrListPageLoadedData) {
-        if !self.pr_list_page_pending_matches(&page.scope_repo_id, page.request_id) {
+        let Some(identity) = self.prs_state.list.identity().cloned() else {
+            return;
+        };
+        // The event scope must match the list's stored identity scope; a page
+        // response from a different repository must never be appended.
+        if identity.scope_repo_id != page.scope_repo_id {
             return;
         }
-        self.prs_state.pull_requests.extend(page.pull_requests);
-        self.prs_state.list_cursor = page.cursor;
-        self.prs_state.has_more_prs = page.has_more;
-        self.prs_state.loading.list = false;
-        self.prs_state.list_page_pending = None;
+        // The event does not carry the request cursor; derive the
+        // requested_token from the stored next_page (the token used to begin
+        // the page load — it is not updated until accept_page succeeds).
+        let requested_token = self.prs_state.list.next_page().clone();
+        let result = PageResult {
+            identity,
+            request_id: ListRequestId::from_raw(page.request_id),
+            requested_token,
+            items: page.pull_requests,
+            next_page: PageToken::from_cursor(page.cursor, page.has_more),
+        };
+        let outcome = self.prs_state.list.accept_page(result);
+        if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
+            self.prs_state.error = None;
+        }
     }
 
     /// Apply a PR detail loaded result with staleness guards.
@@ -250,9 +287,7 @@ impl AppState {
         }
         // The staleness guard passed, so this response is for the current
         // scope/pr. ALWAYS clear the loading flag and pending marker so the
-        // spinner never sticks — even if `pr_detail` was swapped out or never
-        // arrived (the `detail.*` mutations below are the only part that
-        // require a matching live detail).
+        // spinner never sticks.
         self.prs_state.error = None;
         self.prs_state.loading.comments = false;
         self.prs_state.comments_page_pending = None;
@@ -265,7 +300,7 @@ impl AppState {
         }
     }
 
-    /// Apply a PR list load failure (scoped error, never silent).
+    /// Apply a PR list load failure via `PaginatedList::accept_failure`.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-NFR-002
@@ -276,9 +311,35 @@ impl AppState {
         request_id: u64,
         error: String,
     ) {
-        if self.pr_list_reload_pending_matches_id(scope_repo_id, request_id) {
-            self.prs_state.loading.list = false;
-            self.prs_state.list_reload_pending = None;
+        // A failure could be for a reload or a page load. Try the reload
+        // correlation first, then the page correlation (the pending operation
+        // is exactly one of the two). Either clearing the pending marker
+        // derives `is_loading() == false`.
+        let Some(identity) = self.prs_state.list.identity().cloned() else {
+            // No stored identity: nothing pending can match.
+            return;
+        };
+        // The event scope must match the list's stored identity scope so a
+        // failure from a different repository cannot clear the current request.
+        if identity.scope_repo_id != *scope_repo_id {
+            return;
+        }
+        let request_id = ListRequestId::from_raw(request_id);
+        let reload_correlation = LoadCorrelation::Reload {
+            identity: identity.clone(),
+            request_id,
+        };
+        let outcome = self.prs_state.list.accept_failure(&reload_correlation);
+        let applied = matches!(outcome, AcceptOutcome::Applied)
+            || matches!(
+                self.prs_state.list.accept_failure(&LoadCorrelation::Page {
+                    identity,
+                    token: self.prs_state.list.next_page().clone(),
+                    request_id,
+                }),
+                AcceptOutcome::Applied
+            );
+        if applied {
             self.prs_state.error = Some(error);
         }
     }
@@ -321,73 +382,6 @@ impl AppState {
         }
     }
 
-    /// Check if a pending list-reload matches scope + filter + request_id.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-NFR-002
-    /// @pseudocode component-001 lines 209-223
-    fn pr_list_reload_pending_matches(
-        &self,
-        scope_repo_id: &RepositoryId,
-        filter: &PrFilter,
-        request_id: u64,
-    ) -> bool {
-        if request_id == 0 {
-            return self.selected_repository_id() == Some(scope_repo_id)
-                && self.prs_state.committed_filter == *filter;
-        }
-        self.selected_repository_id() == Some(scope_repo_id)
-            && self.prs_state.committed_filter == *filter
-            && self
-                .prs_state
-                .list_reload_pending
-                .as_ref()
-                .is_some_and(|pending| {
-                    pending.scope_repo_id == *scope_repo_id
-                        && pending.filter == *filter
-                        && pending.request_id == request_id
-                })
-    }
-
-    /// Check if a pending list-reload matches scope + request_id (filter-less variant).
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-NFR-002
-    /// @pseudocode component-001 lines 209-223
-    fn pr_list_reload_pending_matches_id(
-        &self,
-        scope_repo_id: &RepositoryId,
-        request_id: u64,
-    ) -> bool {
-        if request_id == 0 {
-            return self.selected_repository_id() == Some(scope_repo_id);
-        }
-        self.selected_repository_id() == Some(scope_repo_id)
-            && self
-                .prs_state
-                .list_reload_pending
-                .as_ref()
-                .is_some_and(|pending| {
-                    pending.scope_repo_id == *scope_repo_id && pending.request_id == request_id
-                })
-    }
-
-    /// Check if a pending list-page matches scope + request_id.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-NFR-002
-    /// @pseudocode component-001 lines 224-225
-    fn pr_list_page_pending_matches(&self, scope_repo_id: &RepositoryId, request_id: u64) -> bool {
-        self.selected_repository_id() == Some(scope_repo_id)
-            && self
-                .prs_state
-                .list_page_pending
-                .as_ref()
-                .is_some_and(|pending| {
-                    pending.scope_repo_id == *scope_repo_id && pending.request_id == request_id
-                })
-    }
-
     /// Check if a pending detail request matches scope + pr_number + request_id.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
@@ -405,8 +399,8 @@ impl AppState {
         }
         let selected_matches = self
             .prs_state
-            .selected_pr_index
-            .and_then(|idx| self.prs_state.pull_requests.get(idx))
+            .selected_pr_index()
+            .and_then(|idx| self.prs_state.pull_requests().get(idx))
             .is_some_and(|pr| pr.number == pr_number);
         if !selected_matches {
             return false;
@@ -458,14 +452,16 @@ impl AppState {
         filter: PrFilter,
         request_id: u64,
     ) {
-        self.prs_state.loading.list = true;
-        self.prs_state.list_page_pending = None;
+        self.prs_state.list.begin_reload(
+            PrListIdentity {
+                scope_repo_id,
+                filter,
+            },
+            ListRequestId::from_raw(request_id),
+        );
+        // A reload supersedes any in-flight detail load; discard it so a stale
+        // detail never lands on the freshly-replaced list.
         self.prs_state.detail_pending = None;
-        self.prs_state.list_reload_pending = Some(PrListReloadPending {
-            scope_repo_id,
-            filter,
-            request_id,
-        });
     }
 
     /// Mark a silent background refresh as pending (issue #128). Does NOT set
@@ -476,12 +472,13 @@ impl AppState {
         filter: PrFilter,
         request_id: u64,
     ) {
-        self.prs_state.list_page_pending = None;
-        self.prs_state.list_reload_pending = Some(PrListReloadPending {
-            scope_repo_id,
-            filter,
-            request_id,
-        });
+        self.prs_state.list.begin_silent_reload(
+            PrListIdentity {
+                scope_repo_id,
+                filter,
+            },
+            ListRequestId::from_raw(request_id),
+        );
     }
 
     /// Mark a PR list page as loading (staleness tracking).
@@ -491,19 +488,34 @@ impl AppState {
     /// @pseudocode component-001 lines 224-229
     pub fn mark_pr_list_page_loading(
         &mut self,
-        scope_repo_id: RepositoryId,
-        filter: PrFilter,
+        _scope_repo_id: RepositoryId,
+        _filter: PrFilter,
         cursor: Option<String>,
         request_id: u64,
-    ) {
-        self.prs_state.loading.list = true;
-        self.prs_state.list_reload_pending = None;
-        self.prs_state.list_page_pending = Some(PrListPagePending {
-            scope_repo_id,
-            filter,
-            cursor,
-            request_id,
-        });
+    ) -> bool {
+        // Identity is reused from the prior reload's stored identity (a page
+        // load only fires after a reload established scope+filter).
+        let token = pr_page_token(cursor);
+        let started = self
+            .prs_state
+            .list
+            .begin_page(token, ListRequestId::from_raw(request_id));
+        matches!(started, crate::state::pagination::BeginOutcome::Started)
+    }
+
+    /// Allocate a request id and begin a visible reload on the PR list,
+    /// mirroring the Actions `begin_actions_reload` pattern. Used by the
+    /// reducer's scope-change / filter-change reset paths so `list_pending()`
+    /// is observable before the dispatch layer spawns the fetch.
+    pub(super) fn begin_prs_reload(&mut self, repo_id: RepositoryId) {
+        let Ok(request_id) = self.prs_state.list.next_request_id() else {
+            return;
+        };
+        let identity = PrListIdentity {
+            scope_repo_id: repo_id,
+            filter: self.prs_state.committed_filter.clone(),
+        };
+        self.prs_state.list.begin_reload(identity, request_id);
     }
 
     /// Mark a PR detail as loading (staleness tracking).
@@ -554,15 +566,17 @@ impl AppState {
         request_id
     }
 
-    /// Next PR list request ID (staleness counter).
+    /// Next PR list request ID via `PaginatedList::next_request_id`.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-NFR-002
     /// @pseudocode component-001 lines 88-98
     pub fn next_pr_list_request_id(&mut self) -> u64 {
-        let request_id = self.prs_state.next_pr_list_request_id.saturating_add(1);
-        self.prs_state.next_pr_list_request_id = request_id;
-        request_id
+        self.prs_state
+            .list
+            .next_request_id()
+            .map(ListRequestId::get)
+            .unwrap_or(0)
     }
 
     /// Handle PR data-loaded events (dispatched from apply_prs_event).

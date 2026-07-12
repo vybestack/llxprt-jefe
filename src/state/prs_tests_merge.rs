@@ -274,7 +274,7 @@ fn merged_updates_pull_requests_list_state() {
     });
     let list_state = state
         .prs_state
-        .pull_requests
+        .pull_requests()
         .iter()
         .find(|p| p.number == 42)
         .map(|p| p.state);

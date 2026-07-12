@@ -902,50 +902,40 @@ impl AppState {
 #[cfg(test)]
 #[path = "issues_tests.rs"]
 mod issues_tests;
-
 #[cfg(test)]
 #[path = "issues_tests_components.rs"]
 mod issues_tests_components;
-
+#[cfg(test)]
+#[path = "issues_tests_composer_focus.rs"]
+mod issues_tests_composer_focus;
 #[cfg(test)]
 #[path = "issues_tests_detail.rs"]
 mod issues_tests_detail;
-
+#[cfg(test)]
+#[path = "issues_tests_detail_flow.rs"]
+mod issues_tests_detail_flow;
+#[cfg(test)]
+#[path = "issues_tests_filter.rs"]
+mod issues_tests_filter;
+#[cfg(test)]
+#[path = "issues_tests_repo_nav.rs"]
+mod issues_tests_repo_nav;
 #[cfg(test)]
 #[path = "issues_tests_subfocus.rs"]
 mod issues_tests_subfocus;
 
 #[cfg(test)]
-#[path = "issues_tests_detail_flow.rs"]
-mod issues_tests_detail_flow;
-
-#[cfg(test)]
-#[path = "issues_tests_repo_nav.rs"]
-mod issues_tests_repo_nav;
-
-#[cfg(test)]
-#[path = "issues_tests_filter.rs"]
-mod issues_tests_filter;
-
-#[cfg(test)]
-#[path = "issues_tests_composer_focus.rs"]
-mod issues_tests_composer_focus;
-
-#[cfg(test)]
 #[path = "prs_tests.rs"]
 mod prs_tests;
-
 #[cfg(test)]
 #[path = "prs_tests_detail.rs"]
 mod prs_tests_detail;
-
-#[cfg(test)]
-#[path = "prs_tests_merge.rs"]
-mod prs_tests_merge;
-
 #[cfg(test)]
 #[path = "prs_tests_filter.rs"]
 mod prs_tests_filter;
+#[cfg(test)]
+#[path = "prs_tests_merge.rs"]
+mod prs_tests_merge;
 
 // Per-repository user-preference persistence tests (issue #163).
 #[cfg(test)]
@@ -956,6 +946,9 @@ mod preferences_tests;
 #[path = "prs_tests_repo_nav.rs"]
 mod prs_tests_repo_nav;
 
+#[cfg(test)]
+#[path = "issues_test_fixtures.rs"]
+mod issues_test_fixtures;
 /// Shared `#[cfg(test)]` fixtures used by the PR-mode reducer test modules.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
@@ -964,37 +957,42 @@ mod prs_tests_repo_nav;
 #[cfg(test)]
 #[path = "prs_test_fixtures.rs"]
 mod prs_test_fixtures;
-
 #[cfg(test)]
 #[path = "prs_tests_composer_focus.rs"]
 mod prs_tests_composer_focus;
 
+#[cfg(test)]
+#[path = "prs_tests_components.rs"]
+mod prs_tests_components;
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 44-50
 #[cfg(test)]
 #[path = "prs_tests_cursor_arrows.rs"]
 mod prs_tests_cursor_arrows;
-
 #[cfg(test)]
 #[path = "prs_tests_detail_flow.rs"]
 mod prs_tests_detail_flow;
 
 #[cfg(test)]
-#[path = "prs_tests_components.rs"]
-mod prs_tests_components;
-
+#[path = "prs_tests_review_threads.rs"]
+mod prs_tests_review_threads;
 /// Review-thread state tests (issue #119): open reply composer, toggle resolve.
 /// Silent background refresh state-transition tests (issue #128).
 #[cfg(test)]
 #[path = "prs_tests_silent_refresh.rs"]
 mod prs_tests_silent_refresh;
 
-#[cfg(test)]
-#[path = "prs_tests_review_threads.rs"]
-mod prs_tests_review_threads;
-
 // @plan PLAN-20260624-PR-MODE.P15 @requirement REQ-PR-001
 #[cfg(test)]
 #[path = "prs_integration_tests.rs"]
 mod prs_integration_tests;
+
+/// PR list pagination / lazy-load integration tests (extracted from
+/// `prs_integration_tests.rs` to keep that file under the source-size limit).
+///
+/// @plan PLAN-20260624-PR-MODE.P15
+/// @requirement REQ-PR-007
+#[cfg(test)]
+#[path = "prs_tests_pagination.rs"]
+mod prs_tests_pagination;

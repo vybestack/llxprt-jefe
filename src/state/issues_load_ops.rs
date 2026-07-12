@@ -2,9 +2,12 @@
 
 use super::{
     AppEvent, AppState, DetailSubfocus, IssueCommentsPagePending, IssueDetailPending,
-    IssueListPagePending, IssueListReloadPending,
+    IssueListIdentity,
 };
-use crate::domain::{Issue, IssueComment, IssueFilter, IssueFilterState, RepositoryId};
+use crate::domain::{
+    Issue, IssueComment, IssueFilter, IssueFilterState, ListRequestId, PageToken, RepositoryId,
+};
+use crate::state::pagination::{AcceptOutcome, LoadCorrelation, PageResult, ReloadResult};
 
 struct IssueListPageLoadedData {
     scope_repo_id: RepositoryId,
@@ -35,39 +38,54 @@ struct IssueCommentsPageLoadedData {
     has_more: bool,
 }
 
+/// Build the cursor-based [`PageToken`] used to request a page from the cursor
+/// the dispatch layer intends to fetch. A `None` cursor collapses to `Done`
+/// (matching `PageToken::from_cursor`): a backend claiming more pages with no
+/// cursor is treated as exhausted so the UI never wedges on a load-more that
+/// can't fire.
+fn issue_page_token(cursor: Option<String>) -> PageToken {
+    cursor.map_or(PageToken::Done, PageToken::Cursor)
+}
+
 impl AppState {
     fn apply_issue_list_loaded(&mut self, list: IssueListLoadedData) {
-        if self.list_reload_pending_matches(&list.scope_repo_id, &list.filter, list.request_id) {
+        let identity = IssueListIdentity {
+            scope_repo_id: list.scope_repo_id,
+            filter: list.filter,
+        };
+        let result = ReloadResult {
+            identity,
+            request_id: ListRequestId::from_raw(list.request_id),
+            items: list.issues,
+            next_page: PageToken::from_cursor(list.cursor, list.has_more),
+        };
+        let outcome = self.issues_state.list.accept_loaded(result);
+        if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
             self.issues_state.error = None;
-            self.issues_state.issues = list.issues;
-            self.issues_state.list_cursor = list.cursor;
-            self.issues_state.has_more_issues = list.has_more;
-            self.issues_state.loading.list = false;
-            self.issues_state.list_reload_pending = None;
-            self.issues_state.list_page_pending = None;
+            // A reload supersedes any in-flight detail load; discard it so a
+            // stale detail never lands on the freshly-replaced list.
             self.issues_state.detail_pending = None;
-            if self.issues_state.issues.is_empty() {
-                self.issues_state.selected_issue_index = None;
+            if self.issues_state.list.items().is_empty() {
                 self.issues_state.issue_detail = None;
-            } else {
-                self.issues_state.selected_issue_index = Some(0);
             }
         }
     }
 
     fn apply_issue_list_page_loaded(&mut self, page: IssueListPageLoadedData) {
-        if self.list_page_pending_matches(
-            &page.scope_repo_id,
-            &page.filter,
-            page.request_id,
-            page.request_cursor.as_deref(),
-        ) {
+        let identity = IssueListIdentity {
+            scope_repo_id: page.scope_repo_id,
+            filter: page.filter,
+        };
+        let result = PageResult {
+            identity,
+            request_id: ListRequestId::from_raw(page.request_id),
+            requested_token: issue_page_token(page.request_cursor.clone()),
+            items: page.issues,
+            next_page: PageToken::from_cursor(page.cursor, page.has_more),
+        };
+        let outcome = self.issues_state.list.accept_page(result);
+        if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
             self.issues_state.error = None;
-            self.issues_state.issues.extend(page.issues);
-            self.issues_state.list_cursor = page.cursor;
-            self.issues_state.has_more_issues = page.has_more;
-            self.issues_state.loading.list = false;
-            self.issues_state.list_page_pending = None;
         }
     }
 
@@ -163,25 +181,27 @@ impl AppState {
         scope_repo_id: crate::domain::RepositoryId,
         filter: IssueFilter,
         cursor: Option<String>,
-    ) {
-        self.mark_issue_list_page_loading_with_request_id(scope_repo_id, filter, cursor, 0);
+    ) -> bool {
+        self.mark_issue_list_page_loading_with_request_id(scope_repo_id, filter, cursor, 0)
     }
 
     pub fn mark_issue_list_page_loading_with_request_id(
         &mut self,
-        scope_repo_id: crate::domain::RepositoryId,
-        filter: IssueFilter,
+        _scope_repo_id: crate::domain::RepositoryId,
+        _filter: IssueFilter,
         cursor: Option<String>,
         request_id: u64,
-    ) {
-        self.issues_state.loading.list = true;
-        self.issues_state.list_reload_pending = None;
-        self.issues_state.list_page_pending = Some(IssueListPagePending {
-            scope_repo_id,
-            filter,
-            cursor,
-            request_id,
-        });
+    ) -> bool {
+        // Identity is reused from the prior reload's stored identity (a page
+        // load only fires after a reload established scope+filter). The
+        // requested-token + request-id correlation in `accept_page` rejects
+        // stale pages, so the scope/filter args are not needed here.
+        let token = issue_page_token(cursor);
+        let started = self
+            .issues_state
+            .list
+            .begin_page(token, ListRequestId::from_raw(request_id));
+        matches!(started, crate::state::pagination::BeginOutcome::Started)
     }
 
     pub fn mark_issue_list_reload_loading(
@@ -190,14 +210,16 @@ impl AppState {
         filter: IssueFilter,
         request_id: u64,
     ) {
-        self.issues_state.loading.list = true;
-        self.issues_state.list_page_pending = None;
+        self.issues_state.list.begin_reload(
+            IssueListIdentity {
+                scope_repo_id,
+                filter,
+            },
+            ListRequestId::from_raw(request_id),
+        );
+        // A reload supersedes any in-flight detail load; discard it so a stale
+        // detail never lands on the freshly-replaced list.
         self.issues_state.detail_pending = None;
-        self.issues_state.list_reload_pending = Some(IssueListReloadPending {
-            scope_repo_id,
-            filter,
-            request_id,
-        });
     }
 
     pub fn mark_issue_detail_loading(
@@ -229,49 +251,6 @@ impl AppState {
             issue_number,
             request_id,
         });
-    }
-
-    fn list_page_pending_matches(
-        &self,
-        scope_repo_id: &crate::domain::RepositoryId,
-        filter: &IssueFilter,
-        request_id: u64,
-        cursor: Option<&str>,
-    ) -> bool {
-        self.selected_repository_id() == Some(scope_repo_id)
-            && self
-                .issues_state
-                .list_page_pending
-                .as_ref()
-                .is_some_and(|pending| {
-                    pending.scope_repo_id == *scope_repo_id
-                        && pending.filter == *filter
-                        && pending.request_id == request_id
-                        && pending.cursor.as_deref() == cursor
-                })
-    }
-
-    fn list_reload_pending_matches(
-        &self,
-        scope_repo_id: &crate::domain::RepositoryId,
-        filter: &IssueFilter,
-        request_id: u64,
-    ) -> bool {
-        if request_id == 0 {
-            return self.selected_repository_id() == Some(scope_repo_id)
-                && self.issues_state.committed_filter == *filter;
-        }
-        self.selected_repository_id() == Some(scope_repo_id)
-            && self.issues_state.committed_filter == *filter
-            && self
-                .issues_state
-                .list_reload_pending
-                .as_ref()
-                .is_some_and(|pending| {
-                    pending.scope_repo_id == *scope_repo_id
-                        && pending.filter == *filter
-                        && pending.request_id == request_id
-                })
     }
 
     fn detail_pending_matches(
@@ -443,28 +422,13 @@ impl AppState {
                 request_id,
                 request_cursor,
                 error,
-            } => {
-                // The pending matchers already disambiguate a fresh reload from a
-                // page fetch (the two pendings are mutually exclusive and the page
-                // matcher compares the cursor). Gating on `request_cursor` presence
-                // would wrongly skip a page failure whose cursor is `None` (which
-                // happens when GitHub reports `has_more = true` with a null cursor),
-                // leaving `loading.list` stuck forever.
-                let fresh_failure =
-                    self.list_reload_pending_matches(&scope_repo_id, &filter, request_id);
-                let page_failure = self.list_page_pending_matches(
-                    &scope_repo_id,
-                    &filter,
-                    request_id,
-                    request_cursor.as_deref(),
-                );
-                if fresh_failure || page_failure {
-                    self.issues_state.loading.list = false;
-                    self.issues_state.list_reload_pending = None;
-                    self.issues_state.list_page_pending = None;
-                    self.issues_state.error = Some(error);
-                }
-            }
+            } => self.apply_issue_list_load_failed(
+                scope_repo_id,
+                *filter,
+                request_id,
+                request_cursor,
+                error,
+            ),
             AppEvent::IssueDetailLoadFailed {
                 scope_repo_id,
                 issue_number,
@@ -498,6 +462,44 @@ impl AppState {
                 self.issues_state.error = Some(error);
             }
             _ => {}
+        }
+    }
+
+    /// Apply an issue-list load failure via `PaginatedList::accept_failure`.
+    ///
+    /// A failure could correlate to either a reload or a page load; try the
+    /// reload correlation first, then the page correlation. Whichever clears
+    /// the pending marker derives `is_loading() == false`.
+    fn apply_issue_list_load_failed(
+        &mut self,
+        scope_repo_id: RepositoryId,
+        filter: IssueFilter,
+        request_id: u64,
+        request_cursor: Option<String>,
+        error: String,
+    ) {
+        let identity = IssueListIdentity {
+            scope_repo_id,
+            filter,
+        };
+        let reload_correlation = LoadCorrelation::Reload {
+            identity: identity.clone(),
+            request_id: ListRequestId::from_raw(request_id),
+        };
+        let page_correlation = LoadCorrelation::Page {
+            identity,
+            token: issue_page_token(request_cursor),
+            request_id: ListRequestId::from_raw(request_id),
+        };
+        let applied = matches!(
+            self.issues_state.list.accept_failure(&reload_correlation),
+            AcceptOutcome::Applied
+        ) || matches!(
+            self.issues_state.list.accept_failure(&page_correlation),
+            AcceptOutcome::Applied
+        );
+        if applied {
+            self.issues_state.error = Some(error);
         }
     }
 }

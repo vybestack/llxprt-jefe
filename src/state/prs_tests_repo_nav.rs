@@ -139,21 +139,24 @@ fn test_repo_scope_change_resets_pr_list_detail_and_pending() {
     state.prs_state.pr_focus = PrFocus::RepoList;
     state.pane_focus = PaneFocus::Agents;
     // Populate PR data that should be cleared on repo change.
-    state.prs_state.pull_requests = vec![make_test_pr(1), make_test_pr(2)];
-    state.prs_state.selected_pr_index = Some(1);
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(1), make_test_pr(2)]);
+    state.prs_state.list.set_selected_index(Some(1));
     state.prs_state.detail_scroll_offset = 5;
     state.prs_state.detail_subfocus = PrDetailSubfocus::Review(0);
-    state.prs_state.loading.list = false;
 
     let new_state = state.apply(AppEvent::PrNavigateDown);
 
     assert_eq!(new_state.selected_repository_index, Some(1));
     assert!(
-        new_state.prs_state.pull_requests.is_empty(),
+        new_state.prs_state.pull_requests().is_empty(),
         "pull_requests must be cleared on repo change"
     );
     assert_eq!(
-        new_state.prs_state.selected_pr_index, None,
+        new_state.prs_state.selected_pr_index(),
+        None,
         "selected_pr_index must be cleared"
     );
     assert!(
@@ -179,20 +182,23 @@ fn test_select_repository_resets_pr_scope() {
     let mut state = prs_mode_state();
     state.prs_state.active = true;
     // Populate PR data that should be cleared on select.
-    state.prs_state.pull_requests = vec![make_test_pr(10), make_test_pr(20)];
-    state.prs_state.selected_pr_index = Some(1);
-    state.prs_state.loading.list = false;
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(10), make_test_pr(20)]);
+    state.prs_state.list.set_selected_index(Some(1));
 
     // Select a different repository via the UiNavigation message path.
     let new_state = state.apply(AppEvent::SelectRepository(1));
 
     assert_eq!(new_state.selected_repository_index, Some(1));
     assert!(
-        new_state.prs_state.pull_requests.is_empty(),
+        new_state.prs_state.pull_requests().is_empty(),
         "select_repository must reset PR list when prs_state is active"
     );
     assert_eq!(
-        new_state.prs_state.selected_pr_index, None,
+        new_state.prs_state.selected_pr_index(),
+        None,
         "select_repository must clear selected_pr_index when prs_state is active"
     );
 }

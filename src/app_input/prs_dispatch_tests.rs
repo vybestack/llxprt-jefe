@@ -43,17 +43,16 @@ fn test_pr(number: u64) -> jefe::domain::PullRequest {
 /// @requirement REQ-PR-012
 /// @pseudocode component-004 lines 160-175
 fn state_with_invalid_slug() -> AppState {
-    let prs_state = PullRequestsState {
-        active: true,
-        pull_requests: vec![test_pr(42)],
-        selected_pr_index: Some(0),
-        ..PullRequestsState::default()
-    };
     let mut state = AppState {
         screen_mode: ScreenMode::DashboardPullRequests,
-        prs_state,
+        prs_state: PullRequestsState {
+            active: true,
+            ..PullRequestsState::default()
+        },
         ..AppState::default()
     };
+    state.prs_state.list.replace_items(vec![test_pr(42)]);
+    state.prs_state.list.set_selected_index(Some(0));
     // Repository with an EMPTY github_repo slug → InvalidSlug.
     state.repositories.push(Repository::new(
         RepositoryId("repo-1".to_string()),
@@ -81,7 +80,7 @@ fn state_with_valid_slug() -> AppState {
 /// @pseudocode component-004 lines 160-175
 fn state_with_no_selection() -> AppState {
     let mut state = state_with_invalid_slug();
-    state.prs_state.selected_pr_index = None;
+    state.prs_state.list.set_selected_index(None);
     state
 }
 
@@ -172,16 +171,16 @@ fn test_open_in_browser_no_selection_yields_no_selection() {
 /// @pseudocode component-004 lines 119-126
 #[test]
 fn test_preview_guard_detects_selection_change_after_read_lock() {
-    let prs_state = PullRequestsState {
-        pull_requests: vec![test_pr(42), test_pr(43)],
-        selected_pr_index: Some(0),
-        ..PullRequestsState::default()
-    };
     let mut state = AppState {
         screen_mode: ScreenMode::DashboardPullRequests,
-        prs_state,
+        prs_state: PullRequestsState::default(),
         ..AppState::default()
     };
+    state
+        .prs_state
+        .list
+        .replace_items(vec![test_pr(42), test_pr(43)]);
+    state.prs_state.list.set_selected_index(Some(0));
     // The preview was built under the current repository scope (empty/default
     // here, since no repository is configured in this minimal fixture).
     let scope = RepositoryId(String::new());
@@ -198,7 +197,7 @@ fn test_preview_guard_detects_selection_change_after_read_lock() {
     );
     // Selection changed (to index 1 = PR #43) between the read and write
     // lock — the preview for #42 is now STALE.
-    state.prs_state.selected_pr_index = Some(1);
+    state.prs_state.list.set_selected_index(Some(1));
     assert!(
         !selected_pr_still_matches(&state, &scope, 42),
         "guard MUST reject the stale preview after selection moved to PR #43"

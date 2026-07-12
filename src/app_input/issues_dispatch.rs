@@ -52,8 +52,8 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
         let state = app_state.read();
         state
             .issues_state
-            .selected_issue_index
-            .and_then(|idx| state.issues_state.issues.get(idx))
+            .selected_issue_index()
+            .and_then(|idx| state.issues_state.issues().get(idx))
             .map(|issue| {
                 let gh_repo = resolve_gh_repo(&state);
                 jefe::domain::IssueDetail {
@@ -134,8 +134,8 @@ fn detail_load_params(app_state: &AppStateHandle) -> Option<DetailLoadParams> {
     let state = app_state.read();
     let issue_number = state
         .issues_state
-        .selected_issue_index
-        .and_then(|idx| state.issues_state.issues.get(idx))
+        .selected_issue_index()
+        .and_then(|idx| state.issues_state.issues().get(idx))
         .map(|issue| issue.number)?;
     let (owner, repo) = resolve_gh_repo(&state);
     let params = DetailLoadParams {

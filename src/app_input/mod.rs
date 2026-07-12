@@ -893,7 +893,7 @@ fn dispatch_issues_navigation(
         (
             state.issues_state.issue_focus,
             state.selected_repository_index,
-            state.issues_state.selected_issue_index,
+            state.issues_state.selected_issue_index(),
         )
     };
 
@@ -937,11 +937,10 @@ fn refresh_repo_scope_if_changed(
 
 fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
     let mut state = app_state.write();
-    state.issues_state.issues.clear();
-    state.issues_state.selected_issue_index = None;
+    // Clear the unified list (items, selection, identity, continuation,
+    // pending) for the repo switch; a fresh reload is kicked off by the caller.
+    state.issues_state.list.clear();
     state.issues_state.issue_detail = None;
-    state.issues_state.list_cursor = None;
-    state.issues_state.has_more_issues = false;
     state.issues_state.error = None;
     if state.issues_state.inline_state != jefe::state::InlineState::None {
         state.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
@@ -952,14 +951,11 @@ fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.issues_state.loading.comments = false;
     state.issues_state.detail_pending = None;
     state.issues_state.comments_page_pending = None;
-    state.issues_state.list_reload_pending = None;
-    state.issues_state.list_page_pending = None;
     state.issues_state.agent_chooser = None;
-    state.issues_state.loading.list = true;
 }
 
 fn refresh_issue_preview_if_changed(app_state: &mut AppStateHandle, prev_issue_idx: Option<usize>) {
-    let new_issue_idx = app_state.read().issues_state.selected_issue_index;
+    let new_issue_idx = app_state.read().issues_state.selected_issue_index();
     if new_issue_idx != prev_issue_idx {
         issues_dispatch::preview_issue_from_list(app_state);
     }

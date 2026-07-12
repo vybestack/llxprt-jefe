@@ -61,7 +61,7 @@ mod tests {
     fn PanicProbe(mut hooks: Hooks, props: &ProbeProps) -> impl Into<AnyElement<'static>> {
         let state = hooks.use_state(|| {
             let mut state = AppState::default();
-            state.issues_state.loading.list = true;
+            state.issues_state.loading.detail = true;
             state
         });
         let notify = props.notify.clone();
@@ -73,14 +73,14 @@ mod tests {
                 |_state, _ctx| panic!("boom"),
                 |mut state, _ctx, message| {
                     let mut guard = state.write();
-                    guard.issues_state.loading.list = false;
+                    guard.issues_state.loading.detail = false;
                     guard.issues_state.error = Some(format!("panic handled: {message}"));
                 },
             );
         });
 
         let snapshot = state.read();
-        if !snapshot.issues_state.loading.list {
+        if !snapshot.issues_state.loading.detail {
             let message = snapshot.issues_state.error.clone().unwrap_or_default();
             drop(snapshot);
             if let Some(sender) = notify {
