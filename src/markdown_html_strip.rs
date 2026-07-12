@@ -207,6 +207,12 @@ fn consume_entity(html: &str, start: usize) -> (usize, String) {
 /// `<summary-widget>` or prose mentioning `<detailsish`. Taking the prefixed
 /// needle as a static literal avoids a per-call `String` allocation.
 pub fn contains_open_tag(haystack: &str, needle: &str) -> bool {
+    // The lowercased-haystack precondition is enforced in debug builds so a
+    // future mixed-case caller fails fast instead of silently missing tags.
+    debug_assert!(
+        !haystack.chars().any(|c| c.is_ascii_uppercase()),
+        "contains_open_tag requires a pre-lowercased haystack"
+    );
     // find("") returns Some(0) and would never advance the cursor — guard
     // against an empty needle so the loop below cannot spin forever.
     if needle.is_empty() {

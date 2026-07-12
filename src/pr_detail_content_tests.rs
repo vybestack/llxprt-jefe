@@ -972,3 +972,6 @@ fn bodyless_review_followed_by_body_review_keeps_single_separator() {
         "review body renders under its header"
     );
 }
+
+#[path = "pr_detail_thread_hint_tests.rs"]
+mod thread_hint_tests;

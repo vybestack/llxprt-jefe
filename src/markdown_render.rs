@@ -126,24 +126,24 @@ fn lock_render_cache() -> std::sync::MutexGuard<'static, RenderCache> {
 /// allocated here. Separate read-check and write-insert lock scopes keep each
 /// `MutexGuard` lifetime tight; a racing duplicate insert is harmless.
 fn insert_render_cache(markdown: &str, prefix: &str, placeholder: &str, result: &Arc<[String]>) {
-    {
-        let cache = lock_render_cache();
-        if cache.get(markdown).is_some_and(|variants| {
-            variants
-                .iter()
-                .any(|((p, ph), _)| p == prefix && ph == placeholder)
-        }) {
-            return;
-        }
-    }
+    // One lock scope for the dedup check AND the insert so a racing thread
+    // cannot interleave a clear/insert between them (a split check-then-act
+    // could stack duplicate variants). The trailing drop satisfies
+    // clippy::significant_drop_tightening (explicit guard end).
     let mut cache = lock_render_cache();
-    if cache.len() >= MARKDOWN_RENDER_CACHE_CAP {
+    if cache.len() >= MARKDOWN_RENDER_CACHE_CAP && !cache.contains_key(markdown) {
         cache.clear();
     }
-    cache.entry(markdown.to_string()).or_default().push((
-        (prefix.to_string(), placeholder.to_string()),
-        Arc::clone(result),
-    ));
+    let variants = cache.entry(markdown.to_string()).or_default();
+    if !variants
+        .iter()
+        .any(|((p, ph), _)| p == prefix && ph == placeholder)
+    {
+        variants.push((
+            (prefix.to_string(), placeholder.to_string()),
+            Arc::clone(result),
+        ));
+    }
     drop(cache);
 }
 
@@ -556,13 +556,11 @@ impl MarkdownRenderer {
         } else {
             format!(" {info}")
         };
-        let top = format!("{pad}{CODE_FENCE_TOP}{lang_label}");
-        let bottom = format!("{pad}{CODE_FENCE_BOTTOM}");
-        self.push(top.trim_end().to_string());
+        self.push(format!("{pad}{CODE_FENCE_TOP}{lang_label}"));
         for line in code.literal.lines() {
             self.push(format!("{pad}{CODE_FENCE_SIDE} {line}"));
         }
-        self.push(bottom.trim_end().to_string());
+        self.push(format!("{pad}{CODE_FENCE_BOTTOM}"));
         self.push_blank();
     }
 

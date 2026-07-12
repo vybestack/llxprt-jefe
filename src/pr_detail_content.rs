@@ -511,7 +511,9 @@ fn build_review_thread(
         (None, _) => "(no file)".to_string(),
     };
     let collapsed = thread_collapsed(thread, focused);
-    let collapse_hint = if collapsed {
+    // No expand hint for a comment-less thread: "0 comments (select to
+    // expand)" would advertise a dead-end (expanding reveals nothing).
+    let collapse_hint = if collapsed && !thread.comments.is_empty() {
         let n = thread.comments.len();
         let noun = if n == 1 { "comment" } else { "comments" };
         format!("  · {n} {noun} (select to expand)")
