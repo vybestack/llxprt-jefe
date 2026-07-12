@@ -568,16 +568,14 @@ impl MarkdownRenderer {
 
     /// Render a GFM table as aligned columns.
     fn render_table<'a>(&mut self, node: &'a AstNode<'a>, table: &NodeTable, indent: usize) {
-        // Whether the first TableRow is a header (only `.first()` of the
-        // collected bools was ever read, so a single bool suffices).
-        let first_row_is_header = node
-            .children()
-            .find(|row| matches!(&row.data().value, NodeValue::TableRow(_)))
-            .is_some_and(|row| matches!(row.data().value, NodeValue::TableRow(true)));
         let mut rows: Vec<Vec<String>> = Vec::new();
+        let mut first_row_is_header = false;
         for row in node.children() {
-            if !matches!(&row.data().value, NodeValue::TableRow(_)) {
+            let NodeValue::TableRow(is_header) = &row.data().value else {
                 continue;
+            };
+            if rows.is_empty() {
+                first_row_is_header = *is_header;
             }
             let mut cells = Vec::new();
             for cell in row.children() {
@@ -718,11 +716,10 @@ impl MarkdownRenderer {
             // Link: render text + URL via its dedicated helper.
             NodeValue::Link(link) => self.render_link_lines(link, node, lines, depth),
             // Image: keep the alt text, drop the image itself.
-            NodeValue::Image(link) => {
+            NodeValue::Image(_link) => {
                 for child in node.children() {
                     self.render_inline_lines(child, lines, depth + 1);
                 }
-                let _ = link;
             }
             NodeValue::HtmlInline(html) => lines.push_str(&strip_html_to_text(html)),
             // Everything else (emphasis, escaped, and the catch-all) recurses

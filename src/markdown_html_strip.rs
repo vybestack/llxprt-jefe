@@ -90,6 +90,11 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
     if start + 1 < bytes.len() && bytes[start + 1] == b'!' {
         return consume_declaration(bytes, start);
     }
+    if let Some(end) =
+        raw_element_end(html, start, "script").or_else(|| raw_element_end(html, start, "style"))
+    {
+        return end;
+    }
 
     // Scan the tag name + attributes, respecting quoted attribute values so a
     // `>` inside quotes does not prematurely close the tag. Skip ALL leading
@@ -147,9 +152,37 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
     if html_tag_introduces_break(&bare) {
         out.push('\n');
     }
+
     // Advance past the closing '>' if one was found. Clamp to bytes.len() so
     // an unterminated tag consumes to end-of-input as documented.
     j.min(bytes.len()) + usize::from(j < bytes.len() && bytes[j] == b'>')
+}
+
+/// Return the byte index after a raw-text element's closing tag when `start`
+/// begins `<script...>` or `<style...>`. Their bodies are code/CSS, not visible
+/// prose; consume through the matching close so embedded markup cannot leak.
+fn raw_element_end(html: &str, start: usize, tag: &str) -> Option<usize> {
+    let tail = html.get(start..)?;
+    let open_end = tail.find('>')?;
+    let opening = tail.get(1..open_end)?;
+    let open_name = opening.split_ascii_whitespace().next()?;
+    if !open_name.trim_end_matches('/').eq_ignore_ascii_case(tag) {
+        return None;
+    }
+    let close = format!("</{tag}>");
+    let body = tail.get(open_end + 1..)?;
+    Some(
+        find_ascii_case_insensitive(body, &close)
+            .map_or(html.len(), |p| start + open_end + 1 + p + close.len()),
+    )
+}
+
+/// ASCII-case-insensitive substring search for fixed HTML tag literals.
+fn find_ascii_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
+    haystack
+        .as_bytes()
+        .windows(needle.len())
+        .position(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
 /// Consume a declaration (`<!…>`) starting at `bytes[start]`, returning the

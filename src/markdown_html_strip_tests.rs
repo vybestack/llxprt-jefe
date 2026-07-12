@@ -243,3 +243,17 @@ fn definition_and_table_section_tags_break_lines() {
     let tbl_lines: Vec<&str> = tbl.split('\n').filter(|l| !l.is_empty()).collect();
     assert_eq!(tbl_lines, ["h", "d"], "thead/tbody split: {tbl:?}");
 }
+
+/// Script/style bodies are not visible prose and may contain markup-like
+/// bytes; consume through the matching close instead of leaking code/CSS.
+#[test]
+fn raw_script_and_style_elements_are_dropped_as_units() {
+    assert_eq!(
+        strip_html_to_text("before<script>if (a < b) x = '</not-script>';</SCRIPT>after"),
+        "beforeafter"
+    );
+    assert_eq!(
+        strip_html_to_text("a<STYLE type='text/css'>x::after { content: '<b>'; }</style>b"),
+        "ab"
+    );
+}

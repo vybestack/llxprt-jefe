@@ -571,10 +571,10 @@ impl GhClient {
             };
             let detail = detail_handle
                 .join()
-                .map_err(|_| worker_panic("metadata fetch"))??;
+                .map_err(|_| worker_panic("metadata fetch"));
             let comments = comments_handle
                 .join()
-                .map_err(|_| worker_panic("comments fetch"))??;
+                .map_err(|_| worker_panic("comments fetch"));
             let threads = threads_handle.join().unwrap_or_else(|_| {
                 tracing::warn!(
                     "review-threads fetch worker panicked for {owner}/{name}#{number}; \
@@ -582,7 +582,7 @@ impl GhClient {
                 );
                 Vec::new()
             });
-            Ok::<_, GhError>((detail, comments, threads))
+            Ok::<_, GhError>((detail??, comments??, threads))
         })?;
 
         let mut detail = detail;
