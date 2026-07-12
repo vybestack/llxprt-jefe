@@ -24,7 +24,7 @@
 //!   collapse to their text/alt, and everything else is stripped.
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use comrak::nodes::{
     AstNode, ListType, NodeCodeBlock, NodeLink, NodeList, NodeTable, NodeTaskItem, NodeValue,
@@ -84,13 +84,13 @@ pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) ->
     // so concurrent callers are not serialized behind an expensive render.
     // (Two threads may race to compute the same body; both produce identical
     // output, so the duplicate work is harmless.)
-    if let Ok(cache) = MARKDOWN_RENDER_CACHE.lock()
+    if let Ok(cache) = markdown_render_cache().lock()
         && let Some(cached) = cache.get(&key)
     {
         return Arc::clone(cached);
     }
     let result = compute_markdown_block(markdown, prefix, placeholder);
-    if let Ok(mut cache) = MARKDOWN_RENDER_CACHE.lock() {
+    if let Ok(mut cache) = markdown_render_cache().lock() {
         // Epoch clearing: bodies are gh-bounded (~65KB) and a detail view has
         // at most a few hundred unique bodies, so 512 covers a whole view;
         // clearing on overflow keeps worst-case memory bounded while
@@ -104,7 +104,7 @@ pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) ->
     result
 }
 
-/// Maximum number of entries retained in [`MARKDOWN_RENDER_CACHE`] before an
+/// Maximum number of entries retained in [`markdown_render_cache`] before an
 /// epoch clear resets the map.
 const MARKDOWN_RENDER_CACHE_CAP: usize = 512;
 
@@ -116,9 +116,13 @@ type RenderCache = HashMap<(String, String, String), Arc<[String]>>;
 
 /// Process-wide memo cache for [`render_markdown_block`]. Keyed by the full
 /// `(markdown, prefix, placeholder)` triple so hash collisions cannot
-/// produce a correctness bug (full-key equality).
-static MARKDOWN_RENDER_CACHE: LazyLock<Mutex<RenderCache>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// produce a correctness bug (full-key equality). `OnceLock` (not
+/// `LazyLock`) because the project MSRV is 1.75 — same pattern as
+/// `runtime::socket`.
+fn markdown_render_cache() -> &'static Mutex<RenderCache> {
+    static CACHE: OnceLock<Mutex<RenderCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 /// The uncached computation behind [`render_markdown_block`].
 fn compute_markdown_block(markdown: &str, prefix: &str, placeholder: &str) -> Arc<[String]> {
