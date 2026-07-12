@@ -940,3 +940,6 @@ fn test_big_r_on_body_emits_show_notice_not_none() {
         ))
     ));
 }
+
+#[path = "prs_f12_cross_mode_tests.rs"]
+mod f12_cross_mode;

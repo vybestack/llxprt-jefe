@@ -60,6 +60,22 @@ fn test_keybind_bar_issues_mode() {
 // P15 Integration Tests — Full State Flow Verification
 // =========================================================================
 
+#[test]
+fn test_issue_editor_includes_title_and_body() {
+    let mut state = dashboard_issues_state();
+    state.issues_state.issue_detail = Some(p15_detail(42));
+
+    let state = state.apply(AppEvent::OpenInlineEditor {
+        target: EditorTarget::IssueBody,
+    });
+
+    assert!(matches!(
+        state.issues_state.inline_state,
+        InlineState::Editor { text, cursor, .. }
+            if text == "Issue #42\nIssue body" && cursor == text.len()
+    ));
+}
+
 /// Helper: create a state already in issues mode with a selected repository.
 fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
     let mut state = AppState::default();
@@ -870,6 +886,7 @@ fn test_stale_mutation_events_same_repo_different_issue_do_not_mutate_or_clear_i
             scope_repo_id: repo_id.clone(),
             issue_number: 99,
             mutation_id: 1,
+            title: "stale title".to_string(),
             body: "stale body".to_string(),
         })
         .apply(AppEvent::CommentUpdated {

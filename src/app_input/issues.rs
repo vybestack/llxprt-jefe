@@ -121,8 +121,26 @@ fn resolve_global_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Op
         }
         KeyCode::Char('a') | KeyCode::Esc => Some(AppEvent::ExitIssuesMode),
         KeyCode::Char('i') => Some(AppEvent::RefocusIssueList),
+        // Cross-mode navigation: `p` from Issues switches to PR mode (issue #164).
+        KeyCode::Char('p') => Some(AppEvent::EnterPrsMode),
+        // F12 defocuses the terminal or returns to the issue list (issue #164).
+        KeyCode::F(12) => f12_event_for_issues(state),
         KeyCode::Char('?' | 'h') | KeyCode::F(1) => Some(AppEvent::OpenHelp),
         _ => None,
+    }
+}
+
+/// F12 semantics in Issues mode (issue #164): defocus the terminal if it is
+/// focused, otherwise return to the issue list from the detail view. A no-op
+/// (returns `None`) when already at the issue list with the terminal
+/// unfocused.
+fn f12_event_for_issues(state: &AppState) -> Option<AppEvent> {
+    if state.terminal_focused {
+        Some(AppEvent::ToggleTerminalFocus)
+    } else if state.issues_state.issue_focus == IssueFocus::IssueDetail {
+        Some(AppEvent::RefocusIssueList)
+    } else {
+        None
     }
 }
 

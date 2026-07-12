@@ -291,6 +291,7 @@ pub enum IssuesMessage {
         scope_repo_id: RepositoryId,
         issue_number: u64,
         mutation_id: u64,
+        title: String,
         body: String,
     },
     CommentUpdated {
