@@ -71,6 +71,27 @@ fn render_detail(p: RenderParams) -> String {
     render_detail_canvas(p).to_string()
 }
 
+/// Strip ANSI SGR/cursor escape sequences so width assertions measure visible
+/// text, not escape bytes.
+fn strip_ansi(ansi: &str) -> String {
+    let mut out = String::with_capacity(ansi.len());
+    let mut chars = ansi.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' && chars.peek() == Some(&'[') {
+            // Consume the CSI sequence: ESC '[' ... letter.
+            chars.next();
+            for inner in chars.by_ref() {
+                if inner.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 fn background_sgr_count(p: RenderParams) -> usize {
     let canvas = render_detail_canvas(p);
     let mut buf = Vec::new();
@@ -310,8 +331,10 @@ fn new_issue_composer_wraps_long_text_via_text_box() {
         rendered.contains("alpha"),
         "the start of the new-issue editor text must be visible: {rendered}"
     );
-    // No rendered line may exceed the terminal column width.
-    for (i, line) in rendered.lines().enumerate() {
+    // No rendered line may exceed the terminal column width (measure visible
+    // text, stripping ANSI escape bytes).
+    let plain = strip_ansi(&rendered);
+    for (i, line) in plain.lines().enumerate() {
         assert!(
             line.chars().count() <= usize::from(cols),
             "rendered line {i} overflows: {} ({} chars)",
