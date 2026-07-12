@@ -78,6 +78,15 @@ fn consume_tag(html: &str, bytes: &[u8], start: usize, out: &mut String) -> usiz
             None => bytes.len(),
         };
     }
+    // CDATA before the generic declaration path: its content may embed `>`
+    // (`<![CDATA[a > b]]>`), so it must be consumed through `]]>` or the
+    // remainder would leak to the screen as visible text.
+    if html[start..].starts_with("<![CDATA[") {
+        return match html[start..].find("]]>") {
+            Some(p) => start + p + "]]>".len(),
+            None => bytes.len(),
+        };
+    }
     if start + 1 < bytes.len() && bytes[start + 1] == b'!' {
         return consume_declaration(bytes, start);
     }

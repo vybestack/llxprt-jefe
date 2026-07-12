@@ -195,3 +195,26 @@ fn entity_window_on_multibyte_boundary_does_not_panic() {
     let out2 = strip_html_to_text(&input2);
     assert_eq!(out2, input2, "emoji boundary passes through: {out2:?}");
 }
+
+/// A CDATA section must be dropped entirely — its content can contain `>`
+/// (`<![CDATA[a > b]]>`), so terminating at the first `>` leaks the
+/// remainder (" b]]>") to the screen as visible text. Unterminated CDATA
+/// consumes to end-of-input like unterminated comments.
+#[test]
+fn cdata_sections_are_dropped_entirely() {
+    assert_eq!(
+        strip_html_to_text("<![CDATA[a > b]]>after"),
+        "after",
+        "CDATA content with an embedded '>' is dropped through ']]>'"
+    );
+    assert_eq!(
+        strip_html_to_text("before<![CDATA[x]]>after"),
+        "beforeafter",
+        "simple CDATA is dropped"
+    );
+    assert_eq!(
+        strip_html_to_text("text<![CDATA[never closed"),
+        "text",
+        "unterminated CDATA consumes to end-of-input"
+    );
+}
