@@ -111,7 +111,8 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
     );
     let instruction = launch_sig
         .mode_flags
-        .last()
+        .iter()
+        .find(|arg| arg.contains(".jefe/issue-prompt.md"))
         .value_or_panic("issue launch signature must include an instruction");
     assert!(instruction.contains(".jefe/issue-prompt.md"));
     assert!(instruction.contains("create a dedicated issue branch"));

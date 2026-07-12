@@ -21,7 +21,22 @@ impl FreshPromptKind {
 /// Runtime-neutral delivery contract appended to every fresh Send Issue
 /// instruction. Issue-specific content remains in the prompt file; this text
 /// defines how an agent must carry that issue through review and CI.
-const ISSUE_DELIVERY_WORKFLOW: &str = "Complete the issue end to end: start from the latest base branch without deleting unrelated or agent-configuration files; create a dedicated issue branch before changing code; use gh to fetch the issue and all comments; research the codebase and make a test-first implementation plan; implement the change and run the repository's complete verification suite; commit and push the branch; create a detailed pull request linked to the issue; watch every pull-request workflow until terminal completion, continuing to poll with a bounded delay even when a watch command or shell invocation times out; inspect failed workflow logs, fix failures, rerun verification, commit, push, and watch again; collect all project review feedback, including ordinary reviews, inline threads, and automated review comments; address every actionable finding, reply in the corresponding review thread with the fix or why it does not apply, and resolve addressed threads where supported; repeat the checks, reviews, fixes, replies, and workflow watches until all required checks pass and no actionable unresolved review feedback remains. Do not return merely because workflows are pending; report only completion or a genuine external blocker.";
+const ISSUE_DELIVERY_WORKFLOW: &str = concat!(
+    "Complete the issue end to end: start from the latest base branch without deleting unrelated ",
+    "or agent-configuration files; create a dedicated issue branch before changing code; use gh ",
+    "to fetch the issue and all comments; research the codebase and make a test-first ",
+    "implementation plan; implement the change and run the repository's complete verification ",
+    "suite; commit and push the branch; create a detailed pull request linked to the issue; watch ",
+    "every pull-request workflow until terminal completion, continuing to poll with a bounded delay ",
+    "even when a watch command or shell invocation times out; inspect failed workflow logs, fix ",
+    "failures, rerun verification, commit, push, and watch again; collect all project review ",
+    "feedback, including ordinary reviews, inline threads, and automated review comments; address ",
+    "every actionable finding, reply in the corresponding review thread with the fix or why it does ",
+    "not apply, and resolve addressed threads where supported; repeat the checks, reviews, fixes, ",
+    "replies, and workflow watches until all required checks pass and no actionable unresolved review ",
+    "feedback remains. Do not return merely because workflows are pending; report only completion or ",
+    "a genuine external blocker."
+);
 
 fn fresh_prompt_instruction(prompt_kind: FreshPromptKind, prompt_relative_path: &str) -> String {
     let base = format!(
