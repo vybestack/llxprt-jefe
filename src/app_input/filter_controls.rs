@@ -39,7 +39,9 @@ pub(super) fn resolve_filter_control_key(
         KeyCode::Esc => Some(FilterControlCommand::Cancel),
         KeyCode::Tab => Some(FilterControlCommand::Next),
         KeyCode::BackTab => Some(FilterControlCommand::Previous),
-        KeyCode::Delete => Some(FilterControlCommand::ClearCurrent),
+        KeyCode::Delete if editor != FilterEditorKind::Cycle => {
+            Some(FilterControlCommand::ClearCurrent)
+        }
         KeyCode::Char('l') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(FilterControlCommand::ClearAll)
         }

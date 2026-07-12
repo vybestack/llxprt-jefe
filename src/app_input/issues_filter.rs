@@ -32,6 +32,9 @@ pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -
     {
         return Some(AppEvent::ExitIssuesMode);
     }
+    if matches!(key_event.code, KeyCode::Delete) && field_idx == 0 {
+        return active_field_clear_event(field_idx);
+    }
     let editor = if field_idx == 0 {
         FilterEditorKind::Cycle
     } else if is_choice_field(field_idx) {

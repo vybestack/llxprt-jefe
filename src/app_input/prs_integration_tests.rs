@@ -262,11 +262,11 @@ fn it_filter_apply_reloads_and_updates_list() {
 
     // Open filter controls through the same key router users exercise.
     let event = prs::resolve_prs_key_event(&state, &key(KeyCode::Char('f')));
-    assert!(
-        matches!(event, Some(AppEvent::PrOpenFilterControls)),
-        "f must emit PrOpenFilterControls (got {event:?})"
-    );
-    state.apply_in_place(event.unwrap_or_else(|| panic!("f must emit an event")));
+    let event = match event {
+        Some(event @ AppEvent::PrOpenFilterControls) => event,
+        other => panic!("f must emit PrOpenFilterControls (got {other:?})"),
+    };
+    state.apply_in_place(event);
     assert!(state.prs_state.filter_ui.controls_open);
 
     // Cycle the review-decision draft filter via the REAL filter-controls handler.

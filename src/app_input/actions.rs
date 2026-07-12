@@ -46,7 +46,7 @@ fn resolve_search_key_event(state: &AppState, key_event: &KeyEvent) -> Option<Ap
 }
 
 fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
-    match resolve_filter_control_key(FilterEditorKind::Cycle, key_event)? {
+    match resolve_filter_control_key(FilterEditorKind::Choice, key_event)? {
         FilterControlCommand::Apply => Some(AppEvent::ActionsApplyFilter),
         FilterControlCommand::Cancel => Some(AppEvent::ActionsCloseFilterControls),
         FilterControlCommand::Next => Some(AppEvent::ActionsFilterNavigateNext),
@@ -63,7 +63,7 @@ fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<Ap
         FilterControlCommand::CycleNext | FilterControlCommand::CyclePrevious => {
             Some(AppEvent::ActionsCycleFilterStatus)
         }
-        FilterControlCommand::Append(_) | FilterControlCommand::Backspace => None,
+        _ => None,
     }
 }
 
@@ -147,6 +147,15 @@ mod tests {
             resolve_actions_key_event(&state, &key(KeyCode::Delete)),
             Some(AppEvent::ActionsUpdateDraftFilter {
                 field: ActionsFilterField::Workflow,
+                value
+            }) if value.is_empty()
+        ));
+
+        state.actions_state.ui.filter_field_index = 1;
+        assert!(matches!(
+            resolve_actions_key_event(&state, &key(KeyCode::Delete)),
+            Some(AppEvent::ActionsUpdateDraftFilter {
+                field: ActionsFilterField::Status,
                 value
             }) if value.is_empty()
         ));
