@@ -185,7 +185,8 @@ pub fn build_text_box_view(
         };
     }
 
-    let (display_rows, caret_row_idx) = build_wrapped_display_rows(&lines, caret, content_width);
+    let (display_rows, caret_row_idx) =
+        build_wrapped_display_rows(&lines, caret, content_width, viewport_rows);
 
     // If no caret row was recorded (e.g. content_width == 0 suppresses the
     // caret), anchor the viewport at the top.
@@ -226,8 +227,11 @@ fn build_wrapped_display_rows(
     lines: &[&str],
     caret: TextCaret,
     content_width: usize,
+    viewport_rows: usize,
 ) -> (Vec<TextBoxRow>, Option<usize>) {
-    let mut display_rows: Vec<TextBoxRow> = Vec::new();
+    // Pre-allocate a conservative capacity: at least one row per logical line,
+    // plus the headroom for full-width trailing caret rows.
+    let mut display_rows: Vec<TextBoxRow> = Vec::with_capacity(lines.len() + 1);
     let mut caret_row_idx: Option<usize> = None;
     for (line_idx, line) in lines.iter().enumerate() {
         // Only the caret line can trigger the full-width-trailing-caret case,
@@ -238,16 +242,21 @@ fn build_wrapped_display_rows(
             0
         };
         for seg in wrap_line(line, content_width) {
-            let seg_len = seg.end - seg.start;
+            // Use the RENDERED length (after trimming trailing spaces), not the
+            // source extent, so a full-width segment whose trailing spaces were
+            // trimmed is not mistaken for an exact-width row.
+            let seg_rendered_len = seg.text.chars().count();
             // A trailing caret at the end of a line that fills the full width
             // would overflow; emit the full segment row then a trailing empty
-            // row that carries the caret inside the width.
+            // row that carries the caret inside the width. With a single-row
+            // viewport that extra row would displace the text, so in that case
+            // keep the caret on the text row itself (clipped, but text visible).
             let full_width_end = content_width != 0
                 && line_idx == caret.line
                 && seg.end == caret_line_len
-                && seg_len == content_width
+                && seg_rendered_len == content_width
                 && caret.col == seg.end;
-            if full_width_end {
+            if full_width_end && viewport_rows >= 2 {
                 display_rows.push(TextBoxRow {
                     text: seg.text,
                     caret_col: None,
@@ -260,7 +269,14 @@ fn build_wrapped_display_rows(
                 continue;
             }
 
-            let caret_col = caret_col_for_segment(&seg, seg_len, caret, line_idx, content_width);
+            let caret_col = if full_width_end {
+                // Single-row viewport: keep the caret on the text row at the
+                // width boundary (the cell is clipped by the container, but the
+                // text row is not displaced).
+                Some(seg_rendered_len)
+            } else {
+                caret_col_for_segment(&seg, seg_rendered_len, caret, line_idx, content_width)
+            };
             if caret_col.is_some() {
                 caret_row_idx = Some(display_rows.len());
             }
@@ -619,6 +635,21 @@ mod tests {
         let caret_row = caret_row(&v);
         assert_eq!(caret_row.text, "");
         assert_eq!(caret_row.caret_col, Some(0));
+    }
+
+    /// With a single-row viewport, a full-width line's trailing caret must NOT
+    /// displace the text row with an empty caret row (the text stays visible;
+    /// the caret sits at the width boundary on the text row).
+    ///
+    /// @requirement REQ-TEXTBOX-WRAP
+    #[test]
+    fn single_row_viewport_full_width_caret_keeps_text_visible() {
+        let v = build_text_box_view("abcdefghij", 10, 1, 10);
+        assert_eq!(v.rows.len(), 1);
+        // The text row must remain visible (not displaced by an empty row).
+        assert_eq!(v.rows[0].text, "abcdefghij");
+        // The caret stays on the text row at the width boundary.
+        assert_eq!(v.rows[0].caret_col, Some(10));
     }
 
     /// Mixing explicit newlines with wrapping: each logical line wraps

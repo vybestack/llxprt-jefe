@@ -21,7 +21,7 @@ if ! command -v tmux >/dev/null 2>&1; then
 fi
 
 cleanup() {
-  if [ -n "${TMUX_PID:-}" ]; then
+  if [ -n "${LAUNCHED:-}" ]; then
     tmux kill-session -t "$SESSION" 2>/dev/null || true
   fi
   [ -n "$CAPTURE" ] && rm -f "$CAPTURE"
@@ -39,7 +39,8 @@ fi
 
 PASS=0
 tmux new-session -d -s "$SESSION" -x 80 -y 24 "$BIN --config $CFG"
-TMUX_PID=$$
+# Marker so cleanup() knows the session was launched (value is arbitrary).
+LAUNCHED=1
 # Give the app time to render the dashboard.
 sleep 2.5
 

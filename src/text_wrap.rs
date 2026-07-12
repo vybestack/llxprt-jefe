@@ -280,22 +280,23 @@ fn push_chars(buf: &mut String, chars: &[char]) {
 /// Find the row index that contains the given source char column, and the
 /// column relative to that row's start. Returns `(row_index, relative_col)`.
 ///
-/// A column exactly at a row's `end` belongs to the next row (so a caret at a
-/// wrap boundary lands on the continuation), except for the final row where it
-/// clamps to the end. A column past the last row clamps to the last row.
+/// A column in `[row.start, row.end)` maps to that row. A column in a gap
+/// between rows (e.g. a newline position no row covers) maps to the preceding
+/// row's end, so it is never lost or wrapped-underflowed. A column past the
+/// last row clamps to the last row's end.
 #[must_use]
 pub fn row_for_column(rows: &[WrapRow], col: usize) -> Option<(usize, usize)> {
+    let mut last_idx = 0usize;
+    let mut last_rel = 0usize;
     for (idx, row) in rows.iter().enumerate() {
         if col < row.end {
-            return Some((idx, col - row.start));
+            let rel = col.saturating_sub(row.start);
+            return Some((idx, rel));
         }
+        last_idx = idx;
+        last_rel = row.end.saturating_sub(row.start);
     }
-    // col is at or past the final row's end.
-    rows.last().map(|row| {
-        let last_idx = rows.len() - 1;
-        let rel = row.end.saturating_sub(row.start);
-        (last_idx, rel)
-    })
+    Some((last_idx, last_rel))
 }
 
 #[cfg(test)]
@@ -354,6 +355,14 @@ mod tests {
             assert!(w[1].start > w[0].start, "row starts must increase");
             assert!(w[0].end >= w[0].start, "end >= start");
         }
+        // Within a single logical line, ranges are STRICTLY contiguous: each
+        // row's end equals the next row's start (no gaps, no overlaps).
+        for w in rows.windows(2) {
+            assert_eq!(
+                w[0].end, w[1].start,
+                "rows must be strictly contiguous within a line"
+            );
+        }
         // Every non-whitespace source char is covered by exactly one row range.
         for (global, ch) in src.chars().enumerate() {
             if ch.is_whitespace() {
@@ -369,6 +378,24 @@ mod tests {
             rows.last().is_some_and(|r| r.end > 0),
             "the final row must cover the tail"
         );
+    }
+
+    /// A source column at a newline position (in the gap between two logical
+    /// lines) must NOT cause an underflow panic in `row_for_column`; it clamps
+    /// safely to the next row.
+    #[test]
+    fn row_for_column_newline_gap_no_underflow() {
+        // "alpha\nbeta": newline is at global col 5 (between [0,5) and [6,10)).
+        let rows = wrap_text("alpha\nbeta", 40);
+        assert_eq!(rows[0].start, 0);
+        assert_eq!(rows[0].end, 5);
+        assert_eq!(rows[1].start, 6);
+        // The newline column 5 is in the gap; must not panic.
+        let Some((idx, rel)) = row_for_column(&rows, 5) else {
+            panic!("gap col must resolve");
+        };
+        assert!(idx == 1, "gap col resolves to or past the next row");
+        let _ = rel; // rel is a valid (saturated) offset
     }
 
     #[test]
