@@ -54,6 +54,38 @@ fn detail_with_long_comment() -> PullRequestDetail {
     }
 }
 
+/// A minimal PR detail (single-char fields, no comments) so the composer sits
+/// near the top of the content and is visible without scrolling. Used by the
+/// composer-wrap render test.
+fn bare_pr_detail() -> PullRequestDetail {
+    PullRequestDetail {
+        repo_owner_name: "owner/repo".to_string(),
+        number: 20,
+        title: "T".to_string(),
+        state: PrState::Open,
+        is_draft: false,
+        author_login: "o".to_string(),
+        created_at: "d".to_string(),
+        updated_at: "d".to_string(),
+        head_ref: "f".to_string(),
+        base_ref: "m".to_string(),
+        labels: vec![],
+        assignees: vec![],
+        milestone: None,
+        body: String::new(),
+        external_url: "u".to_string(),
+        review_decision: None,
+        checks_status: PrCheckStatus::None,
+        reviews: vec![],
+        checks: vec![],
+        comments: vec![],
+        has_more_comments: false,
+        comments_cursor: None,
+        mergeable: None,
+        merge_state_status: None,
+    }
+}
+
 /// Bundle of render params to keep the render helpers under the argument
 /// limit (clippy::too_many_arguments).
 ///
@@ -263,32 +295,7 @@ fn caret_renders_as_reverse_video_sgr() {
 /// @requirement REQ-TEXTBOX-WRAP
 #[test]
 fn rendered_long_composer_line_wraps_to_content_width() {
-    let detail = PullRequestDetail {
-        repo_owner_name: "owner/repo".to_string(),
-        number: 20,
-        title: "T".to_string(),
-        state: PrState::Open,
-        is_draft: false,
-        author_login: "o".to_string(),
-        created_at: "d".to_string(),
-        updated_at: "d".to_string(),
-        head_ref: "f".to_string(),
-        base_ref: "m".to_string(),
-        labels: vec![],
-        assignees: vec![],
-        milestone: None,
-        body: String::new(),
-        external_url: "u".to_string(),
-        review_decision: None,
-        checks_status: PrCheckStatus::None,
-        reviews: vec![],
-        checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
-        mergeable: None,
-        merge_state_status: None,
-    };
+    let detail = bare_pr_detail();
     let long_text =
         "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789".to_string();
     let inline = InlineState::Composer {
@@ -318,11 +325,16 @@ fn rendered_long_composer_line_wraps_to_content_width() {
             line.chars().count()
         );
     }
-    // The composer line starts with the gutter "│ " then the (truncated) text;
-    // the start of the typed content must still be visible.
+    // The composer line starts with the gutter "│ " then the wrapped text;
+    // BOTH the start and the tail must be visible (truncation would drop the
+    // tail), proving the long composer line wraps rather than truncates.
     assert!(
         rendered.contains("│ abcdef"),
-        "the start of a long composer line must be visible (truncated, not dropped): {rendered}"
+        "the start of a long composer line must be visible (wrap, not truncate): {rendered}"
+    );
+    assert!(
+        rendered.contains("56789"),
+        "the TAIL of a long composer line must be visible (wrap, not truncate): {rendered}"
     );
 }
 

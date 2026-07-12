@@ -65,17 +65,29 @@ pub fn content_coords_for_pane(
     let body_rows = jefe::ui::components::doc_wrap::wrap_document(&body_content, wrap_width);
     let first_visible =
         jefe::ui::components::doc_wrap::line_first_row(&body_rows, coord.scroll_offset);
+    let last_visible_row = body_rows
+        .len()
+        .saturating_sub(first_visible)
+        .saturating_sub(1);
+    let past_end = body_vp_row > last_visible_row;
     let col_rel = usize::from(coord.col.saturating_sub(geometry.content_origin_col));
-    let (body_line, line_char_start) = jefe::ui::components::doc_wrap::viewport_row_to_content(
+    let (body_line, line_offset) = jefe::ui::components::doc_wrap::viewport_row_to_content(
         &body_rows,
         first_visible,
         body_vp_row,
     )
     .unwrap_or((0, 0));
     // Selection content coordinates include the header lines, so add the
-    // header offset; the column is the row's char start plus the in-row col.
+    // header offset. For an in-range row, the column is the row's char start
+    // plus the in-row col; for a click in empty space below the document,
+    // `viewport_row_to_content` already returns the last line's END column, so
+    // do not add the screen column again.
     let content_line = header_rows + body_line;
-    let content_col = line_char_start + col_rel;
+    let content_col = if past_end {
+        line_offset
+    } else {
+        line_offset + col_rel
+    };
     (content_line, content_col)
 }
 

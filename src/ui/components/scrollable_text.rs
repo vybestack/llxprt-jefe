@@ -576,9 +576,9 @@ mod tests {
     #[test]
     fn non_overlapping_selection_paints_no_highlight_on_row() {
         use crate::selection::{SelectablePane, SelectionPoint, TextSelection};
-        // Line wraps to 2 rows at width 10: "alpha bravo" | "charlie …".
-        // A selection covering only cols 0..5 (the "alpha" part, row 0) must
-        // NOT paint any highlight cell on row 1.
+        // At width 10, "alpha" fits on row 0 and "bravo charlie ..." continues
+        // on row 1. A selection covering only cols 0..5 (the "alpha" part,
+        // row 0) must NOT paint any highlight cell on row 1.
         let content = "alpha bravo charlie delta";
         let selection = TextSelection {
             anchor: SelectionPoint::new(SelectablePane::IssueDetail, 0, 0),

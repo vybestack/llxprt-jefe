@@ -105,19 +105,29 @@ pub fn line_first_row(rows: &[DocDisplayRow], line: usize) -> usize {
 /// the content coordinates the selection model uses.
 ///
 /// `vp_row` is 0-based relative to the top of the visible window
-/// (`first_visible_row`). Values past the last row clamp to the last row's
-/// content line at its end. Returns `None` only when there are no rows.
+/// (`first_visible_row`). In-range rows map to their row's left edge
+/// (`line_char_start`; the caller adds the in-row column). Values past the last
+/// row clamp to the last row's line at its END column (`line_char_end`), so a
+/// click in empty space below the document selects to the end of the last
+/// content line rather than its start. Returns `None` only when there are no
+/// rows.
 #[must_use]
 pub fn viewport_row_to_content(
     rows: &[DocDisplayRow],
     first_visible_row: usize,
     vp_row: usize,
 ) -> Option<(usize, usize)> {
-    let idx = first_visible_row
-        .saturating_add(vp_row)
-        .min(rows.len().saturating_sub(1));
-    let row = rows.get(idx)?;
-    Some((row.line, row.line_char_start))
+    let target = first_visible_row.saturating_add(vp_row);
+    let last_idx = rows.len().saturating_sub(1);
+    let row = rows.get(target.min(last_idx))?;
+    let char_offset = if target > last_idx {
+        // Past the last row: anchor at the last line's end so selection extends
+        // to the document tail, not its head.
+        row.line_char_end
+    } else {
+        row.line_char_start
+    };
+    Some((row.line, char_offset))
 }
 
 /// Find the display row + relative column that carries the caret at
@@ -224,6 +234,10 @@ mod tests {
         assert_eq!(viewport_row_to_content(&rows, first, 1), Some((0, 6)));
         // vp row 2 -> line 1
         assert_eq!(viewport_row_to_content(&rows, first, 2), Some((1, 0)));
+        // vp row past the last row clamps to the last line's END (11 for line
+        // 0 "alpha bravo"), so a click in empty space below selects to the
+        // document tail, not its head.
+        assert_eq!(viewport_row_to_content(&rows, first, 99), Some((1, 6)));
     }
 
     #[test]

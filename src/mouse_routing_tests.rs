@@ -765,31 +765,53 @@ fn origin_geometry() -> PaneGeometry {
 }
 
 /// A click on the SECOND wrapped row of a long body line must resolve to the
-/// SAME content line as the first row (the naive 1:1 map would return +1).
+/// SAME content line as the first row (the naive 1:1 map would return +1),
+/// and the column must advance by the wrapped row's char offset.
 #[test]
 fn wrapped_body_rows_resolve_to_same_content_line() {
     use jefe::layout::DETAIL_HEADER_ROWS;
-    // A body that wraps to several rows at width 10.
+    use jefe::layout::{ISSUES_SIDEBAR_WIDTH, issues_detail_content_width};
+    // A body that wraps to several rows at a narrow width.
     let body = "alpha bravo charlie delta echo foxtrot";
     let state = state_with_issue_body(body);
     let geo = origin_geometry();
-    // col 40 yields a narrow wrap width (40 - sidebar 22 - chrome 6 = 12) so
-    // the body wraps to several rows.
-    let cols: u16 = 40;
+    // Derive a column count from the real layout constants (not magic numbers)
+    // so the test stays correct if sidebar/chrome widths change.
+    let cols: u16 = ISSUES_SIDEBAR_WIDTH.saturating_add(18);
+    let expected_width = usize::from(issues_detail_content_width(cols));
     let Some((content, _headers, width)) =
         detail_wrap_projection(&state, SelectablePane::IssueDetail, cols)
     else {
         panic!("IssueDetail must have a wrap projection");
     };
-    let content_line_count = content.lines().count();
+    assert_eq!(
+        width, expected_width,
+        "wrap width must equal the layout-derived content width"
+    );
     let rows = jefe::ui::components::doc_wrap::wrap_document(&content, width);
     // Sanity: wrapping produced more display rows than content lines.
     assert!(
-        rows.len() > content_line_count,
+        rows.len() > content.lines().count(),
         "test premise: content must wrap ({} rows > {} lines)",
         rows.len(),
-        content_line_count
+        content.lines().count()
     );
+    // Resolve content coords for a screen vp_row; helper keeps the test body
+    // under the complexity line limit.
+    let resolve = |vp_row: u16| {
+        content_coords_for_pane(
+            &state,
+            SelectablePane::IssueDetail,
+            cols,
+            &ScreenCoord {
+                col: 0,
+                row: vp_row,
+                scroll_offset: 0,
+                geometry: &geo,
+            },
+        )
+        .0
+    };
     // Scan the body region for two consecutive viewport rows that map to the
     // SAME content line — the signature of a wrapped subrow pair. Under the
     // old naive 1:1 map every row would map to a distinct line, so finding
@@ -797,35 +819,18 @@ fn wrapped_body_rows_resolve_to_same_content_line() {
     let first_body_row = u16::try_from(DETAIL_HEADER_ROWS).unwrap_or(u16::MAX);
     let mut found_pair = None;
     for vp in first_body_row..first_body_row + 10 {
-        let (l1, _) = content_coords_for_pane(
-            &state,
-            SelectablePane::IssueDetail,
-            cols,
-            &ScreenCoord {
-                col: 0,
-                row: vp,
-                scroll_offset: 0,
-                geometry: &geo,
-            },
-        );
-        let (l2, _) = content_coords_for_pane(
-            &state,
-            SelectablePane::IssueDetail,
-            cols,
-            &ScreenCoord {
-                col: 0,
-                row: vp + 1,
-                scroll_offset: 0,
-                geometry: &geo,
-            },
-        );
-        if l1 == l2 {
-            found_pair = Some((vp, l1));
+        let here = resolve(vp);
+        let next = resolve(vp + 1);
+        if here == next {
+            found_pair = Some((vp, here));
             break;
         }
     }
     let Some((vp, line)) = found_pair else {
-        panic!("a wrapped body line must produce two consecutive rows on one line");
+        panic!(
+            "a wrapped body line must produce two consecutive rows on one line (width {width}, {} rows)",
+            rows.len()
+        );
     };
     // The content line must be the wrapped body text line (not "> Body" which
     // is a single row): it carries the long body text.
@@ -833,6 +838,77 @@ fn wrapped_body_rows_resolve_to_same_content_line() {
     assert!(
         body_line_text.contains("alpha"),
         "the wrapped pair (vp row {vp}, content line {line}) must be the long body text, got {body_line_text:?}"
+    );
+}
+
+/// The reverse map must also return the correct COLUMN: a click at screen
+/// column N on a wrapped subrow maps to that row's char start + N (the
+/// specific character under the cursor), not just the row's left edge.
+#[test]
+fn wrapped_body_row_column_advances_with_screen_col() {
+    use jefe::layout::DETAIL_HEADER_ROWS;
+    use jefe::layout::ISSUES_SIDEBAR_WIDTH;
+    let body = "alpha bravo charlie delta echo foxtrot";
+    let state = state_with_issue_body(body);
+    let geo = origin_geometry();
+    let cols: u16 = ISSUES_SIDEBAR_WIDTH.saturating_add(18);
+    let Some((content, _headers, width)) =
+        detail_wrap_projection(&state, SelectablePane::IssueDetail, cols)
+    else {
+        panic!("IssueDetail must have a wrap projection");
+    };
+    let rows = jefe::ui::components::doc_wrap::wrap_document(&content, width);
+    // Resolve content coords for a screen (col, vp_row); helper keeps the test
+    // body under the complexity line limit.
+    let resolve = |screen_col: u16, vp_row: u16| {
+        content_coords_for_pane(
+            &state,
+            SelectablePane::IssueDetail,
+            cols,
+            &ScreenCoord {
+                col: screen_col,
+                row: vp_row,
+                scroll_offset: 0,
+                geometry: &geo,
+            },
+        )
+    };
+    // Find the body line that carries the long text, then its SECOND wrapped
+    // row (line_char_start > 0) — the row whose column mapping we exercise.
+    let body_line = content
+        .lines()
+        .position(|l| l.contains("alpha"))
+        .unwrap_or_else(|| panic!("body text not found in content: {content:?}"));
+    let second = rows
+        .iter()
+        .find(|r| r.line == body_line && r.line_char_start > 0)
+        .unwrap_or_else(|| panic!("expected a wrapped second row; rows={rows:?}"));
+    let char_start = second.line_char_start;
+    // The screen vp row for `second` = header rows + the count of wrapped rows
+    // rendered before it.
+    let rows_before = rows
+        .iter()
+        .take_while(|r| {
+            r.line < second.line || (r.line == second.line && r.line_char_start < char_start)
+        })
+        .count();
+    let body_vp_row = u16::try_from(DETAIL_HEADER_ROWS + rows_before).unwrap_or(u16::MAX);
+    // col 0 -> the row's char START; col 2 -> char START + 2 (the exact char).
+    let (at_zero_line, at_zero_col) = resolve(0, body_vp_row);
+    let (_, at_two_col) = resolve(2, body_vp_row);
+    assert_eq!(
+        at_zero_line,
+        DETAIL_HEADER_ROWS + body_line,
+        "row maps to the body content line (header offset + body line)"
+    );
+    assert_eq!(
+        at_zero_col, char_start,
+        "col 0 maps to the wrapped row's char start"
+    );
+    assert_eq!(
+        at_two_col,
+        char_start + 2,
+        "col 2 maps to char start + 2 (the specific char under the cursor)"
     );
 }
 
