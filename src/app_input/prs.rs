@@ -98,7 +98,24 @@ fn resolve_pr_global_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEv
         KeyCode::Esc => Some(handle_esc_in_prs_mode(state, key_event)),
         KeyCode::Char('a') => Some(AppEvent::ExitPrsMode),
         KeyCode::Char('p' | 'P') => Some(AppEvent::RefocusPrList),
+        // Cross-mode navigation: `i` from PRs switches to Issues mode (issue #164).
+        KeyCode::Char('i' | 'I') => Some(AppEvent::EnterIssuesMode),
+        // F12 defocuses the terminal or returns to the PR list (issue #164).
+        KeyCode::F(12) => f12_event_for_prs(state),
         _ => None,
+    }
+}
+
+/// F12 semantics in PR mode (issue #164): defocus the terminal if it is
+/// focused, otherwise return to the PR list from the detail view. A no-op
+/// (returns `None`) when already at the PR list with the terminal unfocused.
+fn f12_event_for_prs(state: &AppState) -> Option<AppEvent> {
+    if state.terminal_focused {
+        Some(AppEvent::ToggleTerminalFocus)
+    } else if state.prs_state.pr_focus == PrFocus::PrDetail {
+        Some(AppEvent::RefocusPrList)
+    } else {
+        None
     }
 }
 

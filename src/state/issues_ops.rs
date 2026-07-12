@@ -3,19 +3,50 @@
 
 use super::{
     AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus,
-    ISSUE_FILTER_FIELD_COUNT, InlineState, IssueFocus, PaneFocus, PriorAgentFocus, ScreenMode,
+    ISSUE_FILTER_FIELD_COUNT, InlineState, IssueFocus, PaneFocus, PrFocus, PriorAgentFocus,
+    ScreenMode,
 };
 use crate::domain::{IssueFilter, IssueFilterState};
 use crate::messages::IssuesMessage;
 
 impl AppState {
     /// Enter issues mode, saving prior focus state.
+    ///
+    /// When entering from PR mode (cross-mode `i` key, issue #164), the PR
+    /// mode is deactivated in-place: its per-repo preferences are snapshot
+    /// and its overlays cleared, but `prior_agent_focus` is NOT restored to
+    /// Dashboard (that would bounce the user out of list-mode UX). The
+    /// exclusivity invariant holds: at most one of `issues_state.active` /
+    /// `prs_state.active` is true after this call.
     fn enter_issues_mode(&mut self) {
-        self.issues_state.prior_agent_focus = Some(PriorAgentFocus {
-            pane_focus: self.pane_focus,
-            selected_repository_index: self.selected_repository_index,
-            selected_agent_index: self.selected_agent_index,
-        });
+        // Finding 1: deactivate PR mode if active so both list modes are
+        // never simultaneously active (which would corrupt per-repo
+        // preferences on a repo change).
+        if self.prs_state.active {
+            self.remember_pr_preferences();
+            self.prs_state.active = false;
+            self.prs_state.pr_focus = PrFocus::PrList;
+            self.prs_state.inline_state = InlineState::None;
+            self.prs_state.agent_chooser = None;
+            self.prs_state.merge_chooser = None;
+            self.prs_state.filter_ui.controls_open = false;
+            self.prs_state.search_input_focused = false;
+        }
+        // Finding 1: only save prior_agent_focus if none exists yet, so a
+        // Dashboard → Issues → PRs → Issues round-trip does not clobber the
+        // original saved focus.
+        if self.issues_state.prior_agent_focus.is_none() {
+            self.issues_state.prior_agent_focus = Some(PriorAgentFocus {
+                pane_focus: self.pane_focus,
+                selected_repository_index: self.selected_repository_index,
+                selected_agent_index: self.selected_agent_index,
+            });
+        }
+        // Finding 2: normalize terminal-focus state so a cross-mode switch
+        // from a terminal-focused PR view does not leave terminal capture
+        // active in a list-mode render.
+        self.terminal_focused = false;
+        self.pane_focus = PaneFocus::Agents;
         self.screen_mode = ScreenMode::DashboardIssues;
         self.issues_state.active = true;
         self.issues_state.issue_focus = IssueFocus::IssueList;

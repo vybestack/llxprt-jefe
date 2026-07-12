@@ -1,0 +1,29 @@
+{
+  "config": {
+    "cols": 140,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "Issues" },
+    { "waitFor": "Issue" },
+    { "capture": "issues-list-before-f12" },
+    { "key": "F12" },
+    { "waitFor": "Issue" },
+    { "capture": "issues-list-after-f12-noop" },
+    { "key": "p" },
+    { "waitFor": "Pull" },
+    { "capture": "prs-from-issues-p" },
+    { "key": "i" },
+    { "waitFor": "Issue" },
+    { "capture": "issues-from-prs-i" },
+    { "key": "a" },
+    { "waitFor": "No terminal attached" },
+    { "key": "C-q" },
+    { "waitForExit": 3000 }
+  ]
+}

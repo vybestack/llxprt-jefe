@@ -669,7 +669,9 @@ fn handle_key_event(
 
     update_paste_enter_suppression(app_state, suppress_next_enter, &key_event);
 
-    if key_event.code == KeyCode::F(12) {
+    if key_event.code == KeyCode::F(12)
+        && matches!(screen_mode, ScreenMode::Dashboard | ScreenMode::Split)
+    {
         handle_f12_toggle(app_state, &ctx.cloned());
         return;
     }
