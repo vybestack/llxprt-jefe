@@ -230,6 +230,7 @@ fn event(kind: GestureEventKind, shift: bool, reporting: bool) -> GestureEvent {
         col: 5,
         row: 5,
         mouse_reporting_active: reporting,
+        kennel_mode: true,
     }
 }
 

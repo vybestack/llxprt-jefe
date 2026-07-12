@@ -464,8 +464,15 @@ pub fn try_intercept_terminal_scrollback(
     ctx: &SharedContext,
     key_event: &KeyEvent,
 ) -> bool {
-    let offset_is_some = app_state.read().terminal_history_offset.is_some();
-    let Some(scroll_evt) = jefe::input::should_intercept_for_scrollback(key_event, offset_is_some)
+    let (offset_is_some, kennel_mode) = {
+        let state = app_state.read();
+        (
+            state.terminal_history_offset.is_some(),
+            state.is_kennel_mode(),
+        )
+    };
+    let Some(scroll_evt) =
+        jefe::input::should_intercept_for_scrollback(key_event, offset_is_some, kennel_mode)
     else {
         return false;
     };

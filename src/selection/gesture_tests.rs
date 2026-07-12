@@ -15,6 +15,7 @@ fn ev(kind: GestureEventKind, shift: bool, reporting: bool) -> GestureEvent {
         col: 10,
         row: 5,
         mouse_reporting_active: reporting,
+        kennel_mode: true,
     }
 }
 
@@ -25,6 +26,19 @@ fn ev_at(kind: GestureEventKind, shift: bool, reporting: bool, col: u16, row: u1
         col,
         row,
         mouse_reporting_active: reporting,
+        kennel_mode: true,
+    }
+}
+
+/// Like [`ev`] but with `kennel_mode` set to `false` (non-kennel / llxprt).
+fn ev_nk(kind: GestureEventKind, shift: bool, reporting: bool) -> GestureEvent {
+    GestureEvent {
+        kind,
+        shift_held: shift,
+        col: 10,
+        row: 5,
+        mouse_reporting_active: reporting,
+        kennel_mode: false,
     }
 }
 
@@ -338,4 +352,176 @@ fn pending_drag_with_unresolvable_anchor_forwards_buffered_down() {
         other => panic!("expected ForwardToPty of buffered down + drag, got {other:?}"),
     }
     assert_eq!(state, GestureState::Idle);
+}
+
+// ── Issue #245: non-kennel (llxprt) reporting left-button gestures go to PTY ──
+//
+// A non-kennel reporting child (llxprt TUI) must own its left-button events:
+// scrollbar drags, clicks, etc. are forwarded to the PTY immediately, NOT
+// claimed by Jefe's text selection. Shift+drag still does Jefe selection.
+// Kennel (Code Puppy) behavior is unchanged (#197).
+
+#[test]
+fn non_kennel_reporting_down_forwards_to_pty() {
+    let state = GestureState::default();
+    let (action, state) = state.process(ev_nk(GestureEventKind::LeftDown, false, true), &resolver);
+    match action {
+        GestureAction::ForwardToPty(replays) => {
+            assert_eq!(
+                replays.len(),
+                1,
+                "non-kennel reporting down must forward exactly one LeftDown"
+            );
+            assert_eq!(replays[0].kind, GestureEventKind::LeftDown);
+            assert_eq!((replays[0].col, replays[0].row), (10, 5));
+        }
+        other => panic!("non-kennel reporting down must ForwardToPty, got {other:?}"),
+    }
+    assert_eq!(
+        state,
+        GestureState::PtyOwned,
+        "non-kennel reporting down must latch PtyOwned"
+    );
+}
+
+#[test]
+fn non_kennel_reporting_drag_forwards_to_pty() {
+    // Chain through the real LeftDown so the test exercises the actual
+    // Idle → PtyOwned transition (not a hand-constructed PtyOwned).
+    let state = GestureState::default();
+    let (_, state) = state.process(ev_nk(GestureEventKind::LeftDown, false, true), &resolver);
+    assert_eq!(state, GestureState::PtyOwned);
+    let (action, state) = state.process(ev_nk(GestureEventKind::LeftDrag, false, true), &resolver);
+    match action {
+        GestureAction::ForwardToPty(replays) => {
+            assert_eq!(
+                replays.len(),
+                1,
+                "non-kennel reporting drag must forward exactly one LeftDrag"
+            );
+            assert_eq!(replays[0].kind, GestureEventKind::LeftDrag);
+        }
+        other => panic!("non-kennel reporting drag must ForwardToPty, got {other:?}"),
+    }
+    assert_eq!(
+        state,
+        GestureState::PtyOwned,
+        "drag while PtyOwned must stay PtyOwned"
+    );
+}
+
+#[test]
+fn non_kennel_reporting_up_forwards_to_pty_and_resets() {
+    // Chain through the real LeftDown so the test exercises the actual
+    // Idle → PtyOwned transition (not a hand-constructed PtyOwned).
+    let state = GestureState::default();
+    let (_, state) = state.process(ev_nk(GestureEventKind::LeftDown, false, true), &resolver);
+    assert_eq!(state, GestureState::PtyOwned);
+    let (action, state) = state.process(ev_nk(GestureEventKind::LeftUp, false, true), &resolver);
+    match action {
+        GestureAction::ForwardToPty(replays) => {
+            assert_eq!(
+                replays.len(),
+                1,
+                "non-kennel reporting up must forward exactly one LeftUp"
+            );
+            assert_eq!(replays[0].kind, GestureEventKind::LeftUp);
+        }
+        other => panic!("non-kennel reporting up must ForwardToPty, got {other:?}"),
+    }
+    assert_eq!(
+        state,
+        GestureState::Idle,
+        "up while PtyOwned must reset to Idle"
+    );
+}
+
+#[test]
+fn pty_owned_wheel_resets_to_idle_and_forwards() {
+    // A wheel/right/middle event while PtyOwned must reset to Idle and be
+    // processed from Idle (PtyOwned has nothing buffered — the down was
+    // already forwarded — so no flush is needed). For a reporting child the
+    // wheel forwards to the PTY (issue #245).
+    let state = GestureState::default();
+    let (_, state) = state.process(ev_nk(GestureEventKind::LeftDown, false, true), &resolver);
+    assert_eq!(state, GestureState::PtyOwned);
+    let (action, state) =
+        state.process(ev_nk(GestureEventKind::ScrollDown, false, true), &resolver);
+    match action {
+        GestureAction::ForwardToPty(replays) => {
+            assert_eq!(replays.len(), 1);
+            assert_eq!(replays[0].kind, GestureEventKind::ScrollDown);
+        }
+        other => panic!("wheel while PtyOwned must forward to PTY, got {other:?}"),
+    }
+    assert_eq!(
+        state,
+        GestureState::Idle,
+        "wheel while PtyOwned must reset to Idle"
+    );
+}
+
+#[test]
+fn pty_owned_other_button_resets_to_idle_and_forwards() {
+    // A right/middle-button event while PtyOwned must reset to Idle and
+    // forward to the reporting child (issue #245).
+    let state = GestureState::default();
+    let (_, state) = state.process(ev_nk(GestureEventKind::LeftDown, false, true), &resolver);
+    assert_eq!(state, GestureState::PtyOwned);
+    let (action, state) =
+        state.process(ev_nk(GestureEventKind::OtherButton, false, true), &resolver);
+    assert!(
+        matches!(action, GestureAction::ForwardToPty(_)),
+        "other-button while PtyOwned must forward to PTY, got {action:?}"
+    );
+    assert_eq!(
+        state,
+        GestureState::Idle,
+        "other-button while PtyOwned must reset to Idle"
+    );
+}
+
+#[test]
+fn non_kennel_shift_down_still_selects() {
+    let state = GestureState::default();
+    let (action, state) = state.process(ev_nk(GestureEventKind::LeftDown, true, true), &resolver);
+    assert!(
+        matches!(action, GestureAction::BeginSelection(_)),
+        "shift+down on non-kennel reporting must begin Jefe selection, got {action:?}"
+    );
+    assert!(
+        matches!(state, GestureState::JefeOwned { .. }),
+        "shift+down must latch JefeOwned even for non-kennel"
+    );
+}
+
+#[test]
+fn non_kennel_non_reporting_down_selects() {
+    let state = GestureState::default();
+    let (action, state) = state.process(ev_nk(GestureEventKind::LeftDown, false, false), &resolver);
+    assert!(
+        matches!(action, GestureAction::BeginSelection(_)),
+        "non-reporting non-kennel down must begin Jefe selection, got {action:?}"
+    );
+    assert!(
+        matches!(state, GestureState::JefeOwned { .. }),
+        "non-reporting non-kennel down must latch JefeOwned"
+    );
+}
+
+#[test]
+fn kennel_reporting_down_goes_pending() {
+    // Kennel (Code Puppy) behavior is UNCHANGED (#197): reporting + kennel +
+    // non-shift left-down → Pending (buffered), not PtyOwned.
+    let state = GestureState::default();
+    let (action, state) = state.process(ev(GestureEventKind::LeftDown, false, true), &resolver);
+    assert_eq!(
+        action,
+        GestureAction::Noop,
+        "kennel reporting down must buffer (Noop), not forward"
+    );
+    assert!(
+        matches!(state, GestureState::Pending { .. }),
+        "kennel reporting down must be Pending, got {state:?}"
+    );
 }

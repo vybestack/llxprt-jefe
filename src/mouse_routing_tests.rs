@@ -265,6 +265,7 @@ fn reporting_click_replays_down_then_up_with_real_coords() {
         col: 5,
         row: 3,
         mouse_reporting_active: true,
+        kennel_mode: true,
     };
     let (action, pending) = GestureState::default().process(down, &resolver);
     assert!(matches!(action, GestureAction::Noop));
@@ -276,6 +277,7 @@ fn reporting_click_replays_down_then_up_with_real_coords() {
         col: 9,
         row: 7,
         mouse_reporting_active: true,
+        kennel_mode: true,
     };
     let (action, next) = pending.process(up, &resolver);
     let GestureAction::ForwardToPty(replays) = action else {
@@ -311,6 +313,7 @@ fn reporting_drag_begins_range_from_buffered_down() {
         col: 2,
         row: 4,
         mouse_reporting_active: true,
+        kennel_mode: true,
     };
     let (_, pending) = GestureState::default().process(down, &resolver);
     let drag = GestureEvent {
@@ -319,6 +322,7 @@ fn reporting_drag_begins_range_from_buffered_down() {
         col: 8,
         row: 4,
         mouse_reporting_active: true,
+        kennel_mode: true,
     };
     let (action, owned) = pending.process(drag, &resolver);
     match action {
@@ -347,6 +351,7 @@ fn stray_left_down_while_pending_flushes_buffered_down() {
         col: 3,
         row: 3,
         mouse_reporting_active: true,
+        kennel_mode: true,
     };
     let (_, pending) = GestureState::default().process(down, &resolver);
     let second_down = GestureEvent {
@@ -355,6 +360,7 @@ fn stray_left_down_while_pending_flushes_buffered_down() {
         col: 6,
         row: 6,
         mouse_reporting_active: true,
+        kennel_mode: true,
     };
     let (action, _) = pending.process(second_down, &resolver);
     let GestureAction::ForwardToPty(replays) = action else {
@@ -446,6 +452,7 @@ fn focused_terminal_drag_resolves_to_terminalview_selection_via_production_geome
         col: 30,
         row: 25,
         mouse_reporting_active: true,
+        kennel_mode: true,
     };
     let (down_action, down_gesture) = GestureState::default().process(down, &resolver);
     assert_eq!(
@@ -461,6 +468,7 @@ fn focused_terminal_drag_resolves_to_terminalview_selection_via_production_geome
         col: 35,
         row: 25,
         mouse_reporting_active: true,
+        kennel_mode: true,
     };
     let (drag_action, drag_gesture) = down_gesture.process(drag, &resolver);
     match drag_action {

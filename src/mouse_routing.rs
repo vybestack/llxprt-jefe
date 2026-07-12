@@ -199,7 +199,10 @@ fn route_terminal_gesture(
     shift_held: bool,
     mouse_reporting_active: bool,
 ) -> bool {
-    let gesture_state = app_state.read().terminal_gesture_state.clone();
+    let (gesture_state, kennel_mode) = {
+        let state = app_state.read();
+        (state.terminal_gesture_state.clone(), state.is_kennel_mode())
+    };
 
     let Some(event_kind) = gesture_event_kind(mouse_event.kind) else {
         // Unmapped event kind (e.g. plain move) — reset gesture state and let
@@ -208,13 +211,18 @@ fn route_terminal_gesture(
         return false;
     };
 
-    // Issue #198: wheel events over the focused terminal pane move the Jefe
-    // scrollback viewport BEFORE the gesture state machine or PTY forwarding.
-    // This is the crux of usable scrollback: wheel-up scrolls the Jefe
-    // viewport, not the child. Shift+wheel already bypassed above (host
-    // native scroll). Clicks/drags still flow through the gesture machine so
-    // reporting children stay interactive.
-    if !shift_held && is_wheel_event(mouse_event) && is_event_over_terminal_pane(mouse_event) {
+    // Issue #198 + #245: wheel events over the focused terminal pane move the
+    // Jefe scrollback viewport BEFORE the gesture state machine or PTY
+    // forwarding — but ONLY for kennel (Code Puppy) agents. Non-kennel agents
+    // (llxprt) handle their own scrolling via SGR mouse reporting, so their
+    // wheel events must fall through to the gesture state machine below which
+    // forwards them to the PTY (issue #245). Shift+wheel is host passthrough.
+    // Clicks/drags always flow through the gesture machine so reporting
+    // children stay interactive.
+    if wheel_intercept_active_for_agent(kennel_mode, shift_held)
+        && is_wheel_event(mouse_event)
+        && is_event_over_terminal_pane(mouse_event)
+    {
         // Refresh scroll geometry from runtime + layout BEFORE applying so
         // the reducer's clamp bounds match the rendered content (mirrors the
         // keyboard dispatch path). Runs at event time, never at render time.
@@ -232,6 +240,7 @@ fn route_terminal_gesture(
         col: mouse_event.column,
         row: mouse_event.row,
         mouse_reporting_active,
+        kennel_mode,
     };
     let resolver = |col: u16, row: u16| resolve_terminal_point(app_state, col, row);
 
@@ -395,6 +404,23 @@ fn is_event_over_terminal_pane(mouse_event: &iocraft::FullscreenMouseEvent) -> b
         && mouse_event.column <= col_end
         && mouse_event.row >= layout.pane_row0
         && mouse_event.row <= row_end
+}
+
+/// Whether Jefe's scrollback viewport should own wheel events for the focused
+/// terminal agent (issue #198 + #245).
+///
+/// Returns `true` only when the agent is a kennel (Code Puppy) session AND
+/// shift is not held (shift+wheel is host passthrough). Non-kennel agents
+/// (llxprt) handle their own scrolling via SGR mouse reporting, so the wheel
+/// must forward to the PTY through the gesture state machine (issue #245).
+///
+/// The wheel-vs-non-wheel and over-pane-vs-not checks are performed by the
+/// caller (via [`is_wheel_event`] and [`is_event_over_terminal_pane`], already
+/// unit-tested separately) so this helper stays focused on the agent-kind
+/// gating decision that #245 introduced.
+#[must_use]
+pub fn wheel_intercept_active_for_agent(kennel_mode: bool, shift_held: bool) -> bool {
+    kennel_mode && !shift_held
 }
 
 /// Map a wheel event to a terminal scroll AppEvent (issue #198).
@@ -959,3 +985,7 @@ fn scroll_detail_pane(
 #[cfg(test)]
 #[path = "mouse_routing_tests.rs"]
 mod mouse_routing_tests;
+
+#[cfg(test)]
+#[path = "mouse_routing_wheel_intercept_tests.rs"]
+mod mouse_routing_wheel_intercept_tests;

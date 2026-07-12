@@ -1,0 +1,32 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 24,
+    "history_limit": 2000,
+    "initial_wait_ms": 200,
+    "assert_mode": "soft"
+  },
+  "macros": {
+    "quit": {
+      "params": [],
+      "steps": [
+        { "key": "q" },
+        { "key": "q" },
+        { "key": "q" },
+        { "waitForExit": 3000 }
+      ]
+    }
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "F12" },
+    { "wait": 300 },
+    { "line": "for i in $(seq 1 60); do printf 'line %d\\n' $i; done" },
+    { "wait": 500 },
+    { "historySample": "before-scroll" },
+    { "key": "PageUp" },
+    { "wait": 200 },
+    { "capture": "after-pageup" },
+    { "macro": "quit", "args": {} }
+  ]
+}
