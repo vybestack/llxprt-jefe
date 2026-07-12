@@ -160,11 +160,10 @@ impl<T, I> PaginatedList<T, I> {
 
     /// Set the selected index, clamping to `len-1` or `None` when out of range.
     pub fn set_selected_index(&mut self, idx: Option<usize>) {
-        self.selected_index = match idx {
-            Some(i) if i < self.items.len() => Some(i),
-            Some(i) if self.items.is_empty() => None,
-            Some(_) => Some(self.items.len() - 1),
-            None => None,
+        self.selected_index = match (idx, self.items.len()) {
+            (Some(i), n) if i < n => Some(i),
+            (Some(_), n) if n > 0 => Some(n - 1),
+            (Some(_) | None, _) => None,
         };
     }
 
