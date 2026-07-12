@@ -694,3 +694,15 @@ fn submit_edit_repository_closes_modal_when_github_repo_valid() {
     assert_eq!(state.repositories[0].github_repo, "owner/new");
     assert!(matches!(state.modal, ModalState::None));
 }
+
+#[test]
+fn code_puppy_yolo_focus_toggles_typed_boolean() {
+    let mut fields = AgentFormFields::default();
+    assert!(!fields.code_puppy_yolo);
+
+    AppState::toggle_agent_checkbox_fields(&mut fields, AgentFormFocus::CodePuppyYolo);
+    assert!(fields.code_puppy_yolo);
+
+    AppState::toggle_agent_checkbox_fields(&mut fields, AgentFormFocus::CodePuppyYolo);
+    assert!(!fields.code_puppy_yolo);
+}
