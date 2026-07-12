@@ -401,10 +401,23 @@ pub enum ActionsFilterField {
     Status,
 }
 
+/// Identity for the Actions runs list — a result is stale unless both the
+/// scope repo and the committed filter match exactly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionsListIdentity {
+    /// Repository scope the list was loaded for.
+    pub scope_repo_id: RepositoryId,
+    /// Committed filter snapshot when the load was started.
+    pub filter: crate::domain::ActionsFilter,
+}
+
 /// Loading/pending state for Actions mode async operations.
+///
+/// List loading is now derived from `ActionsState::list` (the
+/// `PaginatedList::is_loading()` / `has_pending_request()` accessors). Only
+/// detail loading remains as an explicit flag here.
 #[derive(Debug, Clone, Default)]
 pub struct ActionsLoadingState {
-    pub list: bool,
     pub detail: bool,
 }
 
@@ -429,15 +442,16 @@ pub struct ActionsUiState {
 #[derive(Debug, Clone, Default)]
 pub struct ActionsState {
     pub active: bool,
-    pub runs: Vec<crate::domain::WorkflowRun>,
-    pub selected_run_index: Option<usize>,
+    /// Unified list state: runs, selection, pagination continuation, and
+    /// pending load correlation. List loading is derived from this container.
+    pub list:
+        crate::state::pagination::PaginatedList<crate::domain::WorkflowRun, ActionsListIdentity>,
     pub run_detail: Option<crate::domain::WorkflowRunDetail>,
     pub workflows: Vec<crate::domain::Workflow>,
     pub committed_filter: crate::domain::ActionsFilter,
     pub draft_filter: crate::domain::ActionsFilter,
     pub search_query: String,
     pub error: Option<String>,
-    pub page: u32,
     pub focus: ActionsFocus,
     pub detail_scroll_offset: usize,
     pub detail_viewport_rows: usize,
@@ -447,8 +461,6 @@ pub struct ActionsState {
     /// Focused job index within the detail pane's job list (for keyboard
     /// navigation of expand/collapse). `None` when no detail is loaded.
     pub focused_job_index: Option<usize>,
-    pub list_reload_pending: Option<ActionsListReloadPending>,
-    pub next_list_request_id: u64,
     pub detail_pending: Option<ActionsDetailPending>,
     pub next_detail_request_id: u64,
     pub workflows_pending: Option<WorkflowsPending>,
@@ -456,11 +468,7 @@ pub struct ActionsState {
     pub prior_agent_focus: Option<PriorAgentFocus>,
     pub dispatch_pending: Option<ActionsDispatchPending>,
     pub next_dispatch_request_id: u64,
-    /// Pagination marker received from the last list load. Currently only page
-    /// 1 is loaded (no load-more path exists); this field is retained for
-    /// future pagination support and is never read for any load decision.
-    pub has_more: bool,
-    /// Decomposed loading/pending state.
+    /// Decomposed loading/pending state (detail-only now).
     pub loading: ActionsLoadingState,
     /// Decomposed UI control state.
     pub ui: ActionsUiState,
@@ -471,14 +479,36 @@ impl ActionsState {
     pub fn dispatch_pending(&self) -> bool {
         self.dispatch_pending.is_some()
     }
-}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ActionsListReloadPending {
-    pub scope_repo_id: RepositoryId,
-    pub filter: crate::domain::ActionsFilter,
-    pub page: u32,
-    pub request_id: u64,
+    /// Read-only access to the loaded runs.
+    #[must_use]
+    pub fn runs(&self) -> &[crate::domain::WorkflowRun] {
+        self.list.items()
+    }
+
+    /// The currently selected run index, if any.
+    #[must_use]
+    pub fn selected_run_index(&self) -> Option<usize> {
+        self.list.selected_index()
+    }
+
+    /// Whether the list is visibly loading (reload-visible or page pending).
+    #[must_use]
+    pub fn list_loading(&self) -> bool {
+        self.list.is_loading()
+    }
+
+    /// Whether any list operation is pending (visible or silent).
+    #[must_use]
+    pub fn list_pending(&self) -> bool {
+        self.list.has_pending_request()
+    }
+
+    /// Whether more pages are available.
+    #[must_use]
+    pub fn has_more(&self) -> bool {
+        self.list.has_more()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

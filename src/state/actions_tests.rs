@@ -1,10 +1,11 @@
 #[cfg(test)]
 mod tests {
     use crate::domain::{
-        ActionsFilter, Repository, RepositoryId, Workflow, WorkflowRun, WorkflowRunStatus,
+        ActionsFilter, ListRequestId, Repository, RepositoryId, Workflow, WorkflowRun,
+        WorkflowRunStatus,
     };
     use crate::messages::{ActionsMessage, NavDir, ScrollDir};
-    use crate::state::{ActionsFocus, AppState, ModalState, ScreenMode};
+    use crate::state::{ActionsFocus, ActionsListIdentity, AppState, ModalState, ScreenMode};
 
     fn create_test_state() -> AppState {
         let mut state = AppState::default();
@@ -19,19 +20,47 @@ mod tests {
         state
     }
 
+    /// Helper: start a visible reload (page 1) so that a RunsLoaded message is
+    /// accepted (not stale).
+    fn start_reload(state: &mut AppState, request_id: u64) {
+        let identity = ActionsListIdentity {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: state.actions_state.committed_filter.clone(),
+        };
+        state
+            .actions_state
+            .list
+            .begin_reload(identity, ListRequestId::from_raw(request_id));
+    }
+
+    /// Allocate a request id from the list, panicking on exhaustion (test
+    /// setup where the state is controlled).
+    fn alloc_req(
+        list: &mut crate::state::pagination::PaginatedList<
+            crate::domain::WorkflowRun,
+            ActionsListIdentity,
+        >,
+    ) -> ListRequestId {
+        let Ok(id) = list.next_request_id() else {
+            panic!("request id allocation must succeed in test setup");
+        };
+        id
+    }
+
     #[test]
     fn test_enter_exit_actions_mode() {
         let mut state = create_test_state();
         assert!(!state.actions_state.active);
 
-        // Enter
         state.apply_actions_message(ActionsMessage::EnterMode);
         assert!(state.actions_state.active);
         assert_eq!(state.screen_mode, ScreenMode::DashboardActions);
         assert_eq!(state.actions_state.focus, ActionsFocus::RunList);
-        assert!(state.actions_state.loading.list);
+        assert!(
+            state.actions_state.runs().is_empty(),
+            "enter must clear the list"
+        );
 
-        // Exit
         state.apply_actions_message(ActionsMessage::ExitMode);
         assert!(!state.actions_state.active);
         assert_eq!(state.screen_mode, ScreenMode::Dashboard);
@@ -70,24 +99,25 @@ mod tests {
         let mut state = create_test_state();
         let run1 = make_run(1);
         let run2 = make_run(2);
-        state.actions_state.runs = vec![run1.clone(), run2];
-        state.actions_state.selected_run_index = Some(0);
+        state.actions_state.list.items_mut().clear();
+        state
+            .actions_state
+            .list
+            .items_mut()
+            .extend_from_slice(&[run1.clone(), run2]);
+        state.actions_state.list.set_selected_index(Some(0));
 
-        // Navigate Down
         state.apply_actions_message(ActionsMessage::Navigate(NavDir::Down));
-        assert_eq!(state.actions_state.selected_run_index, Some(1));
+        assert_eq!(state.actions_state.selected_run_index(), Some(1));
         assert!(!state.actions_state.loading.detail);
         assert!(state.actions_state.detail_pending.is_none());
 
-        // Navigate Up
         state.apply_actions_message(ActionsMessage::Navigate(NavDir::Up));
-        assert_eq!(state.actions_state.selected_run_index, Some(0));
+        assert_eq!(state.actions_state.selected_run_index(), Some(0));
 
-        // Scroll Detail clamps to 0 when no detail is loaded.
         scroll_and_assert(&mut state, ScrollDir::Down, 0);
         scroll_and_assert(&mut state, ScrollDir::Up, 0);
 
-        // With a scrollable detail, verify scrolling advances and retreats.
         let detail = crate::domain::WorkflowRunDetail {
             run: run1.clone(),
             jobs: (0..20)
@@ -110,14 +140,12 @@ mod tests {
 
         scroll_and_assert(&mut state, ScrollDir::Down, 1);
         scroll_and_assert(&mut state, ScrollDir::Up, 0);
-        // PageDown advances by 10 then clamps at max.
         state.apply_actions_message(ActionsMessage::ScrollDetail(ScrollDir::PageDown));
         assert_eq!(
             state.actions_state.detail_scroll_offset,
             10.min(max),
             "PageDown advances by 10 then clamps at max"
         );
-        // Repeated Down presses climb to max and then stop there.
         for _ in 0..(max + 5) {
             state.apply_actions_message(ActionsMessage::ScrollDetail(ScrollDir::Down));
         }
@@ -135,63 +163,34 @@ mod tests {
     #[test]
     fn test_reload_and_fail() {
         let mut state = create_test_state();
-        let repo_id = RepositoryId("test_repo".to_string());
         let filter = ActionsFilter::default();
-        let req_id = 42;
 
-        state.actions_state.list_reload_pending = Some(crate::state::ActionsListReloadPending {
-            scope_repo_id: repo_id.clone(),
-            filter: filter.clone(),
-            page: 1,
-            request_id: req_id,
-        });
-        state.actions_state.loading.list = true;
+        start_reload(&mut state, 42);
 
-        // Fail load
         state.apply_actions_message(ActionsMessage::RunsLoadFailed {
-            scope_repo_id: repo_id.clone(),
+            scope_repo_id: RepositoryId("test_repo".to_string()),
             filter: Box::new(filter.clone()),
             page: 1,
-            request_id: req_id,
+            request_id: 42,
             error: "Failed".to_string(),
         });
-        assert!(!state.actions_state.loading.list);
+        assert!(!state.actions_state.list_pending());
         assert_eq!(state.actions_state.error, Some("Failed".to_string()));
-        assert!(state.actions_state.list_reload_pending.is_none());
 
         // Success load
-        state.actions_state.list_reload_pending = Some(crate::state::ActionsListReloadPending {
-            scope_repo_id: repo_id.clone(),
-            filter: filter.clone(),
-            page: 1,
-            request_id: req_id + 1,
-        });
-        state.actions_state.loading.list = true;
-        let run = WorkflowRun {
-            id: 1,
-            name: "Run 1".to_string(),
-            head_branch: "main".to_string(),
-            head_sha: "sha1".to_string(),
-            run_number: 1,
-            event: "push".to_string(),
-            status: WorkflowRunStatus::Completed,
-            conclusion: None,
-            workflow_name: "CI".to_string(),
-            created_at: "time".to_string(),
-            updated_at: "time".to_string(),
-        };
-
+        start_reload(&mut state, 43);
+        let run = make_run(1);
         state.apply_actions_message(ActionsMessage::RunsLoaded {
-            scope_repo_id: repo_id,
+            scope_repo_id: RepositoryId("test_repo".to_string()),
             filter: Box::new(filter),
             page: 1,
-            request_id: req_id + 1,
+            request_id: 43,
             runs: vec![run],
             has_more: false,
         });
-        assert!(!state.actions_state.loading.list);
-        assert_eq!(state.actions_state.runs.len(), 1);
-        assert_eq!(state.actions_state.selected_run_index, Some(0));
+        assert!(!state.actions_state.list_pending());
+        assert_eq!(state.actions_state.runs().len(), 1);
+        assert_eq!(state.actions_state.selected_run_index(), Some(0));
     }
 
     #[test]
@@ -202,13 +201,12 @@ mod tests {
         state.apply_actions_message(ActionsMessage::ApplyFilter);
         assert_eq!(state.actions_state.committed_filter.workflow, "draft_wf");
         assert!(!state.actions_state.ui.filter_ui_open);
-        assert!(state.actions_state.loading.list);
+        assert!(state.actions_state.list_pending());
 
         state.apply_actions_message(ActionsMessage::ClearFilter);
         assert_eq!(state.actions_state.committed_filter.workflow, "");
         assert_eq!(state.actions_state.draft_filter.workflow, "");
 
-        // Toggle UI open
         state.apply_actions_message(ActionsMessage::OpenFilterControls);
         assert!(state.actions_state.ui.filter_ui_open);
         state.apply_actions_message(ActionsMessage::CloseFilterControls);
@@ -275,11 +273,6 @@ mod tests {
         );
     }
 
-    // ---- BUG 2: Workflow filter must use path (not display name) for API ----
-
-    /// Cycling the workflow filter must set `workflow_path` to the workflow's
-    /// file path (e.g. ".github/workflows/ci.yml"), NOT the display name ("CI").
-    /// The GitHub API rejects display names with HTTP 404.
     #[test]
     fn cycle_workflow_filter_sets_path_not_display_name() {
         let mut state = create_test_state();
@@ -298,22 +291,14 @@ mod tests {
             },
         ];
 
-        // CycleFilterStatus advances the active filter field. Select the
-        // workflow field (index 0) so cycling walks the workflow list.
         state.actions_state.ui.filter_field_index = 0;
-
-        // Cycle forward once: "all" → first workflow ("CI").
         state.apply_actions_message(ActionsMessage::CycleFilterStatus);
+        assert_eq!(state.actions_state.draft_filter.workflow, "CI");
         assert_eq!(
-            state.actions_state.draft_filter.workflow, "CI",
-            "display name should be the user-friendly name"
-        );
-        assert_eq!(
-            state.actions_state.draft_filter.workflow_path, ".github/workflows/ci.yml",
-            "workflow_path must be the file path for the API call, not the display name"
+            state.actions_state.draft_filter.workflow_path,
+            ".github/workflows/ci.yml"
         );
 
-        // Cycle forward again: "CI" → "Deploy".
         state.apply_actions_message(ActionsMessage::CycleFilterStatus);
         assert_eq!(state.actions_state.draft_filter.workflow, "Deploy");
         assert_eq!(
@@ -321,14 +306,11 @@ mod tests {
             ".github/workflows/deploy.yml"
         );
 
-        // Cycle forward once more: "Deploy" → "all".
         state.apply_actions_message(ActionsMessage::CycleFilterStatus);
         assert!(state.actions_state.draft_filter.workflow.is_empty());
         assert!(state.actions_state.draft_filter.workflow_path.is_empty());
     }
 
-    /// With a single workflow, cycling forward wraps "all" → "CI" and sets the
-    /// path (not the display name) for the API call.
     #[test]
     fn cycle_workflow_filter_forward_uses_path() {
         let mut state = create_test_state();
@@ -339,7 +321,6 @@ mod tests {
             state: "active".to_string(),
         }];
 
-        // With a single workflow, cycling forward wraps "all" → "CI".
         state.actions_state.ui.filter_field_index = 0;
         state.apply_actions_message(ActionsMessage::CycleFilterStatus);
         assert_eq!(state.actions_state.draft_filter.workflow, "CI");
@@ -349,24 +330,16 @@ mod tests {
         );
     }
 
-    /// Cycling the workflow filter when no workflows are loaded yet must be a
-    /// safe no-op (no panic, no state change).
     #[test]
     fn cycle_workflow_filter_empty_workflows_is_noop() {
         let mut state = create_test_state();
-        // No workflows loaded (e.g. still loading on first entry).
         state.actions_state.workflows = Vec::new();
         state.actions_state.ui.filter_field_index = 0;
         state.apply_actions_message(ActionsMessage::CycleFilterStatus);
-        assert!(
-            state.actions_state.draft_filter.workflow.is_empty(),
-            "workflow filter must stay empty with no loaded workflows"
-        );
+        assert!(state.actions_state.draft_filter.workflow.is_empty());
         assert!(state.actions_state.draft_filter.workflow_path.is_empty());
     }
 
-    /// After applying a filter with a selected workflow, the committed filter's
-    /// `workflow_path` is set (so the API call uses the path).
     #[test]
     fn apply_filter_commits_workflow_path() {
         let mut state = create_test_state();
@@ -380,17 +353,12 @@ mod tests {
         state.apply_actions_message(ActionsMessage::CycleFilterStatus);
         state.apply_actions_message(ActionsMessage::ApplyFilter);
 
+        assert_eq!(state.actions_state.committed_filter.workflow, "CI");
         assert_eq!(
-            state.actions_state.committed_filter.workflow, "CI",
-            "committed display name"
-        );
-        assert_eq!(
-            state.actions_state.committed_filter.workflow_path, ".github/workflows/ci.yml",
-            "committed workflow_path must contain the file path"
+            state.actions_state.committed_filter.workflow_path,
+            ".github/workflows/ci.yml"
         );
     }
-
-    // ---- BUG 5: job expand/collapse state ----
 
     fn make_detail_with_jobs() -> crate::domain::WorkflowRunDetail {
         use crate::domain::{
@@ -451,9 +419,7 @@ mod tests {
     #[test]
     fn load_detail_resets_expanded_jobs_and_focuses_first() {
         let mut state = create_test_state();
-        // Pre-populate expanded state from a prior detail.
         state.actions_state.expanded_jobs.insert(999);
-        // Set up a matching detail_pending so the DetailLoaded handler fires.
         state.actions_state.detail_pending = Some(crate::state::ActionsDetailPending {
             scope_repo_id: RepositoryId("test_repo".to_string()),
             run_id: 1,
@@ -465,15 +431,8 @@ mod tests {
             request_id: 0,
             detail: Box::new(make_detail_with_jobs()),
         });
-        assert!(
-            state.actions_state.expanded_jobs.is_empty(),
-            "expanded_jobs must be cleared on new detail load"
-        );
-        assert_eq!(
-            state.actions_state.focused_job_index,
-            Some(0),
-            "first job must be focused on detail load"
-        );
+        assert!(state.actions_state.expanded_jobs.is_empty());
+        assert_eq!(state.actions_state.focused_job_index, Some(0));
     }
 
     #[test]
@@ -482,19 +441,11 @@ mod tests {
         state.actions_state.run_detail = Some(make_detail_with_jobs());
         state.actions_state.focused_job_index = Some(0);
 
-        // Toggle expand on focused job (index 0, id 100).
         state.apply_actions_message(ActionsMessage::ToggleJobExpand);
-        assert!(
-            state.actions_state.expanded_jobs.contains(&100),
-            "toggling must expand the focused job"
-        );
+        assert!(state.actions_state.expanded_jobs.contains(&100));
 
-        // Toggle again: collapses.
         state.apply_actions_message(ActionsMessage::ToggleJobExpand);
-        assert!(
-            !state.actions_state.expanded_jobs.contains(&100),
-            "toggling again must collapse the focused job"
-        );
+        assert!(!state.actions_state.expanded_jobs.contains(&100));
     }
 
     #[test]
@@ -506,14 +457,12 @@ mod tests {
         state.apply_actions_message(ActionsMessage::NavigateJob(NavDir::Down));
         assert_eq!(state.actions_state.focused_job_index, Some(1));
 
-        // Down at last job clamps.
         state.apply_actions_message(ActionsMessage::NavigateJob(NavDir::Down));
         assert_eq!(state.actions_state.focused_job_index, Some(1));
 
         state.apply_actions_message(ActionsMessage::NavigateJob(NavDir::Up));
         assert_eq!(state.actions_state.focused_job_index, Some(0));
 
-        // Up at first job clamps.
         state.apply_actions_message(ActionsMessage::NavigateJob(NavDir::Up));
         assert_eq!(state.actions_state.focused_job_index, Some(0));
     }
@@ -524,12 +473,189 @@ mod tests {
         state.actions_state.run_detail = Some(make_detail_with_jobs());
         state.actions_state.focused_job_index = Some(0);
 
-        // Expand job 0.
         state.apply_actions_message(ActionsMessage::ToggleJobExpand);
         assert!(state.actions_state.expanded_jobs.contains(&100));
 
-        // Collapse it.
         state.apply_actions_message(ActionsMessage::CollapseJob);
         assert!(!state.actions_state.expanded_jobs.contains(&100));
+    }
+
+    // ---- NEW: load-more reducer tests (issue #202) ----
+
+    /// Page-1 reload replaces runs, selects first, and resets detail.
+    #[test]
+    fn page1_reload_replaces_and_selects_first() {
+        let mut state = create_test_state();
+        start_reload(&mut state, 1);
+        state.apply_actions_message(ActionsMessage::RunsLoaded {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: Box::new(ActionsFilter::default()),
+            page: 1,
+            request_id: 1,
+            runs: vec![make_run(1), make_run(2)],
+            has_more: true,
+        });
+        assert_eq!(state.actions_state.runs().len(), 2);
+        assert_eq!(state.actions_state.selected_run_index(), Some(0));
+        assert!(state.actions_state.run_detail.is_none());
+        assert!(state.actions_state.has_more());
+    }
+
+    /// Page-2 (page-loaded) appends items.
+    #[test]
+    fn page2_append_grows_list() {
+        let mut state = create_test_state();
+        start_reload(&mut state, 1);
+        state.apply_actions_message(ActionsMessage::RunsLoaded {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: Box::new(ActionsFilter::default()),
+            page: 1,
+            request_id: 1,
+            runs: vec![make_run(1)],
+            has_more: true,
+        });
+        assert_eq!(state.actions_state.runs().len(), 1);
+
+        // Begin a page load for page 2. The identity was set by the reload.
+        let token = state.actions_state.list.next_page().clone();
+        let req2 = alloc_req(&mut state.actions_state.list);
+        state.actions_state.list.begin_page(token, req2);
+
+        state.apply_actions_message(ActionsMessage::RunsPageLoaded {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: Box::new(ActionsFilter::default()),
+            page: 2,
+            request_id: req2.get(),
+            runs: vec![make_run(2), make_run(3)],
+            has_more: false,
+        });
+        assert_eq!(state.actions_state.runs().len(), 3);
+        assert!(!state.actions_state.has_more());
+    }
+
+    /// Stale page-2 is ignored.
+    #[test]
+    fn stale_page2_ignored() {
+        let mut state = create_test_state();
+        start_reload(&mut state, 1);
+        state.apply_actions_message(ActionsMessage::RunsLoaded {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: Box::new(ActionsFilter::default()),
+            page: 1,
+            request_id: 1,
+            runs: vec![make_run(1)],
+            has_more: true,
+        });
+
+        // Page-2 result with wrong request_id (stale).
+        state.apply_actions_message(ActionsMessage::RunsPageLoaded {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: Box::new(ActionsFilter::default()),
+            page: 2,
+            request_id: 999, // stale
+            runs: vec![make_run(2)],
+            has_more: false,
+        });
+        assert_eq!(
+            state.actions_state.runs().len(),
+            1,
+            "stale page result must not append"
+        );
+    }
+
+    /// Page-2 failure clears pending and permits retry.
+    #[test]
+    fn page2_failure_clears_pending_permits_retry() {
+        let mut state = create_test_state();
+        start_reload(&mut state, 1);
+        state.apply_actions_message(ActionsMessage::RunsLoaded {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: Box::new(ActionsFilter::default()),
+            page: 1,
+            request_id: 1,
+            runs: vec![make_run(1)],
+            has_more: true,
+        });
+
+        // Begin a page load.
+        let token = state.actions_state.list.next_page().clone();
+        let req2 = alloc_req(&mut state.actions_state.list);
+        state.actions_state.list.begin_page(token, req2);
+        assert!(state.actions_state.list_pending());
+
+        state.apply_actions_message(ActionsMessage::RunsPageLoadFailed {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: Box::new(ActionsFilter::default()),
+            page: 2,
+            request_id: req2.get(),
+            error: "timeout".to_string(),
+        });
+        assert!(
+            !state.actions_state.list_pending(),
+            "page failure must clear pending"
+        );
+        assert!(state.actions_state.has_more(), "continuation preserved");
+        assert_eq!(state.actions_state.runs().len(), 1, "rows preserved");
+    }
+
+    /// Terminal page stores Done — navigation at end does NOT re-dispatch.
+    #[test]
+    fn terminal_page_stores_done() {
+        let mut state = create_test_state();
+        start_reload(&mut state, 1);
+        state.apply_actions_message(ActionsMessage::RunsLoaded {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: Box::new(ActionsFilter::default()),
+            page: 1,
+            request_id: 1,
+            runs: vec![make_run(1)],
+            has_more: false,
+        });
+        assert!(!state.actions_state.has_more());
+        let selected = state.actions_state.selected_run_index();
+        assert!(!state.actions_state.list.should_load_more(selected));
+    }
+
+    /// Visible reload while page pending invalidates the page.
+    #[test]
+    fn visible_reload_supersedes_pending_page() {
+        let mut state = create_test_state();
+        start_reload(&mut state, 1);
+        state.apply_actions_message(ActionsMessage::RunsLoaded {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: Box::new(ActionsFilter::default()),
+            page: 1,
+            request_id: 1,
+            runs: vec![make_run(1)],
+            has_more: true,
+        });
+
+        // Begin a page load (page 2).
+        let token = state.actions_state.list.next_page().clone();
+        let req2 = alloc_req(&mut state.actions_state.list);
+        state.actions_state.list.begin_page(token, req2);
+
+        // A new visible reload (page 1) supersedes the pending page.
+        let identity = ActionsListIdentity {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: ActionsFilter::default(),
+        };
+        let req3 = alloc_req(&mut state.actions_state.list);
+        state.actions_state.list.begin_reload(identity, req3);
+
+        // The stale page-2 result is now rejected.
+        state.apply_actions_message(ActionsMessage::RunsPageLoaded {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: Box::new(ActionsFilter::default()),
+            page: 2,
+            request_id: req2.get(),
+            runs: vec![make_run(99)],
+            has_more: false,
+        });
+        assert_eq!(
+            state.actions_state.runs().len(),
+            1,
+            "stale page after reload must not append"
+        );
     }
 }

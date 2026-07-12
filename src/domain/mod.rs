@@ -16,6 +16,11 @@ use serde::{Deserialize, Serialize};
 mod actions;
 pub use actions::*;
 
+/// Pagination contracts (PageToken, ListRequestId) shared across list state
+/// and boundary messages. Pure value types, no project-internal deps.
+mod pagination;
+pub use pagination::*;
+
 /// Stable identifier for a repository.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RepositoryId(pub String);

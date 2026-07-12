@@ -6,6 +6,7 @@
 //!
 //! Pseudocode reference: component-001 lines 01-12
 
+mod actions_load_ops;
 #[cfg(test)]
 mod actions_load_tests;
 mod actions_ops;
@@ -24,6 +25,8 @@ mod issues_load_ops;
 mod issues_mutation_ops;
 mod issues_ops;
 mod modal_ops;
+/// Generic deterministic pagination state container (`PaginatedList<T, I>`).
+pub mod pagination;
 // Per-repository user-preference snapshot/restore operations (issue #163).
 mod preferences_ops;
 // @plan PLAN-20260624-PR-MODE.P03

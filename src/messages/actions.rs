@@ -33,6 +33,23 @@ pub enum ActionsMessage {
         request_id: u64,
         error: String,
     },
+    /// Page append result (load-more). Items are appended, not replaced.
+    RunsPageLoaded {
+        scope_repo_id: RepositoryId,
+        filter: Box<ActionsFilter>,
+        page: u32,
+        request_id: u64,
+        runs: Vec<WorkflowRun>,
+        has_more: bool,
+    },
+    /// Page append failure — clears the pending page so load-more can retry.
+    RunsPageLoadFailed {
+        scope_repo_id: RepositoryId,
+        filter: Box<ActionsFilter>,
+        page: u32,
+        request_id: u64,
+        error: String,
+    },
     DetailLoaded {
         scope_repo_id: RepositoryId,
         run_id: u64,
@@ -113,6 +130,8 @@ impl ActionsMessage {
             Self::NavigateJob(_) => "ActionsNavigateJob",
             Self::RunsLoaded { .. } => "ActionsRunsLoaded",
             Self::RunsLoadFailed { .. } => "ActionsRunsLoadFailed",
+            Self::RunsPageLoaded { .. } => "ActionsRunsPageLoaded",
+            Self::RunsPageLoadFailed { .. } => "ActionsRunsPageLoadFailed",
             Self::DetailLoaded { .. } => "ActionsDetailLoaded",
             Self::DetailLoadFailed { .. } => "ActionsDetailLoadFailed",
             Self::WorkflowsLoaded { .. } => "WorkflowsLoaded",

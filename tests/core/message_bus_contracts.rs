@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use jefe::domain::{
-    Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature, RemoteRepositorySettings,
-    Repository, RepositoryId, RuntimeBinding, SandboxEngine,
+    ActionsFilter, Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
+    RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
 };
 use jefe::messages::{
     AppMessage, IssuesMessage, MessageDomain, ModalMessage, PersistenceMessage,
@@ -56,6 +56,34 @@ fn app_events_route_to_domain_channels() {
     for (event, domain, name) in routes {
         let route = AppMessage::from(event).route();
         assert_eq!(route.domain, domain);
+        assert_eq!(route.name, name);
+    }
+}
+
+#[test]
+fn actions_page_results_route_to_actions_channel() {
+    let loaded = AppEvent::ActionsRunsPageLoaded {
+        scope_repo_id: RepositoryId("repo-1".into()),
+        filter: Box::new(ActionsFilter::default()),
+        page: 2,
+        request_id: 2,
+        runs: Vec::new(),
+        has_more: false,
+    };
+    let failed = AppEvent::ActionsRunsPageLoadFailed {
+        scope_repo_id: RepositoryId("repo-1".into()),
+        filter: Box::new(ActionsFilter::default()),
+        page: 2,
+        request_id: 2,
+        error: "network".into(),
+    };
+
+    for (event, name) in [
+        (loaded, "ActionsRunsPageLoaded"),
+        (failed, "ActionsRunsPageLoadFailed"),
+    ] {
+        let route = AppMessage::from(event).route();
+        assert_eq!(route.domain, MessageDomain::Actions);
         assert_eq!(route.name, name);
     }
 }

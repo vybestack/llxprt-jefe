@@ -492,6 +492,23 @@ pub enum AppEvent {
         request_id: u64,
         error: String,
     },
+    /// Page append result (load-more path).
+    ActionsRunsPageLoaded {
+        scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::ActionsFilter>,
+        page: u32,
+        request_id: u64,
+        runs: Vec<crate::domain::WorkflowRun>,
+        has_more: bool,
+    },
+    /// Page append failure.
+    ActionsRunsPageLoadFailed {
+        scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::ActionsFilter>,
+        page: u32,
+        request_id: u64,
+        error: String,
+    },
     ActionsDetailLoaded {
         scope_repo_id: RepositoryId,
         run_id: u64,

@@ -215,6 +215,8 @@ impl AppMessage {
                 | AppEvent::ActionsNavigateJobDown
                 | AppEvent::ActionsRunsLoaded { .. }
                 | AppEvent::ActionsRunsLoadFailed { .. }
+                | AppEvent::ActionsRunsPageLoaded { .. }
+                | AppEvent::ActionsRunsPageLoadFailed { .. }
                 | AppEvent::ActionsDetailLoaded { .. }
                 | AppEvent::ActionsDetailLoadFailed { .. }
                 | AppEvent::WorkflowsLoaded { .. }
