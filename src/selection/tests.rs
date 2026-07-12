@@ -3,6 +3,7 @@
 //! These exercise [`crate::selection::pane_at`], [`normalize_selection`],
 //! [`selection_text`], and [`point_to_content_coords`] without any terminal.
 
+use crate::layout::{LEFT_COL_WIDTH, TERMINAL_VIEW_CHROME_COLS, TERMINAL_VIEW_CHROME_ROWS};
 use crate::selection::{
     HighlightRange, PaneGeometry, SelectablePane, SelectionPoint, TextSelection,
     normalize_selection, pane_at, point_to_content_coords, row_highlight_range, selection_text,
@@ -144,6 +145,34 @@ fn pane_at_dashboard_terminal_focused_returns_none_in_terminal_region() {
         sidebar.map(|(p, _)| p),
         Some(SelectablePane::Sidebar)
     ));
+}
+
+// Verify the terminal pane's content-origin geometry in the dashboard middle
+// column. `pane_at` with `terminal_input_enabled = false` resolves the
+// terminal region to TerminalView with chrome offsets; pin the content origin
+// so selection coordinates match the rendered snapshot. (Issue #197: the
+// mouse router relies on this geometry when it decides to paint a Jefe
+// selection over a focused terminal.)
+#[test]
+fn pane_at_dashboard_terminal_content_origin_geometry() {
+    let lay = layout(120, 40, DASHBOARD, false, false);
+    // terminal_input_enabled = false mirrors what the router passes when the
+    // routing policy chose AppSelection over the focused terminal.
+    let selectable = pane_at(30, 20, DASHBOARD, false, &lay);
+    let Some((pane, geo)) = selectable else {
+        panic!("expected TerminalView to resolve when terminal is selectable");
+    };
+    assert!(matches!(pane, SelectablePane::TerminalView));
+    // Content origin must match the unfocused terminal geometry so selection
+    // coordinates line up with the rendered snapshot.
+    assert_eq!(
+        geo.content_origin_col,
+        LEFT_COL_WIDTH + TERMINAL_VIEW_CHROME_COLS
+    );
+    assert_eq!(
+        geo.content_origin_row,
+        geo.origin_row + TERMINAL_VIEW_CHROME_ROWS
+    );
 }
 
 // ── pane_at: issues mode ────────────────────────────────────────────────────
@@ -504,4 +533,128 @@ fn highlight_range_works_with_reversed_anchor_focus() {
             end: usize::MAX
         })
     );
+}
+
+// ── pane_at: modal / form / overlay panes (issue #178) ─────────────────────
+//
+// Full-screen modals/forms (Help, NewAgent, NewRepository, Confirm) cover the
+// modal's actual rendered bounds. When `layout.overlay` indicates one is
+// active, pane_at must return that pane for coordinates inside the modal's
+// bounds. AgentForm/RepositoryForm fill the entire screen; HelpModal is 60 wide
+// with variable height; ConfirmModal is 50×10.
+
+fn layout_with_overlay(
+    cols: u16,
+    rows: u16,
+    overlay: crate::selection::OverlayPane,
+) -> crate::selection::ScreenLayout {
+    crate::selection::ScreenLayout::new(cols, rows, DASHBOARD, false, false).with_overlay(overlay)
+}
+
+#[test]
+fn pane_at_help_modal_resolves_within_bounds() {
+    let lay = layout_with_overlay(120, 40, crate::selection::OverlayPane::HelpModal);
+    // HelpModal is 60 wide; height at 40 rows = viewport(22) + chrome(7) = 29.
+    for &(c, r) in &[(0, 0), (30, 5), (59, 28)] {
+        let Some((pane, geo)) = pane_at(c, r, DASHBOARD, false, &lay) else {
+            panic!("expected help modal at ({c}, {r})");
+        };
+        assert!(
+            matches!(pane, SelectablePane::HelpModal),
+            "expected HelpModal at ({c}, {r}), got {pane:?}"
+        );
+        assert_eq!(geo.width, 60, "help modal width should be 60");
+        assert_eq!(geo.height, 29, "help modal height should be 29 at 40 rows");
+    }
+}
+
+#[test]
+fn pane_at_help_modal_outside_bounds_returns_none() {
+    let lay = layout_with_overlay(120, 40, crate::selection::OverlayPane::HelpModal);
+    // Col 60+ is outside the 60-wide help modal.
+    assert!(pane_at(60, 5, DASHBOARD, false, &lay).is_none());
+    // Row 29+ is outside the 29-tall help modal.
+    assert!(pane_at(30, 29, DASHBOARD, false, &lay).is_none());
+}
+
+#[test]
+fn pane_at_agent_form_overlay_covers_full_screen() {
+    let lay = layout_with_overlay(120, 40, crate::selection::OverlayPane::AgentForm);
+    let Some((pane, geo)) = pane_at(50, 10, DASHBOARD, false, &lay) else {
+        panic!("expected agent form at (50, 10)");
+    };
+    assert!(matches!(pane, SelectablePane::AgentForm));
+    assert_eq!(geo.width, 120);
+    assert_eq!(geo.height, 40);
+}
+
+#[test]
+fn pane_at_repository_form_overlay_covers_full_screen() {
+    let lay = layout_with_overlay(120, 40, crate::selection::OverlayPane::RepositoryForm);
+    let Some((pane, geo)) = pane_at(50, 10, DASHBOARD, false, &lay) else {
+        panic!("expected repository form at (50, 10)");
+    };
+    assert!(matches!(pane, SelectablePane::RepositoryForm));
+    assert_eq!(geo.width, 120);
+    assert_eq!(geo.height, 40);
+}
+
+#[test]
+fn pane_at_confirm_modal_resolves_within_50x10_bounds() {
+    let lay = layout_with_overlay(120, 40, crate::selection::OverlayPane::ConfirmModal);
+    // ConfirmModal is 50 wide, 10 tall.
+    for &(c, r) in &[(0, 0), (25, 5), (49, 9)] {
+        let Some((pane, geo)) = pane_at(c, r, DASHBOARD, false, &lay) else {
+            panic!("expected confirm modal at ({c}, {r})");
+        };
+        assert!(
+            matches!(pane, SelectablePane::ConfirmModal),
+            "expected ConfirmModal at ({c}, {r}), got {pane:?}"
+        );
+        assert_eq!(geo.width, 50);
+        assert_eq!(geo.height, 10);
+    }
+}
+
+#[test]
+fn pane_at_confirm_modal_outside_bounds_returns_none() {
+    let lay = layout_with_overlay(120, 40, crate::selection::OverlayPane::ConfirmModal);
+    // Col 50+ is outside the 50-wide confirm modal.
+    assert!(pane_at(50, 5, DASHBOARD, false, &lay).is_none());
+    // Row 10+ is outside the 10-tall confirm modal.
+    assert!(pane_at(25, 10, DASHBOARD, false, &lay).is_none());
+}
+
+#[test]
+fn pane_at_no_overlay_falls_through_to_normal_panes() {
+    // Default ScreenLayout has no overlay; normal panes resolve.
+    let lay = layout(120, 40, DASHBOARD, false, false);
+    let Some((pane, _)) = pane_at(0, 5, DASHBOARD, false, &lay) else {
+        panic!("expected sidebar at (0, 5) with no overlay");
+    };
+    assert!(matches!(pane, SelectablePane::Sidebar));
+}
+
+#[test]
+fn pane_at_agent_chooser_overlay_resolves_within_workspace() {
+    // Agent chooser is positioned absolutely at top:2, left:4 within the
+    // workspace (which starts after the sidebar at col 22). A coordinate
+    // inside the chooser bounds should resolve to AgentChooser.
+    let lay = layout_with_overlay(120, 40, crate::selection::OverlayPane::AgentChooser);
+    // Chooser origin: col 22+4=26, row 1+2=3. Click inside the chooser.
+    let resolved = pane_at(28, 4, ISSUES, false, &lay);
+    let Some((pane, _)) = resolved else {
+        panic!("expected agent chooser at (28, 4)");
+    };
+    assert!(matches!(pane, SelectablePane::AgentChooser));
+}
+
+#[test]
+fn pane_at_merge_chooser_overlay_resolves_within_workspace() {
+    let lay = layout_with_overlay(120, 40, crate::selection::OverlayPane::MergeChooser);
+    let resolved = pane_at(28, 4, PRS, false, &lay);
+    let Some((pane, _)) = resolved else {
+        panic!("expected merge chooser at (28, 4)");
+    };
+    assert!(matches!(pane, SelectablePane::MergeChooser));
 }

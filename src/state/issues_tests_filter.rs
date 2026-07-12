@@ -1,5 +1,6 @@
 use crate::domain::{Issue, IssueFilter, IssueFilterState, IssueState, Repository, RepositoryId};
-use crate::state::types::{AppEvent, ScreenMode};
+use crate::state::events::AppEvent;
+use crate::state::types::ScreenMode;
 use crate::state::{AppState, ISSUE_FILTER_FIELD_COUNT};
 
 fn dashboard_issues_state() -> AppState {
@@ -49,16 +50,32 @@ fn state_with_repo() -> AppState {
     state
 }
 
-/// OpenFilterControls resets filter_field_index to 0.
+/// OpenFilterControls preserves the live filter_field_index (issue #163: the
+/// cursor remembers its last position, clamped to the valid field range).
 #[test]
-fn test_open_filter_resets_field_index() {
+fn test_open_filter_preserves_field_index() {
     let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.filter_ui.field_index = 3;
 
     let state = state.apply(AppEvent::OpenFilterControls);
     assert!(state.issues_state.filter_ui.controls_open);
-    assert_eq!(state.issues_state.filter_ui.field_index, 0);
+    assert_eq!(state.issues_state.filter_ui.field_index, 3);
+}
+
+/// OpenFilterControls clamps an out-of-range field_index back into bounds.
+#[test]
+fn test_open_filter_clamps_out_of_range_field_index() {
+    let mut state = dashboard_issues_state();
+    state.issues_state.active = true;
+    state.issues_state.filter_ui.field_index = ISSUE_FILTER_FIELD_COUNT + 5;
+
+    let state = state.apply(AppEvent::OpenFilterControls);
+    assert_eq!(
+        state.issues_state.filter_ui.field_index,
+        ISSUE_FILTER_FIELD_COUNT - 1,
+        "out-of-range field_index must clamp to the last valid index"
+    );
 }
 
 /// FilterNavigateNext cycles through every configured filter field.
@@ -252,7 +269,14 @@ fn test_clear_draft_filter_keeps_controls_open_and_resets_draft() {
 
     let state = populated.apply(AppEvent::ClearDraftFilter);
 
-    assert_eq!(state.issues_state.draft_filter, IssueFilter::default());
+    // ClearDraftFilter resets the draft to the Open default (issue #163).
+    assert_eq!(
+        state.issues_state.draft_filter,
+        IssueFilter {
+            state: Some(IssueFilterState::Open),
+            ..IssueFilter::default()
+        }
+    );
     assert_eq!(
         state.issues_state.committed_filter.author,
         "committed-author"
@@ -298,11 +322,20 @@ fn test_clear_filter_fresh_list_loaded_selects_first_issue() {
 
     let state = state.apply(AppEvent::ClearFilter);
     assert!(state.issues_state.loading.list);
-    assert_eq!(state.issues_state.committed_filter, IssueFilter::default());
+    assert_eq!(
+        state.issues_state.committed_filter,
+        IssueFilter {
+            state: Some(IssueFilterState::Open),
+            ..IssueFilter::default()
+        }
+    );
 
     let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter::default()),
+        filter: Box::new(IssueFilter {
+            state: Some(IssueFilterState::Open),
+            ..IssueFilter::default()
+        }),
         request_id: 0,
         issues: vec![make_test_issue(3)],
         cursor: None,

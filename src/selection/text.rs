@@ -30,12 +30,26 @@ pub enum SelectablePane {
     PrList,
     /// PR detail scrollable document (PR-mode workspace, bottom split).
     PrDetail,
+    /// Actions run list (Actions-mode workspace, top split).
+    ActionsList,
+    /// Actions run detail (Actions-mode workspace, bottom split).
+    ActionsDetail,
     /// Help modal overlay text.
     HelpModal,
     /// Top status bar (low priority, but selectable).
     StatusBar,
     /// Bottom keybind hint bar (low priority, but selectable).
     KeybindBar,
+    /// Agent-definition form (full-screen modal). Issue #178.
+    AgentForm,
+    /// Repository-definition form (full-screen modal). Issue #178.
+    RepositoryForm,
+    /// Send-to-agent chooser overlay (issues/PR mode). Issue #178.
+    AgentChooser,
+    /// Merge-method chooser overlay (PR mode). Issue #178.
+    MergeChooser,
+    /// Confirmation modal (delete/kill/preflight/dirty-copy). Issue #178.
+    ConfirmModal,
 }
 
 /// A single point within a selection, expressed in *content* coordinates.

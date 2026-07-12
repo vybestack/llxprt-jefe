@@ -1,4 +1,4 @@
-use jefe::domain::{AgentId, LaunchSignature, PlatformCapabilities, SandboxEngine};
+use jefe::domain::{AgentId, AgentKind, LaunchSignature, PlatformCapabilities, SandboxEngine};
 use jefe::runtime::{PreflightAction, PreflightIssue, execute_preflight_action, sandbox_preflight};
 use jefe::state::ModalState;
 
@@ -7,6 +7,9 @@ use super::{
 };
 
 /// Handle preflight prompt confirmation: execute remediation, re-check, then launch.
+///
+/// Preflight is LLxprt-only: CodePuppy does not have a sandbox subsystem and
+/// must not run LLxprt preflight even when stale `sandbox_enabled` is true.
 pub(super) fn handle_preflight_prompt_enter(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -18,7 +21,14 @@ pub(super) fn handle_preflight_prompt_enter(
         return;
     }
 
-    if let Some(next) = sandbox_preflight(signature.sandbox_engine) {
+    // Gate preflight re-check to LLxprt — CodePuppy should never have reached
+    // this modal, but if it did, skip further sandbox preflight.
+    let next = if signature.agent_kind == AgentKind::Llxprt {
+        sandbox_preflight(signature.sandbox_engine)
+    } else {
+        None
+    };
+    if let Some(next) = next {
         persist_next_preflight(app_state, ctx, agent_id, signature, next);
     } else {
         persist_launch_resume(app_state, ctx);

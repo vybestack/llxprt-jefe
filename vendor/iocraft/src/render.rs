@@ -411,13 +411,14 @@ impl<'a> Tree<'a> {
             }
             prev_canvas = Some(output.canvas);
             execute!(term, terminal::EndSynchronizedUpdate)?;
-            if self.system_context.should_exit() || term.received_ctrl_c() {
+            if self.system_context.should_exit() {
                 break;
             }
             select(self.root_component.wait().boxed(), term.wait().boxed()).await;
-            if term.received_ctrl_c() {
-                break;
-            }
+            // NOTE: jefe removed iocraft's hardcoded Ctrl-C exit here. The app
+            // owns its own quit policy (Ctrl-Q / qqq) and forwards Ctrl-C to the
+            // embedded agent terminal (issue #200). Exiting on Ctrl-C here would
+            // kill jefe instead of the agent's running command.
         }
         Ok(())
     }

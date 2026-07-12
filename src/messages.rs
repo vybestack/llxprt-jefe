@@ -14,7 +14,10 @@ use crate::state::{EditorTarget, InlineState, ReadOnlyHintKind};
 mod issues_conversion;
 // @plan PLAN-20260624-PR-MODE.P03
 // @requirement REQ-PR-002
+mod actions;
+mod actions_conversion;
 mod prs_conversion;
+pub use actions::ActionsMessage;
 
 // @plan PLAN-20260624-PR-MODE.P03
 // @requirement REQ-PR-002
@@ -34,6 +37,7 @@ pub enum MessageDomain {
     /// @plan PLAN-20260624-PR-MODE.P03
     /// @requirement REQ-PR-001
     PullRequests,
+    Actions,
     System,
 }
 
@@ -68,6 +72,14 @@ pub enum UiNavigationMessage {
     ExitDashboardGrab,
     DashboardGrabMoveUp,
     DashboardGrabMoveDown,
+    /// Terminal scrollback viewport events (issue #198).
+    TerminalScrollUp,
+    TerminalScrollDown,
+    TerminalScrollPageUp,
+    TerminalScrollPageDown,
+    TerminalFollowTail,
+    /// Scroll to the top of terminal history (Home key, issue #198 review #8).
+    TerminalScrollToTop,
 }
 
 /// Modal and form-editing messages.
@@ -123,6 +135,22 @@ pub enum PersistenceMessage {
 pub enum ThemeMessage {
     SetTheme(String),
     ResolveFailed(String),
+    /// Open the theme picker modal.
+    ///
+    /// `available_themes` is a list of `(slug, display_name)` pairs from
+    /// `ThemeManager::themes_with_names()`. `active_slug` is the currently
+    /// applied theme's slug (used to mark the active row).
+    OpenThemePicker {
+        available_themes: Vec<(String, String)>,
+        active_slug: String,
+    },
+    PickerNavigateUp,
+    PickerNavigateDown,
+    PickerConfirm,
+    PickerCancel,
+    /// Toggle the in-dialog "Apply jefe theme to agent" override checkbox
+    /// (issue #179). Flips `ModalState::ThemePicker.override_theme`.
+    ToggleAgentThemeOverride,
 }
 
 /// Issues-mode messages.
@@ -609,6 +637,7 @@ pub enum AppMessage {
     /// @plan PLAN-20260624-PR-MODE.P03
     /// @requirement REQ-PR-001
     PullRequests(PullRequestsMessage),
+    Actions(ActionsMessage),
     System(SystemMessage),
 }
 
@@ -626,6 +655,7 @@ impl AppMessage {
             // @plan PLAN-20260624-PR-MODE.P03
             // @requirement REQ-PR-001
             Self::PullRequests(_) => MessageDomain::PullRequests,
+            Self::Actions(_) => MessageDomain::Actions,
             Self::System(_) => MessageDomain::System,
         }
     }
@@ -651,6 +681,7 @@ impl AppMessage {
             // @plan PLAN-20260624-PR-MODE.P03
             // @requirement REQ-PR-002
             Self::PullRequests(message) => message.name(),
+            Self::Actions(message) => message.name(),
             Self::System(message) => message.name(),
         }
     }
@@ -691,6 +722,12 @@ message_names!(UiNavigationMessage {
     Self::ExitDashboardGrab => "ExitDashboardGrab",
     Self::DashboardGrabMoveUp => "DashboardGrabMoveUp",
     Self::DashboardGrabMoveDown => "DashboardGrabMoveDown",
+    Self::TerminalScrollUp => "TerminalScrollUp",
+    Self::TerminalScrollDown => "TerminalScrollDown",
+    Self::TerminalScrollPageUp => "TerminalScrollPageUp",
+    Self::TerminalScrollPageDown => "TerminalScrollPageDown",
+    Self::TerminalFollowTail => "TerminalFollowTail",
+    Self::TerminalScrollToTop => "TerminalScrollToTop",
 });
 
 message_names!(ModalMessage {
@@ -735,6 +772,12 @@ message_names!(PersistenceMessage {
 message_names!(ThemeMessage {
     Self::SetTheme(_) => "SetTheme",
     Self::ResolveFailed(_) => "ThemeResolveFailed",
+    Self::OpenThemePicker { .. } => "OpenThemePicker",
+    Self::PickerNavigateUp => "ThemePickerNavigateUp",
+    Self::PickerNavigateDown => "ThemePickerNavigateDown",
+    Self::PickerConfirm => "ThemePickerConfirm",
+    Self::PickerCancel => "CloseThemePicker",
+    Self::ToggleAgentThemeOverride => "ThemePickerToggleOverride",
 });
 
 message_names!(SystemMessage {

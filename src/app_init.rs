@@ -28,6 +28,7 @@ fn launch_signature_for_agent(agent: &Agent, remote: &RemoteRepositorySettings) 
         sandbox_engine: agent.sandbox_engine,
         sandbox_flags: agent.sandbox_flags.clone(),
         remote: remote.clone(),
+        agent_kind: agent.agent_kind,
     }
 }
 
@@ -95,6 +96,7 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     let mut state = app_state.write();
     state.repositories = persisted.repositories;
     state.agents = persisted.agents;
+    state.installed_agent_kinds = jefe::agent_detection::installed_agent_kinds().to_vec();
     state.selected_repository_index = persisted.selected_repository_index;
     state.selected_agent_index = persisted.selected_agent_index;
     state.hide_idle_repositories = persisted.hide_idle_repositories;
@@ -107,6 +109,11 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     state.pane_focus = crate::app_input::pane_focus_from_persisted(&persisted.pane_focus);
     state.terminal_focused =
         persisted.terminal_focused && state.pane_focus == jefe::state::PaneFocus::Terminal;
+    state.user_preferences = persisted.user_preferences;
+    // Mirror the persisted "apply jefe theme to agent" toggle (issue #179).
+    // settings.toml is the source of truth; this runtime copy is read every
+    // render frame by the terminal view.
+    state.override_agent_theme = settings.override_agent_theme;
     state.rebuild_repository_agent_ids();
     state.normalize_selection_indices();
 
@@ -401,7 +408,9 @@ fn revive_agent_session(
 ) -> ReviveOutcome {
     match runtime.spawn_session(&agent.id, &agent.work_dir, signature) {
         Ok(()) | Err(RuntimeError::AlreadyRunning(_)) => {
-            if runtime_warning.is_none() {
+            // SSH-agent warning is only relevant for LLxprt sandbox sessions;
+            // CodePuppy does not use the LLxprt sandbox subsystem.
+            if runtime_warning.is_none() && agent.agent_kind == jefe::domain::AgentKind::Llxprt {
                 *runtime_warning = jefe::runtime::sandbox_ssh_agent_warning();
             }
             ReviveOutcome::Revived

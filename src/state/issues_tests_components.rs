@@ -2,7 +2,8 @@ use crate::domain::{
     Issue, IssueComment, IssueDetail, IssueFilter, IssueState, Repository, RepositoryId,
 };
 use crate::state::AppState;
-use crate::state::types::{AppEvent, ComposerTarget, InlineState, IssueFocus};
+use crate::state::events::AppEvent;
+use crate::state::types::{ComposerTarget, InlineState, IssueFocus};
 
 /// Helper to create a test issue with the given number.
 fn make_test_issue(number: u64) -> Issue {

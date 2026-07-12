@@ -7,8 +7,9 @@
 use crate::state::AppEvent;
 
 use super::{
-    AppMessage, IssuesMessage, ModalMessage, PersistenceMessage, PullRequestsMessage,
-    RepositoryAgentMessage, RuntimeMessage, SystemMessage, ThemeMessage, UiNavigationMessage,
+    ActionsMessage, AppMessage, IssuesMessage, ModalMessage, PersistenceMessage,
+    PullRequestsMessage, RepositoryAgentMessage, RuntimeMessage, SystemMessage, ThemeMessage,
+    UiNavigationMessage,
 };
 
 impl From<AppEvent> for AppMessage {
@@ -34,27 +35,23 @@ impl From<AppEvent> for AppMessage {
             AppEvent::ToggleHideIdleRepositories => {
                 Self::UiNavigation(UiNavigationMessage::ToggleHideIdleRepositories)
             }
-            AppEvent::EnterSplitMode => Self::UiNavigation(UiNavigationMessage::EnterSplitMode),
-            AppEvent::ExitSplitMode => Self::UiNavigation(UiNavigationMessage::ExitSplitMode),
-            AppEvent::EnterGrabMode => Self::UiNavigation(UiNavigationMessage::EnterGrabMode),
-            AppEvent::ExitGrabMode => Self::UiNavigation(UiNavigationMessage::ExitGrabMode),
-            AppEvent::GrabMoveUp => Self::UiNavigation(UiNavigationMessage::GrabMoveUp),
-            AppEvent::GrabMoveDown => Self::UiNavigation(UiNavigationMessage::GrabMoveDown),
-            AppEvent::SetSplitFilter(filter) => {
-                Self::UiNavigation(UiNavigationMessage::SetSplitFilter(filter))
-            }
-            AppEvent::EnterDashboardGrab => {
-                Self::UiNavigation(UiNavigationMessage::EnterDashboardGrab)
-            }
-            AppEvent::ExitDashboardGrab => {
-                Self::UiNavigation(UiNavigationMessage::ExitDashboardGrab)
-            }
-            AppEvent::DashboardGrabMoveUp => {
-                Self::UiNavigation(UiNavigationMessage::DashboardGrabMoveUp)
-            }
-            AppEvent::DashboardGrabMoveDown => {
-                Self::UiNavigation(UiNavigationMessage::DashboardGrabMoveDown)
-            }
+            AppEvent::EnterSplitMode
+            | AppEvent::ExitSplitMode
+            | AppEvent::EnterGrabMode
+            | AppEvent::ExitGrabMode
+            | AppEvent::GrabMoveUp
+            | AppEvent::GrabMoveDown
+            | AppEvent::SetSplitFilter(_)
+            | AppEvent::EnterDashboardGrab
+            | AppEvent::ExitDashboardGrab
+            | AppEvent::DashboardGrabMoveUp
+            | AppEvent::DashboardGrabMoveDown
+            | AppEvent::TerminalScrollUp
+            | AppEvent::TerminalScrollDown
+            | AppEvent::TerminalScrollPageUp
+            | AppEvent::TerminalScrollPageDown
+            | AppEvent::TerminalFollowTail
+            | AppEvent::TerminalScrollToTop => Self::from_split_grab_or_scroll_event(event),
             AppEvent::OpenHelp => Self::Modal(ModalMessage::OpenHelp),
             AppEvent::OpenSearch => Self::Modal(ModalMessage::OpenSearch),
             AppEvent::CloseModal => Self::Modal(ModalMessage::CloseModal),
@@ -67,12 +64,49 @@ impl From<AppEvent> for AppMessage {
             AppEvent::FormNextField => Self::Modal(ModalMessage::FormNextField),
             AppEvent::FormPrevField => Self::Modal(ModalMessage::FormPrevField),
             AppEvent::FormToggleCheckbox => Self::Modal(ModalMessage::FormToggleCheckbox),
+            // Catch-all is required because `AppEvent` is `#[non_exhaustive]`
+            // in practice (issues/PRs/actions variants are numerous and grow).
+            // Delegates to the non-UI-navigation converter for all remaining
+            // repository-agent, runtime, persistence, theme, issues, PRs, and
+            // actions events.
             other => Self::from_non_ui_nav_event(other),
         }
     }
 }
 
 impl AppMessage {
+    /// Convert split-mode, dashboard-grab, and terminal-scrollback
+    /// [`AppEvent`] variants into UI-navigation messages. Split out so the
+    /// top-level converter stays within the clippy line budget.
+    fn from_split_grab_or_scroll_event(event: AppEvent) -> Self {
+        use UiNavigationMessage as U;
+        match event {
+            AppEvent::EnterSplitMode => Self::UiNavigation(U::EnterSplitMode),
+            AppEvent::ExitSplitMode => Self::UiNavigation(U::ExitSplitMode),
+            AppEvent::EnterGrabMode => Self::UiNavigation(U::EnterGrabMode),
+            AppEvent::ExitGrabMode => Self::UiNavigation(U::ExitGrabMode),
+            AppEvent::GrabMoveUp => Self::UiNavigation(U::GrabMoveUp),
+            AppEvent::GrabMoveDown => Self::UiNavigation(U::GrabMoveDown),
+            AppEvent::SetSplitFilter(filter) => Self::UiNavigation(U::SetSplitFilter(filter)),
+            AppEvent::EnterDashboardGrab => Self::UiNavigation(U::EnterDashboardGrab),
+            AppEvent::ExitDashboardGrab => Self::UiNavigation(U::ExitDashboardGrab),
+            AppEvent::DashboardGrabMoveUp => Self::UiNavigation(U::DashboardGrabMoveUp),
+            AppEvent::DashboardGrabMoveDown => Self::UiNavigation(U::DashboardGrabMoveDown),
+            // Terminal scrollback viewport events (issue #198).
+            AppEvent::TerminalScrollUp => Self::UiNavigation(U::TerminalScrollUp),
+            AppEvent::TerminalScrollDown => Self::UiNavigation(U::TerminalScrollDown),
+            AppEvent::TerminalScrollPageUp => Self::UiNavigation(U::TerminalScrollPageUp),
+            AppEvent::TerminalScrollPageDown => Self::UiNavigation(U::TerminalScrollPageDown),
+            AppEvent::TerminalFollowTail => Self::UiNavigation(U::TerminalFollowTail),
+            AppEvent::TerminalScrollToTop => Self::UiNavigation(U::TerminalScrollToTop),
+            // Catch-all is required: the caller passes an `AppEvent` value that
+            // is known at the call site to be split/grab/scroll, but the type
+            // system cannot enforce that constraint. This arm delegates to the
+            // full converter so an unexpected variant still routes correctly.
+            other => Self::from_non_ui_nav_event(other),
+        }
+    }
+
     /// Convert non-UI-navigation [`AppEvent`] variants into the typed message bus.
     ///
     /// Split out from [`AppMessage::from`] so the top-level converter stays
@@ -116,9 +150,24 @@ impl AppMessage {
             }
             AppEvent::SetTheme(theme) => Self::Theme(ThemeMessage::SetTheme(theme)),
             AppEvent::ThemeResolveFailed(error) => Self::Theme(ThemeMessage::ResolveFailed(error)),
+            AppEvent::OpenThemePicker {
+                available_themes,
+                active_slug,
+            } => Self::Theme(ThemeMessage::OpenThemePicker {
+                available_themes,
+                active_slug,
+            }),
+            AppEvent::ThemePickerNavigateUp => Self::Theme(ThemeMessage::PickerNavigateUp),
+            AppEvent::ThemePickerNavigateDown => Self::Theme(ThemeMessage::PickerNavigateDown),
+            AppEvent::ThemePickerConfirm => Self::Theme(ThemeMessage::PickerConfirm),
+            AppEvent::ThemePickerToggleOverride => {
+                Self::Theme(ThemeMessage::ToggleAgentThemeOverride)
+            }
+            AppEvent::CloseThemePicker => Self::Theme(ThemeMessage::PickerCancel),
             AppEvent::Quit => Self::System(SystemMessage::Quit),
             AppEvent::ClearError => Self::System(SystemMessage::ClearError),
             AppEvent::ClearWarning => Self::System(SystemMessage::ClearWarning),
+            // Catch-all delegates issues/PRs/actions events.
             other => Self::from_issues_event(other),
         }
     }
@@ -127,6 +176,8 @@ impl AppMessage {
     fn from_issues_event(event: AppEvent) -> Self {
         if Self::is_issues_event(&event) {
             Self::Issues(IssuesMessage::from_app_event(event))
+        } else if Self::is_actions_event(&event) {
+            Self::Actions(ActionsMessage::from_app_event(event))
         } else {
             // @plan PLAN-20260624-PR-MODE.P03
             // @requirement REQ-PR-002
@@ -137,6 +188,57 @@ impl AppMessage {
     /// Whether the event belongs to the issues domain.
     fn is_issues_event(event: &AppEvent) -> bool {
         Self::is_issues_nav_event(event) || Self::is_issues_data_event(event)
+    }
+
+    /// Whether the event belongs to the actions domain.
+    fn is_actions_event(event: &AppEvent) -> bool {
+        matches!(
+            event,
+            AppEvent::EnterActionsMode
+                | AppEvent::ExitActionsMode
+                | AppEvent::RefocusActionsList
+                | AppEvent::ActionsReload
+                | AppEvent::ActionsNavigateUp
+                | AppEvent::ActionsNavigateDown
+                | AppEvent::ActionsNavigatePageUp
+                | AppEvent::ActionsNavigatePageDown
+                | AppEvent::ActionsNavigateHome
+                | AppEvent::ActionsNavigateEnd
+                | AppEvent::ActionsEnter
+                | AppEvent::ActionsCycleFocus
+                | AppEvent::ActionsCycleFocusReverse
+                | AppEvent::ActionsScrollDetailUp
+                | AppEvent::ActionsScrollDetailDown
+                | AppEvent::ActionsToggleJobExpand
+                | AppEvent::ActionsCollapseJob
+                | AppEvent::ActionsNavigateJobUp
+                | AppEvent::ActionsNavigateJobDown
+                | AppEvent::ActionsRunsLoaded { .. }
+                | AppEvent::ActionsRunsLoadFailed { .. }
+                | AppEvent::ActionsDetailLoaded { .. }
+                | AppEvent::ActionsDetailLoadFailed { .. }
+                | AppEvent::WorkflowsLoaded { .. }
+                | AppEvent::WorkflowsLoadFailed { .. }
+                | AppEvent::ActionsOpenFilterControls
+                | AppEvent::ActionsCloseFilterControls
+                | AppEvent::ActionsApplyFilter
+                | AppEvent::ActionsClearFilter
+                | AppEvent::ActionsClearDraftFilter
+                | AppEvent::ActionsFilterNavigateNext
+                | AppEvent::ActionsFilterNavigatePrev
+                | AppEvent::ActionsCycleFilterStatus
+                | AppEvent::ActionsFocusSearchInput
+                | AppEvent::ActionsBlurSearchInput
+                | AppEvent::ActionsSetSearchQuery { .. }
+                | AppEvent::ActionsApplySearch
+                | AppEvent::ActionsClearSearch
+                | AppEvent::ActionsUpdateDraftFilter { .. }
+                | AppEvent::OpenWorkflowDispatch(_)
+                | AppEvent::CloseWorkflowDispatch
+                | AppEvent::WorkflowDispatchSubmitted { .. }
+                | AppEvent::WorkflowDispatchSuccess { .. }
+                | AppEvent::WorkflowDispatchFailed { .. }
+        )
     }
 
     /// Whether the event is an issues navigation/lifecycle event.
@@ -241,6 +343,7 @@ impl From<AppMessage> for AppEvent {
             // @plan PLAN-20260624-PR-MODE.P03
             // @requirement REQ-PR-002
             AppMessage::PullRequests(message) => message.into(),
+            AppMessage::Actions(message) => message.into(),
             AppMessage::System(message) => message.into(),
         }
     }
@@ -270,6 +373,12 @@ impl From<UiNavigationMessage> for AppEvent {
             UiNavigationMessage::ExitDashboardGrab => Self::ExitDashboardGrab,
             UiNavigationMessage::DashboardGrabMoveUp => Self::DashboardGrabMoveUp,
             UiNavigationMessage::DashboardGrabMoveDown => Self::DashboardGrabMoveDown,
+            UiNavigationMessage::TerminalScrollUp => Self::TerminalScrollUp,
+            UiNavigationMessage::TerminalScrollDown => Self::TerminalScrollDown,
+            UiNavigationMessage::TerminalScrollPageUp => Self::TerminalScrollPageUp,
+            UiNavigationMessage::TerminalScrollPageDown => Self::TerminalScrollPageDown,
+            UiNavigationMessage::TerminalFollowTail => Self::TerminalFollowTail,
+            UiNavigationMessage::TerminalScrollToTop => Self::TerminalScrollToTop,
         }
     }
 }
@@ -334,6 +443,18 @@ impl From<ThemeMessage> for AppEvent {
         match message {
             ThemeMessage::SetTheme(theme) => Self::SetTheme(theme),
             ThemeMessage::ResolveFailed(error) => Self::ThemeResolveFailed(error),
+            ThemeMessage::OpenThemePicker {
+                available_themes,
+                active_slug,
+            } => Self::OpenThemePicker {
+                available_themes,
+                active_slug,
+            },
+            ThemeMessage::PickerNavigateUp => Self::ThemePickerNavigateUp,
+            ThemeMessage::PickerNavigateDown => Self::ThemePickerNavigateDown,
+            ThemeMessage::PickerConfirm => Self::ThemePickerConfirm,
+            ThemeMessage::ToggleAgentThemeOverride => Self::ThemePickerToggleOverride,
+            ThemeMessage::PickerCancel => Self::CloseThemePicker,
         }
     }
 }

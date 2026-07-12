@@ -11,6 +11,7 @@ fn local_repository() -> Repository {
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),
+        default_agent_kind: crate::domain::AgentKind::Llxprt,
         agent_ids: Vec::new(),
     }
 }
@@ -39,6 +40,7 @@ fn params<'a>(
         description: "",
         work_dir,
         profile: "",
+        agent_kind: "LLxprt",
         mode: "",
         llxprt_debug: "",
         pass_continue: true,
@@ -110,8 +112,10 @@ fn create_agent_normalizes_profile() {
 fn create_agent_normalizes_mode_flags() {
     let repo = local_repository();
 
-    let default_mode = created(params(&repo, "Agent", "/tmp/agent"));
-    assert_eq!(default_mode.mode_flags, vec!["--yolo".to_owned()]);
+    // An empty mode must stay empty: yolo is opt-in via the form's pre-filled
+    // mode field, not injected here. This lets an agent run non-yolo (#210).
+    let empty_mode = created(params(&repo, "Agent", "/tmp/agent"));
+    assert!(empty_mode.mode_flags.is_empty());
 
     let explicit = created(CreateAgentParams {
         mode: "--fast --verbose",
@@ -121,6 +125,13 @@ fn create_agent_normalizes_mode_flags() {
         explicit.mode_flags,
         vec!["--fast".to_owned(), "--verbose".to_owned()]
     );
+
+    // The pre-filled new-agent default still round-trips through create.
+    let yolo_default = created(CreateAgentParams {
+        mode: "--yolo",
+        ..params(&repo, "Agent", "/tmp/agent")
+    });
+    assert_eq!(yolo_default.mode_flags, vec!["--yolo".to_owned()]);
 }
 
 #[test]

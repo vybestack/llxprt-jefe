@@ -32,7 +32,7 @@ pub fn keybind_hints_for(screen_mode: ScreenMode, terminal_focused: bool) -> &'s
     }
     match screen_mode {
         ScreenMode::Dashboard => {
-            "^/v navigate | </> pane | t/f12 terminal focus | v active-only (repos+agents) | \u{2325}1-9 jump agent | n new-agent | N new-repo | ctrl-d delete | ctrl-k kill | ctrl-r restart | l relaunch-dead | Space reorder | s split | ? help | ctrl-q/qqq quit"
+            "^/v navigate | </> pane | t/f12 terminal focus | v active-only (repos+agents) | \u{2325}1-9 jump agent | n new-agent | N new-repo | ctrl-d delete | ctrl-k kill | ctrl-r restart | l relaunch-dead | Space reorder | s split | F9 theme | ? help | ctrl-q/qqq quit"
         }
         ScreenMode::Split => "^/v select | g grab | m move | Esc back | ? help | ctrl-q/qqq quit",
         ScreenMode::DashboardIssues => {
@@ -42,6 +42,9 @@ pub fn keybind_hints_for(screen_mode: ScreenMode, terminal_focused: bool) -> &'s
         // @requirement REQ-PR-001
         ScreenMode::DashboardPullRequests => {
             "^/v items | </> panes | Enter detail | f filter | / search | Tab detail focus (j/k) | p list | r reply | R resolve | S send-to-agent | e edit | c comment | o open in browser | m merge | a exit | Esc back/exit"
+        }
+        ScreenMode::DashboardActions => {
+            "^/v navigate | Tab cycle focus | f filter | / search | d dispatch | r refresh | Esc/q exit"
         }
     }
 }

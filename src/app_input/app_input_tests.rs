@@ -2,15 +2,12 @@ use super::prs_orchestration::{pr_send_info_from_state, write_pr_prompt};
 use super::*;
 use std::path::PathBuf;
 
-use super::issues_send::{issue_send_info_from_state, prepare_issue_launch_signature};
 use jefe::domain::{
     Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature, RemoteRepositorySettings,
     RepositoryId, RuntimeBinding, SandboxEngine,
 };
-use jefe::domain::{IssueDetail, IssueState};
-use jefe::state::{AgentChooserState, ScreenMode};
 
-trait TestResultExt<T> {
+pub(super) trait TestResultExt<T> {
     fn value_or_panic(self, context: &str) -> T;
 }
 
@@ -23,7 +20,20 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
     }
 }
 
-fn sample_signature() -> LaunchSignature {
+pub(super) trait TestOptionExt<T> {
+    fn value_or_panic(self, context: &str) -> T;
+}
+
+impl<T> TestOptionExt<T> for Option<T> {
+    fn value_or_panic(self, context: &str) -> T {
+        match self {
+            Some(value) => value,
+            None => panic!("{context}: expected Some, got None"),
+        }
+    }
+}
+
+pub(super) fn sample_signature() -> LaunchSignature {
     LaunchSignature {
         work_dir: PathBuf::from("/tmp/agent"),
         profile: String::new(),
@@ -34,10 +44,11 @@ fn sample_signature() -> LaunchSignature {
         sandbox_engine: SandboxEngine::Podman,
         sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: RemoteRepositorySettings::default(),
+        agent_kind: jefe::domain::AgentKind::Llxprt,
     }
 }
 
-fn sample_agent(agent_id: &AgentId) -> Agent {
+pub(super) fn sample_agent(agent_id: &AgentId) -> Agent {
     Agent::new(
         agent_id.clone(),
         RepositoryId(String::from("repo-1")),
@@ -698,130 +709,5 @@ fn test_inline_submit_dispatch_applies_reducer_before_mutation() {
             InlineState::Composer { ref text, .. } if text == "ship it"
         ),
         "composer text must be preserved for the mutation helper to read"
-    );
-}
-
-// ── Issue send-to-agent: default-branch prep + dirty-copy guard (issue #166) ─
-
-/// Build an AppState for the issue agent-chooser send path: an open chooser +
-/// issue detail + an agent (with `pass_continue = true`) whose work_dir is a
-/// temp dir. Mirrors `state_for_pr_agent_chooser_confirm`.
-fn state_for_issue_agent_chooser_send(
-    agent_id: &AgentId,
-    work_dir: &std::path::Path,
-) -> jefe::state::AppState {
-    let mut agent = sample_agent(agent_id);
-    agent.work_dir = work_dir.to_path_buf();
-    // sample_agent uses Agent::new which defaults pass_continue = true.
-    assert!(
-        agent.pass_continue,
-        "test fixture: agent must default to pass_continue = true"
-    );
-
-    let detail = IssueDetail {
-        repo_owner_name: "owner/repo".to_owned(),
-        number: 166,
-        title: "Issue send should checkout+pull main".to_owned(),
-        state: IssueState::Open,
-        author_login: "reporter".to_owned(),
-        created_at: "2024-01-01T00:00:00Z".to_owned(),
-        updated_at: "2024-01-02T00:00:00Z".to_owned(),
-        labels: vec![],
-        assignees: vec![],
-        milestone: None,
-        body: "Send to agent".to_owned(),
-        external_url: "https://github.com/owner/repo/issues/166".to_owned(),
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
-    };
-
-    let issues_state = jefe::state::IssuesState {
-        active: true,
-        issue_detail: Some(detail),
-        agent_chooser: Some(AgentChooserState {
-            selected_index: 0,
-            agents: vec![(agent_id.clone(), String::from("Agent One"))],
-        }),
-        ..jefe::state::IssuesState::default()
-    };
-
-    let mut state = jefe::state::AppState {
-        screen_mode: ScreenMode::DashboardIssues,
-        issues_state,
-        ..AppState::default()
-    };
-    state.agents.push(agent);
-    state.repositories.push(jefe::domain::Repository::new(
-        RepositoryId(String::from("repo-1")),
-        String::from("Repo 1"),
-        String::from("owner/repo"),
-        PathBuf::from("/tmp/repo1"),
-    ));
-    state.selected_repository_index = Some(0);
-    state
-}
-
-/// The issue-driven launch path must force `pass_continue = false` on the
-/// constructed launch signature, even though the agent's configured
-/// `pass_continue` defaults to `true`. This test resolves the send info
-/// (which copies the agent's `pass_continue`) and then applies the SAME
-/// override `dispatch_agent_chooser_confirm` applies, asserting `--continue`
-/// would never reach the agent. The git prep + spawn require a runtime/git
-/// repo and are guarded out in unit tests (SharedContext is None).
-#[test]
-fn issue_send_forces_pass_continue_false_on_launch_signature() {
-    let agent_id = AgentId(String::from("issue-agent-1"));
-    // This test only exercises pure struct transforms — the work_dir is
-    // never materialized on disk — so a static path suffices.
-    let work_dir = std::path::PathBuf::from("/tmp/jefe-issue-send-test");
-    let state = state_for_issue_agent_chooser_send(&agent_id, &work_dir);
-
-    let send_info = issue_send_info_from_state(&state)
-        .unwrap_or_else(|| panic!("issue_send_info must resolve with chooser + detail + agent"));
-
-    // The send info copies the agent's configured pass_continue (true).
-    assert!(
-        send_info.signature.pass_continue,
-        "send info should inherit the agent's pass_continue = true"
-    );
-
-    // dispatch_agent_chooser_confirm forces pass_continue = false before launch.
-    // This calls the REAL production helper so removing the override would
-    // cause this test to fail.
-    let launch_sig = prepare_issue_launch_signature(send_info.signature);
-    assert!(
-        !launch_sig.pass_continue,
-        "issue-driven launches must force pass_continue = false"
-    );
-    assert!(
-        launch_sig
-            .mode_flags
-            .iter()
-            .any(|flag| flag.contains(".jefe/issue-prompt.md")),
-        "issue launch signature must include the issue prompt instruction"
-    );
-}
-
-/// The `ConfirmIssueDirtyCopy` modal must resolve to `InputMode::Confirm` so
-/// the confirm key handler routes Enter/Esc/n correctly.
-#[test]
-fn confirm_issue_dirty_copy_modal_routes_to_confirm_input_mode() {
-    use jefe::input::input_mode_for_state;
-
-    let state = AppState {
-        modal: ModalState::ConfirmIssueDirtyCopy {
-            agent_id: AgentId(String::from("a1")),
-            work_dir: PathBuf::from("/tmp/x"),
-            signature: sample_signature(),
-            payload: jefe::github::SendPayload::default(),
-        },
-        ..AppState::default()
-    };
-
-    assert_eq!(
-        input_mode_for_state(&state),
-        jefe::input::InputMode::Confirm,
-        "ConfirmIssueDirtyCopy must use InputMode::Confirm"
     );
 }

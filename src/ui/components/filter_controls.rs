@@ -153,3 +153,66 @@ pub fn issue_filter_props(
         colors,
     }
 }
+
+/// Number of fields per row for the Actions filter bar (two fields: workflow,
+/// status — both fit on one row).
+const ACTIONS_FIELDS_PER_ROW: usize = 2;
+
+/// Pure projection of the two Actions filter fields (workflow, status) with
+/// display values + active highlighting, for the generic [`FilterBar`].
+///
+/// @plan PLAN-20260711-ACTIONS-MODE
+#[must_use]
+pub fn actions_filter_fields(
+    filter: &crate::domain::ActionsFilter,
+    active_index: usize,
+) -> Vec<FilterFieldView> {
+    vec![
+        FilterFieldView {
+            label: "workflow".to_string(),
+            value: display_any(&filter.workflow),
+            active: active_index == 0,
+        },
+        FilterFieldView {
+            label: "status".to_string(),
+            value: display_any(&filter.status),
+            active: active_index == 1,
+        },
+    ]
+}
+
+/// Action-hint segments for the Actions filter bar (matches the Actions key
+/// scheme: Tab next field, Up/Down cycle value, Enter apply, Esc cancel).
+#[must_use]
+pub fn actions_filter_action_hints() -> &'static [&'static str] {
+    &[
+        "Tab next field  ",
+        "Up/Down cycle  ",
+        "Enter apply  ",
+        "Esc cancel",
+    ]
+}
+
+/// Build the full [`FilterBarProps`] for the Actions filter bar.
+///
+/// The Actions screen calls `filter_bar_element(actions_filter_props(...))`
+/// to render the same generic component the Issues screen uses.
+///
+/// @plan PLAN-20260711-ACTIONS-MODE
+#[must_use]
+pub fn actions_filter_props(
+    filter: &crate::domain::ActionsFilter,
+    active_index: usize,
+    visible: bool,
+    colors: ThemeColors,
+) -> FilterBarProps {
+    FilterBarProps {
+        fields: actions_filter_fields(filter, active_index),
+        visible,
+        row_prefix: ROW_PREFIX,
+        continuation_prefix: CONTINUATION_PREFIX,
+        fields_per_row: ACTIONS_FIELDS_PER_ROW,
+        action_hints: actions_filter_action_hints(),
+        colors,
+    }
+}

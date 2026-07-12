@@ -7,8 +7,9 @@
 
 use crate::domain::{IssueComment, IssueDetail, IssueState, Repository, RepositoryId};
 use crate::state::AppState;
+use crate::state::events::AppEvent;
 use crate::state::types::{
-    AppEvent, ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueMutationPending,
+    ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueMutationPending,
 };
 
 fn issues_mode_state_with_repo(repo_id: &str) -> AppState {

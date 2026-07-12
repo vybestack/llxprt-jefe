@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use tracing::debug;
 
-use crate::domain::LaunchSignature;
+use crate::domain::{AgentKind, LaunchSignature};
 
 use super::errors::RuntimeError;
 use super::preflight::sandbox_ssh_agent_warning;
@@ -80,6 +80,12 @@ pub fn tmux_command() -> Command {
     cmd
 }
 
+// Re-export the pane capture / introspection helpers that production callers
+// (`commands::capture_pane_lines` / `commands::capture_pane_history` /
+// `commands::pane_pid` in `manager.rs`) still resolve, after the functions
+// moved to `pane_capture.rs` for file-size reasons.
+pub use super::pane_capture::{capture_pane_history, capture_pane_lines, pane_pid};
+
 fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
     let mut cmd = tmux_command();
     cmd.args(args);
@@ -114,6 +120,103 @@ fn apply_session_style(session_name: &str) {
         .as_ref(),
         None,
     );
+}
+
+/// Disable the tmux prefix key (`prefix` and `prefix2`) on a jefe-managed
+/// session so application control chords pass through to the child unchanged.
+///
+/// tmux's default prefix is `C-b` (byte `0x02`). jefe starts tmux with
+/// `-f /dev/null`, which leaves that default active. The embedded viewer runs
+/// an interactive `tmux attach-session` client, and the client consumes the
+/// prefix byte from the input stream before forwarding the rest to the pane.
+/// That eats the `0x02` in a Code Puppy `Ctrl-X Ctrl-B` (`0x18 0x02`) chord,
+/// so the child only sees `0x18` and the chord never completes (#200).
+///
+/// jefe controls its private sessions programmatically (send-keys, capture,
+/// attach) and never exposes a user-facing tmux command table, so no prefix is
+/// needed. Setting `prefix None` / `prefix2 None` makes the client stop
+/// intercepting the prefix key, restoring raw PTY semantics for every runtime.
+/// This is general (not a Code Puppy-specific rewrite) and keeps jefe's own
+/// F12 escape/focus mechanism untouched (F12 is handled by the host app shell
+/// before any byte reaches the PTY).
+///
+/// This is safe to call repeatedly (the options are idempotent), so it is also
+/// used on the reattach path to remediate sessions created before this fix
+/// existed (#200).
+///
+/// Returns `Ok(())` only when every option was applied successfully, so callers
+/// can memoize the session as remediated only on real success (mirroring the
+/// remote path). A transient tmux failure returns `Err` and the caller leaves
+/// the session un-memoized so the next attach retries.
+pub fn disable_prefix_for_passthrough(session_name: &str) -> Result<(), String> {
+    for option in prefix_disable_option_names() {
+        tmux_cmd_status(
+            ["set-option", "-t", session_name, option, "None"].as_ref(),
+            None,
+        )?;
+    }
+    Ok(())
+}
+
+/// The tmux option names that must be set to `None` so no prefix key is
+/// reserved on a jefe-managed session (#200).
+///
+/// Single source of truth shared by the local path
+/// ([`disable_prefix_for_passthrough`]) and the remote path
+/// ([`remote_disable_prefix_command`]) so the two cannot drift, and so tests
+/// can prove the production option set is applied rather than re-deriving it.
+#[must_use]
+pub fn prefix_disable_option_names() -> &'static [&'static str] {
+    &["prefix", "prefix2"]
+}
+
+/// Build the `\;`-joined sequence of `set-option -t <session> <option> None`
+/// sub-commands for every option in [`prefix_disable_option_names`].
+///
+/// This is the single builder for the remote prefix-disable sub-command
+/// sequence, shared by the remote reattach fragment
+/// ([`remote_disable_prefix_fragment`]) and the remote creation script
+/// ([`build_remote_tmux_script`]) so the option list and separator formatting
+/// live in one place and cannot drift (#200 review).
+///
+/// The returned sequence has no leading `tmux`: callers embed it either as a
+/// standalone `tmux <sequence>` shell command (reattach fragment) or as
+/// continuation sub-commands of an existing `tmux new-session ... \; <sequence>`
+/// invocation (creation script).
+fn prefix_disable_tmux_subcommands(escaped_session: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let mut first = true;
+    for option in prefix_disable_option_names() {
+        if !first {
+            parts.push("\\;".to_owned());
+        }
+        parts.push("set-option".to_owned());
+        parts.push("-t".to_owned());
+        parts.push(escaped_session.to_owned());
+        parts.push((*option).to_owned());
+        parts.push("None".to_owned());
+        first = false;
+    }
+    parts.join(" ")
+}
+
+/// Build the remote shell fragment that disables both tmux prefix keys on an
+/// existing remote session. Used on the remote reattach/attach path to
+/// remediate remote sessions created before the inline-script fix (#200),
+/// mirroring [`disable_prefix_for_passthrough`] for the local path.
+fn remote_disable_prefix_fragment(escaped_session: &str) -> String {
+    format!("tmux {}", prefix_disable_tmux_subcommands(escaped_session))
+}
+
+/// SSH command that disables both tmux prefix keys on an existing remote
+/// session, wrapped through the remote user-escalation path. Best-effort: a
+/// failure (e.g. the session already exited) is non-fatal for reattach.
+pub fn remote_disable_prefix_command(
+    remote: &crate::domain::RemoteRepositorySettings,
+    session_name: &str,
+) -> String {
+    let escaped_session = shell_escape_single(session_name);
+    remote_tmux_command(remote, &remote_disable_prefix_fragment(&escaped_session))
 }
 
 pub fn enforce_clipboard_passthrough(session_name: &str) {
@@ -165,7 +268,11 @@ fn shell_join(parts: &[String]) -> String {
 }
 
 fn remote_is_enabled(remote: &crate::domain::RemoteRepositorySettings) -> bool {
-    remote.enabled && !remote.host.trim().is_empty() && !remote.login_user.trim().is_empty()
+    // Delegate to the shared validated contract in domain::target so the
+    // runtime layer's definition of "remote" can never drift from the
+    // availability/prep layers. The shared predicate requires enabled AND
+    // nonempty login_user AND nonempty host.
+    crate::domain::target::is_valid_remote(remote)
 }
 
 fn remote_effective_user(remote: &crate::domain::RemoteRepositorySettings) -> String {
@@ -229,13 +336,43 @@ fn remote_ssh_args(
     remote: &crate::domain::RemoteRepositorySettings,
     remote_command: &str,
 ) -> Vec<String> {
+    // Runtime defense-in-depth: validate SSH identity fields before
+    // constructing the destination. The authoritative validation happens at
+    // form/persistence boundaries via domain::target::validate_remote, but
+    // every SSH command site re-checks at runtime (not just debug builds) so
+    // a stale or unvalidated RemoteRepositorySettings can never reach the
+    // shell. The `--` separator below is the final structural guard: it ends
+    // option parsing so a destination starting with '-' cannot be parsed as
+    // an ssh option even if validation were bypassed.
+    let user = remote.login_user.trim();
+    let host = remote.host.trim();
+    assert!(
+        crate::domain::target::is_valid_ssh_identity(user)
+            && crate::domain::target::is_valid_ssh_identity(host),
+        "SSH identity fields must be validated before reaching remote_ssh_args"
+    );
     vec![
         "-o".to_owned(),
         "BatchMode=yes".to_owned(),
         "-o".to_owned(),
         "ConnectTimeout=10".to_owned(),
+        // Auto-accept the host key on first connect (TOFU) and verify it on
+        // subsequent connections so SSH never hangs waiting for interactive
+        // acceptance in the non-PTY runtime path.
+        "-o".to_owned(),
+        "StrictHostKeyChecking=accept-new".to_owned(),
+        // Post-connect keepalive so a hung remote command is detected within
+        // ~15s instead of blocking indefinitely.
+        "-o".to_owned(),
+        "ServerAliveInterval=5".to_owned(),
+        "-o".to_owned(),
+        "ServerAliveCountMax=3".to_owned(),
         "-tt".to_owned(),
-        format!("{}@{}", remote.login_user.trim(), remote.host.trim()),
+        // `--` ends option parsing so a destination starting with '-' cannot
+        // be misinterpreted as an ssh option (defense in depth; validation
+        // is the primary guard).
+        "--".to_owned(),
+        format!("{user}@{host}"),
         remote_command.to_owned(),
     ]
 }
@@ -332,6 +469,37 @@ fn ensure_remote_success(
     }
 }
 
+fn resolve_remote_agent_command(
+    remote: &crate::domain::RemoteRepositorySettings,
+    work_dir: &Path,
+    setup_env: bool,
+    agent_kind: AgentKind,
+) -> Result<String, RuntimeError> {
+    match agent_kind {
+        AgentKind::CodePuppy => resolve_remote_code_puppy_command(remote, work_dir),
+        AgentKind::Llxprt => resolve_remote_llxprt_command(remote, work_dir, setup_env),
+    }
+}
+
+fn resolve_remote_code_puppy_command(
+    remote: &crate::domain::RemoteRepositorySettings,
+    work_dir: &Path,
+) -> Result<String, RuntimeError> {
+    let work_dir = shell_escape_single(&work_dir.to_string_lossy());
+    let script = format!(
+        "set -e; cd {work_dir}; command -v code-puppy >/dev/null 2>&1; printf '%s\\n' code-puppy"
+    );
+    let output = run_remote_ssh(remote, &remote_tmux_command(remote, &script))?;
+    let resolved = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if output.status.success() && !resolved.is_empty() {
+        Ok(resolved)
+    } else {
+        Err(RuntimeError::RemoteExecutionFailed(
+            "could not resolve remote code-puppy command; verify code-puppy is installed for the remote user".to_owned(),
+        ))
+    }
+}
+
 fn resolve_remote_llxprt_command(
     remote: &crate::domain::RemoteRepositorySettings,
     work_dir: &Path,
@@ -385,6 +553,31 @@ fn resolve_remote_llxprt_command(
 }
 
 fn launch_args(signature: &LaunchSignature) -> Vec<String> {
+    match signature.agent_kind {
+        AgentKind::CodePuppy => code_puppy_launch_args(signature),
+        AgentKind::Llxprt => llxprt_launch_args(signature),
+    }
+}
+
+fn code_puppy_launch_args(signature: &LaunchSignature) -> Vec<String> {
+    // Code Puppy interactive mode: output ONLY `-i` plus, for fresh
+    // (issue/PR-driven) sends, the single positional instruction string.
+    //
+    // Fresh sends replace mode_flags with one positional instruction and
+    // force pass_continue off. That structural contract avoids coupling the
+    // runtime layer to natural-language prompt text while still rejecting all
+    // arbitrary persisted LLxprt flags.
+    let mut args = vec!["-i".to_owned()];
+    if !signature.pass_continue
+        && let [instruction] = signature.mode_flags.as_slice()
+        && !instruction.starts_with('-')
+    {
+        args.push(instruction.clone());
+    }
+    args
+}
+
+fn llxprt_launch_args(signature: &LaunchSignature) -> Vec<String> {
     let mut args = Vec::new();
     if !signature.profile.is_empty() {
         args.push("--profile-load".to_owned());
@@ -410,6 +603,9 @@ fn launch_args(signature: &LaunchSignature) -> Vec<String> {
 
 fn remote_env_exports(signature: &LaunchSignature) -> Vec<String> {
     let mut env_exports = Vec::new();
+    if signature.agent_kind == AgentKind::CodePuppy {
+        return env_exports;
+    }
     if signature.sandbox_enabled {
         env_exports.push(format!(
             "export SANDBOX_FLAGS={};",
@@ -453,9 +649,14 @@ fn build_remote_launch_command(
     let remote = &signature.remote;
     let work_dir_string = work_dir.to_string_lossy().into_owned();
     let escaped_work_dir = shell_escape_single(&work_dir_string);
-    let llxprt_command = resolve_remote_llxprt_command(remote, work_dir, remote.setup_env_default)?;
+    let agent_command = resolve_remote_agent_command(
+        remote,
+        work_dir,
+        remote.setup_env_default,
+        signature.agent_kind,
+    )?;
     let args = launch_args(signature);
-    let cli_command = remote_cli_command(&llxprt_command, &args);
+    let cli_command = remote_cli_command(&agent_command, &args);
     // Scrub jefe's tmux client vars from the remote agent pane for the same
     // reason as the local path (#171): a bare `tmux` inside the agent must not
     // reach the (remote) tmux server hosting the agent session.
@@ -484,12 +685,22 @@ fn build_remote_tmux_script(
     escaped_session: &str,
     pane_command: &str,
 ) -> String {
+    // Disable the tmux prefix on the remote session using the shared
+    // [`prefix_disable_tmux_subcommands`] builder so this inline creation
+    // script and the reattach fragment ([`remote_disable_prefix_fragment`])
+    // format the option sequence identically and cannot drift (#200). The
+    // remote tmux server also defaults to `C-b`, which the remote attach
+    // client would consume before it reaches the agent; jefe never needs a
+    // user-facing prefix on its managed sessions. The sub-commands continue
+    // the `tmux new-session` invocation via the `\;` separator.
+    let prefix_options = format!(" \\; {}", prefix_disable_tmux_subcommands(escaped_session));
     format!(
-        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {pane_command} \\; set-option -t {escaped_session} remain-on-exit on"
+        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {pane_command} \\; set-option -t {escaped_session} remain-on-exit on{prefix_options}"
     )
 }
 
 struct LocalLaunchPlan {
+    agent_kind: AgentKind,
     args: Vec<String>,
     env: Vec<(String, String)>,
     warning: Option<String>,
@@ -497,22 +708,28 @@ struct LocalLaunchPlan {
 
 fn local_launch_plan(signature: &LaunchSignature) -> LocalLaunchPlan {
     let mut env = Vec::new();
-    let warning = if signature.sandbox_enabled {
-        env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
-        if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
-            env.push((
-                "LLXPRT_SANDBOX_IMAGE".to_owned(),
-                image_ref.to_string_lossy().into_owned(),
-            ));
+    let warning = match signature.agent_kind {
+        AgentKind::Llxprt => {
+            if signature.sandbox_enabled {
+                env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
+                if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
+                    env.push((
+                        "LLXPRT_SANDBOX_IMAGE".to_owned(),
+                        image_ref.to_string_lossy().into_owned(),
+                    ));
+                }
+                sandbox_ssh_agent_warning()
+            } else {
+                None
+            }
         }
-        sandbox_ssh_agent_warning()
-    } else {
-        None
+        AgentKind::CodePuppy => None,
     };
-    if !signature.llxprt_debug.is_empty() {
+    if matches!(signature.agent_kind, AgentKind::Llxprt) && !signature.llxprt_debug.is_empty() {
         env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
     }
     LocalLaunchPlan {
+        agent_kind: signature.agent_kind,
         args: launch_args(signature),
         env,
         warning,
@@ -550,13 +767,16 @@ fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
     for (key, value) in &plan.env {
         args.push(format!("{key}={value}"));
     }
-    args.push("llxprt".to_owned());
+    args.push(plan.agent_kind.binary_name().to_owned());
     args.extend(plan.args.iter().cloned());
     args
 }
 
 fn finalize_local_session(session_name: &str, warning: Option<String>) {
     enforce_clipboard_passthrough(session_name);
+    if let Err(error) = disable_prefix_for_passthrough(session_name) {
+        debug!(session_name = %session_name, error = %error, "prefix passthrough option failed on create; will retry on attach");
+    }
     let _ = tmux_cmd_status(
         ["set-option", "-t", session_name, "remain-on-exit", "on"].as_ref(),
         None,
@@ -677,57 +897,6 @@ pub fn remote_session_exists(
     Ok(output.status.success())
 }
 
-/// Capture pane output for a session as plain text lines.
-pub fn capture_pane_lines(session_name: &str) -> Option<Vec<String>> {
-    let output = tmux_command()
-        .args(["capture-pane", "-p", "-t", session_name])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    Some(text.lines().map(std::borrow::ToOwned::to_owned).collect())
-}
-
-/// Parse the stdout of `tmux list-panes -t <session> -F '#{pane_pid}'` into a
-/// single PID.
-///
-/// Returns the first non-empty trimmed line parsed as a `u32`, or `None` if the
-/// output is empty/garbage. Factored out of [`pane_pid`] so the parsing logic is
-/// unit-testable without spawning tmux.
-#[must_use]
-pub fn parse_pane_pid(stdout: &str) -> Option<u32> {
-    stdout
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .and_then(|line| line.parse::<u32>().ok())
-}
-
-/// Query the PID of the (first) pane in a local tmux session.
-///
-/// Runs `tmux list-panes -t <session> -F '#{pane_pid}'` against the jefe-private
-/// socket. Because `llxprt` runs as the pane's direct command (not a shell
-/// wrapper), the returned PID **is** the worker process itself. Local sessions
-/// only.
-///
-/// Returns `None` if tmux is unavailable, the session does not exist, or the
-/// output cannot be parsed. This is the PID-fallback input used to detect
-/// workers that are still alive after their tmux session is gone.
-#[must_use]
-pub fn pane_pid(session_name: &str) -> Option<u32> {
-    let output = tmux_command()
-        .args(["list-panes", "-t", session_name, "-F", "#{pane_pid}"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    parse_pane_pid(&String::from_utf8_lossy(&output.stdout))
-}
-
 /// Kill a tmux session.
 ///
 /// @pseudocode component-002 lines 24-25
@@ -778,3 +947,7 @@ pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
 #[cfg(test)]
 #[path = "commands_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "prefix_passthrough_tests.rs"]
+mod prefix_passthrough_tests;

@@ -1,0 +1,21 @@
+{
+  "config": {
+    "cols": 110,
+    "rows": 36,
+    "history_limit": 2000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "N" },
+    { "waitFor": "New Repository" },
+    { "expect": "Default Agent" },
+    { "capture": "repository-agent-runtime-choice" },
+    { "key": "escape" },
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

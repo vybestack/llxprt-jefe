@@ -28,6 +28,10 @@ use crate::ui::components::issue_list::{IssueListLayout, issue_list_visible_rows
 use crate::ui::components::pr_detail::pr_detail_header_view;
 use crate::ui::components::pr_list::pr_list_visible_rows;
 use crate::ui::components::terminal_empty_message;
+use crate::ui::modals::help_content_lines;
+
+use crate::selection::form_content;
+use crate::selection::overlay_content;
 
 /// Separator line rendered between the fixed detail header and the scrollable
 /// content, mirroring the components' `"─────…"` row.
@@ -82,6 +86,7 @@ pub fn pane_content_lines(
     pane: SelectablePane,
     state: &AppState,
     snapshot: Option<&TerminalSnapshot>,
+    history_lines: &[String],
     term_cols: u16,
     term_rows: u16,
 ) -> PaneContent {
@@ -90,13 +95,19 @@ pub fn pane_content_lines(
         SelectablePane::PrDetail => pr_detail_lines(state),
         SelectablePane::IssueList => issue_list_lines(state, term_cols, term_rows),
         SelectablePane::PrList => pr_list_lines(state, term_cols, term_rows),
+        SelectablePane::ActionsList | SelectablePane::ActionsDetail => PaneContent::empty(pane),
         SelectablePane::Sidebar => sidebar_lines(state),
         SelectablePane::AgentList => agent_list_lines(state),
         SelectablePane::Preview => preview_lines(state),
-        SelectablePane::TerminalView => terminal_lines(snapshot, state),
+        SelectablePane::TerminalView => terminal_lines(snapshot, state, history_lines),
         SelectablePane::HelpModal => help_lines(),
         SelectablePane::StatusBar => status_bar_lines(state),
         SelectablePane::KeybindBar => keybind_bar_lines(state),
+        SelectablePane::AgentForm => agent_form_lines(state),
+        SelectablePane::RepositoryForm => repository_form_lines(state),
+        SelectablePane::AgentChooser => overlay_content::agent_chooser_lines(state),
+        SelectablePane::MergeChooser => overlay_content::merge_chooser_lines(state),
+        SelectablePane::ConfirmModal => overlay_content::confirm_modal_lines(state),
     }
 }
 
@@ -273,8 +284,32 @@ fn preview_lines(state: &AppState) -> PaneContent {
     PaneContent::new(SelectablePane::Preview, lines)
 }
 
-fn terminal_lines(snapshot: Option<&TerminalSnapshot>, state: &AppState) -> PaneContent {
-    let Some(snap) = snapshot else {
+fn terminal_lines(
+    snapshot: Option<&TerminalSnapshot>,
+    state: &AppState,
+    history_lines: &[String],
+) -> PaneContent {
+    // Issue #198: include retained history lines above the live snapshot rows
+    // so selection coordinates map to the scrolled viewport content.
+    // Issue #197: filter wide-character spacers so selection text matches the
+    // rendered grid (each wide cell occupies 2 columns; the trailing spacer
+    // is not a real glyph).
+    let live_lines: Vec<String> = snapshot.map_or_else(Vec::new, |snap| {
+        (0..snap.rows)
+            .map(|row| {
+                snap.cells.get(row).map_or_else(String::new, |cells| {
+                    cells
+                        .iter()
+                        .take(snap.cols)
+                        .filter(|c| !c.wide_spacer)
+                        .map(|c| c.ch)
+                        .collect()
+                })
+            })
+            .collect()
+    });
+
+    if history_lines.is_empty() && live_lines.is_empty() {
         // A Running selected agent has a live session even before the viewer
         // finishes attaching; mirror the TerminalView empty-state copy so a
         // healthy session is not mistaken for a lost one (issue #160).
@@ -285,19 +320,24 @@ fn terminal_lines(snapshot: Option<&TerminalSnapshot>, state: &AppState) -> Pane
             SelectablePane::TerminalView,
             vec![terminal_empty_message(session_live).to_string()],
         );
-    };
-    let lines: Vec<String> = (0..snap.rows)
-        .map(|row| {
-            snap.cells.get(row).map_or_else(String::new, |cells| {
-                cells.iter().take(snap.cols).map(|c| c.ch).collect()
-            })
-        })
-        .collect();
-    PaneContent::new(SelectablePane::TerminalView, lines)
+    }
+
+    // Build the combined history+live vector once with a single allocation.
+    let mut all_lines: Vec<String> = Vec::with_capacity(history_lines.len() + live_lines.len());
+    all_lines.extend_from_slice(history_lines);
+    all_lines.extend(live_lines);
+    PaneContent::new(SelectablePane::TerminalView, all_lines)
 }
 
 fn help_lines() -> PaneContent {
-    PaneContent::new(SelectablePane::HelpModal, Vec::<String>::new())
+    // Issue #178: project the actual help content instead of an empty Vec so
+    // select-to-copy works inside the help modal. Reuses the single source of
+    // truth (`help_content_lines`) that the renderer windows. The title row
+    // and its trailing blank are included as content lines 0-1 so the (2,2)
+    // content origin maps to the title text.
+    let mut lines: Vec<String> = vec![crate::ui::modals::HELP_TITLE.to_string(), String::new()];
+    lines.extend(help_content_lines().iter().copied().map(str::to_string));
+    PaneContent::new(SelectablePane::HelpModal, lines)
 }
 
 /// Status bar line that matches the rendered format:
@@ -310,7 +350,11 @@ fn status_bar_lines(state: &AppState) -> PaneContent {
     let repo_count = state.visible_repository_indices().len();
     let running = state.agents.iter().filter(|a| a.is_running()).count();
     let agent_count = state.visible_agent_count();
-    let left = format!("LLxprt Jefe - {}", crate::VERSION);
+    let kennel_suffix = state
+        .selected_agent()
+        .filter(|agent| agent.agent_kind.is_kennel())
+        .map_or("", |_| " (Kennel mode)");
+    let left = format!("LLxprt Jefe{kennel_suffix} - {}", crate::VERSION);
     let center = format!("{repo_count} repos | {running}/{agent_count} running");
     let line = format!("{left}   {center}");
     PaneContent::new(SelectablePane::StatusBar, vec![line])
@@ -321,6 +365,24 @@ fn status_bar_lines(state: &AppState) -> PaneContent {
 fn keybind_bar_lines(state: &AppState) -> PaneContent {
     let hints = crate::ui::components::keybind_bar::keybind_hints_for(state.screen_mode, false);
     PaneContent::new(SelectablePane::KeybindBar, vec![hints.to_string()])
+}
+
+// ── Issue #178: overlay content providers (delegated to submodules) ──────
+
+/// Agent-definition form lines that match the rendered field layout.
+fn agent_form_lines(state: &AppState) -> PaneContent {
+    match form_content::agent_form_content_lines(state) {
+        Some(lines) => PaneContent::new(SelectablePane::AgentForm, lines),
+        None => PaneContent::empty(SelectablePane::AgentForm),
+    }
+}
+
+/// Repository-definition form lines that match the rendered field layout.
+fn repository_form_lines(state: &AppState) -> PaneContent {
+    match form_content::repository_form_content_lines(state) {
+        Some(lines) => PaneContent::new(SelectablePane::RepositoryForm, lines),
+        None => PaneContent::empty(SelectablePane::RepositoryForm),
+    }
 }
 
 #[cfg(test)]
@@ -351,28 +413,57 @@ mod tests {
             fg: Color::White,
             bg: Color::Black,
             bold: false,
+            dim: false,
             underline: false,
         };
         let cells = vec![
             vec![
-                TerminalCell { ch: 'h', style },
-                TerminalCell { ch: 'i', style },
+                TerminalCell {
+                    ch: 'h',
+                    style,
+                    wide_spacer: false,
+                },
+                TerminalCell {
+                    ch: 'i',
+                    style,
+                    wide_spacer: false,
+                },
             ],
-            vec![TerminalCell { ch: '!', style }],
+            // Second line has a width-2 glyph '中' + its trailing spacer, then '!'.
+            // The spacer cell must be filtered out so the line reads "中!" (issue #197).
+            vec![
+                TerminalCell {
+                    ch: '中',
+                    style,
+                    wide_spacer: false,
+                },
+                TerminalCell {
+                    ch: ' ',
+                    style,
+                    wide_spacer: true,
+                },
+                TerminalCell {
+                    ch: '!',
+                    style,
+                    wide_spacer: false,
+                },
+            ],
         ];
         let snap = TerminalSnapshot {
             rows: 2,
-            cols: 2,
+            cols: 3,
             cells,
+            wraps: Vec::new(),
         };
         let content = pane_content_lines(
             SelectablePane::TerminalView,
             &AppState::default(),
             Some(&snap),
+            &[],
             120,
             40,
         );
-        assert_eq!(content.lines, vec!["hi".to_string(), "!".to_string()]);
+        assert_eq!(content.lines, vec!["hi".to_string(), "中!".to_string()]);
     }
 
     #[test]
@@ -381,6 +472,7 @@ mod tests {
             SelectablePane::TerminalView,
             &AppState::default(),
             None,
+            &[],
             120,
             40,
         );
@@ -413,7 +505,7 @@ mod tests {
         state.selected_repository_index = Some(0);
         state.selected_agent_index = Some(0);
 
-        let content = pane_content_lines(SelectablePane::TerminalView, &state, None, 120, 40);
+        let content = pane_content_lines(SelectablePane::TerminalView, &state, None, &[], 120, 40);
         assert_eq!(
             content.lines,
             vec!["Session live - press t to focus terminal".to_string()]
@@ -433,11 +525,12 @@ mod tests {
             github_repo: String::new(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
+            default_agent_kind: crate::domain::AgentKind::Llxprt,
             agent_ids: vec![AgentId("a1".to_string()), AgentId("a2".to_string())],
         });
         // Select the first repo so the rendered "> " prefix appears.
         state.selected_repository_index = Some(0);
-        let content = pane_content_lines(SelectablePane::Sidebar, &state, None, 120, 40);
+        let content = pane_content_lines(SelectablePane::Sidebar, &state, None, &[], 120, 40);
         // Selected repo gets "> " prefix; matches the Sidebar renderer.
         assert_eq!(content.lines, vec!["> repo-one (0)".to_string()]);
     }
@@ -462,7 +555,7 @@ mod tests {
             comment_count: 0,
         });
         state.prs_state.selected_pr_index = Some(0);
-        let content = pane_content_lines(SelectablePane::PrList, &state, None, 120, 40);
+        let content = pane_content_lines(SelectablePane::PrList, &state, None, &[], 120, 40);
         // Compact mode: one line per PR, with the "> " selected prefix and #N.
         assert_eq!(content.lines.len(), 1);
         assert!(content.lines[0].starts_with("> #7 "));
@@ -489,7 +582,7 @@ mod tests {
             body: String::new(),
         });
         state.issues_state.selected_issue_index = Some(0);
-        let content = pane_content_lines(SelectablePane::IssueList, &state, None, 120, 40);
+        let content = pane_content_lines(SelectablePane::IssueList, &state, None, &[], 120, 40);
         assert_eq!(content.lines.len(), 1);
         assert!(content.lines[0].starts_with("> #3 "));
     }
@@ -500,6 +593,7 @@ mod tests {
             SelectablePane::StatusBar,
             &AppState::default(),
             None,
+            &[],
             120,
             40,
         );
@@ -509,10 +603,34 @@ mod tests {
     }
 
     #[test]
+    fn status_bar_lines_show_kennel_mode_for_selected_code_puppy_agent() {
+        let repo_id = crate::domain::RepositoryId("kennel-repo".to_owned());
+        let mut state = AppState::default();
+        state.repositories.push(crate::domain::Repository::new(
+            repo_id.clone(),
+            "Kennel Repo".to_owned(),
+            "kennel".to_owned(),
+            std::path::PathBuf::from("/tmp/kennel"),
+        ));
+        let mut agent = crate::domain::Agent::new(
+            crate::domain::AgentId("puppy".to_owned()),
+            repo_id,
+            "Puppy".to_owned(),
+            std::path::PathBuf::from("/tmp/kennel/puppy"),
+        );
+        agent.agent_kind = crate::domain::AgentKind::CodePuppy;
+        state.agents.push(agent);
+        state.selected_repository_index = Some(0);
+        state.selected_agent_index = Some(0);
+
+        let content = pane_content_lines(SelectablePane::StatusBar, &state, None, &[], 120, 40);
+        assert!(content.lines[0].contains("LLxprt Jefe (Kennel mode) -"));
+    }
+    #[test]
     fn keybind_bar_lines_match_rendered_hints() {
         let mut state = AppState::default();
         state.screen_mode = crate::state::ScreenMode::Dashboard;
-        let content = pane_content_lines(SelectablePane::KeybindBar, &state, None, 120, 40);
+        let content = pane_content_lines(SelectablePane::KeybindBar, &state, None, &[], 120, 40);
         assert_eq!(content.lines.len(), 1);
         assert!(content.lines[0].contains("navigate"));
     }
@@ -538,7 +656,7 @@ mod tests {
             has_more_comments: false,
             comments_cursor: None,
         });
-        let content = pane_content_lines(SelectablePane::IssueDetail, &state, None, 120, 40);
+        let content = pane_content_lines(SelectablePane::IssueDetail, &state, None, &[], 120, 40);
         // Line 0: title, Line 1: state/author, Line 2: labels/assignees/milestone,
         // Line 3: url, Line 4: separator, then scrollable content lines.
         assert!(content.lines.len() > 5);
@@ -582,7 +700,7 @@ mod tests {
             mergeable: None,
             merge_state_status: None,
         });
-        let content = pane_content_lines(SelectablePane::PrDetail, &state, None, 120, 40);
+        let content = pane_content_lines(SelectablePane::PrDetail, &state, None, &[], 120, 40);
         // Header rows first, then scrollable content.
         assert!(content.lines.len() > 5);
         assert_eq!(content.lines[0], "#7 My PR");
@@ -593,5 +711,228 @@ mod tests {
         assert!(content.lines[2].contains("assignees: bob"));
         assert_eq!(content.lines[3], "https://example.com/pull/7");
         assert!(content.lines[4].starts_with('─'));
+    }
+
+    // ── Issue #178: select-to-copy for forms, choosers, confirm, and help ──
+
+    #[test]
+    fn help_modal_lines_match_help_content_projection() {
+        let content = pane_content_lines(
+            SelectablePane::HelpModal,
+            &AppState::default(),
+            None,
+            &[],
+            120,
+            40,
+        );
+        // help_lines() must project the actual help content (issue #178: it
+        // was returning an empty Vec).
+        assert!(
+            !content.lines.is_empty(),
+            "help modal must have copyable content"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("Navigation")),
+            "help modal content must include the Navigation section"
+        );
+    }
+
+    #[test]
+    fn agent_form_lines_include_title_and_fields() {
+        use crate::domain::RepositoryId;
+        use crate::state::{AgentFormFields, ModalState};
+        let mut state = AppState::default();
+        state.modal = ModalState::NewAgent {
+            repository_id: RepositoryId("r1".to_string()),
+            fields: AgentFormFields {
+                name: "my-agent".to_string(),
+                ..Default::default()
+            },
+            focus: crate::state::AgentFormFocus::Name,
+            cursor: crate::state::AgentFormCursor::default(),
+            work_dir_manual: false,
+        };
+        let content = pane_content_lines(SelectablePane::AgentForm, &state, None, &[], 120, 40);
+        assert!(
+            content.lines.iter().any(|l| l.contains("New Agent")),
+            "agent form must include the title"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("my-agent")),
+            "agent form must include the agent name field value"
+        );
+    }
+
+    #[test]
+    fn agent_form_lines_empty_when_no_modal() {
+        let state = AppState::default();
+        let content = pane_content_lines(SelectablePane::AgentForm, &state, None, &[], 120, 40);
+        assert!(
+            content.lines.is_empty(),
+            "agent form with no modal should have no content"
+        );
+    }
+
+    #[test]
+    fn repository_form_lines_include_title_and_fields() {
+        use crate::state::{ModalState, RepositoryFormFields};
+        let mut state = AppState::default();
+        state.modal = ModalState::NewRepository {
+            fields: RepositoryFormFields {
+                name: "my-repo".to_string(),
+                ..Default::default()
+            },
+            focus: crate::state::RepositoryFormFocus::Name,
+            cursor: crate::state::RepositoryFormCursor::default(),
+        };
+        let content =
+            pane_content_lines(SelectablePane::RepositoryForm, &state, None, &[], 120, 40);
+        assert!(
+            content.lines.iter().any(|l| l.contains("New Repository")),
+            "repository form must include the title"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("my-repo")),
+            "repository form must include the repo name field value"
+        );
+    }
+
+    #[test]
+    fn agent_chooser_lines_include_header_and_agent_names() {
+        use crate::domain::{Agent, AgentId, Repository, RepositoryId};
+        let mut state = AppState::default();
+        // Add a repository and two agents so the chooser has entries.
+        let repo_id = RepositoryId("r1".to_string());
+        state.repositories.push(Repository::new(
+            repo_id.clone(),
+            "repo".to_string(),
+            "repo".to_string(),
+            std::path::PathBuf::from("/tmp/repo"),
+        ));
+        state.agents.push(Agent::new(
+            AgentId("a1".to_string()),
+            repo_id.clone(),
+            "alpha".to_string(),
+            std::path::PathBuf::from("/tmp/a1"),
+        ));
+        state.agents.push(Agent::new(
+            AgentId("a2".to_string()),
+            repo_id,
+            "beta".to_string(),
+            std::path::PathBuf::from("/tmp/a2"),
+        ));
+        state.selected_repository_index = Some(0);
+        // Open the agent chooser from issues state.
+        state.issues_state.agent_chooser = Some(crate::state::AgentChooserState {
+            selected_index: 0,
+            agents: vec![
+                (AgentId("a1".to_string()), "alpha".to_string()),
+                (AgentId("a2".to_string()), "beta".to_string()),
+            ],
+        });
+        let content = pane_content_lines(SelectablePane::AgentChooser, &state, None, &[], 120, 40);
+        assert!(
+            content.lines.iter().any(|l| l.contains("Send to Agent")),
+            "agent chooser must include header"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("alpha")),
+            "agent chooser must list agent names"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("beta")),
+            "agent chooser must list agent names"
+        );
+    }
+
+    #[test]
+    fn merge_chooser_lines_include_header_and_methods() {
+        use crate::domain::{PrCheckStatus, PrState, PullRequestDetail};
+        let mut state = AppState::default();
+        state.prs_state.merge_chooser = Some(crate::state::PrMergeChooserState {
+            selected_index: 0,
+            allowed_methods: None,
+            awaiting_confirmation: false,
+        });
+        // Merge chooser needs a PR number for the header.
+        state.prs_state.pr_detail = Some(PullRequestDetail {
+            repo_owner_name: "o/r".to_string(),
+            number: 42,
+            title: "T".to_string(),
+            state: PrState::Open,
+            is_draft: false,
+            author_login: "x".to_string(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            head_ref: String::new(),
+            base_ref: String::new(),
+            labels: Vec::new(),
+            assignees: Vec::new(),
+            milestone: None,
+            body: String::new(),
+            external_url: String::new(),
+            review_decision: None,
+            checks_status: PrCheckStatus::None,
+            reviews: Vec::new(),
+            checks: Vec::new(),
+            comments: Vec::new(),
+            has_more_comments: false,
+            comments_cursor: None,
+            mergeable: None,
+            merge_state_status: None,
+        });
+        let content = pane_content_lines(SelectablePane::MergeChooser, &state, None, &[], 120, 40);
+        assert!(
+            content
+                .lines
+                .iter()
+                .any(|l| l.contains("Merge Pull Request #42")),
+            "merge chooser must include PR number header"
+        );
+        assert!(
+            content
+                .lines
+                .iter()
+                .any(|l| l.contains("Create a merge commit")),
+            "merge chooser must list merge methods"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("Squash and merge")),
+            "merge chooser must list merge methods"
+        );
+    }
+
+    #[test]
+    fn confirm_modal_lines_include_title_and_message() {
+        use crate::domain::{Agent, AgentId, Repository, RepositoryId};
+        use crate::state::ModalState;
+        let mut state = AppState::default();
+        let repo_id = RepositoryId("r1".to_string());
+        state.repositories.push(Repository::new(
+            repo_id.clone(),
+            "repo".to_string(),
+            "repo".to_string(),
+            std::path::PathBuf::from("/tmp/repo"),
+        ));
+        let agent_id = AgentId("a1".to_string());
+        state.agents.push(Agent::new(
+            agent_id.clone(),
+            repo_id,
+            "my-agent".to_string(),
+            std::path::PathBuf::from("/tmp/a1"),
+        ));
+        state.modal = ModalState::ConfirmDeleteAgent {
+            id: agent_id,
+            delete_work_dir: false,
+        };
+        let content = pane_content_lines(SelectablePane::ConfirmModal, &state, None, &[], 120, 40);
+        assert!(
+            content.lines.iter().any(|l| l.contains("Delete Agent")),
+            "confirm modal must include the title"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("my-agent")),
+            "confirm modal must include the message with the agent name"
+        );
     }
 }

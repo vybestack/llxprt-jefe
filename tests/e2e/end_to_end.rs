@@ -184,6 +184,7 @@ fn persistence_roundtrip_preserves_state() {
         last_selected_agent_by_repo: vec![],
         pane_focus: String::new(),
         terminal_focused: false,
+        user_preferences: jefe::domain::UserPreferences::default(),
     };
 
     // Save and reload
@@ -208,6 +209,7 @@ fn persistence_settings_theme_integration() {
     let settings = Settings {
         schema_version: 1,
         theme: "green-screen".into(),
+        override_agent_theme: false,
     };
     persistence
         .save_settings(&settings)

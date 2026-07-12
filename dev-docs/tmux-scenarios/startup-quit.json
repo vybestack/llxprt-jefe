@@ -10,7 +10,9 @@
     { "waitFor": "LLxprt Jefe" },
     { "expect": "No terminal attached" },
     { "capture": "startup" },
-    { "key": "C-q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
     { "waitForExit": 3000 }
   ]
 }

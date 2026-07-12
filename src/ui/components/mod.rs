@@ -3,6 +3,11 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P09
 //! @requirement REQ-TECH-010
 
+/// Actions run-detail pane projection. Builds [`DetailPaneProps`] from the
+/// workflow run detail and delegates rendering to the generic [`DetailPane`].
+pub(crate) mod actions_detail;
+/// Actions run-list pane projection for the generic [`SelectableList`].
+pub(crate) mod actions_list;
 mod agent_chooser;
 mod agent_list;
 /// Generic bordered, header + scrollable + optional-composer detail pane.
@@ -59,13 +64,19 @@ pub(crate) mod pr_filter_controls;
 pub(crate) mod pr_list;
 mod preview;
 mod scrollable_text;
+mod selectable_line;
 /// Generic bordered, scrollable, selectable list used by the Issue, PR, and
 /// Agent list panes. Domain layers project into [`SelectableRow`]s; this
 /// component owns the iocraft rendering once.
 pub(crate) mod selectable_list;
 mod sidebar;
 mod status_bar;
+/// Jefe-theme override logic for the embedded agent terminal (issue #179).
+mod terminal_theme;
 mod terminal_view;
+/// Pure viewport projection for terminal scrollback (issue #198).
+/// iocraft-free, `#[must_use]`, unit-testable directly.
+pub(crate) mod terminal_viewport;
 /// Fixed-size multiline text-box component with an inline caret.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
@@ -74,14 +85,21 @@ mod terminal_view;
 /// @pseudocode component-001 lines 169-176
 mod text_box;
 
+pub use actions_detail::{ActionsDetailProjectionInputs, actions_detail_props};
+pub use actions_list::{
+    ActionsListLayout, ActionsListWindow, actions_list_props, actions_list_status_message,
+};
 pub use agent_chooser::{AgentChooser, AgentChooserProps};
-pub use agent_list::agent_list_props;
+pub use agent_list::{AgentListSelection, agent_list_props};
 pub use detail_pane::{
     DetailComposerProps, DetailHeaderColor, DetailHeaderRow, DetailPane, DetailPaneProps,
     composer_from_inline_state, detail_pane_element, header_highlight, header_row,
 };
 pub use filter_bar::{FilterBar, FilterBarProps, FilterFieldView, filter_bar_element};
-pub use filter_controls::{issue_filter_action_hints, issue_filter_fields, issue_filter_props};
+pub use filter_controls::{
+    actions_filter_action_hints, actions_filter_fields, actions_filter_props,
+    issue_filter_action_hints, issue_filter_fields, issue_filter_props,
+};
 pub use issue_detail::{IssueDetailProjectionInputs, issue_detail_props};
 pub use issue_list::{
     IssueListLayout, IssueListWindow, issue_list_props, issue_list_status_message,
@@ -100,6 +118,7 @@ pub use pr_filter_controls::{pr_filter_action_hints, pr_filter_field_views, pr_f
 pub use pr_list::{PrListLayout, PrListWindow, pr_list_props, pr_list_status_message};
 pub use preview::{Preview, PreviewProps};
 pub use scrollable_text::{ScrollableText, ScrollableTextProps};
+pub use selectable_line::selectable_line;
 pub use selectable_list::{
     ListBorder, SelectableList, SelectableListProps, SelectableRow, SelectableSpan, SelectionStyle,
     SpanColor, SpanRole, selectable_list_element,
@@ -107,6 +126,7 @@ pub use selectable_list::{
 pub use sidebar::{Sidebar, SidebarProps};
 pub use status_bar::{StatusBar, StatusBarProps};
 pub use terminal_view::{TerminalView, TerminalViewProps, terminal_empty_message};
+pub use terminal_viewport::{TerminalViewportProjection, build_terminal_viewport};
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-010

@@ -7,8 +7,11 @@ use iocraft::prelude::*;
 
 use crate::state::{AppState, ModalState, ScreenMode};
 use crate::theme::ThemeColors;
-use crate::ui::screens::{IssuesScreen, PullRequestsScreen};
-use crate::ui::{ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen};
+use crate::ui::screens::{ActionsScreen, IssuesScreen, PullRequestsScreen, ThemePickerScreen};
+use crate::ui::{
+    ConfirmModal, Dashboard, HelpModal, NewAgentForm, NewRepositoryForm, SplitScreen,
+    WorkflowDispatchForm,
+};
 
 /// Data needed to render a confirmation modal.
 pub struct ConfirmModalData {
@@ -16,6 +19,24 @@ pub struct ConfirmModalData {
     pub message: String,
     pub show_delete_work_dir: bool,
     pub delete_work_dir: bool,
+}
+
+/// Terminal render data threaded from the app shell into the dashboard.
+///
+/// Bundles the live snapshot, retained scrollback history, and the actual PTY
+/// pane dimensions so `build_screen_element` stays under the argument-count
+/// limit and the projection always knows the real pane size even when the live
+/// snapshot is absent/empty (issue #198 follow-up).
+#[must_use]
+pub struct TerminalRenderData {
+    /// Live PTY snapshot (styled grid), if available.
+    pub snapshot: Option<crate::runtime::TerminalSnapshot>,
+    /// Retained scrollback history lines (plain text).
+    pub history_lines: Vec<String>,
+    /// Actual embedded-terminal pane row count (PTY layout).
+    pub pane_rows: usize,
+    /// Actual embedded-terminal pane column count (PTY layout).
+    pub pane_cols: usize,
 }
 
 /// Derive confirmation modal data from current state, if applicable.
@@ -28,38 +49,27 @@ pub fn derive_confirm_modal_data(
         ModalState::ConfirmDeleteAgent {
             id,
             delete_work_dir,
-        } => {
-            let agent_name = snapshot
-                .agents
-                .iter()
-                .find(|agent| &agent.id == id)
-                .map_or_else(
-                    || String::from("selected agent"),
-                    |agent| agent.name.clone(),
-                );
-            Some(ConfirmModalData {
-                title: String::from("Delete Agent"),
-                message: format!("Delete {agent_name}?"),
-                show_delete_work_dir: true,
-                delete_work_dir: *delete_work_dir,
-            })
-        }
-        ModalState::ConfirmDeleteRepository { id } => {
-            let repo_name = snapshot
-                .repositories
-                .iter()
-                .find(|repo| &repo.id == id)
-                .map_or_else(
-                    || String::from("selected repository"),
-                    |repo| repo.name.clone(),
-                );
-            Some(ConfirmModalData {
-                title: String::from("Delete Repository"),
-                message: format!("Delete {repo_name} and all its agents?"),
-                show_delete_work_dir: false,
-                delete_work_dir: false,
-            })
-        }
+        } => Some(ConfirmModalData {
+            title: String::from("Delete Agent"),
+            message: format!("Delete {}?", agent_display_name(snapshot, id)),
+            show_delete_work_dir: true,
+            delete_work_dir: *delete_work_dir,
+        }),
+        ModalState::ConfirmKillAgent { id } => Some(ConfirmModalData {
+            title: String::from("Kill Agent"),
+            message: format!("Kill {}?", agent_display_name(snapshot, id)),
+            show_delete_work_dir: false,
+            delete_work_dir: false,
+        }),
+        ModalState::ConfirmDeleteRepository { id } => Some(ConfirmModalData {
+            title: String::from("Delete Repository"),
+            message: format!(
+                "Delete {} and all its agents?",
+                repo_display_name(snapshot, id)
+            ),
+            show_delete_work_dir: false,
+            delete_work_dir: false,
+        }),
         ModalState::PreflightPrompt { issue, .. } => Some(ConfirmModalData {
             title: issue.prompt_title(),
             message: issue.prompt_message(),
@@ -74,8 +84,42 @@ pub fn derive_confirm_modal_data(
             show_delete_work_dir: false,
             delete_work_dir: false,
         }),
+        ModalState::ConfirmIssueOriginMismatch {
+            actual, expected, ..
+        } => Some(ConfirmModalData {
+            title: String::from("Wrong Repository"),
+            message: format!(
+                "Working copy origin is {actual_repr}, expected {expected}. \
+                     Replace it with a fresh clone?",
+                actual_repr = if actual.is_empty() {
+                    "(no origin remote)"
+                } else {
+                    actual
+                },
+            ),
+            show_delete_work_dir: false,
+            delete_work_dir: false,
+        }),
         _ => None,
     }
+}
+
+/// Resolve an agent's display name, falling back to a generic label.
+fn agent_display_name(snapshot: &AppState, id: &crate::domain::AgentId) -> String {
+    snapshot
+        .agents
+        .iter()
+        .find(|a| &a.id == id)
+        .map_or_else(|| String::from("selected agent"), |a| a.name.clone())
+}
+
+/// Resolve a repository's display name, falling back to a generic label.
+fn repo_display_name(snapshot: &AppState, id: &crate::domain::RepositoryId) -> String {
+    snapshot
+        .repositories
+        .iter()
+        .find(|r| &r.id == id)
+        .map_or_else(|| String::from("selected repository"), |r| r.name.clone())
 }
 
 /// Build the screen element for the current screen mode.
@@ -84,7 +128,7 @@ pub fn build_screen_element(
     snapshot: &AppState,
     colors: &ThemeColors,
     theme_name: &str,
-    terminal_snapshot: Option<crate::runtime::TerminalSnapshot>,
+    terminal: TerminalRenderData,
 ) -> AnyElement<'static> {
     match snapshot.screen_mode {
         ScreenMode::Dashboard => element! {
@@ -92,7 +136,10 @@ pub fn build_screen_element(
                 state: Some(snapshot.clone()),
                 colors: Some(colors.clone()),
                 theme_name: theme_name.to_owned(),
-                terminal_snapshot: terminal_snapshot,
+                terminal_snapshot: terminal.snapshot,
+                history_lines: terminal.history_lines,
+                terminal_pane_rows: terminal.pane_rows,
+                terminal_pane_cols: terminal.pane_cols,
             )
         }
         .into_any(),
@@ -122,7 +169,32 @@ pub fn build_screen_element(
             )
         }
         .into_any(),
+        ScreenMode::DashboardActions => element! {
+            ActionsScreen(
+                state: Some(snapshot.clone()),
+                colors: Some(colors.clone()),
+                theme_name: theme_name.to_owned(),
+            )
+        }
+        .into_any(),
     }
+}
+
+/// Build a state+colors form modal element for a given iocraft component.
+///
+/// The repository/agent/workflow-dispatch forms all share the same
+/// `(state, colors)` prop shape; this macro keeps the modal dispatch free of
+/// repeated boilerplate (and under the too-many-lines gate).
+macro_rules! form_modal {
+    ($component:ident, $state:expr, $colors:expr) => {
+        element! {
+            $component(
+                state: Some($state.clone()),
+                colors: Some($colors.clone()),
+            )
+        }
+        .into_any()
+    };
 }
 
 /// Build the modal element for the current modal state, if any.
@@ -145,32 +217,35 @@ pub fn build_modal_element(
                     colors: colors.clone(),
                     scroll_offset: help_scroll_offset,
                     available_rows: available_rows,
+                    selection: snapshot.selection,
                 )
             }
             .into_any(),
         ),
-        ModalState::NewRepository { .. } | ModalState::EditRepository { .. } => Some(
+        ModalState::ThemePicker { .. } => Some(
             element! {
-                NewRepositoryForm(
+                ThemePickerScreen(
                     state: Some(snapshot.clone()),
                     colors: Some(colors.clone()),
                 )
             }
             .into_any(),
         ),
-        ModalState::NewAgent { .. } | ModalState::EditAgent { .. } => Some(
-            element! {
-                NewAgentForm(
-                    state: Some(snapshot.clone()),
-                    colors: Some(colors.clone()),
-                )
-            }
-            .into_any(),
-        ),
+        ModalState::NewRepository { .. } | ModalState::EditRepository { .. } => {
+            Some(form_modal!(NewRepositoryForm, snapshot, colors))
+        }
+        ModalState::NewAgent { .. } | ModalState::EditAgent { .. } => {
+            Some(form_modal!(NewAgentForm, snapshot, colors))
+        }
+        ModalState::WorkflowDispatch { .. } => {
+            Some(form_modal!(WorkflowDispatchForm, snapshot, colors))
+        }
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
+        | ModalState::ConfirmKillAgent { .. }
         | ModalState::PreflightPrompt { .. }
-        | ModalState::ConfirmIssueDirtyCopy { .. } => confirm_data.map(|data| {
+        | ModalState::ConfirmIssueDirtyCopy { .. }
+        | ModalState::ConfirmIssueOriginMismatch { .. } => confirm_data.map(|data| {
             element! {
                 ConfirmModal(
                     title: data.title,
@@ -178,6 +253,7 @@ pub fn build_modal_element(
                     show_delete_work_dir: data.show_delete_work_dir,
                     delete_work_dir: data.delete_work_dir,
                     colors: colors.clone(),
+                    selection: snapshot.selection,
                 )
             }
             .into_any()

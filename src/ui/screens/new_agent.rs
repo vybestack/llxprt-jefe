@@ -7,8 +7,11 @@
 use iocraft::prelude::*;
 
 use crate::domain::PlatformCapabilities;
+use crate::selection::SelectablePane;
 use crate::state::{AgentFormCursor, AgentFormFocus, AppState, ModalState};
-use crate::theme::{ResolvedColors, ThemeColors};
+use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
+use crate::ui::components::selectable_line;
+use crate::ui::util::text_with_caret;
 
 /// Props for the new agent form.
 #[derive(Default, Props)]
@@ -19,26 +22,11 @@ pub struct NewAgentFormProps {
     pub colors: Option<ThemeColors>,
 }
 
-fn render_text_with_caret(value: &str, cursor: usize) -> String {
-    let char_len = value.chars().count();
-    let clamped = cursor.min(char_len);
-
-    let byte_idx = if clamped == 0 {
-        0
-    } else {
-        value
-            .char_indices()
-            .nth(clamped)
-            .map_or_else(|| value.len(), |(idx, _)| idx)
-    };
-
-    format!("{}▏{}", &value[..byte_idx], &value[byte_idx..])
-}
-
 /// Form for creating/editing an agent.
 #[component]
 pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(props.colors.as_ref());
+    let sel = SelectionColors::from_resolved(&rc);
 
     // Extract form state from modal
     let (title, fields, focus, cursor) = props.state.as_ref().map_or_else(
@@ -71,148 +59,298 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
             ),
         },
     );
+    let selection = props.state.as_ref().and_then(|s| s.selection);
+    let pane = SelectablePane::AgentForm;
+    let mut line_idx: usize = 0;
+
+    // Compute visibility mask from the current agent kind so Code Puppy hides
+    // LLxprt-only controls.
+    let visibility =
+        crate::state::agent_form_visibility(crate::state::kind_from_form_value(&fields.agent_kind));
 
     // Build field lines with cursor indicator for focused field.
     let shortcut_display = fields
         .shortcut_slot
         .map_or_else(|| "none".to_owned(), |slot| slot.to_string());
 
-    let labels = [
-        "Shortcut (1-9)",
-        "Name",
-        "Description",
-        "Work Dir",
-        "Profile",
-        "Mode Flags",
-        "LLXPRT_DEBUG",
-    ];
-    let values = [
-        &shortcut_display,
-        &fields.name,
-        &fields.description,
-        &fields.work_dir,
-        &fields.profile,
-        &fields.mode,
-        &fields.llxprt_debug,
-    ];
-    let focuses = [
-        AgentFormFocus::Shortcut,
-        AgentFormFocus::Name,
-        AgentFormFocus::Description,
-        AgentFormFocus::WorkDir,
-        AgentFormFocus::Profile,
-        AgentFormFocus::Mode,
-        AgentFormFocus::LlxprtDebug,
-    ];
-    let cursors = [
-        0,
-        cursor.name,
-        cursor.description,
-        cursor.work_dir,
-        cursor.profile,
-        cursor.mode,
-        cursor.llxprt_debug,
+    // Fields rendered BEFORE the Agent Runtime selector. The focus order is
+    // WorkDir → Profile → AgentKind → Mode, so Agent Runtime is inserted
+    // between Profile and Mode (see render below).
+    let pre_kind_text_fields: [(&str, &str, AgentFormFocus, usize); 5] = [
+        (
+            "Shortcut (1-9)",
+            &shortcut_display,
+            AgentFormFocus::Shortcut,
+            0,
+        ),
+        ("Name", &fields.name, AgentFormFocus::Name, cursor.name),
+        (
+            "Description",
+            &fields.description,
+            AgentFormFocus::Description,
+            cursor.description,
+        ),
+        (
+            "Work Dir",
+            &fields.work_dir,
+            AgentFormFocus::WorkDir,
+            cursor.work_dir,
+        ),
+        (
+            "Profile",
+            &fields.profile,
+            AgentFormFocus::Profile,
+            cursor.profile,
+        ),
     ];
 
-    let mut field_lines: Vec<AnyElement<'static>> = labels
+    // Fields rendered AFTER the Agent Runtime selector.
+    let post_kind_text_fields: [(&str, &str, AgentFormFocus, usize); 2] = [
+        (
+            "Mode Flags",
+            &fields.mode,
+            AgentFormFocus::Mode,
+            cursor.mode,
+        ),
+        (
+            "LLXPRT_DEBUG",
+            &fields.llxprt_debug,
+            AgentFormFocus::LlxprtDebug,
+            cursor.llxprt_debug,
+        ),
+    ];
+
+    // Content line 0: title, line 1: blank.
+    let mut all_lines: Vec<AnyElement<'static>> = Vec::new();
+    all_lines.push(selectable_line(
+        &format!(" {title}"),
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.fg,
+        sel,
+    ));
+    all_lines.push(selectable_line(
+        "",
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.fg,
+        sel,
+    ));
+
+    // Content lines 2+: visible text fields before Agent Runtime (skips
+    // LLxprt-only fields for Code Puppy so render order matches focus order).
+    for (label, value, field_focus, field_cursor) in pre_kind_text_fields
         .iter()
-        .zip(values.iter())
-        .zip(focuses.iter())
-        .zip(cursors.iter())
-        .map(|(((label, value), field_focus), field_cursor)| {
-            let is_focused = focus == *field_focus;
-            let rendered_value = if is_focused && *field_focus != AgentFormFocus::Shortcut {
-                render_text_with_caret(value, *field_cursor)
-            } else {
-                (*value).to_owned()
-            };
-            let display = format!("  {label:<16} [{rendered_value}]");
-            let color = if is_focused { rc.bright } else { rc.fg };
-            element! {
-                Box(height: 1u32) {
-                    Text(content: display, color: color)
-                }
-            }
-            .into()
-        })
-        .collect();
+        .copied()
+        .filter(|(_, _, ff, _)| crate::state::is_field_visible(*ff, visibility))
+    {
+        let is_focused = focus == field_focus;
+        let rendered_value = if is_focused && field_focus != AgentFormFocus::Shortcut {
+            text_with_caret(value, field_cursor)
+        } else {
+            value.to_owned()
+        };
+        let display = format!("  {label:<16} [{rendered_value}]");
+        let color = if is_focused { rc.bright } else { rc.fg };
+        all_lines.push(selectable_line(
+            &display,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            color,
+            sel,
+        ));
+    }
 
-    // Pass/continue checkbox.
-    let continue_focused = focus == AgentFormFocus::PassContinue;
-    let continue_mark = if fields.pass_continue { "x" } else { " " };
-    let continue_color = if continue_focused { rc.bright } else { rc.fg };
-    let continue_line = format!(
-        "  {:<16} [{}]  (space toggles)",
-        "Pass --continue", continue_mark,
+    // Agent Runtime selector — rendered immediately after Profile so the
+    // visual order matches the focus/navigation order
+    // (WorkDir → Profile → AgentKind → Mode). Uses the shared effective-agent-
+    // kinds projection so the hint matches what Space actually cycles.
+    let kind_focused = focus == AgentFormFocus::AgentKind;
+    let kind_color = if kind_focused { rc.bright } else { rc.fg };
+    let effective_kinds = effective_kinds_for_form(props.state.as_ref());
+    let kind_hint = crate::state::effective_kinds_hint(&effective_kinds);
+    let kind_line = format!(
+        "  {:<16} [{}]  ({kind_hint})",
+        "Agent Runtime", fields.agent_kind
     );
-    field_lines.push(
-        element! {
-            Box(height: 1u32) {
-                Text(content: continue_line, color: continue_color)
-            }
-        }
-        .into(),
-    );
+    all_lines.push(selectable_line(
+        &kind_line,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        kind_color,
+        sel,
+    ));
 
-    // Sandbox checkbox.
-    let sandbox_focused = focus == AgentFormFocus::Sandbox;
-    let sandbox_mark = if fields.sandbox_enabled { "x" } else { " " };
-    let sandbox_color = if sandbox_focused { rc.bright } else { rc.fg };
-    field_lines.push(
-        element! {
-            Box(height: 1u32) {
-                Text(
-                    content: format!("  {:<16} [{}]  (space toggles)", "Sandbox", sandbox_mark),
-                    color: sandbox_color
-                )
-            }
-        }
-        .into(),
-    );
-
-    // Sandbox engine pseudo-dropdown.
-    let engine_focused = focus == AgentFormFocus::SandboxEngine;
-    let engine_color = if engine_focused { rc.bright } else { rc.fg };
-    let caps = PlatformCapabilities::current();
-    let supported_engine_labels: Vec<&str> = caps
-        .supported_engines()
+    // Post-kind text fields (Mode Flags, LLXPRT_DEBUG) — rendered after Agent
+    // Runtime so the visual order matches focus order.
+    for (label, value, field_focus, field_cursor) in post_kind_text_fields
         .iter()
-        .map(|engine| engine.label())
-        .collect();
-    let engine_hint = if fields.sandbox_enabled {
-        format!("space cycles: {}", supported_engine_labels.join(" / "))
-    } else {
-        String::from("disabled")
-    };
-    field_lines.push(
-        element! {
-            Box(height: 1u32) {
-                Text(
-                    content: format!("  {:<16} [{}]  ({engine_hint})", "Sandbox Engine", fields.sandbox_engine),
-                    color: engine_color
-                )
-            }
-        }
-        .into(),
-    );
+        .copied()
+        .filter(|(_, _, ff, _)| crate::state::is_field_visible(*ff, visibility))
+    {
+        let is_focused = focus == field_focus;
+        let rendered_value = if is_focused {
+            text_with_caret(value, field_cursor)
+        } else {
+            value.to_owned()
+        };
+        let display = format!("  {label:<16} [{rendered_value}]");
+        let color = if is_focused { rc.bright } else { rc.fg };
+        all_lines.push(selectable_line(
+            &display,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            color,
+            sel,
+        ));
+    }
 
-    // Sandbox flags field.
-    let flags_focused = focus == AgentFormFocus::SandboxFlags;
-    let flags_color = if flags_focused { rc.bright } else { rc.fg };
-    let flags_value = if flags_focused {
-        render_text_with_caret(&fields.sandbox_flags, cursor.sandbox_flags)
-    } else {
-        fields.sandbox_flags.clone()
-    };
-    let flags_display = format!("  {:<16} [{}]", "Sandbox Flags", flags_value);
-    field_lines.push(
-        element! {
-            Box(height: 1u32) {
-                Text(content: flags_display, color: flags_color)
-            }
-        }
-        .into(),
-    );
+    // Content line: Pass --continue checkbox (LLxprt-only).
+    if visibility.shows_llxprt_fields() {
+        let continue_focused = focus == AgentFormFocus::PassContinue;
+        let continue_mark = if fields.pass_continue { "x" } else { " " };
+        let continue_color = if continue_focused { rc.bright } else { rc.fg };
+        let continue_line = format!(
+            "  {:<16} [{}]  (space toggles)",
+            "Pass --continue", continue_mark
+        );
+        all_lines.push(selectable_line(
+            &continue_line,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            continue_color,
+            sel,
+        ));
+    }
+
+    // Content line: Sandbox checkbox (LLxprt-only).
+    if visibility.shows_llxprt_fields() {
+        let sandbox_focused = focus == AgentFormFocus::Sandbox;
+        let sandbox_mark = if fields.sandbox_enabled { "x" } else { " " };
+        let sandbox_color = if sandbox_focused { rc.bright } else { rc.fg };
+        let sandbox_line = format!("  {:<16} [{}]  (space toggles)", "Sandbox", sandbox_mark);
+        all_lines.push(selectable_line(
+            &sandbox_line,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            sandbox_color,
+            sel,
+        ));
+    }
+
+    // Content line: Sandbox engine pseudo-dropdown (LLxprt-only).
+    if visibility.shows_llxprt_fields() {
+        let engine_focused = focus == AgentFormFocus::SandboxEngine;
+        let engine_color = if engine_focused { rc.bright } else { rc.fg };
+        let caps = PlatformCapabilities::current();
+        let supported_engine_labels: Vec<&str> = caps
+            .supported_engines()
+            .iter()
+            .map(|engine| engine.label())
+            .collect();
+        let engine_hint = if fields.sandbox_enabled {
+            format!("space cycles: {}", supported_engine_labels.join(" / "))
+        } else {
+            String::from("disabled")
+        };
+        let engine_line = format!(
+            "  {:<16} [{}]  ({engine_hint})",
+            "Sandbox Engine", fields.sandbox_engine
+        );
+        all_lines.push(selectable_line(
+            &engine_line,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            engine_color,
+            sel,
+        ));
+    }
+
+    // Content line: Sandbox flags field (LLxprt-only).
+    if visibility.shows_llxprt_fields() {
+        let flags_focused = focus == AgentFormFocus::SandboxFlags;
+        let flags_color = if flags_focused { rc.bright } else { rc.fg };
+        let flags_value = if flags_focused {
+            text_with_caret(&fields.sandbox_flags, cursor.sandbox_flags)
+        } else {
+            fields.sandbox_flags.clone()
+        };
+        let flags_display = format!("  {:<16} [{}]", "Sandbox Flags", flags_value);
+        all_lines.push(selectable_line(
+            &flags_display,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            flags_color,
+            sel,
+        ));
+    }
+
+    // Content line 13: blank, line 14: hints.
+    all_lines.push(selectable_line(
+        "",
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.fg,
+        sel,
+    ));
+    all_lines.push(selectable_line(
+        "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles/cycles checkboxes  Enter submit  Esc cancel",
+        line_idx,
+        selection,
+        pane,
+        rc.dim,
+        sel,
+    ));
 
     element! {
         Box(
@@ -229,22 +367,30 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
                 flex_grow: 1.0_f32,
                 padding: 1i32,
             ) {
-                Box(height: 1u32) {
-                    Text(content: format!(" {}", title), color: rc.fg, weight: Weight::Bold)
-                }
-                Box(height: 1u32) {
-                    Text(content: String::new(), color: rc.fg)
-                }
-
-                #(field_lines)
-
-                Box(height: 1u32) {
-                    Text(content: String::new(), color: rc.fg)
-                }
-                Box(height: 1u32) {
-                    Text(content: "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles/cycles checkboxes  Enter submit  Esc cancel".to_owned(), color: rc.dim)
-                }
+                #(all_lines)
             }
         }
     }
+}
+
+/// Resolve the effective agent kinds for the currently open agent form.
+///
+/// Uses the shared [`crate::state::effective_agent_kinds`] projection so the
+/// form hint matches exactly what Space cycles. Remote-enabled repositories
+/// offer both kinds regardless of the local installed snapshot; local
+/// repositories offer only installed kinds.
+fn effective_kinds_for_form(state: Option<&AppState>) -> Vec<crate::domain::AgentKind> {
+    let Some(state) = state else {
+        return Vec::new();
+    };
+    let is_remote = match &state.modal {
+        ModalState::NewAgent { repository_id, .. } => state
+            .repository_by_id(repository_id)
+            .is_some_and(|r| r.remote.enabled),
+        ModalState::EditAgent { id, .. } => state
+            .repository_for_agent(id)
+            .is_some_and(|r| r.remote.enabled),
+        _ => false,
+    };
+    crate::state::effective_agent_kinds(&state.installed_agent_kinds, is_remote)
 }

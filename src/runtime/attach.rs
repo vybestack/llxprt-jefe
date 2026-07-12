@@ -319,10 +319,14 @@ fn dim_rgb(rgb: ansi::Rgb) -> ansi::Rgb {
 }
 
 fn base_terminal_style() -> TerminalCellStyle {
+    // Blank/unwritten cells use `Color::Reset` so the host terminal's default
+    // colors show through (issue #179). This keeps unwritten regions visually
+    // consistent with written default-bg cells (which also resolve to Reset).
     TerminalCellStyle {
-        fg: rgb_to_iocraft(fallback_ansi_color(7)),
-        bg: rgb_to_iocraft(fallback_ansi_color(0)),
+        fg: iocraft::Color::Reset,
+        bg: iocraft::Color::Reset,
         bold: false,
+        dim: false,
         underline: false,
     }
 }
@@ -338,32 +342,97 @@ fn snapshot_position(indexed: &Indexed<&Cell>, rows: usize, cols: usize) -> Opti
     (row < rows && col < cols).then_some((row, col))
 }
 
+/// Resolve a cell's display style for the snapshot.
+///
+/// **Default-color transparency (issue #179):** when the agent CLI leaves a
+/// cell at terminal-default (`Named(Foreground)` / `Named(Background)`), the
+/// resulting `TerminalCellStyle` carries `iocraft::Color::Reset` for that
+/// channel — provided the cell is "plain" (no INVERSE, not selected, not
+/// cursor). This lets the host terminal's default colors show through, matching
+/// the agent CLI's own intended appearance instead of forcing jefe's theme bg
+/// or a solid black.
+///
+/// For cells that ARE inverted/selected/cursor, the default resolves to a
+/// concrete visible ANSI fallback so the inverse-video / cursor swap still
+/// produces a legible, distinguishable result.
 fn snapshot_cell_style(
     indexed: &Indexed<&Cell>,
     selection: Option<SelectionRange>,
     cursor: RenderableCursor,
     term_colors: &Colors,
 ) -> TerminalCellStyle {
-    let mut fg = resolve_color(indexed.cell.fg, term_colors);
-    let mut bg = resolve_color(indexed.cell.bg, term_colors);
+    let fg_is_default = matches!(
+        indexed.cell.fg,
+        ansi::Color::Named(ansi::NamedColor::Foreground)
+    );
+    let bg_is_default = matches!(
+        indexed.cell.bg,
+        ansi::Color::Named(ansi::NamedColor::Background)
+    );
+
+    // Resolve concrete colors for the swap/inverse/selection/cursor logic.
+    // Default channels get visible fallbacks so inverse-video stays legible.
+    // Carried as a [fg, bg] pair so INVERSE/cursor swaps stay a clean index
+    // swap (and so the two channels don't need near-identical binding names,
+    // which trips clippy::similar_names).
+    let mut channels = [
+        if fg_is_default {
+            fallback_ansi_color(7)
+        } else {
+            resolve_color(indexed.cell.fg, term_colors)
+        },
+        if bg_is_default {
+            fallback_ansi_color(0)
+        } else {
+            resolve_color(indexed.cell.bg, term_colors)
+        },
+    ];
+
     if indexed.cell.flags.intersects(Flags::DIM | Flags::DIM_BOLD) {
-        fg = dim_rgb(fg);
+        channels[0] = dim_rgb(channels[0]);
     }
     if indexed.cell.flags.contains(Flags::INVERSE) {
-        std::mem::swap(&mut fg, &mut bg);
+        channels.swap(0, 1);
     }
-    if selection.is_some_and(|range| range.contains_cell(indexed, cursor.point, cursor.shape)) {
-        fg = fallback_ansi_color(0);
-        bg = fallback_ansi_color(7);
+    let is_selected =
+        selection.is_some_and(|range| range.contains_cell(indexed, cursor.point, cursor.shape));
+    if is_selected {
+        channels[0] = fallback_ansi_color(0);
+        channels[1] = fallback_ansi_color(7);
     }
-    if cursor.shape != ansi::CursorShape::Hidden && indexed.point == cursor.point {
-        std::mem::swap(&mut fg, &mut bg);
+    let is_cursor = cursor.shape != ansi::CursorShape::Hidden && indexed.point == cursor.point;
+    if is_cursor {
+        channels.swap(0, 1);
     }
 
+    // After all transforms: a plain default channel maps to Reset (transparent)
+    // so the host terminal's colors show through; everything else is concrete.
+    let plain = !indexed.cell.flags.contains(Flags::INVERSE) && !is_selected && !is_cursor;
+    let to_terminal = |is_default: bool, rgb: ansi::Rgb| -> iocraft::Color {
+        if is_default && plain {
+            iocraft::Color::Reset
+        } else {
+            rgb_to_iocraft(rgb)
+        }
+    };
+
     TerminalCellStyle {
-        fg: rgb_to_iocraft(fg),
-        bg: rgb_to_iocraft(bg),
-        bold: indexed.cell.flags.intersects(Flags::BOLD | Flags::DIM_BOLD),
+        fg: to_terminal(fg_is_default, channels[0]),
+        bg: to_terminal(bg_is_default, channels[1]),
+        // BOLD bit covers both BOLD-only and DIM_BOLD cells (DIM_BOLD includes
+        // the BOLD bit). Do NOT OR in DIM_BOLD here: that would also match
+        // DIM-only cells (DIM and DIM_BOLD share the DIM bit) and wrongly mark
+        // dim text as bold.
+        bold: indexed.cell.flags.contains(Flags::BOLD),
+        // DIM/DIM_BOLD on a *plain default-colored* cell would otherwise be
+        // lost: `to_terminal` discards the dimmed foreground as `Reset`, so
+        // the RGB dimming baked in by `dim_rgb` never reaches the renderer.
+        // Carry the flag separately so the renderer can apply `Weight::Light`
+        // (ANSI SGR 2) on top of the transparent default foreground. For
+        // explicitly-colored or transformed (inverse/selection/cursor) cells,
+        // `dim_rgb` already baked the intensity into the concrete RGB, so the
+        // flag stays false to avoid double-dimming (issue #179).
+        dim: indexed.cell.flags.intersects(Flags::DIM | Flags::DIM_BOLD) && plain && fg_is_default,
         underline: indexed.cell.flags.intersects(Flags::ALL_UNDERLINES),
     }
 }
@@ -374,7 +443,11 @@ fn snapshot_cell(indexed: &Indexed<&Cell>, style: TerminalCellStyle) -> Terminal
     } else {
         indexed.cell.c
     };
-    TerminalCell { ch, style }
+    TerminalCell {
+        ch,
+        style,
+        wide_spacer: false,
+    }
 }
 
 fn snapshot_from_term(term: &Term<RuntimeListener>) -> TerminalSnapshot {
@@ -387,11 +460,37 @@ fn snapshot_from_term(term: &Term<RuntimeListener>) -> TerminalSnapshot {
         let Some((row, col)) = snapshot_position(&indexed, rows, cols) else {
             continue;
         };
+        // Alacritty sets WRAPLINE on the last cell of a row that soft-wraps to
+        // the next row. Record per-row wrap metadata so selection extraction
+        // joins soft-wrapped rows without inserting a newline separator
+        // (issue #197). This check comes BEFORE the wide-spacer branch because
+        // a wide glyph's spacer cell can carry WRAPLINE when the glyph lands at
+        // the final column — recording wrap first keeps soft-wrap fidelity for
+        // CJK/emoji at line ends (issue #197 review).
+        if indexed.cell.flags.contains(Flags::WRAPLINE) {
+            ensure_wrap_slot(&mut snapshot.wraps, rows);
+            snapshot.wraps[row] = true;
+        }
+        // Wide-char spacer cells: mark the snapshot cell as a wide-spacer so
+        // selection extraction skips it (the glyph lives in the preceding cell).
+        // The renderer already treats these cells as blank; marking rather than
+        // skipping preserves the grid alignment so column indices stay stable.
         if indexed
             .cell
             .flags
             .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
         {
+            let style = snapshot_cell_style(
+                &indexed,
+                renderable.selection,
+                renderable.cursor,
+                renderable.colors,
+            );
+            snapshot.cells[row][col] = TerminalCell {
+                ch: ' ',
+                style,
+                wide_spacer: true,
+            };
             continue;
         }
 
@@ -405,6 +504,13 @@ fn snapshot_from_term(term: &Term<RuntimeListener>) -> TerminalSnapshot {
     }
 
     snapshot
+}
+
+/// Ensure `wraps` has at least `rows` entries (all defaulting to false).
+fn ensure_wrap_slot(wraps: &mut Vec<bool>, rows: usize) {
+    if wraps.len() < rows {
+        wraps.resize(rows, false);
+    }
 }
 
 fn attach_command(session_name: &str, ssh_command: Option<&str>) -> CommandBuilder {
@@ -535,6 +641,17 @@ impl AttachedViewer {
     #[must_use]
     pub fn take_dirty(&self) -> bool {
         self.dirty.swap(false, Ordering::Relaxed)
+    }
+
+    /// Non-consuming check of the dirty flag (issue #198).
+    ///
+    /// Returns `true` when new PTY data has arrived since the last
+    /// [`take_dirty`](Self::take_dirty), without clearing the flag. Used by the
+    /// scrollback history cache to decide whether to re-capture without
+    /// stealing the dirty flag out from under the render-decision path.
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        self.dirty.load(Ordering::Relaxed)
     }
 
     /// Write input bytes to the PTY.
@@ -717,88 +834,5 @@ fn process_pty_read(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Build a minimal terminal model for testing `process_pty_read`.
-    fn test_term() -> Arc<Mutex<Term<RuntimeListener>>> {
-        let size = TermDimensions { cols: 80, rows: 24 };
-        Arc::new(Mutex::new(Term::new(
-            TermConfig::default(),
-            &size,
-            RuntimeListener,
-        )))
-    }
-
-    /// Processing a batch of PTY bytes must set the dirty flag — this is the
-    /// core wiring between the reader thread and the event-driven render loop.
-    #[test]
-    fn process_pty_read_marks_viewer_dirty() {
-        let term = test_term();
-        let dirty = Arc::new(AtomicBool::new(false));
-        let mut parser: Processor<StdSyncHandler> = Processor::new();
-
-        assert!(
-            !dirty.load(Ordering::Relaxed),
-            "dirty should be false before any data arrives"
-        );
-
-        process_pty_read(b"hello world", &mut parser, &term, &dirty);
-
-        assert!(
-            dirty.load(Ordering::Relaxed),
-            "dirty must be set after PTY data arrives"
-        );
-
-        // take_dirty() pattern: swap clears and returns the previous value.
-        assert!(
-            dirty.swap(false, Ordering::Relaxed),
-            "take_dirty must return true after data arrived"
-        );
-        assert!(
-            !dirty.load(Ordering::Relaxed),
-            "take_dirty must clear the flag"
-        );
-
-        // A second take_dirty() returns false (no new data since last clear).
-        assert!(
-            !dirty.swap(false, Ordering::Relaxed),
-            "take_dirty must return false when no new data"
-        );
-    }
-
-    /// Processing a PTY batch advances the terminal parser model (not just
-    /// the dirty flag), proving the wiring feeds real bytes into the `Term`.
-    #[test]
-    fn process_pty_read_advances_terminal_model() {
-        let term = test_term();
-        let dirty = Arc::new(AtomicBool::new(false));
-        let mut parser: Processor<StdSyncHandler> = Processor::new();
-
-        // A blank terminal has no content in the first cell.
-        {
-            let Ok(guard) = term.lock() else {
-                panic!("term lock should succeed");
-            };
-            let snapshot = snapshot_from_term(&guard);
-            assert_eq!(
-                snapshot.cells[0][0].ch, ' ',
-                "terminal should be blank before processing"
-            );
-        }
-
-        process_pty_read(b"X", &mut parser, &term, &dirty);
-
-        let Ok(guard) = term.lock() else {
-            panic!("term lock should succeed");
-        };
-        let snapshot = snapshot_from_term(&guard);
-        assert!(
-            snapshot
-                .cells
-                .iter()
-                .any(|row| row.iter().any(|c| c.ch == 'X')),
-            "terminal model should contain processed data after read"
-        );
-    }
-}
+#[path = "attach_tests.rs"]
+mod tests;

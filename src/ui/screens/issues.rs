@@ -136,6 +136,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                 agent_count: agent_count,
                 theme_name: props.theme_name.clone(),
                 version: crate::VERSION.to_owned(),
+                kennel_mode: state.is_some_and(crate::state::AppState::is_kennel_mode),
                 warning_message: state.and_then(|s| s.warning_message.clone()),
                 colors: colors.clone(),
                 selection: selection,
@@ -244,6 +245,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                                     agents: chooser_agents.clone(),
                                     selected_index: chooser_selected,
                                     colors: colors.clone(),
+                                    selection: selection,
                                 )
                             }
                         }]

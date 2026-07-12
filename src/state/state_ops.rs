@@ -22,6 +22,10 @@ pub fn delete_selected_repository(state: &mut AppState, repository_id: &Reposito
             .agents
             .retain(|agent| &agent.repository_id != repository_id);
 
+        // Drop the deleted repo's remembered preferences so they cannot be
+        // restored if the id is ever reused (issue #163).
+        state.user_preferences.remove_for_repo(repository_id);
+
         if state.repositories.is_empty() {
             state.selected_repository_index = None;
             state.selected_agent_index = None;

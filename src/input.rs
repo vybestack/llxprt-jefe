@@ -4,7 +4,9 @@ use std::time::{Duration, Instant};
 
 use iocraft::prelude::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::state::{AppState, InlineState, ModalState, PaneFocus, QuitSequenceState, ScreenMode};
+use crate::state::{
+    AppEvent, AppState, InlineState, ModalState, PaneFocus, QuitSequenceState, ScreenMode,
+};
 
 /// High-level mode used to route keyboard events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,6 +17,8 @@ pub enum InputMode {
     Search,
     Form,
     Confirm,
+    /// Theme picker overlay.
+    ThemePicker,
     /// @plan PLAN-20260329-ISSUES-MODE.P03
     /// @requirement REQ-ISS-002
     IssuesNormal,
@@ -45,6 +49,9 @@ pub enum InputMode {
     /// @plan PLAN-20260624-PR-MODE.P03
     /// @requirement REQ-PR-002
     PrsChooser,
+    ActionsNormal,
+    ActionsFilter,
+    ActionsSearch,
 }
 
 /// Search-mode key routing result.
@@ -59,20 +66,34 @@ pub enum SearchKeyRoute {
 
 /// Resolve the active input mode from current app state.
 #[must_use]
-pub fn input_mode_for_state(state: &AppState) -> InputMode {
-    match state.modal {
-        ModalState::Help => return InputMode::Help,
-        ModalState::Search { .. } => return InputMode::Search,
+/// Resolve the input mode from the active modal, if any.
+///
+/// Returns `None` when no modal is active (fall through to screen-mode
+/// detection).
+fn modal_input_mode(modal: &ModalState) -> Option<InputMode> {
+    match modal {
+        ModalState::Help => Some(InputMode::Help),
+        ModalState::Search { .. } => Some(InputMode::Search),
+        ModalState::ThemePicker { .. } => Some(InputMode::ThemePicker),
         ModalState::NewRepository { .. }
         | ModalState::EditRepository { .. }
         | ModalState::NewAgent { .. }
-        | ModalState::EditAgent { .. } => return InputMode::Form,
+        | ModalState::EditAgent { .. }
+        | ModalState::WorkflowDispatch { .. } => Some(InputMode::Form),
         ModalState::ConfirmDeleteRepository { .. }
         | ModalState::ConfirmDeleteAgent { .. }
         | ModalState::ConfirmKillAgent { .. }
         | ModalState::PreflightPrompt { .. }
-        | ModalState::ConfirmIssueDirtyCopy { .. } => return InputMode::Confirm,
-        ModalState::None => {}
+        | ModalState::ConfirmIssueDirtyCopy { .. }
+        | ModalState::ConfirmIssueOriginMismatch { .. } => Some(InputMode::Confirm),
+        ModalState::None => None,
+    }
+}
+
+#[must_use]
+pub fn input_mode_for_state(state: &AppState) -> InputMode {
+    if let Some(mode) = modal_input_mode(&state.modal) {
+        return mode;
     }
 
     // Issues mode detection — must be before Normal fallback
@@ -117,11 +138,57 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
         return InputMode::PrsNormal;
     }
 
+    // Actions mode detection
+    if state.screen_mode == ScreenMode::DashboardActions {
+        if state.actions_state.ui.search_input_focused {
+            return InputMode::ActionsSearch;
+        }
+        if state.actions_state.ui.filter_ui_open {
+            return InputMode::ActionsFilter;
+        }
+        return InputMode::ActionsNormal;
+    }
+
     if state.terminal_focused && state.pane_focus == PaneFocus::Terminal {
         InputMode::TerminalCapture
     } else {
         InputMode::Normal
     }
+}
+
+/// Whether a key event is a bare `Ctrl-C` (byte `0x03`).
+///
+/// Used by [`should_forward_ctrl_c_to_attached_terminal`] so the recognition
+/// stays in one place. Shift/Alt/Super/Meta modifiers are excluded because they
+/// change the meaning of the key (e.g. `Ctrl-Shift-C` is a host copy shortcut
+/// on some platforms) and must not be treated as an interrupt.
+#[must_use]
+pub fn is_bare_ctrl_c(key: &KeyEvent) -> bool {
+    key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL
+}
+
+/// Whether `Ctrl-C` should be forwarded to the currently-attached agent
+/// terminal even when the terminal pane is not in dedicated capture mode.
+///
+/// `Ctrl-C`'s only sensible meaning when an agent terminal is attached is
+/// "interrupt the agent's foreground shell / cancel the run" (issue #200).
+/// Routing it to the agent terminal regardless of pane focus makes the
+/// interrupt reliable and side-steps the F12 toggle trap: creating/selecting
+/// an agent auto-focuses the terminal, so a user pressing F12 (advertised as
+/// "terminal focus") can inadvertently *unfocus* it, after which a raw
+/// `TerminalCapture`-gated forward would silently drop `Ctrl-C` (issue #200).
+///
+/// The forward is constrained so it never fights an active modal/form/search:
+/// only the plain dashboard (`Normal` mode) qualifies — when no overlay owns
+/// the keystroke and an agent terminal is attached. The caller supplies
+/// `has_attached_terminal` (from the runtime's `attached_agent()` probe).
+#[must_use]
+pub fn should_forward_ctrl_c_to_attached_terminal(
+    key: &KeyEvent,
+    input_mode: InputMode,
+    has_attached_terminal: bool,
+) -> bool {
+    has_attached_terminal && input_mode == InputMode::Normal && is_bare_ctrl_c(key)
 }
 
 /// Route a key while search mode is active.
@@ -141,6 +208,72 @@ pub fn route_search_key(key: &KeyEvent) -> SearchKeyRoute {
             SearchKeyRoute::CloseAndReroute
         }
         _ => SearchKeyRoute::Ignore,
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Terminal scrollback key interception (issue #198).
+//
+// When the terminal pane is focused (InputMode::TerminalCapture), certain keys
+// move the Jefe scrollback viewport instead of being forwarded to the PTY.
+// This pure helper translates a key event + scroll state into an optional
+// AppEvent so the app-shell can dispatch the scroll event before PTY forwarding.
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Determine whether a key event should be intercepted for terminal scrollback
+/// control instead of forwarded to the PTY (issue #198).
+///
+/// Parameters:
+/// - `key_event`: The keyboard event to evaluate.
+/// - `offset_is_some`: Whether the terminal is currently scrolled back
+///   (`terminal_history_offset.is_some()`). When `true`, arrow keys also move
+///   the viewport; when `false` (follow-tail), only PageUp/PageDown/Home
+///   trigger scroll interception.
+///
+/// Returns the `AppEvent` to dispatch, or `None` when the key should be
+/// forwarded to the PTY as normal terminal input.
+///
+/// ## Modifier policy
+///
+/// Scroll keys are ONLY intercepted when the key has NO modifiers
+/// (`KeyModifiers::NONE`). Any modifier chord (Ctrl, Alt, Shift, or a
+/// combination) is forwarded to the PTY so child TUIs that bind those chords
+/// (e.g. Ctrl+End, Alt+PageUp) are not broken.
+///
+/// ## End key
+///
+/// `End` ONLY intercepts when the viewport is scrolled back
+/// (`offset_is_some == true`): it returns the user to follow-tail. At
+/// follow-tail, `End` is forwarded to the PTY (so shell line editing works).
+///
+/// ## Home key
+///
+/// `Home` intercepts from BOTH states (follow-tail and scrolled-back): it
+/// jumps to the top of history, matching PageUp's "enter scrollback from
+/// anywhere" behavior.
+#[must_use]
+pub fn should_intercept_for_scrollback(
+    key_event: &KeyEvent,
+    offset_is_some: bool,
+) -> Option<AppEvent> {
+    // Modifier chords always go to the PTY (so child TUI key bindings work).
+    if key_event.modifiers != KeyModifiers::NONE {
+        return None;
+    }
+    match key_event.code {
+        // PageUp/PageDown enter/continue scrollback from both states.
+        KeyCode::PageUp => Some(AppEvent::TerminalScrollPageUp),
+        KeyCode::PageDown => Some(AppEvent::TerminalScrollPageDown),
+        // End only intercepts when scrolled back (return to follow-tail).
+        // At follow-tail, End goes to the PTY (shell line editing).
+        KeyCode::End if offset_is_some => Some(AppEvent::TerminalFollowTail),
+        // Arrow keys only scroll the viewport when already scrolled back.
+        // When at follow-tail, arrows go to the PTY (so the child TUI works).
+        KeyCode::Up if offset_is_some => Some(AppEvent::TerminalScrollUp),
+        KeyCode::Down if offset_is_some => Some(AppEvent::TerminalScrollDown),
+        // Home scrolls to the top of history from BOTH states.
+        KeyCode::Home => Some(AppEvent::TerminalScrollToTop),
+        _ => None,
     }
 }
 
@@ -297,6 +430,120 @@ mod tests {
     fn is_quit_key_rejects_unrelated_keys() {
         assert!(!is_quit_key(&key(KeyCode::Enter)));
         assert!(!is_quit_key(&key(KeyCode::Char('a'))));
+    }
+
+    // Ctrl-C must NEVER quit jefe. jefe owns its quit policy (Ctrl-Q / rapid
+    // qqq) and forwards Ctrl-C to the embedded agent terminal so runtimes like
+    // Code Puppy can use it to kill running shells / cancel an agent run. The
+    // vendored iocraft terminal layer used to hardcode Ctrl-C as an exit
+    // signal and swallow the event before it reached the app; that interception
+    // was removed, so this guard is now the authoritative "Ctrl-C is not quit"
+    // contract. See issue #200.
+    #[test]
+    fn is_quit_key_rejects_ctrl_c() {
+        assert!(!is_quit_key(&key_mods(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL
+        )));
+    }
+
+    // ── is_bare_ctrl_c / should_forward_ctrl_c_to_attached_terminal ────────
+    //
+    // Ctrl-C (byte 0x03) must reach the attached agent terminal to interrupt
+    // the agent's foreground shell / cancel a run (issue #200). These predicates
+    // drive the dashboard-level passthrough that fires regardless of pane focus
+    // so the interrupt survives the F12 toggle trap.
+
+    #[test]
+    fn is_bare_ctrl_c_accepts_ctrl_c() {
+        assert!(is_bare_ctrl_c(&key_mods(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL
+        )));
+    }
+
+    #[test]
+    fn is_bare_ctrl_c_accepts_lowercase_only_not_uppercase() {
+        // Ctrl-Shift-C (uppercase) is a host copy shortcut on some platforms
+        // and must not be treated as an interrupt.
+        assert!(!is_bare_ctrl_c(&key_mods(
+            KeyCode::Char('C'),
+            KeyModifiers::CONTROL
+        )));
+    }
+
+    #[test]
+    fn is_bare_ctrl_c_rejects_extra_modifiers() {
+        assert!(!is_bare_ctrl_c(&key_mods(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT
+        )));
+        assert!(!is_bare_ctrl_c(&key_mods(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT
+        )));
+    }
+
+    #[test]
+    fn is_bare_ctrl_c_rejects_bare_c_and_other_keys() {
+        assert!(!is_bare_ctrl_c(&key(KeyCode::Char('c'))));
+        assert!(!is_bare_ctrl_c(&key(KeyCode::Enter)));
+    }
+
+    #[test]
+    fn ctrl_c_forward_requires_normal_mode_and_attached_terminal() {
+        let ctrl_c = key_mods(KeyCode::Char('c'), KeyModifiers::CONTROL);
+
+        // Happy path: plain dashboard + attached terminal.
+        assert!(should_forward_ctrl_c_to_attached_terminal(
+            &ctrl_c,
+            InputMode::Normal,
+            true
+        ));
+
+        // No terminal attached → never forward (nothing to forward to).
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &ctrl_c,
+            InputMode::Normal,
+            false
+        ));
+
+        // A modal/form/search/terminal-capture mode owns the key instead.
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &ctrl_c,
+            InputMode::Form,
+            true
+        ));
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &ctrl_c,
+            InputMode::Search,
+            true
+        ));
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &ctrl_c,
+            InputMode::Confirm,
+            true
+        ));
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &ctrl_c,
+            InputMode::TerminalCapture,
+            true
+        ));
+    }
+
+    #[test]
+    fn ctrl_c_forward_rejects_non_ctrl_c_keys() {
+        // Even on the dashboard with a terminal attached, only Ctrl-C qualifies.
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &key(KeyCode::Char('c')),
+            InputMode::Normal,
+            true
+        ));
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &key_mods(KeyCode::Char('x'), KeyModifiers::CONTROL),
+            InputMode::Normal,
+            true
+        ));
     }
 
     // ── is_qqq_press ───────────────────────────────────────────────────────
@@ -486,5 +733,158 @@ mod tests {
             QuitOutcome::Quit
         );
         assert_eq!(seq, QuitSequenceState::default());
+    }
+
+    // ── should_intercept_for_scrollback (issue #198) ───────────────────────
+
+    #[test]
+    fn scrollback_pageup_intercepts_from_follow_tail() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::PageUp), false);
+        assert!(matches!(evt, Some(AppEvent::TerminalScrollPageUp)));
+    }
+
+    #[test]
+    fn scrollback_pagedown_intercepts_from_follow_tail() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::PageDown), false);
+        assert!(matches!(evt, Some(AppEvent::TerminalScrollPageDown)));
+    }
+
+    #[test]
+    fn scrollback_pageup_intercepts_when_scrolled_back() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::PageUp), true);
+        assert!(matches!(evt, Some(AppEvent::TerminalScrollPageUp)));
+    }
+
+    #[test]
+    fn scrollback_pagedown_intercepts_when_scrolled_back() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::PageDown), true);
+        assert!(matches!(evt, Some(AppEvent::TerminalScrollPageDown)));
+    }
+
+    // ── Modifier chords go to the PTY ─────────────────────────
+
+    #[test]
+    fn scrollback_ctrl_end_forwards_to_pty() {
+        let evt =
+            should_intercept_for_scrollback(&key_mods(KeyCode::End, KeyModifiers::CONTROL), true);
+        assert!(evt.is_none(), "Ctrl+End must be forwarded to the PTY");
+    }
+
+    #[test]
+    fn scrollback_alt_pageup_forwards_to_pty() {
+        let evt =
+            should_intercept_for_scrollback(&key_mods(KeyCode::PageUp, KeyModifiers::ALT), false);
+        assert!(evt.is_none(), "Alt+PageUp must be forwarded to the PTY");
+    }
+
+    #[test]
+    fn scrollback_shift_pageup_forwards_to_pty() {
+        let evt =
+            should_intercept_for_scrollback(&key_mods(KeyCode::PageUp, KeyModifiers::SHIFT), false);
+        assert!(evt.is_none(), "Shift+PageUp must be forwarded to the PTY");
+    }
+
+    #[test]
+    fn scrollback_ctrl_pagedown_forwards_to_pty() {
+        let evt = should_intercept_for_scrollback(
+            &key_mods(KeyCode::PageDown, KeyModifiers::CONTROL),
+            false,
+        );
+        assert!(evt.is_none(), "Ctrl+PageDown must be forwarded to the PTY");
+    }
+
+    #[test]
+    fn scrollback_ctrl_home_forwards_to_pty() {
+        let evt =
+            should_intercept_for_scrollback(&key_mods(KeyCode::Home, KeyModifiers::CONTROL), true);
+        assert!(evt.is_none(), "Ctrl+Home must be forwarded to the PTY");
+    }
+
+    #[test]
+    fn scrollback_ctrl_up_forwards_to_pty_even_when_scrolled() {
+        let evt =
+            should_intercept_for_scrollback(&key_mods(KeyCode::Up, KeyModifiers::CONTROL), true);
+        assert!(
+            evt.is_none(),
+            "Ctrl+Up must be forwarded to the PTY even when scrolled"
+        );
+    }
+
+    // ── End only intercepts when scrolled back ────────────────
+
+    #[test]
+    fn scrollback_end_at_follow_tail_forwards_to_pty() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::End), false);
+        assert!(
+            evt.is_none(),
+            "End at follow-tail must be forwarded to the PTY"
+        );
+    }
+
+    #[test]
+    fn scrollback_end_while_scrolled_returns_follow_tail() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::End), true);
+        assert!(matches!(evt, Some(AppEvent::TerminalFollowTail)));
+    }
+
+    // ── Home intercepts from BOTH states ──────────────────────
+
+    #[test]
+    fn scrollback_home_intercepts_when_scrolled_back() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::Home), true);
+        assert!(
+            matches!(evt, Some(AppEvent::TerminalScrollToTop)),
+            "Home must map to TerminalScrollToTop (scroll to top of history)"
+        );
+    }
+
+    #[test]
+    fn scrollback_home_intercepts_from_follow_tail() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::Home), false);
+        assert!(
+            matches!(evt, Some(AppEvent::TerminalScrollToTop)),
+            "Home must intercept from follow-tail too (enter scrollback from anywhere)"
+        );
+    }
+
+    #[test]
+    fn scrollback_up_intercepts_when_scrolled_back() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::Up), true);
+        assert!(matches!(evt, Some(AppEvent::TerminalScrollUp)));
+    }
+
+    #[test]
+    fn scrollback_down_intercepts_when_scrolled_back() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::Down), true);
+        assert!(matches!(evt, Some(AppEvent::TerminalScrollDown)));
+    }
+
+    #[test]
+    fn scrollback_up_not_intercepted_when_following() {
+        // When at follow-tail (offset None), Up goes to the PTY.
+        let evt = should_intercept_for_scrollback(&key(KeyCode::Up), false);
+        assert!(evt.is_none());
+    }
+
+    #[test]
+    fn scrollback_down_not_intercepted_when_following() {
+        let evt = should_intercept_for_scrollback(&key(KeyCode::Down), false);
+        assert!(evt.is_none());
+    }
+
+    #[test]
+    fn scrollback_regular_keys_not_intercepted() {
+        // Regular character keys are never intercepted.
+        assert!(should_intercept_for_scrollback(&key(KeyCode::Char('a')), true).is_none());
+        assert!(should_intercept_for_scrollback(&key(KeyCode::Enter), true).is_none());
+        assert!(should_intercept_for_scrollback(&key(KeyCode::Tab), true).is_none());
+        assert!(should_intercept_for_scrollback(&key(KeyCode::Backspace), true).is_none());
+    }
+
+    #[test]
+    fn scrollback_left_right_not_intercepted() {
+        // Left/Right go to the PTY even when scrolled back.
+        assert!(should_intercept_for_scrollback(&key(KeyCode::Left), true).is_none());
+        assert!(should_intercept_for_scrollback(&key(KeyCode::Right), true).is_none());
     }
 }

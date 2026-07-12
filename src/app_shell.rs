@@ -8,12 +8,14 @@ use tracing::{debug, trace, warn};
 
 use crate::AppContext;
 use crate::app_input::{
-    dispatch_app_event, handle_f12_toggle, handle_global_shortcut_key, handle_mode_confirm_key,
-    handle_mode_form_key, handle_mode_help_key, handle_mode_search_key, handle_normal_key_event,
-    persist_state, request_pr_background_refresh, to_persisted_state,
+    dispatch_app_event, forward_key_to_pty, handle_f12_toggle, handle_global_shortcut_key,
+    handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key, handle_mode_search_key,
+    handle_mode_theme_picker_key, handle_normal_key_event, persist_state,
+    request_pr_background_refresh, to_persisted_state, try_ctrl_c_interrupt_passthrough,
+    try_intercept_terminal_scrollback,
 };
 use crate::pty_encoding::{
-    key_to_bytes, should_arm_paste_enter_suppression, should_disarm_paste_enter_suppression,
+    should_arm_paste_enter_suppression, should_disarm_paste_enter_suppression,
     should_suppress_synthetic_enter,
 };
 
@@ -21,12 +23,12 @@ use jefe::domain::{AgentId, AgentStatus};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::layout::{compute_pty_layout, effective_render_size};
 use jefe::runtime::{
-    AttachAction, AttachScheduler, DEFAULT_DEBOUNCE, RuntimeError, RuntimeManager, TerminalSnapshot,
+    AttachAction, AttachScheduler, DEFAULT_DEBOUNCE, RuntimeManager, TerminalSnapshot,
 };
-use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
+use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, ScreenMode};
 use jefe::theme::{ThemeColors, ThemeManager};
 use jefe::ui::orchestration::{
-    build_modal_element, build_screen_element, derive_confirm_modal_data,
+    TerminalRenderData, build_modal_element, build_screen_element, derive_confirm_modal_data,
 };
 
 use std::sync::Arc;
@@ -374,8 +376,42 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let (render_cols, render_rows) = effective_render_size(term_cols, term_rows);
 
-    // Build screen and modal elements using orchestration helpers.
-    let screen_el = build_screen_element(&snapshot, &colors, &theme_name, terminal_snapshot);
+    // Capture scrollback history lines for the terminal pane (issue #198).
+    // Only Dashboard mode renders the embedded terminal, so gate the (cloning)
+    // cache capture to that mode — other modes waste the clone every frame.
+    // Uses the runtime cache (non-consuming is_dirty() so it never steals the
+    // dirty flag from the render-decision path).
+    let history_lines: Vec<String> = if snapshot.screen_mode == ScreenMode::Dashboard {
+        ctx.as_ref()
+            .and_then(|ctx_arc| {
+                ctx_arc
+                    .try_lock()
+                    .ok()
+                    .and_then(|mut guard| guard.runtime.capture_history())
+            })
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    // NOTE: scroll-geometry (terminal_viewport_rows / terminal_total_lines) is
+    // NOT written here. Mutating AppState during render causes an infinite
+    // re-render loop (iocraft sees a state change and re-renders, which writes
+    // again), starving the input loop (qqq never processed). The geometry is
+    // refreshed at dispatch time instead — see refresh_terminal_scroll_geometry
+    // (mirrors the detail-pane viewport-refresh pattern).
+    let pty_layout = compute_pty_layout(term_cols, term_rows);
+    let screen_el = build_screen_element(
+        &snapshot,
+        &colors,
+        &theme_name,
+        TerminalRenderData {
+            snapshot: terminal_snapshot,
+            history_lines,
+            pane_rows: usize::from(pty_layout.pty_rows).max(1),
+            pane_cols: usize::from(pty_layout.pty_cols).max(1),
+        },
+    );
     let confirm_data = derive_confirm_modal_data(&snapshot, &modal);
     let modal_el = build_modal_element(
         &snapshot,
@@ -575,6 +611,26 @@ fn paste_to_issues_search(
     suppress_next_enter.set(false);
 }
 
+/// Arm or clear the paste-Enter suppression flag based on the current key and
+/// input mode. `Ctrl-V` / `Cmd-V` in terminal-capture mode arms suppression so
+/// the synthetic Enter some terminals send after a paste is swallowed; any
+/// other key disarms it.
+fn update_paste_enter_suppression(
+    app_state: &HookState<AppState>,
+    suppress_next_enter: &mut HookState<bool>,
+    key_event: &KeyEvent,
+) {
+    let current_input_mode = {
+        let state = app_state.read();
+        input_mode_for_state(&state)
+    };
+    if should_arm_paste_enter_suppression(key_event, current_input_mode) {
+        suppress_next_enter.set(true);
+    } else if should_disarm_paste_enter_suppression(suppress_next_enter.get(), key_event) {
+        suppress_next_enter.set(false);
+    }
+}
+
 fn handle_key_event(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
@@ -611,15 +667,7 @@ fn handle_key_event(
         return;
     }
 
-    let current_input_mode = {
-        let state = app_state.read();
-        input_mode_for_state(&state)
-    };
-    if should_arm_paste_enter_suppression(&key_event, current_input_mode) {
-        suppress_next_enter.set(true);
-    } else if should_disarm_paste_enter_suppression(suppress_next_enter.get(), &key_event) {
-        suppress_next_enter.set(false);
-    }
+    update_paste_enter_suppression(app_state, suppress_next_enter, &key_event);
 
     if key_event.code == KeyCode::F(12) {
         handle_f12_toggle(app_state, &ctx.cloned());
@@ -631,7 +679,20 @@ fn handle_key_event(
     }
 
     let input_mode = resolve_input_mode(app_state, ctx, term_focused, pane_focus);
+
+    // Ctrl-C interrupt passthrough (#200): forward Ctrl-C to the attached
+    // agent terminal regardless of pane focus when the plain dashboard is
+    // showing (no modal/form/search owns the key). See
+    // [`try_ctrl_c_interrupt_passthrough`] for why focus-independence matters.
+    if try_ctrl_c_interrupt_passthrough(ctx, suppress_next_enter, input_mode, &key_event) {
+        return;
+    }
+
     if input_mode == InputMode::TerminalCapture {
+        // Check scrollback key interception BEFORE forwarding to PTY (issue #198).
+        if try_intercept_terminal_scrollback(app_state, &ctx.cloned(), &key_event) {
+            return;
+        }
         forward_key_to_pty(ctx, suppress_next_enter, &key_event);
         return;
     }
@@ -675,36 +736,6 @@ fn resolve_input_mode(
     }
 }
 
-fn forward_key_to_pty(
-    ctx: Option<&CtxArc>,
-    suppress_next_enter: &mut HookState<bool>,
-    key_event: &KeyEvent,
-) {
-    let encoded = key_to_bytes(key_event, false);
-
-    trace!(
-        code = ?key_event.code,
-        modifiers = ?key_event.modifiers,
-        encoded_len = encoded.as_ref().map_or(0, std::vec::Vec::len),
-        "forwarding key to PTY"
-    );
-
-    let unmapped = encoded.is_none();
-    if let Some(bytes) = encoded
-        && let Some(ctx_arc) = ctx
-        && let Ok(mut ctx_guard) = ctx_arc.lock()
-    {
-        if let Err(e) = ctx_guard.runtime.write_input(&bytes)
-            && !matches!(e, RuntimeError::WriteFailed(_))
-        {
-            warn!(error = %e, "runtime.write_input failed");
-        }
-    } else if unmapped {
-        // Unmapped key: ignore immediately and clear suppression arm.
-        suppress_next_enter.set(false);
-    }
-}
-
 /// Returns true when the event was fully handled (caller should return).
 fn dispatch_mode_specific_key(
     app_state: &mut HookState<AppState>,
@@ -720,6 +751,10 @@ fn dispatch_mode_specific_key(
         }
         InputMode::Confirm => {
             handle_mode_confirm_key(app_state, &ctx.cloned(), key_event);
+            true
+        }
+        InputMode::ThemePicker => {
+            handle_mode_theme_picker_key(app_state, &ctx.cloned(), key_event);
             true
         }
         InputMode::Search => handle_mode_search_key(app_state, &ctx.cloned(), key_event),
@@ -739,7 +774,10 @@ fn dispatch_mode_specific_key(
         | InputMode::PrsInline
         | InputMode::PrsSearch
         | InputMode::PrsFilter
-        | InputMode::PrsChooser => false,
+        | InputMode::PrsChooser
+        | InputMode::ActionsNormal
+        | InputMode::ActionsFilter
+        | InputMode::ActionsSearch => false,
     }
 }
 

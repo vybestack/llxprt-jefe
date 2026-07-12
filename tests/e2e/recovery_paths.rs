@@ -238,6 +238,7 @@ fn startup_recovery_corrupt_settings_valid_state() {
         last_selected_agent_by_repo: vec![],
         pane_focus: String::new(),
         terminal_focused: false,
+        user_preferences: jefe::domain::UserPreferences::default(),
     };
     let state_json = serde_json::to_string(&valid_state).test_unwrap("test unwrap");
     fs::write(&state_path, state_json).test_unwrap("test unwrap");
@@ -282,6 +283,7 @@ fn recovery_after_save_to_readonly_fails() {
     let settings = Settings {
         schema_version: SETTINGS_SCHEMA_VERSION,
         theme: "green-screen".into(),
+        override_agent_theme: false,
     };
     let result = mgr.save_settings(&settings);
     assert!(result.is_ok());

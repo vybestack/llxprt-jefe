@@ -77,6 +77,51 @@ fn agent_pass_continue_defaults_true() {
 }
 
 #[test]
+fn agent_kind_defaults_to_llxprt() {
+    let agent = Agent::new(
+        AgentId("test-1".into()),
+        RepositoryId("repo-1".into()),
+        "Test Agent".into(),
+        PathBuf::from("/tmp/test"),
+    );
+    assert_eq!(agent.agent_kind, AgentKind::Llxprt);
+    assert_eq!(agent.agent_kind.binary_name(), "llxprt");
+    assert!(!agent.agent_kind.is_kennel());
+}
+
+#[test]
+fn code_puppy_kind_has_expected_identity() {
+    assert_eq!(AgentKind::CodePuppy.binary_name(), "code-puppy");
+    assert_eq!(AgentKind::CodePuppy.label(), "code_puppy");
+    assert!(AgentKind::CodePuppy.is_kennel());
+    assert_eq!(
+        AgentKind::from_form_value("code-puppy"),
+        Some(AgentKind::CodePuppy)
+    );
+}
+
+#[test]
+fn persisted_kinds_default_to_llxprt_when_missing() {
+    let agent_json = json!({
+        "id": "agent-1", "display_id": "#1", "repository_id": "repo-1",
+        "name": "Agent", "description": "", "work_dir": "/tmp/a",
+        "profile": "", "mode_flags": [], "pass_continue": true,
+        "sandbox_enabled": false, "sandbox_engine": "podman",
+        "sandbox_flags": DEFAULT_SANDBOX_FLAGS, "status": "Queued",
+        "runtime_binding": null
+    });
+    let agent: Agent = serde_json::from_value(agent_json).value_or_panic("agent serde");
+    assert_eq!(agent.agent_kind, AgentKind::Llxprt);
+
+    let repo_json = json!({
+        "id": "repo-1", "name": "Repo", "slug": "repo",
+        "base_dir": "/tmp/repo", "default_profile": "", "agent_ids": []
+    });
+    let repo: Repository = serde_json::from_value(repo_json).value_or_panic("repo serde");
+    assert_eq!(repo.default_agent_kind, AgentKind::Llxprt);
+}
+
+#[test]
 fn agent_status_defaults_to_queued() {
     let agent = Agent::new(
         AgentId("test-1".into()),
@@ -287,6 +332,7 @@ fn test_issue_base_prompt_serde_roundtrip() {
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: "Prioritize diagnosis".to_string(),
+        default_agent_kind: crate::domain::AgentKind::Llxprt,
         agent_ids: vec![],
     };
 
@@ -363,6 +409,7 @@ fn runtime_binding_roundtrips_pid_when_present() {
             sandbox_engine: SandboxEngine::Podman,
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
         },
         attached: false,
         last_seen: None,

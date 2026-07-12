@@ -119,9 +119,14 @@ fn main() {
             std::process::exit(1);
         }
     };
-    if let Some(dir) = cli_args.config_dir.as_deref() {
-        theme_manager.load_from_dir(&dir.join("themes"));
-    }
+    // Load themes: explicit --config dir takes precedence; otherwise load
+    // from the default config dir's themes/ (JEFE_SETTINGS_PATH parent /
+    // JEFE_CONFIG_DIR / platform default).
+    let themes_dir = match cli_args.config_dir.as_deref() {
+        Some(dir) => dir.join("themes"),
+        None => jefe::persistence::default_themes_dir(),
+    };
+    theme_manager.load_from_dir(&themes_dir);
     let runtime = TmuxRuntimeManager::new(pty_rows, pty_cols);
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {

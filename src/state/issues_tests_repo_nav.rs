@@ -1,6 +1,7 @@
 use crate::domain::{Issue, IssueDetail, IssueState, Repository, RepositoryId};
 use crate::state::AppState;
-use crate::state::types::{AppEvent, IssueFocus, PaneFocus, ScreenMode};
+use crate::state::events::AppEvent;
+use crate::state::types::{IssueFocus, PaneFocus, ScreenMode};
 
 fn dashboard_issues_state() -> AppState {
     AppState {

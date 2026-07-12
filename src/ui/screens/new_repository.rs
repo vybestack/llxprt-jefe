@@ -6,8 +6,11 @@
 
 use iocraft::prelude::*;
 
+use crate::selection::SelectablePane;
 use crate::state::{AppState, ModalState, RepositoryFormCursor, RepositoryFormFocus};
-use crate::theme::{ResolvedColors, ThemeColors};
+use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
+use crate::ui::components::selectable_line;
+use crate::ui::util::text_with_caret;
 
 /// Props for the new repository form.
 #[derive(Default, Props)]
@@ -18,26 +21,11 @@ pub struct NewRepositoryFormProps {
     pub colors: Option<ThemeColors>,
 }
 
-fn render_text_with_caret(value: &str, cursor: usize) -> String {
-    let char_len = value.chars().count();
-    let clamped = cursor.min(char_len);
-
-    let byte_idx = if clamped == 0 {
-        0
-    } else {
-        value
-            .char_indices()
-            .nth(clamped)
-            .map_or_else(|| value.len(), |(idx, _)| idx)
-    };
-
-    format!("{}▏{}", &value[..byte_idx], &value[byte_idx..])
-}
-
 /// Form for creating/editing a repository.
 #[component]
 pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(props.colors.as_ref());
+    let sel = SelectionColors::from_resolved(&rc);
 
     // Extract form state from modal
     let (title, fields, focus, cursor) = props.state.as_ref().map_or_else(
@@ -70,66 +58,143 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
             ),
         },
     );
+    let selection = props.state.as_ref().and_then(|s| s.selection);
+    let pane = SelectablePane::RepositoryForm;
+    let mut line_idx: usize = 0;
 
-    // Build field lines with cursor indicator for focused field
-    let labels = ["Name", "Base Dir", "Default Profile", "GitHub Repo"];
-    let values = [
-        &fields.name,
-        &fields.base_dir,
-        &fields.default_profile,
-        &fields.github_repo,
-    ];
+    // Content line 0: title, line 1: blank.
+    let mut all_lines: Vec<AnyElement<'static>> = Vec::new();
+    all_lines.push(selectable_line(
+        &format!(" {title}"),
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.fg,
+        sel,
+    ));
+    all_lines.push(selectable_line(
+        "",
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.fg,
+        sel,
+    ));
+
+    // Initial text fields precede the runtime selector.
+    let labels = ["Name", "Base Dir", "Default Profile"];
+    let values = [&fields.name, &fields.base_dir, &fields.default_profile];
     let focuses = [
         RepositoryFormFocus::Name,
         RepositoryFormFocus::BaseDir,
         RepositoryFormFocus::DefaultProfile,
-        RepositoryFormFocus::GitHubRepo,
     ];
-    let cursors = [
-        cursor.name,
-        cursor.base_dir,
-        cursor.default_profile,
-        cursor.github_repo,
-    ];
-
-    let mut field_lines: Vec<AnyElement<'static>> = labels
+    let cursors = [cursor.name, cursor.base_dir, cursor.default_profile];
+    for (((label, value), field_focus), field_cursor) in labels
         .iter()
         .zip(values.iter())
         .zip(focuses.iter())
         .zip(cursors.iter())
-        .map(|(((label, value), field_focus), field_cursor)| {
-            let is_focused = focus == *field_focus;
-            let rendered_value = if is_focused {
-                render_text_with_caret(value, *field_cursor)
-            } else {
-                (*value).to_owned()
-            };
-            let display = format!("  {label:<16} [{rendered_value}]");
-            let color = if is_focused { rc.bright } else { rc.fg };
-            element! {
-                Box(height: 1u32) {
-                    Text(content: display, color: color)
-                }
-            }
-            .into()
-        })
-        .collect();
+    {
+        let is_focused = focus == *field_focus;
+        let rendered_value = if is_focused {
+            text_with_caret(value, *field_cursor)
+        } else {
+            (*value).to_owned()
+        };
+        let display = format!("  {label:<16} [{rendered_value}]");
+        let color = if is_focused { rc.bright } else { rc.fg };
+        all_lines.push(selectable_line(
+            &display,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            color,
+            sel,
+        ));
+    }
 
+    let kind_focused = focus == RepositoryFormFocus::DefaultAgentKind;
+    let kind_color = if kind_focused { rc.bright } else { rc.fg };
+    let effective_kinds = crate::state::effective_agent_kinds(
+        props
+            .state
+            .as_ref()
+            .map_or(&[][..], |s| s.installed_agent_kinds.as_slice()),
+        fields.remote_enabled,
+    );
+    let kind_hint = crate::state::effective_kinds_hint(&effective_kinds);
+    let kind_line = format!(
+        "  {:<16} [{}]  ({kind_hint})",
+        "Default Agent", fields.default_agent_kind
+    );
+    all_lines.push(selectable_line(
+        &kind_line,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        kind_color,
+        sel,
+    ));
+
+    let github_focused = focus == RepositoryFormFocus::GitHubRepo;
+    let github_value = if github_focused {
+        text_with_caret(&fields.github_repo, cursor.github_repo)
+    } else {
+        fields.github_repo.clone()
+    };
+    let github_line = format!("  {:<16} [{github_value}]", "GitHub Repo");
+    all_lines.push(selectable_line(
+        &github_line,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        if github_focused { rc.bright } else { rc.fg },
+        sel,
+    ));
+
+    // Content line 6: Remote Repository checkbox.
     let remote_focused = focus == RepositoryFormFocus::RemoteEnabled;
     let remote_mark = if fields.remote_enabled { "x" } else { " " };
     let remote_color = if remote_focused { rc.bright } else { rc.fg };
-    field_lines.push(
-        element! {
-            Box(height: 1u32) {
-                Text(
-                    content: format!("  {:<16} [{}]  (space toggles)", "Remote Repository", remote_mark),
-                    color: remote_color
-                )
-            }
-        }
-        .into(),
+    let remote_line = format!(
+        "  {:<16} [{}]  (space toggles)",
+        "Remote Repository", remote_mark
     );
+    all_lines.push(selectable_line(
+        &remote_line,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        remote_color,
+        sel,
+    ));
 
+    // Content lines 7-9: remote fields.
     let remote_labels = ["Login User", "Host / IP", "Run As User"];
     let remote_values = [&fields.login_user, &fields.host, &fields.run_as_user];
     let remote_focuses = [
@@ -138,7 +203,6 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         RepositoryFormFocus::RunAsUser,
     ];
     let remote_cursors = [cursor.login_user, cursor.host, cursor.run_as_user];
-
     for (((label, value), field_focus), field_cursor) in remote_labels
         .iter()
         .zip(remote_values.iter())
@@ -147,7 +211,7 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
     {
         let is_focused = focus == *field_focus;
         let rendered_value = if is_focused {
-            render_text_with_caret(value, *field_cursor)
+            text_with_caret(value, *field_cursor)
         } else {
             (*value).to_owned()
         };
@@ -156,16 +220,22 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         } else {
             rc.dim
         };
-        field_lines.push(
-            element! {
-                Box(height: 1u32) {
-                    Text(content: format!("  {label:<16} [{rendered_value}]"), color: color)
-                }
-            }
-            .into(),
-        );
+        let display = format!("  {label:<16} [{rendered_value}]");
+        all_lines.push(selectable_line(
+            &display,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            color,
+            sel,
+        ));
     }
 
+    // Content line 10: Setup Env Default checkbox.
     let setup_focused = focus == RepositoryFormFocus::SetupEnvDefault;
     let setup_mark = if fields.setup_env_default { "x" } else { " " };
     let setup_color = if fields.remote_enabled {
@@ -173,17 +243,44 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
     } else {
         rc.dim
     };
-    field_lines.push(
-        element! {
-            Box(height: 1u32) {
-                Text(
-                    content: format!("  {:<16} [{}]  (space toggles)", "Setup Env Default", setup_mark),
-                    color: setup_color
-                )
-            }
-        }
-        .into(),
+    let setup_line = format!(
+        "  {:<16} [{}]  (space toggles)",
+        "Setup Env Default", setup_mark
     );
+    all_lines.push(selectable_line(
+        &setup_line,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        setup_color,
+        sel,
+    ));
+
+    // Content line 11: blank, line 12: hints.
+    all_lines.push(selectable_line(
+        "",
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        rc.fg,
+        sel,
+    ));
+    all_lines.push(selectable_line(
+        "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles remote options  Enter submit  Esc cancel",
+        line_idx,
+        selection,
+        pane,
+        rc.dim,
+        sel,
+    ));
 
     element! {
         Box(
@@ -200,21 +297,7 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
                 flex_grow: 1.0_f32,
                 padding: 1i32,
             ) {
-                Box(height: 1u32) {
-                    Text(content: format!(" {}", title), color: rc.fg, weight: Weight::Bold)
-                }
-                Box(height: 1u32) {
-                    Text(content: String::new(), color: rc.fg)
-                }
-
-                #(field_lines)
-
-                Box(height: 1u32) {
-                    Text(content: String::new(), color: rc.fg)
-                }
-                Box(height: 1u32) {
-                    Text(content: "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles remote options  Enter submit  Esc cancel".to_owned(), color: rc.dim)
-                }
+                #(all_lines)
             }
         }
     }

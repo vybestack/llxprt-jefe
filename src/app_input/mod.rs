@@ -10,6 +10,7 @@ mod modal_handlers;
 mod normal;
 mod persist_focus;
 mod preflight;
+mod pty_passthrough;
 
 // PR-mode key-routing + dispatch surface.
 // @plan PLAN-20260624-PR-MODE.P11
@@ -24,24 +25,38 @@ mod prs_mutation;
 // @plan PLAN-20260624-PR-MODE.P11
 mod prs_orchestration;
 
+mod actions;
+mod actions_orchestration;
 mod gh_async;
 
 mod agent_runtime;
+mod availability;
+mod clone_identity;
+mod fresh_prompt;
 mod issue_git_prep;
+mod issue_prep;
 mod issues_send;
+mod remote_probe;
+mod target_resolution;
 use agent_runtime::{
     clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, pid_on_success, set_agent_runtime_binding,
     worker_pid_for,
 };
 
-pub use modal_handlers::{handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key};
+pub use modal_handlers::{
+    handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key, handle_mode_theme_picker_key,
+};
 
 pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
 
 // Re-export the background-refresh orchestration helper so `app_shell` can
 // import it from `app_input` (issue #128).
 pub use prs_orchestration::request_pr_background_refresh;
+
+// Re-export the PTY-forwarding helpers so `app_shell` can drive the agent
+// terminal without owning the encoding/forwarding logic (issue #200).
+pub use pty_passthrough::{forward_key_to_pty, try_ctrl_c_interrupt_passthrough};
 
 use iocraft::hooks::State as HookState;
 use iocraft::prelude::*;
@@ -126,7 +141,9 @@ use jefe::state::{AppEvent, AppState, ModalState, PaneFocus, RepositoryFormFocus
 fn repository_focus_toggles_checkbox(focus: RepositoryFormFocus) -> bool {
     matches!(
         focus,
-        RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault
+        RepositoryFormFocus::DefaultAgentKind
+            | RepositoryFormFocus::RemoteEnabled
+            | RepositoryFormFocus::SetupEnvDefault
     )
 }
 
@@ -151,6 +168,7 @@ pub fn to_persisted_state(state: &AppState) -> PersistedState {
         last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
         pane_focus: pane_focus_to_persisted(state.pane_focus),
         terminal_focused: state.terminal_focused,
+        user_preferences: state.user_preferences.clone(),
     }
 }
 
@@ -170,6 +188,7 @@ fn launch_signature_for_agent(
         sandbox_engine: agent.sandbox_engine,
         sandbox_flags: agent.sandbox_flags.clone(),
         remote: repository.remote.clone(),
+        agent_kind: agent.agent_kind,
     }
 }
 
@@ -203,13 +222,18 @@ fn close_modal_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext) 
 /// Returns `true` if the launch can proceed immediately (no issues or sandbox
 /// not enabled).  Returns `false` if a `PreflightPrompt` modal was opened and
 /// the caller should abort the immediate launch path.
+///
+/// Preflight is gated to [`AgentKind::Llxprt`] only: CodePuppy does not use
+/// the LLxprt sandbox flags/engine, and stale `sandbox_enabled`/`sandbox_engine`
+/// fields persisted from a prior LLxprt configuration must not trigger LLxprt
+/// preflight for a CodePuppy agent.
 fn preflight_or_prompt(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: &AgentId,
     signature: &LaunchSignature,
 ) -> bool {
-    if !signature.sandbox_enabled {
+    if !should_run_sandbox_preflight(signature) {
         return true;
     }
 
@@ -228,6 +252,19 @@ fn preflight_or_prompt(
     }
 
     true
+}
+
+/// Pure predicate: should sandbox preflight run for this signature?
+///
+/// Preflight runs only when **both** conditions hold:
+/// 1. `sandbox_enabled` is true, AND
+/// 2. `agent_kind == Llxprt` (CodePuppy has no LLxprt sandbox subsystem).
+///
+/// This gates out CodePuppy agents that carry stale `sandbox_enabled = true`
+/// from persisted edit data — they must not run LLxprt preflight.
+#[must_use]
+fn should_run_sandbox_preflight(signature: &LaunchSignature) -> bool {
+    signature.sandbox_enabled && signature.agent_kind == jefe::domain::AgentKind::Llxprt
 }
 
 /// Actually spawn + attach an agent session (shared by fresh-launch and
@@ -328,10 +365,15 @@ fn mark_launch_attached(
     );
     clear_agent_runtime_attachment(&mut state);
     mark_agent_runtime_attached(&mut state, agent_id, true);
-    if let Some(warning) = sandbox_ssh_agent_warning() {
-        state.warning_message = Some(warning);
-    } else {
-        clear_runtime_warning(&mut state);
+    // SSH agent warnings are only relevant for LLxprt sandbox sessions.
+    // CodePuppy does not use the LLxprt sandbox, so stale sandbox_enabled
+    // must not trigger the warning.
+    if signature.agent_kind == jefe::domain::AgentKind::Llxprt {
+        if let Some(warning) = sandbox_ssh_agent_warning() {
+            state.warning_message = Some(warning);
+        } else {
+            clear_runtime_warning(&mut state);
+        }
     }
     let persisted = to_persisted_state(&state);
     drop(state);
@@ -374,6 +416,21 @@ pub fn handle_mode_help_key(
         }
         _ => {}
     }
+    // Mirror the help scroll offset to AppState so the selection content
+    // projection can map screen coordinates to the correct help content
+    // line (issue #178). The hook state may hold a sentinel (u32::MAX for
+    // the End key) that the renderer clamps via ScrollableText; clamp here
+    // using the same viewport math so the selection layer reads the actual
+    // visible offset, not the raw sentinel.
+    let (_, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let viewport_rows = jefe::ui::modals::help_viewport_rows(term_rows);
+    let max_scroll = jefe::ui::modals::help_content_lines()
+        .len()
+        .saturating_sub(viewport_rows);
+    let clamped = help_scroll
+        .get()
+        .min(u32::try_from(max_scroll).unwrap_or(u32::MAX));
+    app_state.write().help_scroll_offset = usize::try_from(clamped).unwrap_or(0);
 }
 
 pub fn handle_mode_search_key(
@@ -409,6 +466,92 @@ pub fn handle_mode_search_key(
 
 pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
     dispatch_app_message(app_state, ctx, evt.into());
+}
+
+/// Dispatch a terminal scrollback event (issue #198).
+///
+/// Refreshes cached scroll geometry BEFORE applying the event so the reducer's
+/// clamp bounds match rendered content. Uses apply-only (no persist) since
+/// scrollback fields are runtime-only.
+pub fn dispatch_terminal_scroll(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    evt: AppEvent,
+) {
+    refresh_terminal_scroll_geometry(app_state, ctx);
+    let mut state = app_state.write();
+    *state = std::mem::take(&mut *state).apply(evt);
+}
+
+/// Try to intercept a scrollback-control key while the terminal is focused
+/// (issue #198). Returns `true` when the key was consumed as a terminal
+/// scrollback viewport event (and must NOT be forwarded to the PTY).
+///
+/// PageUp/PageDown/Home intercept from both states; End/Up/Down only intercept
+/// when scrolled back. Modifier chords are forwarded. The decision is made by
+/// the pure [`jefe::input::should_intercept_for_scrollback`] helper so it stays
+/// unit-testable.
+pub fn try_intercept_terminal_scrollback(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    key_event: &KeyEvent,
+) -> bool {
+    let offset_is_some = app_state.read().terminal_history_offset.is_some();
+    let Some(scroll_evt) = jefe::input::should_intercept_for_scrollback(key_event, offset_is_some)
+    else {
+        return false;
+    };
+    dispatch_terminal_scroll(app_state, ctx, scroll_evt);
+    true
+}
+
+/// Refresh cached terminal scrollback geometry (issue #198). Computes
+/// viewport rows from PTY layout and total lines from history + snapshot.
+/// When ctx is None or the lock is contended, preserves existing geometry
+/// instead of zeroing it (zeroing would clear the scroll offset).
+pub fn refresh_terminal_scroll_geometry(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let pty_layout = jefe::layout::compute_pty_layout(term_cols, term_rows);
+
+    // Capture retained history + live snapshot rows under the ctx lock so the
+    // total reflects the currently attached session. try_lock keeps this
+    // non-blocking when a background attach holds the mutex (the geometry is
+    // simply not refreshed that frame, falling back to the stale cache).
+    let (history_count, live_rows) = match ctx.as_ref() {
+        Some(ctx_arc) => match ctx_arc.try_lock() {
+            Ok(mut guard) => {
+                let history_count = guard.runtime.capture_history().map_or(0, |v| v.len());
+                let live_rows = guard.runtime.snapshot().map_or(0, |s| s.rows);
+                (history_count, live_rows)
+            }
+            Err(_) => {
+                // Lock contention: preserve existing geometry instead of
+                // zeroing it. Zeroing would clear the scroll offset and jump
+                // to follow-tail during attach.
+                return;
+            }
+        },
+        None => {
+            // No context: preserve existing geometry instead of zeroing it.
+            // Zeroing would clear the scroll offset.
+            return;
+        }
+    };
+
+    let mut state = app_state.write();
+    let old_total = state.terminal_total_lines;
+    let viewport_rows = usize::from(pty_layout.pty_rows);
+
+    let (new_offset, new_total) = jefe::state::scrollback_ops::compute_terminal_scroll_geometry(
+        state.terminal_history_offset,
+        old_total,
+        history_count,
+        live_rows,
+        viewport_rows,
+    );
+    state.terminal_history_offset = new_offset;
+    state.terminal_viewport_rows = viewport_rows;
+    state.terminal_total_lines = new_total;
 }
 
 pub fn dispatch_app_message(
@@ -476,6 +619,9 @@ pub fn dispatch_app_message(
         // @pseudocode component-004 lines 97-118
         AppMessage::PullRequests(message) => {
             prs_orchestration::dispatch_prs_message(app_state, ctx, message);
+        }
+        AppMessage::Actions(message) => {
+            actions_orchestration::dispatch_actions_message(app_state, ctx, message);
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
@@ -585,12 +731,19 @@ fn relaunch_preflight_passed(
     agent_id: &AgentId,
 ) -> bool {
     let state_ro = app_state.read();
-    let signature = agent_and_signature(&state_ro, agent_id).map(|(_, signature)| signature);
+    let agent_sig = agent_and_signature(&state_ro, agent_id);
     drop(state_ro);
-    match signature {
-        Some(signature) => preflight_or_prompt(app_state, ctx, agent_id, &signature),
-        None => true,
+    let Some((_, signature)) = agent_sig else {
+        return true;
+    };
+    if !availability::local_kind_available_or_error(
+        app_state,
+        signature.agent_kind,
+        &signature.remote,
+    ) {
+        return false;
     }
+    preflight_or_prompt(app_state, ctx, agent_id, &signature)
 }
 
 fn relaunch_runtime_session(
@@ -686,7 +839,12 @@ fn persist_relaunch_success(
     relaunch_event: AppEvent,
     pid: Option<u32>,
 ) {
-    if let Some((agent, signature)) = agent_and_signature(state, agent_id) {
+    // Capture agent_kind before `apply` consumes the state snapshot, so the
+    // SSH-agent warning can be gated: only LLxprt uses the sandbox subsystem,
+    // and CodePuppy must not trigger it from stale persisted sandbox flags.
+    let agent_sig = agent_and_signature(state, agent_id);
+    let relaunch_kind = agent_sig.as_ref().map(|(_, sig)| sig.agent_kind);
+    if let Some((agent, signature)) = agent_sig {
         set_agent_runtime_binding(
             state,
             agent_id,
@@ -699,10 +857,13 @@ fn persist_relaunch_success(
     state.terminal_focused = false;
     clear_agent_runtime_attachment(state);
     mark_agent_runtime_attached(state, agent_id, true);
-    if let Some(warning) = sandbox_ssh_agent_warning() {
-        state.warning_message = Some(warning);
-    } else {
-        clear_runtime_warning(state);
+    // Gate the SSH-agent warning to LLxprt only (see comment above).
+    if relaunch_kind == Some(jefe::domain::AgentKind::Llxprt) {
+        if let Some(warning) = sandbox_ssh_agent_warning() {
+            state.warning_message = Some(warning);
+        } else {
+            clear_runtime_warning(state);
+        }
     }
 }
 
@@ -801,6 +962,14 @@ fn refresh_issue_preview_if_changed(app_state: &mut AppStateHandle, prev_issue_i
 #[cfg(test)]
 #[path = "app_input_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "issue_send_modal_tests.rs"]
+mod issue_send_modal_tests;
+
+#[cfg(test)]
+#[path = "preflight_gating_tests.rs"]
+mod preflight_gating_tests;
 
 // @plan PLAN-20260624-PR-MODE.P15
 // @requirement REQ-PR-001

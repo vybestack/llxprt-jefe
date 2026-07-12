@@ -13,9 +13,8 @@ use crate::domain::{
 };
 use crate::persistence::State as PersistedState;
 use crate::state::AppState;
-use crate::state::types::{
-    AppEvent, PaneFocus, PrFocus, PriorAgentFocus, PullRequestsState, ScreenMode,
-};
+use crate::state::events::AppEvent;
+use crate::state::types::{PaneFocus, PrFocus, PriorAgentFocus, PullRequestsState, ScreenMode};
 
 /// Helper: a Dashboard AppState with two repositories selected at index 0.
 fn dashboard_state() -> AppState {

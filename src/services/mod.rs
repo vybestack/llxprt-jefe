@@ -9,7 +9,9 @@ mod normalize;
 
 use std::path::PathBuf;
 
-use crate::domain::{Agent, AgentId, AgentStatus, PlatformCapabilities, Repository, SandboxEngine};
+use crate::domain::{
+    Agent, AgentId, AgentKind, AgentStatus, PlatformCapabilities, Repository, SandboxEngine,
+};
 
 pub(crate) use normalize::{
     expand_tilde, normalize_llxprt_debug, normalize_profile, normalize_sandbox_flags,
@@ -42,6 +44,8 @@ pub struct CreateAgentParams<'a> {
     pub work_dir: &'a str,
     /// Raw profile value (normalized by the service).
     pub profile: &'a str,
+    /// Agent runtime selected in the form.
+    pub agent_kind: &'a str,
     /// Raw mode string, whitespace-split into flags by the service.
     pub mode: &'a str,
     /// Raw llxprt debug value (trimmed by the service).
@@ -103,11 +107,10 @@ pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
 
     let work_dir = resolve_agent_work_dir(params.repository, params.work_dir)?;
 
-    let mode_flags: Vec<String> = if params.mode.trim().is_empty() {
-        vec!["--yolo".to_owned()]
-    } else {
-        params.mode.split_whitespace().map(String::from).collect()
-    };
+    // The mode field is the single source of truth for whether --yolo (or any
+    // flag) is passed. An empty mode yields no flags so an agent can run
+    // non-yolo; the new-agent form pre-fills --yolo as the default instead.
+    let mode_flags: Vec<String> = params.mode.split_whitespace().map(String::from).collect();
 
     let caps = PlatformCapabilities::current();
     let sandbox_engine = SandboxEngine::from_form_value(params.sandbox_engine)
@@ -129,6 +132,8 @@ pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
         sandbox_enabled: params.sandbox_enabled,
         sandbox_engine,
         sandbox_flags: normalize_sandbox_flags(params.sandbox_flags),
+        agent_kind: AgentKind::from_form_value(params.agent_kind)
+            .unwrap_or(params.repository.default_agent_kind),
         // App-created agents start Running because creation triggers immediate launch.
         status: AgentStatus::Running,
         runtime_binding: None,

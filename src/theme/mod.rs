@@ -9,13 +9,22 @@
 use iocraft::Color;
 use serde::{Deserialize, Serialize};
 
+mod builtins;
+
+pub use builtins::builtin_themes;
+
 /// Theme kind classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum ThemeKind {
     #[default]
+    #[serde(alias = "Dark")]
     Dark,
+    #[serde(alias = "Light")]
     Light,
+    #[serde(alias = "Ansi")]
     Ansi,
+    #[serde(alias = "Custom")]
     Custom,
 }
 
@@ -260,6 +269,21 @@ pub trait ThemeManager {
 
     /// Resolve a theme by slug, with Green Screen fallback.
     fn resolve(&self, slug: &str) -> ThemeDefinition;
+
+    /// Get all available themes as `(slug, name)` pairs in a single pass.
+    ///
+    /// Default implementation uses `available_themes()` + `resolve()`.
+    /// Implementors with direct access to the theme list can override
+    /// to avoid the O(n²) repeated linear scans.
+    fn themes_with_names(&self) -> Vec<(String, String)> {
+        self.available_themes()
+            .into_iter()
+            .map(|slug| {
+                let name = self.resolve(&slug).name;
+                (slug, name)
+            })
+            .collect()
+    }
 }
 
 /// Stub implementation of ThemeManager for testing.
@@ -331,11 +355,14 @@ impl Default for FileThemeManager {
 }
 
 impl FileThemeManager {
-    /// Create with Green Screen as the only theme.
+    /// Create with the full built-in llxprt theme set.
+    ///
+    /// Green Screen is always first (index 0) so it remains the default and
+    /// fallback per REQ-FUNC-009. `builtin_themes()` guarantees this ordering.
     #[must_use]
     pub fn new() -> Self {
         Self {
-            themes: vec![ThemeDefinition::green_screen()],
+            themes: builtin_themes(),
             active_index: 0,
         }
     }
@@ -404,6 +431,13 @@ impl ThemeManager for FileThemeManager {
             .cloned()
             .unwrap_or_else(ThemeDefinition::green_screen)
     }
+
+    fn themes_with_names(&self) -> Vec<(String, String)> {
+        self.themes
+            .iter()
+            .map(|t| (t.slug.clone(), t.name.clone()))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -437,5 +471,143 @@ mod tests {
         let result = mgr.set_active("nonexistent");
         assert!(result.is_err());
         assert_eq!(mgr.active_theme().slug, "green-screen");
+    }
+
+    #[test]
+    fn file_manager_loads_builtin_themes() {
+        let mgr = FileThemeManager::new();
+        let slugs = mgr.available_themes();
+        // Built-ins include at least the full pickable set.
+        assert!(slugs.contains(&"green-screen".to_string()));
+        assert!(slugs.contains(&"dracula".to_string()));
+        assert!(slugs.contains(&"atom-one-dark".to_string()));
+        assert!(slugs.len() >= 14);
+        // Green Screen is always first (index 0) — guaranteed by builtin_themes().
+        assert_eq!(slugs[0], "green-screen");
+        assert_eq!(mgr.active_theme().slug, "green-screen");
+    }
+
+    #[test]
+    fn file_manager_set_active_switches_to_builtin() {
+        let mut mgr = FileThemeManager::new();
+        assert!(mgr.set_active("dracula").is_ok());
+        assert_eq!(mgr.active_theme().slug, "dracula");
+    }
+
+    #[test]
+    fn load_from_dir_loads_custom_themes() {
+        let temp = tempfile::tempdir().unwrap_or_else(|_| panic!("create temp themes dir"));
+
+        let custom = r##"{
+            "name": "My Custom",
+            "slug": "my-custom",
+            "kind": "dark",
+            "colors": {
+                "background": "#000000",
+                "foreground": "#ffffff",
+                "accent_primary": "#0000ff",
+                "accent_secondary": "#888888",
+                "accent_success": "#00ff00",
+                "accent_warning": "#ffff00",
+                "accent_error": "#ff0000",
+                "border_default": "#444444",
+                "border_focused": "#0000ff",
+                "selection_bg": "#0000ff",
+                "selection_fg": "#000000"
+            }
+        }"##;
+        std::fs::write(temp.path().join("my-custom.json"), custom)
+            .unwrap_or_else(|_| panic!("write custom theme"));
+
+        let mut mgr = FileThemeManager::new();
+        mgr.load_from_dir(temp.path());
+
+        let slugs = mgr.available_themes();
+        assert!(slugs.contains(&"my-custom".to_string()));
+        assert!(mgr.set_active("my-custom").is_ok());
+        assert_eq!(mgr.active_theme().slug, "my-custom");
+    }
+
+    #[test]
+    fn load_from_dir_skips_malformed_json() {
+        let temp = tempfile::tempdir().unwrap_or_else(|_| panic!("create temp themes dir"));
+
+        // Malformed JSON — should be skipped, not panic.
+        std::fs::write(temp.path().join("broken.json"), "{ this is not valid json")
+            .unwrap_or_else(|_| panic!());
+        // Missing required fields — deserialization fails, should be skipped.
+        std::fs::write(temp.path().join("incomplete.json"), r#"{"name":"NoSlug"}"#)
+            .unwrap_or_else(|_| panic!());
+
+        let mut mgr = FileThemeManager::new();
+        let before = mgr.available_themes().len();
+        mgr.load_from_dir(temp.path());
+        let after = mgr.available_themes().len();
+
+        // No new themes added; only built-ins remain.
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn load_from_dir_dedupes_duplicate_slugs() {
+        let temp = tempfile::tempdir().unwrap_or_else(|_| panic!("create temp themes dir"));
+
+        let theme_a = r##"{
+            "name": "Custom A",
+            "slug": "dup-slug",
+            "kind": "dark",
+            "colors": {
+                "background": "#000000","foreground": "#ffffff","accent_primary": "#0000ff",
+                "accent_secondary": "#888888","accent_success": "#00ff00","accent_warning": "#ffff00",
+                "accent_error": "#ff0000","border_default": "#444444","border_focused": "#0000ff",
+                "selection_bg": "#0000ff","selection_fg": "#000000"
+            }
+        }"##;
+        let theme_b = r##"{
+            "name": "Custom B",
+            "slug": "dup-slug",
+            "kind": "light",
+            "colors": {
+                "background": "#ffffff","foreground": "#000000","accent_primary": "#0000ff",
+                "accent_secondary": "#888888","accent_success": "#00ff00","accent_warning": "#ffff00",
+                "accent_error": "#ff0000","border_default": "#444444","border_focused": "#0000ff",
+                "selection_bg": "#0000ff","selection_fg": "#000000"
+            }
+        }"##;
+        std::fs::write(temp.path().join("a.json"), theme_a).unwrap_or_else(|_| panic!());
+        std::fs::write(temp.path().join("b.json"), theme_b).unwrap_or_else(|_| panic!());
+
+        let mut mgr = FileThemeManager::new();
+        mgr.load_from_dir(temp.path());
+
+        let dup_count = mgr
+            .available_themes()
+            .iter()
+            .filter(|s| *s == "dup-slug")
+            .count();
+        assert_eq!(dup_count, 1, "duplicate slug must be deduped");
+    }
+
+    #[test]
+    fn load_from_dir_handles_missing_directory_gracefully() {
+        let mut mgr = FileThemeManager::new();
+        let before = mgr.available_themes().len();
+        // Non-existent directory — no panic, no themes added.
+        mgr.load_from_dir(std::path::Path::new("/nonexistent/jefe/themes/dir"));
+        assert_eq!(mgr.available_themes().len(), before);
+    }
+
+    #[test]
+    fn load_from_dir_ignores_non_json_files() {
+        let temp = tempfile::tempdir().unwrap_or_else(|_| panic!("create temp themes dir"));
+
+        std::fs::write(temp.path().join("readme.txt"), "not a theme").unwrap_or_else(|_| panic!());
+        std::fs::write(temp.path().join("config.toml"), "slug = 'ignored'")
+            .unwrap_or_else(|_| panic!());
+
+        let mut mgr = FileThemeManager::new();
+        let before = mgr.available_themes().len();
+        mgr.load_from_dir(temp.path());
+        assert_eq!(mgr.available_themes().len(), before);
     }
 }

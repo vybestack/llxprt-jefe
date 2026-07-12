@@ -146,9 +146,72 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
 - [`scratch-pr-mode.json`](../tmux-scenarios/scratch-pr-mode.json): manual
   scratch scenario for PR-mode screen validation. It is intentionally not a CI
   gate because repository/GitHub configuration can vary by developer machine.
+- [`actions-mode.json`](../tmux-scenarios/actions-mode.json): launches the app,
+  enters Actions mode (`g`), verifies the runs-list pane renders, navigates
+  down, then exits and quits. Intentionally not a CI gate — it requires a
+  configured repository and may vary by developer machine.
+- [`code-puppy-chord-passthrough.json`](../tmux-scenarios/code-puppy-chord-passthrough.json):
+  manual scenario that focuses an agent terminal and sends the Code Puppy
+  shell-control chords (`Ctrl-X Ctrl-B`, `Ctrl-X Ctrl-X`, `Ctrl-C`) through
+  jefe's embedded terminal. It is intentionally not a CI gate — it requires a
+  configured repository, a running Code Puppy agent, and a live long-running
+  foreground shell command inside the agent pane. The deterministic,
+  CI-gated proof that these control bytes reach the child unchanged lives in
+  the runtime unit tests (`prefix_passthrough_tests`), which drive a real
+  `tmux attach-session` client on an isolated socket with the prefix disabled
+  exactly as production does (#200).
+- [`kennel-terminal-select.json`](../tmux-scenarios/kennel-terminal-select.json):
+  manual scratch scenario for issue #197 — terminal text selection and copy for
+  Code Puppy (Kennel mode) sessions. It focuses the terminal and captures the
+  focused Kennel terminal screen. It is intentionally not a CI gate because it
+  requires a configured repository with a running Code Puppy agent (which varies
+  by developer machine), and the keyboard-only harness cannot drive mouse
+  drag-select or assert OSC 52 clipboard contents. The behavioral contract
+  (plain drag and shift-drag paint a Jefe selection and copy over the snapshot
+  for Kennel agents; LLxprt keeps PTY forwarding when mouse reporting is active)
+  is covered by unit tests in `tests/runtime/terminal_focus_routing.rs` and
+  `src/selection/terminal_mouse_policy.rs`. Run the scenario manually:
+
+  ```bash
+  cargo run --bin jefe-tmux-harness -- \
+    --scenario dev-docs/tmux-scenarios/kennel-terminal-select.json \
+    --jefe-bin target/debug/jefe \
+    --config /tmp/jefe-harness-config \
+    --out-dir target/tmux-harness/kennel-terminal-select \
+    --keep-session
+  ```
+
+  Then, in the kept session, drag across visible Code Puppy output: the
+  selected cells should highlight (inverse video) and release should copy the
+  highlighted text. Holding Shift while dragging must also highlight and copy
+  (it is no longer a no-op).
 
 ## Future regression scenarios
 
 Once the scratch flows are stable, add scenarios for list viewport following,
 filter controls, and inline composer caret behavior. Keep them local/manual until
 they can be made deterministic with isolated config and predictable data.
+
+## Agent-runtime choice and process-start detection
+
+The `agent-runtime-choice.json` scenario verifies the New Repository modal
+shows a "Default Agent" field. It does **not** cycle the Default Agent kind
+(pressing Space on that field) because the harness cannot deterministically
+control which agent runtimes (`llxprt`, `code-puppy`) are installed on the
+local PATH. The `AppState.installed_agent_kinds` snapshot is captured once at
+process startup by probing the local PATH; the harness starts `jefe` with an
+isolated `--config` directory but has no mechanism to inject a custom PATH or
+seed the runtime snapshot. As a result, cycling is only deterministic when both
+runtimes happen to be installed in the developer's environment, which is not
+guaranteed across CI/local machines.
+
+The cycling behavior itself is covered by unit tests:
+
+- `form_runtime::next_installed_kind` — pure kind cycling logic.
+- `form_ops` tests — Space on `AgentKind`/`DefaultAgentKind` focus cycles to
+  the next installed kind.
+
+Remote availability probing (issue #184 defects 2-4) is covered by
+`remote_probe_tests.rs` — the pure classifier/planner seam tests prove
+unavailable remote means no prep/prompt operation without needing a live SSH
+connection.

@@ -4,9 +4,17 @@
 //! @requirement REQ-TECH-001
 //! @requirement REQ-TECH-002
 
+/// Shared validated target-resolution predicates for remote settings.
+pub mod target;
+
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+// Actions domain types (workflows, runs, jobs, steps, filters) extracted to
+// keep this file under the source-file-size limit.
+mod actions;
+pub use actions::*;
 
 /// Stable identifier for a repository.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -15,6 +23,51 @@ pub struct RepositoryId(pub String);
 /// Stable identifier for an agent.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AgentId(pub String);
+
+/// Agent runtime used to launch an agent session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentKind {
+    CodePuppy,
+    #[default]
+    Llxprt,
+}
+
+impl AgentKind {
+    /// Executable name for this runtime.
+    #[must_use]
+    pub const fn binary_name(self) -> &'static str {
+        match self {
+            Self::CodePuppy => "code-puppy",
+            Self::Llxprt => "llxprt",
+        }
+    }
+
+    /// User-facing runtime name.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::CodePuppy => "code_puppy",
+            Self::Llxprt => "LLxprt",
+        }
+    }
+
+    /// Parse a value entered or persisted by a form.
+    #[must_use]
+    pub fn from_form_value(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "code_puppy" | "code-puppy" | "codepuppy" => Some(Self::CodePuppy),
+            "llxprt" => Some(Self::Llxprt),
+            _ => None,
+        }
+    }
+
+    /// Whether this runtime uses Kennel-mode branding.
+    #[must_use]
+    pub const fn is_kennel(self) -> bool {
+        matches!(self, Self::CodePuppy)
+    }
+}
 
 /// Default sandbox resource flags passed to llxprt via SANDBOX_FLAGS.
 ///
@@ -41,6 +94,18 @@ const ALL_ENGINES: [SandboxEngine; 3] = [
 
 /// Linux-supported engine variants in canonical order.
 const LINUX_ENGINES: [SandboxEngine; 2] = [SandboxEngine::Podman, SandboxEngine::Docker];
+
+/// Check whether a single GitHub owner/repo component contains only valid
+/// characters: ASCII alphanumerics, hyphens, underscores, and dots.
+///
+/// Shared by the clone-identity layer (`app_input::clone_identity`) and the
+/// repository form layer (`state::form_build`) so validation cannot drift.
+#[must_use]
+pub fn is_valid_github_component(component: &str) -> bool {
+    component
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
 
 impl SandboxEngine {
     /// Convert to llxprt CLI `--sandbox-engine` argument.
@@ -207,6 +272,8 @@ pub struct Repository {
     pub remote: RemoteRepositorySettings,
     #[serde(default)]
     pub issue_base_prompt: String,
+    #[serde(default)]
+    pub default_agent_kind: AgentKind,
     pub agent_ids: Vec<AgentId>,
 }
 /// @requirement REQ-ISS-006
@@ -278,7 +345,7 @@ pub struct IssueComment {
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-008
 /// Filter state options.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum IssueFilterState {
     #[default]
     Open,
@@ -292,18 +359,29 @@ pub const FILTER_CHOICE_NONE: &str = "none";
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-008
 /// Issue list filter criteria.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IssueFilter {
+    #[serde(default)]
     pub query_text: String,
+    #[serde(default)]
     pub state: Option<IssueFilterState>,
+    #[serde(default)]
     pub author: String,
+    #[serde(default)]
     pub assignee: String,
+    #[serde(default)]
     pub labels: Vec<String>,
+    #[serde(default)]
     pub issue_type: String,
+    #[serde(default)]
     pub milestone: String,
+    #[serde(default)]
     pub module: String,
+    #[serde(default)]
     pub mentioned: String,
+    #[serde(default)]
     pub updated_before: String,
+    #[serde(default)]
     pub updated_after: String,
 }
 
@@ -362,7 +440,7 @@ pub enum PrState {
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-009
 /// @pseudocode component-002 lines 74-101
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MergeMethod {
     /// Create a merge commit (`--merge`).
     Merge,
@@ -558,7 +636,7 @@ pub struct PullRequestDetail {
 /// @pseudocode component-001 lines 259-263
 /// PR filter-state choice (Space cycles this on the state field).
 /// Default is `Open`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum PrFilterState {
     #[default]
     Open,
@@ -572,7 +650,7 @@ pub enum PrFilterState {
 /// @pseudocode component-001 lines 264a-264d
 /// Review-decision filter choice (issue #20 review signal). `Any` emits no
 /// qualifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ReviewDecisionFilter {
     #[default]
     Any,
@@ -587,7 +665,7 @@ pub enum ReviewDecisionFilter {
 /// @pseudocode component-001 lines 264e-264g
 /// CI/check-rollup filter choice (issue #20 workflow signal). `Any` emits no
 /// qualifier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ChecksFilter {
     #[default]
     Any,
@@ -600,17 +678,157 @@ pub enum ChecksFilter {
 /// @requirement REQ-PR-008
 /// @pseudocode component-001 lines 249-258
 /// PR filter criteria. Structured fields are AND-composed.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrFilter {
+    #[serde(default)]
     pub query_text: String,
+    #[serde(default)]
     pub state: Option<PrFilterState>,
+    #[serde(default)]
     pub author: String,
+    #[serde(default)]
     pub assignee: String,
+    #[serde(default)]
     pub reviewer: String,
+    #[serde(default)]
     pub is_draft: Option<bool>,
+    #[serde(default)]
     pub labels: Vec<String>,
+    #[serde(default)]
     pub review_decision: ReviewDecisionFilter,
+    #[serde(default)]
     pub checks_status: ChecksFilter,
+}
+
+/// Serde default function producing an `IssueFilter` with `state = Open`.
+fn default_open_issue_filter() -> IssueFilter {
+    IssueFilter {
+        state: Some(IssueFilterState::Open),
+        ..IssueFilter::default()
+    }
+}
+
+/// Serde default function producing a `PrFilter` with `state = Open`.
+fn default_open_pr_filter() -> PrFilter {
+    PrFilter {
+        state: Some(PrFilterState::Open),
+        ..PrFilter::default()
+    }
+}
+
+/// Per-repository remembered user preferences (issue #163).
+///
+/// All remembered selections are scoped per-repository so filter/merge
+/// choices made in one repo never leak into another. Persisted as part of
+/// `persistence::State` and restored on startup.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepoPreferences {
+    /// Last committed issue-list filter (state defaults to Open on first use).
+    #[serde(default = "default_open_issue_filter")]
+    pub issue_filter: IssueFilter,
+    /// Last committed PR-list filter (state defaults to Open on first use).
+    #[serde(default = "default_open_pr_filter")]
+    pub pr_filter: PrFilter,
+    /// Last issue search query text (session+restart persisted).
+    #[serde(default)]
+    pub issue_search_query: String,
+    /// Last PR search query text (session+restart persisted).
+    #[serde(default)]
+    pub pr_search_query: String,
+    /// Last-focused issue filter field index (0-based).
+    #[serde(default)]
+    pub issue_filter_field_index: usize,
+    /// Last-focused PR filter field index (0-based).
+    #[serde(default)]
+    pub pr_filter_field_index: usize,
+    /// Last-selected merge method for the merge chooser (`None` until the user
+    /// confirms a merge; the chooser then defaults to Merge).
+    #[serde(default)]
+    pub last_merge_method: Option<MergeMethod>,
+}
+
+impl Default for RepoPreferences {
+    fn default() -> Self {
+        Self {
+            issue_filter: default_open_issue_filter(),
+            pr_filter: default_open_pr_filter(),
+            issue_search_query: String::new(),
+            pr_search_query: String::new(),
+            issue_filter_field_index: 0,
+            pr_filter_field_index: 0,
+            last_merge_method: None,
+        }
+    }
+}
+
+/// Aggregate per-repository user preferences (issue #163).
+///
+/// Mirrors the `last_selected_agent_by_repo` `Vec<(RepositoryId, _)>` pattern:
+/// a small vec keyed by repository id. Methods keep the entry for the
+/// current repo in sync with the live Issues/PR state.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserPreferences {
+    #[serde(default)]
+    pub by_repo: Vec<(RepositoryId, RepoPreferences)>,
+}
+
+impl UserPreferences {
+    /// Return the stored preferences for `repo_id`, or the Open-default set if
+    /// the repo has no stored entry yet (issue #163).
+    #[must_use]
+    pub fn for_repo(&self, repo_id: &RepositoryId) -> RepoPreferences {
+        self.by_repo
+            .iter()
+            .find(|(id, _)| id == repo_id)
+            .map_or_else(RepoPreferences::default, |(_, prefs)| prefs.clone())
+    }
+
+    /// Return only the remembered merge method for `repo_id` (issue #163).
+    /// Narrower than `for_repo` so the merge-chooser open path does not clone
+    /// the full `RepoPreferences` (with its many `String` filter fields) just
+    /// to read a single `Option<MergeMethod>`.
+    #[must_use]
+    pub fn last_merge_method_for(&self, repo_id: &RepositoryId) -> Option<MergeMethod> {
+        self.by_repo
+            .iter()
+            .find(|(id, _)| id == repo_id)
+            .and_then(|(_, prefs)| prefs.last_merge_method)
+    }
+
+    /// Upsert preferences for `repo_id`: replace an existing entry or push a
+    /// new one.
+    pub fn update_for_repo(&mut self, repo_id: &RepositoryId, prefs: RepoPreferences) {
+        if let Some(entry) = self.by_repo.iter_mut().find(|(id, _)| id == repo_id) {
+            entry.1 = prefs;
+        } else {
+            self.by_repo.push((repo_id.clone(), prefs));
+        }
+    }
+
+    /// Mutate a single repo's preferences in place via `f`, inserting a fresh
+    /// Open-default entry when the repo has no stored entry yet (issue #163).
+    /// Avoids the full clone-and-replace of `for_repo`/`update_for_repo` when
+    /// only one field changes (e.g. cursor navigation).
+    pub fn update_field_for_repo(
+        &mut self,
+        repo_id: &RepositoryId,
+        f: impl FnOnce(&mut RepoPreferences),
+    ) {
+        if let Some((_, prefs)) = self.by_repo.iter_mut().find(|(id, _)| id == repo_id) {
+            f(prefs);
+        } else {
+            let mut prefs = RepoPreferences::default();
+            f(&mut prefs);
+            self.by_repo.push((repo_id.clone(), prefs));
+        }
+    }
+
+    /// Remove the stored preferences entry for `repo_id`, if any (issue #163).
+    /// Called when a repository is deleted so its preferences do not linger
+    /// or get restored if the id is ever reused.
+    pub fn remove_for_repo(&mut self, repo_id: &RepositoryId) {
+        self.by_repo.retain(|(id, _)| id != repo_id);
+    }
 }
 
 /// Agent lifecycle status.
@@ -648,6 +866,8 @@ pub struct Agent {
     pub sandbox_engine: SandboxEngine,
     #[serde(default = "default_sandbox_flags")]
     pub sandbox_flags: String,
+    #[serde(default)]
+    pub agent_kind: AgentKind,
     pub status: AgentStatus,
     pub runtime_binding: Option<RuntimeBinding>,
 }
@@ -687,6 +907,8 @@ pub struct LaunchSignature {
     pub sandbox_flags: String,
     #[serde(default)]
     pub remote: RemoteRepositorySettings,
+    #[serde(default)]
+    pub agent_kind: AgentKind,
 }
 
 impl Agent {
@@ -716,6 +938,7 @@ impl Agent {
             sandbox_enabled: false,
             sandbox_engine: SandboxEngine::Podman,
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+            agent_kind: AgentKind::default(),
             status: AgentStatus::default(),
             runtime_binding: None,
         }
@@ -741,6 +964,7 @@ impl Repository {
             github_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
+            default_agent_kind: AgentKind::default(),
             agent_ids: Vec::new(),
         }
     }

@@ -1,8 +1,9 @@
 use super::types::{
     AgentFormCursor, AgentFormFields, AgentFormFocus, RepositoryFormCursor, RepositoryFormFields,
-    RepositoryFormFocus,
+    RepositoryFormFocus, WorkflowDispatchFormCursor, WorkflowDispatchFormFields,
+    WorkflowDispatchFormFocus,
 };
-use super::util::{insert_char_at, move_cursor_right};
+use super::util::{insert_char_at, move_cursor_left, move_cursor_right};
 
 pub(super) fn handle_repository_field_char(
     fields: &mut RepositoryFormFields,
@@ -33,7 +34,9 @@ pub(super) fn handle_repository_field_char(
         RepositoryFormFocus::RunAsUser => {
             cursor.run_as_user = insert_char_at(&mut fields.run_as_user, cursor.run_as_user, c);
         }
-        RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {
+        RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::RemoteEnabled
+        | RepositoryFormFocus::SetupEnvDefault => {
             return c == ' ' || c == 'x' || c == 'X';
         }
     }
@@ -46,7 +49,9 @@ pub(super) fn move_repository_field_cursor_right(
     focus: RepositoryFormFocus,
 ) {
     match focus {
-        RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {}
+        RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::RemoteEnabled
+        | RepositoryFormFocus::SetupEnvDefault => {}
         RepositoryFormFocus::Name => cursor.name = move_cursor_right(&fields.name, cursor.name),
         RepositoryFormFocus::BaseDir => {
             cursor.base_dir = move_cursor_right(&fields.base_dir, cursor.base_dir);
@@ -75,6 +80,7 @@ pub(super) fn move_agent_field_cursor_right(
 ) {
     match focus {
         AgentFormFocus::Shortcut
+        | AgentFormFocus::AgentKind
         | AgentFormFocus::PassContinue
         | AgentFormFocus::Sandbox
         | AgentFormFocus::SandboxEngine => {}
@@ -94,6 +100,63 @@ pub(super) fn move_agent_field_cursor_right(
         }
         AgentFormFocus::SandboxFlags => {
             cursor.sandbox_flags = move_cursor_right(&fields.sandbox_flags, cursor.sandbox_flags);
+        }
+    }
+}
+
+pub(super) fn move_workflow_dispatch_field_cursor_right(
+    fields: &WorkflowDispatchFormFields,
+    cursor: &mut WorkflowDispatchFormCursor,
+    focus: WorkflowDispatchFormFocus,
+) {
+    match focus {
+        WorkflowDispatchFormFocus::RefName => {
+            cursor.ref_name = move_cursor_right(&fields.ref_name, cursor.ref_name);
+        }
+        WorkflowDispatchFormFocus::Inputs => {
+            cursor.inputs = move_cursor_right(&fields.inputs, cursor.inputs);
+        }
+        WorkflowDispatchFormFocus::Submit | WorkflowDispatchFormFocus::Cancel => {}
+    }
+}
+
+pub(super) fn move_repository_field_cursor_left(
+    cursor: &mut RepositoryFormCursor,
+    focus: RepositoryFormFocus,
+) {
+    match focus {
+        RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::RemoteEnabled
+        | RepositoryFormFocus::SetupEnvDefault => {}
+        RepositoryFormFocus::Name => cursor.name = move_cursor_left(cursor.name),
+        RepositoryFormFocus::BaseDir => cursor.base_dir = move_cursor_left(cursor.base_dir),
+        RepositoryFormFocus::DefaultProfile => {
+            cursor.default_profile = move_cursor_left(cursor.default_profile);
+        }
+        RepositoryFormFocus::GitHubRepo => {
+            cursor.github_repo = move_cursor_left(cursor.github_repo);
+        }
+        RepositoryFormFocus::LoginUser => cursor.login_user = move_cursor_left(cursor.login_user),
+        RepositoryFormFocus::Host => cursor.host = move_cursor_left(cursor.host),
+        RepositoryFormFocus::RunAsUser => cursor.run_as_user = move_cursor_left(cursor.run_as_user),
+    }
+}
+
+pub(super) fn move_agent_field_cursor_left(cursor: &mut AgentFormCursor, focus: AgentFormFocus) {
+    match focus {
+        AgentFormFocus::Shortcut
+        | AgentFormFocus::AgentKind
+        | AgentFormFocus::PassContinue
+        | AgentFormFocus::Sandbox
+        | AgentFormFocus::SandboxEngine => {}
+        AgentFormFocus::Name => cursor.name = move_cursor_left(cursor.name),
+        AgentFormFocus::Description => cursor.description = move_cursor_left(cursor.description),
+        AgentFormFocus::WorkDir => cursor.work_dir = move_cursor_left(cursor.work_dir),
+        AgentFormFocus::Profile => cursor.profile = move_cursor_left(cursor.profile),
+        AgentFormFocus::Mode => cursor.mode = move_cursor_left(cursor.mode),
+        AgentFormFocus::LlxprtDebug => cursor.llxprt_debug = move_cursor_left(cursor.llxprt_debug),
+        AgentFormFocus::SandboxFlags => {
+            cursor.sandbox_flags = move_cursor_left(cursor.sandbox_flags);
         }
     }
 }

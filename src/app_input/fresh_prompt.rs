@@ -1,0 +1,199 @@
+//! Shared kind-specific fresh-prompt launch-signature construction.
+
+use jefe::domain::{AgentKind, LaunchSignature};
+
+/// Workflow represented by a prompt file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FreshPromptKind {
+    Issue,
+    PullRequest,
+}
+
+impl FreshPromptKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Issue => "issue",
+            Self::PullRequest => "PR",
+        }
+    }
+}
+
+/// Transform a base signature into a fresh, non-resuming prompt launch.
+#[must_use]
+pub(super) fn prepare_fresh_prompt_signature(
+    mut sig: LaunchSignature,
+    prompt_kind: FreshPromptKind,
+    prompt_relative_path: &str,
+) -> LaunchSignature {
+    sig.pass_continue = false;
+    let instruction = format!(
+        "Read and work on the GitHub {} described in {prompt_relative_path}",
+        prompt_kind.label()
+    );
+    match sig.agent_kind {
+        // LLxprt keeps the agent's persisted mode flags (e.g. `--yolo`) and
+        // appends the fresh instruction. Replacing them here dropped `--yolo`,
+        // starting every issue/PR-driven LLxprt session in non-yolo mode (#210).
+        //
+        // `--continue` is stripped because continuation is owned by
+        // `pass_continue`, which fresh prompts force off: a stale persisted
+        // `--continue` must not resume a prior session on a fresh launch.
+        AgentKind::Llxprt => {
+            sig.mode_flags.retain(|flag| flag != "--continue");
+            sig.mode_flags.push("-i".to_owned());
+            sig.mode_flags.push(instruction);
+        }
+        // CodePuppy does not consume any LLxprt flags (#184): the instruction
+        // is the sole positional argument.
+        AgentKind::CodePuppy => sig.mode_flags = vec![instruction],
+    }
+    sig
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jefe::domain::{RemoteRepositorySettings, SandboxEngine};
+    use std::path::PathBuf;
+
+    fn base_sig(kind: AgentKind) -> LaunchSignature {
+        LaunchSignature {
+            work_dir: PathBuf::from("/tmp/work"),
+            profile: String::new(),
+            mode_flags: vec!["--stale".to_owned()],
+            llxprt_debug: String::new(),
+            pass_continue: true,
+            sandbox_enabled: false,
+            sandbox_engine: SandboxEngine::Podman,
+            sandbox_flags: String::new(),
+            remote: RemoteRepositorySettings::default(),
+            agent_kind: kind,
+        }
+    }
+
+    #[test]
+    fn llxprt_issue_uses_fresh_issue_instruction() {
+        let result = prepare_fresh_prompt_signature(
+            base_sig(AgentKind::Llxprt),
+            FreshPromptKind::Issue,
+            ".jefe/issue-prompt.md",
+        );
+        assert!(!result.pass_continue);
+        // Persisted mode flags are preserved and the instruction is appended.
+        assert_eq!(
+            result.mode_flags,
+            vec![
+                "--stale",
+                "-i",
+                "Read and work on the GitHub issue described in .jefe/issue-prompt.md"
+            ]
+        );
+    }
+
+    #[test]
+    fn code_puppy_pr_uses_only_fresh_pr_instruction() {
+        let result = prepare_fresh_prompt_signature(
+            base_sig(AgentKind::CodePuppy),
+            FreshPromptKind::PullRequest,
+            ".jefe/pr-prompt.md",
+        );
+        assert!(!result.pass_continue);
+        assert_eq!(
+            result.mode_flags,
+            vec!["Read and work on the GitHub PR described in .jefe/pr-prompt.md"]
+        );
+    }
+
+    #[test]
+    fn code_puppy_issue_uses_only_fresh_issue_instruction() {
+        let result = prepare_fresh_prompt_signature(
+            base_sig(AgentKind::CodePuppy),
+            FreshPromptKind::Issue,
+            ".jefe/issue-prompt.md",
+        );
+        assert!(!result.pass_continue);
+        assert_eq!(
+            result.mode_flags,
+            vec!["Read and work on the GitHub issue described in .jefe/issue-prompt.md"]
+        );
+    }
+
+    #[test]
+    fn llxprt_preserves_existing_mode_flags_including_yolo() {
+        // Regression for issue #210: the fresh-prompt path for LLxprt agents
+        // must not drop the agent's persisted mode flags (e.g. `--yolo`).
+        // Appending the instruction while keeping `--yolo` is what makes the
+        // fresh session launch in yolo mode, matching a normal launch.
+        let mut sig = base_sig(AgentKind::Llxprt);
+        sig.mode_flags = vec!["--yolo".to_owned()];
+        let result =
+            prepare_fresh_prompt_signature(sig, FreshPromptKind::Issue, ".jefe/issue-prompt.md");
+        assert!(!result.pass_continue);
+        assert_eq!(
+            result.mode_flags,
+            vec![
+                "--yolo",
+                "-i",
+                "Read and work on the GitHub issue described in .jefe/issue-prompt.md"
+            ]
+        );
+    }
+
+    #[test]
+    fn llxprt_fresh_prompt_does_not_add_yolo_to_empty_mode() {
+        // The other half of #210: an agent whose mode was cleared (non-yolo)
+        // must stay non-yolo on a fresh-prompt launch. --yolo is never
+        // synthesized here; only the instruction is appended.
+        let mut sig = base_sig(AgentKind::Llxprt);
+        sig.mode_flags.clear();
+        let result =
+            prepare_fresh_prompt_signature(sig, FreshPromptKind::Issue, ".jefe/issue-prompt.md");
+        assert!(!result.pass_continue);
+        assert_eq!(
+            result.mode_flags,
+            vec![
+                "-i",
+                "Read and work on the GitHub issue described in .jefe/issue-prompt.md"
+            ]
+        );
+    }
+
+    #[test]
+    fn llxprt_fresh_prompt_strips_persisted_continue() {
+        // Fresh launches must never resume a prior session. `--continue` is
+        // owned by `pass_continue` (forced off here), so a stale persisted
+        // `--continue` in the mode string must be dropped, not forwarded.
+        let mut sig = base_sig(AgentKind::Llxprt);
+        sig.mode_flags = vec!["--yolo".to_owned(), "--continue".to_owned()];
+        let result =
+            prepare_fresh_prompt_signature(sig, FreshPromptKind::PullRequest, ".jefe/pr-prompt.md");
+        assert!(!result.pass_continue);
+        assert_eq!(
+            result.mode_flags,
+            vec![
+                "--yolo",
+                "-i",
+                "Read and work on the GitHub PR described in .jefe/pr-prompt.md"
+            ]
+        );
+    }
+
+    #[test]
+    fn llxprt_pr_uses_fresh_pr_instruction() {
+        let result = prepare_fresh_prompt_signature(
+            base_sig(AgentKind::Llxprt),
+            FreshPromptKind::PullRequest,
+            ".jefe/pr-prompt.md",
+        );
+        assert!(!result.pass_continue);
+        // Persisted mode flags are preserved and the instruction is appended.
+        assert_eq!(
+            result.mode_flags,
+            vec![
+                "--stale",
+                "-i",
+                "Read and work on the GitHub PR described in .jefe/pr-prompt.md"
+            ]
+        );
+    }
+}

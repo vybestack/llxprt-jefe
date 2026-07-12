@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use lru::LruCache;
 use tracing::{debug, info};
@@ -19,6 +20,10 @@ use super::errors::RuntimeError;
 use super::liveness;
 use super::session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 use crate::domain::{AgentId, LaunchSignature, RemoteRepositorySettings};
+
+#[path = "history_cache.rs"]
+mod history_cache;
+use history_cache::{HistoryCache, strip_trailing_rows};
 
 /// Maximum number of dead-session launch signatures retained for relaunch.
 ///
@@ -31,6 +36,12 @@ const MAX_DEAD_SIGNATURES: NonZeroUsize = match NonZeroUsize::new(100) {
     Some(n) => n,
     None => NonZeroUsize::MIN,
 };
+
+/// Maximum number of scrollback history lines retained for an embedded
+/// terminal session (issue #198). Matches the `terminal-scrollback.json` test
+/// scenario's `history_limit` (2000), intentionally smaller than the harness
+/// default (10000) to bound render/capture cost.
+const HISTORY_LINE_CAP: usize = 2000;
 
 /// Lightweight metadata for checking session liveness without holding the runtime lock.
 ///
@@ -127,155 +138,47 @@ pub trait RuntimeManager: Send {
     #[must_use]
     fn take_dirty(&self) -> bool;
 
+    /// Non-consuming check of the dirty flag on the attached viewer (issue #198).
+    ///
+    /// Returns `true` when new PTY data has arrived since the last
+    /// [`take_dirty`](Self::take_dirty), without clearing the flag. Used by the
+    /// scrollback history cache to decide whether to re-capture without
+    /// stealing the dirty flag out from under the render-decision path.
+    #[must_use]
+    fn is_dirty(&self) -> bool;
+
+    /// Monotonically increasing generation counter for attached PTY output
+    /// (issue #198 review fix).
+    ///
+    /// Increments when new output arrives on the attached viewer. The
+    /// scrollback history cache stores the generation it captured at and
+    /// compares it to the *current* generation to decide whether a re-capture
+    /// is necessary. This decouples history-cache invalidation from the
+    /// render-decision dirty flag (`take_dirty`), which is consumed during the
+    /// render decision and therefore always reads `false` later in the same
+    /// render frame — causing stale caches when `is_dirty()` was used.
+    #[must_use]
+    fn output_generation(&self) -> u64;
+
     /// Get a reference to a session by agent ID.
     fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession>;
 
     /// Capture pane output for a known session (used for dead-pane crash text).
     fn capture_session_output(&self, agent_id: &AgentId) -> Option<TerminalSnapshot>;
+
+    /// Retrieve retained scrollback history lines for the currently attached
+    /// session (issue #198).
+    ///
+    /// Returns `Option<Vec<String>>` — plain-text rows (no styles) from the
+    /// tmux pane's scrollback buffer. Implementations SHOULD cache so they do
+    /// not shell out on every render frame: re-capture only when `take_dirty()`
+    /// returns true (new PTY data) or the attached session changes.
+    ///
+    /// - **`TmuxRuntimeManager`**: cached `capture-pane -S` bounded to
+    ///   `HISTORY_LINE_CAP` lines.
+    /// - **`StubRuntimeManager`**: always returns `None` (no PTY).
+    fn capture_history(&mut self) -> Option<Vec<String>>;
 }
-
-/// Stub implementation of RuntimeManager for testing.
-#[derive(Debug, Default)]
-pub struct StubRuntimeManager {
-    sessions: Vec<RuntimeSession>,
-    attached_index: Option<usize>,
-}
-
-impl RuntimeManager for StubRuntimeManager {
-    fn spawn_session(
-        &mut self,
-        agent_id: &AgentId,
-        _work_dir: &Path,
-        signature: &LaunchSignature,
-    ) -> Result<(), RuntimeError> {
-        // Check for duplicate
-        if self.sessions.iter().any(|s| &s.agent_id == agent_id) {
-            return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
-        }
-
-        let session = RuntimeSession::new(
-            agent_id.clone(),
-            RuntimeSession::session_name_for(agent_id),
-            signature.clone(),
-        );
-        self.sessions.push(session);
-        Ok(())
-    }
-
-    fn attach(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
-        if let Some(idx) = self.sessions.iter().position(|s| &s.agent_id == agent_id) {
-            // Detach from current if any
-            if let Some(prev_idx) = self.attached_index {
-                self.sessions[prev_idx].attached = false;
-            }
-            self.attached_index = Some(idx);
-            self.sessions[idx].attached = true;
-            Ok(())
-        } else {
-            Err(RuntimeError::SessionNotFound(agent_id.0.clone()))
-        }
-    }
-
-    fn detach(&mut self) -> Result<(), RuntimeError> {
-        if let Some(idx) = self.attached_index {
-            self.sessions[idx].attached = false;
-        }
-        self.attached_index = None;
-        Ok(())
-    }
-
-    fn kill(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
-        if let Some(idx) = self.sessions.iter().position(|s| &s.agent_id == agent_id) {
-            self.sessions.remove(idx);
-            // Adjust attached_index
-            match self.attached_index {
-                Some(i) if i == idx => self.attached_index = None,
-                Some(i) if i > idx => self.attached_index = Some(i - 1),
-                _ => {}
-            }
-            Ok(())
-        } else {
-            Err(RuntimeError::SessionNotFound(agent_id.0.clone()))
-        }
-    }
-
-    fn relaunch(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
-        // Stub: verify agent existed but is dead (removed)
-        // In real impl, would respawn using stored LaunchSignature
-        if self.sessions.iter().any(|s| &s.agent_id == agent_id) {
-            Err(RuntimeError::AlreadyRunning(agent_id.clone()))
-        } else {
-            // Would need stored signature to relaunch
-            Err(RuntimeError::NotRunning(agent_id.clone()))
-        }
-    }
-
-    fn is_alive(&self, agent_id: &AgentId) -> bool {
-        self.sessions.iter().any(|s| &s.agent_id == agent_id)
-    }
-
-    fn session_exists(&self, agent_id: &AgentId) -> bool {
-        self.sessions.iter().any(|s| &s.agent_id == agent_id)
-    }
-
-    fn snapshot(&self) -> Option<TerminalSnapshot> {
-        self.attached_index.map(|_| {
-            let style = TerminalCellStyle {
-                fg: iocraft::Color::Rgb {
-                    r: 0x6a,
-                    g: 0x99,
-                    b: 0x55,
-                },
-                bg: iocraft::Color::Rgb { r: 0, g: 0, b: 0 },
-                bold: false,
-                underline: false,
-            };
-            TerminalSnapshot::blank(1, 1, style)
-        })
-    }
-
-    fn write_input(&mut self, _bytes: &[u8]) -> Result<(), RuntimeError> {
-        if self.attached_index.is_some() {
-            Ok(())
-        } else {
-            Err(RuntimeError::NoAttachedViewer)
-        }
-    }
-
-    fn resize(&mut self, _rows: u16, _cols: u16) -> Result<(), RuntimeError> {
-        if self.attached_index.is_some() {
-            Ok(())
-        } else {
-            Err(RuntimeError::NoAttachedViewer)
-        }
-    }
-
-    fn attached_agent(&self) -> Option<&AgentId> {
-        self.attached_index
-            .and_then(|idx| self.sessions.get(idx).map(|s| &s.agent_id))
-    }
-
-    fn mouse_reporting_active(&self) -> bool {
-        false
-    }
-
-    fn bracketed_paste_active(&self) -> bool {
-        false
-    }
-
-    fn take_dirty(&self) -> bool {
-        false
-    }
-
-    fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession> {
-        self.sessions.iter().find(|s| &s.agent_id == agent_id)
-    }
-
-    fn capture_session_output(&self, _agent_id: &AgentId) -> Option<TerminalSnapshot> {
-        None
-    }
-}
-
 /// Real tmux-based runtime manager.
 ///
 /// @plan PLAN-20260216-FIRSTVERSION-V1.P08
@@ -298,9 +201,22 @@ pub struct TmuxRuntimeManager {
     /// Avoids re-running the tmux option commands on every attach. Populated
     /// during local session creation and the local attach path.
     clipboard_enforced: HashSet<String>,
+    /// Session names for which tmux prefix passthrough has already been
+    /// enforced.
+    ///
+    /// Mirrors [`clipboard_enforced`](Self::clipboard_enforced): the prefix
+    /// options are idempotent, but we memoize so the reattach/attach hot paths
+    /// do not re-shell out to tmux for a session already remediated (#200).
+    prefix_enforced: HashSet<String>,
     /// Terminal dimensions.
     rows: u16,
     cols: u16,
+    /// Monotonically increasing PTY-output generation counter (issue #198).
+    /// Incremented by `take_dirty()`. The history cache compares the stored
+    /// generation to decide re-capture.
+    output_generation: AtomicU64,
+    /// Cached scrollback history (issue #198).
+    history_cache: HistoryCache,
 }
 
 /// Move the current viewer (if any) out of the manager and drop it on a
@@ -326,8 +242,11 @@ impl TmuxRuntimeManager {
             attached_agent_id: None,
             dead_signatures: LruCache::new(MAX_DEAD_SIGNATURES),
             clipboard_enforced: HashSet::new(),
+            prefix_enforced: HashSet::new(),
             rows,
             cols,
+            output_generation: AtomicU64::new(0),
+            history_cache: HistoryCache::default(),
         }
     }
 
@@ -359,6 +278,82 @@ impl TmuxRuntimeManager {
     #[cfg(test)]
     fn record_clipboard_passthrough(&mut self, session: &str) {
         self.clipboard_enforced.insert(session.to_owned());
+    }
+
+    /// Enforce tmux prefix passthrough for `session_name` if not already done.
+    ///
+    /// Memoized per session name so the tmux option commands run at most once
+    /// per session across create + attach cycles, mirroring
+    /// [`ensure_clipboard_passthrough`](Self::ensure_clipboard_passthrough).
+    ///
+    /// This is the reattach-side remediation for issue #200: a session created
+    /// before the prefix-disabling fix still has tmux's default `C-b` prefix,
+    /// which the attach client would use to eat the `0x02` byte of application
+    /// control chords. Calling this on every attach guarantees the prefix is
+    /// disabled even for pre-existing sessions.
+    fn ensure_prefix_passthrough(&mut self, session_name: &str) {
+        if self.prefix_enforced.contains(session_name) {
+            return;
+        }
+        // Only memoize on success, mirroring the remote path: a transient tmux
+        // failure leaves the session un-remediated and un-memoized so the next
+        // attach retries (#200 review).
+        match commands::disable_prefix_for_passthrough(session_name) {
+            Ok(()) => {
+                self.prefix_enforced.insert(session_name.to_owned());
+            }
+            Err(error) => {
+                debug!(session_name = %session_name, error = %error, "prefix passthrough failed on local attach; will retry next attach");
+            }
+        }
+    }
+
+    /// Enforce tmux prefix passthrough on a remote session if not already done.
+    ///
+    /// Remote mirror of [`ensure_prefix_passthrough`](Self::ensure_prefix_passthrough):
+    /// best-effort because a transient SSH failure must not block reattach, but
+    /// success is memoized so the option is applied exactly once per session.
+    fn ensure_remote_prefix_passthrough(
+        &mut self,
+        remote: &crate::domain::RemoteRepositorySettings,
+        session_name: &str,
+    ) {
+        if self.prefix_enforced.contains(session_name) {
+            return;
+        }
+        let command = commands::remote_disable_prefix_command(remote, session_name);
+        // run_remote_ssh returns Ok(Output) whenever SSH ran to completion — a
+        // non-zero remote exit (session gone, set-option rejected, sudo denied)
+        // must NOT be memoized as enforced, or future attaches skip the retry.
+        match commands::run_remote_ssh(remote, &command) {
+            Ok(output) if output.status.success() => {
+                self.prefix_enforced.insert(session_name.to_owned());
+            }
+            Ok(output) => {
+                debug!(
+                    session_name = %session_name,
+                    status = %output.status,
+                    stderr = %String::from_utf8_lossy(&output.stderr),
+                    "remote prefix passthrough command exited non-zero; will retry next attach"
+                );
+            }
+            Err(error) => {
+                debug!(session_name = %session_name, error = %error, "remote prefix passthrough failed on attach; will retry next attach");
+            }
+        }
+    }
+
+    /// Test-only accessor: whether prefix passthrough was already recorded
+    /// for `session_name`.
+    #[cfg(test)]
+    fn prefix_passthrough_enforced(&self, session: &str) -> bool {
+        self.prefix_enforced.contains(session)
+    }
+
+    /// Test-only setter for recording prefix passthrough without invoking tmux.
+    #[cfg(test)]
+    fn record_prefix_passthrough(&mut self, session: &str) {
+        self.prefix_enforced.insert(session.to_owned());
     }
 
     /// Collect liveness check metadata for all tracked sessions.
@@ -407,6 +402,16 @@ impl TmuxRuntimeManager {
             drop_viewer_in_background(&mut self.viewer);
         }
 
+        // Invalidate scrollback cache (fix #8).
+        self.history_cache.clear(agent_id);
+
+        // The tmux session is gone, so its memoized passthrough state is stale.
+        // Clear both sets so a recreated session with the same name re-enforces
+        // on the next attach, and so the sets do not grow across natural
+        // session exits (#200; parity with the explicit kill() path).
+        self.clipboard_enforced.remove(&session.session_name);
+        self.prefix_enforced.remove(&session.session_name);
+
         let _ = self
             .dead_signatures
             .put(agent_id.clone(), session.launch_signature.clone());
@@ -435,12 +440,27 @@ impl TmuxRuntimeManager {
             return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
         }
 
+        // Fresh spawn (not reattach): invalidate stale cache (fix #8).
+        if !allow_reattach {
+            self.history_cache.clear(agent_id);
+        }
+
         let session_name = RuntimeSession::session_name_for(agent_id);
 
         // Reattach-first behavior is only allowed for restore/startup paths.
         let can_reattach = allow_reattach && self.session_exists_for_signature(agent_id, signature);
         if can_reattach {
             debug!(session_name = %session_name, "reattaching to existing tmux session");
+            // The session may predate the prefix-passthrough fix (#200): a
+            // pre-existing session still has tmux's default `C-b` prefix, which
+            // the attach client uses to eat the 0x02 byte of control chords.
+            // Remediate it on reattach so local and remote sessions behave
+            // identically to freshly created ones.
+            if signature.remote.enabled {
+                self.ensure_remote_prefix_passthrough(&signature.remote, &session_name);
+            } else {
+                self.ensure_prefix_passthrough(&session_name);
+            }
         } else {
             if !allow_reattach {
                 // Explicit relaunch-after-kill path: best-effort kill by name so a
@@ -469,6 +489,13 @@ impl TmuxRuntimeManager {
             // but is robust against future refactors of that call chain.
             if !signature.remote.enabled {
                 self.ensure_clipboard_passthrough(&session_name);
+                // finalize_local_session also disabled the tmux prefix
+                // (#200). Re-run the result-aware enforcer instead of blindly
+                // memoizing: if the create-path prefix setup failed,
+                // ensure_prefix_passthrough retries it now and memoizes only
+                // on success. If it already succeeded this is an idempotent
+                // no-op that just records the state.
+                self.ensure_prefix_passthrough(&session_name);
             }
         }
 
@@ -572,6 +599,12 @@ impl RuntimeManager for TmuxRuntimeManager {
             // AttachedViewer::spawn to do this.
             if !remote_enabled {
                 self.ensure_clipboard_passthrough(&session_name);
+                // Same invariant for tmux prefix passthrough (#200): a
+                // session reattached after an upgrade must not keep the
+                // default C-b prefix that eats control-chord bytes.
+                self.ensure_prefix_passthrough(&session_name);
+            } else if let Some(remote) = remote_settings.as_ref() {
+                self.ensure_remote_prefix_passthrough(remote, &session_name);
             }
 
             // Spawn new viewer
@@ -632,9 +665,14 @@ impl RuntimeManager for TmuxRuntimeManager {
             .dead_signatures
             .put(agent_id.clone(), session.launch_signature.clone());
 
-        // Clear clipboard passthrough memoization for this session so a
-        // recreated session with the same name re-enforces on next attach.
+        // Clear clipboard and prefix passthrough memoization for this session
+        // so a recreated session with the same name re-enforces on next attach
+        // (and the sets don't grow unbounded across kill/recreate cycles).
         self.clipboard_enforced.remove(&session.session_name);
+        self.prefix_enforced.remove(&session.session_name);
+
+        // Invalidate scrollback cache for this agent (fix #8).
+        self.history_cache.clear(agent_id);
 
         // If attached, clear attachment and drop viewer.
         if self.attached_agent_id.as_ref() == Some(agent_id) {
@@ -742,7 +780,23 @@ impl RuntimeManager for TmuxRuntimeManager {
     }
 
     fn take_dirty(&self) -> bool {
-        self.viewer.as_ref().is_some_and(AttachedViewer::take_dirty)
+        let dirty = self.viewer.as_ref().is_some_and(AttachedViewer::take_dirty);
+        // Bump the generation whenever the render-decision path consumes new
+        // PTY data. The history cache compares the stored generation to this
+        // counter to decide re-capture, fully decoupled from the volatile
+        // dirty flag (issue #198 review fix).
+        if dirty {
+            self.output_generation.fetch_add(1, Ordering::Relaxed);
+        }
+        dirty
+    }
+
+    fn is_dirty(&self) -> bool {
+        self.viewer.as_ref().is_some_and(AttachedViewer::is_dirty)
+    }
+
+    fn output_generation(&self) -> u64 {
+        self.output_generation.load(Ordering::Relaxed)
     }
 
     fn get_session(&self, agent_id: &AgentId) -> Option<&RuntimeSession> {
@@ -772,112 +826,87 @@ impl RuntimeManager for TmuxRuntimeManager {
             fg: iocraft::Color::White,
             bg: iocraft::Color::Black,
             bold: false,
+            dim: false,
             underline: false,
         };
 
         let mut snapshot = TerminalSnapshot::blank(rows, cols, default_style);
+        // `capture_pane_lines` does not preserve soft-wrap metadata, so all
+        // rows are treated as hard line breaks (wraps stays all-false, which
+        // is the default from `blank` — issue #197).
+        snapshot.wraps = vec![false; rows];
         for (r, line) in lines.iter().enumerate() {
             for (c, ch) in line.chars().enumerate() {
                 snapshot.cells[r][c] = TerminalCell {
                     ch,
                     style: default_style,
+                    wide_spacer: false,
                 };
             }
         }
 
         Some(snapshot)
     }
+
+    fn capture_history(&mut self) -> Option<Vec<String>> {
+        let agent_id = self.attached_agent_id.clone()?;
+        let session_name = self
+            .sessions
+            .get(&agent_id)
+            .map(|s| s.session_name.clone())?;
+
+        // Remote sessions do not support local capture-pane history.
+        let is_remote = self
+            .sessions
+            .get(&agent_id)
+            .is_some_and(|s| s.launch_signature.remote.enabled);
+        if is_remote {
+            return None;
+        }
+
+        // Cache hit: same agent + generation + not dirty → reuse (fix #2/#10).
+        // The generation counter increments on take_dirty(). Also treat a
+        // currently-dirty viewer as a cache miss so input-driven refresh does
+        // not serve stale lines before take_dirty() bumps the generation.
+        let generation = self.output_generation();
+        let is_currently_dirty = self.is_dirty();
+        if !is_currently_dirty && let Some(cached) = self.history_cache.get(&agent_id, generation) {
+            return Some(cached.clone());
+        }
+
+        // Cache miss / dirty: re-capture. On transient failure, return prior
+        // cache so a momentary tmux hiccup doesn't wipe retained history.
+        let Some(raw_lines) = commands::capture_pane_history(&session_name, HISTORY_LINE_CAP)
+        else {
+            if let Some(prior) = self.history_cache.get_fallback(&agent_id) {
+                debug!(session_name = %session_name, "capture-pane failed; retaining prior cache");
+                return Some(prior.clone());
+            }
+            return None;
+        };
+
+        // Strip the visible pane rows (live snapshot already has them).
+        let live_rows = self.snapshot().map_or(0, |s| s.rows);
+        let lines = strip_trailing_rows(raw_lines, live_rows);
+
+        // Do NOT strip trailing blank lines — they may be real blank output,
+        // not tmux padding. Cache the result (including an empty capture) so
+        // we don't shell out every frame. Return `Some(lines)` consistently so
+        // the current frame and subsequent cache-hit frames agree (an empty
+        // capture returns `Some(vec![])`, not `None` — callers normalize via
+        // `map_or(0, Vec::len)`, and `None` is reserved for "no session /
+        // capture not applicable").
+        self.history_cache
+            .store(&agent_id, generation, Some(lines.clone()));
+
+        Some(lines)
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "manager_tests.rs"]
+mod tests;
 
-    // The `dead_signatures` field is private and the real mutating methods
-    // (`mark_session_dead`, `kill`) require a live tmux session to exercise
-    // end-to-end, which is not unit-test friendly. Instead this test targets
-    // the bound directly: it constructs an `LruCache` with the production
-    // capacity constant and proves that exceeding it evicts the oldest entries
-    // while never growing past the cap. This is the property the field relies
-    // on to prevent unbounded memory growth from repeated kill/recreate cycles.
-    #[test]
-    fn dead_signatures_cache_is_bounded_by_max_dead_signatures() {
-        let cap = MAX_DEAD_SIGNATURES.get();
-        let mut cache: LruCache<AgentId, LaunchSignature> = LruCache::new(MAX_DEAD_SIGNATURES);
-
-        // Insert well beyond the capacity.
-        for i in 0..cap + 10 {
-            let id = AgentId(format!("agent-{i}"));
-            let _ = cache.put(
-                id,
-                LaunchSignature {
-                    work_dir: std::path::PathBuf::from("/tmp"),
-                    profile: "default".into(),
-                    mode_flags: vec![],
-                    llxprt_debug: String::new(),
-                    pass_continue: true,
-                    sandbox_enabled: false,
-                    sandbox_engine: crate::domain::SandboxEngine::Podman,
-                    sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-                    remote: crate::domain::RemoteRepositorySettings::default(),
-                },
-            );
-        }
-
-        // The cache must never exceed the configured bound.
-        assert_eq!(cache.len(), cap);
-
-        // The oldest entries (agent-0 .. agent-9) were evicted; the most recent
-        // entries survive because they are the ones most likely to be relaunched.
-        assert!(cache.peek(&AgentId("agent-0".into())).is_none());
-        assert!(cache.peek(&AgentId("agent-9".into())).is_none());
-        assert!(
-            cache
-                .peek(&AgentId(format!("agent-{}", cap + 10 - 1)))
-                .is_some()
-        );
-    }
-
-    #[test]
-    fn clipboard_passthrough_tracking_memoizes_per_session() {
-        let mut mgr = TmuxRuntimeManager::new(40, 120);
-
-        // Initially nothing is enforced.
-        assert!(!mgr.clipboard_passthrough_enforced("jefe-agent-a"));
-        assert!(!mgr.clipboard_passthrough_enforced("jefe-agent-b"));
-
-        // Recording a session marks only that session.
-        mgr.record_clipboard_passthrough("jefe-agent-a");
-        assert!(mgr.clipboard_passthrough_enforced("jefe-agent-a"));
-        assert!(!mgr.clipboard_passthrough_enforced("jefe-agent-b"));
-
-        // Recording again is idempotent (HashSet dedup).
-        mgr.record_clipboard_passthrough("jefe-agent-a");
-        assert!(mgr.clipboard_passthrough_enforced("jefe-agent-a"));
-
-        // A second session is tracked independently.
-        mgr.record_clipboard_passthrough("jefe-agent-b");
-        assert!(mgr.clipboard_passthrough_enforced("jefe-agent-a"));
-        assert!(mgr.clipboard_passthrough_enforced("jefe-agent-b"));
-    }
-
-    #[test]
-    fn stub_take_dirty_always_returns_false() {
-        let mgr = StubRuntimeManager::default();
-        // The stub has no real PTY, so the dirty flag is always false.
-        assert!(
-            !mgr.take_dirty(),
-            "StubRuntimeManager should never be dirty"
-        );
-    }
-
-    #[test]
-    fn tmux_take_dirty_returns_false_without_viewer() {
-        let mgr = TmuxRuntimeManager::new(40, 120);
-        // No viewer attached → take_dirty must return false (not panic).
-        assert!(
-            !mgr.take_dirty(),
-            "take_dirty should return false when no viewer is attached"
-        );
-    }
-}
+#[cfg(test)]
+#[path = "history_tests.rs"]
+mod history_tests;

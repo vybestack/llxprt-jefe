@@ -12,7 +12,9 @@
     { "waitFor": "Pull Requests" },
     { "expect": "m merge" },
     { "capture": "pr-merge-keybind-bar" },
-    { "key": "C-q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
     { "waitForExit": 3000 }
   ]
 }

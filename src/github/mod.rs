@@ -19,6 +19,12 @@ mod create_issue;
 mod pr_threads;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};
 
+mod actions;
+pub use actions::{
+    WorkflowRunListResponse, build_runs_api_path, parse_api_runs_json, parse_jobs_json,
+    parse_runs_json, parse_single_run_json, parse_workflows_json,
+};
+
 mod parse;
 use parse::{active_issue_type_filter, issue_type_requires_search_filter};
 pub use parse::{
@@ -548,8 +554,6 @@ impl GhClient {
         ];
         let repo = format!("{owner}/{name}");
 
-        // Run the three gh fetches CONCURRENTLY (max(fetch) not sum(fetch)).
-        // GhClient is Sync; join() Err = worker panic, mapped to GhError.
         let (detail, comments, threads) = std::thread::scope(|s| {
             let detail_handle = s.spawn(|| {
                 let stdout = Self::run_gh(&args)?;
@@ -571,8 +575,6 @@ impl GhClient {
             let comments = comments_handle
                 .join()
                 .map_err(|_| worker_panic("comments fetch"))??;
-            // Threads are best-effort: a worker panic degrades to "no
-            // threads" (logged) rather than failing the whole load.
             let threads = threads_handle.join().unwrap_or_else(|_| {
                 tracing::warn!(
                     "review-threads fetch worker panicked for {owner}/{name}#{number}; \
@@ -583,8 +585,6 @@ impl GhClient {
             Ok::<_, GhError>((detail, comments, threads))
         })?;
 
-        // Assemble exactly as before: metadata/comments errors fail the
-        // whole load (propagated above); threads are best-effort.
         let mut detail = detail;
         detail.comments = comments.comments;
         detail.comments_cursor = comments.cursor;

@@ -11,6 +11,7 @@
 
 use iocraft::prelude::*;
 
+use crate::selection::TextSelection;
 use crate::theme::{ResolvedColors, ThemeColors};
 use crate::ui::components::ScrollableText;
 
@@ -31,6 +32,11 @@ pub fn help_content_lines() -> &'static [&'static str] {
         "  Tab         Focus next detail section",
         "  j/k         Detail section focus (alias)",
         "  F12         Toggle terminal focus",
+        "",
+        "Modes:",
+        "  i           Enter Issues mode",
+        "  p           Enter Pull Requests mode",
+        "  g           Enter Actions (workflows) mode",
         "",
         "Issues & PR detail:",
         "  Enter       Open detail",
@@ -56,7 +62,7 @@ pub fn help_content_lines() -> &'static [&'static str] {
         "  \u{2325}1-\u{2325}9       Jump to agent shortcut",
         "",
         "Other:",
-        "  1/2/3       Switch theme",
+        "  F9          Theme picker",
         "  ?/h/F1      This help",
         "  Ctrl-q/qqq  Quit",
     ]
@@ -72,11 +78,18 @@ pub struct HelpModalProps {
     /// Terminal rows available, used to size the scroll viewport so the modal
     /// never overflows the screen.
     pub available_rows: u16,
+    /// Active text selection for drag-highlight (issue #178).
+    pub selection: Option<TextSelection>,
 }
 
 /// Vertical chrome consumed outside the scroll viewport: border (2) + padding
 /// (2) + title (2) + footer (1).
-const HELP_CHROME_ROWS: u16 = 7;
+pub const HELP_CHROME_ROWS: u16 = 7;
+/// Modal width (columns). Used by both the renderer and the selection geometry.
+pub const HELP_MODAL_WIDTH: u16 = 60;
+/// Title displayed at the top of the help modal. Used by both the renderer
+/// and the selection content projection so they never drift.
+pub const HELP_TITLE: &str = "Help - Keyboard Shortcuts";
 /// Minimum lines shown at once (keeps the modal usable on short terminals).
 const HELP_MIN_VIEWPORT: usize = 8;
 /// Maximum lines shown at once even on very tall terminals.
@@ -138,7 +151,7 @@ pub fn HelpModal(props: &HelpModalProps) -> impl Into<AnyElement<'static>> {
             // Title
             Box(height: 2u32, background_color: rc.bg) {
                 Text(
-                    content: "Help - Keyboard Shortcuts",
+                    content: HELP_TITLE,
                     weight: Weight::Bold,
                     color: rc.fg,
                 )
@@ -158,6 +171,10 @@ pub fn HelpModal(props: &HelpModalProps) -> impl Into<AnyElement<'static>> {
                     max_line_width: HELP_MAX_LINE_WIDTH,
                     color: Some(rc.fg),
                     bg: Some(rc.bg),
+                    selection: props.selection,
+                    selection_bg: Some(rc.sel_bg),
+                    selection_fg: Some(rc.sel_fg),
+                    content_line_offset: 2usize,
                 )
             }
 
@@ -205,7 +222,7 @@ mod tests {
         // Previously-valid bindings must remain present (no regression).
         assert!(joined.contains("Space       Grab/move/drop reorder"));
         assert!(joined.contains("v           Toggle active-only"));
-        assert!(joined.contains("1/2/3       Switch theme"));
+        assert!(joined.contains("F9          Theme picker"));
     }
 
     /// `help_viewport_rows` honors the preferred minimum on normal terminals and
