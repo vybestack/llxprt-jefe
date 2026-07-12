@@ -561,7 +561,17 @@ fn update_app_selection(app_state: &mut HookState<AppState>, col: u16, row: u16)
         }
         let scroll_offset = scroll_offset_for_pane(&state, pane);
         let scroll_offset = effective_scroll_for_detail(pane, row, &geometry, scroll_offset);
-        let (line, c) = point_to_content_coords(col, row, scroll_offset, &geometry);
+        let (line, c) = crate::detail_wrap_map::content_coords_for_pane(
+            &state,
+            pane,
+            cols,
+            &crate::detail_wrap_map::ScreenCoord {
+                col,
+                row,
+                scroll_offset,
+                geometry: &geometry,
+            },
+        );
         let point = SelectionPoint::new(pane, line, c);
         drop(state);
         point
@@ -695,7 +705,17 @@ fn resolve_app_selection_point(
     let (pane, geometry) = resolve_pane(app_state, col, row, cols, rows, false)?;
     let scroll_offset = scroll_offset_for_pane(app_state, pane);
     let scroll_offset = effective_scroll_for_detail(pane, row, &geometry, scroll_offset);
-    let (line, c) = point_to_content_coords(col, row, scroll_offset, &geometry);
+    let (line, c) = crate::detail_wrap_map::content_coords_for_pane(
+        app_state,
+        pane,
+        cols,
+        &crate::detail_wrap_map::ScreenCoord {
+            col,
+            row,
+            scroll_offset,
+            geometry: &geometry,
+        },
+    );
     Some(SelectionPoint::new(pane, line, c))
 }
 

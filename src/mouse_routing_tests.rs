@@ -716,3 +716,154 @@ fn fullscreen_event_at(col: u16, row: u16, kind: MouseEventKind) -> iocraft::Ful
     event.modifiers = KeyModifiers::NONE;
     event
 }
+
+// ── Wrap-aware mouse→content reverse map (issue #212 follow-up) ──────────────
+//
+// When the issue detail body WORD-WRAPS, several display rows belong to the
+// SAME content line. A naive `row → content_line` map (1:1) would put a click
+// on a wrapped subrow onto the wrong line. `content_coords_for_pane` threads
+// the wrap projection through so the reverse map is exact.
+
+use crate::detail_wrap_map::{ScreenCoord, content_coords_for_pane, detail_wrap_projection};
+use jefe::domain::{IssueDetail, IssueState};
+use jefe::selection::PaneGeometry;
+
+/// Minimal AppState carrying a single issue detail with the given body.
+fn state_with_issue_body(body: &str) -> AppState {
+    let mut state = AppState::default();
+    state.issues_state.issue_detail = Some(IssueDetail {
+        repo_owner_name: "owner/repo".to_string(),
+        number: 1,
+        title: "T".to_string(),
+        state: IssueState::Open,
+        author_login: "a".to_string(),
+        created_at: String::new(),
+        updated_at: String::new(),
+        labels: Vec::new(),
+        assignees: Vec::new(),
+        milestone: None,
+        body: body.to_string(),
+        external_url: String::new(),
+        comments: Vec::new(),
+        has_more_comments: false,
+        comments_cursor: None,
+    });
+    state
+}
+
+/// PaneGeometry whose content origin is (0,0) so row N maps to content row N
+/// directly — keeping the math in the test legible.
+fn origin_geometry() -> PaneGeometry {
+    PaneGeometry {
+        origin_col: 0,
+        origin_row: 0,
+        width: 100,
+        height: 40,
+        content_origin_col: 0,
+        content_origin_row: 0,
+    }
+}
+
+/// A click on the SECOND wrapped row of a long body line must resolve to the
+/// SAME content line as the first row (the naive 1:1 map would return +1).
+#[test]
+fn wrapped_body_rows_resolve_to_same_content_line() {
+    use jefe::layout::DETAIL_HEADER_ROWS;
+    // A body that wraps to several rows at width 10.
+    let body = "alpha bravo charlie delta echo foxtrot";
+    let state = state_with_issue_body(body);
+    let geo = origin_geometry();
+    // col 40 yields a narrow wrap width (40 - sidebar 22 - chrome 6 = 12) so
+    // the body wraps to several rows.
+    let cols: u16 = 40;
+    let Some((content, _headers, width)) =
+        detail_wrap_projection(&state, SelectablePane::IssueDetail, cols)
+    else {
+        panic!("IssueDetail must have a wrap projection");
+    };
+    let content_line_count = content.lines().count();
+    let rows = jefe::ui::components::doc_wrap::wrap_document(&content, width);
+    // Sanity: wrapping produced more display rows than content lines.
+    assert!(
+        rows.len() > content_line_count,
+        "test premise: content must wrap ({} rows > {} lines)",
+        rows.len(),
+        content_line_count
+    );
+    // Scan the body region for two consecutive viewport rows that map to the
+    // SAME content line — the signature of a wrapped subrow pair. Under the
+    // old naive 1:1 map every row would map to a distinct line, so finding
+    // such a pair proves the wrap-aware reverse map is in effect.
+    let first_body_row = u16::try_from(DETAIL_HEADER_ROWS).unwrap_or(u16::MAX);
+    let mut found_pair = None;
+    for vp in first_body_row..first_body_row + 10 {
+        let (l1, _) = content_coords_for_pane(
+            &state,
+            SelectablePane::IssueDetail,
+            cols,
+            &ScreenCoord {
+                col: 0,
+                row: vp,
+                scroll_offset: 0,
+                geometry: &geo,
+            },
+        );
+        let (l2, _) = content_coords_for_pane(
+            &state,
+            SelectablePane::IssueDetail,
+            cols,
+            &ScreenCoord {
+                col: 0,
+                row: vp + 1,
+                scroll_offset: 0,
+                geometry: &geo,
+            },
+        );
+        if l1 == l2 {
+            found_pair = Some((vp, l1));
+            break;
+        }
+    }
+    let Some((vp, line)) = found_pair else {
+        panic!("a wrapped body line must produce two consecutive rows on one line");
+    };
+    // The content line must be the wrapped body text line (not "> Body" which
+    // is a single row): it carries the long body text.
+    let body_line_text = content.lines().nth(line - DETAIL_HEADER_ROWS).unwrap_or("");
+    assert!(
+        body_line_text.contains("alpha"),
+        "the wrapped pair (vp row {vp}, content line {line}) must be the long body text, got {body_line_text:?}"
+    );
+}
+
+/// A click on a header row keeps the naive mapping (headers do not wrap).
+#[test]
+fn header_row_uses_naive_mapping() {
+    use jefe::layout::DETAIL_HEADER_ROWS;
+    let state = state_with_issue_body("short");
+    let geo = origin_geometry();
+    let header_row = u16::try_from(DETAIL_HEADER_ROWS - 1).unwrap_or(u16::MAX);
+    let (line, _col) = content_coords_for_pane(
+        &state,
+        SelectablePane::IssueDetail,
+        120,
+        &ScreenCoord {
+            col: 5,
+            row: header_row,
+            scroll_offset: 99, // a non-zero scroll offset must be IGNORED for header rows
+            geometry: &geo,
+        },
+    );
+    // Header row maps to its own index regardless of scroll offset.
+    assert_eq!(line, usize::from(header_row));
+}
+
+/// Non-detail panes have no wrap projection and fall back to the naive map.
+#[test]
+fn non_detail_pane_has_no_wrap_projection() {
+    let state = AppState::default();
+    assert!(
+        detail_wrap_projection(&state, SelectablePane::IssueList, 120).is_none(),
+        "IssueList must not produce a wrap projection"
+    );
+}
