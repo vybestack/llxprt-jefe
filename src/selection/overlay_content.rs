@@ -300,6 +300,7 @@ mod tests {
                 signature,
                 issue: PreflightIssue::SshAgentNoIdentities,
                 remaining_issues: Vec::new(),
+                issue_self_assignment: None,
                 confirm_focus: crate::state::ConfirmFocus::Cancel,
             },
             ..Default::default()
@@ -523,6 +524,7 @@ mod tests {
                 signature: sig(),
                 issue: PreflightIssue::SshAgentNoIdentities,
                 remaining_issues: Vec::new(),
+                issue_self_assignment: None,
                 confirm_focus: ConfirmFocus::Cancel,
             },
             ModalState::ConfirmIssueDirtyCopy {

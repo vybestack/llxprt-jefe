@@ -596,7 +596,8 @@ impl AppState {
             | AppEvent::IssueCommentsPageFailed { .. }
             | AppEvent::CommentCreateFailed { .. }
             | AppEvent::MutationFailed { .. }
-            | AppEvent::SendToAgentFailed { .. } => self.apply_issues_error(event),
+            | AppEvent::SendToAgentFailed { .. }
+            | AppEvent::IssueSelfAssignmentFailed { .. } => self.apply_issues_error(event),
             _ => return false,
         }
         true

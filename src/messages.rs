@@ -316,6 +316,12 @@ pub enum IssuesMessage {
     SendToAgentFailed {
         error: String,
     },
+    /// Non-blocking self-assignment failure warning (issue #186).
+    IssueSelfAssignmentFailed {
+        owner_repo: String,
+        issue_number: u64,
+        error: String,
+    },
 }
 
 /// Pull Requests mode messages — mirrors `IssuesMessage` shape.
@@ -857,6 +863,7 @@ message_names!(IssuesMessage {
     Self::AgentChooserCancel => "AgentChooserCancel",
     Self::SendToAgentCompleted => "SendToAgentCompleted",
     Self::SendToAgentFailed { .. } => "SendToAgentFailed",
+    Self::IssueSelfAssignmentFailed { .. } => "IssueSelfAssignmentFailed",
 });
 
 // @plan PLAN-20260624-PR-MODE.P03

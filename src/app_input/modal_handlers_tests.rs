@@ -53,6 +53,7 @@ fn sample_confirm_modals(focus: ConfirmFocus) -> [ModalState; 6] {
             signature: sample_signature(),
             issue: PreflightIssue::SshAgentNoIdentities,
             remaining_issues: Vec::new(),
+            issue_self_assignment: None,
             confirm_focus: focus,
         },
         ModalState::ConfirmIssueDirtyCopy {
