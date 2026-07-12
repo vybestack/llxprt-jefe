@@ -15,6 +15,10 @@ fn render_markdown_block_memoized_is_idempotent() {
     let a = render_markdown_block(md, "  ", "(no body)");
     let b = render_markdown_block(md, "  ", "(no body)");
     assert_eq!(a, b, "identical args must return identical output");
+    assert!(
+        Arc::ptr_eq(&a, &b),
+        "identical args must return the memoized allocation"
+    );
 
     // Differing prefix (key includes prefix).
     let pfx_l = render_markdown_block(md, "L>", "(no body)");

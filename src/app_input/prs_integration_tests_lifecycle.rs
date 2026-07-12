@@ -201,7 +201,7 @@ fn esc_l5_nothing_open_exits() {
 /// PrList-focused) Esc exits.
 ///
 /// Drives the REAL key router `prs::resolve_prs_key_event(&state,
-/// &key(KeyCode::Esc))` at EACH precedence level (the genuine 8-level
+/// &key(KeyCode::Esc))` at EACH precedence level (the genuine 7-outcome
 /// resolver in `src/app_input/prs.rs`), asserting the EXACT emitted
 /// `AppEvent` variant via `matches!`, THEN applying it through the reducer
 /// (`AppState::apply`) and asserting the resulting state. Each level is

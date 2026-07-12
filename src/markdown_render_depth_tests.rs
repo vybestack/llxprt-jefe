@@ -3,9 +3,9 @@
 //!
 //! Untrusted GitHub content can contain deeply-nested markdown (blockquotes,
 //! lists, emphasis) that — without a depth guard — overflows the process
-//! stack via the mutually-recursive block-rendering walk. These tests prove
-//! the `MAX_RENDER_DEPTH` guard prevents a crash and emits a visible
-//! fallback line instead.
+//! stack via mutually-recursive rendering. These tests prove the
+//! `MAX_RENDER_DEPTH` guard prevents a crash: block recursion emits a visible
+//! fallback line, while inline recursion truncates safely at the limit.
 //!
 //! Split out of `markdown_render_tests.rs` to keep each test module under
 //! the source-file length policy.
