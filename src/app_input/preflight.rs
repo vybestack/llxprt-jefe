@@ -35,6 +35,7 @@ pub fn preflight_or_prompt(
             issue,
             remaining_issues: Vec::new(),
             issue_self_assignment: issue_self_assignment.cloned(),
+            confirm_focus: jefe::state::ConfirmFocus::Cancel,
         };
         let persisted = to_persisted_state(&state);
         drop(state);
@@ -183,6 +184,7 @@ fn persist_next_preflight(
         issue,
         remaining_issues: Vec::new(),
         issue_self_assignment,
+        confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
     persist_state_guard(ctx, state);
 }

@@ -223,6 +223,7 @@ fn prompt_dirty_copy_confirm(
         work_dir: work_dir.to_path_buf(),
         signature: launch_sig,
         payload,
+        confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
     let persisted = to_persisted_state(&state);
     drop(state);
@@ -245,6 +246,7 @@ fn prompt_origin_mismatch_confirm(
         payload: prep_ctx.payload.clone(),
         actual: origins.actual,
         expected: origins.expected,
+        confirm_focus: jefe::state::ConfirmFocus::Cancel,
     };
     let persisted = to_persisted_state(&state);
     drop(state);

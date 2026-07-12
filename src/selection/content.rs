@@ -925,6 +925,7 @@ mod tests {
         state.modal = ModalState::ConfirmDeleteAgent {
             id: agent_id,
             delete_work_dir: false,
+            confirm_focus: crate::state::ConfirmFocus::Cancel,
         };
         let content = pane_content_lines(SelectablePane::ConfirmModal, &state, None, &[], 120, 40);
         assert!(

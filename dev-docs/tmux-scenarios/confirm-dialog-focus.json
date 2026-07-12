@@ -1,0 +1,37 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 32,
+    "history_limit": 2000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "Right" },
+    { "key": "D" },
+    { "waitFor": "Delete Agent" },
+    { "expect": "( Cancel )" },
+    { "capture": "confirm-default-cancel" },
+    { "key": "Right" },
+    { "expect": "( Confirm )" },
+    { "capture": "confirm-focus-confirm" },
+    { "key": "Left" },
+    { "expect": "( Cancel )" },
+    { "capture": "confirm-focus-back-to-cancel" },
+    { "key": "Enter" },
+    { "waitForNot": "Delete Agent" },
+    { "capture": "confirm-enter-cancel-dismisses" },
+    { "key": "Right" },
+    { "key": "D" },
+    { "waitFor": "Delete Agent" },
+    { "key": "Right" },
+    { "expect": "( Confirm )" },
+    { "key": "Enter" },
+    { "waitFor": "LLxprt Jefe" },
+    { "waitForNot": "Delete Agent" },
+    { "capture": "confirm-enter-confirm-deletes" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}
