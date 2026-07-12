@@ -96,8 +96,15 @@ impl ConfirmedReclone {
 /// contents. The required [`ConfirmedReclone`] token is the compile-time
 /// guarantee that the caller has already obtained explicit user confirmation
 /// (via the `ConfirmIssueOriginMismatch` modal) — the token cannot be
-/// constructed outside this module.
-pub(super) fn remove_workdir(work_dir: &Path, _confirmed: ConfirmedReclone) -> Result<(), String> {
+/// constructed outside this module. The parameter is named without an
+/// underscore prefix deliberately: its presence (not its value) IS the
+/// safety contract, so an underscore would misleadingly suggest it is unused.
+pub(super) fn remove_workdir(work_dir: &Path, confirmed: ConfirmedReclone) -> Result<(), String> {
+    // The token's presence at the call site is the proof; it is not read
+    // here. Binding it by name (then discarding) avoids an unused-variable
+    // warning while keeping the parameter name (and thus the contract)
+    // self-documenting.
+    let _ = confirmed;
     std::fs::remove_dir_all(work_dir)
         .map_err(|e| format!("Failed to remove workdir {}: {e}", work_dir.display()))
 }
