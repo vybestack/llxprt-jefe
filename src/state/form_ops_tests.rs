@@ -54,6 +54,27 @@ fn open_new_agent_initializes_llxprt_debug_blank() {
 }
 
 #[test]
+fn open_new_agent_copies_repository_code_puppy_model() {
+    let mut repo = seed_repository();
+    repo.default_code_puppy_model = "repo/default-model".to_owned();
+    let mut state = AppState {
+        repositories: vec![repo],
+        ..AppState::default()
+    };
+
+    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+
+    let ModalState::NewAgent { fields, cursor, .. } = state.modal else {
+        panic!("expected new-agent modal, got {:?}", state.modal);
+    };
+    assert_eq!(fields.code_puppy_model, "repo/default-model");
+    assert_eq!(
+        cursor.code_puppy_model,
+        "repo/default-model".chars().count()
+    );
+}
+
+#[test]
 fn open_new_agent_defaults_to_repo_kind_when_installed() {
     let mut repo = seed_repository();
     repo.default_agent_kind = crate::domain::AgentKind::CodePuppy;

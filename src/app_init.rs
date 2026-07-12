@@ -23,11 +23,7 @@ fn launch_signature_for_agent(
     LaunchSignature {
         work_dir: agent.work_dir.clone(),
         profile: agent.profile.clone(),
-        code_puppy_model: if agent.code_puppy_model.trim().is_empty() {
-            repository.default_code_puppy_model.trim().to_owned()
-        } else {
-            agent.code_puppy_model.trim().to_owned()
-        },
+        code_puppy_model: agent.code_puppy_model.trim().to_owned(),
         code_puppy_yolo: agent.code_puppy_yolo,
         code_puppy_quick_resume: agent.code_puppy_quick_resume,
         mode_flags: agent.mode_flags.clone(),
@@ -491,28 +487,18 @@ mod tests {
     }
 
     #[test]
-    fn launch_signature_inherits_repository_code_puppy_model() {
-        let (agent, repository) = code_puppy_agent_and_repository();
-
-        let signature = launch_signature_for_agent(&agent, &repository);
-
-        assert_eq!(signature.code_puppy_model, "repo/default-model");
-    }
-
-    #[test]
-    fn launch_signature_prefers_agent_code_puppy_model_override() {
+    fn launch_signature_uses_agent_code_puppy_model() {
         let (mut agent, repository) = code_puppy_agent_and_repository();
-        agent.code_puppy_model = "  agent/override-model  ".to_owned();
+        agent.code_puppy_model = "  agent/model  ".to_owned();
 
         let signature = launch_signature_for_agent(&agent, &repository);
 
-        assert_eq!(signature.code_puppy_model, "agent/override-model");
+        assert_eq!(signature.code_puppy_model, "agent/model");
     }
 
     #[test]
-    fn launch_signature_keeps_code_puppy_model_empty_when_unconfigured() {
-        let (agent, mut repository) = code_puppy_agent_and_repository();
-        repository.default_code_puppy_model = "   ".to_owned();
+    fn launch_signature_does_not_dynamically_inherit_repository_model() {
+        let (agent, repository) = code_puppy_agent_and_repository();
 
         let signature = launch_signature_for_agent(&agent, &repository);
 
