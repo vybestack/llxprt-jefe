@@ -214,8 +214,11 @@ impl<T, I> PaginatedList<T, I> {
         self.selected_index = None;
     }
 
-    /// Full reset to default state (items, selection, identity, continuation,
-    /// pending). Used on scope changes (e.g. repo switch).
+    /// Reset list content and pagination for a scope change (e.g. repo switch).
+    ///
+    /// Clears items, selection, identity, continuation, and any pending
+    /// operation. The `last_request_id` counter is intentionally retained so
+    /// request ids never recycle across scope changes (monotonic-id guarantee).
     pub fn clear(&mut self) {
         self.items.clear();
         self.selected_index = None;
@@ -276,6 +279,10 @@ impl<T, I: Clone> PaginatedList<T, I> {
 
     /// Core reload begin: supersede any pending operation, reset continuation,
     /// store identity, and set the pending reload.
+    ///
+    /// A reload always wins: any in-flight page request is abandoned (its
+    /// result will be `Stale` when it arrives). The return value is always
+    /// `Started`; callers track their request id to correlate the response.
     pub fn begin_reload_with_visibility(
         &mut self,
         identity: I,
@@ -413,34 +420,7 @@ impl<T, I: PartialEq> PaginatedList<T, I> {
     /// On match: clear pending, preserve rows/selection/identity/continuation.
     /// Always returns `Applied` on match (never `Empty`).
     pub fn accept_failure(&mut self, correlation: &LoadCorrelation<I>) -> AcceptOutcome {
-        let matches = match (&self.pending, correlation) {
-            (
-                Some(PendingLoad::Reload {
-                    identity: pid,
-                    request_id: preq,
-                    ..
-                }),
-                LoadCorrelation::Reload {
-                    identity: cid,
-                    request_id: creq,
-                },
-            ) => *pid == *cid && *preq == *creq,
-            (
-                Some(PendingLoad::Page {
-                    identity: pid,
-                    token: ptok,
-                    request_id: preq,
-                }),
-                LoadCorrelation::Page {
-                    identity: cid,
-                    token: ctok,
-                    request_id: creq,
-                },
-            ) => *pid == *cid && *ptok == *ctok && *preq == *creq,
-            _ => false,
-        };
-
-        if matches {
+        if self.pending_matches(correlation) {
             self.pending = None;
             AcceptOutcome::Applied
         } else {
@@ -451,17 +431,16 @@ impl<T, I: PartialEq> PaginatedList<T, I> {
     /// Whether the given correlation is stale (does not match the pending op).
     #[must_use]
     pub fn is_stale(&self, correlation: &LoadCorrelation<I>) -> bool {
-        !matches!(
-            self.accept_failure_proxy(correlation),
-            AcceptOutcome::Applied
-        )
+        !self.pending_matches(correlation)
     }
 
-    /// Non-mutating proxy for `is_stale` — checks the same matching logic
-    /// without clearing pending. We duplicate the match to avoid mutating in a
-    /// predicate (accept_failure clears pending on match).
-    fn accept_failure_proxy(&self, correlation: &LoadCorrelation<I>) -> AcceptOutcome {
-        let matches = match (&self.pending, correlation) {
+    /// Single source of truth for correlating a result with the pending op.
+    ///
+    /// Matches by operation kind, identity, request id, and (for pages) the
+    /// requested continuation token. `accept_failure` and `is_stale` both
+    /// delegate here so stale detection can never diverge from acceptance.
+    fn pending_matches(&self, correlation: &LoadCorrelation<I>) -> bool {
+        match (&self.pending, correlation) {
             (
                 Some(PendingLoad::Reload {
                     identity: pid,
@@ -486,11 +465,6 @@ impl<T, I: PartialEq> PaginatedList<T, I> {
                 },
             ) => *pid == *cid && *ptok == *ctok && *preq == *creq,
             _ => false,
-        };
-        if matches {
-            AcceptOutcome::Applied
-        } else {
-            AcceptOutcome::Stale
         }
     }
 }
