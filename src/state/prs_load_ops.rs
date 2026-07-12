@@ -575,8 +575,7 @@ impl AppState {
         self.prs_state
             .list
             .next_request_id()
-            .map(ListRequestId::get)
-            .unwrap_or(0)
+            .map_or(0, ListRequestId::get)
     }
 
     /// Handle PR data-loaded events (dispatched from apply_prs_event).

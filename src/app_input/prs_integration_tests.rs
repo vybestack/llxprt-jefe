@@ -757,8 +757,7 @@ fn it_missing_github_repo_shows_inline_config_error() {
         .prs_state
         .list
         .next_request_id()
-        .map(jefe::domain::ListRequestId::get)
-        .unwrap_or(0);
+        .map_or(0, jefe::domain::ListRequestId::get);
     state.prs_state.list.begin_reload(
         jefe::state::PrListIdentity {
             scope_repo_id: scope.clone(),

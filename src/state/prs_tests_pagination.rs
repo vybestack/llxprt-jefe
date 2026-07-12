@@ -48,8 +48,7 @@ fn load_first_page_and_navigate_to_end(state: &mut AppState) -> u64 {
         .prs_state
         .list
         .next_request_id()
-        .map(crate::domain::ListRequestId::get)
-        .unwrap_or(0);
+        .map_or(0, crate::domain::ListRequestId::get);
     let cursor = match state.prs_state.list.next_page() {
         PageToken::Cursor(c) => Some(c.clone()),
         _ => None,
@@ -113,8 +112,7 @@ fn assert_stale_pages_discarded(state: &mut AppState) {
         .prs_state
         .list
         .next_request_id()
-        .map(crate::domain::ListRequestId::get)
-        .unwrap_or(0);
+        .map_or(0, crate::domain::ListRequestId::get);
     let cursor = match state.prs_state.list.next_page() {
         PageToken::Cursor(c) => Some(c.clone()),
         _ => None,

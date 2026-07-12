@@ -1,0 +1,5 @@
+Fix clippy map_unwrap_or in PRs request-id allocation sites
+
+CI clippy (1.97.0) flags .map(f).unwrap_or(0) on Result as
+map_unwrap_or; replace with .map_or(0, f) in prs_load_ops and the
+PRs pagination/detail-flow/integration tests.

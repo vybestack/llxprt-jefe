@@ -223,8 +223,7 @@ fn test_list_page_loaded_appends_without_reordering() {
         .prs_state
         .list
         .next_request_id()
-        .map(crate::domain::ListRequestId::get)
-        .unwrap_or(0);
+        .map_or(0, crate::domain::ListRequestId::get);
     state.prs_state.list.begin_page(
         crate::domain::PageToken::Cursor("cursor-1".to_string()),
         crate::domain::ListRequestId::from_raw(page_request_id),
