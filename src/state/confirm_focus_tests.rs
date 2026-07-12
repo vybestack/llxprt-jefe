@@ -5,7 +5,10 @@
 //! - `ConfirmCycleFocus` toggles Cancel ↔ Confirm.
 //! - `ConfirmCycleFocus` is a no-op for non-confirm modals.
 //! - `ToggleDeleteWorkDir` preserves the focus value.
-//! - The dirty-copy and origin-mismatch modals default to Cancel.
+//! - The `ConfirmFocus` enum default is Cancel, pinned by
+//!   `confirm_focus_default_is_cancel`; every production modal-opening site
+//!   also sets `ConfirmFocus::Cancel` explicitly (see `modal_ops.rs`,
+//!   `issues_send.rs`, `preflight.rs`, and `app_input/mod.rs`).
 
 use super::{AppEvent, AppState, ConfirmFocus, ModalState};
 use crate::domain::{AgentId, LaunchSignature, RepositoryId, SandboxEngine};
@@ -129,43 +132,18 @@ fn toggle_delete_work_dir_preserves_confirm_focus() {
     }
 }
 
+/// The ConfirmFocus default MUST be Cancel so that any confirm modal
+/// opened via Default::default() (or any opening site that relies on the
+/// enum default) lands on the safe, non-destructive button (issue #228).
+/// This is the structural guarantee behind "destructive confirms default to
+/// Cancel" — every production opening site also sets Cancel explicitly, but
+/// this test pins the enum-level safety net.
 #[test]
-fn confirm_focus_defaults_cancel_for_dirty_copy() {
-    let state = AppState {
-        modal: ModalState::ConfirmIssueDirtyCopy {
-            agent_id: AgentId("a1".into()),
-            work_dir: std::path::PathBuf::from("/tmp"),
-            signature: sample_signature(),
-            payload: SendPayload::default(),
-            confirm_focus: ConfirmFocus::Cancel,
-        },
-        ..AppState::default()
-    };
+fn confirm_focus_default_is_cancel() {
     assert_eq!(
-        state.current_confirm_focus(),
-        Some(ConfirmFocus::Cancel),
-        "dirty-copy confirm must default to Cancel"
-    );
-}
-
-#[test]
-fn confirm_focus_defaults_cancel_for_origin_mismatch() {
-    let state = AppState {
-        modal: ModalState::ConfirmIssueOriginMismatch {
-            agent_id: AgentId("a1".into()),
-            work_dir: std::path::PathBuf::from("/tmp"),
-            signature: sample_signature(),
-            payload: SendPayload::default(),
-            actual: String::from("other/repo"),
-            expected: String::from("acme/widgets"),
-            confirm_focus: ConfirmFocus::Cancel,
-        },
-        ..AppState::default()
-    };
-    assert_eq!(
-        state.current_confirm_focus(),
-        Some(ConfirmFocus::Cancel),
-        "origin-mismatch confirm must default to Cancel"
+        ConfirmFocus::default(),
+        ConfirmFocus::Cancel,
+        "ConfirmFocus must default to Cancel so destructive confirms are safe by default"
     );
 }
 
