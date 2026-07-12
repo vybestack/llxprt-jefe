@@ -476,6 +476,7 @@ mod tests {
                 profile: String::new(),
                 code_puppy_model: String::new(),
                 code_puppy_yolo: Some(false),
+                code_puppy_quick_resume: false,
                 mode_flags: Vec::new(),
                 llxprt_debug: String::new(),
                 pass_continue: false,

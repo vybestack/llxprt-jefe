@@ -983,7 +983,6 @@ mod preflight_gating_tests;
 
 // @plan PLAN-20260624-PR-MODE.P15
 // @requirement REQ-PR-001
-// @pseudocode component-001 lines 66-291
 #[cfg(test)]
 #[path = "prs_integration_tests.rs"]
 mod prs_integration_tests;
