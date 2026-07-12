@@ -96,25 +96,39 @@ impl RemotePrepPlanner {
     /// This is pure — it does not inspect the remote filesystem. Callers
     /// supply `presence`, `is_dirty`, and `origin_mismatch` to drive the
     /// branching deterministically.
-    #[must_use]
-    pub(super) fn plan(&self, inputs: &PlanInputs<'_>) -> Vec<PlannedRemoteOp> {
+    ///
+    /// Returns `Err` with a static reason when the planned state is a hard
+    /// error in the live runner (e.g. `WorkdirPresence::NotGit`), so tests can
+    /// assert that the planner and runner agree on the error path rather than
+    /// the planner silently emitting an empty plan.
+    pub(super) fn plan(
+        &self,
+        inputs: &PlanInputs<'_>,
+    ) -> Result<Vec<PlannedRemoteOp>, &'static str> {
         let mut ops = Vec::new();
         let escaped_work = shell_escape(&inputs.work_dir.to_string_lossy());
-        let is_git = inputs.presence == WorkdirPresence::Git;
         let PlanInputs {
             work_dir,
             identity,
             policy,
-            presence: _,
+            presence,
             is_dirty,
             origin_mismatch,
             prompt,
         } = inputs;
+        let is_git = *presence == WorkdirPresence::Git;
+
+        // NotGit is a hard error in the live runner (exists but is not a git
+        // worktree): encode it here rather than emitting an empty plan, so a
+        // planner/runner divergence would be caught by tests.
+        if *presence == WorkdirPresence::NotGit {
+            return Err("exists but is not a git worktree");
+        }
 
         // Origin mismatch short-circuits before any destructive op, mirroring
         // the Dirty+Stop short-circuit. The caller opens the confirm modal.
         if is_git && *origin_mismatch {
-            return ops;
+            return Ok(ops);
         }
 
         // 1. Clone if missing.
@@ -133,12 +147,13 @@ impl RemotePrepPlanner {
                     );
                     ops.push(self.wrapped_ssh_op(&script, None));
                 }
-                None => return ops,
+                None => return Ok(ops),
             }
         }
 
-        // 2. Dirty check.
-        if inputs.presence != WorkdirPresence::NotGit {
+        // 2. Dirty check. NotGit was already handled above as a hard error,
+        // so this branch covers Git (pre-existing) and Absent (just cloned).
+        {
             // After clone the worktree is clean; only check dirty when it
             // pre-existed as a git worktree.
             if is_git && *is_dirty {
@@ -146,7 +161,7 @@ impl RemotePrepPlanner {
                     DirtyPolicy::Stop => {
                         // Stop: no further ops. The caller opens the confirm
                         // modal; no reset/clean is planned.
-                        return ops;
+                        return Ok(ops);
                     }
                     DirtyPolicy::Discard => {
                         // Discard: reset --hard + clean -fd with exclusions.
@@ -195,7 +210,7 @@ impl RemotePrepPlanner {
             ops.push(self.wrapped_ssh_op(&script, Some((*prompt).to_owned())));
         }
 
-        ops
+        Ok(ops)
     }
 
     /// Plan the force-reclone sequence: resolve URL → rm → clone → checkout →
@@ -562,7 +577,7 @@ impl RemotePrepRunner {
                     // just a missing one) surfaces a diagnosable actual value
                     // rather than an empty string indistinguishable from
                     // "no origin".
-                    let actual = jefe::git_info::parse_origin_url(raw_url)
+                    let actual = jefe::git_info::origin_display_shortform(raw_url)
                         .filter(|s| !s.is_empty())
                         .unwrap_or_else(|| raw_url.to_owned());
                     Ok(Some(PrepOutcome::OriginMismatch {
@@ -654,15 +669,19 @@ impl RemotePrepRunner {
         let rm_script = format!("rm -rf {escaped_work}");
         self.run_wrapped(&rm_script)?;
 
+        // Any failure from here (clone or prep) occurs AFTER the original
+        // workdir has been destroyed. Annotate the error so the user knows
+        // their data is already gone and which step failed.
         // 3. Clone from the resolved URL.
         let clone_script = format!(
             "set -e; {mkdir_parent} git clone -- {url} {escaped_work}",
             mkdir_parent = mkdir_parent_for(work_dir),
             url = shell_escape(&url),
         );
-        self.run_wrapped(&clone_script)?;
+        self.run_wrapped(&clone_script)
+            .map_err(|e| format!("After removing the mismatched remote work_dir, the clone failed (the original working copy at {} is already gone): {e}", work_dir.display()))?;
 
-        // 3. Post-clone prep: resolve default branch + fetch + checkout.
+        // 4. Post-clone prep: resolve default branch + fetch + checkout.
         let checkout_script = format!(
             "set -e; cd {escaped_work}; \
              branch=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@'); \
@@ -676,7 +695,8 @@ impl RemotePrepRunner {
                  exit 1; \
              fi",
         );
-        self.run_wrapped(&checkout_script)?;
+        self.run_wrapped(&checkout_script)
+            .map_err(|e| format!("After force-recloning {} remotely (the original working copy is already gone), post-clone prep failed: {e}", work_dir.display()))?;
 
         // 4. mkdir .jefe + write prompt via stdin.
         let jefe_dir = shell_escape(&work_dir.join(".jefe").to_string_lossy());
@@ -700,6 +720,11 @@ impl RemotePrepRunner {
         relative_path: &str,
         prompt_bytes: &[u8],
     ) -> Result<(), String> {
+        // Defense-in-depth: validate the relative path even though current
+        // call sites pass the safe ISSUE_PROMPT_RELATIVE_PATH constant. This
+        // guards against future misuse of this pub(super) API with a
+        // traversal value (e.g. ../../etc/passwd) that would escape work_dir.
+        super::validate_prompt_relative_path(relative_path)?;
         let jefe_dir = shell_escape(&work_dir.join(".jefe").to_string_lossy());
         let prompt_path = shell_escape(&work_dir.join(relative_path).to_string_lossy());
         let script = format!("set -e; mkdir -p {jefe_dir}; cat > {prompt_path}");

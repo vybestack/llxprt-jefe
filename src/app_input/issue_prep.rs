@@ -199,10 +199,14 @@ pub(super) fn force_reclone_local_with_url(
             super::issue_git_prep::ConfirmedReclone::confirmed(),
         )?;
     }
-    // Clone from the resolved URL.
-    ensure_workdir_cloned(work_dir, Some(clone_url))?;
-    // Post-clone prep (dirty-check is Stop, but a fresh clone is clean).
+    // Any failure from here (clone or prep) occurs AFTER the original workdir
+    // has been destroyed. Annotate the error so the user understands their
+    // data is already gone and what step failed, rather than seeing a bare
+    // clone/prep error that hides the destruction.
+    ensure_workdir_cloned(work_dir, Some(clone_url))
+        .map_err(|e| format!("After removing the mismatched work_dir, the clone failed (the original working copy at {} is already gone): {e}", work_dir.display()))?;
     run_local_policy_and_prep(work_dir, DirtyPolicy::Stop, prompt)
+        .map_err(|e| format!("After force-recloning {} (the original working copy is already gone), post-clone prep failed: {e}", work_dir.display()))
 }
 
 /// Local-target prep sequence.
@@ -257,7 +261,7 @@ fn write_prompt_local(work_dir: &Path, prompt: &str) -> Result<(), String> {
 /// be relative (no leading `/`), and contain no path-traversal components
 /// (`..`). This prevents absolute-path injection and directory traversal when
 /// the path is joined with the work dir or interpolated into a remote shell.
-fn validate_prompt_relative_path(relative_path: &str) -> Result<(), String> {
+pub(super) fn validate_prompt_relative_path(relative_path: &str) -> Result<(), String> {
     if !relative_path.starts_with(".jefe/") {
         return Err(format!(
             "Prompt path {relative_path:?} must start with '.jefe/'"

@@ -254,7 +254,7 @@ fn detect_origin_shortform(work_dir: &Path) -> Option<String> {
         return None;
     }
     let url = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    parse_origin_url(&url)
+    origin_display_shortform(&url)
 }
 
 /// A parsed repository origin with host identity preserved.
@@ -404,8 +404,34 @@ fn extract_host_from_scheme(authority: &str) -> String {
 /// `Repository.github_repo`. Note: this function **strips the host** and is
 /// kept for backwards-compatible display use; for host-aware security
 /// comparison use [`parse_repository_origin`].
+///
+/// # Deprecated
+///
+/// This function strips the host and is unsafe for origin-mismatch security
+/// checks: a URL like `git@evil.example.com:owner/repo.git` would normalize to
+/// the same `owner/repo` as the configured GitHub repo and wrongly "match".
+/// New code MUST use [`parse_repository_origin`] (which retains the host) for
+/// any comparison, and [`origin_display_shortform`] for display. This wrapper
+/// is retained only for backwards compatibility with external callers.
+#[deprecated(
+    since = "0.4.0",
+    note = "use parse_repository_origin for security comparisons (this strips the host); use origin_display_shortform for display"
+)]
 #[must_use]
 pub fn parse_origin_url(url: &str) -> Option<String> {
+    parse_repository_origin(url).map(|parsed| parsed.owner_repo)
+}
+
+/// Normalize an origin URL to an `owner/repo` shortform for **display only**.
+///
+/// This is the non-deprecated replacement for [`parse_origin_url`] when the
+/// result is shown to the user (e.g. in an error message). It deliberately
+/// strips the host and therefore MUST NOT be used for origin-mismatch
+/// security comparisons — for those, use [`parse_repository_origin`], which
+/// retains the host so a same-`owner/repo` URL on a different host is
+/// correctly rejected.
+#[must_use]
+pub fn origin_display_shortform(url: &str) -> Option<String> {
     parse_repository_origin(url).map(|parsed| parsed.owner_repo)
 }
 

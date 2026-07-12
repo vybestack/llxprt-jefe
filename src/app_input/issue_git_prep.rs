@@ -17,6 +17,15 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+/// Safety guards for the destructive force-reclone path (issue #190).
+///
+/// Re-exported here so callers can reference
+/// `super::issue_git_prep::validate_reclone_target` regardless of the internal
+/// module split.
+#[path = "reclone_safety.rs"]
+mod reclone_safety;
+pub(super) use reclone_safety::validate_reclone_target;
+
 /// Paths that jefe/llxprt own and that must never count as "dirty" working
 /// copy state, nor be swept by cleanup. Matched as path *prefixes* against
 /// the porcelain path column.
@@ -56,55 +65,19 @@ pub(super) fn path_exists(work_dir: &Path) -> bool {
 /// an existing non-git directory fails safely.
 pub(super) fn ensure_workdir_cloned(work_dir: &Path, clone_url: Option<&str>) -> PrepResult {
     let assurance = ensure_workdir_with_origin(work_dir, clone_url, None)?;
-    // With no expected shortform, OriginMismatch is unreachable: the inner
+    // With no expected shortform, OriginMismatch cannot occur: the inner
     // function only emits it when a shortform was provided for comparison.
-    // Match exhaustively so a future caller passing a shortform here is a
-    // compile error rather than a silently-discarded mismatch.
+    // Match exhaustively so a future caller adding a shortform here is a
+    // compile error rather than a silently-discarded mismatch, and return a
+    // descriptive error (never a runtime panic) if the invariant is somehow
+    // violated.
     match assurance {
         WorkdirAssurance::Ready | WorkdirAssurance::JustCloned => Ok(()),
-        WorkdirAssurance::OriginMismatch { .. } => unreachable!(
+        WorkdirAssurance::OriginMismatch { .. } => Err(
             "OriginMismatch requires an expected shortform, which ensure_workdir_cloned never passes"
+                .to_owned(),
         ),
     }
-}
-
-/// Validate that `work_dir` is a safe target for a destructive force-reclone.
-///
-/// Rejects targets that would cause catastrophic data loss if removed:
-/// - empty/whitespace-only paths,
-/// - the filesystem root (`/` on Unix, `` on Windows),
-/// - a bare drive root (`C:`) on Windows,
-/// - a path with fewer than two named components (e.g. `/home`, `/tmp`),
-///   which is too broad to remove in an automated reclone.
-///
-/// This is a defense-in-depth guard: the `ConfirmedReclone` token already
-/// proves the user confirmed, but a misconfigured `work_dir` (root, empty,
-/// or a top-level directory) must never reach `rm -rf` even with
-/// confirmation. The check is locale- and platform-independent and has no
-/// side effects.
-pub(super) fn validate_reclone_target(work_dir: &Path) -> Result<(), String> {
-    let lossy = work_dir.to_string_lossy();
-    let trimmed = lossy.trim();
-    if trimmed.is_empty() {
-        return Err("Refusing to force-reclone: work_dir is empty.".to_owned());
-    }
-    // Count named components (Normal). Root/prefix/curdir/parent don't count.
-    // A safe work_dir has at least two named components (e.g. /home/user,
-    // /tmp/agent1), so removing it cannot nuke a top-level OS directory like
-    // /home or /tmp.
-    let named_count = work_dir
-        .components()
-        .filter(|c| matches!(c, std::path::Component::Normal(_)))
-        .count();
-    if named_count < 2 {
-        return Err(format!(
-            "Refusing to force-reclone {}: it resolves to a filesystem root or a top-level \
-             directory, which would delete too much. The work_dir must have at least two path \
-             components.",
-            work_dir.display()
-        ));
-    }
-    Ok(())
 }
 
 /// Zero-sized proof token that the caller has obtained explicit user
@@ -201,7 +174,7 @@ pub(super) fn ensure_workdir_with_origin(
                     // a missing one) surfaces a diagnosable actual value
                     // rather than an empty string indistinguishable from
                     // "no origin".
-                    let actual = jefe::git_info::parse_origin_url(&raw_url)
+                    let actual = jefe::git_info::origin_display_shortform(&raw_url)
                         .filter(|s| !s.is_empty())
                         .unwrap_or_else(|| raw_url.clone());
                     Ok(WorkdirAssurance::OriginMismatch {
@@ -945,38 +918,5 @@ mod tests {
             "https://GitHub.COM/acme/widgets.git",
             "acme/widgets"
         ));
-    }
-
-    // ── validate_reclone_target: catastrophic-target guard ───────────
-
-    #[test]
-    fn validate_reclone_target_rejects_empty() {
-        assert!(validate_reclone_target(Path::new("")).is_err());
-        assert!(validate_reclone_target(Path::new("   ")).is_err());
-    }
-
-    #[test]
-    fn validate_reclone_target_rejects_filesystem_root() {
-        assert!(
-            validate_reclone_target(Path::new("/")).is_err(),
-            "root must be rejected"
-        );
-    }
-
-    #[test]
-    fn validate_reclone_target_rejects_top_level_entry() {
-        // A single component directly under root (no meaningful parent)
-        // is too destructive for an automated reclone.
-        assert!(validate_reclone_target(Path::new("/home")).is_err());
-        assert!(validate_reclone_target(Path::new("/tmp")).is_err());
-    }
-
-    #[test]
-    fn validate_reclone_target_accepts_nested_path() {
-        assert!(
-            validate_reclone_target(Path::new("/home/user/work/agent1")).is_ok(),
-            "a normal nested work_dir must be accepted"
-        );
-        assert!(validate_reclone_target(Path::new("/srv/repos/jefe/agents/a1")).is_ok(),);
     }
 }

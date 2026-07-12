@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn parse_ssh_url() {
     assert_eq!(
-        parse_origin_url("git@github.com:vybestack/llxprt-jefe.git"),
+        origin_display_shortform("git@github.com:vybestack/llxprt-jefe.git"),
         Some("vybestack/llxprt-jefe".to_owned())
     );
 }
@@ -13,7 +13,7 @@ fn parse_ssh_url() {
 #[test]
 fn parse_ssh_url_no_git_suffix() {
     assert_eq!(
-        parse_origin_url("git@github.com:vybestack/llxprt-jefe"),
+        origin_display_shortform("git@github.com:vybestack/llxprt-jefe"),
         Some("vybestack/llxprt-jefe".to_owned())
     );
 }
@@ -21,7 +21,7 @@ fn parse_ssh_url_no_git_suffix() {
 #[test]
 fn parse_https_url() {
     assert_eq!(
-        parse_origin_url("https://github.com/vybestack/llxprt-jefe.git"),
+        origin_display_shortform("https://github.com/vybestack/llxprt-jefe.git"),
         Some("vybestack/llxprt-jefe".to_owned())
     );
 }
@@ -29,7 +29,7 @@ fn parse_https_url() {
 #[test]
 fn parse_https_url_no_git_suffix() {
     assert_eq!(
-        parse_origin_url("https://github.com/vybestack/llxprt-jefe"),
+        origin_display_shortform("https://github.com/vybestack/llxprt-jefe"),
         Some("vybestack/llxprt-jefe".to_owned())
     );
 }
@@ -37,7 +37,7 @@ fn parse_https_url_no_git_suffix() {
 #[test]
 fn parse_ssh_with_scheme() {
     assert_eq!(
-        parse_origin_url("ssh://git@github.com/vybestack/llxprt-jefe.git"),
+        origin_display_shortform("ssh://git@github.com/vybestack/llxprt-jefe.git"),
         Some("vybestack/llxprt-jefe".to_owned())
     );
 }
@@ -45,7 +45,7 @@ fn parse_ssh_with_scheme() {
 #[test]
 fn parse_bare_form() {
     assert_eq!(
-        parse_origin_url("vybestack/llxprt-jefe"),
+        origin_display_shortform("vybestack/llxprt-jefe"),
         Some("vybestack/llxprt-jefe".to_owned())
     );
 }
@@ -53,32 +53,32 @@ fn parse_bare_form() {
 #[test]
 fn parse_bare_form_with_git_suffix() {
     assert_eq!(
-        parse_origin_url("vybestack/llxprt-jefe.git"),
+        origin_display_shortform("vybestack/llxprt-jefe.git"),
         Some("vybestack/llxprt-jefe".to_owned())
     );
 }
 
 #[test]
 fn parse_empty_url_returns_none() {
-    assert_eq!(parse_origin_url(""), None);
-    assert_eq!(parse_origin_url("   "), None);
+    assert_eq!(origin_display_shortform(""), None);
+    assert_eq!(origin_display_shortform("   "), None);
 }
 
 #[test]
 fn parse_url_missing_repo_name_returns_none() {
-    assert_eq!(parse_origin_url("git@github.com:owner/"), None);
-    assert_eq!(parse_origin_url("https://github.com/owner/"), None);
+    assert_eq!(origin_display_shortform("git@github.com:owner/"), None);
+    assert_eq!(origin_display_shortform("https://github.com/owner/"), None);
 }
 
 #[test]
 fn parse_url_missing_owner_returns_none() {
-    assert_eq!(parse_origin_url("git@github.com:/repo"), None);
+    assert_eq!(origin_display_shortform("git@github.com:/repo"), None);
 }
 
 #[test]
 fn parse_url_with_extra_segments_returns_none() {
     assert_eq!(
-        parse_origin_url("https://github.com/owner/repo/extra"),
+        origin_display_shortform("https://github.com/owner/repo/extra"),
         None
     );
 }

