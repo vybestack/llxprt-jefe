@@ -29,6 +29,7 @@ fn make_signature(agent: &Agent) -> LaunchSignature {
         profile: agent.profile.clone(),
         code_puppy_model: String::new(),
         code_puppy_yolo: None,
+        code_puppy_quick_resume: false,
         mode_flags: agent.mode_flags.clone(),
         llxprt_debug: agent.llxprt_debug.clone(),
         pass_continue: agent.pass_continue,

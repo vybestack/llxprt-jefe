@@ -74,6 +74,7 @@ fn agent_pass_continue_defaults_true() {
         PathBuf::from("/tmp/test"),
     );
     assert!(agent.pass_continue);
+    assert!(!agent.code_puppy_quick_resume);
 }
 
 #[test]
@@ -169,6 +170,7 @@ fn agent_deserializes_missing_llxprt_debug_as_empty() {
         panic!("agent should deserialize");
     };
     assert!(agent.llxprt_debug.is_empty());
+    assert!(!agent.code_puppy_quick_resume);
 }
 
 #[test]
@@ -187,6 +189,7 @@ fn launch_signature_deserializes_missing_llxprt_debug_as_empty() {
         panic!("launch signature should deserialize");
     };
     assert!(signature.llxprt_debug.is_empty());
+    assert!(!signature.code_puppy_quick_resume);
     assert_eq!(signature.remote, RemoteRepositorySettings::default());
 }
 
@@ -405,6 +408,7 @@ fn runtime_binding_roundtrips_pid_when_present() {
             profile: String::new(),
             code_puppy_model: String::new(),
             code_puppy_yolo: Some(false),
+            code_puppy_quick_resume: false,
             mode_flags: vec![],
             llxprt_debug: String::new(),
             pass_continue: true,

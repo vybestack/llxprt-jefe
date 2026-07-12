@@ -839,6 +839,21 @@ pub enum AgentStatus {
     Dead,
 }
 
+/// Typed checkbox value for Code Puppy autosave continuation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct QuickResume(pub bool);
+
+impl QuickResume {
+    #[must_use]
+    pub fn enabled(self) -> bool {
+        self.0
+    }
+
+    pub fn toggle(&mut self) {
+        self.0 = !self.0;
+    }
+}
+
 /// An agent is the primary work unit in Jefe.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
@@ -857,6 +872,9 @@ pub struct Agent {
     /// Explicit Code Puppy YOLO choice.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
+    /// Resume the latest Code Puppy autosave for the effective work directory.
+    #[serde(default)]
+    pub code_puppy_quick_resume: bool,
     pub mode_flags: Vec<String>,
     #[serde(default)]
     pub llxprt_debug: String,
@@ -905,6 +923,9 @@ pub struct LaunchSignature {
     /// Explicit Code Puppy YOLO value for this launch.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
+    /// Resume the latest Code Puppy autosave for the effective work directory.
+    #[serde(default)]
+    pub code_puppy_quick_resume: bool,
     pub mode_flags: Vec<String>,
     #[serde(default)]
     pub llxprt_debug: String,
@@ -941,6 +962,7 @@ impl Agent {
             profile: String::new(),
             code_puppy_model: String::new(),
             code_puppy_yolo: None,
+            code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
             llxprt_debug: String::new(),
             pass_continue: true, // Default per REQ-FUNC-004

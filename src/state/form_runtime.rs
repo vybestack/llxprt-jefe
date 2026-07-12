@@ -30,6 +30,9 @@ pub(super) fn cycle_agent_field(
             }
         }
         AgentFormFocus::CodePuppyYolo => fields.code_puppy_yolo = !fields.code_puppy_yolo,
+        AgentFormFocus::CodePuppyQuickResume => {
+            fields.code_puppy_quick_resume.toggle();
+        }
         AgentFormFocus::PassContinue => fields.pass_continue = !fields.pass_continue,
         AgentFormFocus::Sandbox => fields.sandbox_enabled = !fields.sandbox_enabled,
         AgentFormFocus::SandboxEngine => {

@@ -256,6 +256,29 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         ));
     }
 
+    // Code Puppy continuation is explicit and independent of LLxprt --continue.
+    if !visibility.shows_llxprt_fields() {
+        let focused = focus == AgentFormFocus::CodePuppyQuickResume;
+        let mark = if fields.code_puppy_quick_resume.enabled() {
+            "x"
+        } else {
+            " "
+        };
+        let line = format!("  {:<16} [{}]  (space toggles)", "Quick resume", mark);
+        all_lines.push(selectable_line(
+            &line,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            if focused { rc.bright } else { rc.fg },
+            sel,
+        ));
+    }
+
     // Content line: Pass --continue checkbox (LLxprt-only).
     if visibility.shows_llxprt_fields() {
         let continue_focused = focus == AgentFormFocus::PassContinue;
