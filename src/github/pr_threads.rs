@@ -13,16 +13,20 @@ use super::parse_pr::{
 use super::{GhClient, GhError};
 
 /// Page size for the review-threads GraphQL connection.
-const PR_REVIEW_THREADS_PAGE_SIZE: u32 = 50;
+/// GitHub's maximum for the `reviewThreads` connection `first` argument is 100;
+/// using it halves subprocess round trips for large PRs (e.g. PR 180's 493
+/// threads: ~5 pages instead of ~10) without changing the 1000-thread hard cap.
+const PR_REVIEW_THREADS_PAGE_SIZE: u32 = 100;
 
 /// Hard cap on thread pages fetched per PR, bounding worst-case latency on
 /// pathological PRs (cap × page size = 1000 threads).
-const PR_REVIEW_THREADS_MAX_PAGES: u32 = 20;
+const PR_REVIEW_THREADS_MAX_PAGES: u32 = 10;
 
 impl GhClient {
     /// List review threads for a pull request, following pagination up to
     /// `PR_REVIEW_THREADS_MAX_PAGES` × `PR_REVIEW_THREADS_PAGE_SIZE` (1000)
-    /// threads.
+    /// threads. The outer reviewThreads page size is 100 (GitHub's maximum),
+    /// so a 493-thread PR like #180 needs ~5 pages instead of ~10.
     ///
     /// Runs the `build_pr_review_threads_query` GraphQL query targeting
     /// `repository.pullRequest(number:).reviewThreads` and parses each page
@@ -32,6 +36,10 @@ impl GhClient {
     /// dropped every thread beyond the first page). On parse/network error
     /// returns the threads collected so far (graceful degradation — the
     /// detail load must not fail because the threads fetch failed).
+    ///
+    /// Note: the per-thread nested `comments(first: 50)` cap is NOT changed
+    /// here — only the outer reviewThreads page size. Cursor pagination
+    /// cannot be eliminated.
     ///
     /// @requirement REQ-PR-009
     #[must_use]
@@ -172,5 +180,20 @@ impl GhClient {
         ];
         let stdout = Self::run_gh(&args)?;
         parse_thread_reply_json(&stdout)
+    }
+}
+
+#[cfg(test)]
+mod pagination_tests {
+    use super::{PR_REVIEW_THREADS_MAX_PAGES, PR_REVIEW_THREADS_PAGE_SIZE};
+
+    #[test]
+    fn outer_page_size_uses_github_maximum_and_preserves_cap() {
+        assert_eq!(PR_REVIEW_THREADS_PAGE_SIZE, 100);
+        assert_eq!(PR_REVIEW_THREADS_MAX_PAGES, 10);
+        assert_eq!(
+            PR_REVIEW_THREADS_PAGE_SIZE * PR_REVIEW_THREADS_MAX_PAGES,
+            1000
+        );
     }
 }

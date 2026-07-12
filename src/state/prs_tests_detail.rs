@@ -13,7 +13,7 @@ use crate::state::events::AppEvent;
 use crate::state::types::{PrDetailSubfocus, ScreenMode};
 
 /// Helper: PR-mode state with one repository selected at index 0.
-fn prs_mode_state(repo_id: &str) -> AppState {
+pub(super) fn prs_mode_state(repo_id: &str) -> AppState {
     let mut state = AppState {
         screen_mode: ScreenMode::DashboardPullRequests,
         ..AppState::default()
@@ -323,7 +323,7 @@ fn test_pr_subfocus_next_scrolls_to_offscreen_thread() {
         author_login: "reviewer".to_string(),
         state: PrReviewState::Approved,
         submitted_at: "2024-01-01".to_string(),
-        body: None,
+        body: Some("Review with a body".to_string()),
         review_threads: vec![thread; 8],
     }];
     state.prs_state.pr_detail = Some(detail);
@@ -439,7 +439,7 @@ fn test_pr_subfocus_prev_scrolls_to_offscreen_comment() {
 }
 
 /// Helper: build a minimal review thread with the given thread_id.
-fn make_thread(thread_id: &str) -> crate::domain::PrReviewThread {
+pub(super) fn make_thread(thread_id: &str) -> crate::domain::PrReviewThread {
     use crate::domain::{IssueComment, PrReviewThread};
     PrReviewThread {
         thread_id: thread_id.to_string(),
@@ -459,7 +459,7 @@ fn make_thread(thread_id: &str) -> crate::domain::PrReviewThread {
 }
 
 /// Helper: build a minimal review with the given threads.
-fn make_review(
+pub(super) fn make_review(
     author: &str,
     threads: Vec<crate::domain::PrReviewThread>,
 ) -> crate::domain::PrReview {
@@ -474,6 +474,17 @@ fn make_review(
     }
 }
 
+/// Helper: build a minimal review with a non-empty body (so it IS a focus
+/// stop) and the given threads.
+fn make_review_with_body(
+    author: &str,
+    threads: Vec<crate::domain::PrReviewThread>,
+) -> crate::domain::PrReview {
+    let mut review = make_review(author, threads);
+    review.body = Some(format!("Review body for {author}"));
+    review
+}
+
 /// Subfocus-next must follow document order: Body → Review(0) → ReviewThread(0)
 /// → ReviewThread(1) → Review(1) → ReviewThread(2) → NewComment → Body (wrap).
 ///
@@ -481,15 +492,15 @@ fn make_review(
 /// header with its own threads, using a flat thread index that increments
 /// across all reviews in that document order. The subfocus cycle MUST match
 /// that same interleaving, not visit all review headers first then all
-/// threads.
+/// threads. Reviews here have non-empty bodies so they ARE focus stops.
 #[test]
 fn subfocus_next_follows_document_order_reviews_interleaved_with_threads() {
     let mut state = prs_mode_state("repo-1");
     let mut detail = make_test_pr_detail(1);
     // 2 reviews: review 0 has 2 threads, review 1 has 1 thread.
     detail.reviews = vec![
-        make_review("rev0", vec![make_thread("t0"), make_thread("t1")]),
-        make_review("rev1", vec![make_thread("t2")]),
+        make_review_with_body("rev0", vec![make_thread("t0"), make_thread("t1")]),
+        make_review_with_body("rev1", vec![make_thread("t2")]),
     ];
     state.prs_state.pr_detail = Some(detail);
     state.prs_state.detail_subfocus = PrDetailSubfocus::Body;
@@ -528,14 +539,15 @@ fn subfocus_next_follows_document_order_reviews_interleaved_with_threads() {
     assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Body);
 }
 
-/// Subfocus-prev must be the exact reverse of next's document order.
+/// Subfocus-prev must be the exact reverse of next's document order. Reviews
+/// here have non-empty bodies so they ARE focus stops.
 #[test]
 fn subfocus_prev_follows_reverse_document_order_reviews_interleaved_with_threads() {
     let mut state = prs_mode_state("repo-1");
     let mut detail = make_test_pr_detail(1);
     detail.reviews = vec![
-        make_review("rev0", vec![make_thread("t0"), make_thread("t1")]),
-        make_review("rev1", vec![make_thread("t2")]),
+        make_review_with_body("rev0", vec![make_thread("t0"), make_thread("t1")]),
+        make_review_with_body("rev1", vec![make_thread("t2")]),
     ];
     state.prs_state.pr_detail = Some(detail);
     state.prs_state.detail_subfocus = PrDetailSubfocus::Body;
@@ -575,13 +587,14 @@ fn subfocus_prev_follows_reverse_document_order_reviews_interleaved_with_threads
 }
 
 /// Build a detail fixture exercising every section kind (body, reviews with
-/// threads, checks, comments) for the navigation⇄renderer parity test.
+/// bodies and threads, checks, comments) for the navigation⇄renderer parity
+/// test. Reviews have non-empty bodies so they ARE focus stops.
 fn make_full_section_detail() -> PullRequestDetail {
     use crate::domain::{IssueComment, PrCheck, PrCheckStatus};
     let mut detail = make_test_pr_detail(1);
     detail.reviews = vec![
-        make_review("rev0", vec![make_thread("t0"), make_thread("t1")]),
-        make_review("rev1", vec![make_thread("t2")]),
+        make_review_with_body("rev0", vec![make_thread("t0"), make_thread("t1")]),
+        make_review_with_body("rev1", vec![make_thread("t2")]),
     ];
     detail.checks = vec![
         PrCheck {

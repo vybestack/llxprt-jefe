@@ -386,9 +386,10 @@ fn detail_with_threads() -> PullRequestDetail {
 #[test]
 fn reviews_section_renders_nested_thread_comments() {
     let detail = detail_with_threads();
+    // Focus the first review thread so its comment conversation expands.
     let content = build_pr_detail_content(
         &detail,
-        PrDetailSubfocus::Body,
+        PrDetailSubfocus::ReviewThread(0),
         &InlineState::None,
         false,
         false,
@@ -558,9 +559,10 @@ fn resolved_thread_expands_on_focus() {
     );
 }
 
-/// Unresolved current threads always render expanded, focused or not.
+/// Unresolved current threads collapse to their header when not focused
+/// (issue #155 lazy render): the body is hidden, the header renders.
 #[test]
-fn unresolved_thread_stays_expanded_when_unfocused() {
+fn unresolved_thread_collapses_when_unfocused() {
     let detail = detail_with_threads();
     let content = build_pr_detail_content(
         &detail,
@@ -570,8 +572,12 @@ fn unresolved_thread_stays_expanded_when_unfocused() {
         false,
     );
     assert!(
-        content.text.contains("This unwrap can panic."),
-        "unresolved thread body must always render"
+        !content.text.contains("This unwrap can panic."),
+        "unresolved thread body must be HIDDEN when not focused (lazy render)"
+    );
+    assert!(
+        content.text.contains("src/parser.rs:42"),
+        "unresolved thread header must still render"
     );
 }
 
@@ -975,3 +981,6 @@ fn bodyless_review_followed_by_body_review_keeps_single_separator() {
 
 #[path = "pr_detail_thread_hint_tests.rs"]
 mod thread_hint_tests;
+
+#[path = "pr_detail_lazy_render_tests.rs"]
+mod lazy_render_tests;

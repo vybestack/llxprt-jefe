@@ -479,11 +479,11 @@ fn build_single_review(
 
 /// Render a review thread with its comments (indented under the review).
 ///
-/// Resolved and outdated threads COLLAPSE to their header line when not
-/// focused (mirroring github.com, which folds them by default); moving the
-/// selector onto the thread expands its full conversation WITHOUT mutating
-/// the thread's resolve state (issue #155 follow-up). Unresolved, current
-/// threads always render expanded.
+/// Every thread COLLAPSES to its header line when not focused (mirroring
+/// github.com, which folds conversations by default); moving the selector onto
+/// the thread expands its full conversation WITHOUT mutating the thread's
+/// resolve state (issue #155 lazy-render). Comment-bearing collapsed threads
+/// show a "(select to expand)" hint with the comment count.
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-009
@@ -539,10 +539,13 @@ fn build_review_thread(
     builder.lines.push(String::new());
 }
 
-/// Whether a thread renders collapsed to its header line: resolved/outdated
-/// threads collapse unless focused; unresolved current threads never collapse.
-fn thread_collapsed(thread: &crate::domain::PrReviewThread, focused: bool) -> bool {
-    (thread.is_resolved || thread.is_outdated) && !focused
+/// Whether a thread renders collapsed to its header line: every thread
+/// collapses unless focused, regardless of resolved/outdated status. This is
+/// the lazy-render semantic (issue #155): a PR with hundreds of threads
+/// renders compactly (headers only) and never calls markdown rendering for
+/// the comment bodies of non-focused threads.
+fn thread_collapsed(_thread: &crate::domain::PrReviewThread, focused: bool) -> bool {
+    !focused
 }
 
 /// Render the expanded comment conversation of a review thread.

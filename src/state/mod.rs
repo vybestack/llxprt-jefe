@@ -966,9 +966,7 @@ mod prs_test_fixtures;
 #[path = "prs_tests_composer_focus.rs"]
 mod prs_tests_composer_focus;
 
-/// @plan PLAN-20260624-PR-MODE.P14
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 44-50
+/// @plan PLAN-20260624-PR-MODE.P14 @requirement REQ-PR-010
 #[cfg(test)]
 #[path = "prs_tests_cursor_arrows.rs"]
 mod prs_tests_cursor_arrows;
@@ -981,8 +979,7 @@ mod prs_tests_detail_flow;
 #[path = "prs_tests_components.rs"]
 mod prs_tests_components;
 
-/// Review-thread state tests (issue #119): open reply composer, toggle resolve.
-/// Silent background refresh state-transition tests (issue #128).
+/// Review-thread state tests (issue #119) + silent background refresh (issue #128).
 #[cfg(test)]
 #[path = "prs_tests_silent_refresh.rs"]
 mod prs_tests_silent_refresh;
@@ -990,6 +987,11 @@ mod prs_tests_silent_refresh;
 #[cfg(test)]
 #[path = "prs_tests_review_threads.rs"]
 mod prs_tests_review_threads;
+
+/// Bodyless-review nav tests (issue #155).
+#[cfg(test)]
+#[path = "prs_tests_bodyless_review_nav.rs"]
+mod prs_tests_bodyless_review_nav;
 
 // @plan PLAN-20260624-PR-MODE.P15 @requirement REQ-PR-001
 #[cfg(test)]

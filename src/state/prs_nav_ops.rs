@@ -506,8 +506,14 @@ impl AppState {
 /// thread index increments across all reviews in that same interleaved order.
 /// Empty sections naturally produce no entries.
 ///
-/// Order: Body → (for each review: Review(ri), ReviewThread(flat_idx)...)
-/// → Check(0..) → Comment(0..) → NewComment.
+/// Reviews whose `body` is empty/None are NOT keyboard focus stops: their
+/// `Review(ri)` entry is omitted (issue #155). Their child threads are always
+/// included in document order. This prevents the PR-233 scenario where empty
+/// "COMMENTED" review summaries trap focus instead of landing the user directly
+/// on the inline conversation threads.
+///
+/// Order: Body → (for each review: [Review(ri) if body non-empty],
+/// ReviewThread(flat_idx)...) → Check(0..) → Comment(0..) → NewComment.
 ///
 /// @plan PLAN-20260624-PR-MODE.P05
 /// @requirement REQ-PR-003
@@ -519,7 +525,10 @@ pub(super) fn pr_detail_subfocus_order(
     let mut order = vec![PrDetailSubfocus::Body];
     let mut flat_thread_idx = 0usize;
     for (ri, review) in detail.reviews.iter().enumerate() {
-        order.push(PrDetailSubfocus::Review(ri));
+        let has_body = review.body.as_deref().is_some_and(|b| !b.trim().is_empty());
+        if has_body {
+            order.push(PrDetailSubfocus::Review(ri));
+        }
         for _ in &review.review_threads {
             order.push(PrDetailSubfocus::ReviewThread(flat_thread_idx));
             flat_thread_idx += 1;
