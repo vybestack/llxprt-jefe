@@ -116,7 +116,7 @@ pub fn handle_mode_confirm_key(
     key_event: &KeyEvent,
 ) {
     match key_event.code {
-        KeyCode::Esc => close_modal_and_persist(app_state, ctx),
+        KeyCode::Esc | KeyCode::Char('n' | 'N') => close_modal_and_persist(app_state, ctx),
         KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab => {
             apply_and_persist(app_state, ctx, AppEvent::ConfirmCycleFocus);
         }

@@ -176,7 +176,7 @@ fn confirm_issue_dirty_copy_modal_routes_to_confirm_input_mode() {
 }
 
 /// The `ConfirmIssueOriginMismatch` modal must resolve to `InputMode::Confirm`
-/// so the confirm key handler routes Enter/Esc correctly.
+/// so the confirm key handler routes Enter/Esc/n correctly.
 #[test]
 fn confirm_issue_origin_mismatch_modal_routes_to_confirm_input_mode() {
     use jefe::input::input_mode_for_state;

@@ -219,6 +219,16 @@ mod tests {
         assert_eq!(content.lines[2], "Kill running-agent?");
     }
 
+    /// Find the confirm-modal button row by its button markers (issue #228).
+    fn confirm_button_row_line(lines: &[String]) -> usize {
+        lines
+            .iter()
+            .position(|l| l.contains("Cancel") && l.contains("Confirm"))
+            .unwrap_or_else(|| {
+                panic!("confirm modal must have a Cancel/Confirm button row, got: {lines:?}")
+            })
+    }
+
     #[test]
     fn confirm_modal_focus_rendered_as_cancel_default() {
         let mut state = AppState {
@@ -236,7 +246,10 @@ mod tests {
         ));
         let content = confirm_modal_lines(&state);
         // Default focus = Cancel → the focused button uses (…)
-        assert_eq!(content.lines[4], "( Cancel )  [ Confirm ]");
+        assert_eq!(
+            content.lines[confirm_button_row_line(&content.lines)],
+            "( Cancel )  [ Confirm ]"
+        );
     }
 
     #[test]
@@ -256,7 +269,10 @@ mod tests {
         ));
         let content = confirm_modal_lines(&state);
         // Focus = Confirm → the focused button uses (…)
-        assert_eq!(content.lines[4], "[ Cancel ]  ( Confirm )");
+        assert_eq!(
+            content.lines[confirm_button_row_line(&content.lines)],
+            "[ Cancel ]  ( Confirm )"
+        );
     }
 
     #[test]
