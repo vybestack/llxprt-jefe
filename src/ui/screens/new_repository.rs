@@ -126,6 +126,33 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         ));
     }
 
+    if crate::state::kind_from_form_value(&fields.default_agent_kind)
+        == crate::domain::AgentKind::CodePuppy
+    {
+        let model_focused = focus == RepositoryFormFocus::DefaultCodePuppyModel;
+        let model_value = if model_focused {
+            text_with_caret(
+                &fields.default_code_puppy_model,
+                cursor.default_code_puppy_model,
+            )
+        } else {
+            fields.default_code_puppy_model.clone()
+        };
+        let model_line = format!("  {:<16} [{model_value}]", "Default Model");
+        all_lines.push(selectable_line(
+            &model_line,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            if model_focused { rc.bright } else { rc.fg },
+            sel,
+        ));
+    }
+
     let kind_focused = focus == RepositoryFormFocus::DefaultAgentKind;
     let kind_color = if kind_focused { rc.bright } else { rc.fg };
     let effective_kinds = crate::state::effective_agent_kinds(

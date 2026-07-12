@@ -37,6 +37,8 @@ pub(super) fn sample_signature() -> LaunchSignature {
     LaunchSignature {
         work_dir: PathBuf::from("/tmp/agent"),
         profile: String::new(),
+        code_puppy_model: String::new(),
+        code_puppy_yolo: Some(false),
         mode_flags: vec![String::from("--yolo")],
         llxprt_debug: String::new(),
         pass_continue: true,

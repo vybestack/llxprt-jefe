@@ -181,6 +181,12 @@ fn launch_signature_for_agent(
     LaunchSignature {
         work_dir: agent.work_dir.clone(),
         profile: agent.profile.clone(),
+        code_puppy_model: if agent.code_puppy_model.trim().is_empty() {
+            repository.default_code_puppy_model.trim().to_owned()
+        } else {
+            agent.code_puppy_model.trim().to_owned()
+        },
+        code_puppy_yolo: agent.code_puppy_yolo,
         mode_flags: agent.mode_flags.clone(),
         llxprt_debug: agent.llxprt_debug.clone(),
         pass_continue: agent.pass_continue,

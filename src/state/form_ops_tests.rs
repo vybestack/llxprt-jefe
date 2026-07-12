@@ -10,6 +10,7 @@ fn seed_repository() -> Repository {
         slug: "repo-1".to_owned(),
         base_dir: std::path::PathBuf::from("/tmp/repo-1"),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),
@@ -194,6 +195,7 @@ fn remote_repository_creation_preserves_remote_base_dir_without_local_expansion(
         name: "Remote Repo".to_owned(),
         base_dir: "~/remote/worktrees".to_owned(),
         default_profile: "ship".to_owned(),
+        default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: String::new(),
         remote_enabled: true,
@@ -224,6 +226,7 @@ fn repository_name_that_normalizes_to_empty_slug_is_rejected() {
         name: "///".to_owned(),
         base_dir: String::new(),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: String::new(),
         remote_enabled: false,
@@ -245,6 +248,8 @@ fn create_agent_rejects_whitespace_only_work_dir() {
         description: String::new(),
         work_dir: "   \t ".to_owned(),
         profile: String::new(),
+        code_puppy_model: String::new(),
+        code_puppy_yolo: false,
         agent_kind: "LLxprt".to_owned(),
         mode: "--yolo".to_owned(),
         llxprt_debug: String::new(),
@@ -269,6 +274,8 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         description: String::new(),
         work_dir: std::path::PathBuf::from("/tmp/agent-one"),
         profile: String::new(),
+        code_puppy_model: String::new(),
+        code_puppy_yolo: Some(false),
         mode_flags: vec!["--yolo".to_owned()],
         llxprt_debug: String::new(),
         pass_continue: true,
@@ -286,6 +293,8 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         description: String::new(),
         work_dir: "   ".to_owned(),
         profile: String::new(),
+        code_puppy_model: String::new(),
+        code_puppy_yolo: false,
         agent_kind: "LLxprt".to_owned(),
         mode: "--yolo".to_owned(),
         llxprt_debug: String::new(),
@@ -314,6 +323,8 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         description: String::new(),
         work_dir: std::path::PathBuf::from("/tmp/agent-two"),
         profile: String::new(),
+        code_puppy_model: String::new(),
+        code_puppy_yolo: Some(false),
         mode_flags: vec!["--fast".to_owned()],
         llxprt_debug: String::new(),
         pass_continue: true,
@@ -330,6 +341,8 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         description: String::new(),
         work_dir: "/tmp/agent-two".to_owned(),
         profile: String::new(),
+        code_puppy_model: String::new(),
+        code_puppy_yolo: false,
         agent_kind: "LLxprt".to_owned(),
         mode: "   ".to_owned(),
         llxprt_debug: String::new(),
@@ -395,6 +408,7 @@ fn create_repository_rejects_invalid_github_repo_without_slash() {
         name: "Repo".to_owned(),
         base_dir: String::new(),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "foo".to_owned(),
         remote_enabled: false,
@@ -412,6 +426,7 @@ fn create_repository_rejects_github_repo_with_extra_slash() {
         name: "Repo".to_owned(),
         base_dir: String::new(),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "owner/repo/extra".to_owned(),
         remote_enabled: false,
@@ -429,6 +444,7 @@ fn create_repository_rejects_github_repo_missing_owner() {
         name: "Repo".to_owned(),
         base_dir: String::new(),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "/repo".to_owned(),
         remote_enabled: false,
@@ -446,6 +462,7 @@ fn create_repository_rejects_github_repo_missing_repo_name() {
         name: "Repo".to_owned(),
         base_dir: String::new(),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "owner/".to_owned(),
         remote_enabled: false,
@@ -463,6 +480,7 @@ fn create_repository_accepts_empty_github_repo() {
         name: "Repo".to_owned(),
         base_dir: String::new(),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: String::new(),
         remote_enabled: false,
@@ -480,6 +498,7 @@ fn create_repository_accepts_well_formed_github_repo() {
         name: "Repo".to_owned(),
         base_dir: String::new(),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "owner/repo".to_owned(),
         remote_enabled: false,
@@ -499,6 +518,7 @@ fn create_repository_rejects_github_repo_with_internal_whitespace_in_owner() {
         name: "Repo".to_owned(),
         base_dir: String::new(),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "own er/repo".to_owned(),
         remote_enabled: false,
@@ -517,6 +537,7 @@ fn create_repository_rejects_github_repo_with_whitespace_around_slash() {
             name: "Repo".to_owned(),
             base_dir: String::new(),
             default_profile: String::new(),
+            default_code_puppy_model: String::new(),
             default_agent_kind: "LLxprt".to_owned(),
             github_repo: value.to_owned(),
             remote_enabled: false,
@@ -539,6 +560,7 @@ fn create_repository_rejects_github_repo_with_at_sign() {
         name: "Repo".to_owned(),
         base_dir: String::new(),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "acme@org/widgets".to_owned(),
         remote_enabled: false,
@@ -556,6 +578,7 @@ fn create_repository_accepts_github_repo_with_surrounding_whitespace_and_trims_i
         name: "Repo".to_owned(),
         base_dir: String::new(),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "  owner/repo  ".to_owned(),
         remote_enabled: false,
@@ -578,6 +601,7 @@ fn update_repository_rejects_invalid_github_repo_keeping_existing() {
         name: "Repo".to_owned(),
         base_dir: String::new(),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "no-slash".to_owned(),
         remote_enabled: false,
@@ -599,6 +623,7 @@ fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
         name: "Repo".to_owned(),
         base_dir: String::new(),
         default_profile: String::new(),
+        default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "no-slash".to_owned(),
         remote_enabled: false,
@@ -668,4 +693,24 @@ fn submit_edit_repository_closes_modal_when_github_repo_valid() {
 
     assert_eq!(state.repositories[0].github_repo, "owner/new");
     assert!(matches!(state.modal, ModalState::None));
+}
+
+#[test]
+fn code_puppy_yolo_focus_toggles_typed_boolean() {
+    let mut fields = AgentFormFields::default();
+    assert!(!fields.code_puppy_yolo);
+
+    AppState::toggle_agent_checkbox_fields(&mut fields, AgentFormFocus::CodePuppyYolo);
+    assert!(fields.code_puppy_yolo);
+
+    AppState::toggle_agent_checkbox_fields(&mut fields, AgentFormFocus::CodePuppyYolo);
+    assert!(!fields.code_puppy_yolo);
+
+    crate::state::form_runtime::cycle_agent_field(
+        &[],
+        &mut fields,
+        AgentFormFocus::CodePuppyYolo,
+        'x',
+    );
+    assert!(fields.code_puppy_yolo);
 }

@@ -11,6 +11,21 @@ use super::types::{
 use super::util::{delete_char_at, delete_char_before, insert_char_at};
 
 impl AppState {
+    fn adjacent_repository_focus(
+        fields: &RepositoryFormFields,
+        focus: RepositoryFormFocus,
+        step: fn(RepositoryFormFocus) -> RepositoryFormFocus,
+    ) -> RepositoryFormFocus {
+        let candidate = step(focus);
+        if candidate == RepositoryFormFocus::DefaultCodePuppyModel
+            && AgentKind::from_form_value(&fields.default_agent_kind) != Some(AgentKind::CodePuppy)
+        {
+            step(candidate)
+        } else {
+            candidate
+        }
+    }
+
     fn handle_agent_shortcut_char(fields: &mut AgentFormFields, c: char) {
         if c == '0' {
             fields.shortcut_slot = None;
@@ -49,6 +64,11 @@ impl AppState {
                 cursor.profile = insert_char_at(&mut fields.profile, cursor.profile, c);
                 false
             }
+            AgentFormFocus::CodePuppyModel => {
+                cursor.code_puppy_model =
+                    insert_char_at(&mut fields.code_puppy_model, cursor.code_puppy_model, c);
+                false
+            }
             AgentFormFocus::Mode => {
                 cursor.mode = insert_char_at(&mut fields.mode, cursor.mode, c);
                 false
@@ -59,6 +79,7 @@ impl AppState {
                 false
             }
             AgentFormFocus::AgentKind
+            | AgentFormFocus::CodePuppyYolo
             | AgentFormFocus::PassContinue
             | AgentFormFocus::Sandbox
             | AgentFormFocus::SandboxEngine => {
@@ -211,6 +232,12 @@ impl AppState {
                 cursor.default_profile =
                     delete_char_before(&mut fields.default_profile, cursor.default_profile);
             }
+            RepositoryFormFocus::DefaultCodePuppyModel => {
+                cursor.default_code_puppy_model = delete_char_before(
+                    &mut fields.default_code_puppy_model,
+                    cursor.default_code_puppy_model,
+                );
+            }
             RepositoryFormFocus::GitHubRepo => {
                 cursor.github_repo =
                     delete_char_before(&mut fields.github_repo, cursor.github_repo);
@@ -245,6 +272,12 @@ impl AppState {
             }
             RepositoryFormFocus::DefaultProfile => {
                 delete_char_at(&mut fields.default_profile, cursor.default_profile);
+            }
+            RepositoryFormFocus::DefaultCodePuppyModel => {
+                delete_char_at(
+                    &mut fields.default_code_puppy_model,
+                    cursor.default_code_puppy_model,
+                );
             }
             RepositoryFormFocus::GitHubRepo => {
                 delete_char_at(&mut fields.github_repo, cursor.github_repo);
@@ -286,6 +319,10 @@ impl AppState {
             AgentFormFocus::Profile => {
                 cursor.profile = delete_char_before(&mut fields.profile, cursor.profile);
             }
+            AgentFormFocus::CodePuppyModel => {
+                cursor.code_puppy_model =
+                    delete_char_before(&mut fields.code_puppy_model, cursor.code_puppy_model);
+            }
             AgentFormFocus::Mode => {
                 cursor.mode = delete_char_before(&mut fields.mode, cursor.mode);
             }
@@ -294,6 +331,7 @@ impl AppState {
                     delete_char_before(&mut fields.llxprt_debug, cursor.llxprt_debug);
             }
             AgentFormFocus::AgentKind
+            | AgentFormFocus::CodePuppyYolo
             | AgentFormFocus::PassContinue
             | AgentFormFocus::Sandbox
             | AgentFormFocus::SandboxEngine => {}
@@ -312,6 +350,7 @@ impl AppState {
         match focus {
             AgentFormFocus::Shortcut
             | AgentFormFocus::AgentKind
+            | AgentFormFocus::CodePuppyYolo
             | AgentFormFocus::PassContinue
             | AgentFormFocus::Sandbox
             | AgentFormFocus::SandboxEngine => {}
@@ -326,6 +365,9 @@ impl AppState {
             }
             AgentFormFocus::Profile => {
                 delete_char_at(&mut fields.profile, cursor.profile);
+            }
+            AgentFormFocus::CodePuppyModel => {
+                delete_char_at(&mut fields.code_puppy_model, cursor.code_puppy_model);
             }
             AgentFormFocus::Mode => {
                 delete_char_at(&mut fields.mode, cursor.mode);
@@ -525,8 +567,9 @@ impl AppState {
 
     pub(super) fn handle_form_next_field(&mut self) {
         match &mut self.modal {
-            ModalState::NewRepository { focus, .. } | ModalState::EditRepository { focus, .. } => {
-                *focus = focus.next();
+            ModalState::NewRepository { fields, focus, .. }
+            | ModalState::EditRepository { fields, focus, .. } => {
+                *focus = Self::adjacent_repository_focus(fields, *focus, RepositoryFormFocus::next);
             }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => {
@@ -544,8 +587,9 @@ impl AppState {
 
     pub(super) fn handle_form_prev_field(&mut self) {
         match &mut self.modal {
-            ModalState::NewRepository { focus, .. } | ModalState::EditRepository { focus, .. } => {
-                *focus = focus.prev();
+            ModalState::NewRepository { fields, focus, .. }
+            | ModalState::EditRepository { fields, focus, .. } => {
+                *focus = Self::adjacent_repository_focus(fields, *focus, RepositoryFormFocus::prev);
             }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => {
@@ -615,6 +659,7 @@ impl AppState {
     /// because it depends on the effective kind list (remote vs local).
     fn toggle_agent_checkbox_fields(fields: &mut AgentFormFields, focus: AgentFormFocus) {
         match focus {
+            AgentFormFocus::CodePuppyYolo => fields.code_puppy_yolo = !fields.code_puppy_yolo,
             AgentFormFocus::PassContinue => fields.pass_continue = !fields.pass_continue,
             AgentFormFocus::Shortcut => {
                 fields.shortcut_slot = match fields.shortcut_slot {
