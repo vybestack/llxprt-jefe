@@ -39,11 +39,11 @@ fn deeply_nested_blockquotes_do_not_overflow_stack() {
 #[test]
 fn deeply_nested_lists_do_not_overflow_stack() {
     let mut body = String::new();
-    for level in 0..500 {
-        for _ in 0..level {
-            body.push_str("  ");
-        }
+    let mut indent = String::new();
+    for _ in 0..500 {
+        body.push_str(&indent);
         body.push_str("- x\n");
+        indent.push_str("  ");
     }
     body.push_str("deep");
     let lines = render_markdown_lines(&body);
@@ -100,5 +100,9 @@ fn deeply_nested_inline_emphasis_does_not_overflow_stack() {
     }
     // Must not crash; the text is nested past MAX_RENDER_DEPTH so the
     // rendered output is empty by design.
-    let _ = render_markdown_lines(&matched);
+    let matched_lines = render_markdown_lines(&matched);
+    assert!(
+        matched_lines.is_empty(),
+        "fully-nested matched emphasis sits past MAX_RENDER_DEPTH and renders to nothing by design, got: {matched_lines:?}"
+    );
 }

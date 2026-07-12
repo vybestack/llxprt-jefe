@@ -37,3 +37,44 @@ fn render_markdown_block_memoized_is_idempotent() {
     assert!(md_a.iter().any(|l| l.contains("alpha")));
     assert!(md_b.iter().any(|l| l.contains("beta")));
 }
+
+/// The restructured cache keys on markdown alone with a small value-vec of
+/// `(prefix, placeholder)` variants per body. This test exercises the
+/// value-vec path explicitly: the SAME markdown body rendered first with one
+/// prefix then another must return correctly-prefixed results from the
+/// same map entry (the second call populates a second variant, and a repeat
+/// of the first prefix must still hit its own variant correctly).
+#[test]
+fn render_markdown_block_same_body_different_prefixes_via_value_vec() {
+    let md = "## Shared Heading
+
+body line";
+
+    // Warm the cache entry with prefix "AA".
+    let aa_first = render_markdown_block(md, "AA", "(no body)");
+    assert!(
+        aa_first.iter().any(|l| l.starts_with("AA")),
+        "first call with AA prefix must produce AA-prefixed lines: {aa_first:?}"
+    );
+
+    // Same body, different prefix — exercises the value-vec (second variant).
+    let bb = render_markdown_block(md, "BB", "(no body)");
+    assert!(
+        bb.iter().any(|l| l.starts_with("BB")),
+        "second prefix BB must produce BB-prefixed lines: {bb:?}"
+    );
+    assert_ne!(aa_first, bb, "different prefixes must differ");
+
+    // Repeat the FIRST prefix — must still return its own correct variant,
+    // not accidentally collide with BB (proves the value-vec lookup matches
+    // the exact (prefix, placeholder) pair).
+    let aa_again = render_markdown_block(md, "AA", "(no body)");
+    assert_eq!(
+        aa_first, aa_again,
+        "repeating the first prefix must return the same result"
+    );
+    assert!(
+        aa_again.iter().all(|l| !l.starts_with("BB")),
+        "AA result must not contain BB-prefixed lines: {aa_again:?}"
+    );
+}

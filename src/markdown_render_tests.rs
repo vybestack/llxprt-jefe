@@ -231,9 +231,9 @@ fn table_alignment_separators_match_gfm_shape() {
 | x | y | z |
 ",
     );
-    // The fixture's columns are all width 3, so the separators are exactly
-    // `:-:` (center), `--:` (right), and `---` (left) — assert each shape
-    // so a flipped colon on any alignment fails the test.
+    // Each column's content is width 1, so `dashes()` renders at its minimum
+    // span of 3 — exactly `:-:` (center), `--:` (right), `---` (left) —
+    // assert each shape so a flipped colon on any alignment fails the test.
     assert!(
         out.contains(":-:"),
         "center separator has colons on both ends: {out}"

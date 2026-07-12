@@ -68,39 +68,28 @@ pub fn render_markdown_lines(markdown: &str) -> Vec<String> {
 /// silent gap. Centralized here so the PR and Issue builders cannot drift.
 ///
 /// The function is pure, so its output is memoized in a process-wide cache
-/// keyed by the full `(markdown, prefix, placeholder)` triple. PR-detail
-/// builds call this ~350 times per render and the comrak parse dominates the
-/// cost (~24ms/call in debug before caching); memoization makes repeated
-/// builds (every keystroke/mouse-wheel tick) hash lookups after the first
-/// warm build.
+/// keyed by the full `(markdown, prefix, placeholder)` triple. The cache
+/// is keyed by markdown alone with a small value-vec of `(prefix,
+/// placeholder)` variants, so HITS allocate nothing (no `to_string` of the
+/// up-to-~65KB body).
 #[must_use]
 pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) -> Arc<[String]> {
-    let key = (
-        markdown.to_string(),
-        prefix.to_string(),
-        placeholder.to_string(),
-    );
-    // Hold the lock only for the map lookup — never across the comrak parse —
+    // Hold the lock only for the lookup — never across the comrak parse —
     // so concurrent callers are not serialized behind an expensive render.
-    // (Two threads may race to compute the same body; both produce identical
-    // output, so the duplicate work is harmless.)
-    if let Ok(cache) = markdown_render_cache().lock()
-        && let Some(cached) = cache.get(&key)
     {
-        return Arc::clone(cached);
+        let cache = lock_render_cache();
+        // Zero-alloc hit path: get(&str) via Borrow, linear-scan the small
+        // variant-vec with == against &str (no String allocation).
+        if let Some(variants) = cache.get(markdown)
+            && let Some(((_, _), cached)) = variants
+                .iter()
+                .find(|((p, ph), _)| p == prefix && ph == placeholder)
+        {
+            return Arc::clone(cached);
+        }
     }
     let result = compute_markdown_block(markdown, prefix, placeholder);
-    if let Ok(mut cache) = markdown_render_cache().lock() {
-        // Epoch clearing: bodies are gh-bounded (~65KB) and a detail view has
-        // at most a few hundred unique bodies, so 512 covers a whole view;
-        // clearing on overflow keeps worst-case memory bounded while
-        // preserving the per-view hit rate.
-        if cache.len() >= MARKDOWN_RENDER_CACHE_CAP {
-            cache.clear();
-        }
-        cache.insert(key, Arc::clone(&result));
-    }
-    // Poisoned lock: computed without caching (never panic).
+    insert_render_cache(markdown, prefix, placeholder, &result);
     result
 }
 
@@ -108,20 +97,54 @@ pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) ->
 /// epoch clear resets the map.
 const MARKDOWN_RENDER_CACHE_CAP: usize = 512;
 
-/// Keyed cache entry type factored out to satisfy `clippy::type_complexity`.
-/// `Arc<[String]>` avoids cloning every `String` on each cache hit — callers
-/// get a cheap refcount bump and clone the individual `String`s only when
-/// actually extending the built document.
-type RenderCache = HashMap<(String, String, String), Arc<[String]>>;
+/// Cache keyed by markdown body; each value is a small vec of `(prefix,
+/// placeholder)` variants (typically 1–2). This lets HITS avoid cloning the
+/// body (`get` accepts `&str` via `Borrow`). Factored out to satisfy
+/// `clippy::type_complexity`.
+type RenderCache = HashMap<String, Vec<((String, String), Arc<[String]>)>>;
 
-/// Process-wide memo cache for [`render_markdown_block`]. Keyed by the full
-/// `(markdown, prefix, placeholder)` triple so hash collisions cannot
-/// produce a correctness bug (full-key equality). `OnceLock` (not
-/// `LazyLock`) because the project MSRV is 1.75 — same pattern as
-/// `runtime::socket`.
+/// Process-wide memo cache. `OnceLock` (not `LazyLock`) — MSRV is 1.75.
 fn markdown_render_cache() -> &'static Mutex<RenderCache> {
     static CACHE: OnceLock<Mutex<RenderCache>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Acquire the lock, recovering from poisoning by clearing the map (keeps it
+/// consistent and memoization continues working). Never panics.
+fn lock_render_cache() -> std::sync::MutexGuard<'static, RenderCache> {
+    match markdown_render_cache().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            let mut guard = poisoned.into_inner();
+            guard.clear();
+            guard
+        }
+    }
+}
+
+/// Insert a freshly-computed result (miss path only). Owned `String`s are
+/// allocated here. Separate read-check and write-insert lock scopes keep each
+/// `MutexGuard` lifetime tight; a racing duplicate insert is harmless.
+fn insert_render_cache(markdown: &str, prefix: &str, placeholder: &str, result: &Arc<[String]>) {
+    {
+        let cache = lock_render_cache();
+        if cache.get(markdown).is_some_and(|variants| {
+            variants
+                .iter()
+                .any(|((p, ph), _)| p == prefix && ph == placeholder)
+        }) {
+            return;
+        }
+    }
+    let mut cache = lock_render_cache();
+    if cache.len() >= MARKDOWN_RENDER_CACHE_CAP {
+        cache.clear();
+    }
+    cache.entry(markdown.to_string()).or_default().push((
+        (prefix.to_string(), placeholder.to_string()),
+        Arc::clone(result),
+    ));
+    drop(cache);
 }
 
 /// The uncached computation behind [`render_markdown_block`].

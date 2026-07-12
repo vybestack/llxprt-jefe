@@ -448,6 +448,21 @@ fn test_parse_pr_review_threads_cursor_next_page_without_cursor_stops() {
     );
 }
 
+/// `hasNextPage=true` with a WHITESPACE-ONLY `endCursor` must stop
+/// pagination (None) rather than return the whitespace as a bogus cursor —
+/// a whitespace-only cursor would be sent to GitHub as a real pagination
+/// token and silently break the thread fetch.
+#[test]
+fn test_parse_pr_review_threads_cursor_whitespace_only_stops() {
+    let ws_cursor = r#"{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [], "pageInfo": {"hasNextPage": true, "endCursor": " "}}}}}}"#;
+    let value: serde_json::Value =
+        serde_json::from_str(ws_cursor).value_or_panic("valid whitespace-cursor JSON");
+    assert!(
+        parse_pr_review_threads_cursor(&value).is_none(),
+        "hasNextPage=true with whitespace-only endCursor must stop pagination, not return a bogus cursor"
+    );
+}
+
 /// A thread node with an empty `comments.nodes` array parses without
 /// panicking: no comments, no parent review id (falls back at grouping).
 #[test]

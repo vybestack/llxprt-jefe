@@ -661,7 +661,7 @@ pub fn parse_pr_review_threads_cursor(json: &Value) -> Option<String> {
     let cursor = page_info
         .get("endCursor")
         .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
+        .filter(|s| !s.trim().is_empty())
         .map(String::from);
     if cursor.is_none() {
         // hasNextPage=true without a usable endCursor means pagination stops

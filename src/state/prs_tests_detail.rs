@@ -573,19 +573,10 @@ fn subfocus_prev_follows_reverse_document_order_reviews_interleaved_with_threads
     assert_eq!(s.prs_state.detail_subfocus, PrDetailSubfocus::Body);
 }
 
-/// Navigation order must match the rendered document top-to-bottom: for every
-/// item in `pr_detail_subfocus_order`, the start line reported by
-/// `pr_subfocus_line_range` (a projection over the SAME text the renderer
-/// paints) must be strictly increasing. This pins the navigation⇄renderer
-/// parity so a future change to either cannot silently break tab order.
-///
-/// NewComment is included: its section label renders after the comments
-/// section, so it participates in the same strictly-increasing sequence.
-#[test]
-fn subfocus_order_matches_rendered_document_order() {
+/// Build a detail fixture exercising every section kind (body, reviews with
+/// threads, checks, comments) for the navigation⇄renderer parity test.
+fn make_full_section_detail() -> PullRequestDetail {
     use crate::domain::{IssueComment, PrCheck, PrCheckStatus};
-    use crate::state::InlineState;
-
     let mut detail = make_test_pr_detail(1);
     detail.reviews = vec![
         make_review("rev0", vec![make_thread("t0"), make_thread("t1")]),
@@ -621,10 +612,30 @@ fn subfocus_order_matches_rendered_document_order() {
             body: "second comment".to_string(),
         },
     ];
+    detail
+}
 
+/// Navigation order must match the rendered document top-to-bottom: for every
+/// item in `pr_detail_subfocus_order`, the start line reported by
+/// `pr_subfocus_line_range` (a projection over the SAME text the renderer
+/// paints) must be strictly increasing. This pins the navigation⇄renderer
+/// parity so a future change to either cannot silently break tab order.
+///
+/// NewComment is included: its section label renders after the comments
+/// section, so it participates in the same strictly-increasing sequence.
+#[test]
+fn subfocus_order_matches_rendered_document_order() {
+    use crate::state::InlineState;
+
+    let detail = make_full_section_detail();
     let order = super::prs_nav_ops::pr_detail_subfocus_order(&detail);
-    // Sanity: the fixture exercises every section kind.
-    assert_eq!(order.len(), 1 + 2 + 3 + 2 + 2 + 1, "full order: {order:?}");
+    // Sanity: the count is derived from the fixture itself (body + per-review
+    // headers + all review threads + checks + comments + NewComment) so a
+    // fixture change can't silently desync a hardcoded number from reality.
+    let review_threads: usize = detail.reviews.iter().map(|r| r.review_threads.len()).sum();
+    let expected =
+        1 + detail.reviews.len() + review_threads + detail.checks.len() + detail.comments.len() + 1;
+    assert_eq!(order.len(), expected, "full order: {order:?}");
 
     let mut last_start: Option<usize> = None;
     for item in order {
