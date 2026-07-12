@@ -91,6 +91,17 @@ fn code_puppy_passes_configured_model_as_exact_argv() {
 }
 
 #[test]
+fn llxprt_ignores_code_puppy_model() {
+    let mut signature = base_signature();
+    signature.code_puppy_model = "puppy-only".to_owned();
+
+    let args = llxprt_launch_args(&signature);
+
+    assert!(!args.iter().any(|arg| arg == "--model"));
+    assert!(!args.iter().any(|arg| arg == "puppy-only"));
+}
+
+#[test]
 fn code_puppy_passes_explicit_true_yolo_value() {
     let mut signature = base_signature();
     signature.agent_kind = AgentKind::CodePuppy;

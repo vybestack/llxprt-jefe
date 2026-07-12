@@ -468,6 +468,56 @@ fn apply_restored_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use jefe::domain::{AgentKind, Repository, RepositoryId};
+
+    fn code_puppy_agent_and_repository() -> (Agent, Repository) {
+        let repository_id = RepositoryId("repo-model".to_owned());
+        let mut repository = Repository::new(
+            repository_id.clone(),
+            "Model Repo".to_owned(),
+            "model-repo".to_owned(),
+            std::path::PathBuf::from("/tmp/model-repo"),
+        );
+        repository.default_code_puppy_model = "  repo/default-model  ".to_owned();
+
+        let mut agent = Agent::new(
+            AgentId("agent-model".to_owned()),
+            repository_id,
+            "Model Agent".to_owned(),
+            std::path::PathBuf::from("/tmp/model-agent"),
+        );
+        agent.agent_kind = AgentKind::CodePuppy;
+        (agent, repository)
+    }
+
+    #[test]
+    fn launch_signature_inherits_repository_code_puppy_model() {
+        let (agent, repository) = code_puppy_agent_and_repository();
+
+        let signature = launch_signature_for_agent(&agent, &repository);
+
+        assert_eq!(signature.code_puppy_model, "repo/default-model");
+    }
+
+    #[test]
+    fn launch_signature_prefers_agent_code_puppy_model_override() {
+        let (mut agent, repository) = code_puppy_agent_and_repository();
+        agent.code_puppy_model = "  agent/override-model  ".to_owned();
+
+        let signature = launch_signature_for_agent(&agent, &repository);
+
+        assert_eq!(signature.code_puppy_model, "agent/override-model");
+    }
+
+    #[test]
+    fn launch_signature_keeps_code_puppy_model_empty_when_unconfigured() {
+        let (agent, mut repository) = code_puppy_agent_and_repository();
+        repository.default_code_puppy_model = "   ".to_owned();
+
+        let signature = launch_signature_for_agent(&agent, &repository);
+
+        assert!(signature.code_puppy_model.is_empty());
+    }
 
     /// Session still exists → never dead, regardless of PID.
     #[test]
