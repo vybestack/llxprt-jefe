@@ -71,7 +71,12 @@ pub fn validate_code_puppy_launch(signature: &LaunchSignature) -> Result<(), Run
 }
 
 fn validate_code_puppy_help(success: bool, help: &str) -> Result<(), RuntimeError> {
-    if success && code_puppy_help_supports_yolo(help) {
+    if !success {
+        return Err(RuntimeError::CapabilityProbeFailed(
+            "`code-puppy --help` exited unsuccessfully".to_owned(),
+        ));
+    }
+    if code_puppy_help_supports_yolo(help) {
         return Ok(());
     }
     Err(RuntimeError::CapabilityCheckFailed(
@@ -153,7 +158,10 @@ mod tests {
             result,
             Err(RuntimeError::CapabilityCheckFailed(_))
         ));
-        assert!(validate_code_puppy_help(false, "--yolo {true,false}").is_err());
+        assert!(matches!(
+            validate_code_puppy_help(false, "--yolo {true,false}"),
+            Err(RuntimeError::CapabilityProbeFailed(_))
+        ));
     }
 
     #[test]
