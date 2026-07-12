@@ -31,6 +31,10 @@ pub mod state;
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-010
 pub mod text_box_view;
+/// Pure, iocraft-free word-wrap projection shared by the editor and displayer.
+///
+/// @requirement REQ-TEXT-WRAP
+pub mod text_wrap;
 pub mod theme;
 pub mod ui;
 

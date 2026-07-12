@@ -156,8 +156,11 @@ pub fn build_detail_content(
 }
 
 /// Build a full-screen content block for creating a new issue.
+///
+/// The editor text itself is rendered by the embedded wrapping `TextBox`
+/// (issue #212), so this document only carries the static prompt lines.
 #[must_use]
-pub fn build_new_issue_content(inline_state: &InlineState) -> DetailContent {
+pub fn build_new_issue_content(_inline_state: &InlineState) -> DetailContent {
     let mut builder = ContentBuilder::new();
 
     builder.lines.push("New Issue".to_string());
@@ -165,15 +168,6 @@ pub fn build_new_issue_content(inline_state: &InlineState) -> DetailContent {
         .lines
         .push("Title: first line | Body: remaining lines".to_string());
     builder.lines.push(String::new());
-
-    if let InlineState::Composer {
-        target: ComposerTarget::NewIssue,
-        text,
-        cursor,
-    } = inline_state
-    {
-        builder.push_editor_lines(text.as_str(), *cursor, true, "  │ ", "  │ ");
-    }
 
     builder
         .lines

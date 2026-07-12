@@ -125,45 +125,28 @@ struct WrapSegment {
 }
 
 /// Split a single logical line into wrapped segments of at most
-/// `content_width` characters. Returns one segment for a short line, multiple
-/// for a long line, and a single empty segment for an empty line.
+/// `content_width` display columns, breaking at word boundaries. Returns one
+/// segment for a short line, multiple for a long line, and a single empty
+/// segment for an empty line.
+///
+/// Word-wrap (never splitting a word) is delegated to the shared
+/// [`crate::text_wrap`] primitive so the editor and the read-only displayer
+/// wrap identically.
 ///
 /// `content_width == 0` yields a single empty segment (the caller suppresses
 /// the caret for width 0 anyway).
 ///
-/// Single-pass O(n): the char iterator is consumed once and each segment is
-/// built incrementally, so long lines do not trigger repeated re-scans.
+/// @requirement REQ-PR-009
+/// @requirement REQ-TEXT-WRAP
 fn wrap_line(line: &str, content_width: usize) -> Vec<WrapSegment> {
-    if content_width == 0 {
-        return vec![WrapSegment {
-            text: String::new(),
-            start: 0,
-            end: 0,
-        }];
-    }
-    let mut segments = Vec::new();
-    let mut chunk = String::with_capacity(line.len().min(content_width));
-    let mut col = 0usize; // char column within the current segment
-    let mut seg_start = 0usize; // char-column start of the current segment
-    for ch in line.chars() {
-        if col == content_width {
-            segments.push(WrapSegment {
-                text: std::mem::take(&mut chunk),
-                start: seg_start,
-                end: seg_start + col,
-            });
-            seg_start += col;
-            col = 0;
-        }
-        chunk.push(ch);
-        col += 1;
-    }
-    segments.push(WrapSegment {
-        text: chunk,
-        start: seg_start,
-        end: seg_start + col,
-    });
-    segments
+    crate::text_wrap::wrap_text(line, content_width)
+        .into_iter()
+        .map(|r| WrapSegment {
+            text: r.text,
+            start: r.start,
+            end: r.end,
+        })
+        .collect()
 }
 
 /// Build a fixed-size [`TextBoxView`] projection of `text`.
@@ -687,5 +670,51 @@ mod tests {
         }
         let caret_row = caret_row(&v);
         assert_eq!(caret_row.caret_col, Some(10));
+    }
+
+    /// The editor wraps at WORD boundaries: a row never splits a word, and the
+    /// caret maps correctly onto the word-wrapped row it lands in.
+    ///
+    /// Regression for issue #212: text boxes don't wrap (word-wrap, not char).
+    ///
+    /// @requirement REQ-TEXT-WRAP
+    #[test]
+    fn editor_wraps_at_word_boundary_not_mid_word() {
+        // "alpha beta gamma" at width 8 -> ["alpha", "beta", "gamma"] (each
+        // word is wider than the remaining budget on the row).
+        let v = build_text_box_view("alpha beta gamma", 0, 3, 8);
+        let texts: Vec<&str> = v.rows.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(texts, vec!["alpha", "beta", "gamma"]);
+        // No row may start with a space or split a word.
+        for t in &texts {
+            assert!(!t.starts_with(' '), "row must not start with space: {t:?}");
+        }
+    }
+
+    /// Word-wrap with a caret in the middle of a word on a later row: the
+    /// caret column is relative to that word-row's start.
+    ///
+    /// @requirement REQ-TEXT-WRAP
+    #[test]
+    fn editor_word_wrap_caret_in_middle_word() {
+        // "alpha beta gamma" at width 8 -> rows "alpha"(0-5),"beta"(6-10),
+        // "gamma"(11-16). Caret at source col 8 (inside "beta" at rel 2).
+        let v = build_text_box_view("alpha beta gamma", 8, 3, 8);
+        let caret_row = caret_row(&v);
+        assert_eq!(caret_row.text, "beta");
+        assert_eq!(caret_row.caret_col, Some(2));
+    }
+
+    /// A word that fits within the width but not on the current row moves to
+    /// the next row whole (not split).
+    ///
+    /// @requirement REQ-TEXT-WRAP
+    #[test]
+    fn editor_word_fits_wraps_whole_to_next_row() {
+        // "aaaa bbbb" at width 5 -> "aaaa" fits (4), "bbbb" (4) fits width but
+        // 4+1(space)+4 > 5 so it wraps whole to row 1.
+        let v = build_text_box_view("aaaa bbbb", 0, 2, 5);
+        let texts: Vec<&str> = v.rows.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(texts, vec!["aaaa", "bbbb"]);
     }
 }
