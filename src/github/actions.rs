@@ -294,6 +294,11 @@ fn run_gh<S: AsRef<std::ffi::OsStr>>(args: &[S]) -> Result<String, GhError> {
 /// REST API rejects the full `.github/workflows/...` path (literal slashes
 /// route to a different resource, returning HTTP 404) and also rejects the
 /// `workflow` display name with HTTP 404.
+///
+/// The sentinel ("all") and emptiness checks run against the normalized
+/// filename, so non-canonical inputs (`"all/"`, `"/"`, `"///"`, `""`) all
+/// fall through to the generic `actions/runs` endpoint rather than producing
+/// a malformed workflow-specific URL.
 #[must_use]
 pub fn build_runs_api_path(
     owner: &str,
@@ -302,9 +307,14 @@ pub fn build_runs_api_path(
     page: u32,
     per_page: u32,
 ) -> String {
-    let workflow_enc = percent_encode_path(workflow_filename(&filter.workflow_path));
+    // Normalize once: the sentinel ("all") and emptiness checks run against
+    // the SAME value used in the path segment, so "all/", "/", "///", and ""
+    // all route to the generic runs endpoint instead of producing malformed
+    // workflow-specific URLs like /workflows/all/runs or /workflows//runs.
+    let workflow_id = workflow_filename(&filter.workflow_path);
+    let workflow_enc = percent_encode_path(workflow_id);
     let status_enc = percent_encode_query(&filter.status);
-    let mut api_path = if filter.workflow_path != "all" && !filter.workflow_path.is_empty() {
+    let mut api_path = if workflow_id != "all" && !workflow_id.is_empty() {
         format!(
             "repos/{owner}/{repo}/actions/workflows/{workflow_enc}/runs?page={page}&per_page={per_page}"
         )
@@ -535,6 +545,29 @@ mod tests {
             path.ends_with("/actions/runs?page=1&per_page=30"),
             "expected generic runs endpoint, got: {path}"
         );
+    }
+
+    /// Non-canonical "all" / empty inputs must fall through to the generic
+    /// runs endpoint, not a malformed workflow-specific URL. The sentinel is
+    /// checked against the normalized filename, so "all/" and "///" resolve
+    /// to "all" / "" respectively.
+    #[test]
+    fn build_runs_api_path_non_canonical_all_routes_to_generic_endpoint() {
+        for raw in ["all/", "/", "///", ""] {
+            let filter = ActionsFilter {
+                workflow_path: raw.to_string(),
+                ..ActionsFilter::default()
+            };
+            let path = build_runs_api_path("owner", "repo", &filter, 1, 30);
+            assert!(
+                path.ends_with("/actions/runs?page=1&per_page=30"),
+                "raw {raw:?} must route to the generic runs endpoint, got: {path}"
+            );
+            assert!(
+                !path.contains("/workflows/"),
+                "raw {raw:?} must not produce a workflow-specific URL, got: {path}"
+            );
+        }
     }
 
     /// Status filter is appended as a query parameter.
