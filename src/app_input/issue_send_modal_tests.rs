@@ -12,7 +12,9 @@ use super::*;
 
 use std::path::PathBuf;
 
-use super::issues_send::{issue_send_info_from_state, prepare_issue_launch_signature};
+use super::issues_send::{
+    SelfAssignment, issue_send_info_from_state, prepare_issue_launch_signature,
+};
 use jefe::domain::{AgentId, IssueDetail, IssueState, RepositoryId};
 use jefe::state::{AgentChooserState, ScreenMode};
 
@@ -347,5 +349,59 @@ fn code_puppy_issue_uses_identical_prep_and_fresh_no_resume_signature() {
             .iter()
             .any(|arg| arg.contains(".jefe/issue-prompt.md")),
         "CodePuppy issue signature must reference the issue prompt"
+    );
+}
+
+// ── Issue #186: self-assign the issue to the viewer on send-to-agent ────
+
+/// On a successful send-to-agent, the issue must be self-assigned to the
+/// authenticated viewer. The assignment derives its `owner`/`repo` from the
+/// validated clone identity (never `slug`) and its `issue_number` from the
+/// loaded issue detail. This test proves those resolved values flow into the
+/// assignment request.
+#[test]
+fn self_assignment_resolves_owner_repo_and_issue_from_send_context() {
+    let agent_id = AgentId(String::from("issue-self-assign"));
+    let work_dir = PathBuf::from("/tmp/jefe-issue-self-assign");
+    let mut state = state_for_issue_agent_chooser_send(&agent_id, &work_dir);
+    state.repositories[0].github_repo = "acme/widgets".to_owned();
+
+    let send_info = issue_send_info_from_state(&state)
+        .value_or_panic("issue send info must resolve for self-assignment");
+
+    let assignment = SelfAssignment::from_send_context(
+        send_info.clone_identity.as_ref(),
+        send_info.payload.issue_number,
+    )
+    .value_or_panic("a valid clone identity must produce a self-assignment");
+
+    // owner/repo come from the validated github_repo, not the slug.
+    assert_eq!(assignment.owner, "acme");
+    assert_eq!(assignment.repo, "widgets");
+    assert_eq!(assignment.owner_repo, "acme/widgets");
+    // issue_number comes from the loaded issue detail (fixture sets 166).
+    assert_eq!(assignment.issue_number, 166);
+}
+
+/// When the agent's repository has no valid `github_repo`, there is no safe
+/// owner/repo to assign against, so no self-assignment is produced (the send
+/// itself is unaffected).
+#[test]
+fn self_assignment_skipped_when_no_valid_clone_identity() {
+    let agent_id = AgentId(String::from("issue-no-assign"));
+    let work_dir = PathBuf::from("/tmp/jefe-issue-no-assign");
+    let state = state_for_issue_agent_chooser_send(&agent_id, &work_dir);
+    // github_repo left empty (slug must not be used as a fallback).
+
+    let send_info = issue_send_info_from_state(&state)
+        .value_or_panic("issue send info must still resolve without github_repo");
+
+    let assignment = SelfAssignment::from_send_context(
+        send_info.clone_identity.as_ref(),
+        send_info.payload.issue_number,
+    );
+    assert!(
+        assignment.is_none(),
+        "no self-assignment must be produced without a valid clone identity"
     );
 }

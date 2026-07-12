@@ -29,8 +29,8 @@ use super::issue_prep::{
 use super::issues_dispatch;
 use super::{
     AppStateHandle, REMOTE_ATTACH_SETTLE_DELAY, SharedContext, apply_and_persist,
-    close_modal_and_persist, launch_signature_for_agent, persist_state, pid_on_success,
-    preflight_or_prompt, to_persisted_state,
+    close_modal_and_persist, gh_async, github_client, launch_signature_for_agent, persist_state,
+    pid_on_success, preflight_or_prompt, to_persisted_state,
 };
 
 pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -100,6 +100,7 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
             work_dir: send_info.work_dir,
             launch_sig,
             payload: send_info.payload.clone(),
+            clone_identity: send_info.clone_identity.clone(),
         },
     );
 }
@@ -112,6 +113,7 @@ struct PrepOutcomeContext {
     work_dir: PathBuf,
     launch_sig: LaunchSignature,
     payload: jefe::github::SendPayload,
+    clone_identity: Option<CloneIdentity>,
 }
 
 /// Bundled origin-mismatch info (actual/expected shortforms) to stay under
@@ -137,6 +139,10 @@ fn handle_initial_prep_outcome(
             &prep_ctx.agent_id,
             prep_ctx.work_dir,
             prep_ctx.launch_sig,
+            SelfAssignment::from_send_context(
+                prep_ctx.clone_identity.as_ref(),
+                prep_ctx.payload.issue_number,
+            ),
         ),
         Ok(PrepOutcome::Dirty) => prompt_dirty_copy_confirm(
             app_state,
@@ -174,16 +180,25 @@ pub(super) fn prepare_issue_launch_signature(sig: LaunchSignature) -> LaunchSign
 
 /// Run preflight; if it passes (or sandbox is disabled), launch the issue
 /// agent. Availability was already verified before prep side effects by the
-/// caller.
+/// caller. On a successful launch, `assignment` (when present) triggers the
+/// non-blocking self-assignment of the issue to the viewer (issue #186).
 fn preflight_and_launch_issue(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: &AgentId,
     work_dir: PathBuf,
     launch_sig: LaunchSignature,
+    assignment: Option<SelfAssignment>,
 ) {
     if preflight_or_prompt(app_state, ctx, agent_id, &launch_sig) {
-        launch_issue_agent(app_state, ctx, agent_id.clone(), work_dir, launch_sig);
+        launch_issue_agent(
+            app_state,
+            ctx,
+            agent_id.clone(),
+            work_dir,
+            launch_sig,
+            assignment,
+        );
     }
 }
 
@@ -230,6 +245,54 @@ fn prompt_origin_mismatch_confirm(
     drop(state);
     persist_state(ctx, &persisted);
 }
+
+/// Shared prefix for the dirty-copy and origin-mismatch confirm paths: close
+/// the modal, re-check local kind availability, resolve the run target, and
+/// run the centralized pre-side-effect remote availability probe. Returns the
+/// resolved target on success, or `None` (after surfacing the appropriate
+/// failure) when any guard fails.
+fn prepare_confirm_send_target(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    work_dir: &Path,
+    launch_sig: &LaunchSignature,
+) -> Option<super::issue_prep::WorkTarget> {
+    // Close the confirm modal first so the UI reflects the user's decision
+    // before the (potentially slow) remote prep runs.
+    close_modal_and_persist(app_state, ctx);
+
+    // Re-check availability BEFORE prep side effects: the runtime may have
+    // been removed while the confirm modal was open.
+    if !super::availability::local_kind_available_or_error(
+        app_state,
+        launch_sig.agent_kind,
+        &launch_sig.remote,
+    ) {
+        return None;
+    }
+
+    let target = match super::target_resolution::resolve_target(&launch_sig.remote) {
+        Ok(target) => target,
+        Err(error) => {
+            apply_send_to_agent_failed(app_state, ctx, error);
+            return None;
+        }
+    };
+
+    // Centralized pre-side-effect availability probe (defect 2): BEFORE any
+    // destructive prep, re-probe the selected runtime on the resolved target.
+    if !super::remote_probe::pre_side_effect_runtime_available_or_error(
+        app_state,
+        &target,
+        work_dir,
+        launch_sig.agent_kind,
+    ) {
+        return None;
+    }
+
+    Some(target)
+}
+
 /// Dirty-copy confirm: user pressed Enter to discard uncommitted changes and
 /// proceed with the issue-driven launch. Uses the **same** target-aware
 /// orchestration as the initial send, but with the `Discard` policy: the
@@ -244,42 +307,9 @@ pub(super) fn confirm_issue_dirty_copy_enter(
     launch_sig: LaunchSignature,
     payload: jefe::github::SendPayload,
 ) {
-    // Close the confirm modal first so the UI reflects the user's decision
-    // before the (potentially slow) remote prep runs.
-    close_modal_and_persist(app_state, ctx);
-
-    // Re-check availability BEFORE prep side effects: the runtime may have
-    // been removed while the confirm modal was open. The Discard policy is
-    // destructive (reset --hard + clean), so it must not run unless the
-    // agent kind is still available.
-    if !super::availability::local_kind_available_or_error(
-        app_state,
-        launch_sig.agent_kind,
-        &launch_sig.remote,
-    ) {
+    let Some(target) = prepare_confirm_send_target(app_state, ctx, &work_dir, &launch_sig) else {
         return;
-    }
-
-    let target = match super::target_resolution::resolve_target(&launch_sig.remote) {
-        Ok(target) => target,
-        Err(error) => {
-            apply_send_to_agent_failed(app_state, ctx, error);
-            return;
-        }
     };
-
-    // Centralized pre-side-effect availability probe (defect 2): BEFORE the
-    // destructive Discard prep (reset --hard + clean), re-probe the selected
-    // runtime. The runtime may have been removed while the confirm modal was
-    // open. Unavailable remote means no destructive cleanup operation.
-    if !super::remote_probe::pre_side_effect_runtime_available_or_error(
-        app_state,
-        &target,
-        &work_dir,
-        launch_sig.agent_kind,
-    ) {
-        return;
-    }
 
     let prompt = issues_dispatch::format_issue_prompt(&payload);
 
@@ -295,7 +325,14 @@ pub(super) fn confirm_issue_dirty_copy_enter(
         &prompt,
     ) {
         Ok(PrepOutcome::Ready) => {
-            preflight_and_launch_issue(app_state, ctx, &agent_id, work_dir, launch_sig);
+            preflight_and_launch_issue(
+                app_state,
+                ctx,
+                &agent_id,
+                work_dir,
+                launch_sig,
+                SelfAssignment::from_send_context(clone_identity.as_ref(), payload.issue_number),
+            );
         }
         // Discard policy cleans first, so Dirty should not occur — but treat
         // it defensively as a launch failure rather than silently dropping.
@@ -313,6 +350,7 @@ pub(super) fn confirm_issue_dirty_copy_enter(
                     work_dir,
                     launch_sig,
                     payload,
+                    clone_identity,
                 },
                 OriginMismatchInfo { actual, expected },
             );
@@ -333,32 +371,9 @@ pub(super) fn confirm_issue_origin_mismatch_enter(
     launch_sig: LaunchSignature,
     payload: jefe::github::SendPayload,
 ) {
-    close_modal_and_persist(app_state, ctx);
-
-    if !super::availability::local_kind_available_or_error(
-        app_state,
-        launch_sig.agent_kind,
-        &launch_sig.remote,
-    ) {
+    let Some(target) = prepare_confirm_send_target(app_state, ctx, &work_dir, &launch_sig) else {
         return;
-    }
-
-    let target = match super::target_resolution::resolve_target(&launch_sig.remote) {
-        Ok(target) => target,
-        Err(error) => {
-            apply_send_to_agent_failed(app_state, ctx, error);
-            return;
-        }
     };
-
-    if !super::remote_probe::pre_side_effect_runtime_available_or_error(
-        app_state,
-        &target,
-        &work_dir,
-        launch_sig.agent_kind,
-    ) {
-        return;
-    }
 
     let prompt = issues_dispatch::format_issue_prompt(&payload);
     let clone_identity = clone_identity_for_agent(app_state, &agent_id);
@@ -380,7 +395,14 @@ pub(super) fn confirm_issue_origin_mismatch_enter(
 
     match prepare_issue_target_force_reclone(&target, &work_dir, &clone_identity, &prompt) {
         Ok(PrepOutcome::Ready) => {
-            preflight_and_launch_issue(app_state, ctx, &agent_id, work_dir, launch_sig);
+            preflight_and_launch_issue(
+                app_state,
+                ctx,
+                &agent_id,
+                work_dir,
+                launch_sig,
+                SelfAssignment::from_send_context(Some(&clone_identity), payload.issue_number),
+            );
         }
         Ok(PrepOutcome::Dirty) => apply_send_to_agent_failed(
             app_state,
@@ -482,6 +504,7 @@ fn launch_issue_agent(
     agent_id: AgentId,
     work_dir: PathBuf,
     launch_sig: LaunchSignature,
+    assignment: Option<SelfAssignment>,
 ) {
     let launched = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
     // Resolve the worker PID for the persisted binding's PID-liveness
@@ -499,6 +522,15 @@ fn launch_issue_agent(
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
+
+    // Self-assign the issue to the authenticated viewer only on a successful
+    // launch (issue #186). Non-blocking: failures surface a warning, not a
+    // send failure.
+    if launched {
+        if let Some(assignment) = assignment {
+            spawn_issue_self_assignment(app_state, ctx, assignment);
+        }
+    }
 }
 
 fn spawn_and_attach_fresh_for_issue(
@@ -564,4 +596,176 @@ fn apply_send_to_agent_failed(app_state: &mut AppStateHandle, ctx: &SharedContex
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
+}
+
+/// Split a validated `owner/repo` identity into its `(owner, repo)` components.
+///
+/// Pure seam so the self-assignment path can be unit-tested without a network
+/// round-trip: the caller passes the validated clone-identity shortform and
+/// the issue number, and the test asserts the resolved components flow into
+/// the assignment request (issue #186).
+fn split_owner_repo(owner_repo: &str) -> Option<(String, String)> {
+    let (owner, repo) = owner_repo.split_once('/')?;
+    let owner = owner.trim();
+    let repo = repo.trim();
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    Some((owner.to_string(), repo.to_string()))
+}
+
+/// Parameters for the non-blocking self-assignment task. Captured by value so
+/// the background closure is `'static`. `owner_repo` is the validated
+/// `owner/repo` shortform carried through for the warning message.
+pub(super) struct SelfAssignment {
+    pub(super) owner: String,
+    pub(super) repo: String,
+    pub(super) owner_repo: String,
+    pub(super) issue_number: u64,
+}
+
+impl SelfAssignment {
+    /// Build from a validated clone identity's `owner/repo` shortform and the
+    /// issue number carried by the send payload. Returns `None` when the
+    /// identity is missing or malformed (no assignment attempted).
+    pub(super) fn from_send_context(
+        clone_identity: Option<&CloneIdentity>,
+        issue_number: u64,
+    ) -> Option<Self> {
+        let identity = clone_identity?;
+        let owner_repo = identity.expected_shortform().to_string();
+        let (owner, repo) = split_owner_repo(&owner_repo)?;
+        Some(Self {
+            owner,
+            repo,
+            owner_repo,
+            issue_number,
+        })
+    }
+}
+
+/// After a successful issue-driven launch, self-assign the issue to the
+/// authenticated viewer (issue #186). Runs as a non-blocking background task:
+/// it resolves the viewer login, then POSTs to the assignees endpoint. Any
+/// failure applies an `IssueSelfAssignmentFailed` event through the reducer,
+/// which surfaces a `warning_message` (the send itself already succeeded).
+fn spawn_issue_self_assignment(
+    app_state: &AppStateHandle,
+    ctx: &SharedContext,
+    assignment: SelfAssignment,
+) {
+    let owner = assignment.owner;
+    let repo = assignment.repo;
+    let owner_repo = assignment.owner_repo;
+    let owner_repo_panic = owner_repo.clone();
+    let issue_number = assignment.issue_number;
+    gh_async::spawn_gh_task_with_panic(
+        app_state,
+        ctx,
+        move |mut app_state, ctx| {
+            let Some(client) = github_client(&ctx) else {
+                fail_assignment(
+                    &mut app_state,
+                    &ctx,
+                    &owner_repo,
+                    issue_number,
+                    "GitHub client is unavailable",
+                );
+                return;
+            };
+            let viewer = match client.viewer_login() {
+                Ok(login) => login,
+                Err(error) => {
+                    warn!(error = %error, "could not resolve viewer login for self-assignment");
+                    fail_assignment(
+                        &mut app_state,
+                        &ctx,
+                        &owner_repo,
+                        issue_number,
+                        &error.to_string(),
+                    );
+                    return;
+                }
+            };
+            if let Err(error) = client.assign_issue(&owner, &repo, issue_number, &viewer) {
+                warn!(
+                    viewer = %viewer,
+                    error = %error,
+                    "could not self-assign issue on send"
+                );
+                fail_assignment(
+                    &mut app_state,
+                    &ctx,
+                    &owner_repo,
+                    issue_number,
+                    &error.to_string(),
+                );
+            }
+        },
+        move |mut app_state, ctx, message| {
+            fail_assignment(
+                &mut app_state,
+                &ctx,
+                &owner_repo_panic,
+                issue_number,
+                &format!("Issue self-assignment panicked: {message}"),
+            );
+        },
+    );
+}
+
+/// Apply the non-blocking self-assignment-failed event through the reducer so
+/// the warning transition is deterministic and unit-testable. The issue send
+/// itself already succeeded, so this must not flip the launch into a failure.
+fn fail_assignment(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    owner_repo: &str,
+    issue_number: u64,
+    error: &str,
+) {
+    apply_and_persist(
+        app_state,
+        ctx,
+        AppEvent::IssueSelfAssignmentFailed {
+            owner_repo: owner_repo.to_string(),
+            issue_number,
+            error: error.to_string(),
+        },
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_owner_repo;
+
+    #[test]
+    fn split_owner_repo_valid() {
+        assert_eq!(
+            split_owner_repo("vybestack/llxprt-jefe"),
+            Some(("vybestack".to_string(), "llxprt-jefe".to_string()))
+        );
+    }
+
+    #[test]
+    fn split_owner_repo_no_slash_is_none() {
+        assert_eq!(split_owner_repo("just-a-slug"), None);
+    }
+
+    #[test]
+    fn split_owner_repo_empty_component_is_none() {
+        assert_eq!(split_owner_repo("/repo"), None);
+        assert_eq!(split_owner_repo("owner/"), None);
+    }
+
+    #[test]
+    fn split_owner_repo_extra_components_returns_first_two() {
+        // The clone identity is already validated to exactly two components,
+        // but split_once is intentionally greedy-only-once so a validated
+        // `owner/repo` with a dot (e.g. owner/repo.name) still parses.
+        assert_eq!(
+            split_owner_repo("owner/repo.name"),
+            Some(("owner".to_string(), "repo.name".to_string()))
+        );
+    }
 }

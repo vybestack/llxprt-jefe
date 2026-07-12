@@ -19,6 +19,9 @@ mod create_issue;
 mod pr_threads;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};
 
+mod viewer;
+pub use viewer::{build_assign_issue_args, build_viewer_login_args, parse_viewer_login};
+
 mod actions;
 pub use actions::{
     WorkflowRunListResponse, build_runs_api_path, parse_api_runs_json, parse_jobs_json,
@@ -354,6 +357,29 @@ impl GhClient {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         parse_created_issue_json(&stdout)
+    }
+
+    /// Resolve the authenticated viewer's login (`gh api user --jq .login`).
+    ///
+    /// Used to self-assign an issue on send-to-agent (issue #186).
+    pub fn viewer_login(&self) -> Result<String, GhError> {
+        let stdout = Self::run_gh(&build_viewer_login_args())?;
+        parse_viewer_login(&stdout)
+    }
+
+    /// Assign an issue to `assignee` via the assignees REST endpoint. Used for
+    /// self-assignment on send-to-agent (issue #186); failures are non-blocking
+    /// warnings at the caller, so this surfaces the raw `GhError`.
+    pub fn assign_issue(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        assignee: &str,
+    ) -> Result<(), GhError> {
+        let args = build_assign_issue_args(owner, repo, number, assignee);
+        Self::run_gh(&args)?;
+        Ok(())
     }
 
     /// Create a new comment on an issue.

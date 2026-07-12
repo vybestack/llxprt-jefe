@@ -319,6 +319,7 @@ impl AppMessage {
                 | AppEvent::AgentChooserCancel
                 | AppEvent::SendToAgentCompleted
                 | AppEvent::SendToAgentFailed { .. }
+                | AppEvent::IssueSelfAssignmentFailed { .. }
         )
     }
 

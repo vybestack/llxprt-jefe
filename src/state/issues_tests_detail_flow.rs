@@ -956,3 +956,42 @@ fn test_matching_mutation_response_does_not_clear_newer_inline_draft() {
         other => panic!("expected newer composer draft to remain, got {other:?}"),
     }
 }
+
+/// Issue #186: a non-blocking self-assignment failure must surface a
+/// `warning_message` (so the user sees the issue was sent but not assigned)
+/// WITHOUT setting the issues error state or acting like a `SendToAgentFailed`
+/// (the launch itself succeeded).
+#[test]
+fn test_issue_self_assignment_failed_sets_warning_not_error() {
+    let mut state = AppState::default();
+    state.issues_state.active = true;
+    state.warning_message = None;
+    state.issues_state.error = None;
+
+    let state = state.apply(AppEvent::IssueSelfAssignmentFailed {
+        owner_repo: "acme/widgets".to_string(),
+        issue_number: 166,
+        error: "repo restricts assignees".to_string(),
+    });
+
+    assert!(
+        state.issues_state.active,
+        "issues mode must remain active after a non-blocking assignment failure"
+    );
+    assert!(
+        state.issues_state.error.is_none(),
+        "assignment failure must NOT set the issues error state"
+    );
+    let warning = state
+        .warning_message
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected a warning message"));
+    assert!(
+        warning.contains("acme/widgets#166"),
+        "warning should identify the repo and issue, got: {warning}"
+    );
+    assert!(
+        warning.contains("repo restricts assignees"),
+        "warning should include the underlying error, got: {warning}"
+    );
+}
