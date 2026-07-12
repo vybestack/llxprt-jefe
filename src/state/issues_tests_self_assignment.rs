@@ -73,3 +73,63 @@ fn test_issue_self_assignment_failed_warns_without_owner_repo() {
         "warning should identify the issue number even without owner_repo, got: {warning}"
     );
 }
+
+/// A self-assignment failure intentionally overwrites any prior warning, since
+/// `warning_message` is a single slot and the most recent outcome is the most
+/// actionable (issue #186). This locks the overwrite semantics so a future
+/// change to the reducer cannot silently regress the behavior.
+#[test]
+fn test_issue_self_assignment_failed_overwrites_prior_warning() {
+    let mut state = AppState::default();
+    state.issues_state.active = true;
+    state.warning_message = Some("an earlier unrelated warning".to_string());
+
+    let state = state.apply(AppEvent::IssueSelfAssignmentFailed {
+        owner_repo: "acme/widgets".to_string(),
+        issue_number: 186,
+        error: "repo restricts assignees".to_string(),
+    });
+
+    let warning = state
+        .warning_message
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected a warning message"));
+    assert!(
+        warning.contains("acme/widgets#186"),
+        "the self-assignment warning must replace the prior warning, got: {warning}"
+    );
+    assert!(
+        !warning.contains("earlier unrelated warning"),
+        "prior warning text must not survive the overwrite, got: {warning}"
+    );
+}
+
+/// The self-assignment-failed reducer must be safe regardless of whether
+/// issues mode is active: a late-arriving background task could fire after the
+/// user navigated away (issue #186). It must surface the warning without
+/// panicking or spuriously activating issues mode.
+#[test]
+fn test_issue_self_assignment_failed_outside_issues_mode_is_safe() {
+    let mut state = AppState::default();
+    state.issues_state.active = false;
+    state.issues_state.error = None;
+
+    let state = state.apply(AppEvent::IssueSelfAssignmentFailed {
+        owner_repo: "acme/widgets".to_string(),
+        issue_number: 186,
+        error: "repo restricts assignees".to_string(),
+    });
+
+    assert!(
+        !state.issues_state.active,
+        "a late self-assignment failure must not spuriously activate issues mode"
+    );
+    assert!(
+        state.issues_state.error.is_none(),
+        "assignment failure must NOT set the issues error state"
+    );
+    assert!(
+        state.warning_message.is_some(),
+        "the warning must still surface outside issues mode"
+    );
+}

@@ -104,14 +104,13 @@ pub(super) fn handle_preflight_prompt_enter(
         // Fire the non-blocking issue self-assignment carried from the
         // issue-driven launch path ONLY on a successful launch (issue #186).
         // No-op for non-issue launches; no assignment when the resumed launch
-        // failed.
-        if launch_ok {
-            super::issues_send::spawn_post_preflight_issue_self_assignment(
-                app_state,
-                ctx,
-                issue_self_assignment.as_ref(),
-            );
-        }
+        // failed. The decision is pure (post_preflight_assignment_action).
+        super::issues_send::spawn_post_preflight_issue_self_assignment(
+            app_state,
+            ctx,
+            launch_ok,
+            issue_self_assignment.as_ref(),
+        );
     }
 }
 

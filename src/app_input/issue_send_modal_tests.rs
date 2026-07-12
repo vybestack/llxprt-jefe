@@ -13,9 +13,8 @@ use super::*;
 
 use std::path::PathBuf;
 
-use super::issues_send::{
-    IssueAssignment, SelfAssignment, issue_send_info_from_state, prepare_issue_launch_signature,
-};
+use super::issue_self_assignment::{IssueAssignment, SelfAssignment};
+use super::issues_send::{issue_send_info_from_state, prepare_issue_launch_signature};
 use jefe::domain::{AgentId, IssueDetail, IssueState, RepositoryId};
 use jefe::state::{AgentChooserState, ModalState, ScreenMode};
 

@@ -39,6 +39,7 @@ mod clone_identity;
 mod fresh_prompt;
 mod issue_git_prep;
 mod issue_prep;
+mod issue_self_assignment;
 mod issues_send;
 mod remote_probe;
 mod target_resolution;
