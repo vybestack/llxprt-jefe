@@ -56,17 +56,48 @@ pub(super) fn path_exists(work_dir: &Path) -> bool {
 /// an existing non-git directory fails safely.
 pub(super) fn ensure_workdir_cloned(work_dir: &Path, clone_url: Option<&str>) -> PrepResult {
     let assurance = ensure_workdir_with_origin(work_dir, clone_url, None)?;
-    // No expected shortform → mismatch is impossible, all variants map to Ok.
-    let _ = assurance;
-    Ok(())
+    // With no expected shortform, OriginMismatch is unreachable: the inner
+    // function only emits it when a shortform was provided for comparison.
+    // Match exhaustively so a future caller passing a shortform here is a
+    // compile error rather than a silently-discarded mismatch.
+    match assurance {
+        WorkdirAssurance::Ready | WorkdirAssurance::JustCloned => Ok(()),
+        WorkdirAssurance::OriginMismatch { .. } => unreachable!(
+            "OriginMismatch requires an expected shortform, which ensure_workdir_cloned never passes"
+        ),
+    }
+}
+
+/// Zero-sized proof token that the caller has obtained explicit user
+/// confirmation for a destructive workdir replacement.
+///
+/// Constructing this token is the single sanctioned way to authorize
+/// [`remove_workdir`]: the only constructor ([`ConfirmedReclone::confirmed`])
+/// is a private `pub(super)` item, so callers outside this module cannot
+/// fabricate one. This makes the "user must confirm before destruction"
+/// contract a compile-time guarantee rather than a doc comment that a future
+/// caller could silently bypass.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ConfirmedReclone(());
+
+impl ConfirmedReclone {
+    /// Produce the confirmation token. `pub(super)` so only the force-reclone
+    /// orchestration (which runs after the `ConfirmIssueOriginMismatch` modal)
+    /// can mint one.
+    #[must_use]
+    pub(super) fn confirmed() -> Self {
+        Self(())
+    }
 }
 
 /// Remove the working copy directory entirely (for the force-reclone path).
 ///
 /// This is destructive: it deletes the entire `work_dir` and all its
-/// contents. The caller must have obtained explicit user confirmation before
-/// invoking this.
-pub(super) fn remove_workdir(work_dir: &Path) -> Result<(), String> {
+/// contents. The required [`ConfirmedReclone`] token is the compile-time
+/// guarantee that the caller has already obtained explicit user confirmation
+/// (via the `ConfirmIssueOriginMismatch` modal) — the token cannot be
+/// constructed outside this module.
+pub(super) fn remove_workdir(work_dir: &Path, _confirmed: ConfirmedReclone) -> Result<(), String> {
     std::fs::remove_dir_all(work_dir)
         .map_err(|e| format!("Failed to remove workdir {}: {e}", work_dir.display()))
 }

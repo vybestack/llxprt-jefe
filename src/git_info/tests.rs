@@ -315,3 +315,51 @@ fn parse_repository_origin_accepts_git_scheme() {
         })
     );
 }
+
+#[test]
+fn parse_repository_origin_https_with_port_strips_port() {
+    assert_eq!(
+        parse_repository_origin("https://github.com:443/acme/widgets.git"),
+        Some(ParsedRepositoryOrigin {
+            host: "github.com".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_ipv6_literal_with_port() {
+    // Bracketed IPv6 with a port: the host is the full bracketed literal and
+    // the port (after ']') is stripped. This must NOT split on a colon
+    // inside the address.
+    assert_eq!(
+        parse_repository_origin("https://[::1]:8443/acme/widgets.git"),
+        Some(ParsedRepositoryOrigin {
+            host: "[::1]".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_ipv6_literal_without_port() {
+    // Bracketed IPv6 without a port: the full bracketed address is the host.
+    // A naive rfind(':') would truncate it to "[2001:db8:" — this test pins
+    // the correct behavior.
+    assert_eq!(
+        parse_repository_origin("https://[2001:db8::1]/acme/widgets.git"),
+        Some(ParsedRepositoryOrigin {
+            host: "[2001:db8::1]".to_owned(),
+            owner_repo: "acme/widgets".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn parse_repository_origin_ipv6_literal_is_not_github_host() {
+    // An IPv6 literal is never github.com, so origins_match must reject it.
+    let parsed = parse_repository_origin("https://[::1]/acme/widgets.git");
+    assert!(parsed.is_some(), "IPv6 literal must parse");
+    let host = parsed.map(|p| p.host);
+    assert_ne!(host.as_deref(), Some("github.com"));
+}

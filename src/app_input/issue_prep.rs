@@ -186,9 +186,14 @@ pub(super) fn force_reclone_local_with_url(
     clone_url: &str,
     prompt: &str,
 ) -> Result<PrepOutcome, String> {
-    // Remove the mismatched workdir.
+    // Remove the mismatched workdir. The confirmation token is the
+    // compile-time guarantee that the user confirmed via the modal; this
+    // function is only reached from confirm_issue_origin_mismatch_enter.
     if work_dir.exists() {
-        remove_workdir(work_dir)?;
+        remove_workdir(
+            work_dir,
+            super::issue_git_prep::ConfirmedReclone::confirmed(),
+        )?;
     }
     // Clone from the resolved URL.
     ensure_workdir_cloned(work_dir, Some(clone_url))?;

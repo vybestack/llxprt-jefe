@@ -368,12 +368,22 @@ fn extract_host_from_scp(host_part: &str) -> String {
 ///
 /// For `git@github.com` → `github.com`. For `github.com` → `github.com`.
 /// Strips any port suffix (e.g., `github.com:22` → `github.com`).
+///
+/// Bracketed IPv6 literals are handled correctly: for `[::1]:22` → `[::1]`
+/// and for `[::1]` → `[::1]` (the port is only stripped when it follows the
+/// closing `]`; a bare `rfind(':')` would otherwise split inside the address).
 fn extract_host_from_scheme(authority: &str) -> String {
     let after_user = match authority.rfind('@') {
         Some(pos) => &authority[pos + 1..],
         None => authority,
     };
-    // Strip port if present.
+    // Bracketed IPv6 literal: the host is between '[' and ']'; a port, if
+    // present, follows the closing bracket (e.g. `[::1]:22`). Do NOT use a
+    // bare rfind(':') — it would split inside the IPv6 address.
+    if let Some(close) = after_user.rfind(']') {
+        return after_user[..=close].to_lowercase();
+    }
+    // Plain host: strip a port suffix after the last ':' if one is present.
     let host = match after_user.rfind(':') {
         Some(pos) => &after_user[..pos],
         None => after_user,

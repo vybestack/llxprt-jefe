@@ -275,8 +275,11 @@ fn origin_url_classifier_success_with_url() {
 
 #[test]
 fn origin_url_classifier_success_empty_is_no_origin() {
-    // Exit 0 + empty stdout means the `|| true` swallowed a nonzero git exit
-    // (no origin remote). This is Ok(None), NOT an error.
+    // The classifier treats exit 0 + empty stdout as Ok(None). In production
+    // this state is produced by the read_remote_origin_url wrapper mapping
+    // git's exit-2 (no origin remote) to empty stdout; this test verifies the
+    // classifier's contract for that input directly, independent of how the
+    // shell produced it.
     let result = classify_origin_url_output(Some(0), "", "");
     assert_eq!(result, Ok(None));
 }
@@ -321,9 +324,12 @@ fn origin_url_classifier_success_trims_url() {
 }
 
 #[test]
-fn origin_url_classifier_no_origin_never_causes_error() {
-    // The critical safety property: a missing origin (Ok(None)) must NOT be
-    // an error — it must surface as OriginMismatch at the caller level.
-    let result = classify_origin_url_output(Some(0), "", "");
+fn origin_url_classifier_success_empty_with_stderr_is_no_origin() {
+    // The classifier keys off exit code + stdout, not stderr: exit 0 with
+    // empty stdout is Ok(None) even if stderr carries incidental text. This
+    // is a distinct edge case from the plain empty-stdout test (which has
+    // empty stderr too) and guards against a future change that keys the
+    // no-origin decision on stderr presence.
+    let result = classify_origin_url_output(Some(0), "", "warning: something");
     assert_eq!(result, Ok(None));
 }
