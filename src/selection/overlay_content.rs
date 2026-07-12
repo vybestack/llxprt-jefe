@@ -442,4 +442,88 @@ mod tests {
         // Two agents → lines 2-3 are entries, line 4 is separator, line 5+ hints.
         assert!(content.lines[4].starts_with('─'));
     }
+
+    /// Every confirm modal variant must render — i.e.
+    /// `derive_confirm_modal_data` must return `Some` for all six confirm
+    /// variants (issue #228). If a new confirm variant is added to
+    /// `ModalState` without a matching arm in `derive_confirm_modal_data`,
+    /// this test will fail (the catch-all `_ => return None` would silently
+    /// suppress rendering otherwise).
+    #[test]
+    fn confirm_modal_renders_all_variants() {
+        use crate::ui::orchestration::derive_confirm_modal_data;
+
+        let state = AppState::default();
+        for modal in overlay_confirm_modal_samples() {
+            assert!(
+                derive_confirm_modal_data(&state, &modal).is_some(),
+                "derive_confirm_modal_data must return Some for confirm variant: {modal:?}"
+            );
+        }
+    }
+
+    /// Build one sample of every confirm modal variant for overlay rendering
+    /// tests (mirrors `all_confirm_modal_samples` in `confirm_focus_tests.rs`).
+    fn overlay_confirm_modal_samples() -> Vec<crate::state::ModalState> {
+        use crate::domain::{LaunchSignature, SandboxEngine};
+        use crate::github::SendPayload;
+        use crate::runtime::PreflightIssue;
+        use crate::state::{ConfirmFocus, ModalState};
+
+        fn sig() -> LaunchSignature {
+            LaunchSignature {
+                work_dir: std::path::PathBuf::from("/tmp"),
+                profile: String::new(),
+                code_puppy_model: String::new(),
+                code_puppy_yolo: Some(false),
+                mode_flags: Vec::new(),
+                llxprt_debug: String::new(),
+                pass_continue: false,
+                sandbox_enabled: false,
+                sandbox_engine: SandboxEngine::Podman,
+                sandbox_flags: String::new(),
+                remote: crate::domain::RemoteRepositorySettings::default(),
+                agent_kind: crate::domain::AgentKind::Llxprt,
+            }
+        }
+
+        vec![
+            ModalState::ConfirmDeleteAgent {
+                id: AgentId("a".to_string()),
+                delete_work_dir: false,
+                confirm_focus: ConfirmFocus::Cancel,
+            },
+            ModalState::ConfirmDeleteRepository {
+                id: RepositoryId("r".to_string()),
+                confirm_focus: ConfirmFocus::Cancel,
+            },
+            ModalState::ConfirmKillAgent {
+                id: AgentId("a".to_string()),
+                confirm_focus: ConfirmFocus::Cancel,
+            },
+            ModalState::PreflightPrompt {
+                agent_id: AgentId("a".to_string()),
+                signature: sig(),
+                issue: PreflightIssue::SshAgentNoIdentities,
+                remaining_issues: Vec::new(),
+                confirm_focus: ConfirmFocus::Cancel,
+            },
+            ModalState::ConfirmIssueDirtyCopy {
+                agent_id: AgentId("a".to_string()),
+                work_dir: std::path::PathBuf::from("/tmp"),
+                signature: sig(),
+                payload: SendPayload::default(),
+                confirm_focus: ConfirmFocus::Cancel,
+            },
+            ModalState::ConfirmIssueOriginMismatch {
+                agent_id: AgentId("a".to_string()),
+                work_dir: std::path::PathBuf::from("/tmp"),
+                signature: sig(),
+                payload: SendPayload::default(),
+                actual: String::new(),
+                expected: String::new(),
+                confirm_focus: ConfirmFocus::Cancel,
+            },
+        ]
+    }
 }

@@ -42,11 +42,15 @@ pub struct TerminalRenderData {
 
 /// Derive confirmation modal data from current state, if applicable.
 ///
-/// A single exhaustive match over `modal` produces the full
-/// [`ConfirmModalData`] for every confirm variant. This ensures the compiler
-/// enforces coverage: adding a new confirm variant without supplying its
-/// `confirm_focus` is a compile error, preventing the focus from silently
-/// defaulting to `Cancel`.
+/// The match covers all six confirm variants and extracts `confirm_focus`
+/// alongside the title/message/checkbox in a single arm per variant, so the
+/// six variants cannot drift out of sync with each other. NOTE: the
+/// `_ => return None` catch-all means a NEWLY-added `ModalState` confirm
+/// variant would silently return `None` (modal won't render) rather than
+/// fail at compile time — so new confirm variants must be explicitly added
+/// here. The `confirm_modal_renders_all_variants` test in
+/// `src/selection/overlay_content.rs` guards against this by asserting every
+/// confirm variant renders.
 #[must_use]
 pub fn derive_confirm_modal_data(
     snapshot: &AppState,

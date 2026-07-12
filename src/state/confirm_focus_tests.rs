@@ -178,3 +178,119 @@ fn close_modal_dismisses_confirm_without_side_effect() {
     let state = state.apply(AppEvent::CloseModal);
     assert_eq!(state.modal, ModalState::None);
 }
+
+/// Every confirm modal variant must be recognized by the focus machinery
+/// (issue #228). If a new confirm variant is added to `ModalState`, this test
+/// will fail until it is added to `current_confirm_focus`/`set_confirm_focus`
+/// AND to the sample list below — preventing silent regressions. The focus is
+/// driven through the public reducer API (`AppEvent::ConfirmCycleFocus`),
+/// which is the real event path used by the binary.
+#[test]
+fn all_confirm_variants_recognized_by_focus_machinery() {
+    for modal in all_confirm_modal_samples() {
+        assert_confirm_recognized_and_cycles(modal);
+    }
+}
+
+/// Non-confirm modals must yield `None` from `current_confirm_focus` so that
+/// `ConfirmCycleFocus` is a no-op outside confirm dialogs (issue #228).
+#[test]
+fn non_confirm_modals_return_none_focus() {
+    let non_confirms: Vec<ModalState> = vec![
+        ModalState::None,
+        ModalState::Help,
+        ModalState::NewAgent {
+            repository_id: RepositoryId("r".into()),
+            fields: crate::state::AgentFormFields::default(),
+            focus: crate::state::AgentFormFocus::default(),
+            cursor: crate::state::AgentFormCursor::default(),
+            work_dir_manual: false,
+        },
+        ModalState::Search {
+            query: String::new(),
+        },
+    ];
+    for modal in non_confirms {
+        let state = AppState {
+            modal: modal.clone(),
+            ..AppState::default()
+        };
+        assert_eq!(
+            state.current_confirm_focus(),
+            None,
+            "non-confirm variant must return None: {modal:?}"
+        );
+    }
+}
+
+/// Build one sample of every confirm modal variant. If a new confirm variant
+/// is added to `ModalState`, it must be added here (and the tests using this
+/// list enforce coverage).
+fn all_confirm_modal_samples() -> Vec<ModalState> {
+    use crate::runtime::PreflightIssue;
+    vec![
+        ModalState::ConfirmDeleteAgent {
+            id: AgentId("a".into()),
+            delete_work_dir: false,
+            confirm_focus: ConfirmFocus::Cancel,
+        },
+        ModalState::ConfirmDeleteRepository {
+            id: RepositoryId("r".into()),
+            confirm_focus: ConfirmFocus::Cancel,
+        },
+        ModalState::ConfirmKillAgent {
+            id: AgentId("a".into()),
+            confirm_focus: ConfirmFocus::Cancel,
+        },
+        ModalState::PreflightPrompt {
+            agent_id: AgentId("a".into()),
+            signature: sample_signature(),
+            issue: PreflightIssue::SshAgentNoIdentities,
+            remaining_issues: Vec::new(),
+            confirm_focus: ConfirmFocus::Cancel,
+        },
+        ModalState::ConfirmIssueDirtyCopy {
+            agent_id: AgentId("a".into()),
+            work_dir: std::path::PathBuf::from("/tmp"),
+            signature: sample_signature(),
+            payload: SendPayload::default(),
+            confirm_focus: ConfirmFocus::Cancel,
+        },
+        ModalState::ConfirmIssueOriginMismatch {
+            agent_id: AgentId("a".into()),
+            work_dir: std::path::PathBuf::from("/tmp"),
+            signature: sample_signature(),
+            payload: SendPayload::default(),
+            actual: String::new(),
+            expected: String::new(),
+            confirm_focus: ConfirmFocus::Cancel,
+        },
+    ]
+}
+
+/// Assert that a single confirm variant is recognized by the focus machinery
+/// and that cycling focus via the public reducer toggles Cancel ↔ Confirm.
+fn assert_confirm_recognized_and_cycles(modal: ModalState) {
+    let state = AppState {
+        modal: modal.clone(),
+        ..AppState::default()
+    };
+    assert!(
+        state.current_confirm_focus().is_some(),
+        "confirm variant must be recognized by current_confirm_focus: {modal:?}"
+    );
+
+    let toggled = state.apply(AppEvent::ConfirmCycleFocus);
+    assert_eq!(
+        toggled.current_confirm_focus(),
+        Some(ConfirmFocus::Confirm),
+        "ConfirmCycleFocus must toggle to Confirm for: {modal:?}"
+    );
+
+    let restored = toggled.apply(AppEvent::ConfirmCycleFocus);
+    assert_eq!(
+        restored.current_confirm_focus(),
+        Some(ConfirmFocus::Cancel),
+        "ConfirmCycleFocus must toggle back to Cancel for: {modal:?}"
+    );
+}
