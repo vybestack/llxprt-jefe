@@ -756,6 +756,7 @@ fn is_blocking_modal_open(state: &AppState) -> bool {
             | ModalState::ConfirmIssueOriginMismatch { .. }
             | ModalState::ThemePicker { .. }
             | ModalState::WorkflowDispatch { .. }
+            | ModalState::Auth { .. }
     )
 }
 
@@ -774,7 +775,8 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
         | jefe::state::ModalState::ConfirmKillAgent { .. }
         | jefe::state::ModalState::PreflightPrompt { .. }
         | jefe::state::ModalState::ConfirmIssueDirtyCopy { .. }
-        | jefe::state::ModalState::ConfirmIssueOriginMismatch { .. } => {
+        | jefe::state::ModalState::ConfirmIssueOriginMismatch { .. }
+        | jefe::state::ModalState::Auth { .. } => {
             return OverlayPane::ConfirmModal;
         }
         // Explicit match (not wildcard) so new ModalState variants force a

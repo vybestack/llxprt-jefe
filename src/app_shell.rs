@@ -9,8 +9,8 @@ use tracing::{debug, trace, warn};
 use crate::AppContext;
 use crate::app_input::{
     dispatch_app_event, forward_key_to_pty, handle_f12_toggle, handle_global_shortcut_key,
-    handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key, handle_mode_search_key,
-    handle_mode_theme_picker_key, handle_normal_key_event, persist_state,
+    handle_mode_auth_key, handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key,
+    handle_mode_search_key, handle_mode_theme_picker_key, handle_normal_key_event, persist_state,
     request_pr_background_refresh, to_persisted_state, try_ctrl_c_interrupt_passthrough,
     try_intercept_terminal_scrollback,
 };
@@ -763,6 +763,10 @@ fn dispatch_mode_specific_key(
         }
         InputMode::ThemePicker => {
             handle_mode_theme_picker_key(app_state, &ctx.cloned(), key_event);
+            true
+        }
+        InputMode::Auth => {
+            handle_mode_auth_key(app_state, &ctx.cloned(), key_event);
             true
         }
         InputMode::Search => handle_mode_search_key(app_state, &ctx.cloned(), key_event),

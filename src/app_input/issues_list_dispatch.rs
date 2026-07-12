@@ -236,6 +236,13 @@ fn persist_issue_list_failed(
     params: &IssueFetchParams,
     error: String,
 ) {
+    // When gh is not authenticated, open the in-app device-code auth dialog
+    // instead of surfacing a bare "run gh auth login" error string (issue #244).
+    // The dialog is the remediation surface; the original operation can be
+    // retried after success.
+    if super::auth_remediation::offer_auth_remediation(app_state, ctx, &error) {
+        return;
+    }
     apply_and_persist(
         app_state,
         ctx,

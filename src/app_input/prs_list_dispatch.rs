@@ -331,6 +331,12 @@ fn persist_pr_list_failed(
             request_id: params.request_id,
         }
     } else {
+        // User-initiated load failed because gh is unauthenticated: offer the
+        // in-app device-code auth dialog (issue #244). Silent background
+        // refreshes must NOT pop the dialog.
+        if super::auth_remediation::offer_auth_remediation(app_state, ctx, &error) {
+            return;
+        }
         AppEvent::PrListLoadFailed {
             scope_repo_id: params.scope_repo_id.clone(),
             request_id: params.request_id,

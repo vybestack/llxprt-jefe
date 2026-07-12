@@ -25,6 +25,8 @@ mod issues_load_ops;
 mod issues_mutation_ops;
 mod issues_ops;
 mod modal_ops;
+// In-app device-code auth dialog state machine (issue #244).
+mod auth_ops;
 // Per-repository user-preference snapshot/restore operations (issue #163).
 mod preferences_ops;
 // @plan PLAN-20260624-PR-MODE.P03
@@ -738,6 +740,7 @@ impl AppState {
             SystemMessage::ClearError => self.error_message = None,
             SystemMessage::ClearWarning => self.warning_message = None,
             SystemMessage::Quit => {}
+            auth => self.apply_auth_message(auth),
         }
     }
 
@@ -843,6 +846,11 @@ impl AppState {
 #[cfg(test)]
 #[path = "issues_tests.rs"]
 mod issues_tests;
+
+// In-app device-code auth dialog state-machine tests (issue #244).
+#[cfg(test)]
+#[path = "auth_ops_tests.rs"]
+mod auth_ops_tests;
 
 #[cfg(test)]
 #[path = "confirm_focus_tests.rs"]

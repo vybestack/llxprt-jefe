@@ -19,6 +19,8 @@ pub enum InputMode {
     Confirm,
     /// Theme picker overlay.
     ThemePicker,
+    /// In-app device-code auth dialog (issue #244).
+    Auth,
     /// @plan PLAN-20260329-ISSUES-MODE.P03
     /// @requirement REQ-ISS-002
     IssuesNormal,
@@ -86,6 +88,7 @@ fn modal_input_mode(modal: &ModalState) -> Option<InputMode> {
         | ModalState::PreflightPrompt { .. }
         | ModalState::ConfirmIssueDirtyCopy { .. }
         | ModalState::ConfirmIssueOriginMismatch { .. } => Some(InputMode::Confirm),
+        ModalState::Auth { .. } => Some(InputMode::Auth),
         ModalState::None => None,
     }
 }

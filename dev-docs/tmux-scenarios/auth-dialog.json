@@ -1,0 +1,34 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 32,
+    "history_limit": 2000,
+    "initial_wait_ms": 150,
+    "out_dir": "target/tmux-harness/auth-dialog",
+    "keep_session": false,
+    "assert_mode": "soft"
+  },
+  "macros": {
+    "enter_issues_mode": {
+      "params": [],
+      "steps": [
+        { "key": "i" }
+      ]
+    },
+    "quit": {
+      "params": [],
+      "steps": [
+        { "key": "q" },
+        { "waitForExit": 3000 }
+      ]
+    }
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "macro": "enter_issues_mode", "args": {} },
+    { "waitFor": "Authenticate with GitHub" },
+    { "expect": "Authenticate with GitHub" },
+    { "key": "Escape" },
+    { "macro": "quit", "args": {} }
+  ]
+}
