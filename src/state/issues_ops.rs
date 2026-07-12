@@ -261,6 +261,9 @@ impl AppState {
         self.issues_state.list_page_pending = None;
         self.issues_state.detail_pending = None;
         self.issues_state.comments_page_pending = None;
+        self.issues_state.delete_confirm = None;
+        self.issues_state.close_mutation_pending = None;
+        self.issues_state.delete_mutation_pending = None;
         self.restore_issue_preferences();
     }
 
@@ -466,6 +469,11 @@ impl AppState {
         self.issues_state.comments_page_pending = None;
         self.issues_state.list_reload_pending = None;
         self.issues_state.list_page_pending = None;
+        // A filter change reloads the list; dismiss the transient delete-confirm
+        // overlay (it targets a specific list row that may no longer be present).
+        // In-flight close/delete mutations are intentionally KEPT — their result
+        // still carries the original scope+issue and matches the pending.
+        self.issues_state.delete_confirm = None;
         self.issues_state.loading.list = true;
     }
 
@@ -637,6 +645,7 @@ impl AppState {
     pub(super) fn apply_issues_event(&mut self, event: AppEvent) -> bool {
         self.apply_issue_scroll_event(&event)
             || self.apply_issue_lifecycle_event(event.clone())
+            || self.apply_issue_close_delete_event(&event)
             || self.apply_issue_filter_event(event.clone())
             || self.apply_inline_open_event(event.clone())
             || self.apply_inline_event(event.clone())

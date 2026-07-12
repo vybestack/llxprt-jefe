@@ -266,6 +266,29 @@ pub enum AppEvent {
         mutation_id: Option<u64>,
         error: String,
     },
+
+    // Issue Close / Delete lifecycle (issue #182)
+    /// Key-layer request: close the focused issue (dispatch resolves context).
+    CloseIssue,
+    /// Key-layer request: open the delete confirm overlay.
+    OpenDeleteIssueConfirm,
+    /// Delete confirm overlay arm/confirm signal (two-step like merge chooser).
+    IssueDeleteConfirm,
+    /// Delete confirm overlay cancel.
+    IssueDeleteCancel,
+    /// Close mutation succeeded.
+    IssueClosed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
+    },
+    /// Delete mutation succeeded.
+    IssueDeleted {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
+    },
+
     OpenAgentChooser,
     AgentChooserNavigateUp,
     AgentChooserNavigateDown,

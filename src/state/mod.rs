@@ -19,6 +19,7 @@ mod form_ops;
 mod form_projection;
 mod form_runtime;
 mod form_workflow_dispatch;
+mod issues_close_delete_ops;
 mod issues_inline_ops;
 mod issues_load_ops;
 mod issues_mutation_ops;
@@ -877,6 +878,10 @@ mod issues_tests_filter;
 #[cfg(test)]
 #[path = "issues_tests_composer_focus.rs"]
 mod issues_tests_composer_focus;
+
+#[cfg(test)]
+#[path = "issues_tests_close_delete.rs"]
+mod issues_tests_close_delete;
 
 #[cfg(test)]
 #[path = "prs_tests.rs"]

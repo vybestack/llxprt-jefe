@@ -243,6 +243,7 @@ mod tests {
     fn issue(number: u64) -> Issue {
         Issue {
             number,
+            node_id: String::new(),
             title: format!("Issue {number}"),
             state: IssueState::Open,
             author_login: "octocat".to_string(),

@@ -1,0 +1,28 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "Issues" },
+    { "waitFor": "#" },
+    { "capture": "issues-close-delete-entered" },
+    { "key": "D" },
+    { "waitFor": "Delete Issue" },
+    { "waitFor": "Enter confirm" },
+    { "capture": "issues-delete-confirm-open" },
+    { "key": "Enter" },
+    { "waitFor": "Press Enter to confirm delete" },
+    { "capture": "issues-delete-confirm-armed" },
+    { "key": "Escape" },
+    { "waitForNot": "Delete Issue" },
+    { "capture": "issues-delete-confirm-cancelled" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

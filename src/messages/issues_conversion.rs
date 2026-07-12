@@ -233,6 +233,53 @@ impl IssuesMessage {
             AppEvent::AgentChooserCancel => Self::AgentChooserCancel,
             AppEvent::SendToAgentCompleted => Self::SendToAgentCompleted,
             AppEvent::SendToAgentFailed { error } => Self::SendToAgentFailed { error },
+            AppEvent::CloseIssue
+            | AppEvent::OpenDeleteIssueConfirm
+            | AppEvent::IssueDeleteConfirm
+            | AppEvent::IssueDeleteCancel
+            | AppEvent::IssueClosed { .. }
+            | AppEvent::IssueDeleted { .. } => Self::from_app_event_lifecycle(event),
+            AppEvent::IssueSelfAssignmentFailed { .. } => {
+                Self::from_app_event_self_assignment(event)
+            }
+            _ => unreachable!("non-issues AppEvent routed to issues converter"),
+        }
+    }
+
+    /// Close/delete lifecycle events (issue #182) — extracted from
+    /// `from_app_event_controls` to stay within the per-function line budget.
+    fn from_app_event_lifecycle(event: AppEvent) -> Self {
+        match event {
+            AppEvent::CloseIssue => Self::CloseIssue,
+            AppEvent::OpenDeleteIssueConfirm => Self::OpenDeleteIssueConfirm,
+            AppEvent::IssueDeleteConfirm => Self::IssueDeleteConfirm,
+            AppEvent::IssueDeleteCancel => Self::IssueDeleteCancel,
+            AppEvent::IssueClosed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            } => Self::IssueClosed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            },
+            AppEvent::IssueDeleted {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            } => Self::IssueDeleted {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            },
+            _ => unreachable!("non-lifecycle AppEvent routed to lifecycle converter"),
+        }
+    }
+
+    /// Self-assignment follow-up event (issue #186) — extracted from
+    /// `from_app_event_controls` to stay within the per-function line budget.
+    fn from_app_event_self_assignment(event: AppEvent) -> Self {
+        match event {
             AppEvent::IssueSelfAssignmentFailed {
                 owner_repo,
                 issue_number,
@@ -242,7 +289,7 @@ impl IssuesMessage {
                 issue_number,
                 error,
             },
-            _ => unreachable!("non-issues AppEvent routed to issues converter"),
+            _ => unreachable!("non-self-assignment AppEvent routed to self-assignment converter"),
         }
     }
 
@@ -581,6 +628,51 @@ impl IssuesMessage {
             Self::AgentChooserCancel => AppEvent::AgentChooserCancel,
             Self::SendToAgentCompleted => AppEvent::SendToAgentCompleted,
             Self::SendToAgentFailed { error } => AppEvent::SendToAgentFailed { error },
+            Self::CloseIssue
+            | Self::OpenDeleteIssueConfirm
+            | Self::IssueDeleteConfirm
+            | Self::IssueDeleteCancel
+            | Self::IssueClosed { .. }
+            | Self::IssueDeleted { .. } => self.into_app_event_lifecycle(),
+            Self::IssueSelfAssignmentFailed { .. } => self.into_app_event_self_assignment(),
+            _ => unreachable!("routed IssuesMessage variant reached controls converter"),
+        }
+    }
+
+    /// Close/delete lifecycle messages (issue #182) — extracted from
+    /// `into_app_event_controls` to stay within the per-function line budget.
+    fn into_app_event_lifecycle(self) -> AppEvent {
+        match self {
+            Self::CloseIssue => AppEvent::CloseIssue,
+            Self::OpenDeleteIssueConfirm => AppEvent::OpenDeleteIssueConfirm,
+            Self::IssueDeleteConfirm => AppEvent::IssueDeleteConfirm,
+            Self::IssueDeleteCancel => AppEvent::IssueDeleteCancel,
+            Self::IssueClosed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            } => AppEvent::IssueClosed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            },
+            Self::IssueDeleted {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            } => AppEvent::IssueDeleted {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            },
+            _ => unreachable!("non-lifecycle IssuesMessage routed to lifecycle converter"),
+        }
+    }
+
+    /// Self-assignment follow-up message (issue #186) — extracted from
+    /// `into_app_event_controls` to stay within the per-function line budget.
+    fn into_app_event_self_assignment(self) -> AppEvent {
+        match self {
             Self::IssueSelfAssignmentFailed {
                 owner_repo,
                 issue_number,
@@ -590,7 +682,9 @@ impl IssuesMessage {
                 issue_number,
                 error,
             },
-            _ => unreachable!("routed IssuesMessage variant reached controls converter"),
+            _ => unreachable!(
+                "non-self-assignment IssuesMessage routed to self-assignment converter"
+            ),
         }
     }
 

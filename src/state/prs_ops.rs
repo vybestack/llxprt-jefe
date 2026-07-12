@@ -506,6 +506,8 @@ impl AppState {
             ReadOnlyHintKind::ReadOnlyResolveOnThread => {
                 "Select a review thread to resolve (read-only context)".to_string()
             }
+            ReadOnlyHintKind::IssueAlreadyClosed => "Issue is already closed".to_string(),
+            ReadOnlyHintKind::NoIssueFocused => "No issue selected".to_string(),
         };
         self.prs_state.draft_notice = Some(text);
     }

@@ -11,9 +11,10 @@ use crate::state::{AppState, IssueFocus, PaneFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
-    AgentChooser, IssueDetailProjectionInputs, IssueListLayout, IssueListWindow, KeybindBar,
-    Sidebar, StatusBar, detail_pane_element, filter_bar_element, issue_detail_props,
-    issue_filter_props, issue_list_props, issue_list_status_message, selectable_list_element,
+    AgentChooser, IssueDeleteConfirmOverlay, IssueDetailProjectionInputs, IssueListLayout,
+    IssueListWindow, KeybindBar, Sidebar, StatusBar, detail_pane_element, filter_bar_element,
+    issue_detail_props, issue_filter_props, issue_list_props, issue_list_status_message,
+    selectable_list_element,
 };
 
 /// Props for the issues mode screen.
@@ -116,6 +117,14 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
         .as_ref()
         .map_or_else(Vec::new, |c| c.agents.clone());
     let chooser_selected = agent_chooser.as_ref().map_or(0, |c| c.selected_index);
+
+    // Delete confirm overlay (issue #182)
+    let delete_confirm = state.and_then(|s| s.issues_state.delete_confirm.clone());
+    let delete_visible = delete_confirm.is_some();
+    let delete_issue_number = delete_confirm.as_ref().map_or(0, |c| c.issue_number);
+    let delete_awaiting = delete_confirm
+        .as_ref()
+        .is_some_and(|c| c.awaiting_confirmation);
 
     // Sidebar is highlighted when RepoList focus or PaneFocus::Repositories
     let sidebar_focused =
@@ -246,6 +255,26 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                                     selected_index: chooser_selected,
                                     colors: colors.clone(),
                                     selection: selection,
+                                )
+                            }
+                        }]
+                    } else {
+                        vec![]
+                    })
+
+                    // Delete confirm overlay (issue #182)
+                    #(if delete_visible {
+                        vec![element! {
+                            Box(
+                                position: Position::Absolute,
+                                top: 2,
+                                left: 4,
+                            ) {
+                                IssueDeleteConfirmOverlay(
+                                    visible: true,
+                                    issue_number: delete_issue_number,
+                                    awaiting_confirmation: delete_awaiting,
+                                    colors: colors.clone(),
                                 )
                             }
                         }]

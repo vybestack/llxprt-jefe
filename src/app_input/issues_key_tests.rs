@@ -991,3 +991,6 @@ fn p_in_inline_composer_types_char() {
         "'p' with inline composer must yield InlineChar('p'), got {event:?}"
     );
 }
+
+#[path = "issues_close_delete_key_tests.rs"]
+mod close_delete;

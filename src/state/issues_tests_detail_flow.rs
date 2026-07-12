@@ -20,6 +20,7 @@ fn dashboard_issues_state() -> AppState {
 fn make_test_issue(number: u64) -> Issue {
     Issue {
         number,
+        node_id: String::new(),
         title: format!("Test Issue #{number}"),
         state: IssueState::Open,
         author_login: "testuser".to_string(),
@@ -54,6 +55,7 @@ fn p15_detail(number: u64) -> IssueDetail {
     IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number,
+        node_id: String::new(),
         title: format!("Issue #{number}"),
         state: IssueState::Open,
         author_login: "user".to_string(),
@@ -116,6 +118,7 @@ fn send_payload_detail() -> IssueDetail {
     IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 7,
+        node_id: String::new(),
         title: "Fix crash".to_string(),
         state: IssueState::Open,
         author_login: "octocat".to_string(),

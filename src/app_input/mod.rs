@@ -3,6 +3,7 @@ use std::sync::Arc;
 mod issues;
 mod issues_dispatch;
 mod issues_filter;
+mod issues_lifecycle;
 mod issues_list_dispatch;
 mod issues_mutation;
 mod issues_subfocus_dispatch;
@@ -541,40 +542,8 @@ pub fn dispatch_app_message(
         AppMessage::Runtime(RuntimeMessage::RestartAgent(agent_id)) => {
             dispatch_restart_agent(app_state, ctx, agent_id);
         }
-        AppMessage::Issues(
-            message @ (IssuesMessage::NavigateUp
-            | IssuesMessage::NavigateDown
-            | IssuesMessage::NavigatePageUp
-            | IssuesMessage::NavigatePageDown
-            | IssuesMessage::NavigateHome
-            | IssuesMessage::NavigateEnd),
-        ) => {
-            dispatch_issues_navigation(app_state, ctx, message);
-        }
-        AppMessage::Issues(
-            message @ (IssuesMessage::EnterMode
-            | IssuesMessage::RefocusList
-            | IssuesMessage::ApplyFilter
-            | IssuesMessage::ClearFilter
-            | IssuesMessage::ApplySearch),
-        ) => issues_list_dispatch::dispatch_issue_list_reload(app_state, ctx, message),
-        AppMessage::Issues(IssuesMessage::Enter) => {
-            apply_and_persist(app_state, ctx, AppEvent::IssuesEnter);
-            issues_dispatch::load_issue_detail_for_selection(app_state, ctx);
-        }
-        AppMessage::Issues(
-            message @ (IssuesMessage::ScrollDetailDown
-            | IssuesMessage::ScrollDetailPageDown
-            | IssuesMessage::DetailSubfocusNext
-            | IssuesMessage::DetailSubfocusPrev),
-        ) => issues_subfocus_dispatch::dispatch_issues_detail_scroll_or_subfocus(
-            app_state, ctx, message,
-        ),
-        AppMessage::Issues(IssuesMessage::AgentChooserConfirm) => {
-            issues_send::dispatch_agent_chooser_confirm(app_state, ctx);
-        }
-        AppMessage::Issues(IssuesMessage::InlineSubmit) => {
-            issues_mutation::handle_inline_submit(app_state, ctx);
+        AppMessage::Issues(message) => {
+            issues_dispatch::dispatch_issues_message(app_state, ctx, message);
         }
         // ── PR-mode dispatch arms ───────────────────────────────────────────
         // @plan PLAN-20260624-PR-MODE.P11
@@ -591,6 +560,38 @@ pub fn dispatch_app_message(
             actions_orchestration::dispatch_actions_message(app_state, ctx, message);
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+    }
+}
+
+/// Dispatch issues close/delete lifecycle messages (issue #182).
+///
+/// Applies the reducer event first, then — for the action events that start an
+/// off-thread gh mutation — hands off to the lifecycle dispatch helper.
+fn dispatch_issues_lifecycle(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: IssuesMessage,
+) {
+    match message {
+        IssuesMessage::CloseIssue => {
+            apply_and_persist(app_state, ctx, AppEvent::CloseIssue);
+            issues_lifecycle::handle_issue_close(app_state, ctx);
+        }
+        IssuesMessage::OpenDeleteIssueConfirm => {
+            apply_and_persist(app_state, ctx, AppEvent::OpenDeleteIssueConfirm);
+        }
+        IssuesMessage::IssueDeleteConfirm => {
+            apply_and_persist(app_state, ctx, AppEvent::IssueDeleteConfirm);
+            issues_lifecycle::handle_issue_delete_confirm(app_state, ctx);
+        }
+        IssuesMessage::IssueDeleteCancel => {
+            apply_and_persist(app_state, ctx, AppEvent::IssueDeleteCancel);
+        }
+        // Defensive fallback: the sole caller (dispatch_app_message) pre-filters
+        // to the four lifecycle variants above, so other IssuesMessage variants
+        // never reach here. Kept as a no-op safety net rather than forcing this
+        // match to enumerate every IssuesMessage variant.
+        _ => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
 }
 
