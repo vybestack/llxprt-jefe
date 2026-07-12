@@ -695,11 +695,16 @@ mod tests {
             options: vec![PropertyOption {
                 label: "bug".to_string(),
                 selected: true,
+                id: None,
             }],
             selected_index: 0,
             title_text: String::new(),
             title_cursor: 0,
             error: None,
+            baseline: Vec::new(),
+            option_ids: Vec::new(),
+            loading_failed: false,
+            load_request_id: 0,
         });
         let content = property_editor_lines(&state);
         assert!(
@@ -740,16 +745,21 @@ mod tests {
                 PropertyOption {
                     label: "Open".to_string(),
                     selected: true,
+                    id: None,
                 },
                 PropertyOption {
                     label: "Closed".to_string(),
                     selected: false,
+                    id: None,
                 },
             ],
             selected_index: 0,
             title_text: String::new(),
             title_cursor: 0,
             error: None,
+            baseline: Vec::new(),
+            loading_failed: false,
+            load_request_id: 0,
         });
         let content = property_editor_lines(&state);
         assert!(

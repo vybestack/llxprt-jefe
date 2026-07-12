@@ -88,8 +88,9 @@ fn resolve_agent_chooser_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
 /// Property-editor key router (issue #175).
 ///
 /// Mirrors the merge-chooser pattern: Up/Down navigate, Space toggles, Enter
-/// confirms, Esc cancels. All other keys are consumed as `None` so the
-/// overlay is modal.
+/// confirms, Esc cancels. When `kind == Title`, character input, Backspace,
+/// Delete, and Left/Right edit the title text. All other keys are consumed
+/// as `None` so the overlay is modal.
 fn resolve_property_editor_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
     match key_event.code {
         KeyCode::Up => Some(AppEvent::IssuePropertyEditorNavigateUp),
@@ -97,6 +98,13 @@ fn resolve_property_editor_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
         KeyCode::Char(' ') => Some(AppEvent::IssuePropertyEditorToggle),
         KeyCode::Enter => Some(AppEvent::IssuePropertyEditorConfirm),
         KeyCode::Esc => Some(AppEvent::IssuePropertyEditorCancel),
+        KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(AppEvent::IssuePropertyEditorTitleChar(c))
+        }
+        KeyCode::Backspace => Some(AppEvent::IssuePropertyEditorTitleBackspace),
+        KeyCode::Delete => Some(AppEvent::IssuePropertyEditorTitleDelete),
+        KeyCode::Left => Some(AppEvent::IssuePropertyEditorTitleCursorLeft),
+        KeyCode::Right => Some(AppEvent::IssuePropertyEditorTitleCursorRight),
         _ => None,
     }
 }
@@ -257,3 +265,7 @@ pub fn handle_issues_mode_key(
 #[cfg(test)]
 #[path = "issues_key_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "issues_property_key_tests.rs"]
+mod issues_property_key_tests;

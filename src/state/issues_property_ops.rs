@@ -1,16 +1,43 @@
 //! Issues-mode property-editor state operations (issue #175).
 //!
 //! Mirrors `prs_merge_ops::apply_pr_merge_event`. Owns the property-editor
-//! overlay transitions (open/navigate/toggle/confirm/cancel) and the
-//! edit-result lifecycle (Succeeded/Failed/OptionsLoaded).
+//! overlay transitions (open/navigate/toggle/confirm/cancel/title-edit) and
+//! the edit-result lifecycle (Succeeded/Failed/OptionsLoaded/OptionsFailed).
 
 use super::{
-    AppEvent, AppState, IssueFocus, IssuePropertyEditorState, IssuePropertyKind, PropertyOption,
+    AppEvent, AppState, IssueFocus, IssuePropertyEditorState, IssuePropertyKind,
+    PropertyMutationPending, PropertyOption,
 };
 
 impl AppState {
     /// Apply an issue property-editor event (returns handled).
     pub(super) fn apply_issue_property_event(&mut self, event: &AppEvent) -> bool {
+        match event {
+            AppEvent::IssueOpenPropertyEditor { .. }
+            | AppEvent::IssuePropertyEditorNavigateUp
+            | AppEvent::IssuePropertyEditorNavigateDown
+            | AppEvent::IssuePropertyEditorToggle
+            | AppEvent::IssuePropertyEditorConfirm
+            | AppEvent::IssuePropertyEditorCancel
+            | AppEvent::IssuePropertyEditorTitleChar(_)
+            | AppEvent::IssuePropertyEditorTitleBackspace
+            | AppEvent::IssuePropertyEditorTitleDelete
+            | AppEvent::IssuePropertyEditorTitleCursorLeft
+            | AppEvent::IssuePropertyEditorTitleCursorRight => {
+                self.apply_issue_property_editor_ui(event)
+            }
+            AppEvent::IssuePropertyEditorOptionsLoaded { .. }
+            | AppEvent::IssuePropertyEditorOptionsFailed { .. }
+            | AppEvent::IssuePropertyEditSucceeded { .. }
+            | AppEvent::IssuePropertyEditFailed { .. } => {
+                self.apply_issue_property_lifecycle(event)
+            }
+            _ => false,
+        }
+    }
+
+    /// Editor UI events: open, navigate, toggle, cancel, and title editing.
+    fn apply_issue_property_editor_ui(&mut self, event: &AppEvent) -> bool {
         match event {
             AppEvent::IssueOpenPropertyEditor { kind } => {
                 self.open_issue_property_editor(*kind);
@@ -30,22 +57,86 @@ impl AppState {
             }
             AppEvent::IssuePropertyEditorConfirm => true,
             AppEvent::IssuePropertyEditorCancel => {
-                self.issues_state.property_editor = None;
+                self.cancel_issue_property_editor();
                 true
             }
-            AppEvent::IssuePropertyEditorOptionsLoaded { options } => {
-                self.apply_issue_property_options_loaded(options);
+            AppEvent::IssuePropertyEditorTitleChar(c) => {
+                self.issue_property_title_char(*c);
                 true
             }
+            AppEvent::IssuePropertyEditorTitleBackspace => {
+                self.issue_property_title_backspace();
+                true
+            }
+            AppEvent::IssuePropertyEditorTitleDelete => {
+                self.issue_property_title_delete();
+                true
+            }
+            AppEvent::IssuePropertyEditorTitleCursorLeft => {
+                self.issue_property_title_cursor_left();
+                true
+            }
+            AppEvent::IssuePropertyEditorTitleCursorRight => {
+                self.issue_property_title_cursor_right();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Lifecycle events: options loaded/failed, edit succeeded/failed.
+    fn apply_issue_property_lifecycle(&mut self, event: &AppEvent) -> bool {
+        match event {
+            AppEvent::IssuePropertyEditorOptionsLoaded {
+                scope_repo_id,
+                issue_number,
+                kind,
+                request_id,
+                options,
+            } => self.apply_issue_property_options_loaded(
+                scope_repo_id,
+                *issue_number,
+                *kind,
+                *request_id,
+                options,
+            ),
+            AppEvent::IssuePropertyEditorOptionsFailed {
+                scope_repo_id,
+                issue_number,
+                kind,
+                request_id,
+                error,
+            } => self.apply_issue_property_options_failed(
+                scope_repo_id,
+                *issue_number,
+                *kind,
+                *request_id,
+                error,
+            ),
             AppEvent::IssuePropertyEditSucceeded {
                 scope_repo_id,
                 issue_number,
-            } => self.apply_issue_property_succeeded(scope_repo_id, *issue_number),
+                kind,
+                request_id,
+            } => self.apply_issue_property_succeeded(
+                scope_repo_id,
+                *issue_number,
+                *kind,
+                *request_id,
+            ),
             AppEvent::IssuePropertyEditFailed {
                 scope_repo_id,
                 issue_number,
+                kind,
+                request_id,
                 error,
-            } => self.apply_issue_property_failed(scope_repo_id, *issue_number, error),
+            } => self.apply_issue_property_failed(
+                scope_repo_id,
+                *issue_number,
+                *kind,
+                *request_id,
+                error,
+            ),
             _ => false,
         }
     }
@@ -56,14 +147,18 @@ impl AppState {
             || self.issues_state.agent_chooser.is_some()
             || self.issues_state.property_editor.is_some()
             || self.issues_state.mutation_pending.is_some()
+            || self.issues_state.property_mutation_pending.is_some()
         {
             return;
         }
         if self.issues_state.issue_detail.is_none() {
             return;
         }
-        let (title_text, options) = self.issue_property_initial_state(kind);
-        let title_cursor = title_text.len();
+        let (title_text, options, baseline, option_ids) = self.issue_property_initial_state(kind);
+        // Title editor opens with the caret at the start (issue #175 H1).
+        let title_cursor = 0;
+        let load_request_id = self.issues_state.next_property_request_id;
+        self.issues_state.next_property_request_id += 1;
         self.issues_state.property_editor = Some(IssuePropertyEditorState {
             kind,
             options,
@@ -71,42 +166,55 @@ impl AppState {
             title_text,
             title_cursor,
             error: None,
+            baseline,
+            option_ids,
+            loading_failed: false,
+            load_request_id,
         });
     }
 
     fn issue_property_initial_state(
         &self,
         kind: IssuePropertyKind,
-    ) -> (String, Vec<PropertyOption>) {
+    ) -> (String, Vec<PropertyOption>, Vec<String>, Vec<String>) {
         let Some(detail) = &self.issues_state.issue_detail else {
-            return (String::new(), Vec::new());
+            return (String::new(), Vec::new(), Vec::new(), Vec::new());
         };
-        let selected = |items: &[String]| {
+        let selected_opts = |items: &[String]| -> Vec<PropertyOption> {
             items
                 .iter()
                 .map(|l| PropertyOption {
                     label: l.clone(),
                     selected: true,
+                    id: None,
                 })
-                .collect::<Vec<_>>()
+                .collect()
         };
         let one_selected = |label: &str| {
             vec![PropertyOption {
                 label: label.to_string(),
                 selected: true,
+                id: None,
             }]
         };
         match kind {
-            IssuePropertyKind::Labels => (String::new(), selected(&detail.labels)),
-            IssuePropertyKind::Assignees => (String::new(), selected(&detail.assignees)),
-            IssuePropertyKind::Milestone => (
-                String::new(),
-                selected(&detail.milestone.clone().into_iter().collect::<Vec<_>>()),
-            ),
-            IssuePropertyKind::Title => (detail.title.clone(), Vec::new()),
+            IssuePropertyKind::Labels => {
+                let opts = selected_opts(&detail.labels);
+                (String::new(), opts, detail.labels.clone(), Vec::new())
+            }
+            IssuePropertyKind::Assignees => {
+                let opts = selected_opts(&detail.assignees);
+                (String::new(), opts, detail.assignees.clone(), Vec::new())
+            }
+            IssuePropertyKind::Milestone => {
+                let ms: Vec<String> = detail.milestone.clone().into_iter().collect();
+                let opts = selected_opts(&ms);
+                (String::new(), opts, ms, Vec::new())
+            }
+            IssuePropertyKind::Title => (detail.title.clone(), Vec::new(), Vec::new(), Vec::new()),
             IssuePropertyKind::Type => match &detail.issue_type_name {
-                Some(t) => (String::new(), one_selected(t)),
-                None => (String::new(), Vec::new()),
+                Some(t) => (String::new(), one_selected(t), Vec::new(), Vec::new()),
+                None => (String::new(), Vec::new(), Vec::new(), Vec::new()),
             },
             IssuePropertyKind::State => {
                 let is_open = detail.state == crate::domain::IssueState::Open;
@@ -116,12 +224,16 @@ impl AppState {
                         PropertyOption {
                             label: "Open".to_string(),
                             selected: is_open,
+                            id: None,
                         },
                         PropertyOption {
                             label: "Closed".to_string(),
                             selected: !is_open,
+                            id: None,
                         },
                     ],
+                    Vec::new(),
+                    Vec::new(),
                 )
             }
         }
@@ -161,6 +273,7 @@ impl AppState {
                     editor.options.push(PropertyOption {
                         label: "(clear)".to_string(),
                         selected: true,
+                        id: None,
                     });
                 }
             }
@@ -168,63 +281,87 @@ impl AppState {
         }
     }
 
-    fn apply_issue_property_options_loaded(&mut self, options: &[(String, bool)]) {
-        let Some(editor) = &mut self.issues_state.property_editor else {
-            return;
-        };
-        let kind = editor.kind;
-        match kind {
-            IssuePropertyKind::Labels | IssuePropertyKind::Assignees => {
-                let current_selected: Vec<String> = editor
-                    .options
-                    .iter()
-                    .filter(|o| o.selected)
-                    .map(|o| o.label.clone())
-                    .collect();
-                editor.options = options
-                    .iter()
-                    .map(|(label, _)| {
-                        let selected = current_selected
-                            .iter()
-                            .any(|s| s.eq_ignore_ascii_case(label));
-                        PropertyOption {
-                            label: label.clone(),
-                            selected,
-                        }
-                    })
-                    .collect();
-                if editor.selected_index >= editor.options.len() {
-                    editor.selected_index = 0;
-                }
-            }
-            IssuePropertyKind::Milestone | IssuePropertyKind::Type => {
-                let current = editor
-                    .options
-                    .iter()
-                    .find(|o| o.selected)
-                    .map(|o| o.label.clone());
-                let mut new_opts: Vec<PropertyOption> = options
-                    .iter()
-                    .map(|(label, _)| PropertyOption {
-                        label: label.clone(),
-                        selected: current
-                            .as_ref()
-                            .is_some_and(|c| c.eq_ignore_ascii_case(label)),
-                    })
-                    .collect();
-                new_opts.push(PropertyOption {
-                    label: "(clear)".to_string(),
-                    selected: current.is_none(),
-                });
-                editor.options = new_opts;
-                editor.selected_index = 0;
-            }
-            IssuePropertyKind::Title | IssuePropertyKind::State => {}
+    fn cancel_issue_property_editor(&mut self) {
+        self.issues_state.property_editor = None;
+        // H4/M11: do NOT clear property_mutation_pending here. The in-flight
+        // mutation may still fail after the user closes the editor; leaving
+        // the pending token lets the late failure be correlated and surfaced
+        // as a scoped warning. A subsequent confirm is allowed to overwrite a
+        // stale pending (editor is closed) — see mark_issue_property_mutation_pending.
+    }
+
+    // ── Title editing (H1) ──────────────────────────────────────────────
+
+    fn issue_property_title_char(&mut self, c: char) {
+        if let Some(editor) = &mut self.issues_state.property_editor
+            && editor.kind == IssuePropertyKind::Title
+        {
+            editor.title_text.insert(editor.title_cursor, c);
+            editor.title_cursor += c.len_utf8();
         }
     }
 
-    fn apply_issue_property_succeeded(
-        &mut self,
+    fn issue_property_title_backspace(&mut self) {
+        if let Some(editor) = &mut self.issues_state.property_editor
+            && editor.kind == IssuePropertyKind::Title
+            && editor.title_cursor > 0
+        {
+            let prev = editor.title_text[..editor.title_cursor]
+                .chars()
+                .last()
+                .map_or(0, char::len_utf8);
+            editor
+                .title_text
+                .drain((editor.title_cursor - prev)..editor.title_cursor);
+            editor.title_cursor -= prev;
+        }
+    }
+
+    fn issue_property_title_delete(&mut self) {
+        if let Some(editor) = &mut self.issues_state.property_editor
+            && editor.kind == IssuePropertyKind::Title
+            && editor.title_cursor < editor.title_text.len()
+        {
+            let next = editor.title_text[editor.title_cursor..]
+                .chars()
+                .next()
+                .map_or(0, char::len_utf8);
+            editor
+                .title_text
+                .drain(editor.title_cursor..(editor.title_cursor + next));
+        }
+    }
+
+    fn issue_property_title_cursor_left(&mut self) {
+        if let Some(editor) = &mut self.issues_state.property_editor
+            && editor.kind == IssuePropertyKind::Title
+            && editor.title_cursor > 0
+        {
+            let prev = editor.title_text[..editor.title_cursor]
+                .chars()
+                .last()
+                .map_or(0, char::len_utf8);
+            editor.title_cursor -= prev;
+        }
+    }
+
+    fn issue_property_title_cursor_right(&mut self) {
+        if let Some(editor) = &mut self.issues_state.property_editor
+            && editor.kind == IssuePropertyKind::Title
+            && editor.title_cursor < editor.title_text.len()
+        {
+            let next = editor.title_text[editor.title_cursor..]
+                .chars()
+                .next()
+                .map_or(0, char::len_utf8);
+            editor.title_cursor += next;
+        }
+    }
+
+    // ── Options loaded/failed (H5, M6) ──────────────────────────────────
+
+    fn issue_property_scope_matches(
+        &self,
         scope_repo_id: &crate::domain::RepositoryId,
         issue_number: u64,
     ) -> bool {
@@ -233,8 +370,175 @@ impl AppState {
             .and_then(|idx| self.repositories.get(idx))
             .is_some_and(|repo| &repo.id == scope_repo_id);
         if !scope_matches {
+            return false;
+        }
+        self.issues_state
+            .issue_detail
+            .as_ref()
+            .is_some_and(|d| d.number == issue_number)
+    }
+
+    fn apply_issue_property_options_loaded(
+        &mut self,
+        scope_repo_id: &crate::domain::RepositoryId,
+        issue_number: u64,
+        kind: IssuePropertyKind,
+        request_id: u64,
+        options: &[(String, bool)],
+    ) -> bool {
+        if !self.issue_property_scope_matches(scope_repo_id, issue_number) {
             return true;
         }
+        let Some(editor) = &mut self.issues_state.property_editor else {
+            return true;
+        };
+        if editor.kind != kind || editor.load_request_id != request_id {
+            return true;
+        }
+        editor.loading_failed = false;
+        match kind {
+            IssuePropertyKind::Labels | IssuePropertyKind::Assignees => {
+                Self::apply_issue_property_multi_select_options(editor, options);
+            }
+            IssuePropertyKind::Milestone | IssuePropertyKind::Type => {
+                Self::apply_issue_property_single_select_options(editor, options);
+            }
+            IssuePropertyKind::Title | IssuePropertyKind::State => {}
+        }
+        true
+    }
+
+    /// Multi-select options (labels, assignees): preserve baseline selections.
+    fn apply_issue_property_multi_select_options(
+        editor: &mut IssuePropertyEditorState,
+        options: &[(String, bool)],
+    ) {
+        let current_selected: Vec<String> = editor.baseline.clone();
+        editor.options = options
+            .iter()
+            .map(|(label, _)| {
+                let selected = current_selected
+                    .iter()
+                    .any(|s| s.eq_ignore_ascii_case(label));
+                PropertyOption {
+                    label: label.clone(),
+                    selected,
+                    id: None,
+                }
+            })
+            .collect();
+        // M10: ensure currently-applied values are present even if
+        // not in the first page of results.
+        for baseline_label in &current_selected {
+            if !editor
+                .options
+                .iter()
+                .any(|o| o.label.eq_ignore_ascii_case(baseline_label))
+            {
+                editor.options.push(PropertyOption {
+                    label: baseline_label.clone(),
+                    selected: true,
+                    id: None,
+                });
+            }
+        }
+        if editor.selected_index >= editor.options.len() {
+            editor.selected_index = 0;
+        }
+    }
+
+    /// Single-select options (milestone, type): preserve current selection,
+    /// add "(clear)" option.
+    fn apply_issue_property_single_select_options(
+        editor: &mut IssuePropertyEditorState,
+        options: &[(String, bool)],
+    ) {
+        let current = editor
+            .options
+            .iter()
+            .find(|o| o.selected)
+            .map(|o| o.label.clone());
+        let mut new_opts: Vec<PropertyOption> = options
+            .iter()
+            .map(|(label, _)| PropertyOption {
+                label: label.clone(),
+                selected: current
+                    .as_ref()
+                    .is_some_and(|c| c.eq_ignore_ascii_case(label)),
+                id: None,
+            })
+            .collect();
+        // M10: ensure currently-applied milestone/type is present.
+        if let Some(ref c) = current
+            && !new_opts.iter().any(|o| o.label.eq_ignore_ascii_case(c))
+        {
+            new_opts.push(PropertyOption {
+                label: c.clone(),
+                selected: true,
+                id: None,
+            });
+        }
+        new_opts.push(PropertyOption {
+            label: "(clear)".to_string(),
+            selected: current.is_none(),
+            id: None,
+        });
+        editor.options = new_opts;
+        editor.selected_index = 0;
+    }
+
+    fn apply_issue_property_options_failed(
+        &mut self,
+        scope_repo_id: &crate::domain::RepositoryId,
+        issue_number: u64,
+        kind: IssuePropertyKind,
+        request_id: u64,
+        error: &str,
+    ) -> bool {
+        if !self.issue_property_scope_matches(scope_repo_id, issue_number) {
+            return true;
+        }
+        let Some(editor) = &mut self.issues_state.property_editor else {
+            return true;
+        };
+        if editor.kind != kind || editor.load_request_id != request_id {
+            return true;
+        }
+        // H5: do NOT replace options with empty — keep existing intact.
+        editor.loading_failed = true;
+        editor.error = Some(error.to_string());
+        true
+    }
+
+    fn apply_issue_property_succeeded(
+        &mut self,
+        scope_repo_id: &crate::domain::RepositoryId,
+        issue_number: u64,
+        kind: IssuePropertyKind,
+        request_id: u64,
+    ) -> bool {
+        let scope_matches = self
+            .selected_repository_index
+            .and_then(|idx| self.repositories.get(idx))
+            .is_some_and(|repo| &repo.id == scope_repo_id);
+        if !scope_matches {
+            return true;
+        }
+        // H4: only apply completion if request_id+kind+number match pending.
+        let pending_matches = self
+            .issues_state
+            .property_mutation_pending
+            .as_ref()
+            .is_some_and(|p| {
+                p.request_id == request_id
+                    && p.number == issue_number
+                    && p.scope_repo_id == *scope_repo_id
+            });
+        if !pending_matches {
+            return true;
+        }
+        // Clear pending regardless (the mutation is done).
+        self.issues_state.property_mutation_pending = None;
         if self
             .issues_state
             .issue_detail
@@ -243,6 +547,9 @@ impl AppState {
         {
             self.issues_state.property_editor = None;
         }
+        // Suppress unused warning for kind parameter while keeping the
+        // signature aligned with the event.
+        let _ = kind;
         true
     }
 
@@ -250,6 +557,8 @@ impl AppState {
         &mut self,
         scope_repo_id: &crate::domain::RepositoryId,
         issue_number: u64,
+        kind: IssuePropertyKind,
+        request_id: u64,
         error: &str,
     ) -> bool {
         let scope_matches = self
@@ -259,175 +568,77 @@ impl AppState {
         if !scope_matches {
             return true;
         }
+        let pending_matches = self
+            .issues_state
+            .property_mutation_pending
+            .as_ref()
+            .is_some_and(|p| {
+                p.request_id == request_id
+                    && p.number == issue_number
+                    && p.scope_repo_id == *scope_repo_id
+            });
+        if !pending_matches {
+            return true;
+        }
+        // H4: clear pending, keep editor open with error so user can retry.
+        self.issues_state.property_mutation_pending = None;
         if self
             .issues_state
             .issue_detail
             .as_ref()
             .is_some_and(|d| d.number == issue_number)
+            && self
+                .issues_state
+                .property_editor
+                .as_ref()
+                .is_some_and(|e| e.kind == kind)
         {
             if let Some(editor) = &mut self.issues_state.property_editor {
                 editor.error = Some(error.to_string());
             }
+        } else {
+            // M11: editor no longer active — surface as a scoped warning.
+            let kind_str = issue_property_kind_label(kind);
+            self.issues_state.draft_notice = Some(format!(
+                "Failed to edit {kind_str} on issue #{issue_number}: {error}"
+            ));
         }
         true
+    }
+
+    /// Allocate a property mutation request ID and mark it as pending (H4).
+    /// Called by the dispatch layer on confirm.
+    pub fn mark_issue_property_mutation_pending(
+        &mut self,
+        scope_repo_id: crate::domain::RepositoryId,
+        issue_number: u64,
+    ) -> Option<u64> {
+        if self.issues_state.property_mutation_pending.is_some() {
+            return None;
+        }
+        let request_id = self.issues_state.next_property_request_id;
+        self.issues_state.next_property_request_id += 1;
+        self.issues_state.property_mutation_pending = Some(PropertyMutationPending {
+            scope_repo_id,
+            request_id,
+            number: issue_number,
+        });
+        Some(request_id)
+    }
+}
+
+/// Human-readable label for a property kind (used in warning messages).
+fn issue_property_kind_label(kind: IssuePropertyKind) -> &'static str {
+    match kind {
+        IssuePropertyKind::Labels => "labels",
+        IssuePropertyKind::Assignees => "assignees",
+        IssuePropertyKind::Milestone => "milestone",
+        IssuePropertyKind::Title => "title",
+        IssuePropertyKind::Type => "type",
+        IssuePropertyKind::State => "state",
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::{IssueDetail, IssueState, RepositoryId};
-    use crate::state::IssuesState;
-
-    fn make_state_with_detail() -> AppState {
-        let detail = IssueDetail {
-            repo_owner_name: "owner/repo".to_string(),
-            number: 42,
-            title: "Test Issue".to_string(),
-            state: IssueState::Open,
-            author_login: "alice".to_string(),
-            created_at: "2024-01-01".to_string(),
-            updated_at: "2024-01-02".to_string(),
-            labels: vec!["bug".to_string()],
-            assignees: vec!["alice".to_string()],
-            milestone: Some("v1.0".to_string()),
-            issue_type_name: None,
-            body: "body".to_string(),
-            external_url: "url".to_string(),
-            comments: Vec::new(),
-            has_more_comments: false,
-            comments_cursor: None,
-        };
-        AppState {
-            issues_state: IssuesState {
-                active: true,
-                issue_focus: IssueFocus::IssueDetail,
-                issue_detail: Some(detail),
-                ..IssuesState::default()
-            },
-            ..AppState::default()
-        }
-    }
-
-    fn require_issue_editor(state: &AppState) -> &IssuePropertyEditorState {
-        state
-            .issues_state
-            .property_editor
-            .as_ref()
-            .unwrap_or_else(|| panic!("expected property editor to be open"))
-    }
-
-    #[test]
-    fn open_property_editor_labels() {
-        let mut state = make_state_with_detail();
-        state = state.apply(AppEvent::IssueOpenPropertyEditor {
-            kind: IssuePropertyKind::Labels,
-        });
-        let editor = require_issue_editor(&state);
-        assert_eq!(editor.kind, IssuePropertyKind::Labels);
-        assert_eq!(editor.options.len(), 1);
-        assert!(editor.options[0].selected);
-    }
-
-    #[test]
-    fn open_property_editor_title_prepopulates() {
-        let mut state = make_state_with_detail();
-        state = state.apply(AppEvent::IssueOpenPropertyEditor {
-            kind: IssuePropertyKind::Title,
-        });
-        let editor = require_issue_editor(&state);
-        assert_eq!(editor.title_text, "Test Issue");
-    }
-
-    #[test]
-    fn navigate_wraps() {
-        let mut state = make_state_with_detail();
-        state = state.apply(AppEvent::IssueOpenPropertyEditor {
-            kind: IssuePropertyKind::Labels,
-        });
-        state = state.apply(AppEvent::IssuePropertyEditorNavigateUp);
-        let editor = require_issue_editor(&state);
-        assert_eq!(editor.selected_index, 0);
-    }
-
-    #[test]
-    fn toggle_labels_flips_selected() {
-        let mut state = make_state_with_detail();
-        state = state.apply(AppEvent::IssueOpenPropertyEditor {
-            kind: IssuePropertyKind::Labels,
-        });
-        state = state.apply(AppEvent::IssuePropertyEditorToggle);
-        let editor = require_issue_editor(&state);
-        assert!(!editor.options[0].selected);
-    }
-
-    #[test]
-    fn cancel_closes_editor() {
-        let mut state = make_state_with_detail();
-        state = state.apply(AppEvent::IssueOpenPropertyEditor {
-            kind: IssuePropertyKind::Labels,
-        });
-        state = state.apply(AppEvent::IssuePropertyEditorCancel);
-        assert!(state.issues_state.property_editor.is_none());
-    }
-
-    #[test]
-    fn succeeded_clears_editor() {
-        let mut state = make_state_with_detail();
-        state.repositories.push(crate::domain::Repository::new(
-            RepositoryId("r1".to_string()),
-            "repo".to_string(),
-            "owner/repo".to_string(),
-            std::path::PathBuf::from("/tmp/repo"),
-        ));
-        state.selected_repository_index = Some(0);
-        state = state.apply(AppEvent::IssueOpenPropertyEditor {
-            kind: IssuePropertyKind::Labels,
-        });
-        state = state.apply(AppEvent::IssuePropertyEditSucceeded {
-            scope_repo_id: RepositoryId("r1".to_string()),
-            issue_number: 42,
-        });
-        assert!(state.issues_state.property_editor.is_none());
-    }
-
-    #[test]
-    fn failed_sets_error_keeps_editor_open() {
-        let mut state = make_state_with_detail();
-        state.repositories.push(crate::domain::Repository::new(
-            RepositoryId("r1".to_string()),
-            "repo".to_string(),
-            "owner/repo".to_string(),
-            std::path::PathBuf::from("/tmp/repo"),
-        ));
-        state.selected_repository_index = Some(0);
-        state = state.apply(AppEvent::IssueOpenPropertyEditor {
-            kind: IssuePropertyKind::Labels,
-        });
-        state = state.apply(AppEvent::IssuePropertyEditFailed {
-            scope_repo_id: RepositoryId("r1".to_string()),
-            issue_number: 42,
-            error: "boom".to_string(),
-        });
-        let editor = require_issue_editor(&state);
-        assert_eq!(editor.error.as_deref(), Some("boom"));
-    }
-
-    #[test]
-    fn options_loaded_preserves_selection() {
-        let mut state = make_state_with_detail();
-        state = state.apply(AppEvent::IssueOpenPropertyEditor {
-            kind: IssuePropertyKind::Labels,
-        });
-        state = state.apply(AppEvent::IssuePropertyEditorOptionsLoaded {
-            options: vec![
-                ("bug".to_string(), false),
-                ("enhancement".to_string(), false),
-            ],
-        });
-        let editor = require_issue_editor(&state);
-        assert_eq!(editor.options.len(), 2);
-        assert!(editor.options[0].selected);
-        assert!(!editor.options[1].selected);
-    }
-}
+#[path = "issues_property_ops_tests.rs"]
+mod tests;

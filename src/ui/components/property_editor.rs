@@ -11,6 +11,7 @@
 use iocraft::prelude::*;
 
 use crate::selection::{SelectablePane, TextSelection};
+use crate::text_box_view::build_text_box_view;
 use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
 use crate::ui::components::selectable_line;
 
@@ -91,10 +92,27 @@ pub fn PropertyEditor(props: &PropertyEditorProps) -> impl Into<AnyElement<'stat
     ));
 
     if props.is_title {
-        lines.push(title_row_element(
-            &props.title_text,
-            &props.title_cursor.to_string(),
+        // Render the title as a single-row text-box with a real caret (H1 fix).
+        let view = build_text_box_view(&props.title_text, props.title_cursor, 1, 78);
+        let row = &view.rows[0];
+        let text_with_caret = if let Some(col) = row.caret_col {
+            let chars: Vec<char> = row.text.chars().collect();
+            let before: String = chars.iter().take(col).collect();
+            let after: String = chars.iter().skip(col).collect();
+            format!("{before}▏{after}")
+        } else {
+            row.text.clone()
+        };
+        lines.push(selectable_line(
+            &text_with_caret,
+            {
+                line_idx += 1;
+                0
+            },
+            selection,
+            pane,
             rc.fg,
+            sel,
         ));
     } else {
         for (i, (label, selected)) in props.options.iter().enumerate() {
@@ -139,7 +157,7 @@ pub fn PropertyEditor(props: &PropertyEditorProps) -> impl Into<AnyElement<'stat
     let hint = if let Some(ref err) = props.error {
         err.clone()
     } else if props.is_title {
-        "type title  Ctrl+Enter apply  Esc cancel".to_string()
+        "type title  Enter apply  Esc cancel".to_string()
     } else if props.multi_select {
         "Up/Down move  Space toggle  Enter apply  Esc cancel".to_string()
     } else {
@@ -168,15 +186,4 @@ pub fn PropertyEditor(props: &PropertyEditorProps) -> impl Into<AnyElement<'stat
             #(lines)
         }
     }
-}
-
-/// Render the title text-box row: a simple single-line display of the
-/// editable title text with a visible caret marker.
-fn title_row_element(text: &str, _cursor: &str, fg: Color) -> AnyElement<'static> {
-    element! {
-        Box(height: 1u32) {
-            Text(content: text.to_string(), color: fg, wrap: TextWrap::NoWrap)
-        }
-    }
-    .into()
 }

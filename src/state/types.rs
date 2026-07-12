@@ -574,6 +574,8 @@ pub struct IssuesState {
     pub mutation_pending: Option<IssueMutationPending>,
     pub next_mutation_id: u64,
     pub property_editor: Option<IssuePropertyEditorState>,
+    pub property_mutation_pending: Option<PropertyMutationPending>,
+    pub next_property_request_id: u64,
     pub list_reload_pending: Option<IssueListReloadPending>,
     pub next_issue_list_request_id: u64,
     pub list_page_pending: Option<IssueListPagePending>,
@@ -655,6 +657,20 @@ pub enum PrPropertyKind {
 pub struct PropertyOption {
     pub label: String,
     pub selected: bool,
+    /// Opaque node ID for issue types (None for other kinds). Display uses
+    /// `label`; the mutation submits `id` (H2 fix).
+    pub id: Option<String>,
+}
+
+/// Pending property mutation staleness guard (issue #175, H4 fix).
+///
+/// Mirrors `IssueMutationPending` / `PrMergeMutationPending`. Prevents
+/// duplicate confirmations and ensures stale completions are ignored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyMutationPending {
+    pub scope_repo_id: crate::domain::RepositoryId,
+    pub request_id: u64,
+    pub number: u64,
 }
 
 /// Property editor overlay state for issues (mirrors `PrMergeChooserState`).
@@ -666,6 +682,15 @@ pub struct IssuePropertyEditorState {
     pub title_text: String,
     pub title_cursor: usize,
     pub error: Option<String>,
+    /// Baseline labels/assignees currently applied (for diff computation, M8).
+    pub baseline: Vec<String>,
+    /// Parallel list of opaque node IDs for issue-type options (H2).
+    pub option_ids: Vec<String>,
+    /// Whether the background options fetch failed (H5). When true, confirm is
+    /// disabled to prevent destructive writes from missing data.
+    pub loading_failed: bool,
+    /// Request ID for the in-flight options load (M6 correlation).
+    pub load_request_id: u64,
 }
 
 /// Property editor overlay state for PRs.
@@ -677,6 +702,13 @@ pub struct PrPropertyEditorState {
     pub title_text: String,
     pub title_cursor: usize,
     pub error: Option<String>,
+    /// Baseline labels/assignees currently applied (for diff computation, M8).
+    pub baseline: Vec<String>,
+    /// Whether the background options fetch failed (H5). When true, confirm is
+    /// disabled to prevent destructive writes from missing data.
+    pub loading_failed: bool,
+    /// Request ID for the in-flight options load (M6 correlation).
+    pub load_request_id: u64,
 }
 
 /// Number of PR filter fields for FilterNavigate wrap (issue #163).

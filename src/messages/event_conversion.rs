@@ -327,7 +327,13 @@ impl AppMessage {
                 | AppEvent::IssuePropertyEditorToggle
                 | AppEvent::IssuePropertyEditorConfirm
                 | AppEvent::IssuePropertyEditorCancel
+                | AppEvent::IssuePropertyEditorTitleChar(_)
+                | AppEvent::IssuePropertyEditorTitleBackspace
+                | AppEvent::IssuePropertyEditorTitleDelete
+                | AppEvent::IssuePropertyEditorTitleCursorLeft
+                | AppEvent::IssuePropertyEditorTitleCursorRight
                 | AppEvent::IssuePropertyEditorOptionsLoaded { .. }
+                | AppEvent::IssuePropertyEditorOptionsFailed { .. }
                 | AppEvent::IssuePropertyEditSucceeded { .. }
                 | AppEvent::IssuePropertyEditFailed { .. }
         )

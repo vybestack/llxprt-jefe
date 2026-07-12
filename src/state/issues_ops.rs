@@ -66,6 +66,9 @@ impl AppState {
             self.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
             self.issues_state.inline_state = InlineState::None;
         }
+        // M7: clear property editor on mode exit.
+        self.issues_state.property_editor = None;
+        self.issues_state.property_mutation_pending = None;
         if let Some(prior) = self.issues_state.prior_agent_focus.take() {
             self.pane_focus = prior.pane_focus;
             if let Some(idx) = prior.selected_agent_index {
@@ -217,6 +220,9 @@ impl AppState {
             self.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
             self.issues_state.inline_state = InlineState::None;
         }
+        // M7: clear property editor and pending mutation on scope reset.
+        self.issues_state.property_editor = None;
+        self.issues_state.property_mutation_pending = None;
         self.issues_state.issues.clear();
         self.issues_state.selected_issue_index = None;
         self.issues_state.issue_detail = None;

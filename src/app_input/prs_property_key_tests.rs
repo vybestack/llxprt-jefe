@@ -46,6 +46,9 @@ fn prs_state_with_property_editor() -> AppState {
         title_text: String::new(),
         title_cursor: 0,
         error: None,
+        baseline: Vec::new(),
+        loading_failed: false,
+        load_request_id: 0,
     });
     state
 }
@@ -164,14 +167,68 @@ fn test_pr_property_editor_esc_cancels() {
     assert!(matches!(event, Some(AppEvent::PrPropertyEditorCancel)));
 }
 
-/// Property editor is modal: other keys are suppressed (None).
 #[test]
-fn test_pr_property_editor_suppresses_unrelated_keys() {
+fn test_pr_property_editor_char_routes_to_title() {
+    let state = prs_state_with_property_editor();
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('x')));
+    assert!(matches!(
+        event,
+        Some(AppEvent::PrPropertyEditorTitleChar('x'))
+    ));
+}
+
+#[test]
+fn test_pr_property_editor_backspace_routes_to_title() {
+    let state = prs_state_with_property_editor();
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Backspace));
+    assert!(matches!(
+        event,
+        Some(AppEvent::PrPropertyEditorTitleBackspace)
+    ));
+}
+
+#[test]
+fn test_pr_property_editor_delete_routes_to_title() {
+    let state = prs_state_with_property_editor();
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Delete));
+    assert!(matches!(event, Some(AppEvent::PrPropertyEditorTitleDelete)));
+}
+
+#[test]
+fn test_pr_property_editor_left_routes_to_title() {
+    let state = prs_state_with_property_editor();
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Left));
+    assert!(matches!(
+        event,
+        Some(AppEvent::PrPropertyEditorTitleCursorLeft)
+    ));
+}
+
+#[test]
+fn test_pr_property_editor_right_routes_to_title() {
+    let state = prs_state_with_property_editor();
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Right));
+    assert!(matches!(
+        event,
+        Some(AppEvent::PrPropertyEditorTitleCursorRight)
+    ));
+}
+
+/// Property editor is modal: char keys route to title editing, other keys
+/// are suppressed (None).
+#[test]
+fn test_pr_property_editor_routes_chars_and_suppresses_others() {
     let state = prs_state_with_property_editor();
     let e = resolve_prs_key_event(&state, &key(KeyCode::Char('e')));
-    assert!(e.is_none(), "property editor should suppress 'e'");
-    let c = resolve_prs_key_event(&state, &key(KeyCode::Char('c')));
-    assert!(c.is_none(), "property editor should suppress 'c'");
+    assert!(
+        matches!(e, Some(AppEvent::PrPropertyEditorTitleChar('e'))),
+        "property editor should route 'e' to title editing, got {e:?}"
+    );
+    let bs = resolve_prs_key_event(&state, &key(KeyCode::Backspace));
+    assert!(
+        matches!(bs, Some(AppEvent::PrPropertyEditorTitleBackspace)),
+        "property editor should route Backspace to title editing, got {bs:?}"
+    );
     let tab = resolve_prs_key_event(&state, &key(KeyCode::Tab));
     assert!(tab.is_none(), "property editor should suppress Tab");
 }

@@ -6,6 +6,8 @@
 //! detail refresh.
 
 use jefe::domain::RepositoryId;
+use jefe::github::compute_assignee_diff;
+use jefe::github::compute_label_diff;
 use jefe::state::{AppEvent, PrPropertyEditorState, PrPropertyKind};
 
 use super::{
@@ -22,7 +24,34 @@ pub fn handle_pr_property_confirm(app_state: &mut AppStateHandle, ctx: &SharedCo
         report_missing_repo(app_state, ctx, &action);
         return;
     };
-    dispatch_pr_property_edit(app_state, ctx, repo, action);
+    // H4: check for empty title before marking pending
+    if action.kind == PrPropertyKind::Title && action.editor.title_text.trim().is_empty() {
+        set_editor_error(app_state, ctx, "Title cannot be empty");
+        return;
+    }
+    let Some(request_id) = mark_mutation_pending(app_state, &action) else {
+        return;
+    };
+    dispatch_pr_property_edit(app_state, ctx, repo, action, request_id);
+}
+
+fn set_editor_error(app_state: &mut AppStateHandle, ctx: &SharedContext, error: &str) {
+    apply_and_persist(
+        app_state,
+        ctx,
+        AppEvent::PrPropertyEditFailed {
+            scope_repo_id: RepositoryId(String::new()),
+            pr_number: 0,
+            kind: PrPropertyKind::Title,
+            request_id: 0,
+            error: error.to_string(),
+        },
+    );
+}
+
+fn mark_mutation_pending(app_state: &mut AppStateHandle, action: &PrPropertyAction) -> Option<u64> {
+    let mut state = app_state.write();
+    state.mark_pr_property_mutation_pending(action.scope_repo_id.clone(), action.pr_number)
 }
 
 #[derive(Clone)]
@@ -74,6 +103,8 @@ fn report_missing_repo(
         AppEvent::PrPropertyEditFailed {
             scope_repo_id: action.scope_repo_id.clone(),
             pr_number: action.pr_number,
+            kind: action.kind,
+            request_id: 0,
             error: "No GitHub repository configured.".to_string(),
         },
     );
@@ -84,13 +115,14 @@ fn dispatch_pr_property_edit(
     ctx: &SharedContext,
     repo: PrRepoTarget,
     action: PrPropertyAction,
+    request_id: u64,
 ) {
     let panic_action = action.clone();
     gh_async::spawn_gh_task_with_panic(
         app_state,
         ctx,
         move |mut app_state, ctx| {
-            let event = pr_property_edit_event(&ctx, &repo, &action);
+            let event = pr_property_edit_event(&ctx, &repo, &action, request_id);
             dispatch_app_event(&mut app_state, &ctx, event);
         },
         move |mut app_state, ctx, message| {
@@ -100,6 +132,8 @@ fn dispatch_pr_property_edit(
                 AppEvent::PrPropertyEditFailed {
                     scope_repo_id: panic_action.scope_repo_id,
                     pr_number: panic_action.pr_number,
+                    kind: panic_action.kind,
+                    request_id,
                     error: format!("GitHub PR property edit task panicked: {message}"),
                 },
             );
@@ -111,21 +145,28 @@ fn pr_property_edit_event(
     ctx: &SharedContext,
     repo: &PrRepoTarget,
     action: &PrPropertyAction,
+    request_id: u64,
 ) -> AppEvent {
     let result = github_client(ctx).map(|client| execute_pr_property_edit(client, repo, action));
     match result {
         Some(Ok(())) => AppEvent::PrPropertyEditSucceeded {
             scope_repo_id: action.scope_repo_id.clone(),
             pr_number: action.pr_number,
+            kind: action.kind,
+            request_id,
         },
         Some(Err(error)) => AppEvent::PrPropertyEditFailed {
             scope_repo_id: action.scope_repo_id.clone(),
             pr_number: action.pr_number,
+            kind: action.kind,
+            request_id,
             error: error.to_string(),
         },
         None => AppEvent::PrPropertyEditFailed {
             scope_repo_id: action.scope_repo_id.clone(),
             pr_number: action.pr_number,
+            kind: action.kind,
+            request_id,
             error: "Application context unavailable".to_string(),
         },
     }
@@ -145,65 +186,101 @@ fn execute_pr_property_edit(
     };
     match action.kind {
         PrPropertyKind::Labels => {
-            let (to_add, to_remove) = compute_pr_multi_diff(&action.editor);
+            let (to_add, to_remove) = multi_select_diff(&action.editor, compute_label_diff);
             client.edit_labels(target, &to_add, &to_remove)
         }
         PrPropertyKind::Assignees => {
-            let (to_add, to_remove) = compute_pr_multi_diff(&action.editor);
+            let (to_add, to_remove) = multi_select_diff(&action.editor, compute_assignee_diff);
             client.edit_assignees(target, &to_add, &to_remove)
         }
         PrPropertyKind::Milestone => {
-            let selected = action
-                .editor
-                .options
-                .iter()
-                .find(|o| o.selected)
-                .map(|o| o.label.as_str());
-            match selected {
-                Some("(clear)") | None => {
-                    client.clear_milestone(&repo.owner, &repo.repo, number, true)
-                }
-                Some(name) => client.set_milestone(&repo.owner, &repo.repo, number, true, name),
-            }
+            execute_pr_milestone_edit(client, &repo.owner, &repo.repo, number, &action.editor)
         }
-        PrPropertyKind::Title => {
-            let title = action.editor.title_text.trim();
-            if title.is_empty() {
-                return Err(jefe::github::GhError::ApiError(
-                    "Title cannot be empty".to_string(),
-                ));
-            }
-            client.set_title(&repo.owner, &repo.repo, number, true, title)
-        }
+        PrPropertyKind::Title => execute_title_edit(
+            client,
+            &repo.owner,
+            &repo.repo,
+            number,
+            true,
+            &action.editor.title_text,
+        ),
         PrPropertyKind::State => {
-            let want_closed = action
-                .editor
-                .options
-                .iter()
-                .any(|o| o.selected && o.label == "Closed");
-            if want_closed {
-                client.close_item(&repo.owner, &repo.repo, number, true)
-            } else {
-                client.reopen_item(&repo.owner, &repo.repo, number, true)
-            }
+            execute_pr_state_edit(client, &repo.owner, &repo.repo, number, &action.editor)
         }
     }
 }
 
-fn compute_pr_multi_diff(editor: &PrPropertyEditorState) -> (Vec<String>, Vec<String>) {
-    let to_add: Vec<String> = editor
+/// Collect the desired multi-select values and compute the add/remove diff.
+fn multi_select_diff(
+    editor: &jefe::state::PrPropertyEditorState,
+    diff_fn: DiffFn,
+) -> (Vec<String>, Vec<String>) {
+    let desired: Vec<String> = editor
         .options
         .iter()
         .filter(|o| o.selected)
         .map(|o| o.label.clone())
         .collect();
-    let to_remove: Vec<String> = editor
+    diff_fn(&editor.baseline, &desired)
+}
+
+/// Signature of the label/assignee diff helpers.
+type DiffFn = fn(&[String], &[String]) -> (Vec<String>, Vec<String>);
+
+/// Apply a single-select milestone edit (H3: uses `selected_index`).
+fn execute_pr_milestone_edit(
+    client: jefe::github::GhClient,
+    owner: &str,
+    repo: &str,
+    number: u64,
+    editor: &jefe::state::PrPropertyEditorState,
+) -> Result<(), jefe::github::GhError> {
+    let selected = editor
         .options
-        .iter()
-        .filter(|o| !o.selected)
-        .map(|o| o.label.clone())
-        .collect();
-    (to_add, to_remove)
+        .get(editor.selected_index)
+        .map(|o| o.label.as_str());
+    match selected {
+        Some("(clear)") | None => client.clear_milestone(owner, repo, number, true),
+        Some(name) => client.set_milestone(owner, repo, number, true, name),
+    }
+}
+
+/// Apply a single-select state edit (H3: uses `selected_index`).
+fn execute_pr_state_edit(
+    client: jefe::github::GhClient,
+    owner: &str,
+    repo: &str,
+    number: u64,
+    editor: &jefe::state::PrPropertyEditorState,
+) -> Result<(), jefe::github::GhError> {
+    let want_closed = editor
+        .options
+        .get(editor.selected_index)
+        .is_some_and(|o| o.label == "Closed");
+    if want_closed {
+        client.close_item(owner, repo, number, true)
+    } else {
+        client.reopen_item(owner, repo, number, true)
+    }
+}
+
+/// Apply a title edit (shared shape for issues and PRs; `is_pr` selects the
+/// `gh pr edit` vs `gh issue edit` path).
+fn execute_title_edit(
+    client: jefe::github::GhClient,
+    owner: &str,
+    repo: &str,
+    number: u64,
+    is_pr: bool,
+    title_text: &str,
+) -> Result<(), jefe::github::GhError> {
+    let title = title_text.trim();
+    if title.is_empty() {
+        return Err(jefe::github::GhError::ApiError(
+            "Title cannot be empty".to_string(),
+        ));
+    }
+    client.set_title(owner, repo, number, is_pr, title)
 }
 
 /// Handle property editor options loading for PRs.
@@ -211,6 +288,7 @@ pub fn handle_pr_property_options_load(app_state: &AppStateHandle, ctx: &SharedC
     let Some(params) = resolve_pr_options_load_params(app_state) else {
         return;
     };
+    let panic_params = params.clone();
     gh_async::spawn_gh_task_with_panic(
         app_state,
         ctx,
@@ -219,11 +297,16 @@ pub fn handle_pr_property_options_load(app_state: &AppStateHandle, ctx: &SharedC
             apply_and_persist(&mut app_state, &ctx, event);
         },
         move |mut app_state, ctx, _message| {
+            // H5: deliver OptionsFailed, NOT empty OptionsLoaded
             apply_and_persist(
                 &mut app_state,
                 &ctx,
-                AppEvent::PrPropertyEditorOptionsLoaded {
-                    options: Vec::new(),
+                AppEvent::PrPropertyEditorOptionsFailed {
+                    scope_repo_id: panic_params.scope_repo_id.clone(),
+                    pr_number: panic_params.pr_number,
+                    kind: panic_params.kind,
+                    request_id: panic_params.request_id,
+                    error: "Options fetch task panicked".to_string(),
                 },
             );
         },
@@ -235,36 +318,69 @@ struct PrOptionsLoadParams {
     kind: PrPropertyKind,
     owner: String,
     repo: String,
+    scope_repo_id: RepositoryId,
+    pr_number: u64,
+    request_id: u64,
 }
 
 fn resolve_pr_options_load_params(app_state: &AppStateHandle) -> Option<PrOptionsLoadParams> {
-    let (kind, owner, repo) = {
+    let (kind, owner, repo, scope_repo_id, pr_number, request_id) = {
         let state = app_state.read();
         let editor = state.prs_state.property_editor.as_ref()?;
+        let detail = state.prs_state.pr_detail.as_ref()?;
         let (owner, repo) = prs_dispatch::resolve_pr_gh_repo(&state);
+        let scope_repo_id = prs_dispatch::current_pr_scope_repo_id(&state);
         let kind = editor.kind;
+        let request_id = editor.load_request_id;
+        let pr_number = detail.number;
         drop(state);
-        (kind, owner, repo)
+        (kind, owner, repo, scope_repo_id, pr_number, request_id)
     };
     if owner.is_empty() || repo.is_empty() {
         return None;
     }
-    Some(PrOptionsLoadParams { kind, owner, repo })
+    Some(PrOptionsLoadParams {
+        kind,
+        owner,
+        repo,
+        scope_repo_id,
+        pr_number,
+        request_id,
+    })
 }
 
 fn pr_options_load_event(ctx: &SharedContext, params: &PrOptionsLoadParams) -> AppEvent {
-    let result = github_client(ctx).map(|client| fetch_pr_options(client, params));
-    let options = match result {
-        Some(Ok(opts)) => opts,
-        _ => Vec::new(),
-    };
-    AppEvent::PrPropertyEditorOptionsLoaded { options }
+    match github_client(ctx).map(|client| fetch_pr_options(client, params)) {
+        Some(Ok(options)) => AppEvent::PrPropertyEditorOptionsLoaded {
+            scope_repo_id: params.scope_repo_id.clone(),
+            pr_number: params.pr_number,
+            kind: params.kind,
+            request_id: params.request_id,
+            options,
+        },
+        Some(Err(error)) => AppEvent::PrPropertyEditorOptionsFailed {
+            scope_repo_id: params.scope_repo_id.clone(),
+            pr_number: params.pr_number,
+            kind: params.kind,
+            request_id: params.request_id,
+            error: error.to_string(),
+        },
+        None => AppEvent::PrPropertyEditorOptionsFailed {
+            scope_repo_id: params.scope_repo_id.clone(),
+            pr_number: params.pr_number,
+            kind: params.kind,
+            request_id: params.request_id,
+            error: "Application context unavailable".to_string(),
+        },
+    }
 }
 
 fn fetch_pr_options(
     client: jefe::github::GhClient,
     params: &PrOptionsLoadParams,
 ) -> Result<Vec<(String, bool)>, jefe::github::GhError> {
+    // M10: page sizes are limited. Currently-applied values are preserved by
+    // the reducer (added back if missing from the first page).
     match params.kind {
         PrPropertyKind::Labels => {
             let names = client.fetch_label_names(&params.owner, &params.repo)?;

@@ -1,6 +1,7 @@
 use crate::state::AppEvent;
 
 use super::IssuesMessage;
+use super::message_names::{is_issue_property_app_event, is_issue_property_msg};
 
 impl From<IssuesMessage> for AppEvent {
     fn from(message: IssuesMessage) -> Self {
@@ -184,8 +185,57 @@ impl IssuesMessage {
         }
     }
 
-    /// Filter controls, search, composer, inline editor, and chooser events.
     fn from_app_event_controls(event: AppEvent) -> Self {
+        match event {
+            AppEvent::OpenFilterControls
+            | AppEvent::CloseFilterControls
+            | AppEvent::ApplyFilter
+            | AppEvent::ClearFilter
+            | AppEvent::ClearDraftFilter
+            | AppEvent::FilterNavigateNext
+            | AppEvent::FilterNavigatePrev
+            | AppEvent::CycleFilterState
+            | AppEvent::FocusSearchInput
+            | AppEvent::BlurSearchInput
+            | AppEvent::SetSearchQuery { .. }
+            | AppEvent::ApplySearch
+            | AppEvent::ClearSearch
+            | AppEvent::UpdateDraftFilter { .. }
+            | AppEvent::OpenNewIssueComposer
+            | AppEvent::OpenNewCommentComposer
+            | AppEvent::OpenReplyComposer { .. }
+            | AppEvent::OpenInlineEditor { .. }
+            | AppEvent::InlineChar(_)
+            | AppEvent::InlineNewline
+            | AppEvent::InlineBackspace
+            | AppEvent::InlineDelete
+            | AppEvent::InlineCursorLeft
+            | AppEvent::InlineCursorRight
+            | AppEvent::InlineCursorUp
+            | AppEvent::InlineCursorDown
+            | AppEvent::InlineSubmit
+            | AppEvent::InlineCancelOrEsc => Self::from_app_event_simple_controls(event),
+            AppEvent::MutationSubmitted { .. }
+            | AppEvent::IssueCreated { .. }
+            | AppEvent::CommentCreated { .. }
+            | AppEvent::CommentCreateFailed { .. }
+            | AppEvent::IssueBodyUpdated { .. }
+            | AppEvent::CommentUpdated { .. }
+            | AppEvent::MutationFailed { .. } => Self::from_app_event_mutation(event),
+            AppEvent::OpenAgentChooser
+            | AppEvent::AgentChooserNavigateUp
+            | AppEvent::AgentChooserNavigateDown
+            | AppEvent::AgentChooserConfirm
+            | AppEvent::AgentChooserCancel
+            | AppEvent::SendToAgentCompleted
+            | AppEvent::SendToAgentFailed { .. }
+            | AppEvent::IssueSelfAssignmentFailed { .. } => Self::from_app_event_agent(event),
+            e if is_issue_property_app_event(&e) => Self::from_app_event_property(e),
+            _ => unreachable!("non-issues AppEvent routed to issues converter"),
+        }
+    }
+
+    fn from_app_event_simple_controls(event: AppEvent) -> Self {
         match event {
             AppEvent::OpenFilterControls => Self::OpenFilterControls,
             AppEvent::CloseFilterControls => Self::CloseFilterControls,
@@ -219,31 +269,7 @@ impl IssuesMessage {
             AppEvent::InlineCursorDown => Self::InlineCursorDown,
             AppEvent::InlineSubmit => Self::InlineSubmit,
             AppEvent::InlineCancelOrEsc => Self::InlineCancelOrEsc,
-            AppEvent::MutationSubmitted { .. }
-            | AppEvent::IssueCreated { .. }
-            | AppEvent::CommentCreated { .. }
-            | AppEvent::CommentCreateFailed { .. }
-            | AppEvent::IssueBodyUpdated { .. }
-            | AppEvent::CommentUpdated { .. }
-            | AppEvent::MutationFailed { .. } => Self::from_app_event_mutation(event),
-            AppEvent::OpenAgentChooser
-            | AppEvent::AgentChooserNavigateUp
-            | AppEvent::AgentChooserNavigateDown
-            | AppEvent::AgentChooserConfirm
-            | AppEvent::AgentChooserCancel
-            | AppEvent::SendToAgentCompleted
-            | AppEvent::SendToAgentFailed { .. }
-            | AppEvent::IssueSelfAssignmentFailed { .. } => Self::from_app_event_agent(event),
-            AppEvent::IssueOpenPropertyEditor { .. }
-            | AppEvent::IssuePropertyEditorNavigateUp
-            | AppEvent::IssuePropertyEditorNavigateDown
-            | AppEvent::IssuePropertyEditorToggle
-            | AppEvent::IssuePropertyEditorConfirm
-            | AppEvent::IssuePropertyEditorCancel
-            | AppEvent::IssuePropertyEditorOptionsLoaded { .. }
-            | AppEvent::IssuePropertyEditSucceeded { .. }
-            | AppEvent::IssuePropertyEditFailed { .. } => Self::from_app_event_property(event),
-            _ => unreachable!("non-issues AppEvent routed to issues converter"),
+            _ => unreachable!("non-simple AppEvent routed to simple controls converter"),
         }
     }
 
@@ -273,32 +299,86 @@ impl IssuesMessage {
     /// Property-editor events (issue #175).
     fn from_app_event_property(event: AppEvent) -> Self {
         match event {
+            AppEvent::IssuePropertyEditorOptionsLoaded { .. }
+            | AppEvent::IssuePropertyEditorOptionsFailed { .. }
+            | AppEvent::IssuePropertyEditSucceeded { .. }
+            | AppEvent::IssuePropertyEditFailed { .. } => {
+                Self::from_app_event_property_payload(event)
+            }
+            other => Self::from_app_event_property_simple(other),
+        }
+    }
+
+    fn from_app_event_property_simple(event: AppEvent) -> Self {
+        match event {
             AppEvent::IssueOpenPropertyEditor { kind } => Self::OpenPropertyEditor { kind },
             AppEvent::IssuePropertyEditorNavigateUp => Self::PropertyEditorNavigateUp,
             AppEvent::IssuePropertyEditorNavigateDown => Self::PropertyEditorNavigateDown,
             AppEvent::IssuePropertyEditorToggle => Self::PropertyEditorToggle,
             AppEvent::IssuePropertyEditorConfirm => Self::PropertyEditorConfirm,
             AppEvent::IssuePropertyEditorCancel => Self::PropertyEditorCancel,
-            AppEvent::IssuePropertyEditorOptionsLoaded { options } => {
-                Self::PropertyEditorOptionsLoaded { options }
-            }
+            AppEvent::IssuePropertyEditorTitleChar(c) => Self::PropertyEditorTitleChar(c),
+            AppEvent::IssuePropertyEditorTitleBackspace => Self::PropertyEditorTitleBackspace,
+            AppEvent::IssuePropertyEditorTitleDelete => Self::PropertyEditorTitleDelete,
+            AppEvent::IssuePropertyEditorTitleCursorLeft => Self::PropertyEditorTitleCursorLeft,
+            AppEvent::IssuePropertyEditorTitleCursorRight => Self::PropertyEditorTitleCursorRight,
+            _ => Self::EnterMode,
+        }
+    }
+
+    fn from_app_event_property_payload(event: AppEvent) -> Self {
+        match event {
+            AppEvent::IssuePropertyEditorOptionsLoaded {
+                scope_repo_id,
+                issue_number,
+                kind,
+                request_id,
+                options,
+            } => Self::PropertyEditorOptionsLoaded {
+                scope_repo_id,
+                issue_number,
+                kind,
+                request_id,
+                options,
+            },
+            AppEvent::IssuePropertyEditorOptionsFailed {
+                scope_repo_id,
+                issue_number,
+                kind,
+                request_id,
+                error,
+            } => Self::PropertyEditorOptionsFailed {
+                scope_repo_id,
+                issue_number,
+                kind,
+                request_id,
+                error,
+            },
             AppEvent::IssuePropertyEditSucceeded {
                 scope_repo_id,
                 issue_number,
+                kind,
+                request_id,
             } => Self::PropertyEditSucceeded {
                 scope_repo_id,
                 issue_number,
+                kind,
+                request_id,
             },
             AppEvent::IssuePropertyEditFailed {
                 scope_repo_id,
                 issue_number,
+                kind,
+                request_id,
                 error,
             } => Self::PropertyEditFailed {
                 scope_repo_id,
                 issue_number,
+                kind,
+                request_id,
                 error,
             },
-            _ => unreachable!("non-property AppEvent routed to property converter"),
+            _ => Self::EnterMode,
         }
     }
 
@@ -588,8 +668,57 @@ impl IssuesMessage {
         }
     }
 
-    /// Filter controls, search, composer, inline editor, and chooser messages.
     fn into_app_event_controls(self) -> AppEvent {
+        match self {
+            Self::OpenFilterControls
+            | Self::CloseFilterControls
+            | Self::ApplyFilter
+            | Self::ClearFilter
+            | Self::ClearDraftFilter
+            | Self::FilterNavigateNext
+            | Self::FilterNavigatePrev
+            | Self::CycleFilterState
+            | Self::FocusSearchInput
+            | Self::BlurSearchInput
+            | Self::SetSearchQuery { .. }
+            | Self::ApplySearch
+            | Self::ClearSearch
+            | Self::UpdateDraftFilter { .. }
+            | Self::OpenNewIssueComposer
+            | Self::OpenNewCommentComposer
+            | Self::OpenReplyComposer { .. }
+            | Self::OpenInlineEditor { .. }
+            | Self::InlineChar(_)
+            | Self::InlineNewline
+            | Self::InlineBackspace
+            | Self::InlineDelete
+            | Self::InlineCursorLeft
+            | Self::InlineCursorRight
+            | Self::InlineCursorUp
+            | Self::InlineCursorDown
+            | Self::InlineSubmit
+            | Self::InlineCancelOrEsc => self.into_app_event_simple_controls(),
+            Self::MutationSubmitted { .. }
+            | Self::IssueCreated { .. }
+            | Self::CommentCreated { .. }
+            | Self::CommentCreateFailed { .. }
+            | Self::IssueBodyUpdated { .. }
+            | Self::CommentUpdated { .. }
+            | Self::MutationFailed { .. } => self.into_app_event_mutation(),
+            Self::OpenAgentChooser
+            | Self::AgentChooserNavigateUp
+            | Self::AgentChooserNavigateDown
+            | Self::AgentChooserConfirm
+            | Self::AgentChooserCancel
+            | Self::SendToAgentCompleted
+            | Self::SendToAgentFailed { .. }
+            | Self::IssueSelfAssignmentFailed { .. } => self.into_app_event_agent(),
+            s if is_issue_property_msg(&s) => s.into_app_event_property(),
+            _ => unreachable!("routed IssuesMessage variant reached controls converter"),
+        }
+    }
+
+    fn into_app_event_simple_controls(self) -> AppEvent {
         match self {
             Self::OpenFilterControls => AppEvent::OpenFilterControls,
             Self::CloseFilterControls => AppEvent::CloseFilterControls,
@@ -623,31 +752,7 @@ impl IssuesMessage {
             Self::InlineCursorDown => AppEvent::InlineCursorDown,
             Self::InlineSubmit => AppEvent::InlineSubmit,
             Self::InlineCancelOrEsc => AppEvent::InlineCancelOrEsc,
-            Self::MutationSubmitted { .. }
-            | Self::IssueCreated { .. }
-            | Self::CommentCreated { .. }
-            | Self::CommentCreateFailed { .. }
-            | Self::IssueBodyUpdated { .. }
-            | Self::CommentUpdated { .. }
-            | Self::MutationFailed { .. } => self.into_app_event_mutation(),
-            Self::OpenAgentChooser
-            | Self::AgentChooserNavigateUp
-            | Self::AgentChooserNavigateDown
-            | Self::AgentChooserConfirm
-            | Self::AgentChooserCancel
-            | Self::SendToAgentCompleted
-            | Self::SendToAgentFailed { .. }
-            | Self::IssueSelfAssignmentFailed { .. } => self.into_app_event_agent(),
-            Self::OpenPropertyEditor { .. }
-            | Self::PropertyEditorNavigateUp
-            | Self::PropertyEditorNavigateDown
-            | Self::PropertyEditorToggle
-            | Self::PropertyEditorConfirm
-            | Self::PropertyEditorCancel
-            | Self::PropertyEditorOptionsLoaded { .. }
-            | Self::PropertyEditSucceeded { .. }
-            | Self::PropertyEditFailed { .. } => self.into_app_event_property(),
-            _ => unreachable!("routed IssuesMessage variant reached controls converter"),
+            _ => unreachable!("routed IssuesMessage variant reached simple controls converter"),
         }
     }
 
@@ -677,32 +782,84 @@ impl IssuesMessage {
     /// Property-editor messages → AppEvent (issue #175).
     fn into_app_event_property(self) -> AppEvent {
         match self {
+            Self::PropertyEditorOptionsLoaded { .. }
+            | Self::PropertyEditorOptionsFailed { .. }
+            | Self::PropertyEditSucceeded { .. }
+            | Self::PropertyEditFailed { .. } => self.into_app_event_property_payload(),
+            other => other.into_app_event_property_simple(),
+        }
+    }
+
+    fn into_app_event_property_simple(self) -> AppEvent {
+        match self {
             Self::OpenPropertyEditor { kind } => AppEvent::IssueOpenPropertyEditor { kind },
             Self::PropertyEditorNavigateUp => AppEvent::IssuePropertyEditorNavigateUp,
             Self::PropertyEditorNavigateDown => AppEvent::IssuePropertyEditorNavigateDown,
             Self::PropertyEditorToggle => AppEvent::IssuePropertyEditorToggle,
             Self::PropertyEditorConfirm => AppEvent::IssuePropertyEditorConfirm,
             Self::PropertyEditorCancel => AppEvent::IssuePropertyEditorCancel,
-            Self::PropertyEditorOptionsLoaded { options } => {
-                AppEvent::IssuePropertyEditorOptionsLoaded { options }
-            }
+            Self::PropertyEditorTitleChar(c) => AppEvent::IssuePropertyEditorTitleChar(c),
+            Self::PropertyEditorTitleBackspace => AppEvent::IssuePropertyEditorTitleBackspace,
+            Self::PropertyEditorTitleDelete => AppEvent::IssuePropertyEditorTitleDelete,
+            Self::PropertyEditorTitleCursorLeft => AppEvent::IssuePropertyEditorTitleCursorLeft,
+            Self::PropertyEditorTitleCursorRight => AppEvent::IssuePropertyEditorTitleCursorRight,
+            _ => AppEvent::EnterIssuesMode,
+        }
+    }
+
+    fn into_app_event_property_payload(self) -> AppEvent {
+        match self {
+            Self::PropertyEditorOptionsLoaded {
+                scope_repo_id,
+                issue_number,
+                kind,
+                request_id,
+                options,
+            } => AppEvent::IssuePropertyEditorOptionsLoaded {
+                scope_repo_id,
+                issue_number,
+                kind,
+                request_id,
+                options,
+            },
+            Self::PropertyEditorOptionsFailed {
+                scope_repo_id,
+                issue_number,
+                kind,
+                request_id,
+                error,
+            } => AppEvent::IssuePropertyEditorOptionsFailed {
+                scope_repo_id,
+                issue_number,
+                kind,
+                request_id,
+                error,
+            },
             Self::PropertyEditSucceeded {
                 scope_repo_id,
                 issue_number,
+                kind,
+                request_id,
             } => AppEvent::IssuePropertyEditSucceeded {
                 scope_repo_id,
                 issue_number,
+                kind,
+                request_id,
             },
             Self::PropertyEditFailed {
                 scope_repo_id,
                 issue_number,
+                kind,
+                request_id,
                 error,
             } => AppEvent::IssuePropertyEditFailed {
                 scope_repo_id,
                 issue_number,
+                kind,
+                request_id,
                 error,
             },
-            _ => unreachable!("routed IssuesMessage variant reached property converter"),
+            _ => AppEvent::EnterIssuesMode,
         }
     }
 

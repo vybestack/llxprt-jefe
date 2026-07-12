@@ -455,7 +455,13 @@ impl PullRequestsMessage {
             | AppEvent::PrPropertyEditorToggle
             | AppEvent::PrPropertyEditorConfirm
             | AppEvent::PrPropertyEditorCancel
+            | AppEvent::PrPropertyEditorTitleChar(_)
+            | AppEvent::PrPropertyEditorTitleBackspace
+            | AppEvent::PrPropertyEditorTitleDelete
+            | AppEvent::PrPropertyEditorTitleCursorLeft
+            | AppEvent::PrPropertyEditorTitleCursorRight
             | AppEvent::PrPropertyEditorOptionsLoaded { .. }
+            | AppEvent::PrPropertyEditorOptionsFailed { .. }
             | AppEvent::PrPropertyEditSucceeded { .. }
             | AppEvent::PrPropertyEditFailed { .. } => Self::from_app_event_property(event),
             _ => unreachable!("non-PR AppEvent routed to PR converter"),
@@ -896,7 +902,13 @@ impl PullRequestsMessage {
             | Self::PropertyEditorToggle
             | Self::PropertyEditorConfirm
             | Self::PropertyEditorCancel
+            | Self::PropertyEditorTitleChar(_)
+            | Self::PropertyEditorTitleBackspace
+            | Self::PropertyEditorTitleDelete
+            | Self::PropertyEditorTitleCursorLeft
+            | Self::PropertyEditorTitleCursorRight
             | Self::PropertyEditorOptionsLoaded { .. }
+            | Self::PropertyEditorOptionsFailed { .. }
             | Self::PropertyEditSucceeded { .. }
             | Self::PropertyEditFailed { .. } => self.into_app_event_property(),
             _ => unreachable!("unrouted PullRequestsMessage variant reached merge converter"),

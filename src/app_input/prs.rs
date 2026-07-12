@@ -451,7 +451,8 @@ fn handle_pr_merge_chooser_key(_state: &AppState, key_event: &KeyEvent) -> Optio
 /// Handle keys while the property editor is open (issue #175).
 ///
 /// Mirrors the merge-chooser key router: Up/Down navigate, Space toggles,
-/// Enter confirms, Esc cancels. All other keys are consumed as `None`.
+/// Enter confirms, Esc cancels. Title editing keys (char, backspace, delete,
+/// cursor left/right) are also routed. All other keys are consumed as `None`.
 fn handle_pr_property_editor_key(_state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     match key_event.code {
         KeyCode::Up => Some(AppEvent::PrPropertyEditorNavigateUp),
@@ -459,6 +460,13 @@ fn handle_pr_property_editor_key(_state: &AppState, key_event: &KeyEvent) -> Opt
         KeyCode::Char(' ') => Some(AppEvent::PrPropertyEditorToggle),
         KeyCode::Enter => Some(AppEvent::PrPropertyEditorConfirm),
         KeyCode::Esc => Some(AppEvent::PrPropertyEditorCancel),
+        KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(AppEvent::PrPropertyEditorTitleChar(c))
+        }
+        KeyCode::Backspace => Some(AppEvent::PrPropertyEditorTitleBackspace),
+        KeyCode::Delete => Some(AppEvent::PrPropertyEditorTitleDelete),
+        KeyCode::Left => Some(AppEvent::PrPropertyEditorTitleCursorLeft),
+        KeyCode::Right => Some(AppEvent::PrPropertyEditorTitleCursorRight),
         _ => None,
     }
 }

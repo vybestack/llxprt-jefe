@@ -413,6 +413,9 @@ fn reset_pr_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.prs_state.list_cursor = None;
     state.prs_state.has_more_prs = false;
     state.prs_state.error = None;
+    // M7: clear property editor and pending mutation on scope reset.
+    state.prs_state.property_editor = None;
+    state.prs_state.property_mutation_pending = None;
     if state.prs_state.inline_state != jefe::state::InlineState::None {
         state.prs_state.draft_notice = Some("Unsent draft discarded".to_string());
     }

@@ -13,32 +13,86 @@ impl PullRequestsMessage {
     /// Property-editor events → message (issue #175).
     pub(super) fn from_app_event_property(event: AppEvent) -> Self {
         match event {
+            AppEvent::PrPropertyEditorOptionsLoaded { .. }
+            | AppEvent::PrPropertyEditorOptionsFailed { .. }
+            | AppEvent::PrPropertyEditSucceeded { .. }
+            | AppEvent::PrPropertyEditFailed { .. } => Self::from_app_event_property_payload(event),
+            other => Self::from_app_event_property_simple(other),
+        }
+    }
+
+    /// Simple property-editor events (no payload extraction needed).
+    fn from_app_event_property_simple(event: AppEvent) -> Self {
+        match event {
             AppEvent::PrOpenPropertyEditor { kind } => Self::OpenPropertyEditor { kind },
             AppEvent::PrPropertyEditorNavigateUp => Self::PropertyEditorNavigateUp,
             AppEvent::PrPropertyEditorNavigateDown => Self::PropertyEditorNavigateDown,
             AppEvent::PrPropertyEditorToggle => Self::PropertyEditorToggle,
             AppEvent::PrPropertyEditorConfirm => Self::PropertyEditorConfirm,
             AppEvent::PrPropertyEditorCancel => Self::PropertyEditorCancel,
-            AppEvent::PrPropertyEditorOptionsLoaded { options } => {
-                Self::PropertyEditorOptionsLoaded { options }
-            }
+            AppEvent::PrPropertyEditorTitleChar(c) => Self::PropertyEditorTitleChar(c),
+            AppEvent::PrPropertyEditorTitleBackspace => Self::PropertyEditorTitleBackspace,
+            AppEvent::PrPropertyEditorTitleDelete => Self::PropertyEditorTitleDelete,
+            AppEvent::PrPropertyEditorTitleCursorLeft => Self::PropertyEditorTitleCursorLeft,
+            AppEvent::PrPropertyEditorTitleCursorRight => Self::PropertyEditorTitleCursorRight,
+            _ => Self::EnterMode,
+        }
+    }
+
+    /// Property-editor events that carry payloads (options/succeeded/failed).
+    fn from_app_event_property_payload(event: AppEvent) -> Self {
+        match event {
+            AppEvent::PrPropertyEditorOptionsLoaded {
+                scope_repo_id,
+                pr_number,
+                kind,
+                request_id,
+                options,
+            } => Self::PropertyEditorOptionsLoaded {
+                scope_repo_id,
+                pr_number,
+                kind,
+                request_id,
+                options,
+            },
+            AppEvent::PrPropertyEditorOptionsFailed {
+                scope_repo_id,
+                pr_number,
+                kind,
+                request_id,
+                error,
+            } => Self::PropertyEditorOptionsFailed {
+                scope_repo_id,
+                pr_number,
+                kind,
+                request_id,
+                error,
+            },
             AppEvent::PrPropertyEditSucceeded {
                 scope_repo_id,
                 pr_number,
+                kind,
+                request_id,
             } => Self::PropertyEditSucceeded {
                 scope_repo_id,
                 pr_number,
+                kind,
+                request_id,
             },
             AppEvent::PrPropertyEditFailed {
                 scope_repo_id,
                 pr_number,
+                kind,
+                request_id,
                 error,
             } => Self::PropertyEditFailed {
                 scope_repo_id,
                 pr_number,
+                kind,
+                request_id,
                 error,
             },
-            _ => unreachable!("non-property AppEvent routed to PR property converter"),
+            _ => Self::EnterMode,
         }
     }
 
@@ -82,32 +136,86 @@ impl PullRequestsMessage {
     /// Property-editor messages → AppEvent (issue #175).
     pub(super) fn into_app_event_property(self) -> AppEvent {
         match self {
+            Self::PropertyEditorOptionsLoaded { .. }
+            | Self::PropertyEditorOptionsFailed { .. }
+            | Self::PropertyEditSucceeded { .. }
+            | Self::PropertyEditFailed { .. } => self.into_app_event_property_payload(),
+            other => other.into_app_event_property_simple(),
+        }
+    }
+
+    /// Simple property-editor messages (no payload extraction needed).
+    fn into_app_event_property_simple(self) -> AppEvent {
+        match self {
             Self::OpenPropertyEditor { kind } => AppEvent::PrOpenPropertyEditor { kind },
             Self::PropertyEditorNavigateUp => AppEvent::PrPropertyEditorNavigateUp,
             Self::PropertyEditorNavigateDown => AppEvent::PrPropertyEditorNavigateDown,
             Self::PropertyEditorToggle => AppEvent::PrPropertyEditorToggle,
             Self::PropertyEditorConfirm => AppEvent::PrPropertyEditorConfirm,
             Self::PropertyEditorCancel => AppEvent::PrPropertyEditorCancel,
-            Self::PropertyEditorOptionsLoaded { options } => {
-                AppEvent::PrPropertyEditorOptionsLoaded { options }
-            }
+            Self::PropertyEditorTitleChar(c) => AppEvent::PrPropertyEditorTitleChar(c),
+            Self::PropertyEditorTitleBackspace => AppEvent::PrPropertyEditorTitleBackspace,
+            Self::PropertyEditorTitleDelete => AppEvent::PrPropertyEditorTitleDelete,
+            Self::PropertyEditorTitleCursorLeft => AppEvent::PrPropertyEditorTitleCursorLeft,
+            Self::PropertyEditorTitleCursorRight => AppEvent::PrPropertyEditorTitleCursorRight,
+            _ => AppEvent::EnterPrsMode,
+        }
+    }
+
+    /// Property-editor messages with payloads → AppEvent.
+    fn into_app_event_property_payload(self) -> AppEvent {
+        match self {
+            Self::PropertyEditorOptionsLoaded {
+                scope_repo_id,
+                pr_number,
+                kind,
+                request_id,
+                options,
+            } => AppEvent::PrPropertyEditorOptionsLoaded {
+                scope_repo_id,
+                pr_number,
+                kind,
+                request_id,
+                options,
+            },
+            Self::PropertyEditorOptionsFailed {
+                scope_repo_id,
+                pr_number,
+                kind,
+                request_id,
+                error,
+            } => AppEvent::PrPropertyEditorOptionsFailed {
+                scope_repo_id,
+                pr_number,
+                kind,
+                request_id,
+                error,
+            },
             Self::PropertyEditSucceeded {
                 scope_repo_id,
                 pr_number,
+                kind,
+                request_id,
             } => AppEvent::PrPropertyEditSucceeded {
                 scope_repo_id,
                 pr_number,
+                kind,
+                request_id,
             },
             Self::PropertyEditFailed {
                 scope_repo_id,
                 pr_number,
+                kind,
+                request_id,
                 error,
             } => AppEvent::PrPropertyEditFailed {
                 scope_repo_id,
                 pr_number,
+                kind,
+                request_id,
                 error,
             },
-            _ => unreachable!("unrouted PullRequestsMessage variant reached property converter"),
+            _ => AppEvent::EnterPrsMode,
         }
     }
 

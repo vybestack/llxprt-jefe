@@ -90,6 +90,9 @@ impl AppState {
             self.prs_state.draft_notice = Some("Unsent draft discarded".to_string());
             self.prs_state.inline_state = InlineState::None;
         }
+        // M7: clear property editor on mode exit.
+        self.prs_state.property_editor = None;
+        self.prs_state.property_mutation_pending = None;
         if let Some(prior) = self.prs_state.prior_agent_focus.take() {
             self.pane_focus = prior.pane_focus;
             if let Some(idx) = prior.selected_agent_index {
@@ -125,6 +128,9 @@ impl AppState {
             self.prs_state.draft_notice = Some("Draft discarded (repo changed)".to_string());
             self.prs_state.inline_state = InlineState::None;
         }
+        // M7: clear property editor and pending mutation on scope reset.
+        self.prs_state.property_editor = None;
+        self.prs_state.property_mutation_pending = None;
         self.prs_state.pull_requests.clear();
         self.prs_state.selected_pr_index = None;
         self.prs_state.pr_detail = None;
