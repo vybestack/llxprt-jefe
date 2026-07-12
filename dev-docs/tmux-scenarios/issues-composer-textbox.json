@@ -21,7 +21,7 @@
     { "keys": ["c", "u", "r", "r", "e", "n", "t", " ", "l", "i", "n", "e"] },
     { "waitFor": "current line" },
     { "key": "Escape" },
-    { "key": "q" },
+    { "key": "C-q" },
     { "waitForExit": 3000 }
   ]
 }

@@ -8,7 +8,9 @@ use tracing::warn;
 use jefe::domain::{AgentId, LaunchSignature, SandboxEngine};
 use jefe::persistence::PersistenceManager;
 use jefe::runtime::{RuntimeError, RuntimeManager};
-use jefe::state::{AgentFormFocus, AppEvent, ModalState, PaneFocus, RepositoryFormFocus};
+use jefe::state::{
+    AgentFormFocus, AppEvent, ConfirmFocus, ModalState, PaneFocus, RepositoryFormFocus,
+};
 use jefe::theme::ThemeManager;
 
 use super::{
@@ -113,24 +115,11 @@ pub fn handle_mode_confirm_key(
     ctx: &SharedContext,
     key_event: &KeyEvent,
 ) {
-    // The dirty-copy confirm only accepts Enter (discard + proceed) or
-    // Esc/n (halt). It must NOT toggle the delete-work-dir checkbox used by
-    // the agent/repository delete confirms.
-    if matches!(
-        app_state.read().modal,
-        ModalState::ConfirmIssueDirtyCopy { .. } | ModalState::ConfirmIssueOriginMismatch { .. }
-    ) {
-        match key_event.code {
-            KeyCode::Enter => handle_confirm_enter(app_state, ctx),
-            KeyCode::Esc | KeyCode::Char('n' | 'N') => {
-                close_modal_and_persist(app_state, ctx);
-            }
-            _ => {}
-        }
-        return;
-    }
     match key_event.code {
-        KeyCode::Esc => close_modal_and_persist(app_state, ctx),
+        KeyCode::Esc | KeyCode::Char('n' | 'N') => close_modal_and_persist(app_state, ctx),
+        KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab => {
+            apply_and_persist(app_state, ctx, AppEvent::ConfirmCycleFocus);
+        }
         KeyCode::Enter => handle_confirm_enter(app_state, ctx),
         KeyCode::Char(' ' | 'd' | 'D') | KeyCode::Up | KeyCode::Down => {
             apply_and_persist(app_state, ctx, AppEvent::ToggleDeleteWorkDir);
@@ -145,25 +134,41 @@ fn handle_confirm_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {
         state.modal.clone()
     };
 
+    // If Cancel is focused, Enter dismisses without performing the action (issue #228).
+    if confirm_focus_is_cancel(&modal_snapshot) {
+        close_modal_and_persist(app_state, ctx);
+        return;
+    }
+
     match modal_snapshot {
         ModalState::ConfirmDeleteAgent {
             id,
             delete_work_dir,
+            ..
         } => confirm_delete_agent(app_state, ctx, id, delete_work_dir),
-        ModalState::ConfirmDeleteRepository { id } => confirm_delete_repository(app_state, ctx, id),
+        ModalState::ConfirmDeleteRepository { id, .. } => {
+            confirm_delete_repository(app_state, ctx, id);
+        }
         ModalState::PreflightPrompt {
             agent_id,
             signature,
             issue,
+            issue_self_assignment,
             ..
         } => super::preflight::handle_preflight_prompt_enter(
-            app_state, ctx, agent_id, signature, issue,
+            app_state,
+            ctx,
+            agent_id,
+            signature,
+            issue,
+            issue_self_assignment,
         ),
         ModalState::ConfirmIssueDirtyCopy {
             agent_id,
             work_dir,
             signature,
             payload,
+            ..
         } => super::issues_send::confirm_issue_dirty_copy_enter(
             app_state, ctx, agent_id, work_dir, signature, payload,
         ),
@@ -177,6 +182,21 @@ fn handle_confirm_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {
             app_state, ctx, agent_id, work_dir, signature, payload,
         ),
         _ => {}
+    }
+}
+
+/// Returns true when the confirm modal's focused button is Cancel (issue #228).
+pub(super) fn confirm_focus_is_cancel(modal: &ModalState) -> bool {
+    match modal {
+        ModalState::ConfirmDeleteAgent { confirm_focus, .. }
+        | ModalState::ConfirmDeleteRepository { confirm_focus, .. }
+        | ModalState::ConfirmKillAgent { confirm_focus, .. }
+        | ModalState::PreflightPrompt { confirm_focus, .. }
+        | ModalState::ConfirmIssueDirtyCopy { confirm_focus, .. }
+        | ModalState::ConfirmIssueOriginMismatch { confirm_focus, .. } => {
+            *confirm_focus == ConfirmFocus::Cancel
+        }
+        _ => false,
     }
 }
 
@@ -462,11 +482,11 @@ fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
         return;
     }
 
-    if !preflight_or_prompt(app_state, ctx, &agent_id, &signature) {
+    if !preflight_or_prompt(app_state, ctx, &agent_id, &signature, None) {
         return;
     }
     focus_terminal_after_submit(app_state, ctx);
-    execute_agent_launch(app_state, ctx, &agent_id, &work_dir, &signature, false);
+    let _ = execute_agent_launch(app_state, ctx, &agent_id, &work_dir, &signature, false);
 }
 
 /// Pre-submit validation: check that the selected agent kind is locally

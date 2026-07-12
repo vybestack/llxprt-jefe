@@ -89,6 +89,8 @@ pub enum ModalMessage {
     OpenSearch,
     CloseModal,
     SubmitForm,
+    /// Cycle confirm-dialog button focus (issue #228).
+    ConfirmCycleFocus,
     FormChar(char),
     FormBackspace,
     FormDelete,
@@ -312,6 +314,12 @@ pub enum IssuesMessage {
     AgentChooserCancel,
     SendToAgentCompleted,
     SendToAgentFailed {
+        error: String,
+    },
+    /// Non-blocking self-assignment failure warning (issue #186).
+    IssueSelfAssignmentFailed {
+        owner_repo: String,
+        issue_number: u64,
         error: String,
     },
 }
@@ -735,6 +743,7 @@ message_names!(ModalMessage {
     Self::OpenSearch => "OpenSearch",
     Self::CloseModal => "CloseModal",
     Self::SubmitForm => "SubmitForm",
+    Self::ConfirmCycleFocus => "ConfirmCycleFocus",
     Self::FormChar(_) => "FormChar",
     Self::FormBackspace => "FormBackspace",
     Self::FormDelete => "FormDelete",
@@ -854,6 +863,7 @@ message_names!(IssuesMessage {
     Self::AgentChooserCancel => "AgentChooserCancel",
     Self::SendToAgentCompleted => "SendToAgentCompleted",
     Self::SendToAgentFailed { .. } => "SendToAgentFailed",
+    Self::IssueSelfAssignmentFailed { .. } => "IssueSelfAssignmentFailed",
 });
 
 // @plan PLAN-20260624-PR-MODE.P03

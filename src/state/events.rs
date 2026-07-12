@@ -40,6 +40,8 @@ pub enum AppEvent {
     OpenSearch,
     CloseModal,
     SubmitForm,
+    /// Cycle confirm-dialog button focus (Left/Right/Tab in a confirm modal, issue #228).
+    ConfirmCycleFocus,
 
     // Form input events
     FormChar(char),
@@ -271,6 +273,14 @@ pub enum AppEvent {
     AgentChooserCancel,
     SendToAgentCompleted,
     SendToAgentFailed {
+        error: String,
+    },
+    /// Non-blocking warning: an issue send-to-agent succeeded, but the
+    /// follow-up self-assignment to the authenticated viewer failed (issue
+    /// #186). Sets `warning_message` without affecting the launch.
+    IssueSelfAssignmentFailed {
+        owner_repo: String,
+        issue_number: u64,
         error: String,
     },
 

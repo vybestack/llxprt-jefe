@@ -1,0 +1,27 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "p" },
+    { "waitFor": "Pull Requests" },
+    { "key": "Tab" },
+    { "key": "Tab" },
+    { "capture": "pr-detail-focused" },
+    { "key": "Escape" },
+    { "wait": 200 },
+    { "expect": "Pull Requests" },
+    { "capture": "after-esc-still-in-pr-mode" },
+    { "key": "Escape" },
+    { "key": "Escape" },
+    { "waitFor": "No terminal attached" },
+    { "capture": "after-esc-esc-back-to-dashboard" },
+    { "key": "C-q" },
+    { "waitForExit": 3000 }
+  ]
+}

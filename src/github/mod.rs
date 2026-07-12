@@ -17,7 +17,12 @@ use std::process::Command;
 
 mod create_issue;
 mod pr_threads;
+mod repo_merge;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};
+use repo_merge::parse_repo_merge_methods;
+
+mod viewer;
+pub use viewer::{build_assign_issue_args, build_viewer_login_args, parse_viewer_login};
 
 mod actions;
 pub use actions::{
@@ -37,9 +42,9 @@ mod parse_pr;
 pub use parse_pr::{
     build_pr_comments_query, build_pr_review_threads_query, build_pr_search_args,
     build_pr_search_query, parse_check_status, parse_checks_rollup, parse_pr_check,
-    parse_pr_review, parse_pr_review_threads, parse_pr_state, parse_pull_request_detail_json,
-    parse_pull_requests_json, parse_review_decision, parse_thread_reply_json, rollup_nodes,
-    sort_pull_requests,
+    parse_pr_review, parse_pr_review_threads, parse_pr_review_threads_cursor, parse_pr_state,
+    parse_pull_request_detail_json, parse_pull_requests_json, parse_review_decision,
+    parse_thread_reply_json, rollup_nodes, sort_pull_requests,
 };
 
 /// Error types for GitHub CLI operations.
@@ -356,6 +361,29 @@ impl GhClient {
         parse_created_issue_json(&stdout)
     }
 
+    /// Resolve the authenticated viewer's login (`gh api user --jq .login`).
+    ///
+    /// Used to self-assign an issue on send-to-agent (issue #186).
+    pub fn viewer_login(&self) -> Result<String, GhError> {
+        let stdout = Self::run_gh(&build_viewer_login_args())?;
+        parse_viewer_login(&stdout)
+    }
+
+    /// Assign an issue to `assignee` via the assignees REST endpoint. Used for
+    /// self-assignment on send-to-agent (issue #186); failures are non-blocking
+    /// warnings at the caller, so this surfaces the raw `GhError`.
+    pub fn assign_issue(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        assignee: &str,
+    ) -> Result<(), GhError> {
+        let args = build_assign_issue_args(owner, repo, number, assignee);
+        Self::run_gh(&args)?;
+        Ok(())
+    }
+
     /// Create a new comment on an issue.
     ///
     /// @plan PLAN-20260329-ISSUES-MODE.P08
@@ -552,14 +580,43 @@ impl GhClient {
             "--json".to_string(),
             "number,title,state,mergedAt,author,createdAt,updatedAt,headRefName,baseRefName,isDraft,labels,assignees,milestone,body,url,reviewDecision,statusCheckRollup,reviews,mergeable,mergeStateStatus".to_string(),
         ];
-        let stdout = Self::run_gh(&args)?;
-        let mut detail = parse_pull_request_detail_json(&stdout, &format!("{owner}/{name}"))?;
-        let comments_response =
-            self.list_pr_comments(owner, name, number, None, ISSUE_DETAIL_COMMENT_PAGE_SIZE)?;
-        detail.comments = comments_response.comments;
-        detail.comments_cursor = comments_response.cursor;
-        detail.has_more_comments = comments_response.has_more;
-        let threads = self.list_pr_review_threads(owner, name, number);
+        let repo = format!("{owner}/{name}");
+
+        let (detail, comments, threads) = std::thread::scope(|s| {
+            let detail_handle = s.spawn(|| {
+                let stdout = Self::run_gh(&args)?;
+                parse_pull_request_detail_json(&stdout, &repo)
+            });
+            let comments_handle = s.spawn(|| {
+                self.list_pr_comments(owner, name, number, None, ISSUE_DETAIL_COMMENT_PAGE_SIZE)
+            });
+            let threads_handle = s.spawn(|| self.list_pr_review_threads(owner, name, number));
+
+            let worker_panic = |what: &str| {
+                GhError::ApiError(format!(
+                    "{what} worker panicked for {owner}/{name}#{number}"
+                ))
+            };
+            let detail = detail_handle
+                .join()
+                .map_err(|_| worker_panic("metadata fetch"));
+            let comments = comments_handle
+                .join()
+                .map_err(|_| worker_panic("comments fetch"));
+            let threads = threads_handle.join().unwrap_or_else(|_| {
+                tracing::warn!(
+                    "review-threads fetch worker panicked for {owner}/{name}#{number}; \
+                     rendering detail without threads"
+                );
+                Vec::new()
+            });
+            Ok::<_, GhError>((detail??, comments??, threads))
+        })?;
+
+        let mut detail = detail;
+        detail.comments = comments.comments;
+        detail.comments_cursor = comments.cursor;
+        detail.has_more_comments = comments.has_more;
         assign_threads_to_reviews(&mut detail.reviews, threads);
         Ok(detail)
     }
@@ -763,20 +820,36 @@ impl Default for GhClient {
 /// Distribute fetched review threads onto the review structs.
 ///
 /// GitHub's `reviewThreads` connection is on `PullRequest`, not on each
-/// `Review`. Since the domain model stores threads under `PrReview`, all
-/// fetched threads are assigned to the first review (if any). When there are
-/// no reviews but threads exist, the threads are silently dropped (there is
-/// no review slot to hold them). The renderer flattens
+/// `Review`. Each thread carries the id of the review that opened it (from
+/// its first comment's `pullRequestReview`), so threads are attached to THEIR
+/// parent review — mirroring the github.com grouping where each review card
+/// shows its own batch of inline comments. Threads whose parent review id is
+/// missing or matches no fetched review fall back to the first review so
+/// nothing is dropped. When there are no reviews at all, threads are dropped
+/// (there is no review slot to hold them). The renderer flattens
 /// `reviews.iter().flat_map(|r| &r.review_threads)` so this preserves all
-/// threads for display.
-fn assign_threads_to_reviews(reviews: &mut [PrReview], threads: Vec<PrReviewThread>) {
-    if threads.is_empty() {
+/// threads for display, in per-review chronological order.
+pub(crate) fn assign_threads_to_reviews(reviews: &mut [PrReview], threads: Vec<PrReviewThread>) {
+    if threads.is_empty() || reviews.is_empty() {
         return;
     }
-    let Some(first_review) = reviews.first_mut() else {
-        return;
-    };
-    first_review.review_threads = threads;
+    // Build a review_id → index map once (O(N)) instead of a per-thread
+    // linear scan (O(N×M)). Cloning the ids into owned Strings avoids holding
+    // &str borrows of `reviews` while we mutably push into it below.
+    let mut id_to_idx = std::collections::HashMap::with_capacity(reviews.len());
+    for (i, r) in reviews.iter().enumerate() {
+        if let Some(id) = &r.review_id {
+            id_to_idx.insert(id.clone(), i);
+        }
+    }
+    for thread in threads {
+        let parent_idx = thread
+            .review_id
+            .as_deref()
+            .and_then(|tid| id_to_idx.get(tid).copied())
+            .unwrap_or(0);
+        reviews[parent_idx].review_threads.push(thread);
+    }
 }
 
 /// Map a [`PrState`] to its lowercase send-payload string.
@@ -914,42 +987,4 @@ fn fetch_issue_search_raw_page(
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     parse_issue_search_json(&stdout)
-}
-
-/// Parse the `gh api repos/{owner}/{repo} --jq {...}` output into the allowed
-/// merge methods. The `--jq` flag emits a compact JSON object with the three
-/// boolean fields. Any parse failure yields an empty Vec (graceful degradation
-/// — the chooser treats unknown as "all available").
-///
-/// @plan PLAN-20260624-PR-MODE.P08
-/// @requirement REQ-PR-009
-/// @pseudocode component-002 lines 115-122
-fn parse_repo_merge_methods(jq_output: &str) -> Vec<crate::domain::MergeMethod> {
-    use crate::domain::MergeMethod;
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(jq_output.trim()) else {
-        return Vec::new();
-    };
-    let mut methods = Vec::new();
-    if value
-        .get("allow_merge_commit")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-    {
-        methods.push(MergeMethod::Merge);
-    }
-    if value
-        .get("allow_squash_merge")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-    {
-        methods.push(MergeMethod::Squash);
-    }
-    if value
-        .get("allow_rebase_merge")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-    {
-        methods.push(MergeMethod::Rebase);
-    }
-    methods
 }

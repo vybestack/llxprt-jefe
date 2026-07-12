@@ -15,6 +15,43 @@ pub use pr_types::*;
 mod form_types;
 pub use form_types::*;
 
+/// Captured issue self-assignment follow-up for an issue-driven launch
+/// (issue #186).
+///
+/// Carried through the preflight modal so the non-blocking
+/// assignment (or its warning) fires after a successful post-preflight
+/// launch.
+///
+/// - [`IssueSelfAssignmentFollowUp::Resolved`]: a valid `owner/repo` was
+///   resolved from the agent's repository; the background task will resolve
+///   the viewer and POST the assignment.
+/// - [`IssueSelfAssignmentFollowUp::Unavailable`]: the repository has no valid
+///   `github_repo`, so assignment cannot run; a non-blocking warning must be
+///   surfaced instead of silently skipping (consistent with the direct path).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IssueSelfAssignmentFollowUp {
+    Resolved {
+        /// Validated `owner/repo` shortform (never the slug).
+        owner_repo: String,
+        issue_number: u64,
+    },
+    Unavailable {
+        issue_number: u64,
+        reason: String,
+    },
+}
+
+/// Which button is focused in a confirm dialog (issue #228).
+///
+/// Defaults to [`ConfirmFocus::Cancel`] so destructive confirms are
+/// defense-in-depth: Enter on a freshly-opened dialog does nothing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ConfirmFocus {
+    #[default]
+    Cancel,
+    Confirm,
+}
+
 /// Modal/form state variants.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ModalState {
@@ -53,6 +90,7 @@ pub enum ModalState {
     },
     ConfirmDeleteRepository {
         id: RepositoryId,
+        confirm_focus: ConfirmFocus,
     },
     NewAgent {
         repository_id: RepositoryId,
@@ -71,9 +109,11 @@ pub enum ModalState {
     ConfirmDeleteAgent {
         id: AgentId,
         delete_work_dir: bool,
+        confirm_focus: ConfirmFocus,
     },
     ConfirmKillAgent {
         id: AgentId,
+        confirm_focus: ConfirmFocus,
     },
     /// Preflight check failed — prompt the user for remediation before launch.
     ///
@@ -88,6 +128,12 @@ pub enum ModalState {
         issue: PreflightIssue,
         /// Placeholder for future multi-issue handling.
         remaining_issues: Vec<PreflightIssue>,
+        /// Captured issue self-assignment follow-up for issue-driven launches
+        /// (issue #186). `None` for non-issue launches (e.g. relaunch). When
+        /// present, the assignment (or its warning) fires after a successful
+        /// post-preflight launch.
+        issue_self_assignment: Option<IssueSelfAssignmentFollowUp>,
+        confirm_focus: ConfirmFocus,
     },
     /// Issue send: the working copy has uncommitted changes (excluding
     /// jefe/llxprt-owned paths). Prompt the user to discard them before
@@ -99,6 +145,7 @@ pub enum ModalState {
         work_dir: std::path::PathBuf,
         signature: LaunchSignature,
         payload: crate::github::SendPayload,
+        confirm_focus: ConfirmFocus,
     },
     /// Issue send: the working copy is a git repo whose `origin` does not
     /// match the configured repository. Prompt the user to replace it with a
@@ -113,6 +160,7 @@ pub enum ModalState {
         payload: crate::github::SendPayload,
         actual: String,
         expected: String,
+        confirm_focus: ConfirmFocus,
     },
     WorkflowDispatch {
         workflow: crate::domain::Workflow,

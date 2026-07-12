@@ -119,6 +119,7 @@ fn detail_with_reviews_and_checks(number: u64) -> PullRequestDetail {
     detail.checks_status = PrCheckStatus::Success;
     detail.reviews = vec![
         PrReview {
+            review_id: None,
             author_login: "alice".to_string(),
             state: PrReviewState::Approved,
             submitted_at: "2024-01-03".to_string(),
@@ -126,6 +127,7 @@ fn detail_with_reviews_and_checks(number: u64) -> PullRequestDetail {
             review_threads: vec![],
         },
         PrReview {
+            review_id: None,
             author_login: "bob".to_string(),
             state: PrReviewState::Commented,
             submitted_at: "2024-01-04".to_string(),
@@ -168,6 +170,7 @@ fn detail_with_reviews_and_checks(number: u64) -> PullRequestDetail {
 fn rich_reviews() -> Vec<PrReview> {
     vec![
         PrReview {
+            review_id: None,
             author_login: "reviewer1".to_string(),
             state: PrReviewState::Approved,
             submitted_at: "2024-01-03".to_string(),
@@ -175,6 +178,7 @@ fn rich_reviews() -> Vec<PrReview> {
             review_threads: vec![],
         },
         PrReview {
+            review_id: None,
             author_login: "reviewer2".to_string(),
             state: PrReviewState::Commented,
             submitted_at: "2024-01-04".to_string(),
@@ -182,6 +186,7 @@ fn rich_reviews() -> Vec<PrReview> {
             review_threads: vec![],
         },
         PrReview {
+            review_id: None,
             author_login: "reviewer3".to_string(),
             state: PrReviewState::Approved,
             submitted_at: "2024-01-05".to_string(),
@@ -434,7 +439,7 @@ fn test_pr_detail_renders_metadata_body_review_summary_check_summary() {
 fn test_pr_detail_shows_branches_and_external_url() {
     let detail = detail_with_reviews_and_checks(77);
     let h = pr_detail_header_view(&detail);
-    let expected_branch = format!("{} -> {}", detail.head_ref, detail.base_ref);
+    let expected_branch = format!("{} --> {}", detail.head_ref, detail.base_ref);
     assert!(
         h.branches.contains(&expected_branch),
         "rendered header branches must contain '{expected_branch}', got: {}",

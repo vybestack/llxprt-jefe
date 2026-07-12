@@ -38,28 +38,25 @@ pub struct IssueDetailHeaderView {
 
 /// Pure projection of the issue detail's four fixed header rows exactly as the
 /// component renders them.
+///
+/// Issue #155 redesign (shared with the PR detail header): human dates replace
+/// raw ISO timestamps, empty fields show `—` instead of `-`.
 #[must_use]
 pub fn issue_detail_header_view(detail: &IssueDetail) -> IssueDetailHeaderView {
     let state_tag = match detail.state {
         IssueState::Open => "OPEN",
         IssueState::Closed => "CLOSED",
     };
-    let labels_str = if detail.labels.is_empty() {
-        "-".to_string()
-    } else {
-        detail.labels.join(", ")
-    };
-    let assignees_str = if detail.assignees.is_empty() {
-        "-".to_string()
-    } else {
-        detail.assignees.join(", ")
-    };
-    let milestone_str = detail.milestone.as_deref().unwrap_or("-").to_string();
+    let created = crate::ui::util::format_iso_date(&detail.created_at);
+    let updated = crate::ui::util::format_iso_date(&detail.updated_at);
+    let labels_str = crate::ui::util::field_list(&detail.labels);
+    let assignees_str = crate::ui::util::field_list(&detail.assignees);
+    let milestone_str = crate::ui::util::field_opt(detail.milestone.as_deref());
     IssueDetailHeaderView {
         title: format!("#{} {}", detail.number, detail.title),
         state: format!(
-            "{}  by @{}  opened: {}  updated: {}",
-            state_tag, detail.author_login, detail.created_at, detail.updated_at
+            "{state_tag}  by @{}  opened: {created}  updated: {updated}",
+            detail.author_login
         ),
         labels: format!(
             "labels: {labels_str}  assignees: {assignees_str}  milestone: {milestone_str}"

@@ -491,7 +491,7 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
         return;
     }
 
-    if preflight_or_prompt(app_state, ctx, &send_info.agent_id, &launch_sig) {
+    if preflight_or_prompt(app_state, ctx, &send_info.agent_id, &launch_sig, None) {
         launch_pr_agent(
             app_state,
             ctx,

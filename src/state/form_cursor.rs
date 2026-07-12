@@ -95,6 +95,7 @@ pub(super) fn move_agent_field_cursor_right(
         AgentFormFocus::Shortcut
         | AgentFormFocus::AgentKind
         | AgentFormFocus::CodePuppyYolo
+        | AgentFormFocus::CodePuppyQuickResume
         | AgentFormFocus::PassContinue
         | AgentFormFocus::Sandbox
         | AgentFormFocus::SandboxEngine => {}
@@ -168,6 +169,7 @@ pub(super) fn move_agent_field_cursor_left(cursor: &mut AgentFormCursor, focus: 
         AgentFormFocus::Shortcut
         | AgentFormFocus::AgentKind
         | AgentFormFocus::CodePuppyYolo
+        | AgentFormFocus::CodePuppyQuickResume
         | AgentFormFocus::PassContinue
         | AgentFormFocus::Sandbox
         | AgentFormFocus::SandboxEngine => {}

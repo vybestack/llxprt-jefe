@@ -20,6 +20,8 @@ fn make_thread(
     PrReviewThread {
         thread_id: thread_id.to_string(),
         is_resolved,
+        is_outdated: false,
+        review_id: None,
         path: path.map(String::from),
         line,
         comments: vec![IssueComment {
@@ -39,6 +41,7 @@ fn state_with_two_threads() -> AppState {
         panic!("test fixture must have pr_detail");
     };
     detail.reviews = vec![PrReview {
+        review_id: None,
         author_login: "ada".to_string(),
         state: PrReviewState::ChangesRequested,
         submitted_at: "2024-01-02T00:00:00Z".to_string(),

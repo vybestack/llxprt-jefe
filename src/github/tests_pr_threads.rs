@@ -7,7 +7,9 @@
 //!
 //! @requirement REQ-PR-009
 
-use crate::github::{build_pr_review_threads_query, parse_pr_review_threads};
+use crate::github::{
+    build_pr_review_threads_query, parse_pr_review_threads, parse_pr_review_threads_cursor,
+};
 
 /// Test helper for unwrapping Results with a descriptive panic message.
 trait TestResultExt<T> {
@@ -288,4 +290,289 @@ fn test_parse_pr_review_threads_legacy_nested_fallback() {
     assert!(!threads[0].is_resolved);
     assert_eq!(threads[0].comments.len(), 1);
     assert_eq!(threads[0].comments[0].author_login, "ghost");
+}
+
+// ── Pagination + isOutdated + parent-review id (issue #155 follow-up) ────
+
+/// The thread query must select `isOutdated`, the parent-review id on each
+/// comment, and `pageInfo { hasNextPage endCursor }` so the client can
+/// paginate the connection and group threads under their parent review.
+#[test]
+fn test_build_pr_review_threads_query_selects_outdated_review_and_page_info() {
+    for with_cursor in [false, true] {
+        let query = build_pr_review_threads_query(with_cursor);
+        assert!(
+            query.contains("isOutdated"),
+            "thread query must select isOutdated (with_cursor={with_cursor})"
+        );
+        assert!(
+            query.contains("pullRequestReview"),
+            "thread query must select the parent review id (with_cursor={with_cursor})"
+        );
+        assert!(
+            query.contains("pageInfo") && query.contains("hasNextPage"),
+            "thread query must select pageInfo for pagination (with_cursor={with_cursor})"
+        );
+    }
+}
+
+/// `isOutdated` and the parent-review id (first comment's
+/// `pullRequestReview.id`) parse onto the thread.
+#[test]
+fn test_parse_pr_review_threads_extracts_outdated_and_review_id() {
+    let json = r#"{
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "nodes": [
+                            {
+                                "id": "PRRT_out1",
+                                "isResolved": false,
+                                "isOutdated": true,
+                                "path": "src/lib.rs",
+                                "line": null,
+                                "comments": {
+                                    "nodes": [
+                                        {
+                                            "databaseId": 700,
+                                            "author": {"login": "coderabbit"},
+                                            "createdAt": "2026-07-10T10:00:00Z",
+                                            "body": "stale finding",
+                                            "pullRequestReview": {"id": "PRR_parent1"}
+                                        }
+                                    ]
+                                }
+                            }
+                        ],
+                        "pageInfo": {"hasNextPage": false, "endCursor": "abc"}
+                    }
+                }
+            }
+        }
+    }"#;
+    let value: serde_json::Value =
+        serde_json::from_str(json).value_or_panic("valid outdated-thread JSON");
+    let threads = parse_pr_review_threads(&value);
+    assert_eq!(threads.len(), 1);
+    assert!(threads[0].is_outdated, "isOutdated must parse to true");
+    assert_eq!(
+        threads[0].review_id.as_deref(),
+        Some("PRR_parent1"),
+        "parent review id must come from the first comment's pullRequestReview"
+    );
+}
+
+/// Threads missing `isOutdated`/`pullRequestReview` degrade to
+/// `is_outdated=false` / `review_id=None` (never dropped).
+#[test]
+fn test_parse_pr_review_threads_missing_outdated_and_review_id_degrade() {
+    let json = r#"{
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "nodes": [
+                            {
+                                "id": "PRRT_old",
+                                "isResolved": true,
+                                "path": "src/main.rs",
+                                "line": 3,
+                                "comments": {"nodes": [{"databaseId": 1, "author": {"login": "x"}, "createdAt": "2026-07-01T00:00:00Z", "body": "b"}]}
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }"#;
+    let value: serde_json::Value =
+        serde_json::from_str(json).value_or_panic("valid legacy-shape thread JSON");
+    let threads = parse_pr_review_threads(&value);
+    assert_eq!(threads.len(), 1);
+    assert!(!threads[0].is_outdated, "missing isOutdated degrades false");
+    assert!(
+        threads[0].review_id.is_none(),
+        "missing pullRequestReview degrades to None"
+    );
+}
+
+/// `parse_pr_review_threads_cursor` returns the endCursor while hasNextPage
+/// is true, and None on the last page (or malformed pageInfo).
+#[test]
+fn test_parse_pr_review_threads_cursor_follows_has_next_page() {
+    let with_next = r#"{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [], "pageInfo": {"hasNextPage": true, "endCursor": "CUR123"}}}}}}"#;
+    let value: serde_json::Value =
+        serde_json::from_str(with_next).value_or_panic("valid page-info JSON");
+    assert_eq!(
+        parse_pr_review_threads_cursor(&value).as_deref(),
+        Some("CUR123"),
+        "hasNextPage=true must yield the endCursor"
+    );
+
+    let last_page = r#"{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [], "pageInfo": {"hasNextPage": false, "endCursor": "CUR456"}}}}}}"#;
+    let value: serde_json::Value =
+        serde_json::from_str(last_page).value_or_panic("valid last-page JSON");
+    assert!(
+        parse_pr_review_threads_cursor(&value).is_none(),
+        "hasNextPage=false must yield None"
+    );
+
+    let missing = r#"{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": []}}}}}"#;
+    let value: serde_json::Value =
+        serde_json::from_str(missing).value_or_panic("valid missing-pageInfo JSON");
+    assert!(
+        parse_pr_review_threads_cursor(&value).is_none(),
+        "missing pageInfo must yield None"
+    );
+}
+
+/// `hasNextPage=true` with a missing or empty `endCursor` must stop
+/// pagination (None) rather than loop or panic — the truncation is logged.
+#[test]
+fn test_parse_pr_review_threads_cursor_next_page_without_cursor_stops() {
+    let no_cursor = r#"{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [], "pageInfo": {"hasNextPage": true}}}}}}"#;
+    let value: serde_json::Value =
+        serde_json::from_str(no_cursor).value_or_panic("valid no-cursor JSON");
+    assert!(
+        parse_pr_review_threads_cursor(&value).is_none(),
+        "hasNextPage=true without endCursor must stop pagination"
+    );
+
+    let empty_cursor = r#"{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [], "pageInfo": {"hasNextPage": true, "endCursor": ""}}}}}}"#;
+    let value: serde_json::Value =
+        serde_json::from_str(empty_cursor).value_or_panic("valid empty-cursor JSON");
+    assert!(
+        parse_pr_review_threads_cursor(&value).is_none(),
+        "hasNextPage=true with empty endCursor must stop pagination"
+    );
+}
+
+/// `hasNextPage=true` with a WHITESPACE-ONLY `endCursor` must stop
+/// pagination (None) rather than return the whitespace as a bogus cursor —
+/// a whitespace-only cursor would be sent to GitHub as a real pagination
+/// token and silently break the thread fetch.
+#[test]
+fn test_parse_pr_review_threads_cursor_whitespace_only_stops() {
+    let ws_cursor = r#"{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [], "pageInfo": {"hasNextPage": true, "endCursor": " "}}}}}}"#;
+    let value: serde_json::Value =
+        serde_json::from_str(ws_cursor).value_or_panic("valid whitespace-cursor JSON");
+    assert!(
+        parse_pr_review_threads_cursor(&value).is_none(),
+        "hasNextPage=true with whitespace-only endCursor must stop pagination, not return a bogus cursor"
+    );
+}
+
+/// A thread node with an empty `comments.nodes` array parses without
+/// panicking: no comments, no parent review id (falls back at grouping).
+#[test]
+fn test_parse_pr_review_threads_empty_comments_array() {
+    let json = r#"{"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": [
+        {"id": "T1", "isResolved": false, "isOutdated": false, "path": "a.rs", "line": 1,
+         "comments": {"nodes": []}}
+    ]}}}}}"#;
+    let value: serde_json::Value =
+        serde_json::from_str(json).value_or_panic("valid empty-comments JSON");
+    let threads = parse_pr_review_threads(&value);
+    assert_eq!(threads.len(), 1, "commentless thread still parses");
+    assert!(threads[0].comments.is_empty(), "no comments");
+    assert!(
+        threads[0].review_id.is_none(),
+        "no first comment means no parent review id"
+    );
+}
+
+// ── assign_threads_to_reviews grouping (issue #155 follow-up) ────────────
+
+use crate::domain::{PrReview, PrReviewState, PrReviewThread};
+use crate::github::assign_threads_to_reviews;
+
+fn review_with_id(review_id: Option<&str>, author: &str) -> PrReview {
+    PrReview {
+        review_id: review_id.map(String::from),
+        author_login: author.to_string(),
+        state: PrReviewState::Commented,
+        submitted_at: "2026-07-10T00:00:00Z".to_string(),
+        body: None,
+        review_threads: vec![],
+    }
+}
+
+fn thread_with_review_id(thread_id: &str, review_id: Option<&str>) -> PrReviewThread {
+    PrReviewThread {
+        thread_id: thread_id.to_string(),
+        is_resolved: false,
+        is_outdated: false,
+        review_id: review_id.map(String::from),
+        path: Some("src/lib.rs".to_string()),
+        line: Some(1),
+        comments: vec![],
+    }
+}
+
+/// Threads attach to THEIR parent review (matched by review id), not all to
+/// the first review — mirroring github.com's per-review grouping.
+#[test]
+fn test_assign_threads_groups_by_parent_review() {
+    let mut reviews = vec![
+        review_with_id(Some("PRR_1"), "bot"),
+        review_with_id(Some("PRR_2"), "bot"),
+    ];
+    let threads = vec![
+        thread_with_review_id("T_a", Some("PRR_2")),
+        thread_with_review_id("T_b", Some("PRR_1")),
+        thread_with_review_id("T_c", Some("PRR_2")),
+    ];
+    assign_threads_to_reviews(&mut reviews, threads);
+    let ids0: Vec<&str> = reviews[0]
+        .review_threads
+        .iter()
+        .map(|t| t.thread_id.as_str())
+        .collect();
+    let ids1: Vec<&str> = reviews[1]
+        .review_threads
+        .iter()
+        .map(|t| t.thread_id.as_str())
+        .collect();
+    assert_eq!(ids0, vec!["T_b"], "PRR_1's thread lands on review 0");
+    assert_eq!(
+        ids1,
+        vec!["T_a", "T_c"],
+        "PRR_2's threads land on review 1 in fetch order"
+    );
+}
+
+/// A thread whose parent-review id is missing or unknown falls back to the
+/// first review, so it is never dropped.
+#[test]
+fn test_assign_threads_unknown_parent_falls_back_to_first_review() {
+    let mut reviews = vec![
+        review_with_id(Some("PRR_1"), "bot"),
+        review_with_id(Some("PRR_2"), "bot"),
+    ];
+    let threads = vec![
+        thread_with_review_id("T_none", None),
+        thread_with_review_id("T_ghost", Some("PRR_deleted")),
+    ];
+    assign_threads_to_reviews(&mut reviews, threads);
+    let ids0: Vec<&str> = reviews[0]
+        .review_threads
+        .iter()
+        .map(|t| t.thread_id.as_str())
+        .collect();
+    assert_eq!(
+        ids0,
+        vec!["T_none", "T_ghost"],
+        "orphan threads must fall back to the first review, never dropped"
+    );
+    assert!(reviews[1].review_threads.is_empty());
+}
+
+/// No reviews at all: threads are dropped (no slot), and no panic.
+#[test]
+fn test_assign_threads_no_reviews_drops_without_panic() {
+    let mut reviews: Vec<PrReview> = vec![];
+    let threads = vec![thread_with_review_id("T_a", Some("PRR_1"))];
+    assign_threads_to_reviews(&mut reviews, threads);
+    assert!(reviews.is_empty());
 }

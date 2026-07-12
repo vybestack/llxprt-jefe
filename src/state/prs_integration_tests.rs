@@ -79,6 +79,7 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
         review_decision: Some(PrReviewState::Approved),
         checks_status: PrCheckStatus::Success,
         reviews: vec![PrReview {
+            review_id: None,
             author_login: "reviewer1".to_string(),
             state: PrReviewState::Approved,
             submitted_at: "2024-01-01T12:00:00Z".to_string(),
@@ -881,9 +882,11 @@ fn it_pr_list_pagination_lazy_loads_appends_preserves_selection_and_discards_sta
 
 /// The reducer's max scroll offset must equal the REAL rendered line count
 /// produced by `pr_detail_content_line_count` (the exact text the renderer
-/// emits). Mirrors Issues mode: the reducer NEVER wraps, so long body lines
-/// are a SINGLE line each (the renderer truncates them); the clamp must still
-/// derive from that real count, not a heuristic.
+/// emits). The markdown renderer soft-wraps long lines — including
+/// whitespace-free runs (issue #155) — INSIDE the builder, so the count and
+/// the displayed text can never desync; the clamp must derive from that real
+/// count, not a heuristic (the original "jump to top" regression came from a
+/// reducer-side wrap heuristic diverging from the rendered text).
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
@@ -917,15 +920,15 @@ fn reducer_max_scroll_matches_real_rendered_line_count() {
         )
     };
 
-    // Non-circular proof of "no wrapping": a body whose last line is far wider
-    // than any plausible viewport (200 chars) must yield the SAME line count as
-    // a short last line. A wrapping reducer would emit extra rows and diverge —
-    // exactly the desync that caused the original "jump to top" regression.
+    // Non-circular proof that the count tracks the RENDERED shape: a 200-char
+    // whitespace-free run soft-wraps inside the builder (issue #155), so its
+    // count EXCEEDS the short-line count. A clamp built from source lines (or
+    // any other heuristic) would not see those extra rows and desync — exactly
+    // the "jump to top" class of regression.
     let count_with_long_line = count_for_last_line(&"x".repeat(200));
-    assert_eq!(
-        count_with_long_line,
-        count_for_last_line("short"),
-        "reducer must NOT wrap a long body line into extra rows"
+    assert!(
+        count_with_long_line > count_for_last_line("short"),
+        "a long whitespace-free body line soft-wraps into extra rendered rows"
     );
 
     // The reducer's nav-End clamp must derive from that real rendered count.
