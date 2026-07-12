@@ -311,13 +311,13 @@ impl RemotePrepPlanner {
 
 /// Classify the raw output of a `git remote get-url origin` probe.
 ///
-/// Distinguishes three outcomes (issue #190 MUST-FIX #1):
+/// Distinguishes the following outcomes (issue #190 MUST-FIX #1):
 ///
-/// - Exit 0 with non-empty stdout → `Ok(Some(url))` (origin exists).
+/// - Exit 0 with non-empty stdout → `Ok(Some(raw_url))` (origin exists). The
+///   raw URL is returned unvalidated; URL parsing/host-matching is the
+///   caller's responsibility (`remote_origin_mismatch`).
 /// - Exit 0 with empty stdout → `Ok(None)` (origin absent — the probe
 ///   script swallows the nonzero git exit and prints nothing).
-/// - Exit 0 with stdout that fails to parse as a valid origin URL →
-///   `Ok(None)` (treat as absent, fail-safe for comparison).
 /// - SSH exit 255 → `Err` (transport/auth/host failure).
 /// - Any other nonzero exit → `Err` (sudo/shell/auth failure).
 /// - Signal termination (no exit code) → `Err`.
