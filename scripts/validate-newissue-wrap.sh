@@ -69,10 +69,15 @@ if grep -q $'\u2026' "$CAPTURE"; then
   PASS=1
 fi
 
-# Assertion 2: a word from the END of the typed line must be visible (it can
-# only be visible if the line wrapped onto later rows).
-if ! grep -Eq "lambda|omicron|kappa" "$CAPTURE"; then
-  echo "FAIL: a late word (lambda/omicron/kappa) is not visible — line did not wrap"
+# Assertion 2: the first and last typed words must appear on DIFFERENT rows,
+# proving the line wrapped (the input is far longer than the pane width).
+first_line=$(grep -nE "alpha" "$CAPTURE" | head -1 | cut -d: -f1)
+last_line=$(grep -nE "omicron|lambda|nu" "$CAPTURE" | tail -1 | cut -d: -f1)
+if [ -z "$first_line" ] || [ -z "$last_line" ]; then
+  echo "FAIL: could not find first (alpha) or last (omicron/lambda/nu) word"
+  PASS=1
+elif [ "$first_line" -ge "$last_line" ]; then
+  echo "FAIL: first word (line $first_line) not above last word (line $last_line) — no wrap"
   PASS=1
 fi
 

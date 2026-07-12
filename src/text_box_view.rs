@@ -230,7 +230,13 @@ fn build_wrapped_display_rows(
     let mut display_rows: Vec<TextBoxRow> = Vec::new();
     let mut caret_row_idx: Option<usize> = None;
     for (line_idx, line) in lines.iter().enumerate() {
-        let line_char_len = line.chars().count();
+        // Only the caret line can trigger the full-width-trailing-caret case,
+        // so defer the O(n) char count to that line.
+        let caret_line_len = if line_idx == caret.line {
+            line.chars().count()
+        } else {
+            0
+        };
         for seg in wrap_line(line, content_width) {
             let seg_len = seg.end - seg.start;
             // A trailing caret at the end of a line that fills the full width
@@ -238,7 +244,7 @@ fn build_wrapped_display_rows(
             // row that carries the caret inside the width.
             let full_width_end = content_width != 0
                 && line_idx == caret.line
-                && seg.end == line_char_len
+                && seg.end == caret_line_len
                 && seg_len == content_width
                 && caret.col == seg.end;
             if full_width_end {
