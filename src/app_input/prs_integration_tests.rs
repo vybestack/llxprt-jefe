@@ -966,31 +966,27 @@ fn test_background_refresh_function_exists_and_checks_screen_mode() {
 fn test_background_refresh_skips_when_detail_load_in_flight() {
     use super::prs_orchestration::should_background_refresh;
     use jefe::state::ScreenMode;
-
+    let pr_view = ScreenMode::DashboardPullRequests;
     // No in-flight loads → should refresh.
     assert!(
-        should_background_refresh(ScreenMode::DashboardPullRequests, false, false, false),
+        should_background_refresh(pr_view, false, false, false),
         "should refresh when PR view is open and nothing is in flight"
     );
-
     // Detail load in flight → must NOT refresh (clobber guard).
     assert!(
-        !should_background_refresh(ScreenMode::DashboardPullRequests, false, false, true),
+        !should_background_refresh(pr_view, false, false, true),
         "must NOT refresh when a detail load is in flight"
     );
-
     // List reload pending → must NOT refresh.
     assert!(
-        !should_background_refresh(ScreenMode::DashboardPullRequests, true, false, false),
+        !should_background_refresh(pr_view, true, false, false),
         "must NOT refresh when a list reload is pending"
     );
-
     // List page pending → must NOT refresh.
     assert!(
-        !should_background_refresh(ScreenMode::DashboardPullRequests, false, true, false),
+        !should_background_refresh(pr_view, false, true, false),
         "must NOT refresh when a list page load is pending"
     );
-
     // Not on the PR view → must NOT refresh.
     assert!(
         !should_background_refresh(ScreenMode::Dashboard, false, false, false),
