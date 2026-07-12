@@ -67,11 +67,10 @@ pub fn render_markdown_lines(markdown: &str) -> Vec<String> {
 /// yields exactly one `{prefix}{placeholder}` line so the section is never a
 /// silent gap. Centralized here so the PR and Issue builders cannot drift.
 ///
-/// The function is pure, so its output is memoized in a process-wide cache
-/// keyed by the full `(markdown, prefix, placeholder)` triple. The cache
-/// is keyed by markdown alone with a small value-vec of `(prefix,
-/// placeholder)` variants, so HITS allocate nothing (no `to_string` of the
-/// up-to-~65KB body).
+/// The function is pure, so its output is memoized in a process-wide cache:
+/// a map keyed by the markdown body whose values are small vecs of
+/// `(prefix, placeholder)` variants — equivalent to full-triple keying, but
+/// HITS allocate nothing (no `to_string` of the up-to-~65KB body).
 #[must_use]
 pub fn render_markdown_block(markdown: &str, prefix: &str, placeholder: &str) -> Arc<[String]> {
     // Hold the lock only for the lookup — never across the comrak parse —

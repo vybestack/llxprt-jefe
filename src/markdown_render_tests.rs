@@ -758,15 +758,16 @@ fn html_comments_are_dropped() {
 /// without quadratic blowup or panicking.
 #[test]
 fn unmatched_angle_brackets_do_not_hang() {
-    let out = render("<<<<<<<<<<<<<<<<<<<<<<<<text");
+    let input = "<<<<<<<<<<<<<<<<<<<<<<<<text";
+    let out = render(input);
+    // A bare `<` run is literal TEXT to comrak (not markup) and survives
+    // verbatim — under test: termination and boundedness, not stripping.
     assert!(out.contains("text"), "text survives: {out}");
+    assert!(out.len() <= input.len() + 8, "output stays bounded: {out}");
 }
 
 /// An unterminated HTML comment or declaration that comrak routes to the
-/// HTML-stripper must consume to end-of-input (NOT loop forever). For
-/// free-form text like `before<!-- never closed`, comrak treats the
-/// unterminated comment as literal text (so it survives), but the guarantee
-/// under test is that rendering ALWAYS terminates — never hangs.
+/// HTML-stripper must consume to end-of-input (NOT loop forever).
 #[test]
 fn unterminated_html_comment_does_not_hang() {
     // Free-form input: must terminate (no infinite loop), text survives.

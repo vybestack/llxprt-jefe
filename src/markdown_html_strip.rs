@@ -267,6 +267,16 @@ fn html_tag_introduces_break(name: &str) -> bool {
             | "nav"
             | "figure"
             | "figcaption"
+            | "address"
+            | "caption"
+            | "dd"
+            | "dt"
+            | "dl"
+            | "fieldset"
+            | "legend"
+            | "thead"
+            | "tbody"
+            | "tfoot"
     )
 }
 

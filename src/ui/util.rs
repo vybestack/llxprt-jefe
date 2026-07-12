@@ -42,8 +42,12 @@ pub fn field_list(values: &[String]) -> String {
 /// gap). Shared by the Issue and PR detail header projections.
 #[must_use]
 pub fn field_opt(value: Option<&str>) -> String {
+    // Trim the returned value too (not just the emptiness check) so a
+    // padded value like " v1.0 " renders without stray whitespace,
+    // consistent with `field_list`'s per-item trimming.
     value
-        .filter(|v| !v.trim().is_empty())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
         .map_or_else(|| EMPTY_FIELD.to_string(), str::to_string)
 }
 
@@ -156,7 +160,9 @@ fn parse_hhmm(time: &str) -> Option<String> {
     {
         t = &t[..pos];
     }
-    t = t.trim_end_matches('Z');
+    // Accept lowercase `z` too — ISO-8601 permits it even though GitHub
+    // emits uppercase.
+    t = t.trim_end_matches(['Z', 'z']);
     let mut parts = t.split(':');
     // Components are NOT trimmed: internal whitespace (`15 : 26`) must fail
     // the strict 2-2 width check below, mirroring parse_date's strictness.

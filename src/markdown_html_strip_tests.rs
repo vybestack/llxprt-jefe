@@ -222,3 +222,24 @@ fn cdata_sections_are_dropped_entirely() {
         "unterminated CDATA consumes to end-of-input"
     );
 }
+
+/// Definition-list / form / table-section block tags also introduce line
+/// breaks so adjacent blocks don't fuse (review batch: address, caption,
+/// dd/dt/dl, fieldset, legend, thead/tbody/tfoot were missing). The raw
+/// strip may emit consecutive `\n`s (opening AND closing forms break);
+/// the renderer collapses those into single blank gaps downstream, so the
+/// invariant here is "distinct blocks land on distinct lines".
+#[test]
+fn definition_and_table_section_tags_break_lines() {
+    let dl = strip_html_to_text("<dl><dt>term</dt><dd>def</dd></dl>");
+    let dl_lines: Vec<&str> = dl.split('\n').filter(|l| !l.is_empty()).collect();
+    assert_eq!(dl_lines, ["term", "def"], "dt/dd split lines: {dl:?}");
+
+    let addr = strip_html_to_text("a<address>b</address>c");
+    let addr_lines: Vec<&str> = addr.split('\n').filter(|l| !l.is_empty()).collect();
+    assert_eq!(addr_lines, ["a", "b", "c"], "address splits: {addr:?}");
+
+    let tbl = strip_html_to_text("<thead><tr>h</tr></thead><tbody><tr>d</tr></tbody>");
+    let tbl_lines: Vec<&str> = tbl.split('\n').filter(|l| !l.is_empty()).collect();
+    assert_eq!(tbl_lines, ["h", "d"], "thead/tbody split: {tbl:?}");
+}
