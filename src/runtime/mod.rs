@@ -13,20 +13,23 @@ mod commands;
 mod errors;
 mod liveness;
 mod manager;
+mod pane_capture;
 mod preflight;
 mod session;
 mod socket;
+mod stub_manager;
 
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use errors::RuntimeError;
 pub use liveness::{check_remote_session_alive, check_session_alive, pid_alive};
-pub use manager::{LivenessCheck, RuntimeManager, StubRuntimeManager, TmuxRuntimeManager};
+pub use manager::{LivenessCheck, RuntimeManager, TmuxRuntimeManager};
 pub use preflight::{
     PreflightAction, PreflightIssue, execute_preflight_action, platform_engine_diagnostic,
     sandbox_preflight, sandbox_ssh_agent_warning,
 };
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 pub use socket::jefe_tmux_socket_path;
+pub use stub_manager::StubRuntimeManager;
 
 #[cfg(test)]
 mod tests {

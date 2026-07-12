@@ -8,13 +8,14 @@ use tracing::{debug, trace, warn};
 
 use crate::AppContext;
 use crate::app_input::{
-    dispatch_app_event, handle_f12_toggle, handle_global_shortcut_key, handle_mode_confirm_key,
-    handle_mode_form_key, handle_mode_help_key, handle_mode_search_key,
+    dispatch_app_event, forward_key_to_pty, handle_f12_toggle, handle_global_shortcut_key,
+    handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key, handle_mode_search_key,
     handle_mode_theme_picker_key, handle_normal_key_event, persist_state,
-    request_pr_background_refresh, to_persisted_state, try_intercept_terminal_scrollback,
+    request_pr_background_refresh, to_persisted_state, try_ctrl_c_interrupt_passthrough,
+    try_intercept_terminal_scrollback,
 };
 use crate::pty_encoding::{
-    key_to_bytes, should_arm_paste_enter_suppression, should_disarm_paste_enter_suppression,
+    should_arm_paste_enter_suppression, should_disarm_paste_enter_suppression,
     should_suppress_synthetic_enter,
 };
 
@@ -22,7 +23,7 @@ use jefe::domain::{AgentId, AgentStatus};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::layout::{compute_pty_layout, effective_render_size};
 use jefe::runtime::{
-    AttachAction, AttachScheduler, DEFAULT_DEBOUNCE, RuntimeError, RuntimeManager, TerminalSnapshot,
+    AttachAction, AttachScheduler, DEFAULT_DEBOUNCE, RuntimeManager, TerminalSnapshot,
 };
 use jefe::state::{AppEvent, AppState, ModalState, PaneFocus};
 use jefe::theme::{ThemeColors, ThemeManager};
@@ -603,6 +604,26 @@ fn paste_to_issues_search(
     suppress_next_enter.set(false);
 }
 
+/// Arm or clear the paste-Enter suppression flag based on the current key and
+/// input mode. `Ctrl-V` / `Cmd-V` in terminal-capture mode arms suppression so
+/// the synthetic Enter some terminals send after a paste is swallowed; any
+/// other key disarms it.
+fn update_paste_enter_suppression(
+    app_state: &HookState<AppState>,
+    suppress_next_enter: &mut HookState<bool>,
+    key_event: &KeyEvent,
+) {
+    let current_input_mode = {
+        let state = app_state.read();
+        input_mode_for_state(&state)
+    };
+    if should_arm_paste_enter_suppression(key_event, current_input_mode) {
+        suppress_next_enter.set(true);
+    } else if should_disarm_paste_enter_suppression(suppress_next_enter.get(), key_event) {
+        suppress_next_enter.set(false);
+    }
+}
+
 fn handle_key_event(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
@@ -639,15 +660,7 @@ fn handle_key_event(
         return;
     }
 
-    let current_input_mode = {
-        let state = app_state.read();
-        input_mode_for_state(&state)
-    };
-    if should_arm_paste_enter_suppression(&key_event, current_input_mode) {
-        suppress_next_enter.set(true);
-    } else if should_disarm_paste_enter_suppression(suppress_next_enter.get(), &key_event) {
-        suppress_next_enter.set(false);
-    }
+    update_paste_enter_suppression(app_state, suppress_next_enter, &key_event);
 
     if key_event.code == KeyCode::F(12) {
         handle_f12_toggle(app_state, &ctx.cloned());
@@ -659,6 +672,15 @@ fn handle_key_event(
     }
 
     let input_mode = resolve_input_mode(app_state, ctx, term_focused, pane_focus);
+
+    // Ctrl-C interrupt passthrough (#200): forward Ctrl-C to the attached
+    // agent terminal regardless of pane focus when the plain dashboard is
+    // showing (no modal/form/search owns the key). See
+    // [`try_ctrl_c_interrupt_passthrough`] for why focus-independence matters.
+    if try_ctrl_c_interrupt_passthrough(ctx, suppress_next_enter, input_mode, &key_event) {
+        return;
+    }
+
     if input_mode == InputMode::TerminalCapture {
         // Check scrollback key interception BEFORE forwarding to PTY (issue #198).
         if try_intercept_terminal_scrollback(app_state, &ctx.cloned(), &key_event) {
@@ -704,36 +726,6 @@ fn resolve_input_mode(
     } else {
         let state = app_state.read();
         input_mode_for_state(&state)
-    }
-}
-
-fn forward_key_to_pty(
-    ctx: Option<&CtxArc>,
-    suppress_next_enter: &mut HookState<bool>,
-    key_event: &KeyEvent,
-) {
-    let encoded = key_to_bytes(key_event, false);
-
-    trace!(
-        code = ?key_event.code,
-        modifiers = ?key_event.modifiers,
-        encoded_len = encoded.as_ref().map_or(0, std::vec::Vec::len),
-        "forwarding key to PTY"
-    );
-
-    let unmapped = encoded.is_none();
-    if let Some(bytes) = encoded
-        && let Some(ctx_arc) = ctx
-        && let Ok(mut ctx_guard) = ctx_arc.lock()
-    {
-        if let Err(e) = ctx_guard.runtime.write_input(&bytes)
-            && !matches!(e, RuntimeError::WriteFailed(_))
-        {
-            warn!(error = %e, "runtime.write_input failed");
-        }
-    } else if unmapped {
-        // Unmapped key: ignore immediately and clear suppression arm.
-        suppress_next_enter.set(false);
     }
 }
 

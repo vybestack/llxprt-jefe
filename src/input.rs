@@ -144,6 +144,41 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
     }
 }
 
+/// Whether a key event is a bare `Ctrl-C` (byte `0x03`).
+///
+/// Used by [`should_forward_ctrl_c_to_attached_terminal`] so the recognition
+/// stays in one place. Shift/Alt/Super/Meta modifiers are excluded because they
+/// change the meaning of the key (e.g. `Ctrl-Shift-C` is a host copy shortcut
+/// on some platforms) and must not be treated as an interrupt.
+#[must_use]
+pub fn is_bare_ctrl_c(key: &KeyEvent) -> bool {
+    key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL
+}
+
+/// Whether `Ctrl-C` should be forwarded to the currently-attached agent
+/// terminal even when the terminal pane is not in dedicated capture mode.
+///
+/// `Ctrl-C`'s only sensible meaning when an agent terminal is attached is
+/// "interrupt the agent's foreground shell / cancel the run" (issue #200).
+/// Routing it to the agent terminal regardless of pane focus makes the
+/// interrupt reliable and side-steps the F12 toggle trap: creating/selecting
+/// an agent auto-focuses the terminal, so a user pressing F12 (advertised as
+/// "terminal focus") can inadvertently *unfocus* it, after which a raw
+/// `TerminalCapture`-gated forward would silently drop `Ctrl-C` (issue #200).
+///
+/// The forward is constrained so it never fights an active modal/form/search:
+/// only the plain dashboard (`Normal` mode) qualifies — when no overlay owns
+/// the keystroke and an agent terminal is attached. The caller supplies
+/// `has_attached_terminal` (from the runtime's `attached_agent()` probe).
+#[must_use]
+pub fn should_forward_ctrl_c_to_attached_terminal(
+    key: &KeyEvent,
+    input_mode: InputMode,
+    has_attached_terminal: bool,
+) -> bool {
+    has_attached_terminal && input_mode == InputMode::Normal && is_bare_ctrl_c(key)
+}
+
 /// Route a key while search mode is active.
 #[must_use]
 pub fn route_search_key(key: &KeyEvent) -> SearchKeyRoute {
@@ -383,6 +418,120 @@ mod tests {
     fn is_quit_key_rejects_unrelated_keys() {
         assert!(!is_quit_key(&key(KeyCode::Enter)));
         assert!(!is_quit_key(&key(KeyCode::Char('a'))));
+    }
+
+    // Ctrl-C must NEVER quit jefe. jefe owns its quit policy (Ctrl-Q / rapid
+    // qqq) and forwards Ctrl-C to the embedded agent terminal so runtimes like
+    // Code Puppy can use it to kill running shells / cancel an agent run. The
+    // vendored iocraft terminal layer used to hardcode Ctrl-C as an exit
+    // signal and swallow the event before it reached the app; that interception
+    // was removed, so this guard is now the authoritative "Ctrl-C is not quit"
+    // contract. See issue #200.
+    #[test]
+    fn is_quit_key_rejects_ctrl_c() {
+        assert!(!is_quit_key(&key_mods(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL
+        )));
+    }
+
+    // ── is_bare_ctrl_c / should_forward_ctrl_c_to_attached_terminal ────────
+    //
+    // Ctrl-C (byte 0x03) must reach the attached agent terminal to interrupt
+    // the agent's foreground shell / cancel a run (issue #200). These predicates
+    // drive the dashboard-level passthrough that fires regardless of pane focus
+    // so the interrupt survives the F12 toggle trap.
+
+    #[test]
+    fn is_bare_ctrl_c_accepts_ctrl_c() {
+        assert!(is_bare_ctrl_c(&key_mods(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL
+        )));
+    }
+
+    #[test]
+    fn is_bare_ctrl_c_accepts_lowercase_only_not_uppercase() {
+        // Ctrl-Shift-C (uppercase) is a host copy shortcut on some platforms
+        // and must not be treated as an interrupt.
+        assert!(!is_bare_ctrl_c(&key_mods(
+            KeyCode::Char('C'),
+            KeyModifiers::CONTROL
+        )));
+    }
+
+    #[test]
+    fn is_bare_ctrl_c_rejects_extra_modifiers() {
+        assert!(!is_bare_ctrl_c(&key_mods(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT
+        )));
+        assert!(!is_bare_ctrl_c(&key_mods(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT
+        )));
+    }
+
+    #[test]
+    fn is_bare_ctrl_c_rejects_bare_c_and_other_keys() {
+        assert!(!is_bare_ctrl_c(&key(KeyCode::Char('c'))));
+        assert!(!is_bare_ctrl_c(&key(KeyCode::Enter)));
+    }
+
+    #[test]
+    fn ctrl_c_forward_requires_normal_mode_and_attached_terminal() {
+        let ctrl_c = key_mods(KeyCode::Char('c'), KeyModifiers::CONTROL);
+
+        // Happy path: plain dashboard + attached terminal.
+        assert!(should_forward_ctrl_c_to_attached_terminal(
+            &ctrl_c,
+            InputMode::Normal,
+            true
+        ));
+
+        // No terminal attached → never forward (nothing to forward to).
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &ctrl_c,
+            InputMode::Normal,
+            false
+        ));
+
+        // A modal/form/search/terminal-capture mode owns the key instead.
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &ctrl_c,
+            InputMode::Form,
+            true
+        ));
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &ctrl_c,
+            InputMode::Search,
+            true
+        ));
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &ctrl_c,
+            InputMode::Confirm,
+            true
+        ));
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &ctrl_c,
+            InputMode::TerminalCapture,
+            true
+        ));
+    }
+
+    #[test]
+    fn ctrl_c_forward_rejects_non_ctrl_c_keys() {
+        // Even on the dashboard with a terminal attached, only Ctrl-C qualifies.
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &key(KeyCode::Char('c')),
+            InputMode::Normal,
+            true
+        ));
+        assert!(!should_forward_ctrl_c_to_attached_terminal(
+            &key_mods(KeyCode::Char('x'), KeyModifiers::CONTROL),
+            InputMode::Normal,
+            true
+        ));
     }
 
     // ── is_qqq_press ───────────────────────────────────────────────────────

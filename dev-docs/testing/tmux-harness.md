@@ -150,6 +150,16 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
   enters Actions mode (`g`), verifies the runs-list pane renders, navigates
   down, then exits and quits. Intentionally not a CI gate — it requires a
   configured repository and may vary by developer machine.
+- [`code-puppy-chord-passthrough.json`](../tmux-scenarios/code-puppy-chord-passthrough.json):
+  manual scenario that focuses an agent terminal and sends the Code Puppy
+  shell-control chords (`Ctrl-X Ctrl-B`, `Ctrl-X Ctrl-X`, `Ctrl-C`) through
+  jefe's embedded terminal. It is intentionally not a CI gate — it requires a
+  configured repository, a running Code Puppy agent, and a live long-running
+  foreground shell command inside the agent pane. The deterministic,
+  CI-gated proof that these control bytes reach the child unchanged lives in
+  the runtime unit tests (`prefix_passthrough_tests`), which drive a real
+  `tmux attach-session` client on an isolated socket with the prefix disabled
+  exactly as production does (#200).
 - [`kennel-terminal-select.json`](../tmux-scenarios/kennel-terminal-select.json):
   manual scratch scenario for issue #197 — terminal text selection and copy for
   Code Puppy (Kennel mode) sessions. It focuses the terminal and captures the

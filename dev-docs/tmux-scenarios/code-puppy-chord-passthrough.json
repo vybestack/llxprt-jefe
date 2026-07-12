@@ -1,0 +1,36 @@
+{
+  "config": {
+    "cols": 130,
+    "rows": 40,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+
+    { "expect": "F12 to unfocus" },
+
+    { "key": "t" },
+    { "waitFor": "F12 to unfocus" },
+
+    { "keys": ["C-x", "C-b"] },
+    { "wait": 500 },
+
+    { "keys": ["C-x", "C-x"] },
+    { "wait": 500 },
+
+    { "key": "C-c" },
+    { "wait": 500 },
+
+    { "capture": "code-puppy-after-chords" },
+
+    { "key": "F12" },
+    { "waitFor": "F12/t to focus" },
+
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

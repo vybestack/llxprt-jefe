@@ -80,6 +80,12 @@ pub fn tmux_command() -> Command {
     cmd
 }
 
+// Re-export the pane capture / introspection helpers that production callers
+// (`commands::capture_pane_lines` / `commands::capture_pane_history` /
+// `commands::pane_pid` in `manager.rs`) still resolve, after the functions
+// moved to `pane_capture.rs` for file-size reasons.
+pub use super::pane_capture::{capture_pane_history, capture_pane_lines, pane_pid};
+
 fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
     let mut cmd = tmux_command();
     cmd.args(args);
@@ -114,6 +120,103 @@ fn apply_session_style(session_name: &str) {
         .as_ref(),
         None,
     );
+}
+
+/// Disable the tmux prefix key (`prefix` and `prefix2`) on a jefe-managed
+/// session so application control chords pass through to the child unchanged.
+///
+/// tmux's default prefix is `C-b` (byte `0x02`). jefe starts tmux with
+/// `-f /dev/null`, which leaves that default active. The embedded viewer runs
+/// an interactive `tmux attach-session` client, and the client consumes the
+/// prefix byte from the input stream before forwarding the rest to the pane.
+/// That eats the `0x02` in a Code Puppy `Ctrl-X Ctrl-B` (`0x18 0x02`) chord,
+/// so the child only sees `0x18` and the chord never completes (#200).
+///
+/// jefe controls its private sessions programmatically (send-keys, capture,
+/// attach) and never exposes a user-facing tmux command table, so no prefix is
+/// needed. Setting `prefix None` / `prefix2 None` makes the client stop
+/// intercepting the prefix key, restoring raw PTY semantics for every runtime.
+/// This is general (not a Code Puppy-specific rewrite) and keeps jefe's own
+/// F12 escape/focus mechanism untouched (F12 is handled by the host app shell
+/// before any byte reaches the PTY).
+///
+/// This is safe to call repeatedly (the options are idempotent), so it is also
+/// used on the reattach path to remediate sessions created before this fix
+/// existed (#200).
+///
+/// Returns `Ok(())` only when every option was applied successfully, so callers
+/// can memoize the session as remediated only on real success (mirroring the
+/// remote path). A transient tmux failure returns `Err` and the caller leaves
+/// the session un-memoized so the next attach retries.
+pub fn disable_prefix_for_passthrough(session_name: &str) -> Result<(), String> {
+    for option in prefix_disable_option_names() {
+        tmux_cmd_status(
+            ["set-option", "-t", session_name, option, "None"].as_ref(),
+            None,
+        )?;
+    }
+    Ok(())
+}
+
+/// The tmux option names that must be set to `None` so no prefix key is
+/// reserved on a jefe-managed session (#200).
+///
+/// Single source of truth shared by the local path
+/// ([`disable_prefix_for_passthrough`]) and the remote path
+/// ([`remote_disable_prefix_command`]) so the two cannot drift, and so tests
+/// can prove the production option set is applied rather than re-deriving it.
+#[must_use]
+pub fn prefix_disable_option_names() -> &'static [&'static str] {
+    &["prefix", "prefix2"]
+}
+
+/// Build the `\;`-joined sequence of `set-option -t <session> <option> None`
+/// sub-commands for every option in [`prefix_disable_option_names`].
+///
+/// This is the single builder for the remote prefix-disable sub-command
+/// sequence, shared by the remote reattach fragment
+/// ([`remote_disable_prefix_fragment`]) and the remote creation script
+/// ([`build_remote_tmux_script`]) so the option list and separator formatting
+/// live in one place and cannot drift (#200 review).
+///
+/// The returned sequence has no leading `tmux`: callers embed it either as a
+/// standalone `tmux <sequence>` shell command (reattach fragment) or as
+/// continuation sub-commands of an existing `tmux new-session ... \; <sequence>`
+/// invocation (creation script).
+fn prefix_disable_tmux_subcommands(escaped_session: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let mut first = true;
+    for option in prefix_disable_option_names() {
+        if !first {
+            parts.push("\\;".to_owned());
+        }
+        parts.push("set-option".to_owned());
+        parts.push("-t".to_owned());
+        parts.push(escaped_session.to_owned());
+        parts.push((*option).to_owned());
+        parts.push("None".to_owned());
+        first = false;
+    }
+    parts.join(" ")
+}
+
+/// Build the remote shell fragment that disables both tmux prefix keys on an
+/// existing remote session. Used on the remote reattach/attach path to
+/// remediate remote sessions created before the inline-script fix (#200),
+/// mirroring [`disable_prefix_for_passthrough`] for the local path.
+fn remote_disable_prefix_fragment(escaped_session: &str) -> String {
+    format!("tmux {}", prefix_disable_tmux_subcommands(escaped_session))
+}
+
+/// SSH command that disables both tmux prefix keys on an existing remote
+/// session, wrapped through the remote user-escalation path. Best-effort: a
+/// failure (e.g. the session already exited) is non-fatal for reattach.
+pub fn remote_disable_prefix_command(
+    remote: &crate::domain::RemoteRepositorySettings,
+    session_name: &str,
+) -> String {
+    let escaped_session = shell_escape_single(session_name);
+    remote_tmux_command(remote, &remote_disable_prefix_fragment(&escaped_session))
 }
 
 pub fn enforce_clipboard_passthrough(session_name: &str) {
@@ -590,8 +693,17 @@ fn build_remote_tmux_script(
     escaped_session: &str,
     pane_command: &str,
 ) -> String {
+    // Disable the tmux prefix on the remote session using the shared
+    // [`prefix_disable_tmux_subcommands`] builder so this inline creation
+    // script and the reattach fragment ([`remote_disable_prefix_fragment`])
+    // format the option sequence identically and cannot drift (#200). The
+    // remote tmux server also defaults to `C-b`, which the remote attach
+    // client would consume before it reaches the agent; jefe never needs a
+    // user-facing prefix on its managed sessions. The sub-commands continue
+    // the `tmux new-session` invocation via the `\;` separator.
+    let prefix_options = format!(" \\; {}", prefix_disable_tmux_subcommands(escaped_session));
     format!(
-        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {pane_command} \\; set-option -t {escaped_session} remain-on-exit on"
+        "set -e; mkdir -p {escaped_work_dir}; cd {escaped_work_dir}; {env_prefix} tmux new-session -d -s {escaped_session} -c {escaped_work_dir} {pane_command} \\; set-option -t {escaped_session} remain-on-exit on{prefix_options}"
     )
 }
 
@@ -670,6 +782,9 @@ fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
 
 fn finalize_local_session(session_name: &str, warning: Option<String>) {
     enforce_clipboard_passthrough(session_name);
+    if let Err(error) = disable_prefix_for_passthrough(session_name) {
+        debug!(session_name = %session_name, error = %error, "prefix passthrough option failed on create; will retry on attach");
+    }
     let _ = tmux_cmd_status(
         ["set-option", "-t", session_name, "remain-on-exit", "on"].as_ref(),
         None,
@@ -789,108 +904,6 @@ pub fn remote_session_exists(
     let output = run_remote_ssh(remote, &command)?;
     Ok(output.status.success())
 }
-
-/// Capture pane output for a session as plain text lines.
-pub fn capture_pane_lines(session_name: &str) -> Option<Vec<String>> {
-    let output = tmux_command()
-        .args(["capture-pane", "-p", "-t", session_name])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    Some(text.lines().map(std::borrow::ToOwned::to_owned).collect())
-}
-
-/// Build the `capture-pane -p -S -<N> -E -` argv for a bounded history capture.
-///
-/// `-S -<history_lines>` starts `history_lines` lines before the top of the
-/// visible pane; `-E -` ends at the bottom of the visible pane (current line).
-/// This returns plain-text scrollback history **including the visible pane**.
-/// The caller (`TmuxRuntimeManager::capture_history`) strips the last
-/// `live_snapshot.rows` lines so the cached result is history ABOVE the
-/// visible pane only — the live Alacritty snapshot already represents the
-/// visible pane (issue #198 review fix #1).
-///
-/// Factored as a pure `#[must_use]` function so the argv composition is
-/// unit-testable without spawning tmux (issue #198).
-#[must_use]
-pub fn capture_pane_history_args(session_name: &str, history_lines: usize) -> Vec<String> {
-    let start = if history_lines == 0 {
-        "0".to_owned()
-    } else {
-        format!("-{history_lines}")
-    };
-    vec![
-        "capture-pane".to_owned(),
-        "-p".to_owned(),
-        "-t".to_owned(),
-        session_name.to_owned(),
-        "-S".to_owned(),
-        start,
-        "-E".to_owned(),
-        "-".to_owned(),
-    ]
-}
-
-/// Capture bounded scrollback history for a session as plain text lines.
-///
-/// Uses `capture-pane -p -S -<history_lines> -E -` to retrieve the last
-/// `history_lines` lines of tmux scrollback **including the visible pane**.
-/// The caller must strip the visible-pane rows before composing with the live
-/// snapshot to avoid duplication (issue #198 review fix #1).
-/// Returns `None` if tmux is unavailable or the command fails (issue #198).
-pub fn capture_pane_history(session_name: &str, history_lines: usize) -> Option<Vec<String>> {
-    let argv = capture_pane_history_args(session_name, history_lines);
-    let argv_refs: Vec<&str> = argv.iter().map(String::as_str).collect();
-    let output = tmux_command().args(&argv_refs).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    Some(text.lines().map(std::borrow::ToOwned::to_owned).collect())
-}
-
-/// Parse the stdout of `tmux list-panes -t <session> -F '#{pane_pid}'` into a
-/// single PID.
-///
-/// Returns the first non-empty trimmed line parsed as a `u32`, or `None` if the
-/// output is empty/garbage. Factored out of [`pane_pid`] so the parsing logic is
-/// unit-testable without spawning tmux.
-#[must_use]
-pub fn parse_pane_pid(stdout: &str) -> Option<u32> {
-    stdout
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .and_then(|line| line.parse::<u32>().ok())
-}
-
-/// Query the PID of the (first) pane in a local tmux session.
-///
-/// Runs `tmux list-panes -t <session> -F '#{pane_pid}'` against the jefe-private
-/// socket. Because `llxprt` runs as the pane's direct command (not a shell
-/// wrapper), the returned PID **is** the worker process itself. Local sessions
-/// only.
-///
-/// Returns `None` if tmux is unavailable, the session does not exist, or the
-/// output cannot be parsed. This is the PID-fallback input used to detect
-/// workers that are still alive after their tmux session is gone.
-#[must_use]
-pub fn pane_pid(session_name: &str) -> Option<u32> {
-    let output = tmux_command()
-        .args(["list-panes", "-t", session_name, "-F", "#{pane_pid}"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    parse_pane_pid(&String::from_utf8_lossy(&output.stdout))
-}
-
-/// Kill a tmux session.
 ///
 /// @pseudocode component-002 lines 24-25
 pub fn kill_session(session_name: &str) -> Result<(), RuntimeError> {
@@ -940,3 +953,7 @@ pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
 #[cfg(test)]
 #[path = "commands_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "prefix_passthrough_tests.rs"]
+mod prefix_passthrough_tests;
