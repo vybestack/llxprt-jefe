@@ -106,3 +106,23 @@ fn deeply_nested_inline_emphasis_does_not_overflow_stack() {
         "fully-nested matched emphasis sits past MAX_RENDER_DEPTH and renders to nothing by design, got: {matched_lines:?}"
     );
 }
+
+/// A blockquote nested inside a list item must keep the parent's indent
+/// BEFORE the quote bar (`  > text`), not bolt the bar onto column 0 ahead
+/// of the indent (`>   text`), so nested quotes stay visually aligned under
+/// their list item.
+#[test]
+fn blockquote_nested_in_list_keeps_indent_before_quote_bar() {
+    let lines = render_markdown_lines("- item\n\n  > quoted in list");
+    assert!(
+        lines.iter().any(|l| l.contains("> quoted in list")),
+        "quote bar directly precedes the text: {lines:?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .filter(|l| l.contains("quoted in list"))
+            .all(|l| l.starts_with(' ')),
+        "nested quote line starts with the list indent, not the bar: {lines:?}"
+    );
+}

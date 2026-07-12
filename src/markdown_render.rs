@@ -353,11 +353,13 @@ impl MarkdownRenderer {
         let start = self.lines.len();
         self.render_block_children(node, indent, depth);
         for line in &mut self.lines[start..] {
-            // Decorate content lines only: blank separators stay truly empty
-            // (the "blank lines stay empty" contract), so trailing-blank
-            // trimming and paragraph breaks keep working through a quote.
+            // Decorate content lines only (blank separators stay truly empty
+            // so trailing-blank trimming and paragraph breaks survive), and
+            // insert the bar AFTER any leading indent: a quote nested in a
+            // list item renders `  > text`, not `>   text`.
             if !line.is_empty() {
-                line.insert_str(0, "> ");
+                let content_at = line.len() - line.trim_start().len();
+                line.insert_str(content_at, "> ");
             }
         }
     }
