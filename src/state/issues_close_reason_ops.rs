@@ -142,7 +142,7 @@ impl AppState {
     /// the issue being closed.
     fn duplicate_candidates_for(&self, exclude_number: u64) -> Vec<(u64, String)> {
         self.issues_state
-            .issues
+            .issues()
             .iter()
             .filter(|issue| issue.state == IssueState::Open && issue.number != exclude_number)
             .map(|issue| (issue.number, issue.title.clone()))

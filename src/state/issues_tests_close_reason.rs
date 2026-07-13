@@ -12,12 +12,12 @@ use crate::state::{AppEvent, AppState, IssueFocus};
 fn issues_state_with_list(repo_id: &str) -> AppState {
     let mut state = AppState::default();
     state.issues_state.active = true;
-    state.issues_state.issues = vec![
+    state.issues_state.list.replace_items(vec![
         make_issue(1, "I_1"),
         make_issue(2, "I_2"),
         make_issue(3, "I_3"),
-    ];
-    state.issues_state.selected_issue_index = Some(0);
+    ]);
+    state.issues_state.list.set_selected_index(Some(0));
     state.issues_state.issue_focus = IssueFocus::IssueList;
     let repo = crate::domain::Repository::new(
         RepositoryId(repo_id.to_string()),
@@ -86,7 +86,9 @@ fn open_close_reason_chooser_when_issue_focused_and_open() {
 #[test]
 fn open_close_reason_chooser_blocked_when_already_closed() {
     let mut state = issues_state_with_list("repo-1");
-    state.issues_state.issues[0].state = IssueState::Closed;
+    let mut issues = state.issues_state.list.items().to_vec();
+    issues[0].state = IssueState::Closed;
+    state.issues_state.list.replace_items(issues);
     let state = state.apply(AppEvent::OpenCloseReasonChooser);
     assert!(
         state.issues_state.close_reason_chooser.is_none(),
@@ -115,7 +117,7 @@ fn open_close_reason_chooser_blocked_when_delete_confirm_active() {
 #[test]
 fn open_close_reason_chooser_blocked_when_no_issue_focused() {
     let mut state = issues_state_with_list("repo-1");
-    state.issues_state.selected_issue_index = None;
+    state.issues_state.list.set_selected_index(None);
     let state = state.apply(AppEvent::OpenCloseReasonChooser);
     assert!(
         state.issues_state.close_reason_chooser.is_none(),
@@ -316,7 +318,15 @@ fn confirm_duplicate_with_no_target_preserves_chooser_and_blocks_mutation() {
     // notice rather than dispatching an incomplete Duplicate mutation.
     let mut state = issues_state_with_list("repo-1");
     // Remove the other issues so there are no candidates for issue #1.
-    state.issues_state.issues.retain(|i| i.number == 1);
+    let only_one = state
+        .issues_state
+        .list
+        .items()
+        .iter()
+        .filter(|i| i.number == 1)
+        .cloned()
+        .collect::<Vec<_>>();
+    state.issues_state.list.replace_items(only_one);
     let state = state.apply(AppEvent::OpenCloseReasonChooser);
     let state = navigate_to_duplicate(state);
     let state = state.apply(AppEvent::CloseReasonSelect);
@@ -383,7 +393,7 @@ fn issue_closed_with_reason_updates_issue_state() {
         state.issues_state.close_mutation_pending.is_none(),
         "pending should be cleared after IssueClosed"
     );
-    let issue = state.issues_state.issues.iter().find(|i| i.number == 1);
+    let issue = state.issues_state.issues().iter().find(|i| i.number == 1);
     assert!(
         issue.is_some_and(|i| i.state == IssueState::Closed),
         "issue should be marked closed"
