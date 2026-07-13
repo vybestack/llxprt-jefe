@@ -95,8 +95,12 @@ fn valid_launch_plan_path(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
         return false;
     };
-    path.parent()
-        .is_some_and(|parent| parent == std::env::temp_dir())
+    let parent_is_temp = path.parent().is_some_and(|parent| {
+        std::fs::canonicalize(parent).is_ok_and(|actual| {
+            std::fs::canonicalize(std::env::temp_dir()).is_ok_and(|expected| actual == expected)
+        })
+    });
+    parent_is_temp
         && name.starts_with("jefe-agent-launch-")
         && path
             .extension()
