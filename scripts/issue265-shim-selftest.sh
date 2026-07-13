@@ -39,6 +39,12 @@ readonly -p SEARCH_QUERY_BODY SEARCH_QUERY_STRING ISSUE_VIEW_JSON_FIELDS COMMENT
     echo "FATAL: shared fixtures did not declare all four expected constants" >&2
     exit 1
 }
+for fixture_name in SEARCH_QUERY_BODY SEARCH_QUERY_STRING ISSUE_VIEW_JSON_FIELDS COMMENTS_QUERY_BODY; do
+    [[ -n "${!fixture_name}" ]] || {
+        echo "FATAL: shared fixture is empty: $fixture_name" >&2
+        exit 1
+    }
+done
 
 PASS=0
 FAIL=0

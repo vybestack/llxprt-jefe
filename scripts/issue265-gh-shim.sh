@@ -73,13 +73,21 @@ audit_reject() {
 audit_write() {
     local record="$1"
     local audit_fd
-    exec {audit_fd}>> "$AUDIT_FILE"
+    if ! exec {audit_fd}>> "$AUDIT_FILE"; then
+        echo "gh shim: audit file became unwritable: $AUDIT_FILE" >&2
+        return 2
+    fi
     if ! flock -w 5 -x "$audit_fd"; then
         echo "gh shim: timed out or failed while locking audit file: $AUDIT_FILE" >&2
         exec {audit_fd}>&-
-        exit 2
+        return 2
     fi
-    printf '%s\n' "$record" >&"$audit_fd"
+    if ! printf '%s\n' "$record" >&"$audit_fd"; then
+        echo "gh shim: failed while writing audit file: $AUDIT_FILE" >&2
+        flock -u "$audit_fd" || true
+        exec {audit_fd}>&-
+        return 2
+    fi
     flock -u "$audit_fd"
     exec {audit_fd}>&-
 }

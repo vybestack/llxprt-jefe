@@ -18,7 +18,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 SCENARIO="$PROJECT_ROOT/dev-docs/tmux-scenarios/issue265-linux-keys.json"
 SHIM="$PROJECT_ROOT/scripts/issue265-gh-shim.sh"
 FIXTURES="$PROJECT_ROOT/scripts/issue265-gh-shim-fixtures.sh"
@@ -28,6 +28,10 @@ AUDIT_FILE="$ARTIFACT_DIR/gh-audit.log"
 
 command -v timeout >/dev/null 2>&1 || {
     echo "FATAL: timeout is required for the Linux tmux scenario" >&2
+    exit 1
+}
+command -v realpath >/dev/null 2>&1 || {
+    echo "FATAL: realpath is required for safe scenario cleanup" >&2
     exit 1
 }
 
@@ -63,10 +67,15 @@ echo "Building jefe and jefe-tmux-harness (incremental)..."
 JEFE_BIN="$PROJECT_ROOT/target/debug/jefe"
 HARNESS_BIN="$PROJECT_ROOT/target/debug/jefe-tmux-harness"
 
-# Safe recreate of the isolated config directory (only under target/).
-if [[ "$CONFIG_DIR" == "$PROJECT_ROOT/target/"* ]]; then
-    rm -rf "$CONFIG_DIR"
+# Safe recreate of the isolated config directory (only under the canonical
+# project target directory, even if a parent path is symlinked).
+TARGET_ROOT_REAL="$(realpath -m "$PROJECT_ROOT/target")"
+CONFIG_DIR_REAL="$(realpath -m "$CONFIG_DIR")"
+if [[ "$CONFIG_DIR_REAL" != "$TARGET_ROOT_REAL/"* ]]; then
+    echo "FATAL: refusing to recreate config outside target: $CONFIG_DIR_REAL" >&2
+    exit 1
 fi
+rm -rf "$CONFIG_DIR"
 mkdir -p "$CONFIG_DIR"
 
 # Seed settings.toml (TOML format, schema version 1).

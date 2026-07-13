@@ -182,11 +182,16 @@ fn issues_pane_rows_banner_projection_drives_sizing() {
     // None when both absent.
     assert_eq!(issues_banner_text(None::<&str>, None::<&str>), None,);
 
-    // Feed those same projections into sizing: a present banner reserves one
-    // row while an absent banner reserves none.
-    let banner_rows = issues_pane_rows(
+    // Feed those same projections into sizing: error and notice banners each
+    // reduce the available detail row count by exactly one.
+    let error_rows = issues_pane_rows(
         40,
         issues_banner_text(Some("load failed"), None).is_some(),
+        false,
+    );
+    let notice_rows = issues_pane_rows(
+        40,
+        issues_banner_text(None, Some("No agents available")).is_some(),
         false,
     );
     let no_banner_rows = issues_pane_rows(
@@ -194,10 +199,11 @@ fn issues_pane_rows_banner_projection_drives_sizing() {
         issues_banner_text(None::<&str>, None::<&str>).is_some(),
         false,
     );
+    assert_eq!(error_rows, notice_rows);
     assert_eq!(
-        banner_rows.1 + 1,
+        notice_rows.1 + 1,
         no_banner_rows.1,
-        "a present banner must reserve exactly one detail row vs no banner"
+        "a present banner must reduce the detail row count by exactly one"
     );
 }
 
