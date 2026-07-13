@@ -902,7 +902,7 @@ impl Repository {
     pub fn effective_issue_pr_repo(&self) -> Result<Option<GitHubRepoRef>, GitHubRepoRefError> {
         let override_trimmed = self.github_issue_pr_repo.trim();
         if !override_trimmed.is_empty() {
-            return GitHubRepoRef::parse(&self.github_issue_pr_repo);
+            return GitHubRepoRef::parse(override_trimmed);
         }
         GitHubRepoRef::parse(&self.github_repo)
     }

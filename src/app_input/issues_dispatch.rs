@@ -12,7 +12,6 @@ use super::{
 };
 use super::{issues_list_dispatch, issues_mutation, issues_send, issues_subfocus_dispatch};
 
-/// Resolve the GitHub owner/repo for the currently selected repository.
 /// Resolve the effective GitHub `owner/repo` for issue/PR tracker routing
 /// (issue #266).
 ///
@@ -356,9 +355,7 @@ fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
     let issue_number = detail.number;
     let (owner, repo, malformed_message) = resolve_gh_repo_or_triple(&state);
     if owner.is_empty() || repo.is_empty() {
-        let error = malformed_message.unwrap_or_else(|| {
-            "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string()
-        });
+        let error = malformed_message.unwrap_or_else(|| MISSING_DETAIL_REPO_MSG.to_owned());
         return CommentPageRequest::Fail(AppEvent::IssueCommentsPageFailed {
             scope_repo_id,
             issue_number,

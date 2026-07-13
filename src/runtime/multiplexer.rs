@@ -93,7 +93,8 @@ impl MultiplexerVersion {
             return Err(malformed_version(output));
         }
         let major = parse_version_part(parts.first().copied(), output, false)?;
-        let minor = parse_version_part(parts.get(1).copied(), output, parts.len() == 2)?;
+        let minor_is_last_component = parts.len() == 2;
+        let minor = parse_version_part(parts.get(1).copied(), output, minor_is_last_component)?;
         let patch = parts
             .get(2)
             .map_or(Ok(0), |part| parse_version_part(Some(part), output, true))?;
