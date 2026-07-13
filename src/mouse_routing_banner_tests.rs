@@ -127,10 +127,6 @@ fn issues_draft_notice_does_not_shift_pr_mode_geometry() {
             draft_notice: Some("No agents available".to_string()),
             ..IssuesState::default()
         },
-        prs_state: PullRequestsState {
-            error: None,
-            ..PullRequestsState::default()
-        },
         ..AppState::default()
     };
 
@@ -156,10 +152,6 @@ fn issues_error_does_not_shift_pr_mode_geometry() {
             error: Some("load failed".to_string()),
             ..IssuesState::default()
         },
-        prs_state: PullRequestsState {
-            error: None,
-            ..PullRequestsState::default()
-        },
         ..AppState::default()
     };
 
@@ -180,11 +172,6 @@ fn issues_error_does_not_shift_pr_mode_geometry() {
 fn pr_error_does_not_shift_issues_mode_geometry() {
     let state = AppState {
         screen_mode: ScreenMode::DashboardIssues,
-        issues_state: IssuesState {
-            error: None,
-            draft_notice: None,
-            ..IssuesState::default()
-        },
         prs_state: PullRequestsState {
             error: Some("PR load failed".to_string()),
             ..PullRequestsState::default()

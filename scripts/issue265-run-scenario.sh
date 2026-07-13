@@ -69,11 +69,12 @@ if [[ "${1:-}" == "--keep-session" ]]; then
 fi
 SESSION_NAME="jefe-issue265-$$"
 
-cleanup_failed_session() {
+cleanup_session() {
     if [[ "$KEEP_SESSION" == false ]]; then
         tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
     fi
 }
+trap cleanup_session EXIT
 
 echo "== Issue #265 real tmux scenario =="
 
@@ -85,6 +86,14 @@ echo "Building jefe and jefe-tmux-harness (incremental)..."
 
 JEFE_BIN="$PROJECT_ROOT/target/debug/jefe"
 HARNESS_BIN="$PROJECT_ROOT/target/debug/jefe-tmux-harness"
+[[ -x "$JEFE_BIN" ]] || {
+    echo "FATAL: jefe binary is missing or not executable: $JEFE_BIN" >&2
+    exit 1
+}
+[[ -x "$HARNESS_BIN" ]] || {
+    echo "FATAL: harness binary is missing or not executable: $HARNESS_BIN" >&2
+    exit 1
+}
 
 # Require every mutable scenario path to stay under the canonical project
 # target directory, even if a parent path is symlinked.
@@ -175,14 +184,14 @@ timeout 180s env \
     "${HARNESS_ARGS[@]}" || harness_status=$?
 if [[ $harness_status -eq 124 ]]; then
     echo "FAIL: harness timed out after 180 seconds" >&2
-    cleanup_failed_session
+    cleanup_session
     exit 1
 fi
 if [[ $harness_status -ne 0 ]]; then
-    cleanup_failed_session
+    cleanup_session
     exit "$harness_status"
 fi
-cleanup_failed_session
+cleanup_session
 
 echo ""
 echo "== Verifying gh audit =="
@@ -199,22 +208,24 @@ fi
 echo "Audit log:"
 cat "$AUDIT_FILE"
 
-# ─── Reject any REJECTED or mutation record ──────────────────────────────
+# ─── Reject any rejected or unexpected accepted operation ────────────────
 #
-# A REJECTED record means the shim saw an unexpected command — a fail-closed
-# violation. Any mutation keyword means a write slipped through (should be
-# impossible given exact matching, but belt-and-suspenders).
-if grep -qiE 'REJECTED' -- "$AUDIT_FILE"; then
+# The fail-closed shim assigns a trusted label only after exact argv matching,
+# so validate those labels instead of scanning GraphQL text for keywords.
+if grep -qE '^\[[^]]+\] REJECTED ' -- "$AUDIT_FILE"; then
     echo ""
     echo "FAIL: rejected command detected in audit:"
-    grep -i 'REJECTED' -- "$AUDIT_FILE"
+    grep -E '^\[[^]]+\] REJECTED ' -- "$AUDIT_FILE"
     exit 1
 fi
 
-if grep -qiE 'mutation|POST|PATCH|DELETE|createIssue|addComment|closeIssue|deleteIssue|issue create|issue close|issue delete|issue comment|issue edit' -- "$AUDIT_FILE"; then
+unexpected_operations=$(grep -oE 'ACCEPTED [A-Za-z0-9_-]+' -- "$AUDIT_FILE" \
+    | sed 's/ACCEPTED //' \
+    | grep -vE '^(search|issue-view|comments|auth-status)$' || true)
+if [[ -n "$unexpected_operations" ]]; then
     echo ""
-    echo "FAIL: gh mutation command detected in audit:"
-    grep -iE 'mutation|POST|PATCH|DELETE|createIssue|addComment|closeIssue|deleteIssue|issue create|issue close|issue delete|issue comment|issue edit' -- "$AUDIT_FILE"
+    echo "FAIL: unexpected accepted operation detected in audit:"
+    echo "$unexpected_operations"
     exit 1
 fi
 

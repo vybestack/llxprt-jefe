@@ -47,7 +47,9 @@ fn issue_list_lines_notice_only_banner_shrinks_window_like_error() {
     let count_none = issue_list_line_count(None, None);
     let count_notice = issue_list_line_count(None, Some("No agents available"));
     let count_error = issue_list_line_count(Some("load failed"), None);
+    let count_both = issue_list_line_count(Some("load failed"), Some("No agents available"));
 
     assert_eq!(count_notice, count_error);
+    assert_eq!(count_both, count_error);
     assert!(count_none > count_notice);
 }
