@@ -218,10 +218,20 @@ impl TmuxDriver {
     /// Describe the isolated multiplexer used by this harness run.
     #[must_use]
     pub fn diagnostics(&self) -> String {
-        let version = tmux_command().arg("-V").output().map_or_else(
-            |error| format!("unavailable ({error})"),
-            |output| String::from_utf8_lossy(&output.stdout).trim().to_string(),
-        );
+        let version = match tmux_command().arg("-V").output() {
+            Ok(output) if output.status.success() => {
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
+            }
+            Ok(output) => {
+                let details = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                if details.is_empty() {
+                    format!("unavailable ({})", output.status)
+                } else {
+                    format!("unavailable ({details})")
+                }
+            }
+            Err(error) => format!("unavailable ({error})"),
+        };
         format!(
             "multiplexer: tmux\ntmux version: {version}\nnamespace: {}\n",
             harness_socket_name()

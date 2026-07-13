@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::capture::{PaneStatus, PaneStatusParseError, ScreenCapture, ScrollbackSample};
 
@@ -206,7 +206,7 @@ impl TmuxDriver {
         if key.is_empty() {
             return Err(invalid_request("key must not be empty"));
         }
-        self.run(&["send-keys", "-t", &session.name, key])
+        self.run(&["send-keys", "-t", &session.name, "--", key])
     }
 
     pub fn send_keys(&self, session: &TmuxSession, keys: &[String]) -> Result<(), TmuxDriverError> {
@@ -325,7 +325,7 @@ impl TmuxDriver {
         if !output.status.success() {
             return Err(TmuxDriverError::Unavailable {
                 executable: self.executable.clone(),
-                reason: format_output(&output),
+                reason: super::psmux_process::format_output(&output),
             });
         }
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -354,7 +354,12 @@ impl TmuxDriver {
     fn run_owned(&self, args: &[String], cwd: Option<&Path>) -> Result<Output, TmuxDriverError> {
         let command_name = format_command(&self.executable, &self.namespace, args);
         let mut command = Command::new(&self.executable);
-        command.arg("-L").arg(&self.namespace).args(args);
+        command
+            .arg("-f")
+            .arg("NUL")
+            .arg("-L")
+            .arg(&self.namespace)
+            .args(args);
         command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -369,7 +374,7 @@ impl TmuxDriver {
             command: command_name.clone(),
             reason: error.to_string(),
         })?;
-        wait_for_command(child, &command_name)
+        super::psmux_process::wait_for_command(child, &command_name, COMMAND_TIMEOUT)
     }
 }
 
@@ -512,63 +517,6 @@ fn unique_namespace() -> String {
 
 fn format_command(executable: &Path, namespace: &str, args: &[String]) -> String {
     format!("{} -L {namespace} {}", executable.display(), args.join(" "))
-}
-
-fn wait_for_command(
-    mut child: std::process::Child,
-    command_name: &str,
-) -> Result<Output, TmuxDriverError> {
-    let deadline = Instant::now() + COMMAND_TIMEOUT;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return collect_output(child, command_name),
-            Ok(None) if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(TmuxDriverError::Timeout {
-                    command: command_name.to_string(),
-                });
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(25)),
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(TmuxDriverError::Spawn {
-                    command: command_name.to_string(),
-                    reason: error.to_string(),
-                });
-            }
-        }
-    }
-}
-
-fn collect_output(
-    child: std::process::Child,
-    command_name: &str,
-) -> Result<Output, TmuxDriverError> {
-    let output = child
-        .wait_with_output()
-        .map_err(|error| TmuxDriverError::Spawn {
-            command: command_name.to_string(),
-            reason: error.to_string(),
-        })?;
-    if output.status.success() {
-        Ok(output)
-    } else {
-        Err(TmuxDriverError::Failed {
-            command: command_name.to_string(),
-            stderr: format_output(&output),
-        })
-    }
-}
-
-fn format_output(output: &Output) -> String {
-    format!(
-        "status: {}\nstdout: {}\nstderr: {}",
-        output.status,
-        String::from_utf8_lossy(&output.stdout).trim(),
-        String::from_utf8_lossy(&output.stderr).trim()
-    )
 }
 
 fn output_lines(bytes: &[u8]) -> Vec<String> {

@@ -18,6 +18,8 @@ pub mod expand;
 pub mod macro_def;
 pub mod matchers;
 pub mod parser;
+#[cfg(windows)]
+mod psmux_process;
 pub mod runner;
 pub mod scenario;
 pub mod step;
