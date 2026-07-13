@@ -14,7 +14,7 @@
     { "capture": "issues-close-reason-entered" },
     { "key": "C" },
     { "waitFor": "Close Issue" },
-    { "waitFor": "Done" },
+    { "waitFor": "Completed" },
     { "waitFor": "Not planned" },
     { "waitFor": "Duplicate" },
     { "waitFor": "Invalid" },

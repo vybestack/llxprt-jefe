@@ -34,6 +34,22 @@ pub struct CloseReasonChooserProps {
 }
 
 /// Pure projection: build the display lines for the close-reason chooser.
+/// Select the overlay hint text based on the chooser state.
+///
+/// Shared by the pure projection (`close_reason_chooser_lines`) and the
+/// component so the two cannot drift. The awaiting-confirmation hint takes
+/// precedence over the duplicate-search hint.
+#[must_use]
+pub fn close_reason_hint(awaiting_confirmation: bool, in_duplicate_search: bool) -> &'static str {
+    if awaiting_confirmation {
+        "Press Enter to confirm close, Esc to cancel"
+    } else if in_duplicate_search {
+        "Type issue #, Up/Down select, Enter confirm, Esc cancel"
+    } else {
+        "Up/Down select  Enter choose  Esc cancel"
+    }
+}
+
 /// Returns `Vec<String>` so it can be unit-tested without iocraft.
 #[must_use]
 pub fn close_reason_chooser_lines(
@@ -68,13 +84,9 @@ pub fn close_reason_chooser_lines(
     }
 
     lines.push(super::SEPARATOR_LINE.to_string());
-    if awaiting_confirmation {
-        lines.push("Press Enter to confirm close, Esc to cancel".to_string());
-    } else if duplicate_search_query.is_some() {
-        lines.push("Type issue #, Up/Down select, Enter confirm, Esc cancel".to_string());
-    } else {
-        lines.push("Up/Down select  Enter choose  Esc cancel".to_string());
-    }
+    lines.push(
+        close_reason_hint(awaiting_confirmation, duplicate_search_query.is_some()).to_string(),
+    );
     lines
 }
 
@@ -207,13 +219,7 @@ pub fn CloseReasonChooser(props: &CloseReasonChooserProps) -> impl Into<AnyEleme
         rc.dim,
         sel,
     ));
-    let hint = if props.awaiting_confirmation {
-        "Press Enter to confirm close, Esc to cancel"
-    } else if dup_query.is_some() {
-        "Type issue #, Up/Down select, Enter confirm, Esc cancel"
-    } else {
-        "Up/Down select  Enter choose  Esc cancel"
-    };
+    let hint = close_reason_hint(props.awaiting_confirmation, dup_query.is_some());
     let hint_color = if props.awaiting_confirmation {
         rc.bright
     } else {
