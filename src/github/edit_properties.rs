@@ -8,6 +8,13 @@
 
 use super::GhError;
 use serde_json::Value;
+use std::collections::HashSet;
+
+/// Build a set of lowercased labels/assignees for O(1) case-insensitive
+/// membership checks (avoids O(n*m) nested scans for large label sets).
+fn lowercased_set(items: &[String]) -> HashSet<String> {
+    items.iter().map(|s| s.to_ascii_lowercase()).collect()
+}
 
 /// Extract the next-page cursor from a GraphQL `pageInfo` object, returning
 /// `Some(cursor)` only when `hasNextPage` is true and `endCursor` is present
@@ -92,14 +99,16 @@ pub struct PropertyEditTarget<'a> {
 /// Returns `(to_add, to_remove)`.
 #[must_use]
 pub fn compute_label_diff(current: &[String], desired: &[String]) -> (Vec<String>, Vec<String>) {
+    let current_set = lowercased_set(current);
+    let desired_set = lowercased_set(desired);
     let to_add: Vec<String> = desired
         .iter()
-        .filter(|d| !current.iter().any(|c| c.eq_ignore_ascii_case(d)))
+        .filter(|d| !current_set.contains(&d.to_ascii_lowercase()))
         .cloned()
         .collect();
     let to_remove: Vec<String> = current
         .iter()
-        .filter(|c| !desired.iter().any(|d| d.eq_ignore_ascii_case(c)))
+        .filter(|c| !desired_set.contains(&c.to_ascii_lowercase()))
         .cloned()
         .collect();
     (to_add, to_remove)
@@ -110,14 +119,16 @@ pub fn compute_label_diff(current: &[String], desired: &[String]) -> (Vec<String
 /// Returns `(to_add, to_remove)`.
 #[must_use]
 pub fn compute_assignee_diff(current: &[String], desired: &[String]) -> (Vec<String>, Vec<String>) {
+    let current_set = lowercased_set(current);
+    let desired_set = lowercased_set(desired);
     let to_add: Vec<String> = desired
         .iter()
-        .filter(|d| !current.iter().any(|c| c.eq_ignore_ascii_case(d)))
+        .filter(|d| !current_set.contains(&d.to_ascii_lowercase()))
         .cloned()
         .collect();
     let to_remove: Vec<String> = current
         .iter()
-        .filter(|c| !desired.iter().any(|d| d.eq_ignore_ascii_case(c)))
+        .filter(|c| !desired_set.contains(&c.to_ascii_lowercase()))
         .cloned()
         .collect();
     (to_add, to_remove)

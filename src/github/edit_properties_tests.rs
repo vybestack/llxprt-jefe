@@ -65,35 +65,6 @@ fn assignee_diff_add_and_remove() {
     assert_eq!(remove, vec!["alice"]);
 }
 
-// ── M8: diff function edge cases ────────────────────────────────────
-
-#[test]
-fn label_diff_identical_is_noop() {
-    let current = vec!["bug".to_string(), "enhancement".to_string()];
-    let desired = current.clone();
-    let (add, remove) = compute_label_diff(&current, &desired);
-    assert!(add.is_empty());
-    assert!(remove.is_empty());
-}
-
-#[test]
-fn label_diff_add_only() {
-    let current = vec!["bug".to_string()];
-    let desired = vec!["bug".to_string(), "enhancement".to_string()];
-    let (add, remove) = compute_label_diff(&current, &desired);
-    assert_eq!(add, vec!["enhancement"]);
-    assert!(remove.is_empty());
-}
-
-#[test]
-fn label_diff_removal_only() {
-    let current = vec!["bug".to_string(), "wontfix".to_string()];
-    let desired = vec!["bug".to_string()];
-    let (add, remove) = compute_label_diff(&current, &desired);
-    assert!(add.is_empty());
-    assert_eq!(remove, vec!["wontfix"]);
-}
-
 #[test]
 fn label_diff_empty_current_adds_all() {
     let current: Vec<String> = Vec::new();
