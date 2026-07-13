@@ -798,7 +798,6 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
     };
     use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
-    // Derive the agent id from the session name so that
     // `RuntimeSession::session_name_for(agent_id)` reproduces `agent_session`
     // exactly. This keeps the pre-created (sleep) session name coherent with
     // the name jefe computes for the agent, so restart targets the SAME session
