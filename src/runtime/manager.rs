@@ -185,6 +185,8 @@ pub trait RuntimeManager: Send {
 /// @requirement REQ-TECH-004
 /// @requirement REQ-FUNC-007
 pub struct TmuxRuntimeManager {
+    /// Resolved local npm executable used by versioned LLxprt launches.
+    npm_executable: Option<std::path::PathBuf>,
     /// Active sessions by agent ID.
     sessions: HashMap<AgentId, RuntimeSession>,
     /// Currently attached viewer (single viewer model).
@@ -236,7 +238,18 @@ impl TmuxRuntimeManager {
     /// Create a new tmux runtime manager.
     #[must_use]
     pub fn new(rows: u16, cols: u16) -> Self {
+        Self::with_npm_executable(rows, cols, None)
+    }
+
+    /// Create a runtime manager with the resolved local npm executable.
+    #[must_use]
+    pub fn with_npm_executable(
+        rows: u16,
+        cols: u16,
+        npm_executable: Option<std::path::PathBuf>,
+    ) -> Self {
         Self {
+            npm_executable,
             sessions: HashMap::new(),
             viewer: None,
             attached_agent_id: None,
@@ -480,7 +493,12 @@ impl TmuxRuntimeManager {
             }
 
             debug!(session_name = %session_name, "creating new tmux session");
-            commands::create_session(&session_name, work_dir, signature)?;
+            commands::create_session(
+                &session_name,
+                work_dir,
+                signature,
+                self.npm_executable.as_deref(),
+            )?;
 
             // `finalize_local_session` (inside create_session) already ran
             // `enforce_clipboard_passthrough` for a freshly created local

@@ -47,6 +47,8 @@ pub struct CreateAgentParams<'a> {
     pub profile: &'a str,
     /// Optional Code Puppy model override.
     pub code_puppy_model: &'a str,
+    /// LLxprt npm package selector. Blank preserves direct/resolved `llxprt`.
+    pub llxprt_version: &'a str,
     /// Explicit Code Puppy YOLO choice.
     pub code_puppy_yolo: bool,
     /// Whether Code Puppy should resume its latest autosaved session.
@@ -119,6 +121,14 @@ pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
     // non-yolo; the new-agent form pre-fills --yolo as the default instead.
     let mode_flags: Vec<String> = params.mode.split_whitespace().map(String::from).collect();
 
+    let llxprt_version = match crate::domain::normalize_version_selector(params.llxprt_version) {
+        Ok(version) => version,
+        Err(error) => {
+            tracing::warn!(error = %error, "rejecting agent create: invalid llxprt_version");
+            return None;
+        }
+    };
+
     let caps = PlatformCapabilities::current();
     let sandbox_engine = SandboxEngine::from_form_value(params.sandbox_engine)
         .and_then(|engine| caps.normalize_engine(engine))
@@ -134,6 +144,7 @@ pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
         work_dir: PathBuf::from(&work_dir),
         profile: normalize_profile(params.profile),
         code_puppy_model: params.code_puppy_model.trim().to_owned(),
+        llxprt_version,
         code_puppy_yolo: Some(params.code_puppy_yolo),
         code_puppy_quick_resume: params.code_puppy_quick_resume.enabled(),
         mode_flags,

@@ -55,6 +55,7 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
     if !super::availability::local_kind_available_or_error(
         app_state,
         launch_sig.agent_kind,
+        &launch_sig.llxprt_version,
         &launch_sig.remote,
     ) {
         return;
@@ -79,6 +80,7 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
         &target,
         &send_info.work_dir,
         launch_sig.agent_kind,
+        &launch_sig.llxprt_version,
     ) {
         return;
     }
@@ -273,6 +275,7 @@ fn prepare_confirm_send_target(
     if !super::availability::local_kind_available_or_error(
         app_state,
         launch_sig.agent_kind,
+        &launch_sig.llxprt_version,
         &launch_sig.remote,
     ) {
         return None;
@@ -293,6 +296,7 @@ fn prepare_confirm_send_target(
         &target,
         work_dir,
         launch_sig.agent_kind,
+        &launch_sig.llxprt_version,
     ) {
         return None;
     }

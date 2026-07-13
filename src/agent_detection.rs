@@ -5,11 +5,29 @@ use std::sync::OnceLock;
 use crate::domain::AgentKind;
 
 static INSTALLED_AGENT_KINDS: OnceLock<Vec<AgentKind>> = OnceLock::new();
+static NPM_PATH: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
 
 /// Agent kinds whose executable is present on PATH, detected once per session.
 #[must_use]
 pub fn installed_agent_kinds() -> &'static [AgentKind] {
     INSTALLED_AGENT_KINDS.get_or_init(detect_installed_agent_kinds)
+}
+
+/// Resolved executable path for `npm`, detected once per session.
+///
+/// Production runtime construction receives this exact path so a long-lived
+/// tmux server cannot resolve a different `npm` from stale environment state.
+#[must_use]
+pub fn npm_path() -> Option<&'static std::path::Path> {
+    NPM_PATH.get_or_init(detect_npm_path).as_deref()
+}
+
+fn detect_npm_path() -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH");
+    let dirs: Vec<std::path::PathBuf> = path
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    executable_in_dirs("npm", &dirs)
 }
 
 fn detect_installed_agent_kinds() -> Vec<AgentKind> {
@@ -39,8 +57,13 @@ pub fn detect_agent_kinds(dirs: &[std::path::PathBuf]) -> Vec<AgentKind> {
 }
 
 fn binary_in_dirs(binary: &str, dirs: &[std::path::PathBuf]) -> bool {
+    executable_in_dirs(binary, dirs).is_some()
+}
+
+fn executable_in_dirs(binary: &str, dirs: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
     dirs.iter()
-        .any(|directory| is_executable(&directory.join(binary)))
+        .map(|directory| directory.join(binary))
+        .find(|candidate| is_executable(candidate))
 }
 
 #[cfg(unix)]

@@ -74,9 +74,9 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
         .map_or_else(|| "none".to_owned(), |slot| slot.to_string());
 
     // Fields rendered BEFORE the Agent Runtime selector. The focus order is
-    // WorkDir → Profile → AgentKind → Mode, so Agent Runtime is inserted
-    // between Profile and Mode (see render below).
-    let pre_kind_text_fields: [(&str, &str, AgentFormFocus, usize); 5] = [
+    // WorkDir → Profile → LlxprtVersion → AgentKind → Mode, so Agent Runtime
+    // is inserted between LlxprtVersion and Mode (see render below).
+    let pre_kind_text_fields: [(&str, &str, AgentFormFocus, usize); 6] = [
         (
             "Shortcut (1-9)",
             &shortcut_display,
@@ -101,6 +101,12 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
             &fields.profile,
             AgentFormFocus::Profile,
             cursor.profile,
+        ),
+        (
+            "Version",
+            &fields.llxprt_version,
+            AgentFormFocus::LlxprtVersion,
+            cursor.llxprt_version,
         ),
     ];
 
@@ -441,5 +447,9 @@ fn effective_kinds_for_form(state: Option<&AppState>) -> Vec<crate::domain::Agen
             .is_some_and(|r| r.remote.enabled),
         _ => false,
     };
-    crate::state::effective_agent_kinds(&state.installed_agent_kinds, is_remote)
+    crate::state::effective_agent_kinds_with_npm(
+        &state.installed_agent_kinds,
+        is_remote,
+        state.npm_availability.is_available(),
+    )
 }

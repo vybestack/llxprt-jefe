@@ -29,6 +29,13 @@ pub(super) fn handle_repository_field_char(
                 c,
             );
         }
+        RepositoryFormFocus::DefaultLlxprtVersion => {
+            cursor.default_llxprt_version = insert_char_at(
+                &mut fields.default_llxprt_version,
+                cursor.default_llxprt_version,
+                c,
+            );
+        }
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = insert_char_at(&mut fields.github_repo, cursor.github_repo, c);
         }
@@ -73,6 +80,12 @@ pub(super) fn move_repository_field_cursor_right(
                 cursor.default_code_puppy_model,
             );
         }
+        RepositoryFormFocus::DefaultLlxprtVersion => {
+            cursor.default_llxprt_version = move_cursor_right(
+                &fields.default_llxprt_version,
+                cursor.default_llxprt_version,
+            );
+        }
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = move_cursor_right(&fields.github_repo, cursor.github_repo);
         }
@@ -108,6 +121,10 @@ pub(super) fn move_agent_field_cursor_right(
         }
         AgentFormFocus::Profile => {
             cursor.profile = move_cursor_right(&fields.profile, cursor.profile);
+        }
+        AgentFormFocus::LlxprtVersion => {
+            cursor.llxprt_version =
+                move_cursor_right(&fields.llxprt_version, cursor.llxprt_version);
         }
         AgentFormFocus::CodePuppyModel => {
             cursor.code_puppy_model =
@@ -155,6 +172,9 @@ pub(super) fn move_repository_field_cursor_left(
         RepositoryFormFocus::DefaultCodePuppyModel => {
             cursor.default_code_puppy_model = move_cursor_left(cursor.default_code_puppy_model);
         }
+        RepositoryFormFocus::DefaultLlxprtVersion => {
+            cursor.default_llxprt_version = move_cursor_left(cursor.default_llxprt_version);
+        }
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = move_cursor_left(cursor.github_repo);
         }
@@ -177,6 +197,9 @@ pub(super) fn move_agent_field_cursor_left(cursor: &mut AgentFormCursor, focus: 
         AgentFormFocus::Description => cursor.description = move_cursor_left(cursor.description),
         AgentFormFocus::WorkDir => cursor.work_dir = move_cursor_left(cursor.work_dir),
         AgentFormFocus::Profile => cursor.profile = move_cursor_left(cursor.profile),
+        AgentFormFocus::LlxprtVersion => {
+            cursor.llxprt_version = move_cursor_left(cursor.llxprt_version);
+        }
         AgentFormFocus::CodePuppyModel => {
             cursor.code_puppy_model = move_cursor_left(cursor.code_puppy_model);
         }

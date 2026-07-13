@@ -12,8 +12,8 @@
 use crate::domain::PlatformCapabilities;
 use crate::state::{
     AgentFormCursor, AgentFormFields, AgentFormFocus, AppState, ModalState, RepositoryFormCursor,
-    RepositoryFormFields, RepositoryFormFocus, agent_form_visibility, effective_agent_kinds,
-    effective_kinds_hint, is_field_visible, kind_from_form_value,
+    RepositoryFormFields, RepositoryFormFocus, agent_form_visibility,
+    effective_agent_kinds_with_npm, effective_kinds_hint, is_field_visible, kind_from_form_value,
 };
 use crate::ui::util::text_with_caret;
 
@@ -37,7 +37,7 @@ fn render_checkbox(label: &str, checked: bool, hint: &str) -> String {
 fn agent_pre_kind_field_specs(
     fields: &AgentFormFields,
     cursor: &AgentFormCursor,
-) -> [(&'static str, String, AgentFormFocus, usize); 5] {
+) -> [(&'static str, String, AgentFormFocus, usize); 6] {
     let shortcut = fields
         .shortcut_slot
         .map_or_else(|| "none".to_string(), |slot| slot.to_string());
@@ -66,6 +66,12 @@ fn agent_pre_kind_field_specs(
             fields.profile.clone(),
             AgentFormFocus::Profile,
             cursor.profile,
+        ),
+        (
+            "Version",
+            fields.llxprt_version.clone(),
+            AgentFormFocus::LlxprtVersion,
+            cursor.llxprt_version,
         ),
     ]
 }
@@ -253,8 +259,37 @@ pub fn repository_form_content_lines(state: &AppState) -> Option<Vec<String>> {
     let text_specs = repo_text_field_specs(fields, cursor);
     repo_text_field_lines(&text_specs, focus, &mut lines);
 
-    let effective_kinds =
-        effective_agent_kinds(&state.installed_agent_kinds, fields.remote_enabled);
+    let repo_kind = crate::state::kind_from_form_value(&fields.default_agent_kind);
+
+    if repo_kind == crate::domain::AgentKind::CodePuppy {
+        let model_value = if focus == RepositoryFormFocus::DefaultCodePuppyModel {
+            text_with_caret(
+                &fields.default_code_puppy_model,
+                cursor.default_code_puppy_model,
+            )
+        } else {
+            fields.default_code_puppy_model.clone()
+        };
+        lines.push(render_field("Default Model", &model_value));
+    }
+
+    if repo_kind == crate::domain::AgentKind::Llxprt {
+        let version_value = if focus == RepositoryFormFocus::DefaultLlxprtVersion {
+            text_with_caret(
+                &fields.default_llxprt_version,
+                cursor.default_llxprt_version,
+            )
+        } else {
+            fields.default_llxprt_version.clone()
+        };
+        lines.push(render_field("Default Version", &version_value));
+    }
+
+    let effective_kinds = effective_agent_kinds_with_npm(
+        &state.installed_agent_kinds,
+        fields.remote_enabled,
+        state.npm_availability.is_available(),
+    );
     let kind_hint = effective_kinds_hint(&effective_kinds);
     lines.push(format!(
         "  {:<16} [{}]  ({kind_hint})",
@@ -358,7 +393,11 @@ fn effective_kinds_for_agent_form(state: &AppState) -> Vec<crate::domain::AgentK
             .is_some_and(|r| r.remote.enabled),
         _ => false,
     };
-    effective_agent_kinds(&state.installed_agent_kinds, is_remote)
+    effective_agent_kinds_with_npm(
+        &state.installed_agent_kinds,
+        is_remote,
+        state.npm_availability.is_available(),
+    )
 }
 
 #[cfg(test)]

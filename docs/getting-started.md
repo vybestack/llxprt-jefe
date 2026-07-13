@@ -30,6 +30,11 @@ From the dashboard, press `N` (capital N) to open **New Repository**.
   - Optional llxprt profile to prefill for new agents in this repository.
   - Leave blank to use llxprt defaults.
 
+- **Default Version** (LLxprt repositories)
+  - Optional npm version or tag to prefill for new LLxprt agents, such as `0.9.0` or `0.10.0-nightly.260712.21cb698b6`.
+  - The value is copied when a new agent is created. Changing the repository default does not modify existing agents.
+  - Leave blank to launch the directly installed `llxprt` executable.
+
 ### Submit / navigation
 
 - `Tab` or `Down`: next field
@@ -70,6 +75,13 @@ With your repository selected, press `n` (lowercase n) to open **New Agent**.
 - **Profile**
   - llxprt profile name (`--profile-load`).
   - Blank means use llxprt default behavior.
+
+- **Version** (LLxprt agents)
+  - Optional npm version or tag. It starts with the repository's Default Version and can be overridden per agent.
+  - Blank runs the directly installed `llxprt` executable.
+  - A nonblank value runs the selected package through `npm exec`, so multiple LLxprt releases can run side by side without separate global installs.
+  - `npm` must be available on the local machine for local agents or on the effective remote host for remote agents.
+  - This field is hidden for Code Puppy agents.
 
 - **Mode Flags**
   - Extra llxprt CLI flags.

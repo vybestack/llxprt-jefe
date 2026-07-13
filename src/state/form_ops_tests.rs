@@ -11,6 +11,7 @@ fn seed_repository() -> Repository {
         base_dir: std::path::PathBuf::from("/tmp/repo-1"),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),
@@ -217,6 +218,7 @@ fn remote_repository_creation_preserves_remote_base_dir_without_local_expansion(
         base_dir: "~/remote/worktrees".to_owned(),
         default_profile: "ship".to_owned(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: String::new(),
         remote_enabled: true,
@@ -248,6 +250,7 @@ fn repository_name_that_normalizes_to_empty_slug_is_rejected() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: String::new(),
         remote_enabled: false,
@@ -270,6 +273,7 @@ fn create_agent_rejects_whitespace_only_work_dir() {
         work_dir: "   \t ".to_owned(),
         profile: String::new(),
         code_puppy_model: String::new(),
+        llxprt_version: String::new(),
         code_puppy_yolo: false,
         code_puppy_quick_resume: crate::domain::QuickResume::default(),
         agent_kind: "LLxprt".to_owned(),
@@ -297,6 +301,7 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         work_dir: std::path::PathBuf::from("/tmp/agent-one"),
         profile: String::new(),
         code_puppy_model: String::new(),
+        llxprt_version: String::new(),
         code_puppy_yolo: Some(false),
         code_puppy_quick_resume: false,
         mode_flags: vec!["--yolo".to_owned()],
@@ -317,6 +322,7 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         work_dir: "   ".to_owned(),
         profile: String::new(),
         code_puppy_model: String::new(),
+        llxprt_version: String::new(),
         code_puppy_yolo: false,
         code_puppy_quick_resume: crate::domain::QuickResume::default(),
         agent_kind: "LLxprt".to_owned(),
@@ -348,6 +354,7 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         work_dir: std::path::PathBuf::from("/tmp/agent-two"),
         profile: String::new(),
         code_puppy_model: String::new(),
+        llxprt_version: String::new(),
         code_puppy_yolo: Some(false),
         code_puppy_quick_resume: false,
         mode_flags: vec!["--fast".to_owned()],
@@ -367,6 +374,7 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         work_dir: "/tmp/agent-two".to_owned(),
         profile: String::new(),
         code_puppy_model: String::new(),
+        llxprt_version: String::new(),
         code_puppy_yolo: false,
         code_puppy_quick_resume: crate::domain::QuickResume::default(),
         agent_kind: "LLxprt".to_owned(),
@@ -394,7 +402,8 @@ fn repository_checkbox_toggle_updates_remote_fields() {
     state = state.apply(AppEvent::OpenNewRepository);
     state = state.apply(AppEvent::FormNextField); // Name → BaseDir
     state = state.apply(AppEvent::FormNextField); // BaseDir → DefaultProfile
-    state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultAgentKind
+    state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultLlxprtVersion
+    state = state.apply(AppEvent::FormNextField); // DefaultLlxprtVersion → DefaultAgentKind
     state = state.apply(AppEvent::FormNextField); // DefaultAgentKind → GitHubRepo
     state = state.apply(AppEvent::FormNextField); // GitHubRepo → RemoteEnabled
     state = state.apply(AppEvent::FormToggleCheckbox); // toggle remote_enabled
@@ -428,6 +437,98 @@ fn repository_checkbox_toggle_updates_remote_fields() {
     assert_eq!(cursor.run_as_user, 1);
 }
 
+// ── Issue #269: repository form focus skips hidden version fields ──────────
+
+#[test]
+fn repository_form_focus_skips_default_llxprt_version_for_code_puppy() {
+    let mut state = AppState {
+        repositories: vec![seed_repository()],
+        ..AppState::default()
+    };
+    state = state.apply(AppEvent::OpenNewRepository);
+    // Switch the default agent kind to Code Puppy.
+    let ModalState::NewRepository { fields, .. } = &mut state.modal else {
+        panic!("expected new-repository modal");
+    };
+    fields.default_agent_kind = "code_puppy".to_owned();
+    // Walk from DefaultProfile forward. For Code Puppy, DefaultLlxprtVersion
+    // must be skipped, landing on DefaultCodePuppyModel then DefaultAgentKind.
+    state = state.apply(AppEvent::FormNextField); // Name → BaseDir
+    state = state.apply(AppEvent::FormNextField); // BaseDir → DefaultProfile
+    state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultCodePuppyModel (LLxprt Version skipped)
+
+    let ModalState::NewRepository { focus, .. } = &state.modal else {
+        panic!("expected new-repository modal");
+    };
+    assert_eq!(*focus, RepositoryFormFocus::DefaultCodePuppyModel);
+
+    // Going backward from DefaultAgentKind must skip LLxprt Version too.
+    state = state.apply(AppEvent::FormNextField); // → DefaultAgentKind
+    state = state.apply(AppEvent::FormPrevField); // DefaultAgentKind → DefaultCodePuppyModel (LLxprt Version skipped)
+    let ModalState::NewRepository { focus, .. } = &state.modal else {
+        panic!("expected new-repository modal");
+    };
+    assert_eq!(*focus, RepositoryFormFocus::DefaultCodePuppyModel);
+}
+
+#[test]
+fn repository_form_focus_includes_default_llxprt_version_for_llxprt() {
+    let mut state = AppState {
+        repositories: vec![seed_repository()],
+        ..AppState::default()
+    };
+    state = state.apply(AppEvent::OpenNewRepository);
+    // Default agent kind is LLxprt (from seed).
+    state = state.apply(AppEvent::FormNextField); // Name → BaseDir
+    state = state.apply(AppEvent::FormNextField); // BaseDir → DefaultProfile
+    state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultLlxprtVersion
+
+    let ModalState::NewRepository { focus, .. } = &state.modal else {
+        panic!("expected new-repository modal");
+    };
+    assert_eq!(*focus, RepositoryFormFocus::DefaultLlxprtVersion);
+
+    state = state.apply(AppEvent::FormNextField); // → DefaultAgentKind (Code Puppy model hidden)
+    state = state.apply(AppEvent::FormPrevField); // → DefaultLlxprtVersion
+    let ModalState::NewRepository { focus, .. } = &state.modal else {
+        panic!("expected new-repository modal");
+    };
+    assert_eq!(*focus, RepositoryFormFocus::DefaultLlxprtVersion);
+    // Typing into the focused version field updates the value.
+    state = state.apply(AppEvent::FormChar('0'));
+    state = state.apply(AppEvent::FormChar('.'));
+    state = state.apply(AppEvent::FormChar('9'));
+    let ModalState::NewRepository { fields, .. } = &state.modal else {
+        panic!("expected new-repository modal");
+    };
+    assert_eq!(fields.default_llxprt_version, "0.9");
+}
+
+#[test]
+fn repository_form_runtime_switch_preserves_dormant_version_values() {
+    let mut state = AppState {
+        repositories: vec![seed_repository()],
+        ..AppState::default()
+    };
+    state = state.apply(AppEvent::OpenNewRepository);
+    // Type a default LLxprt version.
+    let ModalState::NewRepository { fields, .. } = &mut state.modal else {
+        panic!("expected new-repository modal");
+    };
+    fields.default_llxprt_version = "0.9.0".to_owned();
+    fields.default_code_puppy_model = "gpt-5".to_owned();
+    // Switch to Code Puppy and back to LLxprt.
+    fields.default_agent_kind = "code_puppy".to_owned();
+    fields.default_agent_kind = "LLxprt".to_owned();
+
+    let ModalState::NewRepository { fields, .. } = &state.modal else {
+        panic!("expected new-repository modal");
+    };
+    // Both dormant values must survive the runtime switch.
+    assert_eq!(fields.default_llxprt_version, "0.9.0");
+    assert_eq!(fields.default_code_puppy_model, "gpt-5");
+}
+
 #[test]
 fn create_repository_rejects_invalid_github_repo_without_slash() {
     let fields = RepositoryFormFields {
@@ -435,6 +536,7 @@ fn create_repository_rejects_invalid_github_repo_without_slash() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "foo".to_owned(),
         remote_enabled: false,
@@ -453,6 +555,7 @@ fn create_repository_rejects_github_repo_with_extra_slash() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "owner/repo/extra".to_owned(),
         remote_enabled: false,
@@ -471,6 +574,7 @@ fn create_repository_rejects_github_repo_missing_owner() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "/repo".to_owned(),
         remote_enabled: false,
@@ -489,6 +593,7 @@ fn create_repository_rejects_github_repo_missing_repo_name() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "owner/".to_owned(),
         remote_enabled: false,
@@ -507,6 +612,7 @@ fn create_repository_accepts_empty_github_repo() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: String::new(),
         remote_enabled: false,
@@ -525,6 +631,7 @@ fn create_repository_accepts_well_formed_github_repo() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "owner/repo".to_owned(),
         remote_enabled: false,
@@ -545,6 +652,7 @@ fn create_repository_rejects_github_repo_with_internal_whitespace_in_owner() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "own er/repo".to_owned(),
         remote_enabled: false,
@@ -564,6 +672,7 @@ fn create_repository_rejects_github_repo_with_whitespace_around_slash() {
             base_dir: String::new(),
             default_profile: String::new(),
             default_code_puppy_model: String::new(),
+            default_llxprt_version: String::new(),
             default_agent_kind: "LLxprt".to_owned(),
             github_repo: value.to_owned(),
             remote_enabled: false,
@@ -587,6 +696,7 @@ fn create_repository_rejects_github_repo_with_at_sign() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "acme@org/widgets".to_owned(),
         remote_enabled: false,
@@ -605,6 +715,7 @@ fn create_repository_accepts_github_repo_with_surrounding_whitespace_and_trims_i
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "  owner/repo  ".to_owned(),
         remote_enabled: false,
@@ -628,6 +739,7 @@ fn update_repository_rejects_invalid_github_repo_keeping_existing() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "no-slash".to_owned(),
         remote_enabled: false,
@@ -650,6 +762,7 @@ fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
         base_dir: String::new(),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "no-slash".to_owned(),
         remote_enabled: false,

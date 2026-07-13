@@ -128,7 +128,11 @@ fn main() {
         None => jefe::persistence::default_themes_dir(),
     };
     theme_manager.load_from_dir(&themes_dir);
-    let runtime = TmuxRuntimeManager::new(pty_rows, pty_cols);
+    let runtime = TmuxRuntimeManager::with_npm_executable(
+        pty_rows,
+        pty_cols,
+        jefe::agent_detection::npm_path().map(std::path::Path::to_path_buf),
+    );
 
     let context = Arc::new(std::sync::Mutex::new(AppContext {
         persistence,

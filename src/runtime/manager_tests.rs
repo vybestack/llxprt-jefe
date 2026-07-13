@@ -25,6 +25,7 @@ fn dead_signatures_cache_is_bounded_by_max_dead_signatures() {
                 work_dir: std::path::PathBuf::from("/tmp"),
                 profile: "default".into(),
                 code_puppy_model: String::new(),
+                llxprt_version: String::new(),
                 code_puppy_yolo: None,
                 code_puppy_quick_resume: false,
                 mode_flags: vec![],

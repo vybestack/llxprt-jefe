@@ -12,8 +12,11 @@ use tracing::debug;
 
 use crate::domain::{AgentKind, LaunchSignature};
 
+use super::command_plan::ExecutablePlan;
+use super::command_plan::{LocalLaunchPlan, launch_args, local_launch_plan};
+#[cfg(test)]
+use super::command_plan::{code_puppy_launch_args, llxprt_launch_args};
 use super::errors::RuntimeError;
-use super::preflight::sandbox_ssh_agent_warning;
 use super::socket::jefe_tmux_socket_path;
 
 const REMOTE_SSH_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
@@ -477,11 +480,48 @@ fn resolve_remote_agent_command(
     work_dir: &Path,
     setup_env: bool,
     agent_kind: AgentKind,
+    plan: &ExecutablePlan,
 ) -> Result<String, RuntimeError> {
+    // A versioned LLxprt launch requires npm and bypasses the direct llxprt
+    // resolver and setup-env entirely. The npm exec command resolves and
+    // installs the exact package version into the npm cache before running.
+    if plan.requires_npm() {
+        return resolve_remote_npm_command(remote, work_dir);
+    }
     match agent_kind {
         AgentKind::CodePuppy => resolve_remote_code_puppy_command(remote, work_dir),
         AgentKind::Llxprt => resolve_remote_llxprt_command(remote, work_dir, setup_env),
     }
+}
+
+fn resolve_remote_npm_command(
+    remote: &crate::domain::RemoteRepositorySettings,
+    _work_dir: &Path,
+) -> Result<String, RuntimeError> {
+    // Probe npm globally WITHOUT cd-ing into work_dir: the work directory may
+    // not exist yet (clone-if-missing flow), and a versioned launch only needs
+    // npm on the remote PATH, not a working directory. The actual tmux
+    // new-session later creates the directory via `mkdir -p`.
+    let script = remote_npm_probe_script();
+    let output = run_remote_ssh(remote, &remote_tmux_command(remote, &script))?;
+    let resolved = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if output.status.success() && !resolved.is_empty() {
+        Ok(resolved)
+    } else {
+        Err(RuntimeError::RemoteExecutionFailed(
+            "npm is required on the remote host for versioned LLxprt launch but was not found. Install Node.js/npm on the remote host or clear the Version field to use a directly installed llxprt.".to_owned(),
+        ))
+    }
+}
+
+/// Build the remote npm probe script (pure, for test verification).
+///
+/// The script checks for `npm` on the global remote PATH WITHOUT cd-ing
+/// into the work directory. This is critical: the work directory may not
+/// exist yet (clone-if-missing flow), and requiring `cd` would turn a
+/// globally-installed npm into a spurious "npm not found" error.
+fn remote_npm_probe_script() -> String {
+    "command -v npm".to_owned()
 }
 
 fn resolve_remote_code_puppy_command(
@@ -555,67 +595,6 @@ fn resolve_remote_llxprt_command(
     ))
 }
 
-fn launch_args(signature: &LaunchSignature) -> Vec<String> {
-    match signature.agent_kind {
-        AgentKind::CodePuppy => code_puppy_launch_args(signature),
-        AgentKind::Llxprt => llxprt_launch_args(signature),
-    }
-}
-
-fn code_puppy_launch_args(signature: &LaunchSignature) -> Vec<String> {
-    // Code Puppy interactive mode: output `-i`, an optional explicit model,
-    // and, for fresh (issue/PR-driven) sends, one positional instruction.
-    //
-    // Fresh sends replace mode_flags with one positional instruction and
-    // force pass_continue off. That structural contract avoids coupling the
-    // runtime layer to natural-language prompt text while still rejecting all
-    // arbitrary persisted LLxprt flags.
-    let mut args = vec!["-i".to_owned()];
-    if signature.code_puppy_quick_resume {
-        args.push("--quick-resume".to_owned());
-        args.push(signature.work_dir.to_string_lossy().into_owned());
-    }
-    if !signature.code_puppy_model.trim().is_empty() {
-        args.push("--model".to_owned());
-        args.push(signature.code_puppy_model.trim().to_owned());
-    }
-    if let Some(yolo) = signature.code_puppy_yolo {
-        args.push("--yolo".to_owned());
-        args.push(yolo.to_string());
-    }
-    if !signature.pass_continue
-        && let [instruction] = signature.mode_flags.as_slice()
-        && !instruction.starts_with('-')
-    {
-        args.push(instruction.clone());
-    }
-    args
-}
-
-fn llxprt_launch_args(signature: &LaunchSignature) -> Vec<String> {
-    let mut args = Vec::new();
-    if !signature.profile.is_empty() {
-        args.push("--profile-load".to_owned());
-        args.push(signature.profile.clone());
-    }
-    args.extend(
-        signature
-            .mode_flags
-            .iter()
-            .filter(|flag| !flag.is_empty())
-            .cloned(),
-    );
-    if signature.pass_continue {
-        args.push("--continue".to_owned());
-    }
-    if signature.sandbox_enabled {
-        args.push("--sandbox".to_owned());
-        args.push("--sandbox-engine".to_owned());
-        args.push(signature.sandbox_engine.as_llxprt_arg().to_owned());
-    }
-    args
-}
-
 fn remote_env_exports(signature: &LaunchSignature) -> Vec<String> {
     let mut env_exports = Vec::new();
     if signature.agent_kind == AgentKind::CodePuppy {
@@ -656,6 +635,38 @@ fn remote_cli_command(llxprt_command: &str, launch_args: &[String]) -> String {
     }
 }
 
+/// Assemble the remote CLI command from the executable plan, resolved agent
+/// command, and launch args.
+///
+/// This is the pure CLI-assembly seam extracted from
+/// [`build_remote_launch_command`] so the remote shell-escaping of an
+/// adversarial version selector is unit-testable without the SSH resolver
+/// side effect.
+///
+/// For an [`ExecutablePlan::NpmExec`], the plan's `remote_command_prefix`
+/// provides the fully shell-escaped `npm exec --yes --package=... -- llxprt`
+/// tokens. Every token (including the version selector embedded in
+/// `--package=`) is shell-escaped via single-quote wrapping so adversarial
+/// metacharacters never reach the remote shell as syntax.
+fn assemble_remote_cli_command(
+    plan: &ExecutablePlan,
+    agent_command: &str,
+    args: &[String],
+) -> String {
+    if plan.requires_npm() {
+        let prefix = plan.remote_command_prefix(agent_command);
+        if prefix.is_empty() {
+            remote_cli_command(agent_command, args)
+        } else if args.is_empty() {
+            prefix
+        } else {
+            format!("{prefix} {}", shell_join(args))
+        }
+    } else {
+        remote_cli_command(agent_command, args)
+    }
+}
+
 fn build_remote_launch_command(
     session_name: &str,
     work_dir: &Path,
@@ -664,14 +675,22 @@ fn build_remote_launch_command(
     let remote = &signature.remote;
     let work_dir_string = work_dir.to_string_lossy().into_owned();
     let escaped_work_dir = shell_escape_single(&work_dir_string);
+    let plan = ExecutablePlan::from_signature(signature);
     let agent_command = resolve_remote_agent_command(
         remote,
         work_dir,
         remote.setup_env_default,
         signature.agent_kind,
+        &plan,
     )?;
     let args = launch_args(signature);
-    let cli_command = remote_cli_command(&agent_command, &args);
+
+    // For an NpmExec plan, the resolved command is `npm` and the plan's
+    // remote prefix provides the `exec --yes --package=... -- llxprt` tokens.
+    // For a Direct plan, the resolved command is the binary path and the
+    // prefix is empty.
+    let cli_command = assemble_remote_cli_command(&plan, &agent_command, &args);
+
     // Scrub jefe's tmux client vars from the remote agent pane for the same
     // reason as the local path (#171): a bare `tmux` inside the agent must not
     // reach the (remote) tmux server hosting the agent session.
@@ -714,44 +733,12 @@ fn build_remote_tmux_script(
     )
 }
 
-struct LocalLaunchPlan {
-    agent_kind: AgentKind,
-    args: Vec<String>,
-    env: Vec<(String, String)>,
-    warning: Option<String>,
-}
-
-fn local_launch_plan(signature: &LaunchSignature) -> LocalLaunchPlan {
-    let mut env = Vec::new();
-    let warning = match signature.agent_kind {
-        AgentKind::Llxprt => {
-            if signature.sandbox_enabled {
-                env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
-                if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
-                    env.push((
-                        "LLXPRT_SANDBOX_IMAGE".to_owned(),
-                        image_ref.to_string_lossy().into_owned(),
-                    ));
-                }
-                sandbox_ssh_agent_warning()
-            } else {
-                None
-            }
-        }
-        AgentKind::CodePuppy => None,
-    };
-    if matches!(signature.agent_kind, AgentKind::Llxprt) && !signature.llxprt_debug.is_empty() {
-        env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
-    }
-    LocalLaunchPlan {
-        agent_kind: signature.agent_kind,
-        args: launch_args(signature),
-        env,
-        warning,
-    }
-}
-
-fn local_launch_command(session_name: &str, work_dir: &Path, plan: &LocalLaunchPlan) -> Command {
+fn local_launch_command(
+    session_name: &str,
+    work_dir: &Path,
+    plan: &LocalLaunchPlan,
+    npm_executable: Option<&Path>,
+) -> Command {
     let mut cmd = tmux_command();
     cmd.arg("new-session")
         .arg("-d")
@@ -766,24 +753,39 @@ fn local_launch_command(session_name: &str, work_dir: &Path, plan: &LocalLaunchP
     // env, so the scrub MUST live in the pane command rather than jefe's own
     // process env. The argv is built by the pure [`local_pane_command_args`]
     // helper so it is directly unit-testable.
-    for arg in local_pane_command_args(plan) {
+    for arg in local_pane_command_args(plan, npm_executable) {
         cmd.arg(arg);
     }
     cmd
 }
 
 /// Build the pane-command argv for a local agent session: the `env -u` scrub
-/// prefix, any `KEY=VALUE` env assignments, then `llxprt` and its launch args.
+/// prefix, any `KEY=VALUE` env assignments, then the executable selection
+/// (direct binary or npm exec prefix) and its launch args.
 ///
-/// Factored out of [`local_launch_command`] so the scrub is unit-testable
-/// without spawning tmux or introspecting a `Command` (#171).
-fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
-    let mut args = tmux_scrub_env_args();
+/// Factored out of [`local_launch_command`] so the scrub and executable plan
+/// are unit-testable without spawning tmux or introspecting a `Command`
+/// (#171).
+fn local_pane_command_args(
+    plan: &LocalLaunchPlan,
+    npm_executable: Option<&Path>,
+) -> Vec<std::ffi::OsString> {
+    let mut args: Vec<std::ffi::OsString> =
+        tmux_scrub_env_args().into_iter().map(Into::into).collect();
     for (key, value) in &plan.env {
-        args.push(format!("{key}={value}"));
+        args.push(format!("{key}={value}").into());
     }
-    args.push(plan.agent_kind.binary_name().to_owned());
-    args.extend(plan.args.iter().cloned());
+    // For a Direct plan, emit the binary name (llxprt or code-puppy). For an
+    // NpmExec plan, the prefix already includes `npm exec ... -- llxprt`.
+    match plan.plan {
+        ExecutablePlan::Direct => {
+            args.push(plan.agent_kind.binary_name().into());
+        }
+        ExecutablePlan::NpmExec { .. } => {
+            args.extend(plan.plan.local_argv_prefix(npm_executable));
+        }
+    }
+    args.extend(plan.args.iter().map(Into::into));
     args
 }
 
@@ -818,9 +820,10 @@ fn try_local_create_session(
     work_dir: &Path,
     signature: &LaunchSignature,
     attempt: u8,
+    npm_executable: Option<&Path>,
 ) -> Result<(), String> {
     let plan = local_launch_plan(signature);
-    let mut cmd = local_launch_command(session_name, work_dir, &plan);
+    let mut cmd = local_launch_command(session_name, work_dir, &plan, npm_executable);
     debug!(session_name = %session_name, attempt, "create_session invoking tmux new-session");
 
     let output = cmd.output().map_err(|e| format!("tmux new-session: {e}"))?;
@@ -863,6 +866,7 @@ pub fn create_session(
     session_name: &str,
     work_dir: &Path,
     signature: &LaunchSignature,
+    npm_executable: Option<&Path>,
 ) -> Result<(), RuntimeError> {
     debug!(session_name = %session_name, work_dir = %work_dir.display(), "create_session start");
     if remote_is_enabled(&signature.remote) {
@@ -870,7 +874,7 @@ pub fn create_session(
     }
 
     let _ = kill_session(session_name);
-    match try_local_create_session(session_name, work_dir, signature, 0) {
+    match try_local_create_session(session_name, work_dir, signature, 0, npm_executable) {
         Ok(()) => return Ok(()),
         Err(stderr) if is_tmux_fork_broken(&stderr) => {
             debug!(session_name = %session_name, attempt = 0, stderr = %stderr, "create_session retrying after tmux fork failure");
@@ -884,7 +888,7 @@ pub fn create_session(
         Err(stderr) => return Err(local_spawn_error(session_name, 0, stderr)),
     }
 
-    match try_local_create_session(session_name, work_dir, signature, 1) {
+    match try_local_create_session(session_name, work_dir, signature, 1, npm_executable) {
         Ok(()) => Ok(()),
         Err(stderr) => Err(local_spawn_error(session_name, 1, stderr)),
     }

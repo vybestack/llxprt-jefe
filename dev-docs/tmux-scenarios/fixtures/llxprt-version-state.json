@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "repositories": [
+    {
+      "id": "repo-llxprt-version-fixture",
+      "name": "VersionFixture",
+      "slug": "version-fixture",
+      "base_dir": "/tmp/version-fixture",
+      "default_profile": "",
+      "default_code_puppy_model": "",
+      "default_llxprt_version": "0.9.0",
+      "github_repo": "",
+      "remote": {
+        "enabled": false,
+        "login_user": "",
+        "host": "",
+        "run_as_user": "",
+        "setup_env_default": false
+      },
+      "issue_base_prompt": "",
+      "default_agent_kind": "llxprt",
+      "agent_ids": []
+    }
+  ],
+  "agents": [],
+  "selected_repository_index": 0,
+  "selected_agent_index": null,
+  "hide_idle_repositories": false,
+  "last_selected_agent_by_repo": [],
+  "pane_focus": "",
+  "terminal_focused": false,
+  "user_preferences": {
+    "by_repo": []
+  }
+}

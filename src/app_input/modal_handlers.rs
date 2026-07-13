@@ -522,6 +522,7 @@ fn handle_form_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     if !super::availability::local_kind_available_or_error(
         app_state,
         signature.agent_kind,
+        &signature.llxprt_version,
         &signature.remote,
     ) {
         return;
@@ -553,7 +554,7 @@ fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
                 run_as_user: fields.run_as_user.clone(),
                 setup_env_default: fields.setup_env_default,
             };
-            (kind, remote)
+            (kind, fields.default_llxprt_version.clone(), remote)
         }
         ModalState::NewAgent {
             repository_id,
@@ -566,7 +567,7 @@ fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
                 .map_or_else(RemoteRepositorySettings::default, |repo| {
                     repo.remote.clone()
                 });
-            (kind, remote)
+            (kind, fields.llxprt_version.clone(), remote)
         }
         ModalState::EditAgent { id, fields, .. } => {
             let kind = AgentKind::from_form_value(&fields.agent_kind).unwrap_or_default();
@@ -575,14 +576,14 @@ fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
                 .map_or_else(RemoteRepositorySettings::default, |repo| {
                     repo.remote.clone()
                 });
-            (kind, remote)
+            (kind, fields.llxprt_version.clone(), remote)
         }
         _ => return true,
     };
     drop(state);
-    let (kind, remote) = selection;
+    let (kind, version, remote) = selection;
 
-    super::availability::local_kind_available_or_error(app_state, kind, &remote)
+    super::availability::local_kind_available_or_error(app_state, kind, &version, &remote)
 }
 
 /// Extract workflow dispatch form data if the modal is a WorkflowDispatch

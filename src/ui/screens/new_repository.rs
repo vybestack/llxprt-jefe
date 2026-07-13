@@ -153,14 +153,45 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         ));
     }
 
+    if crate::state::kind_from_form_value(&fields.default_agent_kind)
+        == crate::domain::AgentKind::Llxprt
+    {
+        let version_focused = focus == RepositoryFormFocus::DefaultLlxprtVersion;
+        let version_value = if version_focused {
+            text_with_caret(
+                &fields.default_llxprt_version,
+                cursor.default_llxprt_version,
+            )
+        } else {
+            fields.default_llxprt_version.clone()
+        };
+        let version_line = format!("  {:<16} [{version_value}]", "Default Version");
+        all_lines.push(selectable_line(
+            &version_line,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            if version_focused { rc.bright } else { rc.fg },
+            sel,
+        ));
+    }
+
     let kind_focused = focus == RepositoryFormFocus::DefaultAgentKind;
     let kind_color = if kind_focused { rc.bright } else { rc.fg };
-    let effective_kinds = crate::state::effective_agent_kinds(
+    let effective_kinds = crate::state::effective_agent_kinds_with_npm(
         props
             .state
             .as_ref()
             .map_or(&[][..], |s| s.installed_agent_kinds.as_slice()),
         fields.remote_enabled,
+        props
+            .state
+            .as_ref()
+            .is_some_and(|s| s.npm_availability.is_available()),
     );
     let kind_hint = crate::state::effective_kinds_hint(&effective_kinds);
     let kind_line = format!(

@@ -46,6 +46,8 @@ mod issue_prep;
 mod issue_self_assignment;
 mod issues_send;
 mod remote_probe;
+#[cfg(test)]
+mod remote_probe_version_tests;
 mod target_resolution;
 use agent_runtime::{
     clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
@@ -196,6 +198,7 @@ fn launch_signature_for_agent(
         } else {
             agent.code_puppy_model.trim().to_owned()
         },
+        llxprt_version: agent.llxprt_version.trim().to_owned(),
         code_puppy_yolo: agent.code_puppy_yolo,
         code_puppy_quick_resume: agent.code_puppy_quick_resume,
         mode_flags: agent.mode_flags.clone(),
@@ -718,6 +721,7 @@ fn relaunch_preflight_passed(
     if !availability::local_kind_available_or_error(
         app_state,
         signature.agent_kind,
+        &signature.llxprt_version,
         &signature.remote,
     ) {
         return false;

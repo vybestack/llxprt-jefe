@@ -283,6 +283,7 @@ mod tests {
             work_dir: std::path::PathBuf::from("/tmp"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            llxprt_version: String::new(),
             code_puppy_yolo: Some(false),
             code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
@@ -324,6 +325,7 @@ mod tests {
             work_dir: std::path::PathBuf::from("/tmp"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            llxprt_version: String::new(),
             code_puppy_yolo: Some(false),
             code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
@@ -364,6 +366,7 @@ mod tests {
             work_dir: std::path::PathBuf::from("/tmp"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            llxprt_version: String::new(),
             code_puppy_yolo: None,
             code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
@@ -479,31 +482,31 @@ mod tests {
         }
     }
 
-    /// Build one sample of every confirm modal variant for overlay rendering
-    /// tests (mirrors `all_confirm_modal_samples` in `confirm_focus_tests.rs`).
-    fn overlay_confirm_modal_samples() -> Vec<crate::state::ModalState> {
-        use crate::domain::{LaunchSignature, SandboxEngine};
-        use crate::github::SendPayload;
-        use crate::runtime::PreflightIssue;
-        use crate::state::{ConfirmFocus, ModalState};
-
-        fn sig() -> LaunchSignature {
-            LaunchSignature {
-                work_dir: std::path::PathBuf::from("/tmp"),
-                profile: String::new(),
-                code_puppy_model: String::new(),
-                code_puppy_yolo: Some(false),
-                code_puppy_quick_resume: false,
-                mode_flags: Vec::new(),
-                llxprt_debug: String::new(),
-                pass_continue: false,
-                sandbox_enabled: false,
-                sandbox_engine: SandboxEngine::Podman,
-                sandbox_flags: String::new(),
-                remote: crate::domain::RemoteRepositorySettings::default(),
-                agent_kind: crate::domain::AgentKind::Llxprt,
-            }
+    fn overlay_signature() -> crate::domain::LaunchSignature {
+        crate::domain::LaunchSignature {
+            work_dir: std::path::PathBuf::from("/tmp"),
+            profile: String::new(),
+            code_puppy_model: String::new(),
+            llxprt_version: String::new(),
+            code_puppy_yolo: Some(false),
+            code_puppy_quick_resume: false,
+            mode_flags: Vec::new(),
+            llxprt_debug: String::new(),
+            pass_continue: false,
+            sandbox_enabled: false,
+            sandbox_engine: crate::domain::SandboxEngine::Podman,
+            sandbox_flags: String::new(),
+            remote: crate::domain::RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
         }
+    }
+
+    fn overlay_confirm_modal_samples() -> Vec<crate::state::ModalState> {
+        use crate::{
+            github::SendPayload,
+            runtime::PreflightIssue,
+            state::{ConfirmFocus, ModalState},
+        };
 
         vec![
             ModalState::ConfirmDeleteAgent {
@@ -521,7 +524,7 @@ mod tests {
             },
             ModalState::PreflightPrompt {
                 agent_id: AgentId("a".to_string()),
-                signature: sig(),
+                signature: overlay_signature(),
                 issue: PreflightIssue::SshAgentNoIdentities,
                 remaining_issues: Vec::new(),
                 issue_self_assignment: None,
@@ -530,14 +533,14 @@ mod tests {
             ModalState::ConfirmIssueDirtyCopy {
                 agent_id: AgentId("a".to_string()),
                 work_dir: std::path::PathBuf::from("/tmp"),
-                signature: sig(),
+                signature: overlay_signature(),
                 payload: SendPayload::default(),
                 confirm_focus: ConfirmFocus::Cancel,
             },
             ModalState::ConfirmIssueOriginMismatch {
                 agent_id: AgentId("a".to_string()),
                 work_dir: std::path::PathBuf::from("/tmp"),
-                signature: sig(),
+                signature: overlay_signature(),
                 payload: SendPayload::default(),
                 actual: String::new(),
                 expected: String::new(),

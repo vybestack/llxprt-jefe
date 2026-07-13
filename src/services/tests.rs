@@ -9,6 +9,7 @@ fn local_repository() -> Repository {
         base_dir: std::path::PathBuf::from("/tmp/repo-1"),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),
@@ -42,6 +43,7 @@ fn params<'a>(
         work_dir,
         profile: "",
         code_puppy_model: "",
+        llxprt_version: "",
         code_puppy_yolo: false,
         code_puppy_quick_resume: crate::domain::QuickResume::default(),
         agent_kind: "LLxprt",
@@ -174,4 +176,37 @@ fn create_agent_keeps_work_dir_verbatim_for_remote_repository() {
     let repo = remote_repository();
     let agent = created(params(&repo, "Agent", "~/work/agent"));
     assert_eq!(agent.work_dir, std::path::PathBuf::from("~/work/agent"));
+}
+
+// ── Issue #269: LLxprt version trimming ─────────────────────────────────────
+
+#[test]
+fn create_agent_trims_surrounding_whitespace_from_llxprt_version() {
+    let repo = local_repository();
+    let agent = created(CreateAgentParams {
+        llxprt_version: "  0.9.0  ",
+        ..params(&repo, "Agent", "/tmp/agent")
+    });
+    assert_eq!(agent.llxprt_version, "0.9.0");
+}
+
+#[test]
+fn create_agent_blank_llxprt_version_stays_blank() {
+    let repo = local_repository();
+    let agent = created(CreateAgentParams {
+        llxprt_version: "   ",
+        ..params(&repo, "Agent", "/tmp/agent")
+    });
+    assert_eq!(agent.llxprt_version, "");
+}
+
+#[test]
+fn create_agent_preserves_nightly_selector_exactly() {
+    let repo = local_repository();
+    let nightly = "0.10.0-nightly.260712.21cb698b6";
+    let agent = created(CreateAgentParams {
+        llxprt_version: nightly,
+        ..params(&repo, "Agent", "/tmp/agent")
+    });
+    assert_eq!(agent.llxprt_version, nightly);
 }

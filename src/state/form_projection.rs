@@ -15,7 +15,76 @@ use crate::domain::AgentKind;
 const ALL_AGENT_KINDS: [AgentKind; 2] = [AgentKind::Llxprt, AgentKind::CodePuppy];
 
 /// Resolve the effective agent-kind choices for a form given the installed
+/// snapshot, whether the target repository is remote, and whether `npm` is
+/// available on the local PATH.
+///
+/// For remote repositories **both** supported kinds are always offered,
+/// regardless of the local installed snapshot or npm availability. This is
+/// intentional and correct: the local PATH cannot determine what is
+/// installed on a remote host, so restricting choices to locally-installed
+/// runtimes would prevent the user from selecting a perfectly valid remote
+/// runtime.
+///
+/// The **target remote availability probe** (`remote_probe`) is the guard:
+/// it runs a side-effect-free `ssh -T` check for the exact binary on the
+/// remote host immediately before any side effect or launch. An
+/// unavailable remote runtime is caught there, not at form-choice time.
+/// No local startup cache of remote availability is built.
+///
+/// For local repositories only the locally installed kinds are offered so
+/// the user cannot select a runtime that cannot launch — **except** that
+/// LLxprt is also offered when `npm` is available, because a versioned
+/// LLxprt launch routes through `npm exec` and never requires a directly
+/// installed `llxprt` binary. This ensures repository and agent forms can
+/// select versioned LLxprt even when only npm is present.
+///
+/// This is the single shared pure projection consumed by the form-state
+/// cycling logic, the UI form components, and the selection-content
+/// projections. All three must agree on the effective choice set.
+#[must_use]
+pub fn effective_agent_kinds_with_npm(
+    installed: &[AgentKind],
+    is_remote: bool,
+    npm_available: bool,
+) -> Vec<AgentKind> {
+    if is_remote {
+        // Both kinds are offered for remote repos — local PATH cannot
+        // determine remote installation. The remote availability probe
+        // (remote_probe) guards before side effects/launch, not the form.
+        ALL_AGENT_KINDS.to_vec()
+    } else {
+        let mut kinds: Vec<AgentKind> = installed.to_vec();
+        // Offer LLxprt when npm is available even if not directly installed,
+        // so a versioned launch (npm exec) can be selected.
+        if npm_available && !kinds.contains(&AgentKind::Llxprt) {
+            kinds.insert(0, AgentKind::Llxprt);
+        }
+        // Deduplicate while preserving canonical order.
+        let mut seen = Vec::new();
+        kinds.retain(|kind| {
+            if seen.contains(kind) {
+                false
+            } else {
+                seen.push(*kind);
+                true
+            }
+        });
+        // Sort to canonical order (Llxprt before CodePuppy).
+        kinds.sort_by_key(|kind| match kind {
+            AgentKind::Llxprt => 0,
+            AgentKind::CodePuppy => 1,
+        });
+        kinds
+    }
+}
+
+/// Resolve the effective agent-kind choices for a form given the installed
 /// snapshot and whether the target repository is remote.
+///
+/// Delegates to [`effective_agent_kinds_with_npm`] with `npm_available =
+/// false`, preserving the original contract for callers that do not yet
+/// pass npm availability. New callers should use
+/// [`effective_agent_kinds_with_npm`] directly.
 ///
 /// For remote repositories **both** supported kinds are always offered,
 /// regardless of the local installed snapshot. This is intentional and
@@ -37,14 +106,7 @@ const ALL_AGENT_KINDS: [AgentKind; 2] = [AgentKind::Llxprt, AgentKind::CodePuppy
 /// projections. All three must agree on the effective choice set.
 #[must_use]
 pub fn effective_agent_kinds(installed: &[AgentKind], is_remote: bool) -> Vec<AgentKind> {
-    if is_remote {
-        // Both kinds are offered for remote repos — local PATH cannot
-        // determine remote installation. The remote availability probe
-        // (remote_probe) guards before side effects/launch, not the form.
-        ALL_AGENT_KINDS.to_vec()
-    } else {
-        installed.to_vec()
-    }
+    effective_agent_kinds_with_npm(installed, is_remote, false)
 }
 
 /// Format the effective agent kinds as a space-separated label list for form
@@ -117,6 +179,7 @@ pub fn is_field_visible(
     use crate::state::AgentFormFocus as F;
     match focus {
         F::Profile
+        | F::LlxprtVersion
         | F::Mode
         | F::LlxprtDebug
         | F::PassContinue
@@ -231,9 +294,20 @@ mod tests {
     #[test]
     fn llxprt_next_focus_uses_normal_order() {
         let vis = agent_form_visibility(AgentKind::Llxprt);
-        assert_eq!(next_visible_focus(F::Profile, vis), F::AgentKind);
+        assert_eq!(next_visible_focus(F::Profile, vis), F::LlxprtVersion);
+        assert_eq!(next_visible_focus(F::LlxprtVersion, vis), F::AgentKind);
         assert_eq!(next_visible_focus(F::AgentKind, vis), F::Mode);
         assert_eq!(prev_visible_focus(F::Mode, vis), F::AgentKind);
+        assert_eq!(prev_visible_focus(F::AgentKind, vis), F::LlxprtVersion);
+    }
+
+    #[test]
+    fn code_puppy_next_focus_skips_llxprt_version() {
+        let vis = agent_form_visibility(AgentKind::CodePuppy);
+        // For CodePuppy, Profile AND LlxprtVersion are both hidden, so
+        // WorkDir → AgentKind and AgentKind ← WorkDir.
+        assert_eq!(next_visible_focus(F::WorkDir, vis), F::AgentKind);
+        assert_eq!(prev_visible_focus(F::AgentKind, vis), F::WorkDir);
     }
 
     #[test]
@@ -271,5 +345,60 @@ mod tests {
         let installed = vec![AgentKind::Llxprt];
         let kinds = effective_agent_kinds(&installed, false);
         assert_eq!(kinds, vec![AgentKind::Llxprt]);
+    }
+
+    // ── Issue #269: npm-available LLxprt in local runtime choices ──────────
+    //
+    // When npm is present on the local PATH but llxprt is NOT directly
+    // installed, a local repository must still offer LLxprt as a runtime
+    // choice so the user can select a versioned LLxprt launch. The versioned
+    // launch routes through `npm exec` and never requires a directly
+    // installed llxprt binary.
+
+    #[test]
+    fn local_includes_llxprt_when_npm_available_without_direct_llxprt() {
+        // Only code-puppy is directly installed, but npm is available.
+        // LLxprt must still be offered so a versioned launch can be selected.
+        let installed = vec![AgentKind::CodePuppy];
+        let kinds = effective_agent_kinds_with_npm(&installed, false, true);
+        assert!(
+            kinds.contains(&AgentKind::Llxprt),
+            "LLxprt must be offered when npm is available even without direct llxprt: {kinds:?}"
+        );
+        assert!(
+            kinds.contains(&AgentKind::CodePuppy),
+            "directly installed kinds must still be offered: {kinds:?}"
+        );
+    }
+
+    #[test]
+    fn local_excludes_llxprt_when_npm_absent_and_llxprt_not_installed() {
+        // Neither llxprt nor npm available — LLxprt must NOT be offered.
+        let installed = vec![AgentKind::CodePuppy];
+        let kinds = effective_agent_kinds_with_npm(&installed, false, false);
+        assert!(
+            !kinds.contains(&AgentKind::Llxprt),
+            "LLxprt must not be offered when neither llxprt nor npm is available: {kinds:?}"
+        );
+    }
+
+    #[test]
+    fn local_llxprt_directly_installed_takes_precedence_over_npm_check() {
+        // When llxprt is directly installed, it must be offered regardless of
+        // npm availability (blank version preserves direct launch).
+        let installed = vec![AgentKind::Llxprt];
+        let kinds_no_npm = effective_agent_kinds_with_npm(&installed, false, false);
+        let kinds_npm = effective_agent_kinds_with_npm(&installed, false, true);
+        assert_eq!(kinds_no_npm, vec![AgentKind::Llxprt]);
+        assert_eq!(kinds_npm, vec![AgentKind::Llxprt]);
+    }
+
+    #[test]
+    fn remote_always_offers_both_regardless_of_npm() {
+        // Remote repos always offer both kinds; npm presence is irrelevant
+        // for the form choice (the remote probe checks npm at launch time).
+        let installed = vec![];
+        let kinds = effective_agent_kinds_with_npm(&installed, true, false);
+        assert_eq!(kinds, vec![AgentKind::Llxprt, AgentKind::CodePuppy]);
     }
 }

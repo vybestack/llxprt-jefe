@@ -150,6 +150,21 @@ When an artifact directory is supplied, the runner may write:
   reason.
 - `multiplexer.txt`: multiplexer executable/version and isolated namespace.
 - `<label>.screen.txt`: named captures from `capture` steps.
+- [`llxprt-version-fields.json`](../tmux-scenarios/llxprt-version-fields.json):
+  verifies the LLxprt repository `Default Version` field and its copy into a
+  new agent's `Version` field. Seed an isolated config before running:
+
+  ```bash
+  mkdir -p target/tmux-harness/issue269-config
+  cp dev-docs/tmux-scenarios/fixtures/llxprt-version-state.json \
+    target/tmux-harness/issue269-config/state.json
+  cargo build --workspace --all-features --locked
+  cargo run --bin jefe-tmux-harness -- \
+    --scenario dev-docs/tmux-scenarios/llxprt-version-fields.json \
+    --jefe-bin "$(pwd)/target/debug/jefe" \
+    --config target/tmux-harness/issue269-config \
+    --out-dir target/tmux-harness/llxprt-version-fields
+  ```
 - `<label>.history.txt`: named scrollback samples from `historySample` steps.
 
 Artifact labels are sanitized before writing, so scenario names cannot escape the

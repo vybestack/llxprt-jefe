@@ -6,11 +6,17 @@ use super::{AgentFormFields, AgentFormFocus};
 
 /// Resolve the effective agent-kind choices for the currently open agent form.
 ///
-/// Delegates to [`super::form_projection::effective_agent_kinds`] — the single
-/// shared pure projection consumed by form cycling, UI rendering, and
-/// selection content.
-pub(super) fn effective_agent_kinds(installed: &[AgentKind], is_remote: bool) -> Vec<AgentKind> {
-    super::form_projection::effective_agent_kinds(installed, is_remote)
+/// Delegates to [`super::form_projection::effective_agent_kinds_with_npm`]
+/// — the single shared pure projection consumed by form cycling, UI
+/// rendering, and selection content. When `npm_available` is true, LLxprt is
+/// offered even without a directly installed llxprt binary, so a versioned
+/// launch (npm exec) can be selected.
+pub(super) fn effective_agent_kinds(
+    installed: &[AgentKind],
+    is_remote: bool,
+    npm_available: bool,
+) -> Vec<AgentKind> {
+    super::form_projection::effective_agent_kinds_with_npm(installed, is_remote, npm_available)
 }
 
 pub(super) fn cycle_agent_field(

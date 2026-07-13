@@ -23,6 +23,12 @@ pub use quick_resume::QuickResume;
 mod issues;
 pub use issues::*;
 
+/// Pure validation/normalization for LLxprt version selectors (issue #269).
+pub mod version_selector;
+pub use version_selector::{
+    VersionSelectorError, normalize_version_selector, validate_version_selector,
+};
+
 /// Stable identifier for a repository.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RepositoryId(pub String);
@@ -274,6 +280,13 @@ pub struct Repository {
     /// Default Code Puppy model. Empty preserves Code Puppy's own default.
     #[serde(default)]
     pub default_code_puppy_model: String,
+    /// Default LLxprt npm package selector copied into newly created LLxprt
+    /// agents. Blank (the default) preserves direct/resolved `llxprt` launch.
+    /// Nonblank selectors launch via
+    /// `npm exec --yes --package=@vybestack/llxprt-code@SELECTOR -- llxprt`.
+    /// Existing agents are never retroactively changed by editing this field.
+    #[serde(default)]
+    pub default_llxprt_version: String,
     /// GitHub repository in `"owner/repo"` format (e.g. `"acme/widgets"`).
     /// When set, issues mode uses this instead of auto-detecting from git remotes.
     #[serde(default)]
@@ -734,6 +747,11 @@ pub struct Agent {
     /// Optional Code Puppy model override. Empty inherits the repository default.
     #[serde(default)]
     pub code_puppy_model: String,
+    /// LLxprt npm package selector. Blank preserves direct/resolved `llxprt`.
+    /// Nonblank launches via
+    /// `npm exec --yes --package=@vybestack/llxprt-code@SELECTOR -- llxprt`.
+    #[serde(default)]
+    pub llxprt_version: String,
     /// Explicit Code Puppy YOLO choice.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
@@ -785,6 +803,11 @@ pub struct LaunchSignature {
     /// Effective Code Puppy model for this launch.
     #[serde(default)]
     pub code_puppy_model: String,
+    /// Effective LLxprt npm package selector for this launch. Blank means
+    /// direct/resolved `llxprt`. Nonblank means the launch is routed through
+    /// `npm exec --yes --package=@vybestack/llxprt-code@SELECTOR -- llxprt`.
+    #[serde(default)]
+    pub llxprt_version: String,
     /// Explicit Code Puppy YOLO value for this launch.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
@@ -826,6 +849,7 @@ impl Agent {
 
             profile: String::new(),
             code_puppy_model: String::new(),
+            llxprt_version: String::new(),
             code_puppy_yolo: None,
             code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
@@ -858,6 +882,7 @@ impl Repository {
             base_dir,
             default_profile: String::new(),
             default_code_puppy_model: String::new(),
+            default_llxprt_version: String::new(),
             github_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),

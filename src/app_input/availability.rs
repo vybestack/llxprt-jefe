@@ -61,46 +61,64 @@ pub(super) fn require_local_kind_available(
     ))
 }
 
-/// Reject a local launch when the agent's runtime kind is not in the supplied
-/// `available` snapshot.
+/// Pure selector-aware local availability check.
 ///
-/// This variant is used by the centralized pre-side-effect availability
-/// validation ([`crate::app_input::remote_probe::require_runtime_available`])
-/// after the target has already been resolved to `Local`. It checks only
-/// local availability — no remote/incomplete-remote logic, since the target
-/// is already known to be local.
+/// Branches on AgentKind before the selector so Code Puppy never consults npm
+/// due to a dormant LLxprt selector. A versioned LLxprt launch (nonblank
+/// `llxprt_version`) requires `npm`; all other cases require the kind's
+/// binary on PATH.
 ///
-/// Pure (no state mutation, no PATH I/O).
-pub(super) fn require_local_kind_available_for_target(
+/// Pure (no state mutation, no PATH I/O) — the caller passes `npm_present`
+/// and the `available` snapshot so this is fully deterministic.
+pub(super) fn require_local_kind_or_npm_available(
     kind: AgentKind,
+    llxprt_version: &str,
+    remote: &RemoteRepositorySettings,
     available: &[AgentKind],
+    npm_present: bool,
 ) -> Result<(), String> {
-    if available.contains(&kind) {
+    if jefe::domain::target::is_valid_remote(remote) {
         return Ok(());
     }
-    Err(format!(
-        "{} is not installed on the local PATH. Install it or use a remote repository.",
-        kind.label()
-    ))
+    if remote.enabled {
+        return Err(jefe::domain::target::invalid_remote_message());
+    }
+
+    if kind == AgentKind::Llxprt && !llxprt_version.trim().is_empty() {
+        if npm_present {
+            return Ok(());
+        }
+        return Err(
+            "npm is required on the local PATH for versioned LLxprt launch but was not found. Install Node.js/npm or clear the Version field to use a directly installed llxprt.".to_owned()
+        );
+    }
+
+    require_local_kind_available(kind, remote, available)
 }
 
 /// Pre-submit guard for new-agent and edit-agent forms.
 ///
-/// Reads the `installed_agent_kinds` snapshot from `app_state` under a short
-/// read-lock, then calls [`require_local_kind_available`]. If the resolved
-/// kind is not locally available **and** the repository is not remote-enabled,
-/// this writes a visible error into `app_state` and returns `false` so the
-/// caller skips the launch. Remote agents always pass.
+/// Reads the installed-runtime and npm snapshots from `app_state` under a
+/// short read-lock, then delegates to [`require_local_kind_or_npm_available`].
+///
+/// For LLxprt with a nonblank `llxprt_version`, requires `npm` on the local
+/// PATH rather than `llxprt` directly. For all other cases, retains the
+/// existing kind-based check.
 pub(super) fn local_kind_available_or_error(
     app_state: &mut AppStateHandle,
     kind: AgentKind,
+    llxprt_version: &str,
     remote: &RemoteRepositorySettings,
 ) -> bool {
-    let available = {
+    let (available, npm_present) = {
         let state = app_state.read();
-        state.installed_agent_kinds.clone()
+        (
+            state.installed_agent_kinds.clone(),
+            state.npm_availability.is_available(),
+        )
     };
-    match require_local_kind_available(kind, remote, &available) {
+    match require_local_kind_or_npm_available(kind, llxprt_version, remote, &available, npm_present)
+    {
         Ok(()) => true,
         Err(message) => {
             let mut state = app_state.write();
@@ -292,5 +310,89 @@ mod tests {
             result.is_err(),
             "disabled remote + uninstalled kind must fail"
         );
+    }
+
+    // ── Selector-aware availability (issue #269) ──────────────────────────
+
+    #[test]
+    fn blank_llxprt_version_requires_llxprt_not_npm() {
+        let remote = RemoteRepositorySettings::default();
+        assert!(
+            require_local_kind_or_npm_available(
+                AgentKind::Llxprt,
+                "",
+                &remote,
+                &[AgentKind::Llxprt],
+                false,
+            )
+            .is_ok()
+        );
+        let result =
+            require_local_kind_or_npm_available(AgentKind::Llxprt, "", &remote, &[], false);
+        let Err(err) = &result else {
+            panic!("blank LLxprt with nothing installed must fail, got {result:?}");
+        };
+        assert!(err.contains("LLxprt"));
+        assert!(err.contains("PATH"));
+        assert!(!err.contains("npm"));
+    }
+
+    #[test]
+    fn versioned_llxprt_requires_npm_not_llxprt() {
+        let remote = RemoteRepositorySettings::default();
+        assert!(
+            require_local_kind_or_npm_available(AgentKind::Llxprt, "0.9.0", &remote, &[], true,)
+                .is_ok(),
+            "versioned LLxprt with npm present must pass even without llxprt installed"
+        );
+        let result = require_local_kind_or_npm_available(
+            AgentKind::Llxprt,
+            "0.9.0",
+            &remote,
+            &[AgentKind::Llxprt],
+            false,
+        );
+        let Err(err) = &result else {
+            panic!("versioned LLxprt without npm must fail, got {result:?}");
+        };
+        assert!(err.contains("npm"));
+    }
+
+    #[test]
+    fn versioned_llxprt_remote_always_passes() {
+        let remote = RemoteRepositorySettings {
+            enabled: true,
+            login_user: "ubuntu".to_owned(),
+            host: "build.example.com".to_owned(),
+            ..Default::default()
+        };
+        assert!(
+            require_local_kind_or_npm_available(AgentKind::Llxprt, "0.9.0", &remote, &[], false,)
+                .is_ok(),
+            "remote versioned LLxprt must pass regardless of local npm"
+        );
+    }
+
+    #[test]
+    fn code_puppy_ignores_dormant_llxprt_version() {
+        let remote = RemoteRepositorySettings::default();
+        assert!(
+            require_local_kind_or_npm_available(
+                AgentKind::CodePuppy,
+                "0.9.0",
+                &remote,
+                &[AgentKind::CodePuppy],
+                false,
+            )
+            .is_ok()
+        );
+        let result =
+            require_local_kind_or_npm_available(AgentKind::CodePuppy, "0.9.0", &remote, &[], true);
+        let Err(err) = &result else {
+            panic!("code-puppy with nothing installed must fail, got {result:?}");
+        };
+        assert!(err.contains("code_puppy"));
+        assert!(err.contains("PATH"));
+        assert!(!err.contains("npm"));
     }
 }

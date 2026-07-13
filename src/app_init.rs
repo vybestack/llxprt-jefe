@@ -24,6 +24,7 @@ fn launch_signature_for_agent(
         work_dir: agent.work_dir.clone(),
         profile: agent.profile.clone(),
         code_puppy_model: agent.code_puppy_model.trim().to_owned(),
+        llxprt_version: agent.llxprt_version.trim().to_owned(),
         code_puppy_yolo: agent.code_puppy_yolo,
         code_puppy_quick_resume: agent.code_puppy_quick_resume,
         mode_flags: agent.mode_flags.clone(),
@@ -35,6 +36,16 @@ fn launch_signature_for_agent(
         remote: repository.remote.clone(),
         agent_kind: agent.agent_kind,
     }
+}
+
+fn restore_launch_signature(
+    agent: &Agent,
+    repository: &jefe::domain::Repository,
+) -> LaunchSignature {
+    agent.runtime_binding.as_ref().map_or_else(
+        || launch_signature_for_agent(agent, repository),
+        |binding| binding.launch_signature.clone(),
+    )
 }
 
 fn append_warning(state: &mut AppState, warning: String) {
@@ -102,6 +113,11 @@ pub fn init_app_state(app_state: &mut HookState<AppState>, ctx: &SharedContext) 
     state.repositories = persisted.repositories;
     state.agents = persisted.agents;
     state.installed_agent_kinds = jefe::agent_detection::installed_agent_kinds().to_vec();
+    state.npm_availability = if jefe::agent_detection::npm_path().is_some() {
+        jefe::state::NpmAvailability::Available
+    } else {
+        jefe::state::NpmAvailability::Unavailable
+    };
     state.selected_repository_index = persisted.selected_repository_index;
     state.selected_agent_index = persisted.selected_agent_index;
     state.hide_idle_repositories = persisted.hide_idle_repositories;
@@ -308,7 +324,7 @@ fn restore_one_agent(
     else {
         return RestoreOneOutcome::Dead;
     };
-    let signature = launch_signature_for_agent(agent, &repository);
+    let signature = restore_launch_signature(agent, &repository);
     let pid = agent.runtime_binding.as_ref().and_then(|b| b.pid);
     let session_exists = runtime.session_exists_for_signature(&agent.id, &signature);
 
@@ -503,6 +519,36 @@ mod tests {
         let signature = launch_signature_for_agent(&agent, &repository);
 
         assert!(signature.code_puppy_model.is_empty());
+    }
+
+    #[test]
+    fn restore_preserves_live_binding_llxprt_version() {
+        let repository_id = RepositoryId("repo-version".to_owned());
+        let repository = Repository::new(
+            repository_id.clone(),
+            "Version Repo".to_owned(),
+            "version-repo".to_owned(),
+            std::path::PathBuf::from("/tmp/version-repo"),
+        );
+        let mut agent = Agent::new(
+            AgentId("agent-version".to_owned()),
+            repository_id,
+            "Version Agent".to_owned(),
+            std::path::PathBuf::from("/tmp/version-agent"),
+        );
+        agent.llxprt_version = "0.10.0".to_owned();
+        let mut launched = launch_signature_for_agent(&agent, &repository);
+        launched.llxprt_version = "0.9.0".to_owned();
+        agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
+            session_name: "jefe-agent-version".to_owned(),
+            launch_signature: launched,
+            attached: false,
+            last_seen: None,
+            pid: None,
+        });
+
+        let restored = restore_launch_signature(&agent, &repository);
+        assert_eq!(restored.llxprt_version, "0.9.0");
     }
 
     /// Session still exists → never dead, regardless of PID.

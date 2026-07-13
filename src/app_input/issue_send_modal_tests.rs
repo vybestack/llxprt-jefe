@@ -127,6 +127,22 @@ fn issue_send_forces_pass_continue_false_on_launch_signature() {
 }
 
 #[test]
+fn issue_send_preserves_nonblank_llxprt_version() {
+    let agent_id = AgentId(String::from("versioned-issue-agent"));
+    let work_dir = std::path::PathBuf::from("/tmp/jefe-versioned-issue-send");
+    let mut state = state_for_issue_agent_chooser_send(&agent_id, &work_dir);
+    let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == agent_id) else {
+        panic!("fixture agent should exist");
+    };
+    agent.llxprt_version = "0.10.0-nightly.260712.21cb698b6".to_owned();
+
+    let Some(send_info) = issue_send_info_from_state(&state) else {
+        panic!("issue send info should resolve");
+    };
+    let launch_sig = prepare_issue_launch_signature(send_info.signature);
+    assert_eq!(launch_sig.llxprt_version, "0.10.0-nightly.260712.21cb698b6");
+}
+#[test]
 fn code_puppy_issue_send_carries_kind_and_uses_positional_instruction() {
     let agent_id = AgentId(String::from("code-puppy-issue-agent"));
     let work_dir = std::path::PathBuf::from("/tmp/jefe-code-puppy-issue-send");

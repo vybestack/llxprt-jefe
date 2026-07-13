@@ -406,12 +406,7 @@ fn update_pr_detail_viewport_rows(app_state: &mut AppStateHandle) {
 /// must use exactly this relative path.
 const PR_PROMPT_RELATIVE_PATH: &str = ".jefe/pr-prompt.md";
 
-/// Dispatch the PR agent-chooser confirm (send-to-agent) side effects.
-///
-/// Mirrors `dispatch_agent_chooser_confirm` exactly: resolve send info, apply
-/// the chooser-confirm reducer (closes chooser + records send), write the PR
-/// prompt, then launch the agent. The ordering is reducer-before-spawn so the
-/// chooser is closed and the send recorded BEFORE any side effect.
+/// Dispatch the PR agent-chooser confirm side effects after reducer state closes the chooser.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-011
@@ -424,21 +419,17 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
         return;
     };
 
-    // Use the shared kind-specific prompt construction so CodePuppy PR sends
-    // do not get a duplicate -i (the runtime layer prepends it) and the
-    // issue/PR send paths agree on the exact arg shape.
     let launch_sig = prepare_fresh_prompt_signature(
         send_info.signature,
         FreshPromptKind::PullRequest,
         PR_PROMPT_RELATIVE_PATH,
     );
 
-    // Availability + target validation BEFORE any prompt side effect: a
-    // missing agent runtime or an invalid/incomplete remote config must not
-    // trigger a local or remote prompt write.
+    // Validate availability and target before any prompt write.
     if !super::availability::local_kind_available_or_error(
         app_state,
         launch_sig.agent_kind,
+        &launch_sig.llxprt_version,
         &launch_sig.remote,
     ) {
         return;
@@ -451,41 +442,18 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
         }
     };
 
-    // Centralized pre-side-effect availability probe (defect 2): BEFORE any
-    // PR prompt write, probe the selected runtime on the resolved target.
-    // For local targets this reuses the session snapshot; for remote targets
-    // this is a no-install/no-setup/side-effect-free ssh -T probe for the
-    // exact binary executed as the effective run_as_user. Unavailable remote
-    // means no prompt write operation.
     if !super::remote_probe::pre_side_effect_runtime_available_or_error(
         app_state,
         &target,
         &send_info.work_dir,
         launch_sig.agent_kind,
+        &launch_sig.llxprt_version,
     ) {
         return;
     }
 
-    // Write the PR prompt to the selected WorkTarget (local fs or remote
-    // ssh -T with prompt bytes via stdin). The remote path reuses the exact
-    // production remote prompt planning seam from `remote_probe` so `.jefe/
-    // pr-prompt.md` is targeted, prompt bytes are stdin, and adversarial
-    // content is absent from argv.
     let prompt_content = prs_dispatch::format_pr_prompt(&send_info.payload);
-    let write_result = match &target {
-        super::issue_prep::WorkTarget::Local => super::issue_prep::write_prompt_to_target(
-            &target,
-            &send_info.work_dir,
-            PR_PROMPT_RELATIVE_PATH,
-            &prompt_content,
-        ),
-        super::issue_prep::WorkTarget::Remote(remote) => super::remote_probe::write_remote_prompt(
-            remote,
-            &send_info.work_dir,
-            PR_PROMPT_RELATIVE_PATH,
-            &prompt_content,
-        ),
-    };
+    let write_result = write_pr_prompt_to_target(&target, &send_info.work_dir, &prompt_content);
     if let Err(error) = write_result {
         apply_pr_send_to_agent_failed(app_state, ctx, error);
         return;
@@ -502,8 +470,29 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
     }
 }
 
-/// Write the PR agent prompt to disk (local only).
+/// Write the PR agent prompt to the selected local or remote target.
 ///
+fn write_pr_prompt_to_target(
+    target: &super::issue_prep::WorkTarget,
+    work_dir: &std::path::Path,
+    prompt_content: &str,
+) -> Result<(), String> {
+    match target {
+        super::issue_prep::WorkTarget::Local => super::issue_prep::write_prompt_to_target(
+            target,
+            work_dir,
+            PR_PROMPT_RELATIVE_PATH,
+            prompt_content,
+        ),
+        super::issue_prep::WorkTarget::Remote(remote) => super::remote_probe::write_remote_prompt(
+            remote,
+            work_dir,
+            PR_PROMPT_RELATIVE_PATH,
+            prompt_content,
+        ),
+    }
+}
+
 /// Retained for tests that verify the local PR prompt write step in isolation.
 /// The production dispatch path uses [`issue_prep::write_prompt_to_target`] so
 /// remote PR prompts travel via stdin over `ssh -T`.

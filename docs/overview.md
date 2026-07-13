@@ -18,6 +18,7 @@ A **repository** represents a codebase the user works on. Each repository has:
 - A URL-safe slug derived from the name.
 - A base directory path on disk (e.g., `/Users/alice/projects/llxprt-code`).
 - A default profile for new agents launched against this repository (may be empty, meaning "use agent CLI defaults").
+- An optional default LLxprt npm version copied into newly created LLxprt agents. Updating it does not alter existing agents.
 - Zero or more agents.
 
 Repositories are persistent. They survive application restarts.
@@ -31,6 +32,7 @@ An **agent** is a single running (or previously-run) instance of an AI coding CL
 - A longer description of the work being done.
 - A working directory, typically a subdirectory or worktree under the repository's base directory.
 - A profile name (inherited from the repository default, overridable per agent).
+- An optional LLxprt npm version (initialized from the repository default and overridable per agent).
 - A mode string controlling agent behavior flags (e.g., `--yolo`, `--yolo --continue`).
 - A PTY session slot linking it to a live terminal backend.
 - A lifecycle status (see Agent Lifecycle below).
@@ -94,6 +96,7 @@ Pressing `n` opens a form to launch a new agent under the currently selected rep
 | **Description**    | Optional. Longer explanation of the agent's purpose.                         |
 | **Work dir**       | Auto-populated from repo base dir + name slug. User-editable.                |
 | **Profile**        | Inherited from repository default. Editable. Empty means agent CLI defaults. |
+| **Version**        | LLxprt-only npm selector inherited at creation. Blank runs direct `llxprt`; nonblank runs the selected package through `npm exec`. |
 | **Mode**           | Pre-filled with `--yolo`. Free-text for arbitrary flags; clear it to run non-yolo. |
 | **Pass --continue**| Checkbox (default on). Appends `--continue` to the mode flags.               |
 
@@ -101,7 +104,7 @@ On submit, Jefe creates the working directory on disk, spawns a tmux session run
 
 ### Repository Creation Form
 
-Pressing `N` opens a form to register a new repository. Fields: Name, Base directory, Default profile. On submit the base directory is created on disk if it does not exist.
+Pressing `N` opens a form to register a new repository. Fields include Name, Base directory, Default profile, and the LLxprt-only Default Version. The default version is copied to future agents; it is not a live inheritance link. On submit the base directory is created on disk if it does not exist. Versioned local launches require npm locally, and versioned remote launches require npm for the effective remote user.
 
 ### Agent and Repository Editing
 

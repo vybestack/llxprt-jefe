@@ -91,6 +91,13 @@ impl AppState {
             return None;
         }
 
+        if let Err(error) =
+            crate::domain::normalize_version_selector(&fields.default_llxprt_version)
+        {
+            warn!(error = %error, "rejecting repository create: invalid default_llxprt_version");
+            return None;
+        }
+
         // Reject an enabled-but-incomplete remote config visibly: the user
         // must provide both login_user and host when remote is enabled.
         // This prevents silently persisting a config that would later be
@@ -127,6 +134,7 @@ impl AppState {
             base_dir: std::path::PathBuf::from(&base_dir),
             default_profile: normalize_profile(&fields.default_profile),
             default_code_puppy_model: fields.default_code_puppy_model.trim().to_owned(),
+            default_llxprt_version: fields.default_llxprt_version.trim().to_owned(),
             github_repo: fields.github_repo.trim().to_owned(),
             remote: remote_settings,
             issue_base_prompt: String::new(),
@@ -154,6 +162,13 @@ impl AppState {
             return false;
         }
 
+        if let Err(error) =
+            crate::domain::normalize_version_selector(&fields.default_llxprt_version)
+        {
+            warn!(error = %error, "rejecting repository update: invalid default_llxprt_version");
+            return false;
+        }
+
         // Reject an enabled-but-incomplete remote config visibly.
         let remote_settings = Self::remote_settings_from_fields(fields);
         if let Err(error) = crate::domain::target::validate_remote(&remote_settings) {
@@ -178,6 +193,10 @@ impl AppState {
             .default_code_puppy_model
             .trim()
             .clone_into(&mut repo.default_code_puppy_model);
+        fields
+            .default_llxprt_version
+            .trim()
+            .clone_into(&mut repo.default_llxprt_version);
         repo.default_agent_kind = AgentKind::from_form_value(&fields.default_agent_kind)
             .unwrap_or(repo.default_agent_kind);
         fields.github_repo.trim().clone_into(&mut repo.github_repo);
@@ -205,6 +224,7 @@ impl AppState {
             work_dir: &fields.work_dir,
             profile: &fields.profile,
             code_puppy_model: &fields.code_puppy_model,
+            llxprt_version: &fields.llxprt_version,
             code_puppy_yolo: fields.code_puppy_yolo,
             code_puppy_quick_resume: fields.code_puppy_quick_resume,
             agent_kind: &fields.agent_kind,
@@ -240,6 +260,14 @@ impl AppState {
         if trimmed_name.is_empty() {
             return;
         }
+        let normalized_version =
+            match crate::domain::normalize_version_selector(&fields.llxprt_version) {
+                Ok(version) => version,
+                Err(error) => {
+                    warn!(error = %error, "rejecting agent update: invalid llxprt_version");
+                    return;
+                }
+            };
 
         trimmed_name.clone_into(&mut agent.name);
         agent.shortcut_slot = fields.shortcut_slot;
@@ -264,6 +292,7 @@ impl AppState {
             .code_puppy_model
             .trim()
             .clone_into(&mut agent.code_puppy_model);
+        agent.llxprt_version = normalized_version;
         agent.code_puppy_yolo = Some(fields.code_puppy_yolo);
         agent.code_puppy_quick_resume = fields.code_puppy_quick_resume.enabled();
         agent.agent_kind =

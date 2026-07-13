@@ -188,8 +188,9 @@ pub(super) fn plan_remote_probe(
     remote: &RemoteRepositorySettings,
     work_dir: &Path,
     kind: AgentKind,
+    llxprt_version: &str,
 ) -> Vec<String> {
-    let inner = probe_inner_command(kind, work_dir);
+    let inner = probe_inner_command(kind, work_dir, llxprt_version);
     let effective = effective_user(remote);
     let command = if effective == remote.login_user.trim() {
         inner
@@ -262,7 +263,14 @@ pub(super) fn plan_remote_probe(
 /// `<work_dir>/node_modules/.bin/llxprt`. For `CodePuppy`, it probes the
 /// exact global `code-puppy` binary only (the launch resolver has no
 /// path-local fallback for code-puppy).
-fn probe_inner_command(kind: AgentKind, work_dir: &Path) -> String {
+///
+/// ## Versioned LLxprt (issue #269)
+///
+/// When `llxprt_version` is nonblank after trimming and the kind is `Llxprt`,
+/// the probe checks for `npm` instead of `llxprt` — a versioned remote launch
+/// routes through `npm exec --yes --package=...` and never invokes a
+/// directly installed `llxprt`.
+fn probe_inner_command(kind: AgentKind, work_dir: &Path, llxprt_version: &str) -> String {
     let sentinel_ok = shell_escape(SENTINEL_OK);
     let sentinel_no = shell_escape(SENTINEL_NO);
     match kind {
@@ -277,6 +285,14 @@ fn probe_inner_command(kind: AgentKind, work_dir: &Path) -> String {
             )
         }
         AgentKind::Llxprt => {
+            // Versioned LLxprt routes through npm exec — probe npm, not llxprt.
+            if !llxprt_version.trim().is_empty() {
+                return format!(
+                    "command -v npm >/dev/null 2>&1 \
+                     && printf '%s' {sentinel_ok} \
+                     || printf '%s' {sentinel_no}",
+                );
+            }
             // LLxprt: mirror launch resolver non-mutating checks — global
             // command (no cd) OR executable <work_dir>/node_modules/.bin/llxprt.
             // The global check runs first without cd so a missing work
@@ -317,8 +333,9 @@ pub(super) fn execute_remote_probe(
     remote: &RemoteRepositorySettings,
     work_dir: &Path,
     kind: AgentKind,
+    llxprt_version: &str,
 ) -> RemoteProbeResult {
-    let argv = plan_remote_probe(remote, work_dir, kind);
+    let argv = plan_remote_probe(remote, work_dir, kind, llxprt_version);
     let mut cmd = Command::new("ssh");
     cmd.args(&argv);
     cmd.stdout(Stdio::piped());
@@ -370,21 +387,39 @@ pub(super) fn require_runtime_available(
     work_dir: &Path,
     kind: AgentKind,
     available: &[AgentKind],
+    llxprt_version: &str,
+    npm_present: bool,
 ) -> Result<(), String> {
     match target {
-        WorkTarget::Local => {
-            super::availability::require_local_kind_available_for_target(kind, available)
-        }
+        WorkTarget::Local => super::availability::require_local_kind_or_npm_available(
+            kind,
+            llxprt_version,
+            &jefe::domain::RemoteRepositorySettings::default(),
+            available,
+            npm_present,
+        ),
         WorkTarget::Remote(remote) => {
-            let result = execute_remote_probe(remote, work_dir, kind);
+            let result = execute_remote_probe(remote, work_dir, kind, llxprt_version);
             match result {
                 RemoteProbeResult::Available => Ok(()),
-                RemoteProbeResult::NotAvailable => Err(format!(
-                    "{} is not installed on the remote host for user '{}'. \
-                     Install it or select a different agent kind.",
-                    kind.binary_name(),
-                    effective_user(remote)
-                )),
+                RemoteProbeResult::NotAvailable => {
+                    if !llxprt_version.trim().is_empty() && kind == AgentKind::Llxprt {
+                        Err(format!(
+                            "npm is not installed on the remote host for user '{}'. \
+                             A versioned LLxprt launch requires npm. Install Node.js/npm on the \
+                             remote host or clear the Version field to use a directly installed \
+                             llxprt.",
+                            effective_user(remote)
+                        ))
+                    } else {
+                        Err(format!(
+                            "{} is not installed on the remote host for user '{}'. \
+                             Install it or select a different agent kind.",
+                            kind.binary_name(),
+                            effective_user(remote)
+                        ))
+                    }
+                }
                 RemoteProbeResult::Error(error) => Err(error),
             }
         }
@@ -416,12 +451,23 @@ pub(super) fn pre_side_effect_runtime_available_or_error(
     target: &WorkTarget,
     work_dir: &Path,
     kind: AgentKind,
+    llxprt_version: &str,
 ) -> bool {
-    let available = {
+    let (available, npm_present) = {
         let state = app_state.read();
-        state.installed_agent_kinds.clone()
+        (
+            state.installed_agent_kinds.clone(),
+            state.npm_availability.is_available(),
+        )
     };
-    match require_runtime_available(target, work_dir, kind, &available) {
+    match require_runtime_available(
+        target,
+        work_dir,
+        kind,
+        &available,
+        llxprt_version,
+        npm_present,
+    ) {
         Ok(()) => true,
         Err(message) => {
             let mut state = app_state.write();

@@ -18,6 +18,8 @@ mod form_cursor;
 mod form_ops;
 mod form_projection;
 mod form_runtime;
+#[cfg(test)]
+mod form_version_tests;
 mod form_workflow_dispatch;
 mod issues_close_delete_ops;
 mod issues_inline_ops;
@@ -51,8 +53,9 @@ pub use state_ops::{delete_selected_agent, delete_selected_repository};
 pub use types::*;
 
 pub use form_projection::{
-    AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds, effective_kinds_hint,
-    is_field_visible, kind_from_form_value, next_visible_focus, prev_visible_focus,
+    AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds,
+    effective_agent_kinds_with_npm, effective_kinds_hint, is_field_visible, kind_from_form_value,
+    next_visible_focus, prev_visible_focus,
 };
 
 use tracing::{debug, trace};

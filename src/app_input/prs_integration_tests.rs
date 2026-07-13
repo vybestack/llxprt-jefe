@@ -432,6 +432,7 @@ fn sample_signature() -> LaunchSignature {
         work_dir: PathBuf::from("/tmp/agent"),
         profile: String::new(),
         code_puppy_model: String::new(),
+        llxprt_version: String::new(),
         code_puppy_yolo: Some(false),
         code_puppy_quick_resume: false,
         mode_flags: vec![String::from("--yolo")],
@@ -459,6 +460,7 @@ fn state_for_send_to_agent(agent_id: &AgentId, work_dir: &std::path::Path) -> Ap
         work_dir.to_path_buf(),
     );
     agent.profile = String::new();
+    agent.llxprt_version = "0.10.0-nightly.260712.21cb698b6".to_owned();
     agent.mode_flags = Vec::new();
 
     let mut state = active_prs_state();
@@ -542,6 +544,10 @@ fn it_send_to_agent_writes_prompt_file_for_launch() {
     // Dispatch ordering: read info, apply reducer, then write prompt.
     let send_info =
         pr_send_info_from_state(&state).unwrap_or_else(|| panic!("pr_send_info must resolve"));
+    assert_eq!(
+        send_info.signature.llxprt_version, "0.10.0-nightly.260712.21cb698b6",
+        "PR send must preserve the selected LLxprt version"
+    );
     assert_eq!(send_info.payload.pr_number, 42);
     // The resolved send info identifies the correct LAUNCH TARGET agent (the
     // AgentId the chooser-confirm would launch) and the correct work_dir —

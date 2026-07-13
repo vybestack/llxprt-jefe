@@ -538,8 +538,6 @@ fn guarded_real_jefe_sticky_kill_scenario() {
     assert_eq!(summary.steps_run, 13);
 }
 
-/// Seed a config directory with a state.json containing a single Running agent
-/// bound to the given tmux session name (issue #116 scenario fixture).
 fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
     use crate::domain::{
         Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
@@ -555,23 +553,25 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
     );
     agent.status = AgentStatus::Running;
     agent.shortcut_slot = Some(1);
+    let launch_signature = LaunchSignature {
+        work_dir: std::path::PathBuf::from("/tmp"),
+        profile: String::new(),
+        code_puppy_model: String::new(),
+        llxprt_version: String::new(),
+        code_puppy_yolo: Some(false),
+        code_puppy_quick_resume: false,
+        mode_flags: vec![],
+        llxprt_debug: String::new(),
+        pass_continue: true,
+        sandbox_enabled: false,
+        sandbox_engine: SandboxEngine::Podman,
+        sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+        remote: RemoteRepositorySettings::default(),
+        agent_kind: crate::domain::AgentKind::Llxprt,
+    };
     agent.runtime_binding = Some(RuntimeBinding {
         session_name: agent_session.to_string(),
-        launch_signature: LaunchSignature {
-            work_dir: std::path::PathBuf::from("/tmp"),
-            profile: String::new(),
-            code_puppy_model: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-        },
+        launch_signature,
         attached: false,
         last_seen: None,
         pid: None,
@@ -598,8 +598,7 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         settings_path: config_dir.join("settings.toml"),
         state_path: config_dir.join("state.json"),
     };
-    let persistence = FilePersistenceManager::with_paths(paths);
-    persistence
+    FilePersistenceManager::with_paths(paths)
         .save_state(&persisted_state)
         .unwrap_or_else(|e| panic!("save state: {e:?}"));
 }
@@ -780,8 +779,6 @@ fn guarded_real_jefe_restart_scenario() {
     );
 }
 
-/// Seed a config directory with a state.json containing a single Running agent
-/// bound to the given tmux session name (issue #117 scenario fixture).
 fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
     use crate::domain::{
         Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
@@ -789,11 +786,6 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
     };
     use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
 
-    // Derive the agent id from the session name so that
-    // `RuntimeSession::session_name_for(agent_id)` reproduces `agent_session`
-    // exactly. This keeps the pre-created (sleep) session name coherent with
-    // the name jefe computes for the agent, so restart targets the SAME session
-    // the scenario seeded.
     let agent_id_value = agent_session.strip_prefix("jefe-").unwrap_or(agent_session);
     let mut agent = Agent::new(
         AgentId(agent_id_value.to_owned()),
@@ -809,6 +801,7 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
             work_dir: std::path::PathBuf::from("/tmp"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            llxprt_version: String::new(),
             code_puppy_yolo: Some(false),
             code_puppy_quick_resume: false,
             mode_flags: vec![],
@@ -846,8 +839,7 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         settings_path: config_dir.join("settings.toml"),
         state_path: config_dir.join("state.json"),
     };
-    let persistence = FilePersistenceManager::with_paths(paths);
-    persistence
+    FilePersistenceManager::with_paths(paths)
         .save_state(&persisted_state)
         .unwrap_or_else(|e| panic!("save state: {e:?}"));
 }

@@ -16,14 +16,19 @@ impl AppState {
         focus: RepositoryFormFocus,
         step: fn(RepositoryFormFocus) -> RepositoryFormFocus,
     ) -> RepositoryFormFocus {
-        let candidate = step(focus);
-        if candidate == RepositoryFormFocus::DefaultCodePuppyModel
-            && AgentKind::from_form_value(&fields.default_agent_kind) != Some(AgentKind::CodePuppy)
-        {
-            step(candidate)
-        } else {
-            candidate
+        let kind = AgentKind::from_form_value(&fields.default_agent_kind);
+        let mut candidate = step(focus);
+        while candidate != focus {
+            let hidden_puppy = candidate == RepositoryFormFocus::DefaultCodePuppyModel
+                && kind != Some(AgentKind::CodePuppy);
+            let hidden_llxprt = candidate == RepositoryFormFocus::DefaultLlxprtVersion
+                && kind != Some(AgentKind::Llxprt);
+            if !hidden_puppy && !hidden_llxprt {
+                break;
+            }
+            candidate = step(candidate);
         }
+        candidate
     }
 
     fn handle_agent_shortcut_char(fields: &mut AgentFormFields, c: char) {
@@ -62,6 +67,11 @@ impl AppState {
             }
             AgentFormFocus::Profile => {
                 cursor.profile = insert_char_at(&mut fields.profile, cursor.profile, c);
+                false
+            }
+            AgentFormFocus::LlxprtVersion => {
+                cursor.llxprt_version =
+                    insert_char_at(&mut fields.llxprt_version, cursor.llxprt_version, c);
                 false
             }
             AgentFormFocus::CodePuppyModel => {
@@ -119,22 +129,31 @@ impl AppState {
                 .is_some_and(|repo| repo.remote.enabled),
             _ => false,
         };
-        super::form_runtime::effective_agent_kinds(&self.installed_agent_kinds, is_remote)
+        super::form_runtime::effective_agent_kinds(
+            &self.installed_agent_kinds,
+            is_remote,
+            self.npm_availability.is_available(),
+        )
     }
 
     /// Resolve effective agent kinds for a repository form (New/Edit).
     ///
     /// Repository forms with `remote_enabled` offer both AgentKind variants
     /// regardless of local installed snapshot. Local forms offer installed
-    /// kinds only. This matches what the UI hint and the selection projection
-    /// render.
+    /// kinds only (plus LLxprt when npm is available so a versioned launch
+    /// can be selected). This matches what the UI hint and the selection
+    /// projection render.
     fn effective_agent_kinds_for_repository_form(&self) -> Vec<AgentKind> {
         let is_remote = match &self.modal {
             ModalState::NewRepository { fields, .. }
             | ModalState::EditRepository { fields, .. } => fields.remote_enabled,
             _ => false,
         };
-        super::form_runtime::effective_agent_kinds(&self.installed_agent_kinds, is_remote)
+        super::form_runtime::effective_agent_kinds(
+            &self.installed_agent_kinds,
+            is_remote,
+            self.npm_availability.is_available(),
+        )
     }
 
     pub(super) fn handle_form_char(&mut self, c: char) {
@@ -239,6 +258,12 @@ impl AppState {
                     cursor.default_code_puppy_model,
                 );
             }
+            RepositoryFormFocus::DefaultLlxprtVersion => {
+                cursor.default_llxprt_version = delete_char_before(
+                    &mut fields.default_llxprt_version,
+                    cursor.default_llxprt_version,
+                );
+            }
             RepositoryFormFocus::GitHubRepo => {
                 cursor.github_repo =
                     delete_char_before(&mut fields.github_repo, cursor.github_repo);
@@ -280,6 +305,12 @@ impl AppState {
                     cursor.default_code_puppy_model,
                 );
             }
+            RepositoryFormFocus::DefaultLlxprtVersion => {
+                delete_char_at(
+                    &mut fields.default_llxprt_version,
+                    cursor.default_llxprt_version,
+                );
+            }
             RepositoryFormFocus::GitHubRepo => {
                 delete_char_at(&mut fields.github_repo, cursor.github_repo);
             }
@@ -319,6 +350,10 @@ impl AppState {
             }
             AgentFormFocus::Profile => {
                 cursor.profile = delete_char_before(&mut fields.profile, cursor.profile);
+            }
+            AgentFormFocus::LlxprtVersion => {
+                cursor.llxprt_version =
+                    delete_char_before(&mut fields.llxprt_version, cursor.llxprt_version);
             }
             AgentFormFocus::CodePuppyModel => {
                 cursor.code_puppy_model =
@@ -368,6 +403,9 @@ impl AppState {
             }
             AgentFormFocus::Profile => {
                 delete_char_at(&mut fields.profile, cursor.profile);
+            }
+            AgentFormFocus::LlxprtVersion => {
+                delete_char_at(&mut fields.llxprt_version, cursor.llxprt_version);
             }
             AgentFormFocus::CodePuppyModel => {
                 delete_char_at(&mut fields.code_puppy_model, cursor.code_puppy_model);

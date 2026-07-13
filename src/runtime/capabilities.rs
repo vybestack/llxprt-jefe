@@ -129,6 +129,7 @@ mod tests {
             work_dir: PathBuf::from("/tmp/puppy"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            llxprt_version: String::new(),
             code_puppy_yolo: yolo,
             code_puppy_quick_resume: false,
             mode_flags: Vec::new(),

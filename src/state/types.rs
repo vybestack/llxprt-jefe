@@ -319,6 +319,21 @@ pub struct QuitSequenceState {
     pub last_press: Option<Instant>,
 }
 
+/// Session-cached capability for one-shot npm-backed LLxprt launches.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NpmAvailability {
+    Available,
+    #[default]
+    Unavailable,
+}
+
+impl NpmAvailability {
+    #[must_use]
+    pub const fn is_available(self) -> bool {
+        matches!(self, Self::Available)
+    }
+}
+
 /// Application state - single source of truth.
 #[derive(Debug, Default, Clone)]
 pub struct AppState {
@@ -327,6 +342,9 @@ pub struct AppState {
     pub agents: Vec<crate::domain::Agent>,
     /// Runtime availability snapshot detected once during startup.
     pub installed_agent_kinds: Vec<crate::domain::AgentKind>,
+    /// Whether `npm` is on the local PATH, detected once during startup.
+    /// Used to gate versioned LLxprt launches (issue #269).
+    pub npm_availability: NpmAvailability,
 
     // Selection
     pub selected_repository_index: Option<usize>,

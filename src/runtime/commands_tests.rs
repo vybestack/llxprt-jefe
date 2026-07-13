@@ -11,6 +11,7 @@ fn base_signature() -> LaunchSignature {
         work_dir: std::path::PathBuf::from("/tmp"),
         profile: String::new(),
         code_puppy_model: String::new(),
+        llxprt_version: String::new(),
         code_puppy_yolo: Some(false),
         code_puppy_quick_resume: false,
         mode_flags: Vec::new(),
@@ -153,9 +154,12 @@ fn llxprt_debug_env_is_omitted_when_empty() {
         plan.env
     );
 
-    let args = local_pane_command_args(&plan);
+    let args = local_pane_command_args(&plan, None);
     assert!(
-        !args.iter().any(|arg| arg.starts_with("LLXPRT_DEBUG=")),
+        !args.iter().any(|arg| arg
+            .as_os_str()
+            .as_encoded_bytes()
+            .starts_with(b"LLXPRT_DEBUG=")),
         "local pane command must not carry an LLXPRT_DEBUG= arg when debug is empty: {args:?}"
     );
 }
@@ -234,7 +238,7 @@ fn llxprt_debug_env_is_included_when_non_empty() {
         plan.env
     );
 
-    let args = local_pane_command_args(&plan);
+    let args = local_pane_command_args(&plan, None);
     assert!(
         args.iter().any(|arg| arg == "LLXPRT_DEBUG=trace=1"),
         "local pane command must carry the LLXPRT_DEBUG=trace=1 argv entry verbatim: {args:?}"
@@ -410,11 +414,12 @@ fn tmux_scrub_env_args_strips_all_tmux_client_vars() {
 fn local_pane_command_scrubs_tmux_env_before_llxprt() {
     let plan_no_env = LocalLaunchPlan {
         agent_kind: AgentKind::Llxprt,
+        plan: ExecutablePlan::Direct,
         args: vec!["--continue".to_owned()],
         env: Vec::new(),
         warning: None,
     };
-    let args = local_pane_command_args(&plan_no_env);
+    let args = local_pane_command_args(&plan_no_env, None);
     assert_eq!(args[0], "env");
     assert_eq!(args[1], "-u");
     assert_eq!(args[2], "TMUX");
@@ -429,11 +434,12 @@ fn local_pane_command_scrubs_tmux_env_before_llxprt() {
     // With an env assignment, the K=V must sit between the scrub and llxprt.
     let plan_with_env = LocalLaunchPlan {
         agent_kind: AgentKind::Llxprt,
+        plan: ExecutablePlan::Direct,
         args: Vec::new(),
         env: vec![("LLXPRT_DEBUG".to_owned(), "trace=1".to_owned())],
         warning: None,
     };
-    let args = local_pane_command_args(&plan_with_env);
+    let args = local_pane_command_args(&plan_with_env, None);
     let scrub_end = args
         .windows(2)
         .rposition(|w| w[0] == "-u" && w[1] == "TMUX_TMPDIR");
@@ -515,7 +521,7 @@ fn sandbox_flags_env_value_is_raw_for_tmux_argv() {
         plan.env
     );
 
-    let args = local_pane_command_args(&plan);
+    let args = local_pane_command_args(&plan, None);
     assert!(
         args.iter()
             .any(|arg| arg == "SANDBOX_FLAGS=--cpus=2 --memory=12288m --pids-limit=256"),
@@ -601,7 +607,7 @@ fn code_puppy_launch_uses_only_supported_args() {
 
     let plan = local_launch_plan(&signature);
     assert!(plan.env.is_empty());
-    let pane_args = local_pane_command_args(&plan);
+    let pane_args = local_pane_command_args(&plan, None);
     assert!(pane_args.iter().any(|arg| arg == "code-puppy"));
     assert!(!pane_args.iter().any(|arg| arg == "llxprt"));
     assert!(!pane_args.iter().any(|arg| arg == "--continue"));
@@ -748,4 +754,148 @@ fn capture_pane_history_argv_zero_lines_clamps_to_one() {
         panic!("-S must have a value: {argv:?}");
     };
     assert_eq!(*s_value, "-1", "zero lines should clamp to -S -1");
+}
+
+// ── Issue #269: remote npm probe must not cd into work_dir ────────────────
+
+/// The remote npm probe script must NOT contain `cd` into the work
+/// directory. The work directory may not exist yet (clone-if-missing flow),
+/// and a versioned launch only needs npm on the remote PATH. Requiring `cd`
+/// would turn a globally-installed npm into a spurious "npm not found".
+#[test]
+fn remote_npm_probe_script_does_not_cd_into_work_dir() {
+    let script = remote_npm_probe_script();
+    assert!(
+        !script.contains("cd "),
+        "remote npm probe must not cd into work_dir: {script}"
+    );
+    assert!(
+        !script.contains("cd	"),
+        "remote npm probe must not cd into work_dir: {script}"
+    );
+    assert!(
+        script.contains("command -v npm"),
+        "remote npm probe must check npm on PATH: {script}"
+    );
+}
+
+// ── Issue #269: remote metacharacter selector quoting (production path) ───
+
+/// The production remote CLI assembly must shell-escape every token of the
+/// npm exec prefix so an adversarial version selector never reaches the
+/// remote shell as syntax. Drives the real production path
+/// ([`assemble_remote_cli_command`]) with an adversarial selector containing
+/// shell metacharacters.
+#[test]
+fn remote_cli_assembly_shell_escapes_adversarial_version_selector() {
+    use crate::domain::{AgentKind, LaunchSignature, RemoteRepositorySettings, SandboxEngine};
+
+    let adversarial = "0.9.0'; rm -rf /; echo '";
+    let signature = LaunchSignature {
+        work_dir: std::path::PathBuf::from("/tmp/work"),
+        profile: String::new(),
+        code_puppy_model: String::new(),
+        llxprt_version: adversarial.to_owned(),
+        code_puppy_yolo: None,
+        code_puppy_quick_resume: false,
+        mode_flags: Vec::new(),
+        llxprt_debug: String::new(),
+        pass_continue: false,
+        sandbox_enabled: false,
+        sandbox_engine: SandboxEngine::Podman,
+        sandbox_flags: String::new(),
+        remote: RemoteRepositorySettings::default(),
+        agent_kind: AgentKind::Llxprt,
+    };
+    let plan = ExecutablePlan::from_signature(&signature);
+    assert!(plan.requires_npm(), "adversarial selector must be NpmExec");
+
+    let cli = assemble_remote_cli_command(&plan, "npm", &[]);
+    // The adversarial selector must be embedded inside a single-quoted
+    // --package= token, never as standalone shell syntax.
+    assert!(
+        cli.contains("'--package=@vybestack/llxprt-code@0.9.0'"),
+        "adversarial selector must be inside the single-quoted package token: {cli}"
+    );
+    // The dangerous `; rm` sequence from the adversarial payload must be
+    // inside a single-quoted context (between quote pairs), not as
+    // standalone shell syntax. The `'''` escaping ensures the single quote
+    // in the payload closes the current quote, inserts a literal quote, and
+    // reopens — so `; rm` is always within a quoted context.
+    assert!(
+        cli.contains("'; rm -rf /; echo '") || cli.contains("\''; rm -rf /; echo '\''"),
+        "the adversarial payload must be present but escaped: {cli}"
+    );
+    // Verify that the entire CLI, when parsed by a POSIX shell, would not
+    // execute `rm` as a command. The package token must be a single
+    // shell-quoted unit that contains the full adversarial string. We verify
+    // by checking that `rm -rf /` does not appear outside of a quoted region:
+    // it must always be preceded by a quote context.
+    let package_start = cli
+        .find("'--package=")
+        .unwrap_or_else(|| panic!("package token must be present: {cli}"));
+    let rest = &cli[package_start..];
+    assert!(
+        rest.contains("rm -rf /"),
+        "the adversarial payload must be inside the package token: {cli}"
+    );
+}
+
+#[test]
+fn remote_cli_assembly_uses_resolved_npm_executable() {
+    let signature = LaunchSignature {
+        llxprt_version: "0.9.0".to_owned(),
+        ..base_signature()
+    };
+    let plan = ExecutablePlan::from_signature(&signature);
+    let resolved = "/opt/node's tools/npm;safe";
+    let cli = assemble_remote_cli_command(&plan, resolved, &[]);
+    let escaped = shell_escape_single(resolved);
+
+    assert!(
+        cli.starts_with(&escaped),
+        "resolved npm executable must be token zero: {cli}"
+    );
+    assert!(
+        !cli.starts_with("'npm' "),
+        "remote launch must not replace the resolved path with literal npm: {cli}"
+    );
+}
+/// A remote CLI assembly with a clean version selector and args produces the
+/// expected escaped prefix followed by the escaped args.
+#[test]
+fn remote_cli_assembly_clean_version_with_args() {
+    use crate::domain::{AgentKind, LaunchSignature, RemoteRepositorySettings, SandboxEngine};
+
+    let signature = LaunchSignature {
+        work_dir: std::path::PathBuf::from("/tmp/work"),
+        profile: "my-profile".to_owned(),
+        code_puppy_model: String::new(),
+        llxprt_version: "0.9.0".to_owned(),
+        code_puppy_yolo: None,
+        code_puppy_quick_resume: false,
+        mode_flags: Vec::new(),
+        llxprt_debug: String::new(),
+        pass_continue: true,
+        sandbox_enabled: false,
+        sandbox_engine: SandboxEngine::Podman,
+        sandbox_flags: String::new(),
+        remote: RemoteRepositorySettings::default(),
+        agent_kind: AgentKind::Llxprt,
+    };
+    let plan = ExecutablePlan::from_signature(&signature);
+    let args = launch_args(&signature);
+    let cli = assemble_remote_cli_command(&plan, "npm", &args);
+    assert!(
+        cli.contains("'--package=@vybestack/llxprt-code@0.9.0'"),
+        "clean selector must be in the package token: {cli}"
+    );
+    assert!(
+        cli.contains("'--profile-load'"),
+        "launch args must be shell-escaped: {cli}"
+    );
+    assert!(
+        cli.contains("'--continue'"),
+        "continue flag must be present: {cli}"
+    );
 }

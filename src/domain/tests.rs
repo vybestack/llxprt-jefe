@@ -333,6 +333,7 @@ fn test_issue_base_prompt_serde_roundtrip() {
         base_dir: PathBuf::from("/tmp/test-repo"),
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
+        default_llxprt_version: String::new(),
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: "Prioritize diagnosis".to_string(),
@@ -407,6 +408,7 @@ fn runtime_binding_roundtrips_pid_when_present() {
             work_dir: PathBuf::from("/tmp/agent-2"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            llxprt_version: String::new(),
             code_puppy_yolo: Some(false),
             code_puppy_quick_resume: false,
             mode_flags: vec![],
@@ -427,6 +429,172 @@ fn runtime_binding_roundtrips_pid_when_present() {
     let binding2: RuntimeBinding =
         serde_json::from_value(json).value_or_panic("should deserialize");
     assert_eq!(binding2.pid, Some(42_000));
+}
+
+// =============================================================================
+// LLxprt version selectors (issue #269)
+// =============================================================================
+
+/// A legacy repository state.json written before `default_llxprt_version`
+/// existed must deserialize with the field defaulting to blank.
+#[test]
+fn repository_default_llxprt_version_defaults_blank_when_missing() {
+    let value = json!({
+        "id": "repo-ver",
+        "name": "Versioned Repo",
+        "slug": "versioned-repo",
+        "base_dir": "/tmp/versioned-repo",
+        "default_profile": "",
+        "default_code_puppy_model": "",
+        "remote": {
+            "enabled": false,
+            "login_user": "",
+            "host": "",
+            "run_as_user": "",
+            "setup_env_default": false
+        },
+        "agent_ids": []
+    });
+    let repo: Repository = serde_json::from_value(value).value_or_panic("should deserialize");
+    assert_eq!(repo.default_llxprt_version, "");
+}
+
+/// A nonblank `default_llxprt_version` round-trips through serde unchanged.
+#[test]
+fn repository_default_llxprt_version_roundtrips_nonblank() {
+    let repo = Repository {
+        id: RepositoryId("repo-ver".to_string()),
+        name: "Versioned Repo".to_string(),
+        slug: "versioned-repo".to_string(),
+        base_dir: PathBuf::from("/tmp/versioned-repo"),
+        default_profile: String::new(),
+        default_code_puppy_model: String::new(),
+        default_llxprt_version: "0.10.0-nightly.260712.21cb698b6".to_string(),
+        github_repo: String::new(),
+        remote: RemoteRepositorySettings::default(),
+        issue_base_prompt: String::new(),
+        default_agent_kind: crate::domain::AgentKind::Llxprt,
+        agent_ids: vec![],
+    };
+    let json = serde_json::to_value(&repo).value_or_panic("should serialize");
+    let repo2: Repository = serde_json::from_value(json).value_or_panic("should deserialize");
+    assert_eq!(
+        repo2.default_llxprt_version,
+        "0.10.0-nightly.260712.21cb698b6"
+    );
+}
+
+/// A legacy agent state.json written before `llxprt_version` existed must
+/// deserialize with the field defaulting to blank.
+#[test]
+fn agent_llxprt_version_defaults_blank_when_missing() {
+    let value = json!({
+        "id": "agent-ver",
+        "display_id": "#1",
+        "repository_id": "repo-ver",
+        "name": "Versioned Agent",
+        "description": "",
+        "work_dir": "/tmp/agent-ver",
+        "profile": "",
+        "mode_flags": [],
+        "pass_continue": true,
+        "sandbox_enabled": false,
+        "sandbox_engine": "podman",
+        "sandbox_flags": DEFAULT_SANDBOX_FLAGS,
+        "status": "Queued",
+        "runtime_binding": null
+    });
+    let agent: Agent = serde_json::from_value(value).value_or_panic("should deserialize");
+    assert_eq!(agent.llxprt_version, "");
+}
+
+/// A nonblank agent `llxprt_version` round-trips through serde unchanged,
+/// including nightly and dist-tag selectors.
+#[test]
+fn agent_llxprt_version_roundtrips_nonblank() {
+    let agent = Agent {
+        id: AgentId("agent-ver".to_string()),
+        display_id: "#1".to_string(),
+        repository_id: RepositoryId("repo-ver".to_string()),
+        shortcut_slot: None,
+        name: "Versioned Agent".to_string(),
+        description: String::new(),
+        work_dir: PathBuf::from("/tmp/agent-ver"),
+        profile: String::new(),
+        code_puppy_model: String::new(),
+        llxprt_version: "0.9.0".to_string(),
+        code_puppy_yolo: None,
+        code_puppy_quick_resume: false,
+        mode_flags: vec![],
+        llxprt_debug: String::new(),
+        pass_continue: false,
+        sandbox_enabled: false,
+        sandbox_engine: SandboxEngine::Podman,
+        sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+        agent_kind: crate::domain::AgentKind::Llxprt,
+        status: AgentStatus::Queued,
+        runtime_binding: None,
+    };
+    let json = serde_json::to_value(&agent).value_or_panic("should serialize");
+    let agent2: Agent = serde_json::from_value(json).value_or_panic("should deserialize");
+    assert_eq!(agent2.llxprt_version, "0.9.0");
+}
+
+/// A legacy `LaunchSignature` inside a `RuntimeBinding` written before
+/// `llxprt_version` existed must deserialize with the field defaulting to
+/// blank, preserving backward-compatible reattach.
+#[test]
+fn launch_signature_llxprt_version_defaults_blank_when_missing() {
+    let value = json!({
+        "session_name": "jefe-agent-ver",
+        "launch_signature": {
+            "work_dir": "/tmp/agent-ver",
+            "profile": "",
+            "mode_flags": [],
+            "pass_continue": true,
+            "sandbox_enabled": false,
+            "sandbox_engine": "podman",
+            "sandbox_flags": DEFAULT_SANDBOX_FLAGS
+        },
+        "attached": false,
+        "last_seen": null
+    });
+    let binding: RuntimeBinding =
+        serde_json::from_value(value).value_or_panic("should deserialize");
+    assert_eq!(binding.launch_signature.llxprt_version, "");
+}
+
+/// A nonblank `llxprt_version` inside a `LaunchSignature` round-trips through
+/// serde, proving runtime bindings retain the selected version across
+/// restart/reattach/relaunch.
+#[test]
+fn launch_signature_llxprt_version_roundtrips_nonblank() {
+    let binding = RuntimeBinding {
+        session_name: "jefe-agent-ver-2".to_string(),
+        launch_signature: LaunchSignature {
+            work_dir: PathBuf::from("/tmp/agent-ver-2"),
+            profile: String::new(),
+            code_puppy_model: String::new(),
+            llxprt_version: "0.9.0".to_string(),
+            code_puppy_yolo: None,
+            code_puppy_quick_resume: false,
+            mode_flags: vec![],
+            llxprt_debug: String::new(),
+            pass_continue: false,
+            sandbox_enabled: false,
+            sandbox_engine: SandboxEngine::Podman,
+            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+            remote: RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
+        },
+        attached: false,
+        last_seen: None,
+        pid: None,
+    };
+    let json = serde_json::to_value(&binding).value_or_panic("should serialize");
+    let binding2: RuntimeBinding =
+        serde_json::from_value(json).value_or_panic("should deserialize");
+    assert_eq!(binding2.launch_signature.llxprt_version, "0.9.0");
 }
 
 // =============================================================================

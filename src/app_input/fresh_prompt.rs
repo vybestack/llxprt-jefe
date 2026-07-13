@@ -90,6 +90,7 @@ mod tests {
             work_dir: PathBuf::from("/tmp/work"),
             profile: String::new(),
             code_puppy_model: String::new(),
+            llxprt_version: String::new(),
             code_puppy_yolo: Some(false),
             code_puppy_quick_resume: false,
             mode_flags: vec!["--stale".to_owned()],
@@ -263,5 +264,48 @@ mod tests {
                 "Read and work on the GitHub PR described in .jefe/pr-prompt.md"
             ]
         );
+    }
+
+    // ── Issue #269: version selector survives fresh prompt transformation ──
+
+    #[test]
+    fn fresh_issue_preserves_nonblank_llxprt_version() {
+        let mut sig = base_sig(AgentKind::Llxprt);
+        sig.llxprt_version = "0.9.0".to_owned();
+        let result =
+            prepare_fresh_prompt_signature(sig, FreshPromptKind::Issue, ".jefe/issue-prompt.md");
+        assert_eq!(result.llxprt_version, "0.9.0");
+    }
+
+    #[test]
+    fn fresh_pr_preserves_nonblank_llxprt_version() {
+        let mut sig = base_sig(AgentKind::Llxprt);
+        sig.llxprt_version = "0.10.0-nightly.260712.21cb698b6".to_owned();
+        let result =
+            prepare_fresh_prompt_signature(sig, FreshPromptKind::PullRequest, ".jefe/pr-prompt.md");
+        assert_eq!(result.llxprt_version, "0.10.0-nightly.260712.21cb698b6");
+    }
+
+    #[test]
+    fn fresh_issue_preserves_blank_llxprt_version_as_blank() {
+        let result = prepare_fresh_prompt_signature(
+            base_sig(AgentKind::Llxprt),
+            FreshPromptKind::Issue,
+            ".jefe/issue-prompt.md",
+        );
+        assert_eq!(result.llxprt_version, "");
+    }
+
+    #[test]
+    fn fresh_pr_preserves_code_puppy_dormant_version_unchanged() {
+        // Code Puppy with a dormant LLxprt version must keep it as-is; the
+        // executable plan branches on agent_kind before consulting the
+        // selector, so a dormant value never invokes npm.
+        let mut sig = base_sig(AgentKind::CodePuppy);
+        sig.llxprt_version = "0.9.0".to_owned();
+        let result =
+            prepare_fresh_prompt_signature(sig, FreshPromptKind::PullRequest, ".jefe/pr-prompt.md");
+        assert_eq!(result.llxprt_version, "0.9.0");
+        assert_eq!(result.agent_kind, AgentKind::CodePuppy);
     }
 }
