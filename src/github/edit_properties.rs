@@ -647,6 +647,11 @@ impl GhClient {
         to_add: &[String],
         to_remove: &[String],
     ) -> Result<(), GhError> {
+        // F8: gh does not support comma-separated assignees; reject names
+        // containing a comma with a clear error so they are not misinterpreted
+        // as multiple assignees.
+        reject_comma_names("assignee", to_add)?;
+        reject_comma_names("assignee", to_remove)?;
         let args = build_edit_assignees_args(target, to_add, to_remove);
         if args.is_empty() {
             return Ok(());
