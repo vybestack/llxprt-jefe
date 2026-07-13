@@ -364,6 +364,10 @@ impl<T, I> PaginatedList<T, I> {
 
     /// Whether a load-more should fire: items non-empty, selection at last
     /// index, continuation available, and no pending operation.
+    ///
+    /// `selected_index` is the caller's current selection (typically
+    /// `self.selected_index()`), evaluated against the last item to decide
+    /// whether to trigger load-more.
     #[must_use]
     pub fn should_load_more(&self, selected_index: Option<usize>) -> bool {
         let Some(last) = self.items.len().checked_sub(1) else {
@@ -415,7 +419,8 @@ impl<T, I: Clone> PaginatedList<T, I> {
     }
 
     /// Begin a page load. Returns `Busy` if pending, `Exhausted` if
-    /// `next_page == Done`, `TokenMismatch` if the token doesn't match.
+    /// `next_page == Done`, `TokenMismatch` if the token doesn't match or
+    /// the list has no bound identity.
     pub fn begin_page(&mut self, token: PageToken, request_id: ListRequestId) -> BeginOutcome {
         if self.pending.is_some() {
             return BeginOutcome::Busy;
@@ -494,13 +499,10 @@ impl<T, I: PartialEq> PaginatedList<T, I> {
     ///
     /// Stale unless pending is a `Page` with matching identity, request id,
     /// and requested token. On match: append items, store continuation, clear
-    /// pending, preserve selection.
-    /// Accept a page result (append).
-    ///
-    /// `Empty` is returned when the incoming page contributed zero items,
-    /// which differs from `accept_loaded` where `Empty` means the resulting
-    /// list is empty. This distinction is intentional: a page can arrive empty
-    /// while the list still holds items from prior pages.
+    /// pending, preserve selection. `Empty` is returned when the incoming page
+    /// contributed zero items, which differs from `accept_loaded` where `Empty`
+    /// means the resulting list is empty. This distinction is intentional: a
+    /// page can arrive empty while the list still holds items from prior pages.
     pub fn accept_page(&mut self, result: PageResult<T, I>) -> AcceptOutcome {
         let PageResult {
             identity,
