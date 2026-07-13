@@ -76,9 +76,10 @@ fn pid_alive_on_platform(pid: u32) -> bool {
 /// @pseudocode component-002 lines 33-35
 #[must_use]
 pub fn check_session_alive(session_name: &str) -> bool {
-    let has_session = tmux_command()
-        .args(["has-session", "-t", session_name])
-        .output();
+    let Ok(mut command) = tmux_command() else {
+        return false;
+    };
+    let has_session = command.args(["has-session", "-t", session_name]).output();
 
     let Ok(out) = has_session else {
         return false;
@@ -87,7 +88,10 @@ pub fn check_session_alive(session_name: &str) -> bool {
         return false;
     }
 
-    let panes = tmux_command()
+    let Ok(mut command) = tmux_command() else {
+        return false;
+    };
+    let panes = command
         .args(["list-panes", "-t", session_name, "-F", "#{pane_dead}"])
         .output();
 
@@ -151,7 +155,10 @@ pub fn check_remote_session_alive(remote: &RemoteRepositorySettings, session_nam
 /// List all jefe-managed tmux sessions.
 #[allow(dead_code)]
 pub fn list_jefe_sessions() -> Vec<String> {
-    let output = tmux_command()
+    let Ok(mut command) = tmux_command() else {
+        return Vec::new();
+    };
+    let output = command
         .args(["list-sessions", "-F", "#{session_name}"])
         .output();
 
@@ -171,9 +178,10 @@ pub fn list_jefe_sessions() -> Vec<String> {
 /// Kill a tmux session.
 #[allow(dead_code)]
 pub fn kill_session(session_name: &str) -> bool {
-    let output = tmux_command()
-        .args(["kill-session", "-t", session_name])
-        .output();
+    let Ok(mut command) = tmux_command() else {
+        return false;
+    };
+    let output = command.args(["kill-session", "-t", session_name]).output();
 
     match output {
         Ok(out) => out.status.success(),

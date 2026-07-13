@@ -16,6 +16,7 @@ mod errors;
 mod gh_auth;
 mod liveness;
 mod manager;
+mod multiplexer;
 mod pane_capture;
 mod preflight;
 mod session;
@@ -31,6 +32,10 @@ pub use errors::RuntimeError;
 pub use gh_auth::{AuthRunResult, run_device_auth};
 pub use liveness::{check_remote_session_alive, check_session_alive, pid_alive};
 pub use manager::{LivenessCheck, RuntimeManager, TmuxRuntimeManager};
+pub use multiplexer::{
+    LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation, MultiplexerPlan,
+    MultiplexerVersion, ProbeObservation, classify_probe,
+};
 pub use preflight::{
     PreflightAction, PreflightIssue, execute_preflight_action, platform_engine_diagnostic,
     sandbox_preflight, sandbox_ssh_agent_warning,
@@ -38,6 +43,10 @@ pub use preflight::{
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 pub use socket::jefe_tmux_socket_path;
 pub use stub_manager::StubRuntimeManager;
+
+#[cfg(test)]
+#[path = "multiplexer_tests.rs"]
+mod multiplexer_tests;
 
 #[cfg(test)]
 mod tests {
