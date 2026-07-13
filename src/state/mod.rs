@@ -52,10 +52,12 @@ pub use scrollback_ops::{FollowIndicator, terminal_follow_indicator};
 pub use state_ops::{delete_selected_agent, delete_selected_repository};
 pub use types::*;
 
+#[deprecated(note = "use effective_agent_kinds_with_npm to model npm availability")]
+pub use form_projection::effective_agent_kinds;
 pub use form_projection::{
-    AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds,
-    effective_agent_kinds_with_npm, effective_kinds_hint, is_field_visible, kind_from_form_value,
-    next_visible_focus, prev_visible_focus,
+    AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds_with_npm,
+    effective_kinds_hint, is_field_visible, kind_from_form_value, next_visible_focus,
+    prev_visible_focus,
 };
 
 use tracing::{debug, trace};

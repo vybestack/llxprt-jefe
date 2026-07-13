@@ -12,9 +12,9 @@ fn blank_selector_is_valid() {
 }
 
 #[test]
-fn whitespace_only_selector_is_valid_after_trim() {
-    // Whitespace-only normalizes to blank; the validator accepts it so the
-    // trim/normalize boundary can produce a direct-launch invariant.
+fn whitespace_only_selector_is_valid_for_normalizer() {
+    // Whitespace-only is accepted by the validator so callers can trim it to
+    // blank at the normalization boundary.
     assert!(validate_version_selector("   ").is_ok());
 }
 

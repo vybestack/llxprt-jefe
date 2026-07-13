@@ -430,10 +430,10 @@ pub fn NewAgentForm(props: &NewAgentFormProps) -> impl Into<AnyElement<'static>>
 
 /// Resolve the effective agent kinds for the currently open agent form.
 ///
-/// Uses the shared [`crate::state::effective_agent_kinds`] projection so the
-/// form hint matches exactly what Space cycles. Remote-enabled repositories
-/// offer both kinds regardless of the local installed snapshot; local
-/// repositories offer only installed kinds.
+/// Uses the shared [`crate::state::effective_agent_kinds_with_npm`] projection
+/// so the form hint matches exactly what Space cycles. Remote-enabled
+/// repositories offer both kinds regardless of the local installed snapshot;
+/// local repositories also offer LLxprt when npm is available.
 fn effective_kinds_for_form(state: Option<&AppState>) -> Vec<crate::domain::AgentKind> {
     let Some(state) = state else {
         return Vec::new();

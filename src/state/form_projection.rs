@@ -329,21 +329,21 @@ mod tests {
     fn remote_offers_both_kinds_even_when_locally_uninstalled() {
         // Only LLxprt is locally installed, but a remote repo offers both.
         let installed = vec![AgentKind::Llxprt];
-        let kinds = effective_agent_kinds(&installed, true);
+        let kinds = effective_agent_kinds_with_npm(&installed, true, false);
         assert_eq!(kinds, vec![AgentKind::Llxprt, AgentKind::CodePuppy]);
     }
 
     #[test]
     fn remote_offers_both_kinds_even_when_nothing_installed() {
         // Even with zero local installs, remote offers both kinds.
-        let kinds = effective_agent_kinds(&[], true);
+        let kinds = effective_agent_kinds_with_npm(&[], true, false);
         assert_eq!(kinds, vec![AgentKind::Llxprt, AgentKind::CodePuppy]);
     }
 
     #[test]
     fn local_restricts_to_installed_kinds() {
         let installed = vec![AgentKind::Llxprt];
-        let kinds = effective_agent_kinds(&installed, false);
+        let kinds = effective_agent_kinds_with_npm(&installed, false, false);
         assert_eq!(kinds, vec![AgentKind::Llxprt]);
     }
 

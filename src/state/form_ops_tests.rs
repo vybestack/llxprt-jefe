@@ -478,7 +478,7 @@ fn repository_form_focus_includes_default_llxprt_version_for_llxprt() {
         ..AppState::default()
     };
     state = state.apply(AppEvent::OpenNewRepository);
-    // Default agent kind is LLxprt (from seed).
+    // New repository forms default the agent kind to LLxprt.
     state = state.apply(AppEvent::FormNextField); // Name → BaseDir
     state = state.apply(AppEvent::FormNextField); // BaseDir → DefaultProfile
     state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultLlxprtVersion

@@ -391,10 +391,9 @@ pub(super) fn require_runtime_available(
     npm_present: bool,
 ) -> Result<(), String> {
     match target {
-        WorkTarget::Local => super::availability::require_local_kind_or_npm_available(
+        WorkTarget::Local => super::availability::require_local_kind_or_npm_available_for_target(
             kind,
             llxprt_version,
-            &jefe::domain::RemoteRepositorySettings::default(),
             available,
             npm_present,
         ),

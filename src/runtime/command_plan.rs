@@ -31,9 +31,9 @@ const LLXPRT_PACKAGE_PREFIX: &str = "@vybestack/llxprt-code@";
 ///
 /// The `--package=@vybestack/llxprt-code@VERSION` is a single argv token
 /// (verified npm exec syntax). The package_token field carries that whole
-/// token; the fixed field carries everything before it.
+/// token; args carries the fixed npm subcommand arguments before it.
 struct NpmExecPrefix {
-    fixed: Vec<&'static str>,
+    args: Vec<&'static str>,
     /// The full `--package=@vybestack/llxprt-code@VERSION` token.
     package_token: String,
 }
@@ -104,7 +104,7 @@ impl ExecutablePlan {
                     |path| path.as_os_str().to_owned(),
                 );
                 let mut args = vec![npm];
-                args.extend(prefix.fixed.iter().skip(1).map(std::ffi::OsString::from));
+                args.extend(prefix.args.iter().map(std::ffi::OsString::from));
                 args.push(prefix.package_token.into());
                 args.push("--".into());
                 args.push("llxprt".into());
@@ -127,7 +127,7 @@ impl ExecutablePlan {
             Self::NpmExec { version } => {
                 let prefix = Self::npm_exec_prefix(version);
                 let mut tokens = vec![npm_executable.to_owned()];
-                tokens.extend(prefix.fixed.iter().skip(1).map(|s| (*s).to_owned()));
+                tokens.extend(prefix.args.iter().map(|s| (*s).to_owned()));
                 tokens.push(prefix.package_token);
                 tokens.push("--".to_owned());
                 tokens.push("llxprt".to_owned());
@@ -146,7 +146,7 @@ impl ExecutablePlan {
     /// verified npm exec syntax (not separate `--package` and value tokens).
     fn npm_exec_prefix(version: &str) -> NpmExecPrefix {
         NpmExecPrefix {
-            fixed: vec!["npm", "exec", "--yes"],
+            args: vec!["exec", "--yes"],
             package_token: format!("--package={LLXPRT_PACKAGE_PREFIX}{version}"),
         }
     }
@@ -418,6 +418,17 @@ mod tests {
         assert!(cmd.contains("'--yes'"));
         assert!(cmd.contains("'--'"));
         assert!(cmd.contains("'llxprt'"));
+    }
+
+    #[test]
+    fn remote_prefix_escapes_quotes_and_shell_metacharacters_in_selector() {
+        let plan = ExecutablePlan::from_signature(&llxprt_sig("1.0'; touch /tmp/pwn; #"));
+        let command = plan.remote_command_prefix("/opt/node's npm");
+
+        assert_eq!(
+            command,
+            r"'/opt/node'\''s npm' 'exec' '--yes' '--package=@vybestack/llxprt-code@1.0'\''; touch /tmp/pwn; #' '--' 'llxprt'"
+        );
     }
 
     #[test]

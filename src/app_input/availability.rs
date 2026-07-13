@@ -52,6 +52,13 @@ pub(super) fn require_local_kind_available(
         // This must NOT silently become local — reject with a clear error.
         return Err(jefe::domain::target::invalid_remote_message());
     }
+    require_local_kind_available_for_target(kind, available)
+}
+
+fn require_local_kind_available_for_target(
+    kind: AgentKind,
+    available: &[AgentKind],
+) -> Result<(), String> {
     if available.contains(&kind) {
         return Ok(());
     }
@@ -61,12 +68,13 @@ pub(super) fn require_local_kind_available(
     ))
 }
 
-/// Pure selector-aware local availability check.
+/// Pure selector-aware target availability check.
 ///
 /// Branches on AgentKind before the selector so Code Puppy never consults npm
 /// due to a dormant LLxprt selector. A versioned LLxprt launch (nonblank
 /// `llxprt_version`) requires `npm`; all other cases require the kind's
-/// binary on PATH.
+/// binary on PATH. Enabled remote settings are validated but defer runtime
+/// discovery to the remote probe.
 ///
 /// Pure (no state mutation, no PATH I/O) — the caller passes `npm_present`
 /// and the `available` snapshot so this is fully deterministic.
@@ -83,6 +91,24 @@ pub(super) fn require_local_kind_or_npm_available(
     }
 
     if kind == AgentKind::Llxprt && !llxprt_version.trim().is_empty() {
+        return require_local_kind_or_npm_available_for_target(
+            kind,
+            llxprt_version,
+            available,
+            npm_present,
+        );
+    }
+    require_local_kind_available(kind, remote, available)
+}
+
+/// Pure selector-aware availability check for an already-resolved local target.
+pub(super) fn require_local_kind_or_npm_available_for_target(
+    kind: AgentKind,
+    llxprt_version: &str,
+    available: &[AgentKind],
+    npm_present: bool,
+) -> Result<(), String> {
+    if kind == AgentKind::Llxprt && !llxprt_version.trim().is_empty() {
         if npm_present {
             return Ok(());
         }
@@ -91,7 +117,7 @@ pub(super) fn require_local_kind_or_npm_available(
         );
     }
 
-    require_local_kind_available(kind, remote, available)
+    require_local_kind_available_for_target(kind, available)
 }
 
 /// Pre-submit guard for new-agent and edit-agent forms.
