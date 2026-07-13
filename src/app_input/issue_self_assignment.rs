@@ -53,10 +53,9 @@ impl SelfAssignment {
         issue_number: u64,
     ) -> Option<Self> {
         let reference = tracker?;
-        let (owner, repo) = split_owner_repo(&reference.full())?;
         Some(Self {
-            owner,
-            repo,
+            owner: reference.owner().to_owned(),
+            repo: reference.repo().to_owned(),
             owner_repo: reference.full(),
             issue_number,
         })

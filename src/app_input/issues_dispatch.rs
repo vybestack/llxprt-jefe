@@ -12,18 +12,9 @@ use super::{
 };
 use super::{issues_list_dispatch, issues_mutation, issues_send, issues_subfocus_dispatch};
 
-/// Resolve the effective GitHub `owner/repo` for issue/PR tracker routing
-/// (issue #266).
-///
-/// Routes through [`super::tracker_resolver::resolve_tracker_outcome`] so a
-/// nonblank `github_issue_pr_repo` override takes precedence over
-/// `github_repo`. A malformed nonblank override yields empty strings (visible
-/// failure) rather than silently falling back to the fork identity. Blank
-/// override preserves existing behavior (uses `github_repo`).
-///
-/// Callers that build user-visible error messages should use
-/// [`resolve_gh_repo_or_error`] instead, so the malformed reason reaches the
-/// UI instead of a misleading "missing GitHub Repo".
+/// Resolve the effective issue repository, returning empty components when
+/// no valid target exists. User-visible callers use [`resolve_gh_repo_or_error`]
+/// to retain malformed-configuration details.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
 /// @requirement REQ-ISS-013
@@ -183,6 +174,7 @@ fn detail_load_params(app_state: &AppStateHandle) -> Option<DetailLoadParams> {
         issue_number,
         owner,
         repo,
+        // Assigned by mark_detail_loading before the request is dispatched.
         request_id: 0,
         malformed_message,
     };

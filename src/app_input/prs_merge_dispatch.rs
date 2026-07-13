@@ -33,10 +33,10 @@ pub(super) struct PrMergeInfo {
 
 /// Resolve the merge context from the pending merge mutation in state.
 ///
-/// Returns `Ok(info)` when a merge mutation is pending with a valid repo slug,
-/// `Err(RepoContextError::InvalidSlug)` when the slug is malformed (carrying
-/// the typed malformed reason), and `Err(RepoContextError::NoSelection)`
-/// when no mutation is pending.
+/// Returns `Ok(info)` when a merge mutation is pending with a valid repo,
+/// `Err(RepoContextError::Malformed)` with the typed malformed reason,
+/// `Err(RepoContextError::InvalidSlug)` when no repository is configured, and
+/// `Err(RepoContextError::NoSelection)` when no mutation is pending.
 ///
 /// @requirement REQ-PR-009
 pub(super) fn pr_merge_info_from_state(
