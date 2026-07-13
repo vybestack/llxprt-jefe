@@ -21,6 +21,10 @@ pub mod parser;
 pub mod runner;
 pub mod scenario;
 pub mod step;
+#[cfg(windows)]
+#[path = "psmux_driver.rs"]
+pub mod tmux_driver;
+#[cfg(not(windows))]
 pub mod tmux_driver;
 
 pub use capture::{PaneStatus, PaneStatusParseError, ScreenCapture, ScrollbackSample};

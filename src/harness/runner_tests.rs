@@ -232,12 +232,12 @@ fn capture_name_is_sanitized_inside_artifact_dir() {
 #[test]
 fn scenario_config_out_dir_is_used_when_no_explicit_artifact_dir_is_passed() {
     let artifact_dir = tempfile::tempdir().value_or_panic("tempdir");
+    let out_dir = artifact_dir.path().to_string_lossy().replace('\\', "\\\\");
     let json = format!(
         r#"{{
-            "config": {{ "cols": 80, "rows": 24, "out_dir": "{}" }},
+            "config": {{ "cols": 80, "rows": 24, "out_dir": "{out_dir}" }},
             "steps": [ {{ "capture": "screen" }} ]
         }}"#,
-        artifact_dir.path().display()
     );
     let scenario = parse_scenario(&json).value_or_panic("scenario should parse");
     let mut driver = FakeDriver::default().with_screens(&["from config"]);
@@ -485,7 +485,7 @@ fn jefe_binary_path() -> Option<PathBuf> {
     let current = std::env::current_exe().ok()?;
     let deps_dir = current.parent()?;
     let debug_dir = deps_dir.parent()?;
-    let candidate = debug_dir.join("jefe");
+    let candidate = debug_dir.join(format!("jefe{}", std::env::consts::EXE_SUFFIX));
     candidate.exists().then_some(candidate)
 }
 

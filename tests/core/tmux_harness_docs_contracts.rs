@@ -25,6 +25,22 @@ fn dev_docs_index_links_to_tmux_harness_guide() {
 }
 
 /// @plan PLAN-20260629-TMUX-HARNESS.P05
+#[test]
+fn tmux_harness_guide_documents_native_windows_psmux_contract() {
+    let guide = read_repo_text("dev-docs/testing/tmux-harness.md");
+    for required in [
+        "Native Windows with psmux",
+        "psmux 3.3.6",
+        "JEFE_PSMUX_BIN",
+        "unique `psmux -L <namespace>`",
+        "multiplexer.txt",
+        "never invokes bare `psmux kill-server`",
+        "WSL, Cygwin, MSYS2, Git Bash, Docker",
+    ] {
+        assert!(guide.contains(required), "guide must document {required:?}");
+    }
+}
+
 /// @requirement REQ-TMUX-HARNESS-005
 /// @pseudocode component-002 lines 1-6
 #[test]
