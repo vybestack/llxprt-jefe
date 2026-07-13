@@ -60,6 +60,21 @@ where
     )))
 }
 
+/// Reject names containing a comma, returning a [`GhError`] naming the field
+/// and the offending value (issue #175 F8). `gh`'s `--add-label`/`--add-assignee`
+/// split each value on commas, so a name with a comma would be silently
+/// misinterpreted as multiple values.
+fn reject_comma_names(field: &str, names: &[String]) -> Result<(), GhError> {
+    for name in names {
+        if name.contains(',') {
+            return Err(GhError::ParseError(format!(
+                "{field} name cannot contain a comma: '{name}'"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Identifies the issue or PR being edited. Bundles the four identifying
 /// fields so property-edit methods and arg builders stay under the argument
 /// limit (issue #175).
@@ -572,6 +587,13 @@ impl GhClient {
         to_add: &[String],
         to_remove: &[String],
     ) -> Result<(), GhError> {
+        // F8: gh's --add-label/--remove-label split each value on commas, so a
+        // label name containing a comma would be silently broken into multiple
+        // labels. Reject such names with a clear error rather than corrupting
+        // the label set. A full GraphQL labelIds migration would remove this
+        // limitation.
+        reject_comma_names("label", to_add)?;
+        reject_comma_names("label", to_remove)?;
         let args = build_edit_labels_args(target, to_add, to_remove);
         if args.is_empty() {
             return Ok(());

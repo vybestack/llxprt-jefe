@@ -489,6 +489,35 @@ fn parse_assignee_logins_page_returns_cursor_when_more() {
     assert_eq!(next.as_deref(), Some("YXNz"));
 }
 
+// ── F8: comma-name guard ────────────────────────────────────────────
+
+#[test]
+fn reject_comma_names_passes_clean_names() {
+    reject_comma_names("label", &["bug".to_string(), "enhancement".to_string()])
+        .value_or_panic("clean names should pass");
+}
+
+#[test]
+fn reject_comma_names_rejects_comma_label() {
+    let result = reject_comma_names("label", &["area:foo,bar".to_string()]);
+    let err = result
+        .err()
+        .unwrap_or_else(|| panic!("comma label should be rejected"));
+    assert!(format!("{err:?}").contains("area:foo,bar"));
+    assert!(format!("{err:?}").contains("label"));
+}
+
+#[test]
+fn reject_comma_names_reports_first_offender() {
+    let result = reject_comma_names(
+        "label",
+        &["ok".to_string(), "a,b".to_string(), "c,d".to_string()],
+    );
+    let err = format!("{result:?}");
+    // Reports the first comma-containing name encountered.
+    assert!(err.contains("a,b"));
+}
+
 // ── H2: Issue-type id/name end-to-end ───────────────────────────────
 
 #[test]
