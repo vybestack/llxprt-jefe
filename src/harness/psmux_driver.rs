@@ -179,8 +179,9 @@ impl TmuxDriver {
         if session.keep_session {
             return Ok(());
         }
-        let _ = self.run(&["kill-session", "-t", &session.name]);
-        self.kill_owned_namespace()
+        let session_cleanup = self.run(&["kill-session", "-t", &session.name]);
+        let namespace_cleanup = self.kill_owned_namespace();
+        namespace_cleanup.and(session_cleanup)
     }
 
     pub fn send_line(&self, session: &TmuxSession, line: &str) -> Result<(), TmuxDriverError> {

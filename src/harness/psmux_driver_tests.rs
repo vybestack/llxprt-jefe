@@ -62,11 +62,9 @@ fn real_psmux_runs_a_stable_native_process_when_available() {
     let session = driver
         .start_session(&request)
         .unwrap_or_else(|error| panic!("psmux session should start: {error}"));
-    let screen = driver
-        .capture_screen(&session)
-        .unwrap_or_else(|error| panic!("screen should capture: {error}"));
+    let capture = driver.capture_screen(&session);
+    let cleanup = driver.cleanup_session(&session);
+    cleanup.unwrap_or_else(|error| panic!("owned namespace should clean up: {error}"));
+    let screen = capture.unwrap_or_else(|error| panic!("screen should capture: {error}"));
     assert_eq!((screen.cols, screen.rows), (100, 32));
-    driver
-        .cleanup_session(&session)
-        .unwrap_or_else(|error| panic!("owned namespace should clean up: {error}"));
 }
