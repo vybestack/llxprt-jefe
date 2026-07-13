@@ -432,6 +432,63 @@ fn parse_label_names_missing_path_errors() {
     assert!(parse_label_names(json).is_err());
 }
 
+// ── F7: pagination ──────────────────────────────────────────────────
+
+#[test]
+fn parse_label_names_page_returns_cursor_when_more() {
+    let json = r#"{"data":{"repository":{"labels":{"nodes":[{"name":"a"}],"pageInfo":{"hasNextPage":true,"endCursor":"Y2VyMQ=="}}}}}"#;
+    let (names, next) = parse_label_names_page(json).value_or_panic("should parse");
+    assert_eq!(names, vec!["a"]);
+    assert_eq!(next.as_deref(), Some("Y2VyMQ=="));
+}
+
+#[test]
+fn parse_label_names_page_no_cursor_when_done() {
+    let json = r#"{"data":{"repository":{"labels":{"nodes":[{"name":"a"}],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}"#;
+    let (names, next) = parse_label_names_page(json).value_or_panic("should parse");
+    assert_eq!(names, vec!["a"]);
+    assert!(next.is_none());
+}
+
+#[test]
+fn parse_label_names_page_no_pageinfo_means_no_more() {
+    // Backward compat: responses without pageInfo are treated as final.
+    let json = r#"{"data":{"repository":{"labels":{"nodes":[{"name":"a"}]}}}}"#;
+    let (names, next) = parse_label_names_page(json).value_or_panic("should parse");
+    assert_eq!(names, vec!["a"]);
+    assert!(next.is_none());
+}
+
+#[test]
+fn build_labels_query_args_with_cursor_includes_after() {
+    let args = build_labels_query_args("o", "r", Some("Y2VyMQ=="));
+    assert!(args.iter().any(|a| a == "after=Y2VyMQ=="));
+    assert!(args.iter().any(|a| a.contains("after: $after")));
+}
+
+#[test]
+fn build_labels_query_args_without_cursor_omits_after() {
+    let args = build_labels_query_args("o", "r", None);
+    assert!(args.iter().all(|a| !a.starts_with("after=")));
+    assert!(args.iter().all(|a| !a.contains("after: $after")));
+}
+
+#[test]
+fn parse_milestone_titles_page_returns_cursor_when_more() {
+    let json = r#"{"data":{"repository":{"milestones":{"nodes":[{"title":"v1"}],"pageInfo":{"hasNextPage":true,"endCursor":"Y3I="}}}}}"#;
+    let (titles, next) = parse_milestone_titles_page(json).value_or_panic("should parse");
+    assert_eq!(titles, vec!["v1"]);
+    assert_eq!(next.as_deref(), Some("Y3I="));
+}
+
+#[test]
+fn parse_assignee_logins_page_returns_cursor_when_more() {
+    let json = r#"{"data":{"repository":{"assignees":{"nodes":[{"login":"alice"}],"pageInfo":{"hasNextPage":true,"endCursor":"YXNz"}}}}}"#;
+    let (logins, next) = parse_assignee_logins_page(json).value_or_panic("should parse");
+    assert_eq!(logins, vec!["alice"]);
+    assert_eq!(next.as_deref(), Some("YXNz"));
+}
+
 // ── H2: Issue-type id/name end-to-end ───────────────────────────────
 
 #[test]

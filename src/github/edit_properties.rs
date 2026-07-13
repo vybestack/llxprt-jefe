@@ -9,6 +9,57 @@
 use super::GhError;
 use serde_json::Value;
 
+/// Extract the next-page cursor from a GraphQL `pageInfo` object, returning
+/// `Some(cursor)` only when `hasNextPage` is true and `endCursor` is present
+/// (issue #175 F7).
+fn next_page_cursor(connection: &Value) -> Option<String> {
+    let page_info = connection.get("pageInfo")?;
+    let has_next = page_info.get("hasNextPage").and_then(Value::as_bool)?;
+    if !has_next {
+        return None;
+    }
+    page_info
+        .get("endCursor")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+/// Maximum number of pages to fetch in a single `paginate` call. Guards
+/// against runaway loops from a malformed `hasNextPage` (issue #175 F7).
+const MAX_PAGINATION_PAGES: usize = 50;
+
+/// Fetch all pages of a GraphQL connection by following `endCursor` until
+/// `hasNextPage` is false (issue #175 F7).
+///
+/// - `build_args`: builds the `gh api graphql` arg vector for a page, given an
+///   optional continuation cursor.
+/// - `parse_page`: parses one page's JSON into `(items, next_cursor)`.
+/// - `label`: a human-readable label for error messages (e.g. "labels").
+///
+/// # Errors
+/// Propagates [`GhError`] from `run_gh` or the page parser.
+fn paginate<T, F, P>(build_args: F, parse_page: P, label: &str) -> Result<Vec<T>, GhError>
+where
+    F: Fn(Option<&str>) -> Vec<String>,
+    P: Fn(&str) -> Result<(Vec<T>, Option<String>), GhError>,
+{
+    let mut all = Vec::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..MAX_PAGINATION_PAGES {
+        let args = build_args(cursor.as_deref());
+        let stdout = GhClient::run_gh(&args)?;
+        let (mut items, next) = parse_page(&stdout)?;
+        all.append(&mut items);
+        match next {
+            Some(next_cursor) if !next_cursor.is_empty() => cursor = Some(next_cursor),
+            _ => return Ok(all),
+        }
+    }
+    Err(GhError::ParseError(format!(
+        "{label} pagination exceeded {MAX_PAGINATION_PAGES} pages"
+    )))
+}
+
 /// Identifies the issue or PR being edited. Bundles the four identifying
 /// fields so property-edit methods and arg builders stay under the argument
 /// limit (issue #175).
@@ -334,10 +385,17 @@ pub fn build_update_issue_type_args(node_id: &str, type_id: Option<&str>) -> Vec
 // ── Options-fetching queries (labels, assignees, milestones) ───────────────
 
 /// Build the GraphQL query to fetch the repo's labels for the property editor.
+///
+/// When `after` is `Some(cursor)`, the query continues from that cursor
+/// (issue #175 F7 pagination).
 #[must_use]
-pub fn build_labels_query_args(owner: &str, name: &str) -> Vec<String> {
-    let query = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { labels(first: 100, orderBy: {field: NAME, direction: ASC}) { nodes { name } } } }";
-    vec![
+pub fn build_labels_query_args(owner: &str, name: &str, after: Option<&str>) -> Vec<String> {
+    let query = if after.is_some() {
+        "query($owner: String!, $name: String!, $after: String!) { repository(owner: $owner, name: $name) { labels(first: 100, after: $after, orderBy: {field: NAME, direction: ASC}) { nodes { name } pageInfo { hasNextPage endCursor } } } }"
+    } else {
+        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { labels(first: 100, orderBy: {field: NAME, direction: ASC}) { nodes { name } pageInfo { hasNextPage endCursor } } } }"
+    };
+    let mut args = vec![
         "api".to_string(),
         "graphql".to_string(),
         "-f".to_string(),
@@ -346,18 +404,36 @@ pub fn build_labels_query_args(owner: &str, name: &str) -> Vec<String> {
         format!("owner={owner}"),
         "-F".to_string(),
         format!("name={name}"),
-    ]
+    ];
+    if let Some(cursor) = after {
+        args.push("-F".to_string());
+        args.push(format!("after={cursor}"));
+    }
+    args
 }
 
-/// Parse the labels GraphQL response into a sorted list of label names.
+/// Parse the labels GraphQL response into a sorted list of label names plus
+/// the next-page cursor (issue #175 F7).
 ///
 /// # Errors
 /// Returns [`GhError::ParseError`] if the JSON is malformed.
 pub fn parse_label_names(json: &str) -> Result<Vec<String>, GhError> {
+    Ok(parse_label_names_page(json)?.0)
+}
+
+/// Parse one page of the labels response, returning the names and the
+/// next cursor when another page exists (issue #175 F7).
+///
+/// # Errors
+/// Returns [`GhError::ParseError`] if the JSON is malformed.
+pub fn parse_label_names_page(json: &str) -> Result<(Vec<String>, Option<String>), GhError> {
     let value: Value = serde_json::from_str(json)
         .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
-    let nodes = value
-        .pointer("/data/repository/labels/nodes")
+    let connection = value
+        .pointer("/data/repository/labels")
+        .ok_or_else(|| GhError::ParseError("Missing labels in response".to_string()))?;
+    let nodes = connection
+        .get("nodes")
         .and_then(Value::as_array)
         .ok_or_else(|| GhError::ParseError("Missing labels.nodes in response".to_string()))?;
     let mut names: Vec<String> = nodes
@@ -365,14 +441,19 @@ pub fn parse_label_names(json: &str) -> Result<Vec<String>, GhError> {
         .filter_map(|n| n.get("name").and_then(Value::as_str).map(str::to_string))
         .collect();
     names.sort_by_key(|n| n.to_lowercase());
-    Ok(names)
+    let next_cursor = next_page_cursor(connection);
+    Ok((names, next_cursor))
 }
 
-/// Build the GraphQL query to fetch the repo's milestones.
+/// Build the GraphQL query to fetch the repo's milestones (issue #175 F7).
 #[must_use]
-pub fn build_milestones_query_args(owner: &str, name: &str) -> Vec<String> {
-    let query = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { milestones(first: 50, states: [OPEN], orderBy: {field: CREATED_AT, direction: DESC}) { nodes { title } } } }";
-    vec![
+pub fn build_milestones_query_args(owner: &str, name: &str, after: Option<&str>) -> Vec<String> {
+    let query = if after.is_some() {
+        "query($owner: String!, $name: String!, $after: String!) { repository(owner: $owner, name: $name) { milestones(first: 50, after: $after, states: [OPEN], orderBy: {field: CREATED_AT, direction: DESC}) { nodes { title } pageInfo { hasNextPage endCursor } } } }"
+    } else {
+        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { milestones(first: 50, states: [OPEN], orderBy: {field: CREATED_AT, direction: DESC}) { nodes { title } pageInfo { hasNextPage endCursor } } } }"
+    };
+    let mut args = vec![
         "api".to_string(),
         "graphql".to_string(),
         "-f".to_string(),
@@ -381,7 +462,12 @@ pub fn build_milestones_query_args(owner: &str, name: &str) -> Vec<String> {
         format!("owner={owner}"),
         "-F".to_string(),
         format!("name={name}"),
-    ]
+    ];
+    if let Some(cursor) = after {
+        args.push("-F".to_string());
+        args.push(format!("after={cursor}"));
+    }
+    args
 }
 
 /// Parse the milestones GraphQL response into a list of milestone titles.
@@ -389,24 +475,40 @@ pub fn build_milestones_query_args(owner: &str, name: &str) -> Vec<String> {
 /// # Errors
 /// Returns [`GhError::ParseError`] if the JSON is malformed.
 pub fn parse_milestone_titles(json: &str) -> Result<Vec<String>, GhError> {
+    Ok(parse_milestone_titles_page(json)?.0)
+}
+
+/// Parse one page of the milestones response, returning titles and the next
+/// cursor when another page exists (issue #175 F7).
+///
+/// # Errors
+/// Returns [`GhError::ParseError`] if the JSON is malformed.
+pub fn parse_milestone_titles_page(json: &str) -> Result<(Vec<String>, Option<String>), GhError> {
     let value: Value = serde_json::from_str(json)
         .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
-    let nodes = value
-        .pointer("/data/repository/milestones/nodes")
+    let connection = value
+        .pointer("/data/repository/milestones")
+        .ok_or_else(|| GhError::ParseError("Missing milestones in response".to_string()))?;
+    let nodes = connection
+        .get("nodes")
         .and_then(Value::as_array)
         .ok_or_else(|| GhError::ParseError("Missing milestones.nodes in response".to_string()))?;
     let titles: Vec<String> = nodes
         .iter()
         .filter_map(|n| n.get("title").and_then(Value::as_str).map(str::to_string))
         .collect();
-    Ok(titles)
+    Ok((titles, next_page_cursor(connection)))
 }
 
-/// Build the GraphQL query to fetch the repo's assignable users (assignees).
+/// Build the GraphQL query to fetch the repo's assignable users (issue #175 F7).
 #[must_use]
-pub fn build_assignees_query_args(owner: &str, name: &str) -> Vec<String> {
-    let query = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { assignees(first: 100) { nodes { login } } } }";
-    vec![
+pub fn build_assignees_query_args(owner: &str, name: &str, after: Option<&str>) -> Vec<String> {
+    let query = if after.is_some() {
+        "query($owner: String!, $name: String!, $after: String!) { repository(owner: $owner, name: $name) { assignees(first: 100, after: $after) { nodes { login } pageInfo { hasNextPage endCursor } } } }"
+    } else {
+        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { assignees(first: 100) { nodes { login } pageInfo { hasNextPage endCursor } } } }"
+    };
+    let mut args = vec![
         "api".to_string(),
         "graphql".to_string(),
         "-f".to_string(),
@@ -415,7 +517,12 @@ pub fn build_assignees_query_args(owner: &str, name: &str) -> Vec<String> {
         format!("owner={owner}"),
         "-F".to_string(),
         format!("name={name}"),
-    ]
+    ];
+    if let Some(cursor) = after {
+        args.push("-F".to_string());
+        args.push(format!("after={cursor}"));
+    }
+    args
 }
 
 /// Parse the assignees GraphQL response into a list of login names.
@@ -423,17 +530,29 @@ pub fn build_assignees_query_args(owner: &str, name: &str) -> Vec<String> {
 /// # Errors
 /// Returns [`GhError::ParseError`] if the JSON is malformed.
 pub fn parse_assignee_logins(json: &str) -> Result<Vec<String>, GhError> {
+    Ok(parse_assignee_logins_page(json)?.0)
+}
+
+/// Parse one page of the assignees response, returning logins and the next
+/// cursor when another page exists (issue #175 F7).
+///
+/// # Errors
+/// Returns [`GhError::ParseError`] if the JSON is malformed.
+pub fn parse_assignee_logins_page(json: &str) -> Result<(Vec<String>, Option<String>), GhError> {
     let value: Value = serde_json::from_str(json)
         .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
-    let nodes = value
-        .pointer("/data/repository/assignees/nodes")
+    let connection = value
+        .pointer("/data/repository/assignees")
+        .ok_or_else(|| GhError::ParseError("Missing assignees in response".to_string()))?;
+    let nodes = connection
+        .get("nodes")
         .and_then(Value::as_array)
         .ok_or_else(|| GhError::ParseError("Missing assignees.nodes in response".to_string()))?;
     let logins: Vec<String> = nodes
         .iter()
         .filter_map(|n| n.get("login").and_then(Value::as_str).map(str::to_string))
         .collect();
-    Ok(logins)
+    Ok((logins, next_page_cursor(connection)))
 }
 
 // ── GhClient method wrappers (issue #175) ──────────────────────────────────
@@ -573,25 +692,34 @@ impl GhClient {
         Ok(())
     }
 
-    /// Fetch the repo's labels for the property editor.
+    /// Fetch the repo's labels for the property editor, paginating through all
+    /// pages (issue #175 F7).
     pub fn fetch_label_names(&self, owner: &str, name: &str) -> Result<Vec<String>, GhError> {
-        let args = build_labels_query_args(owner, name);
-        let stdout = Self::run_gh(&args)?;
-        parse_label_names(&stdout)
+        paginate(
+            |cursor| build_labels_query_args(owner, name, cursor),
+            parse_label_names_page,
+            "labels",
+        )
     }
 
-    /// Fetch the repo's open milestones for the property editor.
+    /// Fetch the repo's open milestones for the property editor, paginating
+    /// through all pages (issue #175 F7).
     pub fn fetch_milestone_titles(&self, owner: &str, name: &str) -> Result<Vec<String>, GhError> {
-        let args = build_milestones_query_args(owner, name);
-        let stdout = Self::run_gh(&args)?;
-        parse_milestone_titles(&stdout)
+        paginate(
+            |cursor| build_milestones_query_args(owner, name, cursor),
+            parse_milestone_titles_page,
+            "milestones",
+        )
     }
 
-    /// Fetch the repo's assignable users for the property editor.
+    /// Fetch the repo's assignable users for the property editor, paginating
+    /// through all pages (issue #175 F7).
     pub fn fetch_assignee_logins(&self, owner: &str, name: &str) -> Result<Vec<String>, GhError> {
-        let args = build_assignees_query_args(owner, name);
-        let stdout = Self::run_gh(&args)?;
-        parse_assignee_logins(&stdout)
+        paginate(
+            |cursor| build_assignees_query_args(owner, name, cursor),
+            parse_assignee_logins_page,
+            "assignees",
+        )
     }
 }
 
