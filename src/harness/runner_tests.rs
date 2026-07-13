@@ -576,6 +576,7 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         },
         attached: false,
         last_seen: None,
+        process_identity: None,
         pid: None,
     });
 
@@ -796,9 +797,7 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
         RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
     };
-    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
-
-    // Derive the agent id from the session name so that
+    use crate::persistence::State;
     // `RuntimeSession::session_name_for(agent_id)` reproduces `agent_session`
     // exactly. This keeps the pre-created (sleep) session name coherent with
     // the name jefe computes for the agent, so restart targets the SAME session
@@ -831,6 +830,7 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         },
         attached: false,
         last_seen: None,
+        process_identity: None,
         pid: None,
     });
 
@@ -851,14 +851,20 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         terminal_focused: false,
         user_preferences: crate::domain::UserPreferences::default(),
     };
+    save_seeded_state(config_dir, &persisted_state);
+}
+
+#[cfg(unix)]
+fn save_seeded_state(config_dir: &std::path::Path, state: &crate::persistence::State) {
+    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths};
+
     let paths = PersistencePaths {
         settings_path: config_dir.join("settings.toml"),
         state_path: config_dir.join("state.json"),
     };
-    let persistence = FilePersistenceManager::with_paths(paths);
-    persistence
-        .save_state(&persisted_state)
-        .unwrap_or_else(|e| panic!("save state: {e:?}"));
+    FilePersistenceManager::with_paths(paths)
+        .save_state(state)
+        .unwrap_or_else(|error| panic!("save state: {error:?}"));
 }
 
 /// Run the issue #117 restart TUI scenario against the real jefe binary.

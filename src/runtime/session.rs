@@ -4,7 +4,7 @@
 //! @requirement REQ-TECH-004
 //! @pseudocode component-002 lines 01-06
 
-use crate::domain::{AgentId, LaunchSignature};
+use crate::domain::{AgentId, LaunchSignature, ProcessIdentity};
 
 /// Runtime session binding for an agent.
 ///
@@ -26,6 +26,8 @@ pub struct RuntimeSession {
     /// liveness fallback when the tmux session is gone but the worker process
     /// is still alive.
     pub pid: Option<u32>,
+    /// Stable process-instance identity used to reject PID reuse.
+    pub process_identity: Option<ProcessIdentity>,
 }
 
 impl RuntimeSession {
@@ -38,6 +40,7 @@ impl RuntimeSession {
             launch_signature,
             attached: false,
             pid: None,
+            process_identity: None,
         }
     }
 

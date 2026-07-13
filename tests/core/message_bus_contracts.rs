@@ -185,6 +185,7 @@ fn typed_kill_agent_clears_runtime_binding() {
         },
         attached: true,
         last_seen: None,
+        process_identity: None,
         pid: None,
     });
 

@@ -7,7 +7,6 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::agent_executable::ResolvedAgentExecutable;
 use super::agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, write_launch_plan};
@@ -687,26 +686,11 @@ fn find_on_path(candidate: &OsStr) -> Option<PathBuf> {
 }
 
 fn unique_test_namespace() -> String {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("jefe-test-{}-{sequence:x}", std::process::id())
+    super::identity::unique_current_user_namespace()
 }
 
 fn stable_jefe_namespace() -> String {
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for value in [
-        std::env::var_os("USERNAME"),
-        std::env::current_exe().ok().map(PathBuf::into_os_string),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        for byte in value.as_encoded_bytes() {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-    }
-    format!("jefe-{hash:016x}")
+    super::identity::stable_current_user_namespace()
 }
 
 fn parse_version_part(part: Option<&str>, source: &str) -> Result<u32, MultiplexerError> {
