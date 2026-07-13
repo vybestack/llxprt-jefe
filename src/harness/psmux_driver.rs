@@ -164,8 +164,13 @@ impl TmuxDriver {
         let args = new_session_args(request);
         self.run_owned(&args, Some(&request.working_dir))?;
         if let Err(error) = self.configure_session(request) {
-            let _ = self.kill_owned_namespace();
-            return Err(error);
+            return match self.kill_owned_namespace() {
+                Ok(()) => Err(error),
+                Err(cleanup) => Err(TmuxDriverError::Cleanup {
+                    session: error.to_string(),
+                    namespace: cleanup.to_string(),
+                }),
+            };
         }
         Ok(TmuxSession {
             name: request.session_name.clone(),
