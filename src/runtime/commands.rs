@@ -963,6 +963,6 @@ pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
 #[path = "commands_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "prefix_passthrough_tests.rs"]
 mod prefix_passthrough_tests;

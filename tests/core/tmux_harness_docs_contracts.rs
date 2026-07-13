@@ -41,6 +41,36 @@ fn tmux_harness_guide_documents_native_windows_psmux_contract() {
     }
 }
 
+#[test]
+fn native_windows_ci_gates_psmux_and_startup_scenario() {
+    let workflow = read_repo_text(".github/workflows/ci.yml");
+    for required in [
+        "runs-on: windows-latest",
+        "target: x86_64-pc-windows-msvc",
+        "cargo fmt --all --check",
+        "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+        "cargo build --workspace --all-features --locked",
+        "cargo test --workspace --all-features --locked",
+        "cargo test --features psmux-smoke --test psmux_smoke -- --nocapture",
+        "dev-docs/tmux-scenarios/startup-quit.json",
+        "JEFE_REQUIRE_PSMUX: \"1\"",
+        "timeout-minutes:",
+        "target/psmux-smoke",
+        "target/tmux-harness",
+    ] {
+        assert!(
+            workflow.contains(required),
+            "native Windows CI must include {required:?}"
+        );
+    }
+    assert!(
+        workflow.contains("psmux-v3.3.6-windows-x64.zip")
+            && workflow
+                .contains("a56a890ea0829567818b9a368f16dcbd39c087f27328573df17c10dd39618947"),
+        "native Windows CI must pin and checksum the qualified psmux release"
+    );
+}
+
 /// @requirement REQ-TMUX-HARNESS-005
 /// @pseudocode component-002 lines 1-6
 #[test]

@@ -248,6 +248,7 @@ fn issue_self_assignment_failed_round_trips_through_message_bus() {
     assert_eq!(error, "repo restricts assignees");
 }
 
+#[cfg(unix)]
 #[test]
 fn architecture_boundary_script_passes_in_ci_tests() {
     let output = std::process::Command::new("bash")

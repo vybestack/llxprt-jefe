@@ -4,6 +4,7 @@
 use super::*;
 use crate::domain::SandboxEngine;
 use crate::runtime::pane_capture::{capture_pane_history_args, parse_pane_pid};
+#[cfg(unix)]
 use std::time::Duration;
 
 fn base_signature() -> LaunchSignature {
@@ -182,6 +183,7 @@ fn remote_tmux_command_wraps_run_as_user_once() {
 /// [`run_command_capture_with_timeout`] branch with a sub-second injectable
 /// deadline against a portable `sleep` probe, so the test is fast and hermetic
 /// (no `python3` dependency) (#173).
+#[cfg(unix)]
 #[test]
 fn remote_execution_timeout_returns_clear_error() {
     // `sleep` is specified by POSIX and present on every CI platform jefe

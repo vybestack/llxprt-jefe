@@ -22,6 +22,11 @@ use crate::runtime::commands::{
 /// remote agents must stay on the tmux/SSH-only path.
 #[must_use]
 pub fn pid_alive(pid: u32) -> bool {
+    pid_alive_on_platform(pid)
+}
+
+#[cfg(unix)]
+fn pid_alive_on_platform(pid: u32) -> bool {
     match std::process::Command::new("kill")
         .arg("-0")
         .arg(pid.to_string())
@@ -36,6 +41,34 @@ pub fn pid_alive(pid: u32) -> bool {
             true
         }
     }
+}
+
+#[cfg(windows)]
+fn pid_alive_on_platform(pid: u32) -> bool {
+    let filter = format!("PID eq {pid}");
+    match std::process::Command::new("tasklist")
+        .args(["/FI", &filter, "/FO", "CSV", "/NH"])
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            let expected = format!("\",\"{pid}\",");
+            String::from_utf8_lossy(&output.stdout).contains(&expected)
+        }
+        Ok(_) => false,
+        Err(e) => {
+            tracing::warn!(error = %e, pid, "failed to spawn tasklist; assuming worker alive");
+            true
+        }
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn pid_alive_on_platform(pid: u32) -> bool {
+    tracing::warn!(
+        pid,
+        "PID liveness is unsupported on this platform; assuming worker alive"
+    );
+    true
 }
 
 /// Check if a tmux session exists and has at least one non-dead pane.
