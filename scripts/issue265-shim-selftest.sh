@@ -17,6 +17,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SHIM="$PROJECT_ROOT/scripts/issue265-gh-shim.sh"
 
+[[ -x "$SHIM" ]] || {
+    echo "FATAL: shim not found or not executable: $SHIM" >&2
+    exit 1
+}
+command -v timeout >/dev/null 2>&1 || {
+    echo "FATAL: timeout is required for the Linux shim self-test" >&2
+    exit 1
+}
+
 # The exact production vectors (must match the shim's readonly constants).
 SEARCH_QUERY_BODY='query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { id number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }'
 SEARCH_QUERY_STRING='repo:owner/repo-265 is:issue state:open'
@@ -26,44 +35,59 @@ COMMENTS_QUERY_BODY='query($owner: String!, $repo: String!, $number: Int!, $firs
 PASS=0
 FAIL=0
 TMPAUDIT=$(mktemp)
-trap 'rm -f "$TMPAUDIT"' EXIT
+TMPSTDERR=$(mktemp)
+trap 'rm -f "$TMPAUDIT" "$TMPSTDERR"' EXIT
 
-# Run the shim with given args; capture exit code.
-# Sets SHIM_EXIT and SHIM_STDOUT/SHIM_STDERR.
+# Run the shim with given args; capture output, audit, and bounded exit status.
 run_shim() {
     export GH_SHIM_AUDIT="$TMPAUDIT"
     : > "$TMPAUDIT"
+    : > "$TMPSTDERR"
     SHIM_STDOUT=""
     SHIM_STDERR=""
+    SHIM_AUDIT=""
     SHIM_EXIT=0
-    SHIM_STDOUT=$("$SHIM" "$@" 2>/dev/null) || SHIM_EXIT=$?
+    SHIM_STDOUT=$(timeout 10s "$SHIM" "$@" 2>"$TMPSTDERR") || SHIM_EXIT=$?
+    SHIM_STDERR=$(cat "$TMPSTDERR")
+    SHIM_AUDIT=$(cat "$TMPAUDIT")
 }
 
-# Assert the shim ACCEPTS (exit 0) the given args.
+record_failure() {
+    local expectation="$1"
+    local label="$2"
+    FAIL=$((FAIL + 1))
+    echo "FAIL (expected $expectation): $label"
+    echo "  exit: $SHIM_EXIT"
+    echo "  stdout: $SHIM_STDOUT"
+    echo "  stderr: $SHIM_STDERR"
+    echo "  audit: $SHIM_AUDIT"
+}
+
+# Assert the shim ACCEPTS the given args and records the expected operation.
 expect_accept() {
-    local label="$1"; shift
+    local label="$1"
+    local operation="$2"
+    shift 2
     run_shim "$@"
-    if [[ $SHIM_EXIT -eq 0 ]]; then
+    if [[ $SHIM_EXIT -eq 0 \
+        && $(grep -c '^' <<<"$SHIM_AUDIT") -eq 1 \
+        && "$SHIM_AUDIT" == *"] ACCEPTED $operation -- gh "* ]]; then
         PASS=$((PASS + 1))
     else
-        FAIL=$((FAIL + 1))
-        echo "FAIL (expected ACCEPT): $label"
-        echo "  exit: $SHIM_EXIT"
-        echo "  stderr: $SHIM_STDERR"
+        record_failure "ACCEPT ($operation)" "$label"
     fi
 }
 
-# Assert the shim REJECTS (non-zero exit) the given args.
+# Assert the shim REJECTS with the fail-closed audit reason.
 expect_reject() {
     local label="$1"; shift
     run_shim "$@"
-    if [[ $SHIM_EXIT -ne 0 ]]; then
+    if [[ $SHIM_EXIT -ne 0 && $SHIM_EXIT -ne 124 \
+        && $(grep -c '^' <<<"$SHIM_AUDIT") -eq 1 \
+        && "$SHIM_AUDIT" == *"] REJECTED unmatched argv (not an exact allowlisted vector) -- gh"* ]]; then
         PASS=$((PASS + 1))
     else
-        FAIL=$((FAIL + 1))
-        echo "FAIL (expected REJECT): $label"
-        echo "  exit: $SHIM_EXIT"
-        echo "  stdout: $SHIM_STDOUT"
+        record_failure "REJECT" "$label"
     fi
 }
 
@@ -71,19 +95,19 @@ echo "== issue #265 gh shim self-test =="
 
 # ── POSITIVE: exact vectors must pass ────────────────────────────────────
 
-expect_accept "search exact vector" \
+expect_accept "search exact vector" "search" \
     api graphql \
     -f "query=${SEARCH_QUERY_BODY}" \
     -F "searchQuery=${SEARCH_QUERY_STRING}" \
     -F "first=30"
 
-expect_accept "issue-view exact vector" \
+expect_accept "issue-view exact vector" "issue-view" \
     issue view \
     --repo "owner/repo-265" \
     "265" \
     --json "${ISSUE_VIEW_JSON_FIELDS}"
 
-expect_accept "comments exact vector" \
+expect_accept "comments exact vector" "comments" \
     api graphql \
     -f "query=${COMMENTS_QUERY_BODY}" \
     -F "owner=owner" \
@@ -91,7 +115,7 @@ expect_accept "comments exact vector" \
     -F "number=265" \
     -F "first=30"
 
-expect_accept "auth status exact vector" \
+expect_accept "auth status exact vector" "auth-status" \
     auth status
 
 # ── NEGATIVE: reordered args ─────────────────────────────────────────────

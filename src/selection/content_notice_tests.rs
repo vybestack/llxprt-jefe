@@ -8,11 +8,11 @@ fn make_issues() -> Vec<Issue> {
     (0..30)
         .map(|number| Issue {
             number,
-            node_id: String::new(),
+            node_id: format!("I_kwDOtest{number}"),
             title: format!("Issue {number}"),
             state: IssueState::Open,
-            author_login: String::new(),
-            updated_at: String::new(),
+            author_login: "octocat".to_string(),
+            updated_at: "2026-07-13T12:00:00Z".to_string(),
             assignee_summary: String::new(),
             labels_summary: String::new(),
             assignees: Vec::new(),
@@ -21,7 +21,7 @@ fn make_issues() -> Vec<Issue> {
             milestone: String::new(),
             module: String::new(),
             comment_count: 0,
-            body: String::new(),
+            body: format!("Body for issue {number}"),
         })
         .collect()
 }

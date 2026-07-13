@@ -7,7 +7,9 @@
 use crate::domain::{Agent, AgentId, Repository, RepositoryId};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
-use crate::state::types::AgentChooserState;
+use crate::state::types::{
+    AgentChooserState, ComposerTarget, DetailSubfocus, EditorTarget, InlineState,
+};
 
 fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
     let mut state = AppState::default();
@@ -193,6 +195,21 @@ fn open_new_comment_composer_clears_stale_draft_notice() {
         state.issues_state.draft_notice.is_none(),
         "OpenNewCommentComposer must clear a stale draft_notice"
     );
+    assert!(
+        matches!(
+            state.issues_state.inline_state,
+            InlineState::Composer {
+                target: ComposerTarget::NewComment,
+                ..
+            }
+        ),
+        "OpenNewCommentComposer must open the new-comment composer"
+    );
+    assert_eq!(
+        state.issues_state.detail_subfocus,
+        DetailSubfocus::NewComment,
+        "OpenNewCommentComposer must focus the new-comment composer"
+    );
 }
 
 /// Opening the inline editor must clear a stale `draft_notice`.
@@ -226,5 +243,15 @@ fn open_inline_editor_clears_stale_draft_notice() {
     assert!(
         state.issues_state.draft_notice.is_none(),
         "OpenInlineEditor must clear a stale draft_notice"
+    );
+    assert!(
+        matches!(
+            state.issues_state.inline_state,
+            InlineState::Editor {
+                target: EditorTarget::IssueBody,
+                ..
+            }
+        ),
+        "OpenInlineEditor must open the requested issue-body editor"
     );
 }

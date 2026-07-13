@@ -21,7 +21,25 @@
 # the real gh binary. It is a test-only fixture seam.
 set -euo pipefail
 
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3))); then
+    echo "gh shim: Bash 4.3 or newer is required" >&2
+    exit 2
+fi
+
+if ! command -v flock >/dev/null 2>&1; then
+    echo "gh shim: flock is required for audit logging" >&2
+    exit 2
+fi
+
 AUDIT_FILE="${GH_SHIM_AUDIT:-/tmp/jefe-issue265-gh-audit.log}"
+if ! : 2>/dev/null >> "$AUDIT_FILE"; then
+    echo "gh shim: audit file is not writable: $AUDIT_FILE" >&2
+    exit 2
+fi
+
+audit_timestamp() {
+    date -u +%Y%m%dT%H%M%SZ 2>/dev/null || echo "unknown"
+}
 
 # ─── Audit helpers ───────────────────────────────────────────────────────
 #
@@ -32,17 +50,29 @@ AUDIT_FILE="${GH_SHIM_AUDIT:-/tmp/jefe-issue265-gh-audit.log}"
 audit_accept() {
     # $1 = operation label, $2.. = the original gh args (shell-quoted)
     local op="$1"; shift
-    local ts
-    ts=$(date -u +%Y%m%dT%H%M%S%N 2>/dev/null || echo "unknown")
-    printf '[%s] ACCEPTED %s -- gh %s\n' "$ts" "$op" "$(shell_quote "$@")" >> "$AUDIT_FILE"
+    audit_write "[$(audit_timestamp)] ACCEPTED $op -- gh $(shell_quote "$@")"
 }
 
 audit_reject() {
     # $1 = reason, $2.. = the original gh args (shell-quoted)
     local reason="$1"; shift
-    local ts
-    ts=$(date -u +%Y%m%dT%H%M%S%N 2>/dev/null || echo "unknown")
-    printf '[%s] REJECTED %s -- gh %s\n' "$ts" "$reason" "$(shell_quote "$@")" >> "$AUDIT_FILE"
+    audit_write "[$(audit_timestamp)] REJECTED $reason -- gh $(shell_quote "$@")"
+}
+
+# Issue detail and comments reads may run concurrently in separate gh
+# processes, so serialize each complete record.
+audit_write() {
+    local record="$1"
+    local audit_fd
+    exec {audit_fd}>> "$AUDIT_FILE"
+    if ! flock -x "$audit_fd"; then
+        echo "gh shim: failed to lock audit file: $AUDIT_FILE" >&2
+        exec {audit_fd}>&-
+        exit 2
+    fi
+    printf '%s\n' "$record" >&"$audit_fd"
+    flock -u "$audit_fd"
+    exec {audit_fd}>&-
 }
 
 # Shell-quote each argument so multi-word tokens (e.g. the GraphQL query body)
