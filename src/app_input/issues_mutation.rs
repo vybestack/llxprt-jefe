@@ -25,8 +25,8 @@ pub(super) fn handle_inline_submit(app_state: &mut AppStateHandle, ctx: &SharedC
     };
     match gh_repo_target(app_state) {
         Ok(Some(repo)) => dispatch_inline_submit_action(app_state, ctx, repo, action),
-        Ok(None) => report_missing_github_repo(app_state, ctx, &action, None),
-        Err(message) => report_missing_github_repo(app_state, ctx, &action, Some(message)),
+        Ok(None) => report_missing_github_repo(app_state, ctx, None),
+        Err(message) => report_missing_github_repo(app_state, ctx, Some(message)),
     }
 }
 
@@ -71,7 +71,6 @@ fn gh_repo_target(app_state: &AppStateHandle) -> Result<Option<GhRepoTarget>, St
 fn report_missing_github_repo(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
-    _action: &InlineSubmitAction,
     malformed: Option<String>,
 ) {
     let error = malformed.unwrap_or_else(|| {
