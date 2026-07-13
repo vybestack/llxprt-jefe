@@ -35,12 +35,12 @@ fn issues_state_with_issue_list() -> AppState {
 }
 
 #[test]
-fn shift_c_in_list_resolves_to_close_issue() {
+fn shift_c_in_list_resolves_to_open_close_reason_chooser() {
     let state = issues_state_with_issue_list();
     let result = resolve_issues_key_event(&state, &key(KeyCode::Char('C')));
     assert!(
-        matches!(result, Some(AppEvent::CloseIssue)),
-        "Shift-C should resolve to CloseIssue, got {result:?}"
+        matches!(result, Some(AppEvent::OpenCloseReasonChooser)),
+        "Shift-C should resolve to OpenCloseReasonChooser, got {result:?}"
     );
 }
 
@@ -55,12 +55,12 @@ fn shift_d_in_list_resolves_to_open_delete_confirm() {
 }
 
 #[test]
-fn shift_c_in_detail_resolves_to_close_issue() {
+fn shift_c_in_detail_resolves_to_open_close_reason_chooser() {
     let state = issues_state_with_focus(IssueFocus::IssueDetail);
     let result = resolve_issues_key_event(&state, &key(KeyCode::Char('C')));
     assert!(
-        matches!(result, Some(AppEvent::CloseIssue)),
-        "Shift-C in detail should resolve to CloseIssue, got {result:?}"
+        matches!(result, Some(AppEvent::OpenCloseReasonChooser)),
+        "Shift-C in detail should resolve to OpenCloseReasonChooser, got {result:?}"
     );
 }
 

@@ -496,7 +496,17 @@ pub(super) fn dispatch_issues_message(
         message @ (IssuesMessage::CloseIssue
         | IssuesMessage::OpenDeleteIssueConfirm
         | IssuesMessage::IssueDeleteConfirm
-        | IssuesMessage::IssueDeleteCancel) => {
+        | IssuesMessage::IssueDeleteCancel
+        | IssuesMessage::OpenCloseReasonChooser
+        | IssuesMessage::CloseReasonNavigateUp
+        | IssuesMessage::CloseReasonNavigateDown
+        | IssuesMessage::CloseReasonSelect
+        | IssuesMessage::CloseReasonDuplicateSearchChar(_)
+        | IssuesMessage::CloseReasonDuplicateSearchBackspace
+        | IssuesMessage::CloseReasonDuplicateSearchNavigateUp
+        | IssuesMessage::CloseReasonDuplicateSearchNavigateDown
+        | IssuesMessage::CloseReasonCancel
+        | IssuesMessage::CloseReasonConfirm) => {
             dispatch_issues_lifecycle(app_state, ctx, message);
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),

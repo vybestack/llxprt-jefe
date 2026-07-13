@@ -30,6 +30,8 @@ pub enum OverlayPane {
     AgentChooser,
     /// Merge chooser (positioned overlay inside the workspace).
     MergeChooser,
+    /// Close reason chooser (positioned overlay inside the workspace). Issue #188.
+    CloseReasonChooser,
 }
 
 impl OverlayPane {
@@ -44,6 +46,7 @@ impl OverlayPane {
             Self::ConfirmModal => Some(SelectablePane::ConfirmModal),
             Self::AgentChooser => Some(SelectablePane::AgentChooser),
             Self::MergeChooser => Some(SelectablePane::MergeChooser),
+            Self::CloseReasonChooser => Some(SelectablePane::CloseReasonChooser),
         }
     }
 
@@ -57,7 +60,9 @@ impl OverlayPane {
         // conscious decision here (issue #178 z-order correctness).
         match self {
             Self::HelpModal | Self::AgentForm | Self::RepositoryForm | Self::ConfirmModal => true,
-            Self::None | Self::AgentChooser | Self::MergeChooser => false,
+            Self::None | Self::AgentChooser | Self::MergeChooser | Self::CloseReasonChooser => {
+                false
+            }
         }
     }
 }

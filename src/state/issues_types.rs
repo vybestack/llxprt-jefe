@@ -13,7 +13,7 @@
 //! `InlineState`, `ComposerTarget`, `EditorTarget`, `AgentChooserState`,
 //! `PriorAgentFocus`) remain in `types.rs` and are imported via `super::`.
 
-use crate::domain::RepositoryId;
+use crate::domain::{CloseReason, RepositoryId};
 
 use super::{
     AgentChooserState, ComposerTarget, DetailSubfocus, InlineState, IssueFocus, PriorAgentFocus,
@@ -48,6 +48,8 @@ pub struct IssuesState {
     pub next_mutation_id: u64,
     /// Delete confirm overlay state (two-step confirm like merge chooser).
     pub delete_confirm: Option<IssueDeleteConfirmState>,
+    /// Close-reason chooser overlay state (issue #188).
+    pub close_reason_chooser: Option<IssueCloseReasonChooserState>,
     /// Pending close mutation (single lifecycle pipeline; #175 coordination).
     pub close_mutation_pending: Option<IssueLifecycleMutationPending>,
     /// Pending delete mutation.
@@ -92,6 +94,26 @@ pub struct IssueDeleteConfirmState {
     pub awaiting_confirmation: bool,
 }
 
+/// Close-reason chooser overlay state (issue #188). Mirrors the merge chooser.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueCloseReasonChooserState {
+    pub issue_number: u64,
+    pub selected_index: usize,
+    /// When the chosen reason is Duplicate, the user types a number here.
+    pub duplicate_search: Option<IssueDuplicateSearchState>,
+    /// Two-step confirm like delete-confirm (avoids accidental close).
+    pub awaiting_confirmation: bool,
+}
+
+/// Duplicate-by-number search sub-state (issue #188).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct IssueDuplicateSearchState {
+    pub query: String,
+    /// Issues seeded from the repo's loaded issue list (number + title).
+    pub candidates: Vec<(u64, String)>,
+    pub selected_index: usize,
+}
+
 /// Pending close or delete mutation (issue #182 lifecycle pipeline).
 ///
 /// `node_id` is `Some` for a delete (captured at confirm time from the
@@ -99,6 +121,11 @@ pub struct IssueDeleteConfirmState {
 /// Capturing the node id here means the dispatch layer reads it once from the
 /// pending record instead of re-resolving it from mutable state, eliminating a
 /// time-of-check/time-of-use seam and the duplicated resolution logic.
+///
+/// `close_reason` and `duplicate_of` carry the close-reason context (issue
+/// #188). For the legacy plain-close path and deletes, both are `None`. For a
+/// close-with-reason, `close_reason` is `Some(reason)`. For a Duplicate close,
+/// `duplicate_of` is `Some(n)` (the canonical issue number).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IssueLifecycleMutationPending {
     pub scope_repo_id: RepositoryId,
@@ -109,6 +136,8 @@ pub struct IssueLifecycleMutationPending {
     pub mutation_id: u64,
     pub issue_number: u64,
     pub node_id: Option<String>,
+    pub close_reason: Option<CloseReason>,
+    pub duplicate_of: Option<u64>,
 }
 
 /// Loading/pending state for Issues mode async operations.

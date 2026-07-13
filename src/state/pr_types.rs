@@ -94,6 +94,8 @@ pub enum ReadOnlyHintKind {
     IssueAlreadyClosed,
     /// `C`/`D` pressed with no issue focused (issue #182).
     NoIssueFocused,
+    /// Duplicate close attempted with no duplicate target selected (issue #188).
+    NoDuplicateTarget,
 }
 
 /// @plan PLAN-20260624-PR-MODE.P03

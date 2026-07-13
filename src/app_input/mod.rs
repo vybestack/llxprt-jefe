@@ -589,6 +589,21 @@ fn dispatch_issues_lifecycle(
             apply_and_persist(app_state, ctx, AppEvent::CloseIssue);
             issues_lifecycle::handle_issue_close(app_state, ctx);
         }
+        IssuesMessage::CloseReasonConfirm => {
+            apply_and_persist(app_state, ctx, AppEvent::CloseReasonConfirm);
+            issues_lifecycle::handle_issue_close_with_reason(app_state, ctx);
+        }
+        message @ (IssuesMessage::OpenCloseReasonChooser
+        | IssuesMessage::CloseReasonNavigateUp
+        | IssuesMessage::CloseReasonNavigateDown
+        | IssuesMessage::CloseReasonSelect
+        | IssuesMessage::CloseReasonDuplicateSearchChar(_)
+        | IssuesMessage::CloseReasonDuplicateSearchBackspace
+        | IssuesMessage::CloseReasonDuplicateSearchNavigateUp
+        | IssuesMessage::CloseReasonDuplicateSearchNavigateDown
+        | IssuesMessage::CloseReasonCancel) => {
+            apply_and_persist(app_state, ctx, AppEvent::from(message));
+        }
         IssuesMessage::OpenDeleteIssueConfirm => {
             apply_and_persist(app_state, ctx, AppEvent::OpenDeleteIssueConfirm);
         }
@@ -600,7 +615,7 @@ fn dispatch_issues_lifecycle(
             apply_and_persist(app_state, ctx, AppEvent::IssueDeleteCancel);
         }
         // Defensive fallback: the sole caller (dispatch_app_message) pre-filters
-        // to the four lifecycle variants above, so other IssuesMessage variants
+        // to the lifecycle variants above, so other IssuesMessage variants
         // never reach here. Kept as a no-op safety net rather than forcing this
         // match to enumerate every IssuesMessage variant.
         _ => apply_and_persist(app_state, ctx, AppEvent::from(message)),
