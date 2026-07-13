@@ -30,9 +30,14 @@ fn p15_detail(number: u64) -> IssueDetail {
         milestone: None,
         body: String::new(),
         external_url: format!("https://example.com/{number}"),
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 0,
+            },
+            Vec::new(),
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
     }
 }
 
@@ -53,16 +58,18 @@ fn test_issue_subfocus_next_scrolls_to_offscreen_comment() {
     let mut state = dashboard_issues_state();
     let mut detail = p15_detail(1);
     detail.body = "Issue body".to_string();
-    detail.comments = (0u32..10)
-        .map(|i| {
-            p15_comment(
-                u64::from(i),
-                &format!("user{i}"),
-                "2024-01-01",
-                &format!("comment body {i}"),
-            )
-        })
-        .collect();
+    detail.comments.replace_items(
+        (0u32..10)
+            .map(|i| {
+                p15_comment(
+                    u64::from(i),
+                    &format!("user{i}"),
+                    "2024-01-01",
+                    &format!("comment body {i}"),
+                )
+            })
+            .collect(),
+    );
     state.issues_state.issue_detail = Some(detail);
     state.issues_state.detail_subfocus = DetailSubfocus::Body;
     state.issues_state.detail_viewport_rows = 4; // small viewport
@@ -114,16 +121,18 @@ fn test_issue_subfocus_prev_scrolls_to_offscreen_comment() {
     let mut state = dashboard_issues_state();
     let mut detail = p15_detail(1);
     detail.body = "Issue body".to_string();
-    detail.comments = (0u32..10)
-        .map(|i| {
-            p15_comment(
-                u64::from(i),
-                &format!("user{i}"),
-                "2024-01-01",
-                &format!("comment body {i}"),
-            )
-        })
-        .collect();
+    detail.comments.replace_items(
+        (0u32..10)
+            .map(|i| {
+                p15_comment(
+                    u64::from(i),
+                    &format!("user{i}"),
+                    "2024-01-01",
+                    &format!("comment body {i}"),
+                )
+            })
+            .collect(),
+    );
     state.issues_state.issue_detail = Some(detail);
     state.issues_state.detail_subfocus = DetailSubfocus::NewComment;
     state.issues_state.detail_viewport_rows = 4; // small viewport

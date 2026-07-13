@@ -655,9 +655,14 @@ mod tests {
             milestone: Some("v1".to_string()),
             body: "Body text".to_string(),
             external_url: "https://example.com/42".to_string(),
-            comments: Vec::new(),
-            has_more_comments: false,
-            comments_cursor: None,
+            comments: crate::domain::PaginatedList::from_loaded(
+                crate::domain::CommentDetailIdentity {
+                    scope_repo_id: crate::domain::RepositoryId::default(),
+                    number: 42,
+                },
+                Vec::new(),
+                crate::domain::PageToken::from_cursor(None, false),
+            ),
         });
         let content = pane_content_lines(SelectablePane::IssueDetail, &state, None, &[], 120, 40);
         // Line 0: title, Line 1: state/author, Line 2: labels/assignees/milestone,
@@ -697,9 +702,14 @@ mod tests {
             checks_status: PrCheckStatus::None,
             reviews: Vec::new(),
             checks: Vec::new(),
-            comments: Vec::new(),
-            has_more_comments: false,
-            comments_cursor: None,
+            comments: crate::domain::PaginatedList::from_loaded(
+                crate::domain::CommentDetailIdentity {
+                    scope_repo_id: crate::domain::RepositoryId::default(),
+                    number: 7,
+                },
+                Vec::new(),
+                crate::domain::PageToken::from_cursor(None, false),
+            ),
             mergeable: None,
             merge_state_status: None,
         });
@@ -878,9 +888,14 @@ mod tests {
             checks_status: PrCheckStatus::None,
             reviews: Vec::new(),
             checks: Vec::new(),
-            comments: Vec::new(),
-            has_more_comments: false,
-            comments_cursor: None,
+            comments: crate::domain::PaginatedList::from_loaded(
+                crate::domain::CommentDetailIdentity {
+                    scope_repo_id: crate::domain::RepositoryId::default(),
+                    number: 42,
+                },
+                Vec::new(),
+                crate::domain::PageToken::from_cursor(None, false),
+            ),
             mergeable: None,
             merge_state_status: None,
         });

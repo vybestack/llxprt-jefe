@@ -355,7 +355,9 @@ fn reset_pr_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.prs_state.loading.detail = false;
     state.prs_state.loading.comments = false;
     state.prs_state.detail_pending = None;
-    state.prs_state.comments_page_pending = None;
+    if let Some(detail) = &mut state.prs_state.pr_detail {
+        detail.comments.cancel_pending();
+    }
     state.prs_state.agent_chooser = None;
     state.prs_state.merge_chooser = None;
     state.prs_state.merge_mutation_pending = None;

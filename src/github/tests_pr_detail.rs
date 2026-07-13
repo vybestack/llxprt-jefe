@@ -183,9 +183,14 @@ fn sample_pr_detail() -> PullRequestDetail {
             conclusion: "SUCCESS".to_string(),
             url: Some("https://github.com/owner/repo/runs/1".to_string()),
         }],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 42,
+            },
+            vec![],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: Some(true),
         merge_state_status: Some("MERGEABLE".to_string()),
     }
@@ -697,9 +702,9 @@ fn test_create_pr_comment_parses_created_comment() {
 #[test]
 fn test_get_pull_request_detail_sources_comments_via_list_pr_comments() {
     // The PR --json set OMITS comments, so parse_pull_request_detail_json must
-    // yield EMPTY comments with has_more_comments==false and comments_cursor
-    // ==None — proving comments MUST be sourced from the separate
-    // list_pr_comments fetch. This is the pure, testable expression of that
+    // yield an empty comments list with an exhausted continuation, proving
+    // comments MUST be sourced from the separate list_pr_comments fetch.
+    // This is the pure, testable expression of that
     // requirement.
     let result = parse_pull_request_detail_json(PR_DETAIL_JSON, "owner/repo");
     assert!(result.is_ok(), "should parse PR detail: {result:?}");
@@ -709,12 +714,13 @@ fn test_get_pull_request_detail_sources_comments_via_list_pr_comments() {
             "PR detail JSON omits comments; comments must be sourced separately"
         );
         assert!(
-            !detail.has_more_comments,
-            "has_more_comments is false until list_pr_comments populates it"
+            !detail.comments.has_more(),
+            "comments are exhausted until list_pr_comments populates them"
         );
         assert_eq!(
-            detail.comments_cursor, None,
-            "comments_cursor is None until list_pr_comments populates it"
+            detail.comments.next_page(),
+            &crate::domain::PageToken::Done,
+            "continuation is exhausted until list_pr_comments populates comments"
         );
     }
 }

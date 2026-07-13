@@ -610,14 +610,14 @@ fn build_comments_section(
     builder.lines.push("Comments".to_string());
     if comments_loading {
         builder.lines.push("  Loading comments...".to_string());
-    } else if detail.comments.is_empty() {
+    } else if detail.comments.items().is_empty() {
         builder.lines.push("  No comments yet.".to_string());
     } else {
-        for (idx, comment) in detail.comments.iter().enumerate() {
+        for (idx, comment) in detail.comments.items().iter().enumerate() {
             build_single_comment(idx, comment, subfocus, inline_state, builder);
         }
     }
-    if detail.has_more_comments {
+    if detail.comments.has_more() {
         builder
             .lines
             .push("  (more comments available)".to_string());

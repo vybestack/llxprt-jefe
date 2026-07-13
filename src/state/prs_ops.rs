@@ -70,7 +70,9 @@ impl AppState {
         self.prs_state.loading.detail = false;
         self.prs_state.loading.comments = false;
         self.prs_state.detail_pending = None;
-        self.prs_state.comments_page_pending = None;
+        if let Some(detail) = &mut self.prs_state.pr_detail {
+            detail.comments.cancel_pending();
+        }
         self.prs_state.inline_state = InlineState::None;
         self.prs_state.agent_chooser = None;
         self.prs_state.merge_chooser = None;
@@ -154,7 +156,9 @@ impl AppState {
         self.prs_state.loading.detail = false;
         self.prs_state.loading.comments = false;
         self.prs_state.detail_pending = None;
-        self.prs_state.comments_page_pending = None;
+        if let Some(detail) = &mut self.prs_state.pr_detail {
+            detail.comments.cancel_pending();
+        }
         self.prs_state.detail_scroll_offset = 0;
         self.prs_state.detail_subfocus = super::PrDetailSubfocus::Body;
         self.prs_state.mutation_pending = None;

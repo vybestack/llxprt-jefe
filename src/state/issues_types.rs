@@ -54,8 +54,6 @@ pub struct IssuesState {
     pub delete_mutation_pending: Option<IssueLifecycleMutationPending>,
     pub detail_pending: Option<IssueDetailPending>,
     pub next_issue_detail_request_id: u64,
-    pub comments_page_pending: Option<IssueCommentsPagePending>,
-    pub next_comments_page_request_id: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,14 +66,6 @@ pub struct IssueListIdentity {
 pub struct IssueDetailPending {
     pub scope_repo_id: RepositoryId,
     pub issue_number: u64,
-    pub request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueCommentsPagePending {
-    pub scope_repo_id: RepositoryId,
-    pub issue_number: u64,
-    pub cursor: Option<String>,
     pub request_id: u64,
 }
 

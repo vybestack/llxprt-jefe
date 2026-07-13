@@ -75,9 +75,14 @@ fn make_test_pr_detail(number: u64, comments: Vec<IssueComment>) -> PullRequestD
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments,
-        has_more_comments: true,
-        comments_cursor: Some("cursor-1".to_string()),
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: RepositoryId::default(),
+                number,
+            },
+            comments,
+            crate::domain::PageToken::Cursor("cursor-1".to_string()),
+        ),
         mergeable: None,
         merge_state_status: None,
     }
@@ -323,17 +328,18 @@ fn test_comments_page_loaded_appends_older_stable_order() {
     state.prs_state.pr_detail = Some(make_test_pr_detail(1, vec![existing]));
     state.prs_state.list.replace_items(vec![make_test_pr(1)]);
     state.prs_state.list.set_selected_index(Some(0));
-    state.prs_state.comments_page_pending = Some(crate::state::types::PrCommentsPagePending {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        cursor: Some("cursor-1".to_string()),
-        request_id: 0,
-    });
+    let request_id = state
+        .begin_pr_comment_page(
+            &RepositoryId("repo-1".to_string()),
+            1,
+            Some("cursor-1".to_string()),
+        )
+        .unwrap_or_else(|| panic!("comment page should start"));
 
     let new_state = state.apply(AppEvent::PrCommentsPageLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         pr_number: 1,
-        request_id: 0,
+        request_id,
         comments: vec![appended],
         cursor: None,
         has_more: false,
@@ -352,27 +358,14 @@ fn test_comments_page_loaded_appends_older_stable_order() {
     assert_eq!(loaded.comments[1].comment_id, 60, "new comment appended");
 }
 
-/// HIGH-1: When the staleness guard passes (the comments-page request is for
-/// the CURRENT scope/pr/request_id) but `pr_detail` is `None` (the detail was
-/// swapped out / never arrived), the reducer MUST still clear
-/// `loading.comments` and `comments_page_pending` so the spinner does not
-/// spin forever.
+/// A comments result cannot be applied after its detail container is removed.
 ///
 /// @plan PLAN-20260624-PR-MODE.P05
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 236-241
 #[test]
 fn test_comments_page_loaded_clears_loading_when_detail_is_none() {
-    let mut state = prs_mode_state("repo-1");
-    // No detail at all — but the request is for THIS repo/pr (guard passes).
-    state.prs_state.pr_detail = None;
-    state.prs_state.loading.comments = true;
-    state.prs_state.comments_page_pending = Some(crate::state::types::PrCommentsPagePending {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        cursor: Some("cursor-1".to_string()),
-        request_id: 0,
-    });
+    let state = prs_mode_state("repo-1");
 
     let new_state = state.apply(AppEvent::PrCommentsPageLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
@@ -389,14 +382,7 @@ fn test_comments_page_loaded_clears_loading_when_detail_is_none() {
         has_more: false,
     });
 
-    assert!(
-        !new_state.prs_state.loading.comments,
-        "loading.comments MUST clear even when pr_detail is None (no infinite spinner)"
-    );
-    assert!(
-        new_state.prs_state.comments_page_pending.is_none(),
-        "comments_page_pending MUST clear even when pr_detail is None"
-    );
+    assert!(!new_state.prs_state.loading.comments);
     assert!(
         new_state.prs_state.pr_detail.is_none(),
         "no detail to mutate — pr_detail stays None"
@@ -421,17 +407,18 @@ fn test_comments_page_loaded_appends_and_clears_when_detail_matches() {
     let mut state = prs_mode_state("repo-1");
     state.prs_state.pr_detail = Some(make_test_pr_detail(1, vec![existing]));
     state.prs_state.loading.comments = true;
-    state.prs_state.comments_page_pending = Some(crate::state::types::PrCommentsPagePending {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        cursor: Some("cursor-1".to_string()),
-        request_id: 0,
-    });
+    let request_id = state
+        .begin_pr_comment_page(
+            &RepositoryId("repo-1".to_string()),
+            1,
+            Some("cursor-1".to_string()),
+        )
+        .unwrap_or_else(|| panic!("comment page should start"));
 
     let new_state = state.apply(AppEvent::PrCommentsPageLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         pr_number: 1,
-        request_id: 0,
+        request_id,
         comments: vec![IssueComment {
             comment_id: 60,
             author_login: "bob".to_string(),
@@ -453,10 +440,7 @@ fn test_comments_page_loaded_appends_and_clears_when_detail_matches() {
         !new_state.prs_state.loading.comments,
         "loading.comments must clear on success"
     );
-    assert!(
-        new_state.prs_state.comments_page_pending.is_none(),
-        "comments_page_pending must clear on success"
-    );
+    assert!(!loaded.comments.has_pending_request());
 }
 
 /// HIGH-3: When a non-empty PR list reload arrives, the previously-shown

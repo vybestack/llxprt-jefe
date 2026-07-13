@@ -18,10 +18,16 @@ mod quick_resume;
 pub use actions::*;
 pub use quick_resume::QuickResume;
 
-/// Pagination contracts (PageToken, ListRequestId) shared across list state
-/// and boundary messages. Pure value types, no project-internal deps.
+/// Pagination contracts shared across list state and boundary messages.
 mod pagination;
 pub use pagination::*;
+
+/// Generic deterministic pagination state container.
+mod paginated_list;
+pub use paginated_list::{
+    AcceptOutcome, BeginOutcome, LoadCorrelation, PageResult, PaginatedList, ReloadResult,
+    ReloadVisibility, RequestIdExhausted,
+};
 
 // Issues Mode domain entities extracted to keep this file under the
 // source-file-size limit.
@@ -496,9 +502,7 @@ pub struct PullRequestDetail {
     pub checks_status: PrCheckStatus,
     pub reviews: Vec<PrReview>,
     pub checks: Vec<PrCheck>,
-    pub comments: Vec<IssueComment>,
-    pub has_more_comments: bool,
-    pub comments_cursor: Option<String>,
+    pub comments: PaginatedList<IssueComment, CommentDetailIdentity>,
     /// Whether the PR can be merged right now (GitHub `mergeable`).
     /// `None` when not yet fetched (e.g. preview-from-list).
     pub mergeable: Option<bool>,

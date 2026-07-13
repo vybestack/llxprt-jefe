@@ -68,9 +68,14 @@ fn p15_detail(number: u64) -> IssueDetail {
         milestone: None,
         body: "Issue body".to_string(),
         external_url: format!("https://github.com/owner/repo/issues/{number}"),
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 0,
+            },
+            vec![],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
     }
 }
 
@@ -131,12 +136,17 @@ fn send_payload_detail() -> IssueDetail {
         milestone: None,
         body: "Crash on startup".to_string(),
         external_url: "https://github.com/owner/repo/issues/7".to_string(),
-        comments: vec![
-            p15_comment(100, "dev", "2024-01-02T00:00:00Z", "Reproduced on main"),
-            p15_comment(101, "tester", "2024-01-03T00:00:00Z", "Also seen in v2.1"),
-        ],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 7,
+            },
+            vec![
+                p15_comment(100, "dev", "2024-01-02T00:00:00Z", "Reproduced on main"),
+                p15_comment(101, "tester", "2024-01-03T00:00:00Z", "Also seen in v2.1"),
+            ],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
     }
 }
 
@@ -853,7 +863,13 @@ fn test_comment_page_failure_with_pending_token_surfaces_error() {
     });
 
     assert!(!state.issues_state.loading.comments);
-    assert!(state.issues_state.comments_page_pending.is_none());
+    assert!(
+        !state
+            .issues_state
+            .issue_detail
+            .as_ref()
+            .is_some_and(|detail| detail.comments.has_pending_request())
+    );
     assert_eq!(
         state.issues_state.error.as_deref(),
         Some("No GitHub repository configured")
@@ -915,7 +931,12 @@ fn test_detail_scroll_limit_uses_stored_viewport_rows() {
 fn test_matching_mutation_response_does_not_clear_newer_inline_draft() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut detail = p15_detail(42);
-    detail.comments = vec![p15_comment(1, "alice", "2024-01-01T00:00:00Z", "original")];
+    detail.comments.replace_items(vec![p15_comment(
+        1,
+        "alice",
+        "2024-01-01T00:00:00Z",
+        "original",
+    )]);
     let mut state = issues_mode_state_with_repo("repo-1");
     state.mark_issue_detail_loading(repo_id.clone(), 42);
     let mut state = state.apply(AppEvent::IssueDetailLoaded {

@@ -924,7 +924,9 @@ fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.issues_state.loading.detail = false;
     state.issues_state.loading.comments = false;
     state.issues_state.detail_pending = None;
-    state.issues_state.comments_page_pending = None;
+    if let Some(detail) = &mut state.issues_state.issue_detail {
+        detail.comments.cancel_pending();
+    }
     state.issues_state.agent_chooser = None;
 }
 
@@ -951,6 +953,9 @@ mod preflight_gating_tests;
 
 // @plan PLAN-20260624-PR-MODE.P15
 // @requirement REQ-PR-001
+#[cfg(test)]
+#[path = "prs_integration_test_fixtures.rs"]
+mod prs_integration_test_fixtures;
 #[cfg(test)]
 #[path = "prs_integration_tests.rs"]
 mod prs_integration_tests;

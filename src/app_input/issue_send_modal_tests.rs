@@ -49,9 +49,14 @@ fn state_for_issue_agent_chooser_send(
         milestone: None,
         body: "Send to Agent".to_owned(),
         external_url: "https://github.com/owner/repo/issues/166".to_owned(),
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: jefe::domain::PaginatedList::from_loaded(
+            jefe::domain::CommentDetailIdentity {
+                scope_repo_id: jefe::domain::RepositoryId::default(),
+                number: 166,
+            },
+            vec![],
+            jefe::domain::PageToken::from_cursor(None, false),
+        ),
     };
 
     let issues_state = jefe::state::IssuesState {

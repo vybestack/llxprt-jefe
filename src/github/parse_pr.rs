@@ -10,8 +10,9 @@
 //! NOT import `crate::ui`, `crate::state`, or `crate::app_input`.
 
 use crate::domain::{
-    ChecksFilter, IssueComment, PrCheck, PrCheckStatus, PrFilter, PrFilterState, PrReview,
-    PrReviewState, PrReviewThread, PrState, PullRequest, PullRequestDetail, ReviewDecisionFilter,
+    ChecksFilter, CommentDetailIdentity, IssueComment, PageToken, PaginatedList, PrCheck,
+    PrCheckStatus, PrFilter, PrFilterState, PrReview, PrReviewState, PrReviewThread, PrState,
+    PullRequest, PullRequestDetail, RepositoryId, ReviewDecisionFilter,
 };
 use serde_json::Value;
 
@@ -302,9 +303,8 @@ fn join_pr_nodes_field(item: &Value, field: &str, key: &str) -> String {
 /// Parse JSON output from `gh pr view --json` into a [`PullRequestDetail`].
 ///
 /// Reads the SINGLE-object `gh pr view` shape (NOT a search node). Comments
-/// are left EMPTY (`comments: []`, `has_more_comments: false`,
-/// `comments_cursor: None`) — comments are sourced separately by
-/// `list_pr_comments`. Malformed JSON yields `GhError::ParseError`.
+/// are initialized as an exhausted empty paginated list; they are sourced
+/// separately by `list_pr_comments`. Malformed JSON yields `GhError::ParseError`.
 ///
 /// @plan PLAN-20260624-PR-MODE.P08
 /// @requirement REQ-PR-009
@@ -364,9 +364,14 @@ pub fn parse_pull_request_detail_json(
         checks_status: parse_checks_rollup(&rollup),
         reviews,
         checks,
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: PaginatedList::from_loaded(
+            CommentDetailIdentity {
+                scope_repo_id: RepositoryId(owner_name.to_string()),
+                number,
+            },
+            Vec::new(),
+            PageToken::Done,
+        ),
         mergeable: value.get("mergeable").and_then(Value::as_bool),
         merge_state_status: value
             .get("mergeStateStatus")

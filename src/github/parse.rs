@@ -13,6 +13,7 @@ use crate::domain::{
 };
 use serde_json::Value;
 
+use super::comment_pages::exhausted_comments;
 use super::{GhError, IssueListResponse};
 
 /// Categorize a subprocess error into a GhError variant.
@@ -303,7 +304,7 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         .unwrap_or_default();
 
     Ok(IssueDetail {
-        repo_owner_name,
+        repo_owner_name: repo_owner_name.clone(),
         number,
         node_id,
         title,
@@ -316,9 +317,7 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         milestone,
         body,
         external_url,
-        comments,
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: exhausted_comments(repo_owner_name.clone(), number, comments),
     })
 }
 

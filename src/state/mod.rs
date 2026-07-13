@@ -12,6 +12,8 @@ mod actions_load_tests;
 mod actions_ops;
 #[cfg(test)]
 mod actions_tests;
+#[cfg(test)]
+mod comment_pagination_tests;
 mod dashboard_grab_ops;
 mod events;
 mod form_build;
@@ -877,6 +879,9 @@ mod issues_tests_detail_flow;
 #[cfg(test)]
 #[path = "issues_tests_filter.rs"]
 mod issues_tests_filter;
+#[cfg(test)]
+#[path = "issues_tests_mutations.rs"]
+mod issues_tests_mutations;
 #[cfg(test)]
 #[path = "issues_tests_repo_nav.rs"]
 mod issues_tests_repo_nav;

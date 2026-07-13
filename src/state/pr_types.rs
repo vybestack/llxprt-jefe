@@ -136,8 +136,6 @@ pub struct PullRequestsState {
     pub next_mutation_id: u64,
     pub detail_pending: Option<PrDetailPending>,
     pub next_pr_detail_request_id: u64,
-    pub comments_page_pending: Option<PrCommentsPagePending>,
-    pub next_comments_page_request_id: u64,
     /// Pending review-thread resolve/unresolve mutation (issue #119).
     pub thread_resolve_pending: Option<PrThreadResolvePending>,
     /// Monotonic request id for thread-resolve mutations (issue #119).
@@ -184,18 +182,6 @@ impl PullRequestsState {
 pub struct PrDetailPending {
     pub scope_repo_id: RepositoryId,
     pub pr_number: u64,
-    pub request_id: u64,
-}
-
-/// @plan PLAN-20260624-PR-MODE.P03
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 88-98
-/// Pending comments-page staleness guard.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PrCommentsPagePending {
-    pub scope_repo_id: RepositoryId,
-    pub pr_number: u64,
-    pub cursor: Option<String>,
     pub request_id: u64,
 }
 

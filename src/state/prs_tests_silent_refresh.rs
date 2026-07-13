@@ -82,9 +82,14 @@ fn make_test_pr_detail(number: u64, comments: Vec<IssueComment>) -> PullRequestD
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments,
-        has_more_comments: true,
-        comments_cursor: Some("cursor-1".to_string()),
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: RepositoryId::default(),
+                number,
+            },
+            comments,
+            crate::domain::PageToken::Cursor("cursor-1".to_string()),
+        ),
         mergeable: None,
         merge_state_status: None,
     }

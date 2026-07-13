@@ -32,6 +32,7 @@ use jefe::state::{AppEvent, AppState, PrFocus, ReadOnlyHintKind, ScreenMode};
 // Import only the submodule paths (NOT iocraft::prelude::* which shadows
 // std::boxed::Box). The private fns pr_send_info_from_state and write_pr_prompt
 // are visible to child modules via super::.
+use super::prs_integration_test_fixtures::make_test_pr_detail;
 use super::prs_orchestration::{pr_send_info_from_state, write_pr_prompt};
 use super::{
     AppStateHandle, SharedContext, normal, prs, prs_comments_dispatch, prs_dispatch,
@@ -406,40 +407,6 @@ fn it_search_commit_reloads_with_query() {
 // ═════════════════════════════════════════════════════════════════════════
 // Checkpoint 8: send-to-agent writes prompt and launches (REQ-PR-011)
 // ═════════════════════════════════════════════════════════════════════════
-
-/// Build a PR detail fixture for send-to-agent tests.
-/// @plan PLAN-20260624-PR-MODE.P15
-/// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 164-175
-pub(super) fn make_test_pr_detail(number: u64) -> jefe::domain::PullRequestDetail {
-    use jefe::domain::{PrCheckStatus, PrState};
-    jefe::domain::PullRequestDetail {
-        repo_owner_name: "owner/repo".to_string(),
-        number,
-        title: format!("PR #{number}"),
-        state: PrState::Open,
-        is_draft: false,
-        author_login: "octocat".to_string(),
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-02T00:00:00Z".to_string(),
-        head_ref: "feature".to_string(),
-        base_ref: "main".to_string(),
-        labels: vec![],
-        assignees: vec![],
-        milestone: None,
-        body: "PR body".to_string(),
-        external_url: format!("https://github.com/owner/repo/pull/{number}"),
-        review_decision: None,
-        checks_status: PrCheckStatus::None,
-        reviews: vec![],
-        checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
-        mergeable: None,
-        merge_state_status: None,
-    }
-}
 
 /// Build a launch signature fixture (mirrors `app_input_tests::sample_signature`).
 /// @plan PLAN-20260624-PR-MODE.P15

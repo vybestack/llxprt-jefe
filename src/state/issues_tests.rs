@@ -54,9 +54,14 @@ fn make_test_detail(comments: Vec<IssueComment>) -> IssueDetail {
         milestone: Some("v1.0".to_string()),
         body: "Detail body text".to_string(),
         external_url: "https://github.com/owner/repo/issues/42".to_string(),
-        comments,
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: RepositoryId::default(),
+                number: 42,
+            },
+            comments,
+            crate::domain::PageToken::Done,
+        ),
     }
 }
 
@@ -726,24 +731,29 @@ fn test_detail_subfocus_tab_with_comments() {
         milestone: None,
         body: "Issue body".to_string(),
         external_url: "https://github.com/owner/repo/issues/1".to_string(),
-        comments: vec![
-            IssueComment {
-                comment_id: 100,
-                author_login: "user1".to_string(),
-                created_at: "2024-01-02T00:00:00Z".to_string(),
-                edited_at: None,
-                body: "First comment".to_string(),
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 1,
             },
-            IssueComment {
-                comment_id: 101,
-                author_login: "user2".to_string(),
-                created_at: "2024-01-03T00:00:00Z".to_string(),
-                edited_at: None,
-                body: "Second comment".to_string(),
-            },
-        ],
-        has_more_comments: false,
-        comments_cursor: None,
+            vec![
+                IssueComment {
+                    comment_id: 100,
+                    author_login: "user1".to_string(),
+                    created_at: "2024-01-02T00:00:00Z".to_string(),
+                    edited_at: None,
+                    body: "First comment".to_string(),
+                },
+                IssueComment {
+                    comment_id: 101,
+                    author_login: "user2".to_string(),
+                    created_at: "2024-01-03T00:00:00Z".to_string(),
+                    edited_at: None,
+                    body: "Second comment".to_string(),
+                },
+            ],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
     });
 
     // Body -> Comment(0)
@@ -798,9 +808,14 @@ fn test_detail_subfocus_tab_no_comments() {
         milestone: None,
         body: "Issue body".to_string(),
         external_url: "https://github.com/owner/repo/issues/1".to_string(),
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 1,
+            },
+            vec![],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
     });
 
     // Body -> NewComment (skip comments since there are none)

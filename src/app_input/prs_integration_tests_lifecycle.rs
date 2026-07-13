@@ -14,8 +14,9 @@ use jefe::persistence::State as PersistedState;
 use jefe::state::{AppEvent, AppState, PrFocus, ScreenMode};
 use std::path::PathBuf;
 
+use super::prs_integration_test_fixtures::make_test_pr_detail;
 use super::prs_integration_tests::{
-    ApplyInPlace, active_prs_state, dashboard_prs_state, key, make_test_pr, make_test_pr_detail,
+    ApplyInPlace, active_prs_state, dashboard_prs_state, key, make_test_pr,
 };
 use super::{prs, to_persisted_state};
 

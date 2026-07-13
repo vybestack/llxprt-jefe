@@ -24,15 +24,20 @@ fn issue_detail_with_comment() -> IssueDetail {
         milestone: None,
         body: "Body line".to_string(),
         external_url: "https://github.com/owner/repo/issues/94".to_string(),
-        comments: vec![IssueComment {
-            comment_id: 1,
-            author_login: "alice".to_string(),
-            created_at: "2026-07-01T02:00:00Z".to_string(),
-            edited_at: None,
-            body: "A comment to reply to".to_string(),
-        }],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 94,
+            },
+            vec![IssueComment {
+                comment_id: 1,
+                author_login: "alice".to_string(),
+                created_at: "2026-07-01T02:00:00Z".to_string(),
+                edited_at: None,
+                body: "A comment to reply to".to_string(),
+            }],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
     }
 }
 

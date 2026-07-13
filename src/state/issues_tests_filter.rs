@@ -354,7 +354,7 @@ fn test_clear_filter_fresh_list_loaded_selects_first_issue() {
 /// late response for the previous filter cannot overwrite the reloaded list.
 #[test]
 fn test_apply_filter_clears_stale_detail_and_comment_pending() {
-    use crate::state::types::{IssueCommentsPagePending, IssueDetailPending};
+    use crate::state::types::IssueDetailPending;
 
     let mut state = state_with_repo();
     state.issues_state.loading.detail = true;
@@ -364,19 +364,12 @@ fn test_apply_filter_clears_stale_detail_and_comment_pending() {
         issue_number: 7,
         request_id: 1,
     });
-    state.issues_state.comments_page_pending = Some(IssueCommentsPagePending {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issue_number: 7,
-        cursor: None,
-        request_id: 1,
-    });
 
     let state = state.apply(AppEvent::ApplyFilter);
 
     assert!(!state.issues_state.loading.detail);
     assert!(!state.issues_state.loading.comments);
     assert!(state.issues_state.detail_pending.is_none());
-    assert!(state.issues_state.comments_page_pending.is_none());
     assert!(state.issues_state.issue_detail.is_none());
 }
 

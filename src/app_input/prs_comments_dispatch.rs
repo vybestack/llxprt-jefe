@@ -8,7 +8,7 @@
 //! @requirement REQ-PR-010
 //! @pseudocode component-004 lines 146-155
 
-use jefe::domain::RepositoryId;
+use jefe::domain::{PageToken, RepositoryId};
 use jefe::state::{AppEvent, ComposerTarget, InlineState};
 
 use super::prs_dispatch::{current_pr_scope_repo_id, resolve_pr_gh_repo};
@@ -25,30 +25,26 @@ pub(super) fn load_more_pr_comments(app_state: &mut AppStateHandle, ctx: &Shared
     let mut params = match pr_comment_page_params(app_state) {
         PrCommentPageRequest::Ready(params) => params,
         PrCommentPageRequest::Fail(event) => {
-            mark_pr_comment_failure_pending(app_state, &event);
-            apply_and_persist(app_state, ctx, event);
+            if let Some(event) = mark_pr_comment_failure_pending(app_state, event) {
+                apply_and_persist(app_state, ctx, event);
+            }
             return;
         }
         PrCommentPageRequest::Skip => return,
     };
 
-    {
+    let request_id = {
         let mut state = app_state.write();
-        let request_id = state
-            .prs_state
-            .next_comments_page_request_id
-            .saturating_add(1);
-        state.prs_state.next_comments_page_request_id = request_id;
-        state.prs_state.loading.comments = true;
-        state.prs_state.comments_page_pending = Some(jefe::state::PrCommentsPagePending {
-            scope_repo_id: params.scope_repo_id.clone(),
-            pr_number: params.pr_number,
-            cursor: params.cursor.clone(),
-            request_id,
-        });
-        drop(state);
-        params.request_id = request_id;
-    }
+        state.begin_pr_comment_page(
+            &params.scope_repo_id,
+            params.pr_number,
+            params.cursor.clone(),
+        )
+    };
+    let Some(request_id) = request_id else {
+        return;
+    };
+    params.request_id = request_id;
 
     let panic_params = params.clone();
     gh_async::spawn_gh_task_with_panic(
@@ -149,7 +145,7 @@ fn pr_comment_page_params(app_state: &AppStateHandle) -> PrCommentPageRequest {
     let Some(detail) = state.prs_state.pr_detail.as_ref() else {
         return PrCommentPageRequest::Skip;
     };
-    if !detail.has_more_comments || state.prs_state.loading.comments {
+    if !detail.comments.has_more() || state.prs_state.loading.comments {
         return PrCommentPageRequest::Skip;
     }
     // Only load more comments if scrolled near the bottom, using the CANONICAL
@@ -174,33 +170,56 @@ fn pr_comment_page_params(app_state: &AppStateHandle) -> PrCommentPageRequest {
         pr_number,
         owner,
         repo,
-        cursor: detail.comments_cursor.clone(),
+        cursor: comment_cursor(detail.comments.next_page()),
         request_id: 0,
     };
     drop(state);
     PrCommentPageRequest::Ready(params)
 }
 
+fn comment_cursor(token: &PageToken) -> Option<String> {
+    match token {
+        PageToken::Cursor(cursor) => Some(cursor.clone()),
+        PageToken::PageNumber(_) | PageToken::Done => None,
+    }
+}
+
 /// Mark the comment-page failure as pending so the reducer clears loading.
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-010
 /// @pseudocode component-004 lines 146-155
-fn mark_pr_comment_failure_pending(app_state: &mut AppStateHandle, event: &AppEvent) {
-    if let AppEvent::PrCommentsPageFailed {
+fn mark_pr_comment_failure_pending(
+    app_state: &mut AppStateHandle,
+    event: AppEvent,
+) -> Option<AppEvent> {
+    let AppEvent::PrCommentsPageFailed {
         scope_repo_id,
         pr_number,
+        error,
         ..
     } = event
-    {
-        let mut state = app_state.write();
-        state.prs_state.loading.comments = true;
-        state.prs_state.comments_page_pending = Some(jefe::state::PrCommentsPagePending {
-            scope_repo_id: scope_repo_id.clone(),
-            pr_number: *pr_number,
-            cursor: None,
-            request_id: 0,
-        });
-    }
+    else {
+        return None;
+    };
+    let cursor = comment_cursor_from_state(app_state);
+    let request_id = app_state
+        .write()
+        .begin_pr_comment_page(&scope_repo_id, pr_number, cursor)?;
+    Some(AppEvent::PrCommentsPageFailed {
+        scope_repo_id,
+        pr_number,
+        request_id,
+        error,
+    })
+}
+
+fn comment_cursor_from_state(app_state: &AppStateHandle) -> Option<String> {
+    app_state
+        .read()
+        .prs_state
+        .pr_detail
+        .as_ref()
+        .and_then(|detail| comment_cursor(detail.comments.next_page()))
 }
 
 /// Build the comments-page-loaded/failed event from the gh result.
@@ -272,15 +291,20 @@ mod tests {
             checks_status: PrCheckStatus::None,
             reviews: vec![],
             checks: vec![],
-            comments: vec![IssueComment {
-                comment_id: 1,
-                author_login: "alice".to_string(),
-                created_at: "2024-01-03T00:00:00Z".to_string(),
-                edited_at: None,
-                body: "comment body".to_string(),
-            }],
-            has_more_comments: true,
-            comments_cursor: Some("cursor".to_string()),
+            comments: jefe::domain::PaginatedList::from_loaded(
+                jefe::domain::CommentDetailIdentity {
+                    scope_repo_id: jefe::domain::RepositoryId::default(),
+                    number: 1,
+                },
+                vec![IssueComment {
+                    comment_id: 1,
+                    author_login: "alice".to_string(),
+                    created_at: "2024-01-03T00:00:00Z".to_string(),
+                    edited_at: None,
+                    body: "comment body".to_string(),
+                }],
+                jefe::domain::PageToken::from_cursor(Some("cursor".to_string()), true),
+            ),
             mergeable: None,
             merge_state_status: None,
         }

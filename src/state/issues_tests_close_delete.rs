@@ -67,9 +67,14 @@ fn make_detail(number: u64, node_id: &str) -> IssueDetail {
         milestone: None,
         body: "Body".to_string(),
         external_url: String::new(),
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 0,
+            },
+            Vec::new(),
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
     }
 }
 

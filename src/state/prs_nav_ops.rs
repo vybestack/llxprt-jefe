@@ -192,7 +192,9 @@ impl AppState {
         self.prs_state.loading.detail = false;
         self.prs_state.loading.comments = false;
         self.prs_state.detail_pending = None;
-        self.prs_state.comments_page_pending = None;
+        if let Some(detail) = &mut self.prs_state.pr_detail {
+            detail.comments.cancel_pending();
+        }
         self.prs_state.detail_scroll_offset = 0;
     }
 

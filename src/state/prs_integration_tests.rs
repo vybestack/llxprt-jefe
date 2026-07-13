@@ -93,15 +93,20 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
             conclusion: "success".to_string(),
             url: Some("https://example.com/ci".to_string()),
         }],
-        comments: vec![IssueComment {
-            comment_id: 1,
-            author_login: "commenter".to_string(),
-            created_at: "2024-01-01T10:00:00Z".to_string(),
-            edited_at: None,
-            body: "First comment".to_string(),
-        }],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 0,
+            },
+            vec![IssueComment {
+                comment_id: 1,
+                author_login: "commenter".to_string(),
+                created_at: "2024-01-01T10:00:00Z".to_string(),
+                edited_at: None,
+                body: "First comment".to_string(),
+            }],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: None,
         merge_state_status: None,
     }
@@ -300,8 +305,14 @@ fn it_scroll_detail_paginates_comments() {
 
     let scope = RepositoryId("repo-1".to_string());
     let mut detail = make_test_pr_detail(1);
-    detail.has_more_comments = true;
-    detail.comments_cursor = Some("cursor-1".to_string());
+    detail.comments = crate::domain::PaginatedList::from_loaded(
+        crate::domain::CommentDetailIdentity {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            number: 1,
+        },
+        detail.comments.items().to_vec(),
+        crate::domain::PageToken::Cursor("cursor-1".to_string()),
+    );
     state.mark_pr_detail_loading(scope.clone(), 1, 1);
     state.apply_in_place(AppEvent::PrDetailLoaded {
         scope_repo_id: scope.clone(),
@@ -313,13 +324,9 @@ fn it_scroll_detail_paginates_comments() {
     // Simulate the comments-page dispatch by marking comments loading, then
     // delivering the PrCommentsPageLoaded event (the event the background
     // thread would produce).
-    state.prs_state.loading.comments = true;
-    state.prs_state.comments_page_pending = Some(crate::state::types::PrCommentsPagePending {
-        scope_repo_id: scope.clone(),
-        pr_number: 1,
-        cursor: Some("cursor-1".to_string()),
-        request_id: 0,
-    });
+    let request_id = state
+        .begin_pr_comment_page(&scope, 1, Some("cursor-1".to_string()))
+        .unwrap_or_else(|| panic!("comment page should start"));
 
     let new_comment = IssueComment {
         comment_id: 2,
@@ -332,7 +339,7 @@ fn it_scroll_detail_paginates_comments() {
     state.apply_in_place(AppEvent::PrCommentsPageLoaded {
         scope_repo_id: scope,
         pr_number: 1,
-        request_id: 0,
+        request_id,
         comments: vec![new_comment],
         cursor: None,
         has_more: false,
@@ -356,10 +363,9 @@ fn it_scroll_detail_paginates_comments() {
     assert_stale_comments_page_is_discarded(&mut state);
 }
 
-/// Stale-discard guard: after the page above cleared comments_page_pending,
-/// a late/duplicate PrCommentsPageLoaded with a non-matching request_id must
-/// be DISCARDED (no append, no state change). This proves the reducer's
-/// pr_comments_page_pending_matches guard is load-bearing.
+/// Stale-discard guard: after the page above cleared the list's pending page,
+/// a late/duplicate PrCommentsPageLoaded with a non-matching request id must
+/// be discarded. This proves PaginatedList correlation is load-bearing.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-NFR-002

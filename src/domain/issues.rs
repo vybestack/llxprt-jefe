@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::{CommentDetailIdentity, PaginatedList};
+
 /// @requirement REQ-ISS-006
 /// @pseudocode component-001 lines 83-96
 /// Issue state for list display.
@@ -58,9 +60,7 @@ pub struct IssueDetail {
     pub milestone: Option<String>,
     pub body: String,
     pub external_url: String,
-    pub comments: Vec<IssueComment>,
-    pub has_more_comments: bool,
-    pub comments_cursor: Option<String>,
+    pub comments: PaginatedList<IssueComment, CommentDetailIdentity>,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

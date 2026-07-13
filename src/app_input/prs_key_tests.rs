@@ -904,9 +904,14 @@ fn test_pr_detail() -> jefe::domain::PullRequestDetail {
         checks_status: PrCheckStatus::Success,
         reviews: Vec::new(),
         checks: Vec::new(),
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: jefe::domain::PaginatedList::from_loaded(
+            jefe::domain::CommentDetailIdentity {
+                scope_repo_id: jefe::domain::RepositoryId::default(),
+                number: 1,
+            },
+            Vec::new(),
+            jefe::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: None,
         merge_state_status: None,
     }
