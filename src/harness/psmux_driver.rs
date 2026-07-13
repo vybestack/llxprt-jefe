@@ -547,7 +547,11 @@ fn unique_namespace() -> String {
 }
 
 fn format_command(executable: &Path, namespace: &str, args: &[String]) -> String {
-    format!("{} -L {namespace} {}", executable.display(), args.join(" "))
+    format!(
+        "{} -f NUL -L {namespace} {}",
+        executable.display(),
+        args.join(" ")
+    )
 }
 
 fn output_lines(bytes: &[u8]) -> Vec<String> {
