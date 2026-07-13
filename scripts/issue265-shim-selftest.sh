@@ -35,11 +35,15 @@ command -v timeout >/dev/null 2>&1 || {
 # and shim can never drift apart.
 # shellcheck source=issue265-gh-shim-fixtures.sh
 . "$FIXTURES"
-readonly -p SEARCH_QUERY_BODY SEARCH_QUERY_STRING ISSUE_VIEW_JSON_FIELDS COMMENTS_QUERY_BODY >/dev/null 2>&1 || {
-    echo "FATAL: shared fixtures did not declare all four expected constants" >&2
-    exit 1
-}
 for fixture_name in SEARCH_QUERY_BODY SEARCH_QUERY_STRING ISSUE_VIEW_JSON_FIELDS COMMENTS_QUERY_BODY; do
+    fixture_declaration=$(declare -p "$fixture_name" 2>/dev/null) || {
+        echo "FATAL: shared fixture is not declared: $fixture_name" >&2
+        exit 1
+    }
+    [[ "$fixture_declaration" == "declare -r "* ]] || {
+        echo "FATAL: shared fixture is not readonly: $fixture_name" >&2
+        exit 1
+    }
     [[ -n "${!fixture_name}" ]] || {
         echo "FATAL: shared fixture is empty: $fixture_name" >&2
         exit 1

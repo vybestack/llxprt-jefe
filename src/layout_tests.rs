@@ -169,36 +169,15 @@ fn issues_banner_text_none_when_both_absent() {
 /// present banner reserves exactly one row versus no banner.
 #[test]
 fn issues_pane_rows_banner_projection_drives_sizing() {
-    // Error precedence: error wins over notice.
-    assert_eq!(
-        issues_banner_text(Some("load failed"), Some("No agents available")),
-        Some("load failed"),
-    );
-    // Notice fallback: notice used when no error.
-    assert_eq!(
-        issues_banner_text(None, Some("No agents available")),
-        Some("No agents available"),
-    );
-    // None when both absent.
-    assert_eq!(issues_banner_text(None::<&str>, None::<&str>), None,);
+    let error_banner = issues_banner_text(Some("load failed"), Some("No agents available"));
+    let notice_banner = issues_banner_text(None, Some("No agents available"));
+    let no_banner = issues_banner_text(None::<&str>, None::<&str>);
 
-    // Feed those same projections into sizing: error and notice banners each
+    // Feed those projections into sizing: error and notice banners each
     // reduce the available detail row count by exactly one.
-    let error_rows = issues_pane_rows(
-        40,
-        issues_banner_text(Some("load failed"), None).is_some(),
-        false,
-    );
-    let notice_rows = issues_pane_rows(
-        40,
-        issues_banner_text(None, Some("No agents available")).is_some(),
-        false,
-    );
-    let no_banner_rows = issues_pane_rows(
-        40,
-        issues_banner_text(None::<&str>, None::<&str>).is_some(),
-        false,
-    );
+    let error_rows = issues_pane_rows(40, error_banner.is_some(), false);
+    let notice_rows = issues_pane_rows(40, notice_banner.is_some(), false);
+    let no_banner_rows = issues_pane_rows(40, no_banner.is_some(), false);
     assert_eq!(error_rows, notice_rows);
     assert_eq!(
         notice_rows.1 + 1,

@@ -24,6 +24,7 @@ SHIM="$PROJECT_ROOT/scripts/issue265-gh-shim.sh"
 FIXTURES="$PROJECT_ROOT/scripts/issue265-gh-shim-fixtures.sh"
 ARTIFACT_DIR="$PROJECT_ROOT/target/tmux-harness/issue265"
 CONFIG_DIR="$ARTIFACT_DIR/config"
+SHIM_DIR="$ARTIFACT_DIR/shim-bin"
 AUDIT_FILE="$ARTIFACT_DIR/gh-audit.log"
 
 command -v timeout >/dev/null 2>&1 || {
@@ -32,6 +33,14 @@ command -v timeout >/dev/null 2>&1 || {
 }
 command -v realpath >/dev/null 2>&1 || {
     echo "FATAL: realpath is required for safe scenario cleanup" >&2
+    exit 1
+}
+command -v cargo >/dev/null 2>&1 || {
+    echo "FATAL: cargo is required for the Linux tmux scenario" >&2
+    exit 1
+}
+command -v tmux >/dev/null 2>&1 || {
+    echo "FATAL: tmux is required for the Linux tmux scenario" >&2
     exit 1
 }
 
@@ -67,14 +76,22 @@ echo "Building jefe and jefe-tmux-harness (incremental)..."
 JEFE_BIN="$PROJECT_ROOT/target/debug/jefe"
 HARNESS_BIN="$PROJECT_ROOT/target/debug/jefe-tmux-harness"
 
-# Safe recreate of the isolated config directory (only under the canonical
-# project target directory, even if a parent path is symlinked).
+# Require every mutable scenario path to stay under the canonical project
+# target directory, even if a parent path is symlinked.
 TARGET_ROOT_REAL="$(realpath -m "$PROJECT_ROOT/target")"
-CONFIG_DIR_REAL="$(realpath -m "$CONFIG_DIR")"
-if [[ "$CONFIG_DIR_REAL" != "$TARGET_ROOT_REAL/"* ]]; then
-    echo "FATAL: refusing to recreate config outside target: $CONFIG_DIR_REAL" >&2
-    exit 1
-fi
+require_target_descendant() {
+    local candidate="$1"
+    local candidate_real
+    candidate_real="$(realpath -m "$candidate")"
+    if [[ "$candidate_real" != "$TARGET_ROOT_REAL/"* ]]; then
+        echo "FATAL: refusing scenario path outside target: $candidate_real" >&2
+        exit 1
+    fi
+}
+require_target_descendant "$ARTIFACT_DIR"
+require_target_descendant "$CONFIG_DIR"
+require_target_descendant "$SHIM_DIR"
+
 rm -rf "$CONFIG_DIR"
 mkdir -p "$CONFIG_DIR"
 
@@ -123,7 +140,6 @@ EOF
 rm -f "$AUDIT_FILE"
 
 # Build an isolated PATH directory with the gh shim.
-SHIM_DIR="$ARTIFACT_DIR/shim-bin"
 rm -rf "$SHIM_DIR"
 mkdir -p "$SHIM_DIR"
 cp "$SHIM" "$SHIM_DIR/gh"
@@ -135,6 +151,7 @@ export GH_SHIM_AUDIT="$AUDIT_FILE"
 echo "Running scenario..."
 cd "$PROJECT_ROOT"
 
+harness_status=0
 timeout 180s env \
     PATH="$SHIM_DIR:$PATH" \
     GH_SHIM_AUDIT="$AUDIT_FILE" \
@@ -144,7 +161,15 @@ timeout 180s env \
     --config "$CONFIG_DIR" \
     --out-dir "$ARTIFACT_DIR" \
     --session "jefe-issue265" \
-    "${HARNESS_ARGS[@]}"
+    "${HARNESS_ARGS[@]}" || harness_status=$?
+if [[ $harness_status -eq 124 ]]; then
+    echo "FAIL: harness timed out after 180 seconds" >&2
+    tmux kill-session -t jefe-issue265 2>/dev/null || true
+    exit 1
+fi
+if [[ $harness_status -ne 0 ]]; then
+    exit "$harness_status"
+fi
 
 echo ""
 echo "== Verifying gh audit =="
