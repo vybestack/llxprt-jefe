@@ -89,7 +89,9 @@ impl MultiplexerVersion {
         let mut parts = token.split('.');
         let major = parse_version_part(parts.next(), output)?;
         let minor = parse_version_part(parts.next(), output)?;
-        let patch = parse_version_part(parts.next(), output)?;
+        let patch = parts
+            .next()
+            .map_or(Ok(0), |part| parse_version_part(Some(part), output))?;
         Ok(Self::new(major, minor, patch))
     }
 }

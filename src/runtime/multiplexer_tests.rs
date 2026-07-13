@@ -25,7 +25,7 @@ fn platform_policy_builds_unix_socket_and_windows_namespace_arguments() {
 
     let windows = MultiplexerPlan::for_platform(
         LocalPlatform::Windows,
-        PathBuf::from(r"C:\Program Files\psmux\psmux.exe"),
+        PathBuf::from("C:/Program Files/psmux/psmux.exe"),
         MultiplexerIsolation::Namespace("jefe-0123456789abcdef".to_owned()),
     )
     .unwrap_or_else(|error| panic!("windows plan should be valid: {error}"));
@@ -69,6 +69,10 @@ fn version_parser_accepts_tmux_compatible_psmux_output() {
         MultiplexerVersion::parse("tmux 3.3.6\r\n"),
         Ok(MultiplexerVersion::new(3, 3, 6))
     );
+    assert_eq!(
+        MultiplexerVersion::parse("tmux 3.4\n"),
+        Ok(MultiplexerVersion::new(3, 4, 0))
+    );
     assert!(matches!(
         MultiplexerVersion::parse("psmux unknown"),
         Err(MultiplexerError::MalformedVersion { .. })
@@ -77,7 +81,7 @@ fn version_parser_accepts_tmux_compatible_psmux_output() {
 
 #[test]
 fn probe_classification_distinguishes_required_failure_modes() {
-    let path = PathBuf::from(r"C:\Program Files\psmux\psmux.exe");
+    let path = PathBuf::from("C:/Program Files/psmux/psmux.exe");
     assert!(matches!(
         classify_probe(ProbeObservation::Missing {
             platform: LocalPlatform::Windows,
@@ -138,7 +142,7 @@ fn windows_rejects_shadowed_compatibility_environment_executables() {
 fn windows_pane_command_uses_powershell_without_unix_env_wrapper() {
     let plan = MultiplexerPlan::for_platform(
         LocalPlatform::Windows,
-        PathBuf::from(r"C:\Program Files\psmux\psmux.exe"),
+        PathBuf::from("C:/Program Files/psmux/psmux.exe"),
         MultiplexerIsolation::Namespace("jefe-0123456789abcdef".to_owned()),
     )
     .unwrap_or_else(|error| panic!("windows plan should be valid: {error}"));
@@ -196,7 +200,7 @@ fn guarded_real_multiplexer_preflight_qualifies_the_current_dependency() {
 
 #[test]
 fn path_arguments_remain_os_strings_without_lossy_conversion() {
-    let executable = PathBuf::from(r"C:\Program Files\psmux Ω\psmux.exe");
+    let executable = PathBuf::from("C:/Program Files/psmux Ω/psmux.exe");
     let plan = MultiplexerPlan::for_platform(
         LocalPlatform::Windows,
         executable.clone(),
