@@ -77,11 +77,9 @@ pub(super) fn require_local_kind_or_npm_available(
     available: &[AgentKind],
     npm_present: bool,
 ) -> Result<(), String> {
-    if jefe::domain::target::is_valid_remote(remote) {
-        return Ok(());
-    }
     if remote.enabled {
-        return Err(jefe::domain::target::invalid_remote_message());
+        jefe::domain::target::validate_remote(remote)?;
+        return Ok(());
     }
 
     if kind == AgentKind::Llxprt && !llxprt_version.trim().is_empty() {
@@ -371,6 +369,23 @@ mod tests {
                 .is_ok(),
             "remote versioned LLxprt must pass regardless of local npm"
         );
+    }
+
+    #[test]
+    fn invalid_remote_identity_returns_specific_diagnostic() {
+        let remote = RemoteRepositorySettings {
+            enabled: true,
+            login_user: "-oProxyCommand".to_owned(),
+            host: "build.example.com".to_owned(),
+            ..Default::default()
+        };
+        let result =
+            require_local_kind_or_npm_available(AgentKind::Llxprt, "0.9.0", &remote, &[], false);
+        let Err(error) = result else {
+            panic!("invalid remote identity must fail availability validation");
+        };
+        assert!(error.contains("invalid characters"));
+        assert!(!error.contains("is empty"));
     }
 
     #[test]

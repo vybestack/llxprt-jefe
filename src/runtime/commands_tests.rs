@@ -615,6 +615,35 @@ fn code_puppy_launch_uses_only_supported_args() {
     assert!(!pane_args.iter().any(|arg| arg == "--profile-load"));
 }
 
+#[test]
+fn versioned_llxprt_pane_uses_resolved_npm_exec_prefix() {
+    let mut signature = base_signature();
+    signature.llxprt_version = "0.9.0".to_owned();
+    signature.profile = "ship".to_owned();
+    let plan = local_launch_plan(&signature);
+
+    let pane_args = local_pane_command_args(&plan, Some(std::path::Path::new("/opt/node/bin/npm")));
+    let expected: Vec<std::ffi::OsString> = vec![
+        "env".into(),
+        "-u".into(),
+        "TMUX".into(),
+        "-u".into(),
+        "TMUX_PANE".into(),
+        "-u".into(),
+        "TMUX_TMPDIR".into(),
+        "/opt/node/bin/npm".into(),
+        "exec".into(),
+        "--yes".into(),
+        "--package=@vybestack/llxprt-code@0.9.0".into(),
+        "--".into(),
+        "llxprt".into(),
+        "--profile-load".into(),
+        "ship".into(),
+        "--continue".into(),
+    ];
+    assert_eq!(pane_args, expected);
+}
+
 // ── Code Puppy strict args (issue #184) ───────────────────────────────────
 //
 // Code Puppy outputs interactive mode plus its typed YOLO value for normal

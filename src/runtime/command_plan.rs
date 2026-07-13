@@ -191,6 +191,10 @@ pub(super) fn code_puppy_launch_args(signature: &LaunchSignature) -> Vec<String>
         args.push("--yolo".to_owned());
         args.push(yolo.to_string());
     }
+    // Fresh issue/PR preparation replaces mode_flags with exactly one
+    // positional instruction and disables pass_continue. Require that exact
+    // shape here so arbitrary persisted LLxprt flags, multiple arguments, and
+    // option-looking values never leak into Code Puppy.
     if !signature.pass_continue
         && let [instruction] = signature.mode_flags.as_slice()
         && !instruction.starts_with('-')

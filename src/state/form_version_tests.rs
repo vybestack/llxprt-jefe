@@ -25,7 +25,7 @@ fn valid_repo_fields_with_version(version: &str) -> RepositoryFormFields {
         name: "Repo".to_owned(),
         base_dir: "/tmp/repo".to_owned(),
         default_llxprt_version: version.to_owned(),
-        default_agent_kind: "LLxprt".to_owned(),
+        default_agent_kind: AgentKind::Llxprt.label().to_owned(),
         ..RepositoryFormFields::default()
     }
 }
@@ -197,4 +197,8 @@ fn versioned_llxprt_default_falls_back_without_npm_or_direct_llxprt() {
         panic!("expected new-agent modal");
     };
     assert_eq!(fields.agent_kind, "code_puppy");
+    assert_eq!(
+        fields.llxprt_version, "0.9.0",
+        "the hidden selector remains dormant so runtime switches do not discard user input"
+    );
 }

@@ -16,15 +16,17 @@ impl AppState {
         focus: RepositoryFormFocus,
         step: fn(RepositoryFormFocus) -> RepositoryFormFocus,
     ) -> RepositoryFormFocus {
+        const RUNTIME_SPECIFIC_FIELD_COUNT: usize = 2;
+
         let kind = AgentKind::from_form_value(&fields.default_agent_kind);
         let mut candidate = step(focus);
-        while candidate != focus {
+        for _ in 0..RUNTIME_SPECIFIC_FIELD_COUNT {
             let hidden_puppy = candidate == RepositoryFormFocus::DefaultCodePuppyModel
                 && kind != Some(AgentKind::CodePuppy);
             let hidden_llxprt = candidate == RepositoryFormFocus::DefaultLlxprtVersion
                 && kind != Some(AgentKind::Llxprt);
             if !hidden_puppy && !hidden_llxprt {
-                break;
+                return candidate;
             }
             candidate = step(candidate);
         }

@@ -508,23 +508,32 @@ fn repository_form_focus_includes_default_llxprt_version_for_llxprt() {
 fn repository_form_runtime_switch_preserves_dormant_version_values() {
     let mut state = AppState {
         repositories: vec![seed_repository()],
+        installed_agent_kinds: vec![AgentKind::Llxprt, AgentKind::CodePuppy],
         ..AppState::default()
     };
     state = state.apply(AppEvent::OpenNewRepository);
-    // Type a default LLxprt version.
     let ModalState::NewRepository { fields, .. } = &mut state.modal else {
         panic!("expected new-repository modal");
     };
     fields.default_llxprt_version = "0.9.0".to_owned();
     fields.default_code_puppy_model = "gpt-5".to_owned();
-    // Switch to Code Puppy and back to LLxprt.
-    fields.default_agent_kind = "code_puppy".to_owned();
-    fields.default_agent_kind = "LLxprt".to_owned();
 
+    for _ in 0..4 {
+        state = state.apply(AppEvent::FormNextField);
+    }
+    state = state.apply(AppEvent::FormToggleCheckbox);
     let ModalState::NewRepository { fields, .. } = &state.modal else {
         panic!("expected new-repository modal");
     };
-    // Both dormant values must survive the runtime switch.
+    assert_eq!(fields.default_agent_kind, AgentKind::CodePuppy.label());
+    assert_eq!(fields.default_llxprt_version, "0.9.0");
+    assert_eq!(fields.default_code_puppy_model, "gpt-5");
+
+    state = state.apply(AppEvent::FormToggleCheckbox);
+    let ModalState::NewRepository { fields, .. } = &state.modal else {
+        panic!("expected new-repository modal");
+    };
+    assert_eq!(fields.default_agent_kind, AgentKind::Llxprt.label());
     assert_eq!(fields.default_llxprt_version, "0.9.0");
     assert_eq!(fields.default_code_puppy_model, "gpt-5");
 }
