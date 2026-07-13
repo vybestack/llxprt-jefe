@@ -21,8 +21,8 @@ pub(super) fn handle_issue_close(app_state: &mut AppStateHandle, ctx: &SharedCon
     let (pending, repo_target) = match resolve_close_context(app_state) {
         CloseContext::Pending(pending, repo) => (pending, repo),
         CloseContext::NothingToDo => return,
-        CloseContext::MissingRepoConfig(pending) => {
-            report_missing_github_repo(app_state, ctx, pending);
+        CloseContext::MissingRepoConfig(pending, malformed) => {
+            report_missing_github_repo(app_state, ctx, pending, malformed);
             return;
         }
     };
@@ -257,7 +257,7 @@ enum DeleteOutcome {
 /// the pending and surfacing an error) rather than leaving the mutation stuck.
 enum CloseContext {
     Pending(IssueLifecyclePending, GhRepoTarget),
-    MissingRepoConfig(IssueLifecyclePending),
+    MissingRepoConfig(IssueLifecyclePending, Option<String>),
     NothingToDo,
 }
 
@@ -266,9 +266,12 @@ fn resolve_close_context(app_state: &AppStateHandle) -> CloseContext {
     let Some(pending) = state.issues_state.close_mutation_pending.clone() else {
         return CloseContext::NothingToDo;
     };
-    let (owner, repo) = issues_dispatch::resolve_gh_repo(&state);
+    let (owner, repo, malformed) = issues_dispatch::resolve_gh_repo_or_error(&state).map_or_else(
+        |error| (String::new(), String::new(), Some(error.message)),
+        |(owner, repo)| (owner, repo, None),
+    );
     if owner.is_empty() || repo.is_empty() {
-        return CloseContext::MissingRepoConfig(pending);
+        return CloseContext::MissingRepoConfig(pending, malformed);
     }
     drop(state);
     CloseContext::Pending(pending, GhRepoTarget { owner, repo })
@@ -320,12 +323,18 @@ fn apply_mutation_failed(
 
 /// Deliver a `MutationFailed` for a close that cannot proceed because no GitHub
 /// repository is configured. Clears the stuck pending and surfaces an error so
-/// the UI is not left in a false in-flight state.
+/// the UI is not left in a false in-flight state. When `malformed` is `Some`,
+/// the typed malformed reason is surfaced instead of the generic "missing
+/// GitHub Repo" message (issue #266).
 fn report_missing_github_repo(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     pending: IssueLifecyclePending,
+    malformed: Option<String>,
 ) {
+    let error = malformed.unwrap_or_else(|| {
+        "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string()
+    });
     apply_mutation_failed(
         app_state,
         ctx,
@@ -334,7 +343,7 @@ fn report_missing_github_repo(
             issue_number: Some(pending.issue_number),
         },
         pending.mutation_id,
-        "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
+        error,
     );
 }
 

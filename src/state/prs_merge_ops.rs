@@ -57,6 +57,11 @@ impl AppState {
                 pr_number,
                 allowed_methods,
             } => self.apply_pr_merge_methods_loaded(scope_repo_id, *pr_number, allowed_methods),
+            AppEvent::PrMergeMethodsLoadFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            } => self.apply_pr_merge_methods_load_failed(scope_repo_id, *pr_number, error),
             _ => false,
         }
     }
@@ -232,6 +237,27 @@ impl AppState {
                 chooser.selected_index = enabled.first().copied().unwrap_or(0);
             }
         }
+        true
+    }
+
+    /// Apply a merge-methods-load failure: surface a scoped error so a
+    /// malformed tracker override is visible rather than silently degrading
+    /// to "all available" (issue #266). The chooser stays open in
+    /// "all available" mode so the user can still attempt a merge after
+    /// fixing the config.
+    fn apply_pr_merge_methods_load_failed(
+        &mut self,
+        scope_repo_id: &RepositoryId,
+        pr_number: u64,
+        error: &str,
+    ) -> bool {
+        if !self.scope_repo_id_matches_pr_merge(scope_repo_id) {
+            return true;
+        }
+        if self.prs_state.pr_detail.as_ref().map(|d| d.number) != Some(pr_number) {
+            return true;
+        }
+        self.prs_state.error = Some(format!("Failed to load merge methods: {error}"));
         true
     }
 

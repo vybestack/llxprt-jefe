@@ -334,6 +334,7 @@ fn test_issue_base_prompt_serde_roundtrip() {
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
         github_repo: String::new(),
+        github_issue_pr_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: "Prioritize diagnosis".to_string(),
         default_agent_kind: crate::domain::AgentKind::Llxprt,

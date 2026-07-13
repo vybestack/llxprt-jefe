@@ -571,8 +571,9 @@ pub(super) fn pr_send_info_from_state(state: &AppState) -> Option<PrSendInfo> {
     let focused_comment = focused_pr_comment(state, detail);
     let work_dir = agent.work_dir.clone();
     let signature = launch_signature_for_agent(&agent, repo);
+    // Detail carries the immutable source repository for the loaded PR.
     let payload = jefe::github::GhClient::build_pr_send_payload(
-        &repo.slug,
+        &detail.repo_owner_name,
         detail,
         focused_comment.as_ref(),
         pr_base_prompt(repo),

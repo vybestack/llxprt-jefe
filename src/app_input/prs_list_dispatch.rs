@@ -73,7 +73,11 @@ pub(super) fn dispatch_pr_list_fetch(
             // (do NOT surface a visible error — issue #128).
             return;
         }
-        persist_missing_github_repo(app_state, ctx);
+        let error = params.malformed_message.clone().unwrap_or_else(|| {
+            "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings."
+                .to_string()
+        });
+        persist_missing_github_repo_with(app_state, ctx, &error);
         return;
     }
 
@@ -124,6 +128,8 @@ struct PrFetchParams {
     scope_repo_id: jefe::domain::RepositoryId,
     owner: String,
     repo: String,
+    /// Malformed tracker override message (issue #266).
+    malformed_message: Option<String>,
     filter: jefe::domain::PrFilter,
     request_id: u64,
     cursor: Option<String>,
@@ -173,11 +179,16 @@ fn mark_pr_list_fetch_loading(app_state: &mut AppStateHandle, params: &PrFetchPa
 /// @pseudocode component-004 lines 127-137
 fn pr_fetch_params(app_state: &AppStateHandle, fresh_reload: bool, silent: bool) -> PrFetchParams {
     let state = app_state.read();
-    let gh_repo = prs_dispatch::resolve_pr_gh_repo(&state);
+    let (owner, repo, malformed_message) = prs_dispatch::resolve_pr_gh_repo_or_error(&state)
+        .map_or_else(
+            |error| (String::new(), String::new(), Some(error.message)),
+            |(owner, repo)| (owner, repo, None),
+        );
     PrFetchParams {
         scope_repo_id: prs_dispatch::current_pr_scope_repo_id(&state),
-        owner: gh_repo.0,
-        repo: gh_repo.1,
+        owner,
+        repo,
+        malformed_message,
         filter: state.prs_state.committed_filter.clone(),
         request_id: 0,
         cursor: (!fresh_reload)
@@ -188,18 +199,14 @@ fn pr_fetch_params(app_state: &AppStateHandle, fresh_reload: bool, silent: bool)
     }
 }
 
-/// Persist a missing-GitHub-repo error (no spawn).
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-006
-/// @pseudocode component-004 lines 127-137
-fn persist_missing_github_repo(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+fn persist_missing_github_repo_with(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: &str,
+) {
     let mut state = app_state.write();
     state.prs_state.loading.list = false;
-    state.prs_state.error = Some(
-        "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings."
-            .to_string(),
-    );
+    state.prs_state.error = Some(message.to_string());
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);

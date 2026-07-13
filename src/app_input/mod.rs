@@ -27,6 +27,7 @@ mod prs_comments_dispatch;
 mod prs_dispatch;
 mod prs_filter;
 mod prs_list_dispatch;
+mod prs_merge_dispatch;
 mod prs_mutation;
 // @plan PLAN-20260624-PR-MODE.P11
 mod prs_orchestration;
@@ -47,6 +48,7 @@ mod issue_self_assignment;
 mod issues_send;
 mod remote_probe;
 mod target_resolution;
+mod tracker_resolver;
 use agent_runtime::{
     clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, pid_on_success, set_agent_runtime_binding,
@@ -969,3 +971,9 @@ mod prs_integration_tests_lifecycle;
 #[cfg(test)]
 #[path = "prs_dispatch_tests.rs"]
 mod prs_dispatch_tests;
+
+// Issue #266: configurable Issues / PRs Repo override (tracker wiring,
+// payload identity, self-assignment decoupling, Actions regression).
+#[cfg(test)]
+#[path = "issue266_tracker_tests.rs"]
+mod issue266_tracker_tests;

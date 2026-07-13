@@ -524,6 +524,7 @@ mod tests {
             default_profile: String::new(),
             default_code_puppy_model: String::new(),
             github_repo: String::new(),
+            github_issue_pr_repo: String::new(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
             default_agent_kind: crate::domain::AgentKind::Llxprt,

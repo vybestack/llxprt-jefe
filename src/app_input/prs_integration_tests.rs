@@ -462,6 +462,10 @@ fn state_for_send_to_agent(agent_id: &AgentId, work_dir: &std::path::Path) -> Ap
     agent.mode_flags = Vec::new();
 
     let mut state = active_prs_state();
+    if let Some(repo) = state.repositories.first_mut() {
+        repo.github_repo = "fork-owner/repo".to_owned();
+        repo.github_issue_pr_repo = "owner/repo".to_owned();
+    }
     state.installed_agent_kinds = vec![jefe::domain::AgentKind::Llxprt];
     state.prs_state.pr_focus = PrFocus::PrDetail;
     state.prs_state.pull_requests = vec![make_test_pr(42)];
@@ -543,6 +547,14 @@ fn it_send_to_agent_writes_prompt_file_for_launch() {
     let send_info =
         pr_send_info_from_state(&state).unwrap_or_else(|| panic!("pr_send_info must resolve"));
     assert_eq!(send_info.payload.pr_number, 42);
+    assert_eq!(
+        send_info.payload.repository, "owner/repo",
+        "PR payload must retain the loaded upstream source identity"
+    );
+    assert_eq!(
+        state.repositories[0].github_repo, "fork-owner/repo",
+        "working repository identity must remain the fork"
+    );
     // The resolved send info identifies the correct LAUNCH TARGET agent (the
     // AgentId the chooser-confirm would launch) and the correct work_dir —
     // proving the launch target is resolved pre-spawn.

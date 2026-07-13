@@ -55,7 +55,11 @@ pub(super) fn dispatch_issue_list_fetch(
     let mut params = issue_fetch_params(app_state, fresh_reload);
 
     if params.owner.is_empty() || params.repo.is_empty() {
-        persist_missing_github_repo(app_state, ctx);
+        let error = params.malformed_message.clone().unwrap_or_else(|| {
+            "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings."
+                .to_string()
+        });
+        persist_missing_github_repo_with(app_state, ctx, &error);
         return;
     }
 
@@ -84,6 +88,8 @@ struct IssueFetchParams {
     scope_repo_id: jefe::domain::RepositoryId,
     owner: String,
     repo: String,
+    /// Malformed tracker override message (issue #266).
+    malformed_message: Option<String>,
     filter: jefe::domain::IssueFilter,
     request_id: u64,
     cursor: Option<String>,
@@ -117,11 +123,16 @@ fn mark_issue_list_fetch_loading(app_state: &mut AppStateHandle, params: &IssueF
 
 fn issue_fetch_params(app_state: &AppStateHandle, fresh_reload: bool) -> IssueFetchParams {
     let state = app_state.read();
-    let gh_repo = issues_dispatch::resolve_gh_repo(&state);
+    let (owner, repo, malformed_message) = issues_dispatch::resolve_gh_repo_or_error(&state)
+        .map_or_else(
+            |error| (String::new(), String::new(), Some(error.message)),
+            |(owner, repo)| (owner, repo, None),
+        );
     IssueFetchParams {
         scope_repo_id: issues_dispatch::current_scope_repo_id(&state),
-        owner: gh_repo.0,
-        repo: gh_repo.1,
+        owner,
+        repo,
+        malformed_message,
         filter: state.issues_state.committed_filter.clone(),
         request_id: 0,
         cursor: (!fresh_reload)
@@ -132,13 +143,14 @@ fn issue_fetch_params(app_state: &AppStateHandle, fresh_reload: bool) -> IssueFe
     }
 }
 
-fn persist_missing_github_repo(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+fn persist_missing_github_repo_with(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: &str,
+) {
     let mut state = app_state.write();
     state.issues_state.loading.list = false;
-    state.issues_state.error = Some(
-        "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings."
-            .to_string(),
-    );
+    state.issues_state.error = Some(message.to_string());
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
