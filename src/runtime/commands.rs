@@ -100,29 +100,12 @@ fn apply_session_style(session_name: &str) {
     );
 }
 
-/// Configure multiplexer prefix keys so application control chords pass
-/// through to the child unchanged.
+/// Configure multiplexer prefix keys for transparent child input (#200, #260).
 ///
 /// Unix applies this to `session_name`. Windows psmux ignores session-scoped
-/// prefix values, so its private per-Jefe server is configured globally; the
-/// parameter still identifies the session whose attach is being remediated.
-///
-/// tmux's default prefix is `C-b` (byte `0x02`). The interactive attach client
-/// consumes it before forwarding input, which breaks Code Puppy's `Ctrl-X
-/// Ctrl-B` chord (#200). Unix tmux honors `prefix None`; psmux 3.3.6 continues
-/// reserving `C-b` even when configured to `None`, so Windows assigns the prefix
-/// to F12 instead. Jefe owns F12 and intercepts it before PTY forwarding, leaving
-/// every terminal-owned control byte transparent (#260). `prefix2` remains
-/// disabled on every platform.
-///
-/// This is safe to call repeatedly (the options are idempotent), so it is also
-/// used on the reattach path to remediate sessions created before this fix
-/// existed (#200).
-///
-/// Returns `Ok(())` only when every option was applied successfully, so callers
-/// can memoize the session as remediated only on real success (mirroring the
-/// remote path). A transient tmux failure returns `Err` and the caller leaves
-/// the session un-memoized so the next attach retries.
+/// prefix values, so its private server is configured globally. Windows assigns
+/// `prefix` to Jefe-owned F12 because psmux 3.3.6 still reserves `C-b` when the
+/// option is `None`; `prefix2` stays disabled.
 pub fn configure_prefix_for_passthrough(session_name: &str) -> Result<(), String> {
     configure_prefix_with(session_name, |args| tmux_cmd_status(args, None))
 }
@@ -161,20 +144,15 @@ fn multiplexer_cmd_status(plan: &MultiplexerPlan, args: &[&str]) -> Result<(), S
         .args(args)
         .output()
         .map_err(|error| format!("failed to run multiplexer {args:?}: {error}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(format!(
+    output.status.success().then_some(()).ok_or_else(|| {
+        format!(
             "multiplexer {args:?} failed: {}",
             String::from_utf8_lossy(&output.stderr)
-        ))
-    }
+        )
+    })
 }
 
-/// Prefix value that keeps psmux from consuming terminal-owned control chords.
-///
-/// psmux 3.3.6 accepts `None` but its attached client still reserves `C-b`.
-/// F12 is safe because Jefe owns and intercepts it before PTY forwarding.
+/// Prefix value that preserves `C-b`; Jefe intercepts F12 before forwarding.
 #[must_use]
 const fn local_prefix_value() -> &'static str {
     if cfg!(windows) { "F12" } else { "None" }
@@ -186,12 +164,7 @@ fn local_prefix_reserves_only_jefe_owned_key_on_windows() {
     let expected = if cfg!(windows) { "F12" } else { "None" };
     assert_eq!(local_prefix_value(), expected);
 }
-/// The tmux prefix option names managed for transparent agent input (#200).
-///
-/// Remote Unix sessions disable both options. Local Windows psmux assigns the
-/// primary option to Jefe-owned F12 and disables the secondary option at the
-/// private server's global scope, because psmux attach ignores session-scoped
-/// prefix values (#260).
+/// The tmux prefix options managed for transparent agent input (#200, #260).
 #[must_use]
 pub fn prefix_disable_option_names() -> &'static [&'static str] {
     &["prefix", "prefix2"]
