@@ -881,6 +881,9 @@ mod issues_tests_filter;
 #[path = "issues_tests_repo_nav.rs"]
 mod issues_tests_repo_nav;
 #[cfg(test)]
+#[path = "issues_tests_send_to_agent.rs"]
+mod issues_tests_send_to_agent;
+#[cfg(test)]
 #[path = "issues_tests_subfocus.rs"]
 mod issues_tests_subfocus;
 

@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+# Self-test for the issue #265 gh shim: proves exact argv matching.
+#
+# Constructs each exact production vector and asserts it PASSES, then
+# constructs deliberate deviations (reordered args, duplicate flags, wrong
+# repo/issue/query/page size, marker-containing arbitrary GraphQL, extra
+# args, auth trailing args) and asserts they are REJECTED (non-zero exit).
+#
+# Every test invokes the actual shim binary with GH_SHIM_AUDIT pointed at a
+# temp file so the real routing logic is exercised end-to-end.
+#
+# Usage: scripts/issue265-shim-selftest.sh
+# Exit: 0 if all tests pass, 1 if any fail.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SHIM="$PROJECT_ROOT/scripts/issue265-gh-shim.sh"
+
+# The exact production vectors (must match the shim's readonly constants).
+SEARCH_QUERY_BODY='query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { id number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }'
+SEARCH_QUERY_STRING='repo:owner/repo-265 is:issue state:open'
+ISSUE_VIEW_JSON_FIELDS='number,title,state,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id'
+COMMENTS_QUERY_BODY='query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first) { nodes { id databaseId author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }'
+
+PASS=0
+FAIL=0
+TMPAUDIT=$(mktemp)
+trap 'rm -f "$TMPAUDIT"' EXIT
+
+# Run the shim with given args; capture exit code.
+# Sets SHIM_EXIT and SHIM_STDOUT/SHIM_STDERR.
+run_shim() {
+    export GH_SHIM_AUDIT="$TMPAUDIT"
+    : > "$TMPAUDIT"
+    SHIM_STDOUT=""
+    SHIM_STDERR=""
+    SHIM_EXIT=0
+    SHIM_STDOUT=$("$SHIM" "$@" 2>/dev/null) || SHIM_EXIT=$?
+}
+
+# Assert the shim ACCEPTS (exit 0) the given args.
+expect_accept() {
+    local label="$1"; shift
+    run_shim "$@"
+    if [[ $SHIM_EXIT -eq 0 ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL (expected ACCEPT): $label"
+        echo "  exit: $SHIM_EXIT"
+        echo "  stderr: $SHIM_STDERR"
+    fi
+}
+
+# Assert the shim REJECTS (non-zero exit) the given args.
+expect_reject() {
+    local label="$1"; shift
+    run_shim "$@"
+    if [[ $SHIM_EXIT -ne 0 ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL (expected REJECT): $label"
+        echo "  exit: $SHIM_EXIT"
+        echo "  stdout: $SHIM_STDOUT"
+    fi
+}
+
+echo "== issue #265 gh shim self-test =="
+
+# ── POSITIVE: exact vectors must pass ────────────────────────────────────
+
+expect_accept "search exact vector" \
+    api graphql \
+    -f "query=${SEARCH_QUERY_BODY}" \
+    -F "searchQuery=${SEARCH_QUERY_STRING}" \
+    -F "first=30"
+
+expect_accept "issue-view exact vector" \
+    issue view \
+    --repo "owner/repo-265" \
+    "265" \
+    --json "${ISSUE_VIEW_JSON_FIELDS}"
+
+expect_accept "comments exact vector" \
+    api graphql \
+    -f "query=${COMMENTS_QUERY_BODY}" \
+    -F "owner=owner" \
+    -F "repo=repo-265" \
+    -F "number=265" \
+    -F "first=30"
+
+expect_accept "auth status exact vector" \
+    auth status
+
+# ── NEGATIVE: reordered args ─────────────────────────────────────────────
+
+# issue-view with --json before the number (reordered).
+expect_reject "issue-view reordered --json before number" \
+    issue view \
+    --repo "owner/repo-265" \
+    --json "${ISSUE_VIEW_JSON_FIELDS}" \
+    "265"
+
+# search with -F flags before -f query (reordered).
+expect_reject "search reordered vars before query" \
+    api graphql \
+    -F "searchQuery=${SEARCH_QUERY_STRING}" \
+    -F "first=30" \
+    -f "query=${SEARCH_QUERY_BODY}"
+
+# comments with -F flags in different order.
+expect_reject "comments reordered vars" \
+    api graphql \
+    -f "query=${COMMENTS_QUERY_BODY}" \
+    -F "first=30" \
+    -F "number=265" \
+    -F "repo=repo-265" \
+    -F "owner=owner"
+
+# ── NEGATIVE: duplicate flags ────────────────────────────────────────────
+
+expect_reject "search duplicate first flag" \
+    api graphql \
+    -f "query=${SEARCH_QUERY_BODY}" \
+    -F "searchQuery=${SEARCH_QUERY_STRING}" \
+    -F "first=30" \
+    -F "first=30"
+
+expect_reject "issue-view duplicate --repo" \
+    issue view \
+    --repo "owner/repo-265" \
+    --repo "owner/repo-265" \
+    "265" \
+    --json "${ISSUE_VIEW_JSON_FIELDS}"
+
+# ── NEGATIVE: wrong repo ─────────────────────────────────────────────────
+
+expect_reject "search wrong repo" \
+    api graphql \
+    -f "query=${SEARCH_QUERY_BODY}" \
+    -F "searchQuery=repo:owner/wrong-repo is:issue state:open" \
+    -F "first=30"
+
+expect_reject "issue-view wrong repo" \
+    issue view \
+    --repo "owner/wrong-repo" \
+    "265" \
+    --json "${ISSUE_VIEW_JSON_FIELDS}"
+
+expect_reject "comments wrong repo" \
+    api graphql \
+    -f "query=${COMMENTS_QUERY_BODY}" \
+    -F "owner=owner" \
+    -F "repo=wrong-repo" \
+    -F "number=265" \
+    -F "first=30"
+
+# ── NEGATIVE: wrong issue number ─────────────────────────────────────────
+
+expect_reject "issue-view wrong number" \
+    issue view \
+    --repo "owner/repo-265" \
+    "999" \
+    --json "${ISSUE_VIEW_JSON_FIELDS}"
+
+expect_reject "comments wrong number" \
+    api graphql \
+    -f "query=${COMMENTS_QUERY_BODY}" \
+    -F "owner=owner" \
+    -F "repo=repo-265" \
+    -F "number=999" \
+    -F "first=30"
+
+# ── NEGATIVE: wrong page size ────────────────────────────────────────────
+
+expect_reject "search wrong page size" \
+    api graphql \
+    -f "query=${SEARCH_QUERY_BODY}" \
+    -F "searchQuery=${SEARCH_QUERY_STRING}" \
+    -F "first=50"
+
+expect_reject "comments wrong page size" \
+    api graphql \
+    -f "query=${COMMENTS_QUERY_BODY}" \
+    -F "owner=owner" \
+    -F "repo=repo-265" \
+    -F "number=265" \
+    -F "first=10"
+
+# ── NEGATIVE: marker-containing arbitrary GraphQL ────────────────────────
+#
+# A query that contains the search markers but is NOT the exact production
+# query body must be rejected.
+
+expect_reject "search marker-containing arbitrary GraphQL" \
+    api graphql \
+    -f "query=query { search(type: ISSUE, query: \"anything\") { nodes { number } } }" \
+    -F "searchQuery=${SEARCH_QUERY_STRING}" \
+    -F "first=30"
+
+expect_reject "comments marker-containing arbitrary GraphQL" \
+    api graphql \
+    -f "query=query { repository(owner: \"x\") { issue(number: 1) { comments(first: 1) { nodes { id } } } } }" \
+    -F "owner=owner" \
+    -F "repo=repo-265" \
+    -F "number=265" \
+    -F "first=30"
+
+# ── NEGATIVE: extra args ─────────────────────────────────────────────────
+
+expect_reject "search extra trailing arg" \
+    api graphql \
+    -f "query=${SEARCH_QUERY_BODY}" \
+    -F "searchQuery=${SEARCH_QUERY_STRING}" \
+    -F "first=30" \
+    "--verbose"
+
+expect_reject "issue-view extra trailing --web flag" \
+    issue view \
+    --repo "owner/repo-265" \
+    "265" \
+    --json "${ISSUE_VIEW_JSON_FIELDS}" \
+    --web
+
+# ── NEGATIVE: auth trailing args ─────────────────────────────────────────
+
+expect_reject "auth status with trailing arg" \
+    auth status --show-token
+
+expect_reject "auth login (wrong auth subcommand)" \
+    auth login --web
+
+# ── NEGATIVE: mutations ──────────────────────────────────────────────────
+
+expect_reject "issue create mutation" \
+    issue create --repo "owner/repo-265" --title "test"
+
+expect_reject "api POST mutation" \
+    api --method POST "/repos/owner/repo-265/issues" -f "title=test"
+
+# ── NEGATIVE: missing args ───────────────────────────────────────────────
+
+expect_reject "search missing first var" \
+    api graphql \
+    -f "query=${SEARCH_QUERY_BODY}" \
+    -F "searchQuery=${SEARCH_QUERY_STRING}"
+
+expect_reject "issue-view missing --json" \
+    issue view \
+    --repo "owner/repo-265" \
+    "265"
+
+# ── Summary ──────────────────────────────────────────────────────────────
+
+echo ""
+echo "Self-test results: $PASS passed, $FAIL failed"
+
+if [[ $FAIL -gt 0 ]]; then
+    exit 1
+fi
+exit 0

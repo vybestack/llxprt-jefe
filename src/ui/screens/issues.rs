@@ -93,13 +93,36 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
 
     // Error message
     let error_message = state.and_then(|s| s.issues_state.error.clone());
+    // Draft notice (e.g. "No agents available") — used as the banner
+    // fallback when no error is present (issue #265).
+    let draft_notice = state.and_then(|s| s.issues_state.draft_notice.clone());
+
+    // Single banner projection: error takes precedence over draft_notice.
+    // This same value drives both the visible banner and the pane row sizing
+    // so they can never disagree (issue #265).
+    let banner_text =
+        crate::layout::issues_banner_text(error_message.as_deref(), draft_notice.as_deref());
+    let banner_is_error = error_message.is_some();
+    let banner_content = banner_text.map(|b| {
+        if banner_is_error {
+            format!("Error: {b}")
+        } else {
+            b.to_string()
+        }
+    });
+    let banner_color = if banner_is_error { rc.bright } else { rc.dim };
+    let banner_weight = if banner_is_error {
+        Weight::Bold
+    } else {
+        Weight::Normal
+    };
 
     // Compute the actual rows/columns available to issue panes so child
     // components do not have to infer from raw terminal size.
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let (list_pane_rows, detail_pane_height) = crate::layout::issues_pane_rows(
         usize::from(term_rows),
-        error_message.is_some(),
+        banner_text.is_some(),
         filter_controls_open,
     );
     let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
@@ -175,14 +198,14 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                     flex_grow: 1.0_f32,
                     height: 100pct,
                 ) {
-                    // Error banner (when present)
-                    #(if let Some(ref err) = error_message {
+                    // Banner (error with precedence over draft_notice — issue #265)
+                    #(if let Some(content) = banner_content {
                         vec![element! {
                             Box(height: 1u32, width: 100pct, padding_left: 1u32) {
                                 Text(
-                                    content: format!("Error: {}", err),
-                                    color: rc.bright,
-                                    weight: Weight::Bold,
+                                    content: content,
+                                    color: banner_color,
+                                    weight: banner_weight,
                                 )
                             }
                         }]

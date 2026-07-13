@@ -214,7 +214,7 @@ impl AppState {
                     | AppEvent::OpenInlineEditor { .. }
             );
         }
-        match event {
+        let handled = match event {
             AppEvent::OpenNewIssueComposer => {
                 if self.issues_state.inline_state == InlineState::None {
                     self.issues_state.issue_focus = IssueFocus::IssueList;
@@ -224,6 +224,7 @@ impl AppState {
                         cursor: 0,
                     };
                 }
+                true
             }
             AppEvent::OpenNewCommentComposer => {
                 if self.issues_state.inline_state == InlineState::None {
@@ -235,15 +236,26 @@ impl AppState {
                     self.issues_state.detail_subfocus = DetailSubfocus::NewComment;
                     self.scroll_detail_to_bottom();
                 }
+                true
             }
             AppEvent::OpenReplyComposer { comment_index } => {
                 if self.open_reply_composer(comment_index) {
                     self.scroll_issue_detail_to_reply_anchor();
                 }
+                true
             }
-            AppEvent::OpenInlineEditor { target } => self.open_inline_editor(target),
-            _ => return false,
+            AppEvent::OpenInlineEditor { target } => {
+                self.open_inline_editor(target);
+                true
+            }
+            _ => false,
+        };
+        // Issue #265: clear a stale non-blocking notice (e.g. "No agents
+        // available") whenever a new composer/editor is opened so it does not
+        // linger in the new context. This does NOT touch the real `error`.
+        if handled {
+            self.issues_state.draft_notice = None;
         }
-        true
+        handled
     }
 }

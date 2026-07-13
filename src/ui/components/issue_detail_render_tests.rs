@@ -194,7 +194,7 @@ fn active_issue_new_comment_on_short_detail_starts_after_comments() {
         .unwrap_or_else(|| panic!("missing final comment line in: {rendered}"));
     let help_line = lines
         .iter()
-        .position(|line| line.contains("Ctrl+Enter submit | Esc cancel"))
+        .position(|line| line.contains("Alt+Enter submit | Esc cancel"))
         .unwrap_or_else(|| panic!("missing composer help line in: {rendered}"));
     let draft_line = lines
         .iter()
