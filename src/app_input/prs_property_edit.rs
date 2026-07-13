@@ -24,6 +24,15 @@ pub fn handle_pr_property_confirm(app_state: &mut AppStateHandle, ctx: &SharedCo
         report_missing_repo(app_state, ctx, &action);
         return;
     };
+    // F6/H1: block confirm while options are still loading or failed to load.
+    if action.editor.options_loading {
+        set_editor_error(app_state, ctx, "Options still loading");
+        return;
+    }
+    if action.editor.loading_failed {
+        set_editor_error(app_state, ctx, "Cannot edit: option load failed");
+        return;
+    }
     // H4: check for empty title before marking pending
     if action.kind == PrPropertyKind::Title && action.editor.title_text.trim().is_empty() {
         set_editor_error(app_state, ctx, "Title cannot be empty");

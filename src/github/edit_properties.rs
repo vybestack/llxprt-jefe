@@ -277,13 +277,18 @@ pub fn build_reopen_args(owner: &str, repo: &str, number: u64, is_pr: bool) -> V
 
 // ── Issue Type (GraphQL) ───────────────────────────────────────────────────
 
-/// Build the GraphQL query to fetch the repo's available issue types.
+/// Build the GraphQL query to fetch the repo's available issue types (issue
+/// #175 F7 pagination).
 ///
 /// Returns the argument vector for `gh api graphql -f query=... -F owner=... -F name=...`.
 #[must_use]
-pub fn build_issue_types_query_args(owner: &str, name: &str) -> Vec<String> {
-    let query = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { issueTypes(first: 50) { nodes { id name } } } }";
-    vec![
+pub fn build_issue_types_query_args(owner: &str, name: &str, after: Option<&str>) -> Vec<String> {
+    let query = if after.is_some() {
+        "query($owner: String!, $name: String!, $after: String!) { repository(owner: $owner, name: $name) { issueTypes(first: 50, after: $after) { nodes { id name } pageInfo { hasNextPage endCursor } } } }"
+    } else {
+        "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { issueTypes(first: 50) { nodes { id name } pageInfo { hasNextPage endCursor } } } }"
+    };
+    let mut args = vec![
         "api".to_string(),
         "graphql".to_string(),
         "-f".to_string(),
@@ -292,7 +297,12 @@ pub fn build_issue_types_query_args(owner: &str, name: &str) -> Vec<String> {
         format!("owner={owner}"),
         "-F".to_string(),
         format!("name={name}"),
-    ]
+    ];
+    if let Some(cursor) = after {
+        args.push("-F".to_string());
+        args.push(format!("after={cursor}"));
+    }
+    args
 }
 
 /// Parse the issue-types GraphQL response into `(id, name)` pairs.
@@ -300,10 +310,27 @@ pub fn build_issue_types_query_args(owner: &str, name: &str) -> Vec<String> {
 /// # Errors
 /// Returns [`GhError::ParseError`] if the JSON is malformed or missing expected fields.
 pub fn parse_issue_types(json: &str) -> Result<Vec<(String, String)>, GhError> {
+    Ok(parse_issue_types_page(json)?.0)
+}
+
+/// Parse one page of the issue-types response, returning `(id, name)` pairs
+/// and the next cursor when another page exists (issue #175 F7).
+/// One page of issue-type results: `(id, name)` pairs and the next cursor.
+pub type IssueTypesPage = (Vec<(String, String)>, Option<String>);
+
+/// Parse one page of the issue-types response, returning `(id, name)` pairs
+/// and the next cursor when another page exists (issue #175 F7).
+///
+/// # Errors
+/// Returns [`GhError::ParseError`] if the JSON is malformed or missing expected fields.
+pub fn parse_issue_types_page(json: &str) -> Result<IssueTypesPage, GhError> {
     let value: Value = serde_json::from_str(json)
         .map_err(|e| GhError::ParseError(format!("Invalid JSON: {e}")))?;
-    let nodes = value
-        .pointer("/data/repository/issueTypes/nodes")
+    let connection = value
+        .pointer("/data/repository/issueTypes")
+        .ok_or_else(|| GhError::ParseError("Missing issueTypes in response".to_string()))?;
+    let nodes = connection
+        .get("nodes")
         .and_then(Value::as_array)
         .ok_or_else(|| GhError::ParseError("Missing issueTypes.nodes in response".to_string()))?;
     let mut result = Vec::new();
@@ -318,7 +345,7 @@ pub fn parse_issue_types(json: &str) -> Result<Vec<(String, String)>, GhError> {
             .ok_or_else(|| GhError::ParseError("Issue type node missing name".to_string()))?;
         result.push((id.to_string(), name.to_string()));
     }
-    Ok(result)
+    Ok((result, next_page_cursor(connection)))
 }
 
 /// Build the GraphQL query to fetch an issue's node id and current issue type.
@@ -690,9 +717,11 @@ impl GhClient {
         owner: &str,
         name: &str,
     ) -> Result<Vec<(String, String)>, GhError> {
-        let args = build_issue_types_query_args(owner, name);
-        let stdout = Self::run_gh(&args)?;
-        parse_issue_types(&stdout)
+        paginate(
+            |cursor| build_issue_types_query_args(owner, name, cursor),
+            parse_issue_types_page,
+            "issue types",
+        )
     }
 
     /// Fetch an issue's node id and current issue type via GraphQL.

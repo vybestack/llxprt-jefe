@@ -326,7 +326,7 @@ fn build_reopen_args_issue() {
 
 #[test]
 fn build_issue_types_query_args_shape() {
-    let args = build_issue_types_query_args("owner", "repo");
+    let args = build_issue_types_query_args("owner", "repo", None);
     assert_eq!(args[0], "api");
     assert_eq!(args[1], "graphql");
     assert!(args[3].contains("issueTypes"));

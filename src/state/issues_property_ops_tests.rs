@@ -461,3 +461,77 @@ fn failure_after_navigation_sets_warning() {
             .is_some_and(|n| n.contains("Failed to edit") && n.contains("#42"))
     );
 }
+
+// ── M1: User deselections survive options-load ──────────────────────
+
+#[test]
+fn options_loaded_preserves_user_deselection() {
+    let mut state = make_state_with_detail();
+    add_repo(&mut state);
+    let (mut state, load_rid) = open_editor_with_load_request_id(state, IssuePropertyKind::Labels);
+    // Baseline label "bug" is selected. User deselects it before load.
+    {
+        let mut s = state.clone();
+        s.issues_state.property_editor.as_mut().map(|e| {
+            for opt in &mut e.options {
+                opt.selected = false;
+            }
+        });
+        state = s;
+    }
+    // Options arrive including the baseline "bug".
+    state = state.apply(AppEvent::IssuePropertyEditorOptionsLoaded {
+        scope_repo_id: RepositoryId("r1".to_string()),
+        issue_number: 42,
+        kind: IssuePropertyKind::Labels,
+        request_id: load_rid,
+        options: vec![
+            (None, "bug".to_string(), false),
+            (None, "enhancement".to_string(), false),
+        ],
+    });
+    let editor = require_issue_editor(&state);
+    // The deselected baseline label must remain deselected.
+    let bug = editor
+        .options
+        .iter()
+        .find(|o| o.label == "bug")
+        .unwrap_or_else(|| panic!("bug option must exist"));
+    assert!(
+        !bug.selected,
+        "user deselection of a baseline label must survive options-load"
+    );
+}
+
+// ── H1: Single-select cursor starts at the current value ────────────
+
+#[test]
+fn state_editor_cursor_starts_at_closed_for_closed_issue() {
+    use crate::domain::IssueState;
+    let mut state = make_state_with_detail();
+    // Make the issue closed.
+    state
+        .issues_state
+        .issue_detail
+        .as_mut()
+        .map(|d| d.state = IssueState::Closed);
+    add_repo(&mut state);
+    state = state.apply(AppEvent::IssueOpenPropertyEditor {
+        kind: IssuePropertyKind::State,
+    });
+    let editor = require_issue_editor(&state);
+    assert_eq!(
+        editor.options.len(),
+        2,
+        "State editor must have Open and Closed options"
+    );
+    assert_eq!(
+        editor.options[1].label, "Closed",
+        "index 1 must be the Closed option"
+    );
+    assert_eq!(
+        editor.selected_index, 1,
+        "a closed issue must open the State editor with the cursor on Closed"
+    );
+}
+

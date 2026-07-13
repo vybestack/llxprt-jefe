@@ -336,6 +336,11 @@ impl AppMessage {
                 | AppEvent::IssuePropertyEditorOptionsFailed { .. }
                 | AppEvent::IssuePropertyEditSucceeded { .. }
                 | AppEvent::IssuePropertyEditFailed { .. }
+                | AppEvent::IssuePropertyEditorValidationError { .. }
+                | AppEvent::IssueListSilentRefreshed { .. }
+                | AppEvent::IssueListSilentRefreshFailed { .. }
+                | AppEvent::IssueDetailSilentRefreshed { .. }
+                | AppEvent::IssueDetailSilentRefreshFailed { .. }
         )
     }
 

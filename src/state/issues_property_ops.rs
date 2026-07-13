@@ -420,25 +420,30 @@ impl AppState {
         options: &[(Option<String>, String, bool)],
     ) {
         let current_selected: Vec<String> = editor.baseline.clone();
-        // M6: preserve user toggles from the current editor state.
-        let prior_selections: Vec<String> = editor
+        // M6/M1: preserve the user's explicit toggle intent (both selections
+        // and deselections) from the pre-load editor state. A baseline label
+        // the user deselected must remain deselected after options load.
+        let prior_state: Vec<(String, bool)> = editor
             .options
             .iter()
-            .filter(|o| o.selected)
-            .map(|o| o.label.clone())
+            .map(|o| (o.label.clone(), o.selected))
             .collect();
         editor.options = options
             .iter()
             .map(|(id, label, _)| {
+                // If the user already toggled this option, honor that intent.
+                let prior_toggled = prior_state
+                    .iter()
+                    .find(|(l, _)| l.eq_ignore_ascii_case(label))
+                    .map(|(_, s)| *s);
                 let from_baseline = current_selected
                     .iter()
                     .any(|s| s.eq_ignore_ascii_case(label));
-                let from_toggle = prior_selections
-                    .iter()
-                    .any(|s| s.eq_ignore_ascii_case(label));
+                // Explicit user intent wins over baseline restore.
+                let selected = prior_toggled.unwrap_or(from_baseline);
                 PropertyOption {
                     label: label.clone(),
-                    selected: from_toggle || from_baseline,
+                    selected,
                     id: id.clone(),
                 }
             })
@@ -458,8 +463,9 @@ impl AppState {
                 });
             }
         }
-        // M6: preserve toggles that are not in the fetched option set.
-        for toggle_label in &prior_selections {
+        // M6: preserve toggles that are not in the fetched option set and not
+        // already covered by the baseline-restore loop above.
+        for (toggle_label, toggle_selected) in &prior_state {
             if !editor
                 .options
                 .iter()
@@ -467,7 +473,7 @@ impl AppState {
             {
                 editor.options.push(PropertyOption {
                     label: toggle_label.clone(),
-                    selected: true,
+                    selected: *toggle_selected,
                     id: None,
                 });
             }

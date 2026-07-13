@@ -24,10 +24,40 @@ pub fn handle_issue_property_confirm(app_state: &mut AppStateHandle, ctx: &Share
         report_missing_repo(app_state, ctx, &action);
         return;
     };
+    // F6/H1: block confirm while options are still loading or failed to load.
+    // Without this, confirming an issue-type editor before its node IDs arrive
+    // submits id=None, which clears the current type.
+    if action.editor.options_loading {
+        set_editor_error(app_state, ctx, "Options still loading");
+        return;
+    }
+    if action.editor.loading_failed {
+        set_editor_error(app_state, ctx, "Cannot edit: option load failed");
+        return;
+    }
     // H4: check for empty title before marking pending
     if action.kind == IssuePropertyKind::Title && action.editor.title_text.trim().is_empty() {
         set_editor_error(app_state, ctx, "Title cannot be empty");
         return;
+    }
+    // H1: never interpret a non-clear issue-type option with a missing node ID
+    // as a clear operation. This guards against a stale/partial option list.
+    if action.kind == IssuePropertyKind::Type {
+        let needs_id = action
+            .editor
+            .options
+            .get(action.editor.selected_index)
+            .is_some_and(|o| o.label != "(clear)");
+        let has_id = action
+            .editor
+            .options
+            .get(action.editor.selected_index)
+            .and_then(|o| o.id.as_deref())
+            .is_some();
+        if needs_id && !has_id {
+            set_editor_error(app_state, ctx, "Issue type has no node ID; reload options");
+            return;
+        }
     }
     // H4: mark mutation pending (debounce); if already pending, ignore.
     let Some(request_id) = mark_mutation_pending(app_state, &action) else {
