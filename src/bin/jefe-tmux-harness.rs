@@ -54,7 +54,7 @@ fn run(args: CliArgs) -> ExitCode {
                 }
                 if let Some(directory) = summary.artifact_dir {
                     write_stdout(&format!(
-                        "multiplexer details: {}\n",
+                        "multiplexer details file: {}\n",
                         directory.join("multiplexer.txt").display()
                     ));
                 }

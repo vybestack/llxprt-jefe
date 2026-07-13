@@ -319,10 +319,7 @@ impl TmuxDriver {
     }
 
     fn kill_owned_namespace(&self) -> Result<(), TmuxDriverError> {
-        match self.run(&["kill-server"]) {
-            Ok(()) | Err(TmuxDriverError::Failed { .. }) => Ok(()),
-            Err(error) => Err(error),
-        }
+        self.run(&["kill-server"])
     }
 
     fn run(&self, args: &[&str]) -> Result<(), TmuxDriverError> {
@@ -345,7 +342,10 @@ impl TmuxDriver {
         let command_name = format_command(&self.executable, &self.namespace, args);
         let mut command = Command::new(&self.executable);
         command.arg("-L").arg(&self.namespace).args(args);
-        command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         for variable in TMUX_ENV_VARS_TO_SCRUB {
             command.env_remove(variable);
         }

@@ -7,7 +7,7 @@ fn windows_launch_plan_uses_platform_shell_without_a_unix_wrapper() {
         vec![
             "C:\\Program Files\\Jefe Ω\\jefe.exe".to_string(),
             "--config".to_string(),
-            "C:\\config dir Ω".to_string(),
+            "C:\\config dir O'Brien Ω".to_string(),
         ],
         "C:\\working dir Ω",
         100,
@@ -20,7 +20,7 @@ fn windows_launch_plan_uses_platform_shell_without_a_unix_wrapper() {
     let launch = args.last().map_or("", String::as_str);
     assert_eq!(
         launch,
-        "& 'C:\\Program Files\\Jefe Ω\\jefe.exe' '--config' 'C:\\config dir Ω'"
+        "& 'C:\\Program Files\\Jefe Ω\\jefe.exe' '--config' 'C:\\config dir O''Brien Ω'"
     );
     assert!(!launch.contains("unset ") && !launch.contains("exec "));
 }
