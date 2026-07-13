@@ -154,6 +154,9 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
         .map_or_else(String::new, |e| e.title_text.clone());
     let prop_title_cursor = prop_editor.as_ref().map_or(0, |e| e.title_cursor);
     let prop_error = prop_editor.as_ref().and_then(|e| e.error.clone());
+    // F4: cap the option list to the available terminal rows (overlay sits at
+    // top:2 with a header, two separators, and a footer hint = ~5 chrome rows).
+    let prop_viewport_rows = term_rows.saturating_sub(7).max(1) as usize;
 
     // Sidebar is highlighted when RepoList focus or PaneFocus::Repositories
     let sidebar_focused =
@@ -309,6 +312,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                                     title_cursor: prop_title_cursor,
                                     is_title: prop_is_title,
                                     error: prop_error.clone(),
+                                    viewport_rows: prop_viewport_rows,
                                     colors: colors.clone(),
                                     selection: selection,
                                 )

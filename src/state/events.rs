@@ -659,6 +659,13 @@ pub enum AppEvent {
         request_id: u64,
         error: String,
     },
+    /// Synchronous validation error (e.g. empty title, missing repo) that
+    /// should set the open editor's error WITHOUT mutation correlation
+    /// (issue #175). Applied directly to the active editor if its kind matches.
+    IssuePropertyEditorValidationError {
+        kind: super::IssuePropertyKind,
+        error: String,
+    },
 
     // Property editing (issue #175) — PRs
     PrOpenPropertyEditor {
@@ -699,6 +706,13 @@ pub enum AppEvent {
         pr_number: u64,
         kind: super::PrPropertyKind,
         request_id: u64,
+        error: String,
+    },
+    /// Synchronous validation error (e.g. empty title, missing repo) that
+    /// should set the open PR editor's error WITHOUT mutation correlation
+    /// (issue #175). Applied directly to the active editor if its kind matches.
+    PrPropertyEditorValidationError {
+        kind: super::PrPropertyKind,
         error: String,
     },
 }

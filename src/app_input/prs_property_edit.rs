@@ -36,14 +36,19 @@ pub fn handle_pr_property_confirm(app_state: &mut AppStateHandle, ctx: &SharedCo
 }
 
 fn set_editor_error(app_state: &mut AppStateHandle, ctx: &SharedContext, error: &str) {
+    // F5: emit a deterministic validation-error event that sets the open
+    // editor's error directly, WITHOUT mutation correlation.
+    let kind = app_state
+        .read()
+        .prs_state
+        .property_editor
+        .as_ref()
+        .map_or(PrPropertyKind::Title, |e| e.kind);
     apply_and_persist(
         app_state,
         ctx,
-        AppEvent::PrPropertyEditFailed {
-            scope_repo_id: RepositoryId(String::new()),
-            pr_number: 0,
-            kind: PrPropertyKind::Title,
-            request_id: 0,
+        AppEvent::PrPropertyEditorValidationError {
+            kind,
             error: error.to_string(),
         },
     );
@@ -97,14 +102,13 @@ fn report_missing_repo(
     ctx: &SharedContext,
     action: &PrPropertyAction,
 ) {
+    // F5: use the validation-error event so the error reaches the open editor
+    // without requiring mutation correlation.
     apply_and_persist(
         app_state,
         ctx,
-        AppEvent::PrPropertyEditFailed {
-            scope_repo_id: action.scope_repo_id.clone(),
-            pr_number: action.pr_number,
+        AppEvent::PrPropertyEditorValidationError {
             kind: action.kind,
-            request_id: 0,
             error: "No GitHub repository configured.".to_string(),
         },
     );

@@ -29,6 +29,9 @@ impl AppState {
             | AppEvent::PrPropertyEditorOptionsFailed { .. }
             | AppEvent::PrPropertyEditSucceeded { .. }
             | AppEvent::PrPropertyEditFailed { .. } => self.apply_pr_property_lifecycle(event),
+            AppEvent::PrPropertyEditorValidationError { .. } => {
+                self.apply_pr_property_validation_error(event)
+            }
             _ => false,
         }
     }
@@ -613,6 +616,26 @@ impl AppState {
             self.prs_state.draft_notice = Some(format!(
                 "Failed to edit {kind_str} on PR #{pr_number}: {error}"
             ));
+        }
+        true
+    }
+
+    /// Apply a synchronous validation error (empty title, missing repo) by
+    /// setting the open PR editor's error directly, WITHOUT mutation
+    /// correlation (issue #175 F5).
+    fn apply_pr_property_validation_error(&mut self, event: &AppEvent) -> bool {
+        let AppEvent::PrPropertyEditorValidationError { kind, error } = event else {
+            return false;
+        };
+        if self
+            .prs_state
+            .property_editor
+            .as_ref()
+            .is_some_and(|e| e.kind == *kind)
+        {
+            if let Some(editor) = &mut self.prs_state.property_editor {
+                editor.error = Some(error.clone());
+            }
         }
         true
     }

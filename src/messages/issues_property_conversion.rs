@@ -18,6 +18,9 @@ impl IssuesMessage {
             | AppEvent::IssuePropertyEditFailed { .. } => {
                 Self::from_app_event_property_payload(event)
             }
+            AppEvent::IssuePropertyEditorValidationError { kind, error } => {
+                Self::PropertyEditorValidationError { kind, error }
+            }
             other => Self::from_app_event_property_simple(other),
         }
     }
@@ -107,6 +110,9 @@ impl IssuesMessage {
             | Self::PropertyEditorOptionsFailed { .. }
             | Self::PropertyEditSucceeded { .. }
             | Self::PropertyEditFailed { .. } => self.into_app_event_property_payload(),
+            Self::PropertyEditorValidationError { kind, error } => {
+                AppEvent::IssuePropertyEditorValidationError { kind, error }
+            }
             other => other.into_app_event_property_simple(),
         }
     }

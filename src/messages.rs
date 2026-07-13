@@ -395,6 +395,11 @@ pub enum IssuesMessage {
         request_id: u64,
         error: String,
     },
+    /// Synchronous validation error set directly on the open editor (issue #175).
+    PropertyEditorValidationError {
+        kind: crate::state::IssuePropertyKind,
+        error: String,
+    },
 }
 ///
 /// @plan PLAN-20260624-PR-MODE.P03
@@ -638,6 +643,11 @@ pub enum PullRequestsMessage {
         pr_number: u64,
         kind: crate::state::PrPropertyKind,
         request_id: u64,
+        error: String,
+    },
+    /// Synchronous validation error set directly on the open editor (issue #175).
+    PropertyEditorValidationError {
+        kind: crate::state::PrPropertyKind,
         error: String,
     },
 }

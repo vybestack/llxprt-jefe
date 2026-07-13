@@ -12,6 +12,7 @@
 use crate::selection::PaneContent;
 use crate::selection::SelectablePane;
 use crate::state::AppState;
+use crate::ui::components::property_editor_view::build_property_editor_view;
 
 /// Separator line rendered inside the chooser overlays, matching the
 /// components' `"─────…"` row.
@@ -165,6 +166,7 @@ fn build_issue_editor_lines(
         options: &editor.options,
         selected_index: editor.selected_index,
         error: editor.error.as_ref(),
+        viewport_rows: PROPERTY_EDITOR_DEFAULT_VIEWPORT,
     })
 }
 
@@ -189,6 +191,7 @@ fn build_pr_editor_lines(editor: &crate::state::PrPropertyEditorState, number: u
         options: &editor.options,
         selected_index: editor.selected_index,
         error: editor.error.as_ref(),
+        viewport_rows: PROPERTY_EDITOR_DEFAULT_VIEWPORT,
     })
 }
 
@@ -204,7 +207,16 @@ struct EditorLineParams<'a> {
     options: &'a [crate::state::PropertyOption],
     selected_index: usize,
     error: Option<&'a String>,
+    /// Maximum option rows to render; older rows scroll out of view as the
+    /// cursor moves (issue #175 F4).
+    viewport_rows: usize,
 }
+
+/// Default viewport height for the property-editor option list (issue #175 F4).
+/// Keeps the overlay usable on small terminals when a repo has many labels or
+/// assignees. The cursor-following window is computed by the pure projection
+/// in `property_editor_view`.
+const PROPERTY_EDITOR_DEFAULT_VIEWPORT: usize = 12;
 
 fn build_editor_lines(p: EditorLineParams) -> PaneContent {
     let mut lines = vec![
@@ -214,8 +226,13 @@ fn build_editor_lines(p: EditorLineParams) -> PaneContent {
     if p.is_title {
         lines.push(p.title_text.to_string());
     } else {
-        for (i, opt) in p.options.iter().enumerate() {
-            let is_cursor = i == p.selected_index;
+        // F4: window the options so the overlay stays within the terminal.
+        let view = build_property_editor_view(p.options.len(), p.selected_index, p.viewport_rows);
+        for full_index in view.iter_visible() {
+            let Some(opt) = p.options.get(full_index) else {
+                break;
+            };
+            let is_cursor = full_index == p.selected_index;
             let label_text = if p.multi {
                 let marker = if opt.selected { "(x)" } else { "( )" };
                 format!("{marker} {}", opt.label)

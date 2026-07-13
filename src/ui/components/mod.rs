@@ -68,6 +68,7 @@ mod preview;
 ///
 /// @requirement REQ-ISS-010
 mod property_editor;
+pub(crate) mod property_editor_view;
 mod scrollable_text;
 mod selectable_line;
 /// Generic bordered, scrollable, selectable list used by the Issue, PR, and

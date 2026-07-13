@@ -32,6 +32,9 @@ impl AppState {
             | AppEvent::IssuePropertyEditFailed { .. } => {
                 self.apply_issue_property_lifecycle(event)
             }
+            AppEvent::IssuePropertyEditorValidationError { .. } => {
+                self.apply_issue_property_validation_error(event)
+            }
             _ => false,
         }
     }
@@ -633,6 +636,27 @@ impl AppState {
             self.issues_state.draft_notice = Some(format!(
                 "Failed to edit {kind_str} on issue #{issue_number}: {error}"
             ));
+        }
+        true
+    }
+
+    /// Apply a synchronous validation error (empty title, missing repo) by
+    /// setting the open editor's error directly, WITHOUT mutation correlation
+    /// (issue #175 F5). No scope/request_id check — this is a deterministic
+    /// pre-flight validation applied to whatever editor is currently open.
+    fn apply_issue_property_validation_error(&mut self, event: &AppEvent) -> bool {
+        let AppEvent::IssuePropertyEditorValidationError { kind, error } = event else {
+            return false;
+        };
+        if self
+            .issues_state
+            .property_editor
+            .as_ref()
+            .is_some_and(|e| e.kind == *kind)
+        {
+            if let Some(editor) = &mut self.issues_state.property_editor {
+                editor.error = Some(error.clone());
+            }
         }
         true
     }

@@ -194,6 +194,7 @@ message_names!(IssuesMessage {
     Self::PropertyEditorOptionsFailed { .. } => "IssuePropertyEditorOptionsFailed",
     Self::PropertyEditSucceeded { .. } => "IssuePropertyEditSucceeded",
     Self::PropertyEditFailed { .. } => "IssuePropertyEditFailed",
+    Self::PropertyEditorValidationError { .. } => "IssuePropertyEditorValidationError",
 });
 
 // @plan PLAN-20260624-PR-MODE.P03
@@ -278,6 +279,7 @@ message_names!(PullRequestsMessage {
     Self::PropertyEditorOptionsFailed { .. } => "PrPropertyEditorOptionsFailed",
     Self::PropertyEditSucceeded { .. } => "PrPropertyEditSucceeded",
     Self::PropertyEditFailed { .. } => "PrPropertyEditFailed",
+    Self::PropertyEditorValidationError { .. } => "PrPropertyEditorValidationError",
 });
 
 // ── Property-editor predicate guards (issue #175) ──────────────────────────
@@ -308,6 +310,7 @@ pub(super) fn is_issue_property_app_event(event: &AppEvent) -> bool {
             | AppEvent::IssuePropertyEditorOptionsFailed { .. }
             | AppEvent::IssuePropertyEditSucceeded { .. }
             | AppEvent::IssuePropertyEditFailed { .. }
+            | AppEvent::IssuePropertyEditorValidationError { .. }
     )
 }
 
@@ -331,5 +334,6 @@ pub(super) fn is_issue_property_msg(message: &IssuesMessage) -> bool {
             | IssuesMessage::PropertyEditorOptionsFailed { .. }
             | IssuesMessage::PropertyEditSucceeded { .. }
             | IssuesMessage::PropertyEditFailed { .. }
+            | IssuesMessage::PropertyEditorValidationError { .. }
     )
 }

@@ -37,14 +37,21 @@ pub fn handle_issue_property_confirm(app_state: &mut AppStateHandle, ctx: &Share
 }
 
 fn set_editor_error(app_state: &mut AppStateHandle, ctx: &SharedContext, error: &str) {
+    // F5: emit a deterministic validation-error event that sets the open
+    // editor's error directly, WITHOUT mutation correlation. The fabricated
+    // IssuePropertyEditFailed (empty scope / request_id 0) was silently
+    // dropped by the reducer because it requires a matching pending mutation.
+    let kind = app_state
+        .read()
+        .issues_state
+        .property_editor
+        .as_ref()
+        .map_or(IssuePropertyKind::Title, |e| e.kind);
     apply_and_persist(
         app_state,
         ctx,
-        AppEvent::IssuePropertyEditFailed {
-            scope_repo_id: RepositoryId(String::new()),
-            issue_number: 0,
-            kind: IssuePropertyKind::Title,
-            request_id: 0,
+        AppEvent::IssuePropertyEditorValidationError {
+            kind,
             error: error.to_string(),
         },
     );
@@ -101,14 +108,13 @@ fn report_missing_repo(
     ctx: &SharedContext,
     action: &IssuePropertyAction,
 ) {
+    // F5: use the validation-error event so the error reaches the open editor
+    // without requiring mutation correlation.
     apply_and_persist(
         app_state,
         ctx,
-        AppEvent::IssuePropertyEditFailed {
-            scope_repo_id: action.scope_repo_id.clone(),
-            issue_number: action.issue_number,
+        AppEvent::IssuePropertyEditorValidationError {
             kind: action.kind,
-            request_id: 0,
             error: "No GitHub repository configured.".to_string(),
         },
     );

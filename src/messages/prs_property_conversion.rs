@@ -17,6 +17,9 @@ impl PullRequestsMessage {
             | AppEvent::PrPropertyEditorOptionsFailed { .. }
             | AppEvent::PrPropertyEditSucceeded { .. }
             | AppEvent::PrPropertyEditFailed { .. } => Self::from_app_event_property_payload(event),
+            AppEvent::PrPropertyEditorValidationError { kind, error } => {
+                Self::PropertyEditorValidationError { kind, error }
+            }
             other => Self::from_app_event_property_simple(other),
         }
     }
@@ -143,6 +146,9 @@ impl PullRequestsMessage {
             | Self::PropertyEditorOptionsFailed { .. }
             | Self::PropertyEditSucceeded { .. }
             | Self::PropertyEditFailed { .. } => self.into_app_event_property_payload(),
+            Self::PropertyEditorValidationError { kind, error } => {
+                AppEvent::PrPropertyEditorValidationError { kind, error }
+            }
             other => other.into_app_event_property_simple(),
         }
     }

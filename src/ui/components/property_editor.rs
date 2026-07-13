@@ -13,6 +13,7 @@ use iocraft::prelude::*;
 use crate::selection::{SelectablePane, TextSelection};
 use crate::text_box_view::build_text_box_view;
 use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
+use crate::ui::components::property_editor_view::build_property_editor_view;
 use crate::ui::components::selectable_line;
 
 /// Props for the property editor overlay.
@@ -38,6 +39,8 @@ pub struct PropertyEditorProps {
     pub is_title: bool,
     /// Error message shown in the footer when a mutation fails.
     pub error: Option<String>,
+    /// Maximum option rows to render (cursor-following window, issue #175 F4).
+    pub viewport_rows: usize,
     /// Theme colors.
     pub colors: ThemeColors,
     /// Active text selection for drag-highlight (issue #178).
@@ -45,6 +48,16 @@ pub struct PropertyEditorProps {
 }
 
 const SEPARATOR: &str = "─────────────────────────────────────────";
+
+/// Append a scroll indicator to the footer hint when the option list is
+/// longer than the viewport (issue #175 F4).
+fn scroll_hint(base: &str, windowed: bool) -> String {
+    if windowed {
+        format!("{base}  (more below)")
+    } else {
+        base.to_string()
+    }
+}
 
 /// Property editor overlay — lists options with selection, or a title
 /// text-box; Enter confirms, Esc cancels.
@@ -91,8 +104,17 @@ pub fn PropertyEditor(props: &PropertyEditorProps) -> impl Into<AnyElement<'stat
         sel,
     ));
 
+    // F4: compute the option window once so the option list and the scroll
+    // indicator in the footer stay consistent.
+    let prop_view = build_property_editor_view(
+        props.options.len(),
+        props.selected_index,
+        props.viewport_rows,
+    );
+    // True when some options are scrolled out of view (issue #175 F4).
+    let windowed = prop_view.visible_count < props.options.len();
+
     if props.is_title {
-        // Render the title as a single-row text-box with a real caret (H1 fix).
         let view = build_text_box_view(&props.title_text, props.title_cursor, 1, 78);
         let row = &view.rows[0];
         let text_with_caret = if let Some(col) = row.caret_col {
@@ -115,8 +137,14 @@ pub fn PropertyEditor(props: &PropertyEditorProps) -> impl Into<AnyElement<'stat
             sel,
         ));
     } else {
-        for (i, (label, selected)) in props.options.iter().enumerate() {
-            let is_cursor = i == props.selected_index;
+        for full_index in prop_view.iter_visible() {
+            let Some((label, selected)) = props.options.get(full_index) else {
+                break;
+            };
+            // prop_view.contains is the authoritative window test; assert it
+            // here so the cursor highlight never drifts from the window.
+            let is_cursor =
+                full_index == props.selected_index && prop_view.contains(props.selected_index);
             let label_text = if props.multi_select {
                 let marker = if *selected { "(x)" } else { "( )" };
                 format!("{marker} {label}")
@@ -159,9 +187,11 @@ pub fn PropertyEditor(props: &PropertyEditorProps) -> impl Into<AnyElement<'stat
     } else if props.is_title {
         "type title  Enter apply  Esc cancel".to_string()
     } else if props.multi_select {
-        "Up/Down move  Space toggle  Enter apply  Esc cancel".to_string()
+        let base = "Up/Down move  Space toggle  Enter apply  Esc cancel";
+        scroll_hint(base, windowed)
     } else {
-        "Up/Down move  Enter apply  Esc cancel".to_string()
+        let base = "Up/Down move  Enter apply  Esc cancel";
+        scroll_hint(base, windowed)
     };
     let hint_color = if props.error.is_some() {
         rc.bright
