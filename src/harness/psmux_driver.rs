@@ -162,7 +162,15 @@ impl TmuxDriver {
         request.validate()?;
         self.qualified_version()?;
         let args = new_session_args(request);
-        self.run_owned(&args, Some(&request.working_dir))?;
+        if let Err(error) = self.run_owned(&args, Some(&request.working_dir)) {
+            return match ignore_absent_cleanup(self.kill_owned_namespace()) {
+                Ok(()) => Err(error),
+                Err(cleanup) => Err(TmuxDriverError::Cleanup {
+                    session: error.to_string(),
+                    namespace: cleanup.to_string(),
+                }),
+            };
+        }
         if let Err(error) = self.configure_session(request) {
             return match self.kill_owned_namespace() {
                 Ok(()) => Err(error),
@@ -470,15 +478,24 @@ fn invalid_request(reason: &str) -> TmuxDriverError {
 
 fn ignore_absent_cleanup(result: Result<(), TmuxDriverError>) -> Result<(), TmuxDriverError> {
     match result {
-        Err(TmuxDriverError::Failed { stderr, .. })
-            if stderr.to_ascii_lowercase().contains("no server running")
-                || stderr.to_ascii_lowercase().contains("no sessions")
-                || stderr.to_ascii_lowercase().contains("can't find session") =>
+        Err(TmuxDriverError::Failed { command, stderr })
+            if is_cleanup_command(&command) && is_absent_cleanup_error(&stderr) =>
         {
             Ok(())
         }
         other => other,
     }
+}
+
+fn is_cleanup_command(command: &str) -> bool {
+    command.contains(" kill-session ") || command.ends_with(" kill-server")
+}
+
+fn is_absent_cleanup_error(stderr: &str) -> bool {
+    let stderr = stderr.to_ascii_lowercase();
+    stderr.contains("no server running")
+        || stderr.contains("no sessions")
+        || stderr.contains("can't find session")
 }
 
 fn parse_version_part(part: Option<&str>, name: &str, source: &str) -> Result<u32, String> {
