@@ -101,7 +101,10 @@ fn run_internal_agent_launch_if_requested() -> bool {
             let code = status.code().map_or(1, |value| value);
             std::process::exit(code);
         }
-        Err(_) => std::process::exit(1),
+        Err(error) => {
+            let _ = writeln!(std::io::stderr(), "internal agent launch failed: {error}");
+            std::process::exit(1);
+        }
     }
 }
 

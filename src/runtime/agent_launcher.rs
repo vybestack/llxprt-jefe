@@ -60,7 +60,7 @@ pub fn write_launch_plan(
             "jefe-agent-launch-{}-{sequence:x}.json",
             std::process::id()
         ));
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
+        match secure_launch_plan_file(&path) {
             Ok(mut file) => {
                 file.write_all(&bytes)
                     .map_err(|_| AgentLauncherError::InvalidPlan)?;
@@ -75,8 +75,11 @@ pub fn write_launch_plan(
 
 /// Consume and execute a private launch plan, returning the child status.
 pub fn run_launch_plan(path: &Path) -> Result<ExitStatus, AgentLauncherError> {
+    if !valid_launch_plan_path(path) {
+        return Err(AgentLauncherError::InvalidPlan);
+    }
     let bytes = std::fs::read(path).map_err(|_| AgentLauncherError::InvalidPlan)?;
-    let _ = std::fs::remove_file(path);
+    std::fs::remove_file(path).map_err(|_| AgentLauncherError::CleanupFailed)?;
     let payload: AgentLaunchPayload =
         serde_json::from_slice(&bytes).map_err(|_| AgentLauncherError::InvalidPlan)?;
     let mut command = command_for_payload(&payload);
@@ -87,6 +90,33 @@ pub fn run_launch_plan(path: &Path) -> Result<ExitStatus, AgentLauncherError> {
     command
         .status()
         .map_err(|_| AgentLauncherError::LaunchFailed)
+}
+fn valid_launch_plan_path(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    path.parent()
+        .is_some_and(|parent| parent == std::env::temp_dir())
+        && name.starts_with("jefe-agent-launch-")
+        && path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
+}
+
+#[cfg(unix)]
+fn secure_launch_plan_file(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn secure_launch_plan_file(path: &Path) -> std::io::Result<std::fs::File> {
+    OpenOptions::new().write(true).create_new(true).open(path)
 }
 
 fn command_for_payload(payload: &AgentLaunchPayload) -> Command {
@@ -124,6 +154,7 @@ fn command_for_payload(payload: &AgentLaunchPayload) -> Command {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentLauncherError {
     InvalidPlan,
+    CleanupFailed,
     LaunchFailed,
 }
 
@@ -131,6 +162,7 @@ impl std::fmt::Display for AgentLauncherError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidPlan => formatter.write_str("invalid internal agent launch plan"),
+            Self::CleanupFailed => formatter.write_str("internal agent launch plan cleanup failed"),
             Self::LaunchFailed => formatter.write_str("agent process could not be started"),
         }
     }
