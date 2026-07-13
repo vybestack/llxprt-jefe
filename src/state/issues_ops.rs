@@ -628,6 +628,7 @@ impl AppState {
     pub(super) fn apply_issues_event(&mut self, event: AppEvent) -> bool {
         self.apply_issue_scroll_event(&event)
             || self.apply_issue_lifecycle_event(event.clone())
+            || self.apply_issue_close_reason_event(&event)
             || self.apply_issue_close_delete_event(&event)
             || self.apply_issue_filter_event(event.clone())
             || self.apply_inline_open_event(event.clone())

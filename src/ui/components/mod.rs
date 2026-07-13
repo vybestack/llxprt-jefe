@@ -15,6 +15,8 @@ pub(crate) mod actions_detail;
 pub(crate) mod actions_list;
 mod agent_chooser;
 mod agent_list;
+/// @requirement issue #188
+mod close_reason_chooser;
 /// Generic bordered, header + scrollable + optional-composer detail pane.
 /// Domain layers (`issue_detail`, `pr_detail`) project into [`DetailPaneProps`]
 /// and delegate rendering through [`detail_pane_element`]. The shared header-row
@@ -99,6 +101,10 @@ pub use actions_list::{
 };
 pub use agent_chooser::{AgentChooser, AgentChooserProps};
 pub use agent_list::{AgentListSelection, agent_list_props};
+/// @requirement issue #188
+pub use close_reason_chooser::{
+    CloseReasonChooser, CloseReasonChooserProps, close_reason_chooser_lines,
+};
 pub use detail_pane::{
     DetailComposerProps, DetailHeaderColor, DetailHeaderRow, DetailPane, DetailPaneProps,
     composer_from_inline_state, detail_pane_element, header_highlight, header_row,

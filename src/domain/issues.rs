@@ -144,3 +144,89 @@ fn sentinel_filter_is_active(value: &str) -> bool {
     let trimmed = value.trim();
     !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case(FILTER_CHOICE_ANY)
 }
+
+/// Close reason for an issue (issue #188).
+///
+/// Mirrors GitHub's close-reason UX. `gh issue close --reason` supports only
+/// `completed` and `not planned`; `Duplicate` and `Invalid` both map to
+/// `not planned` at the API layer, with `Duplicate` additionally running the
+/// `markIssueAsDuplicate` GraphQL mutation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseReason {
+    Completed,
+    NotPlanned,
+    Duplicate,
+    Invalid,
+}
+
+/// All close reasons in canonical display order (mirrors `MERGE_METHODS`).
+pub const CLOSE_REASONS: [CloseReason; 4] = [
+    CloseReason::Completed,
+    CloseReason::NotPlanned,
+    CloseReason::Duplicate,
+    CloseReason::Invalid,
+];
+
+impl CloseReason {
+    /// User-facing display label (emoji-free, plain text).
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Completed => "Completed",
+            Self::NotPlanned => "Not planned",
+            Self::Duplicate => "Duplicate",
+            Self::Invalid => "Invalid",
+        }
+    }
+
+    /// The `--reason` value passed to `gh issue close`.
+    ///
+    /// `gh` supports only `completed` and `not planned`. `Duplicate` and
+    /// `Invalid` both map to `not planned` — `Duplicate` additionally runs the
+    /// `markIssueAsDuplicate` mutation; `Invalid` has no dedicated API reason.
+    #[must_use]
+    pub const fn gh_reason_flag(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::NotPlanned | Self::Duplicate | Self::Invalid => "not planned",
+        }
+    }
+}
+
+#[cfg(test)]
+mod close_reason_tests {
+    use super::*;
+
+    #[test]
+    fn completed_label_and_flag() {
+        assert_eq!(CloseReason::Completed.label(), "Completed");
+        assert_eq!(CloseReason::Completed.gh_reason_flag(), "completed");
+    }
+
+    #[test]
+    fn not_planned_label_and_flag() {
+        assert_eq!(CloseReason::NotPlanned.label(), "Not planned");
+        assert_eq!(CloseReason::NotPlanned.gh_reason_flag(), "not planned");
+    }
+
+    #[test]
+    fn duplicate_label_and_flag() {
+        assert_eq!(CloseReason::Duplicate.label(), "Duplicate");
+        assert_eq!(CloseReason::Duplicate.gh_reason_flag(), "not planned");
+    }
+
+    #[test]
+    fn invalid_label_and_flag() {
+        assert_eq!(CloseReason::Invalid.label(), "Invalid");
+        assert_eq!(CloseReason::Invalid.gh_reason_flag(), "not planned");
+    }
+
+    #[test]
+    fn close_reasons_has_four_variants_in_order() {
+        assert_eq!(CLOSE_REASONS.len(), 4);
+        assert_eq!(CLOSE_REASONS[0], CloseReason::Completed);
+        assert_eq!(CLOSE_REASONS[1], CloseReason::NotPlanned);
+        assert_eq!(CLOSE_REASONS[2], CloseReason::Duplicate);
+        assert_eq!(CLOSE_REASONS[3], CloseReason::Invalid);
+    }
+}

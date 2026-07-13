@@ -20,7 +20,10 @@ mod issue_lifecycle;
 mod pr_threads;
 mod repo_merge;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};
-pub use issue_lifecycle::{build_close_issue_args, build_delete_issue_args};
+pub use issue_lifecycle::{
+    build_close_issue_args, build_close_issue_with_reason_args, build_delete_issue_args,
+    build_issue_node_id_args, build_mark_duplicate_args, parse_issue_node_id_json,
+};
 use repo_merge::parse_repo_merge_methods;
 
 mod auth_device;
