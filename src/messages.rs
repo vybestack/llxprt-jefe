@@ -12,6 +12,8 @@ use crate::domain::{
 use crate::state::{EditorTarget, InlineState, ReadOnlyHintKind};
 
 mod issues_conversion;
+mod issues_property_conversion;
+mod issues_silent_refresh_conversion;
 // @plan PLAN-20260624-PR-MODE.P03
 // @requirement REQ-PR-002
 mod actions;
@@ -230,6 +232,33 @@ pub enum IssuesMessage {
         request_id: u64,
         request_cursor: Option<String>,
         error: String,
+    },
+    /// Silent background list refresh succeeded (issue #175).
+    ListSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        filter: Box<IssueFilter>,
+        request_id: u64,
+        issues: Vec<Issue>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    /// Silent background list refresh failed (issue #175).
+    ListSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+    },
+    /// Silent background detail refresh succeeded (issue #175).
+    DetailSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+        detail: Box<IssueDetail>,
+    },
+    /// Silent background detail refresh failed (issue #175).
+    DetailSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        request_id: u64,
     },
     OpenFilterControls,
     CloseFilterControls,

@@ -135,6 +135,90 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
     );
 }
 
+/// Silently refresh issue detail for the currently selected issue (issue #175).
+/// Mirrors `load_issue_detail_for_selection` but does NOT set `loading.detail`
+/// (no spinner flash), preserves `detail_scroll_offset` on success, and does
+/// NOT surface errors visibly on failure (delivers `IssueDetailSilentRefreshed`
+/// / `IssueDetailSilentRefreshFailed`).
+pub(super) fn load_issue_detail_silent_refresh(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+) {
+    let Some(mut params) = issue_detail_load_params(app_state) else {
+        return;
+    };
+    mark_detail_silent_loading(app_state, &mut params);
+    if params.owner.is_empty() || params.repo.is_empty() {
+        // Missing repo: silently clear the pending marker (no visible error).
+        apply_and_persist(app_state, ctx, detail_silent_refresh_failed_event(&params));
+        return;
+    }
+
+    let panic_params = params.clone();
+    gh_async::spawn_gh_task_with_panic(
+        app_state,
+        ctx,
+        move |mut app_state, ctx| {
+            let event = detail_silent_refresh_event(&ctx, params);
+            apply_and_persist(&mut app_state, &ctx, event);
+        },
+        move |mut app_state, ctx, _message| {
+            // On panic: silently clear the pending marker (no visible error).
+            apply_and_persist(
+                &mut app_state,
+                &ctx,
+                detail_silent_refresh_failed_event(&panic_params),
+            );
+        },
+    );
+}
+
+/// Mark issue detail as silently loading (does NOT set `loading.detail`).
+fn mark_detail_silent_loading(app_state: &mut AppStateHandle, params: &mut DetailLoadParams) {
+    let mut state = app_state.write();
+    let request_id = state.next_issue_detail_request_id();
+    state.mark_issue_detail_silent_loading(
+        params.scope_repo_id.clone(),
+        params.issue_number,
+        request_id,
+    );
+    drop(state);
+    params.request_id = request_id;
+}
+
+/// Build the silent-refresh detail event from the gh result.
+fn detail_silent_refresh_event(ctx: &SharedContext, params: DetailLoadParams) -> AppEvent {
+    let result = github_client(ctx)
+        .map(|client| client.get_issue_detail(&params.owner, &params.repo, params.issue_number));
+    match result {
+        Some(Ok(detail)) => AppEvent::IssueDetailSilentRefreshed {
+            scope_repo_id: params.scope_repo_id,
+            issue_number: params.issue_number,
+            request_id: params.request_id,
+            detail: std::boxed::Box::new(detail),
+        },
+        _ => detail_silent_refresh_failed_event_owned(params),
+    }
+}
+
+/// Build the silent-refresh failure event from owned params (clears pending).
+fn detail_silent_refresh_failed_event_owned(params: DetailLoadParams) -> AppEvent {
+    AppEvent::IssueDetailSilentRefreshFailed {
+        scope_repo_id: params.scope_repo_id,
+        issue_number: params.issue_number,
+        request_id: params.request_id,
+    }
+}
+
+/// Build the silent-refresh failure event from borrowed params (clears pending).
+fn detail_silent_refresh_failed_event(params: &DetailLoadParams) -> AppEvent {
+    AppEvent::IssueDetailSilentRefreshFailed {
+        scope_repo_id: params.scope_repo_id.clone(),
+        issue_number: params.issue_number,
+        request_id: params.request_id,
+    }
+}
+
 fn detail_load_params(app_state: &AppStateHandle) -> Option<DetailLoadParams> {
     let state = app_state.read();
     let issue_number = state
@@ -210,12 +294,17 @@ fn detail_load_panic_event(params: &DetailLoadParams, message: String) -> AppEve
 }
 
 #[derive(Clone)]
-struct DetailLoadParams {
-    scope_repo_id: jefe::domain::RepositoryId,
-    issue_number: u64,
-    owner: String,
-    repo: String,
-    request_id: u64,
+pub(super) struct DetailLoadParams {
+    pub(super) scope_repo_id: jefe::domain::RepositoryId,
+    pub(super) issue_number: u64,
+    pub(super) owner: String,
+    pub(super) repo: String,
+    pub(super) request_id: u64,
+}
+
+/// Gather detail-load params from state (returns None if no issue selected).
+pub(super) fn issue_detail_load_params(app_state: &AppStateHandle) -> Option<DetailLoadParams> {
+    detail_load_params(app_state)
 }
 
 /// Load the next comments page when the detail view is scrolled to the bottom.

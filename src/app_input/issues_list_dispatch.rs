@@ -52,9 +52,32 @@ pub(super) fn dispatch_issue_list_fetch(
     ctx: &SharedContext,
     fresh_reload: bool,
 ) {
-    let mut params = issue_fetch_params(app_state, fresh_reload);
+    dispatch_issue_list_fetch_inner(app_state, ctx, fresh_reload, false);
+}
+
+/// Request a silent background refresh of the issue list (issue #175). This is
+/// a fresh reload that does NOT flash the loading spinner, preserves selection,
+/// and is dispatched only when the issues view is open with no in-flight load.
+pub(super) fn request_issue_list_silent_refresh(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+) {
+    dispatch_issue_list_fetch_inner(app_state, ctx, true, true);
+}
+
+fn dispatch_issue_list_fetch_inner(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    fresh_reload: bool,
+    silent: bool,
+) {
+    let mut params = issue_fetch_params(app_state, fresh_reload, silent);
 
     if params.owner.is_empty() || params.repo.is_empty() {
+        if silent {
+            // Silent refresh of a repo with no GitHub slug: silently no-op.
+            return;
+        }
         persist_missing_github_repo(app_state, ctx);
         return;
     }
@@ -89,6 +112,7 @@ struct IssueFetchParams {
     cursor: Option<String>,
     page_size: u32,
     fresh_reload: bool,
+    silent: bool,
 }
 
 fn mark_issue_list_fetch_loading(app_state: &mut AppStateHandle, params: &IssueFetchParams) -> u64 {
@@ -98,6 +122,17 @@ fn mark_issue_list_fetch_loading(app_state: &mut AppStateHandle, params: &IssueF
         .next_issue_list_request_id
         .saturating_add(1);
     state.issues_state.next_issue_list_request_id = request_id;
+    if params.silent {
+        // Silent refresh (issue #175): mark the pending reload WITHOUT setting
+        // loading.list (no spinner flash). The reducer for
+        // IssueListSilentRefreshed clears this marker.
+        state.mark_issue_list_silent_refresh_loading(
+            params.scope_repo_id.clone(),
+            params.filter.clone(),
+            request_id,
+        );
+        return request_id;
+    }
     if params.fresh_reload {
         state.mark_issue_list_reload_loading(
             params.scope_repo_id.clone(),
@@ -115,7 +150,11 @@ fn mark_issue_list_fetch_loading(app_state: &mut AppStateHandle, params: &IssueF
     request_id
 }
 
-fn issue_fetch_params(app_state: &AppStateHandle, fresh_reload: bool) -> IssueFetchParams {
+fn issue_fetch_params(
+    app_state: &AppStateHandle,
+    fresh_reload: bool,
+    silent: bool,
+) -> IssueFetchParams {
     let state = app_state.read();
     let gh_repo = issues_dispatch::resolve_gh_repo(&state);
     IssueFetchParams {
@@ -129,6 +168,7 @@ fn issue_fetch_params(app_state: &AppStateHandle, fresh_reload: bool) -> IssueFe
             .flatten(),
         page_size: 30,
         fresh_reload,
+        silent,
     }
 }
 
@@ -182,6 +222,13 @@ fn persist_issue_list_loaded(
     params: &IssueFetchParams,
     response: jefe::github::IssueListResponse,
 ) {
+    // Silent refresh path (issue #175): emit the silent event, which updates
+    // the list in place WITHOUT flashing the loading spinner or clobbering
+    // selection/scroll/filter. No preview, no loud load flags.
+    if params.silent {
+        persist_issue_list_silent_loaded(app_state, ctx, params, response);
+        return;
+    }
     let has_issues = !response.issues.is_empty();
     let mut state = app_state.write();
     let should_preview = params.fresh_reload
@@ -230,12 +277,45 @@ fn persist_issue_list_loaded(
     persist_state(ctx, &persisted);
 }
 
+/// Emit the silent-refresh-loaded event (issue #175).
+fn persist_issue_list_silent_loaded(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    params: &IssueFetchParams,
+    response: jefe::github::IssueListResponse,
+) {
+    apply_and_persist(
+        app_state,
+        ctx,
+        AppEvent::IssueListSilentRefreshed {
+            scope_repo_id: params.scope_repo_id.clone(),
+            filter: std::boxed::Box::new(params.filter.clone()),
+            request_id: params.request_id,
+            issues: response.issues,
+            cursor: response.cursor,
+            has_more: response.has_more,
+        },
+    );
+}
+
 fn persist_issue_list_failed(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     params: &IssueFetchParams,
     error: String,
 ) {
+    if params.silent {
+        // Silent refresh failure: clear the pending marker without a visible error.
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::IssueListSilentRefreshFailed {
+                scope_repo_id: params.scope_repo_id.clone(),
+                request_id: params.request_id,
+            },
+        );
+        return;
+    }
     apply_and_persist(
         app_state,
         ctx,

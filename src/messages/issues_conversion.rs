@@ -69,35 +69,22 @@ impl IssuesMessage {
         match event {
             AppEvent::IssueListLoaded { .. }
             | AppEvent::IssueListLoadFailed { .. }
-            | AppEvent::IssueListPageLoaded { .. } => Self::from_app_event_list(event),
-            AppEvent::IssueDetailLoaded {
-                scope_repo_id,
-                issue_number,
-                request_id,
-                detail,
-            } => Self::DetailLoaded {
-                scope_repo_id,
-                issue_number,
-                request_id,
-                detail,
-            },
-            AppEvent::IssueDetailLoadFailed {
-                scope_repo_id,
-                issue_number,
-                request_id,
-                error,
-            } => Self::DetailLoadFailed {
-                scope_repo_id,
-                issue_number,
-                request_id,
-                error,
-            },
+            | AppEvent::IssueListPageLoaded { .. }
+            | AppEvent::IssueListSilentRefreshed { .. }
+            | AppEvent::IssueListSilentRefreshFailed { .. } => Self::from_app_event_list(event),
+            AppEvent::IssueDetailLoaded { .. }
+            | AppEvent::IssueDetailLoadFailed { .. }
+            | AppEvent::IssueDetailSilentRefreshed { .. }
+            | AppEvent::IssueDetailSilentRefreshFailed { .. } => Self::from_app_event_detail(event),
             other => Self::from_app_event_comments_and_controls(other),
         }
     }
 
     /// List loaded/error payload events.
     fn from_app_event_list(event: AppEvent) -> Self {
+        if let Some(msg) = Self::from_app_event_silent_refresh(&event) {
+            return msg;
+        }
         match event {
             AppEvent::IssueListLoaded {
                 scope_repo_id,
@@ -145,6 +132,56 @@ impl IssuesMessage {
                 has_more,
             },
             _ => unreachable!("non-list AppEvent routed to list converter"),
+        }
+    }
+
+    /// Silent-refresh list events (issue #175).
+    /// Detail loaded/error payload events (including silent refresh, issue #175).
+    fn from_app_event_detail(event: AppEvent) -> Self {
+        match event {
+            AppEvent::IssueDetailLoaded {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                detail,
+            } => Self::DetailLoaded {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                detail,
+            },
+            AppEvent::IssueDetailLoadFailed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                error,
+            } => Self::DetailLoadFailed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                error,
+            },
+            AppEvent::IssueDetailSilentRefreshed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                detail,
+            } => Self::DetailSilentRefreshed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                detail,
+            },
+            AppEvent::IssueDetailSilentRefreshFailed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+            } => Self::DetailSilentRefreshFailed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+            },
+            _ => unreachable!("non-detail AppEvent routed to detail converter"),
         }
     }
 
@@ -297,94 +334,6 @@ impl IssuesMessage {
     }
 
     /// Property-editor events (issue #175).
-    fn from_app_event_property(event: AppEvent) -> Self {
-        match event {
-            AppEvent::IssuePropertyEditorOptionsLoaded { .. }
-            | AppEvent::IssuePropertyEditorOptionsFailed { .. }
-            | AppEvent::IssuePropertyEditSucceeded { .. }
-            | AppEvent::IssuePropertyEditFailed { .. } => {
-                Self::from_app_event_property_payload(event)
-            }
-            other => Self::from_app_event_property_simple(other),
-        }
-    }
-
-    fn from_app_event_property_simple(event: AppEvent) -> Self {
-        match event {
-            AppEvent::IssueOpenPropertyEditor { kind } => Self::OpenPropertyEditor { kind },
-            AppEvent::IssuePropertyEditorNavigateUp => Self::PropertyEditorNavigateUp,
-            AppEvent::IssuePropertyEditorNavigateDown => Self::PropertyEditorNavigateDown,
-            AppEvent::IssuePropertyEditorToggle => Self::PropertyEditorToggle,
-            AppEvent::IssuePropertyEditorConfirm => Self::PropertyEditorConfirm,
-            AppEvent::IssuePropertyEditorTitleChar(c) => Self::PropertyEditorTitleChar(c),
-            AppEvent::IssuePropertyEditorTitleBackspace => Self::PropertyEditorTitleBackspace,
-            AppEvent::IssuePropertyEditorTitleDelete => Self::PropertyEditorTitleDelete,
-            AppEvent::IssuePropertyEditorTitleCursorLeft => Self::PropertyEditorTitleCursorLeft,
-            AppEvent::IssuePropertyEditorTitleCursorRight => Self::PropertyEditorTitleCursorRight,
-            // Non-property events should never reach this converter; the
-            // routing guard (`is_issue_property_app_event`) filters them
-            // upstream. If one slips through, it is safer to no-op (close
-            // the editor) than to panic or enter an unrelated mode.
-            _ => Self::PropertyEditorCancel,
-        }
-    }
-
-    fn from_app_event_property_payload(event: AppEvent) -> Self {
-        match event {
-            AppEvent::IssuePropertyEditorOptionsLoaded {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-                options,
-            } => Self::PropertyEditorOptionsLoaded {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-                options,
-            },
-            AppEvent::IssuePropertyEditorOptionsFailed {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-                error,
-            } => Self::PropertyEditorOptionsFailed {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-                error,
-            },
-            AppEvent::IssuePropertyEditSucceeded {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-            } => Self::PropertyEditSucceeded {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-            },
-            AppEvent::IssuePropertyEditFailed {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-                error,
-            } => Self::PropertyEditFailed {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-                error,
-            },
-            _ => Self::PropertyEditorCancel,
-        }
-    }
-
     fn from_app_event_mutation(event: AppEvent) -> Self {
         match event {
             AppEvent::MutationSubmitted { .. }
@@ -543,18 +492,24 @@ impl IssuesMessage {
     /// Loaded/error payloads and composer/filter/inline/chooser mutations.
     fn into_app_event_data(self) -> AppEvent {
         match self {
-            Self::ListLoaded { .. } | Self::ListLoadFailed { .. } | Self::ListPageLoaded { .. } => {
-                self.into_app_event_list()
-            }
-            Self::DetailLoaded { .. } | Self::DetailLoadFailed { .. } => {
-                self.into_app_event_detail()
-            }
+            Self::ListLoaded { .. }
+            | Self::ListLoadFailed { .. }
+            | Self::ListPageLoaded { .. }
+            | Self::ListSilentRefreshed { .. }
+            | Self::ListSilentRefreshFailed { .. } => self.into_app_event_list(),
+            Self::DetailLoaded { .. }
+            | Self::DetailLoadFailed { .. }
+            | Self::DetailSilentRefreshed { .. }
+            | Self::DetailSilentRefreshFailed { .. } => self.into_app_event_detail(),
             other => other.into_app_event_comments_and_controls(),
         }
     }
 
     /// List loaded/error payload messages.
     fn into_app_event_list(self) -> AppEvent {
+        if let Some(event) = self.silent_refresh_to_app_event() {
+            return event;
+        }
         match self {
             Self::ListLoaded {
                 scope_repo_id,
@@ -605,7 +560,8 @@ impl IssuesMessage {
         }
     }
 
-    /// Detail loaded/error payload messages.
+    /// Convert silent-refresh issue messages back into `AppEvent` (issue #175).
+    /// Detail loaded/error payload messages (including silent refresh, issue #175).
     fn into_app_event_detail(self) -> AppEvent {
         match self {
             Self::DetailLoaded {
@@ -629,6 +585,26 @@ impl IssuesMessage {
                 issue_number,
                 request_id,
                 error,
+            },
+            Self::DetailSilentRefreshed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                detail,
+            } => AppEvent::IssueDetailSilentRefreshed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                detail,
+            },
+            Self::DetailSilentRefreshFailed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+            } => AppEvent::IssueDetailSilentRefreshFailed {
+                scope_repo_id,
+                issue_number,
+                request_id,
             },
             _ => unreachable!("non-detail IssuesMessage routed to detail converter"),
         }
@@ -783,91 +759,6 @@ impl IssuesMessage {
     }
 
     /// Property-editor messages → AppEvent (issue #175).
-    fn into_app_event_property(self) -> AppEvent {
-        match self {
-            Self::PropertyEditorOptionsLoaded { .. }
-            | Self::PropertyEditorOptionsFailed { .. }
-            | Self::PropertyEditSucceeded { .. }
-            | Self::PropertyEditFailed { .. } => self.into_app_event_property_payload(),
-            other => other.into_app_event_property_simple(),
-        }
-    }
-
-    fn into_app_event_property_simple(self) -> AppEvent {
-        match self {
-            Self::OpenPropertyEditor { kind } => AppEvent::IssueOpenPropertyEditor { kind },
-            Self::PropertyEditorNavigateUp => AppEvent::IssuePropertyEditorNavigateUp,
-            Self::PropertyEditorNavigateDown => AppEvent::IssuePropertyEditorNavigateDown,
-            Self::PropertyEditorToggle => AppEvent::IssuePropertyEditorToggle,
-            Self::PropertyEditorConfirm => AppEvent::IssuePropertyEditorConfirm,
-            Self::PropertyEditorTitleChar(c) => AppEvent::IssuePropertyEditorTitleChar(c),
-            Self::PropertyEditorTitleBackspace => AppEvent::IssuePropertyEditorTitleBackspace,
-            Self::PropertyEditorTitleDelete => AppEvent::IssuePropertyEditorTitleDelete,
-            Self::PropertyEditorTitleCursorLeft => AppEvent::IssuePropertyEditorTitleCursorLeft,
-            Self::PropertyEditorTitleCursorRight => AppEvent::IssuePropertyEditorTitleCursorRight,
-            // Non-property messages should never reach this converter. If
-            // one slips through, close the editor rather than entering an
-            // unrelated mode.
-            _ => AppEvent::IssuePropertyEditorCancel,
-        }
-    }
-
-    fn into_app_event_property_payload(self) -> AppEvent {
-        match self {
-            Self::PropertyEditorOptionsLoaded {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-                options,
-            } => AppEvent::IssuePropertyEditorOptionsLoaded {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-                options,
-            },
-            Self::PropertyEditorOptionsFailed {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-                error,
-            } => AppEvent::IssuePropertyEditorOptionsFailed {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-                error,
-            },
-            Self::PropertyEditSucceeded {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-            } => AppEvent::IssuePropertyEditSucceeded {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-            },
-            Self::PropertyEditFailed {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-                error,
-            } => AppEvent::IssuePropertyEditFailed {
-                scope_repo_id,
-                issue_number,
-                kind,
-                request_id,
-                error,
-            },
-            _ => AppEvent::IssuePropertyEditorCancel,
-        }
-    }
-
     fn into_app_event_mutation(self) -> AppEvent {
         match self {
             Self::MutationSubmitted { .. }

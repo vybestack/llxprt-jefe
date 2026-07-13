@@ -588,6 +588,8 @@ impl AppState {
             | AppEvent::IssueListPageLoaded { .. }
             | AppEvent::IssueDetailLoaded { .. }
             | AppEvent::IssueCommentsPageLoaded { .. }
+            | AppEvent::IssueListSilentRefreshed { .. }
+            | AppEvent::IssueDetailSilentRefreshed { .. }
             | AppEvent::SetSearchQuery { .. }
             | AppEvent::UpdateDraftFilter { .. } => self.apply_issues_data(event),
             _ => return false,
@@ -600,6 +602,8 @@ impl AppState {
             AppEvent::IssueListLoadFailed { .. }
             | AppEvent::IssueDetailLoadFailed { .. }
             | AppEvent::IssueCommentsPageFailed { .. }
+            | AppEvent::IssueListSilentRefreshFailed { .. }
+            | AppEvent::IssueDetailSilentRefreshFailed { .. }
             | AppEvent::CommentCreateFailed { .. }
             | AppEvent::MutationFailed { .. }
             | AppEvent::SendToAgentFailed { .. }

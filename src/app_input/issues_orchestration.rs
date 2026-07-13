@@ -62,6 +62,27 @@ pub(super) fn route_issues_message(
     }
 }
 
+/// Request a silent background refresh of both the issue list and the issue
+/// detail after a property edit succeeds (issue #175). Neither load sets the
+/// visible loading/error flags, so there is no spinner flash and no loss of
+/// selection, scroll offset, or filter state.
+pub(super) fn request_issue_background_refresh(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+) {
+    let should_refresh = {
+        let state = app_state.read();
+        state.screen_mode == jefe::state::ScreenMode::DashboardIssues
+            && state.issues_state.list_reload_pending.is_none()
+            && state.issues_state.list_page_pending.is_none()
+            && state.issues_state.detail_pending.is_none()
+    };
+    if should_refresh {
+        issues_list_dispatch::request_issue_list_silent_refresh(app_state, ctx);
+        issues_dispatch::load_issue_detail_silent_refresh(app_state, ctx);
+    }
+}
+
 /// Whether a property kind requires a background fetch of repo options.
 fn needs_background_options(kind: jefe::state::IssuePropertyKind) -> bool {
     use jefe::state::IssuePropertyKind;

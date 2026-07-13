@@ -398,12 +398,15 @@ fn fetch_pr_options(
     }
 }
 
-/// Post-mutation refresh: after a property edit succeeds, reload the PR detail.
+/// Post-mutation refresh: after a property edit succeeds, silently refresh
+/// the affected PR's list row and detail (issue #175). Uses the silent
+/// background-refresh path so there is no spinner flash and selection/scroll/
+/// filter state is preserved.
 pub fn dispatch_pr_property_post_mutation(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     event: AppEvent,
 ) {
     apply_and_persist(app_state, ctx, event);
-    prs_dispatch::load_pr_detail_for_selection(app_state, ctx);
+    super::prs_orchestration::request_pr_background_refresh(app_state, ctx);
 }

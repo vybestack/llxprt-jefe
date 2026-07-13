@@ -187,6 +187,39 @@ pub enum AppEvent {
         request_cursor: Option<String>,
         error: String,
     },
+    /// Silent background list refresh succeeded (issue #175). Mirrors
+    /// `PrListSilentRefreshed`: preserves selection/scroll/filter and does NOT
+    /// flash the loading spinner.
+    IssueListSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::IssueFilter>,
+        request_id: u64,
+        issues: Vec<crate::domain::Issue>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    /// Silent background list refresh failed (issue #175). Clears the pending
+    /// marker WITHOUT surfacing a visible error.
+    IssueListSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+    },
+    /// Silent background detail refresh succeeded (issue #175). Mirrors
+    /// `PrDetailSilentRefreshed`: updates detail in place WITHOUT setting
+    /// `loading.detail` and preserves `detail_scroll_offset`.
+    IssueDetailSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+        detail: Box<crate::domain::IssueDetail>,
+    },
+    /// Silent background detail refresh failed (issue #175). Clears
+    /// `detail_pending` silently WITHOUT setting an error.
+    IssueDetailSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+    },
     OpenFilterControls,
     CloseFilterControls,
     ApplyFilter,

@@ -415,12 +415,15 @@ fn fetch_options(
     }
 }
 
-/// Post-mutation refresh: after a property edit succeeds, reload the detail.
+/// Post-mutation refresh: after a property edit succeeds, silently refresh
+/// the affected item's list row and detail (issue #175). Uses the silent
+/// background-refresh path so there is no spinner flash and selection/scroll/
+/// filter state is preserved.
 pub fn dispatch_issue_property_post_mutation(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     event: AppEvent,
 ) {
     apply_and_persist(app_state, ctx, event);
-    issues_dispatch::load_issue_detail_for_selection(app_state, ctx);
+    super::issues_orchestration::request_issue_background_refresh(app_state, ctx);
 }
