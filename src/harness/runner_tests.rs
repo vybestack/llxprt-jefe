@@ -134,6 +134,17 @@ fn scenario(json_steps: &str) -> crate::harness::Scenario {
     .value_or_panic("scenario should parse")
 }
 
+/// Like [`scenario`] but raises the per-scenario `waitFor` budget. Real
+/// psmux-backed jefe startup is slower on Windows CI runners; a bounded
+/// extension keeps production scenario semantics (Linux default unchanged)
+/// while removing startup-render flakiness from guarded integration tests.
+fn scenario_with_wait_timeout(json_steps: &str, wait_timeout_ms: u32) -> crate::harness::Scenario {
+    parse_scenario(&format!(
+        r#"{{ "config": {{ "cols": 80, "rows": 24, "wait_timeout_ms": {wait_timeout_ms} }}, "steps": {json_steps} }}"#
+    ))
+    .value_or_panic("scenario should parse")
+}
+
 #[test]
 fn expect_passes_when_screen_contains_literal() {
     let scenario = scenario(r#"[ { "expect": "ready" } ]"#);
@@ -315,6 +326,26 @@ fn timeout_failure_uses_failing_step_context() {
     }
 }
 
+/// `effective_wait_timeout` resolves the per-scenario wait budget as a pure
+/// function: zero keeps the platform default, a non-zero value is an explicit
+/// override in milliseconds. This avoids wall-clock-fragile assertions while
+/// proving the resolution contract.
+#[test]
+fn effective_wait_timeout_resolves_zero_to_default_and_nonzero_to_override() {
+    // Zero is the "use platform default" sentinel.
+    assert_eq!(effective_wait_timeout(0), DEFAULT_WAIT_TIMEOUT);
+
+    // A non-zero value overrides the platform default with an explicit budget.
+    assert_eq!(
+        effective_wait_timeout(30_000),
+        std::time::Duration::from_secs(30)
+    );
+    assert_eq!(
+        effective_wait_timeout(1),
+        std::time::Duration::from_millis(1)
+    );
+}
+
 #[test]
 fn soft_assertion_mode_records_failure_and_continues() {
     let scenario = parse_scenario(
@@ -419,12 +450,13 @@ fn guarded_real_jefe_runner_scenario_starts_and_quits() {
         return;
     };
     let config_dir = tempfile::tempdir().value_or_panic("isolated config tempdir");
-    let scenario = scenario(
+    let scenario = scenario_with_wait_timeout(
         r#"[
             { "waitFor": "LLxprt Jefe" },
             { "key": "C-q" },
             { "waitForExit": 3000 }
         ]"#,
+        30_000,
     );
     let session_name = unique_session("runner-jefe");
     let request = TmuxStartRequest::jefe(
@@ -451,7 +483,7 @@ fn guarded_real_jefe_qqq_quits() {
         return;
     };
     let config_dir = tempfile::tempdir().value_or_panic("isolated config tempdir");
-    let scenario = scenario(
+    let scenario = scenario_with_wait_timeout(
         r#"[
             { "waitFor": "LLxprt Jefe" },
             { "key": "q" },
@@ -459,6 +491,7 @@ fn guarded_real_jefe_qqq_quits() {
             { "key": "q" },
             { "waitForExit": 3000 }
         ]"#,
+        30_000,
     );
     let session_name = unique_session("qqq-jefe");
     let request = TmuxStartRequest::jefe(
