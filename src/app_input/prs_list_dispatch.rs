@@ -13,8 +13,9 @@ use jefe::messages::PullRequestsMessage;
 use jefe::state::AppEvent;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client, persist_state,
-    prs_dispatch, to_persisted_state,
+    AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client,
+    list_loader::{ListLoad, ListLoader},
+    persist_state, prs_dispatch, to_persisted_state,
 };
 
 /// Apply a list-reload message through the reducer, then fetch the list.
@@ -153,31 +154,29 @@ fn mark_pr_list_fetch_loading(
     // not spawn I/O, so it returns None.
     {
         let mut state = app_state.write();
-        let request_id = state.prs_state.list.next_request_id().ok()?;
-        let request_id = request_id.get();
-        let started = if params.silent && params.fresh_reload {
-            state.mark_pr_list_silent_refresh_loading(
-                params.scope_repo_id.clone(),
-                params.filter.clone(),
-                request_id,
-            );
-            true
-        } else if params.fresh_reload {
-            state.mark_pr_list_reload_loading(
-                params.scope_repo_id.clone(),
-                params.filter.clone(),
-                request_id,
-            );
-            true
-        } else {
-            state.mark_pr_list_page_loading(
-                params.scope_repo_id.clone(),
-                params.filter.clone(),
-                params.cursor.clone(),
-                request_id,
-            )
+        let identity = jefe::state::PrListIdentity {
+            scope_repo_id: params.scope_repo_id.clone(),
+            filter: params.filter.clone(),
         };
-        started.then_some(request_id)
+        let load = if params.silent && params.fresh_reload {
+            ListLoad::SilentReload
+        } else if params.fresh_reload {
+            ListLoad::Reload
+        } else {
+            ListLoad::Page(params.cursor.clone().map_or(
+                jefe::domain::PageToken::Done,
+                jefe::domain::PageToken::Cursor,
+            ))
+        };
+        let request_id = ListLoader::begin(&mut state.prs_state.list, identity, load)?;
+        // A visible reload supersedes any in-flight detail load; discard it so
+        // a stale detail never lands on the freshly-replaced list. Silent
+        // refresh intentionally keeps detail_pending (issue #128).
+        if params.fresh_reload && !params.silent {
+            state.prs_state.detail_pending = None;
+        }
+        drop(state);
+        Some(request_id.get())
     }
 }
 

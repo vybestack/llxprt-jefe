@@ -12,6 +12,9 @@ use jefe::state::pagination::{BeginOutcome, PaginatedList};
 pub(super) enum ListLoad {
     /// Replace the current list and expose visible loading state.
     Reload,
+    /// Replace the current list without exposing visible loading state
+    /// (background refresh; preserves selection/scroll, no spinner flash).
+    SilentReload,
     /// Append the page identified by the continuation token.
     Page(PageToken),
 }
@@ -32,6 +35,7 @@ impl ListLoader {
         let request_id = list.next_request_id().ok()?;
         let outcome = match load {
             ListLoad::Reload => list.begin_reload(identity, request_id),
+            ListLoad::SilentReload => list.begin_silent_reload(identity, request_id),
             ListLoad::Page(token) => list.begin_page(token, request_id),
         };
         matches!(outcome, BeginOutcome::Started).then_some(request_id)
@@ -77,5 +81,17 @@ mod tests {
 
         assert_eq!(page_id.map(jefe::domain::ListRequestId::get), Some(2));
         assert!(list.has_pending_request());
+    }
+
+    #[test]
+    fn silent_reload_marks_pending_without_visible_loading() {
+        let mut list: PaginatedList<u32, String> = PaginatedList::default();
+
+        let request_id = ListLoader::begin(&mut list, "scope".to_string(), ListLoad::SilentReload);
+
+        assert_eq!(request_id.map(jefe::domain::ListRequestId::get), Some(1));
+        assert!(list.has_pending_request());
+        // A silent reload must not surface the visible loading flag.
+        assert!(!list.is_loading());
     }
 }
