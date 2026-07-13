@@ -6,8 +6,8 @@
 //! edit-result lifecycle (Succeeded/Failed/OptionsLoaded/OptionsFailed).
 
 use super::{
-    AppEvent, AppState, InlineState, PrFocus, PrPropertyEditorState, PrPropertyKind,
-    PropertyMutationPending, PropertyOption,
+    AppEvent, AppState, InlineState, PROPERTY_CLEAR_LABEL, PrFocus, PrPropertyEditorState,
+    PrPropertyKind, PropertyMutationPending, PropertyOption,
 };
 
 impl AppState {
@@ -270,7 +270,7 @@ impl AppState {
                 }
                 if editor.options.is_empty() {
                     editor.options.push(PropertyOption {
-                        label: "(clear)".to_string(),
+                        label: PROPERTY_CLEAR_LABEL.to_string(),
                         selected: true,
                         id: None,
                     });
@@ -503,7 +503,7 @@ impl AppState {
             });
         }
         new_opts.push(PropertyOption {
-            label: "(clear)".to_string(),
+            label: PROPERTY_CLEAR_LABEL.to_string(),
             selected: current.is_none(),
             id: None,
         });

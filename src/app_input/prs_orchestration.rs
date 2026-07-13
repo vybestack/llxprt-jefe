@@ -12,7 +12,7 @@
 use jefe::domain::{AgentId, LaunchSignature, Repository};
 use jefe::messages::{AppMessage, PullRequestsMessage};
 use jefe::runtime::RuntimeManager;
-use jefe::state::{AppEvent, AppState};
+use jefe::state::{AppEvent, AppState, PrPropertyKind};
 use tracing::warn;
 
 use super::fresh_prompt::{FreshPromptKind, prepare_fresh_prompt_signature};
@@ -183,8 +183,7 @@ fn route_prs_property(
 }
 
 /// Whether a PR property kind requires a background fetch of repo options.
-fn needs_pr_background_options(kind: jefe::state::PrPropertyKind) -> bool {
-    use jefe::state::PrPropertyKind;
+fn needs_pr_background_options(kind: PrPropertyKind) -> bool {
     matches!(
         kind,
         PrPropertyKind::Labels | PrPropertyKind::Assignees | PrPropertyKind::Milestone

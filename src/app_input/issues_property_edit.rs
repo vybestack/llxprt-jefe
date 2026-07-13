@@ -7,7 +7,7 @@
 use jefe::domain::RepositoryId;
 use jefe::github::compute_assignee_diff;
 use jefe::github::compute_label_diff;
-use jefe::state::{AppEvent, IssuePropertyEditorState, IssuePropertyKind};
+use jefe::state::{AppEvent, IssuePropertyEditorState, IssuePropertyKind, PROPERTY_CLEAR_LABEL};
 
 use super::{
     AppStateHandle, SharedContext, apply_and_persist, dispatch_app_event, gh_async, github_client,
@@ -47,7 +47,7 @@ pub fn handle_issue_property_confirm(app_state: &mut AppStateHandle, ctx: &Share
             .editor
             .options
             .get(action.editor.selected_index)
-            .is_some_and(|o| o.label != "(clear)");
+            .is_some_and(|o| o.label != PROPERTY_CLEAR_LABEL);
         let has_id = action
             .editor
             .options
@@ -265,7 +265,7 @@ fn execute_issue_property_edit(
                 .editor
                 .options
                 .get(action.editor.selected_index)
-                .filter(|o| o.label != "(clear)");
+                .filter(|o| o.label != PROPERTY_CLEAR_LABEL);
             let type_id = selected_opt.and_then(|o| o.id.clone());
             execute_issue_type_edit(client, repo, number, type_id)
         }
@@ -285,7 +285,7 @@ fn execute_milestone_edit(
         .get(action.editor.selected_index)
         .map(|o| o.label.as_str());
     match selected {
-        Some("(clear)") | None => {
+        Some(PROPERTY_CLEAR_LABEL) | None => {
             client.clear_milestone(&repo.owner, &repo.repo, action.issue_number, is_pr)
         }
         Some(name) => {

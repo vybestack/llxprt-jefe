@@ -6,7 +6,7 @@
 
 use super::{
     AppEvent, AppState, IssueFocus, IssuePropertyEditorState, IssuePropertyKind,
-    PropertyMutationPending, PropertyOption,
+    PROPERTY_CLEAR_LABEL, PropertyMutationPending, PropertyOption,
 };
 
 impl AppState {
@@ -283,7 +283,7 @@ impl AppState {
                 }
                 if editor.options.is_empty() {
                     editor.options.push(PropertyOption {
-                        label: "(clear)".to_string(),
+                        label: PROPERTY_CLEAR_LABEL.to_string(),
                         selected: true,
                         id: None,
                     });
@@ -522,7 +522,7 @@ impl AppState {
             });
         }
         new_opts.push(PropertyOption {
-            label: "(clear)".to_string(),
+            label: PROPERTY_CLEAR_LABEL.to_string(),
             selected: current.is_none(),
             id: None,
         });

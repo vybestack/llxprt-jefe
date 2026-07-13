@@ -40,6 +40,7 @@ pub mod post_mutation_refresh;
 #[cfg(test)]
 mod post_mutation_refresh_tests;
 // @requirement REQ-PR-001
+mod property_edit;
 mod prs_inline_ops;
 mod prs_load_ops;
 mod prs_merge_ops;
@@ -57,6 +58,7 @@ mod util;
 
 pub use events::*;
 pub use issues_close_reason_ops::filter_duplicate_candidates;
+pub use property_edit::PROPERTY_CLEAR_LABEL;
 pub use scrollback_ops::{FollowIndicator, terminal_follow_indicator};
 pub use state_ops::{delete_selected_agent, delete_selected_repository};
 pub use types::*;

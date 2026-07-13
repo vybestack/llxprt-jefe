@@ -49,8 +49,8 @@ pub(super) fn resolve_prs_key_event(state: &AppState, key_event: &KeyEvent) -> O
     }
     // P2.6: property editor (issue #175) — checked after merge chooser but
     // before search/filter so the overlay is fully modal.
-    if state.prs_state.property_editor.is_some() {
-        return handle_pr_property_editor_key(state, key_event);
+    if let Some(editor) = state.prs_state.property_editor.as_ref() {
+        return handle_pr_property_editor_key(editor.kind, key_event);
     }
     // P3: search input
     if state.prs_state.search_input_focused {
@@ -471,8 +471,7 @@ fn handle_pr_merge_chooser_key(_state: &AppState, key_event: &KeyEvent) -> Optio
 /// Mirrors the merge-chooser key router: Up/Down navigate, Space toggles,
 /// Enter confirms, Esc cancels. Title editing keys (char, backspace, delete,
 /// cursor left/right) are also routed. All other keys are consumed as `None`.
-fn handle_pr_property_editor_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
-    let kind = state.prs_state.property_editor.as_ref()?.kind;
+fn handle_pr_property_editor_key(kind: PrPropertyKind, key_event: &KeyEvent) -> Option<AppEvent> {
     match key_event.code {
         KeyCode::Up => Some(AppEvent::PrPropertyEditorNavigateUp),
         KeyCode::Down => Some(AppEvent::PrPropertyEditorNavigateDown),

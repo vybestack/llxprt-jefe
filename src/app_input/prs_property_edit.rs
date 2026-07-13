@@ -8,7 +8,7 @@
 use jefe::domain::RepositoryId;
 use jefe::github::compute_assignee_diff;
 use jefe::github::compute_label_diff;
-use jefe::state::{AppEvent, PrPropertyEditorState, PrPropertyKind};
+use jefe::state::{AppEvent, PROPERTY_CLEAR_LABEL, PrPropertyEditorState, PrPropertyKind};
 
 use super::{
     AppStateHandle, SharedContext, apply_and_persist, dispatch_app_event, gh_async, github_client,
@@ -253,7 +253,7 @@ fn execute_pr_milestone_edit(
         .get(editor.selected_index)
         .map(|o| o.label.as_str());
     match selected {
-        Some("(clear)") | None => client.clear_milestone(owner, repo, number, true),
+        Some(PROPERTY_CLEAR_LABEL) | None => client.clear_milestone(owner, repo, number, true),
         Some(name) => client.set_milestone(owner, repo, number, true, name),
     }
 }
