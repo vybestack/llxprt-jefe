@@ -232,12 +232,12 @@ fn capture_name_is_sanitized_inside_artifact_dir() {
 #[test]
 fn scenario_config_out_dir_is_used_when_no_explicit_artifact_dir_is_passed() {
     let artifact_dir = tempfile::tempdir().value_or_panic("tempdir");
+    let out_dir = artifact_dir.path().to_string_lossy().replace('\\', "\\\\");
     let json = format!(
         r#"{{
-            "config": {{ "cols": 80, "rows": 24, "out_dir": "{}" }},
+            "config": {{ "cols": 80, "rows": 24, "out_dir": "{out_dir}" }},
             "steps": [ {{ "capture": "screen" }} ]
         }}"#,
-        artifact_dir.path().display()
     );
     let scenario = parse_scenario(&json).value_or_panic("scenario should parse");
     let mut driver = FakeDriver::default().with_screens(&["from config"]);
@@ -485,7 +485,7 @@ fn jefe_binary_path() -> Option<PathBuf> {
     let current = std::env::current_exe().ok()?;
     let deps_dir = current.parent()?;
     let debug_dir = deps_dir.parent()?;
-    let candidate = debug_dir.join("jefe");
+    let candidate = debug_dir.join(format!("jefe{}", std::env::consts::EXE_SUFFIX));
     candidate.exists().then_some(candidate)
 }
 
@@ -504,6 +504,7 @@ fn unique_session(label: &str) -> String {
 /// runtime kill can actually succeed, seeds a state.json with a Running agent
 /// bound to that session, then drives the real jefe binary through the
 /// kill → still-visible → navigate → filtered → quit flow.
+#[cfg(unix)]
 #[test]
 fn guarded_real_jefe_sticky_kill_scenario() {
     let Some(jefe_binary) = guarded_jefe_binary("sticky kill test") else {
@@ -540,6 +541,7 @@ fn guarded_real_jefe_sticky_kill_scenario() {
 
 /// Seed a config directory with a state.json containing a single Running agent
 /// bound to the given tmux session name (issue #116 scenario fixture).
+#[cfg(unix)]
 fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
     use crate::domain::{
         Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
@@ -605,6 +607,7 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
 }
 
 /// Run the issue #116 sticky-kill TUI scenario against the real jefe binary.
+#[cfg(unix)]
 fn run_sticky_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Path) -> RunSummary {
     let scenario = scenario(
         r#"[
@@ -639,6 +642,7 @@ fn run_sticky_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Pa
 /// Pre-create a tmux session running `sleep <seconds>` on jefe's dedicated
 /// socket so jefe's session-exists check (which targets the private socket)
 /// finds it. Returns `true` on success.
+#[cfg(unix)]
 fn create_sleep_session_on_jefe_socket(session_name: &str, seconds: u64) -> bool {
     let jefe_socket = crate::runtime::jefe_tmux_socket_path();
     match std::process::Command::new("tmux")
@@ -674,6 +678,7 @@ fn create_sleep_session_on_jefe_socket(session_name: &str, seconds: u64) -> bool
 }
 
 /// Capture pane text for a session on jefe's dedicated socket.
+#[cfg(unix)]
 fn capture_jefe_pane(session_name: &str) -> Option<String> {
     let jefe_socket = crate::runtime::jefe_tmux_socket_path();
     let output = std::process::Command::new("tmux")
@@ -697,10 +702,12 @@ fn capture_jefe_pane(session_name: &str) -> Option<String> {
 
 /// RAII guard that kills a pre-created tmux session on drop, ensuring cleanup
 /// even if the test panics mid-scenario.
+#[cfg(unix)]
 struct TmuxSessionCleanup {
     session_name: String,
 }
 
+#[cfg(unix)]
 impl Drop for TmuxSessionCleanup {
     fn drop(&mut self) {
         // Best-effort kill on both jefe's dedicated socket and the default
@@ -727,6 +734,7 @@ impl Drop for TmuxSessionCleanup {
 /// a state.json with a Running agent bound to that session, then drives the
 /// real jefe binary through the restart flow: active-only → Tab to Agents →
 /// Ctrl-r → expect agent still visible and running → quit.
+#[cfg(unix)]
 #[test]
 fn guarded_real_jefe_restart_scenario() {
     let Some(jefe_binary) = guarded_jefe_binary("restart test") else {
@@ -782,6 +790,7 @@ fn guarded_real_jefe_restart_scenario() {
 
 /// Seed a config directory with a state.json containing a single Running agent
 /// bound to the given tmux session name (issue #117 scenario fixture).
+#[cfg(unix)]
 fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
     use crate::domain::{
         Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
@@ -853,6 +862,7 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
 }
 
 /// Run the issue #117 restart TUI scenario against the real jefe binary.
+#[cfg(unix)]
 fn run_restart_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::Path) -> RunSummary {
     let scenario = scenario(
         r#"[

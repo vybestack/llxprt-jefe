@@ -149,6 +149,8 @@ impl AppState {
             || self.issues_state.inline_state != super::InlineState::None
             || self.issues_state.agent_chooser.is_some()
             || self.issues_state.property_editor.is_some()
+            || self.issues_state.close_reason_chooser.is_some()
+            || self.issues_state.delete_confirm.is_some()
             || self.issues_state.mutation_pending.is_some()
             || self.issues_state.property_mutation_pending.is_some()
         {

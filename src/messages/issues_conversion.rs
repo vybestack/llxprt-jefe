@@ -1,7 +1,7 @@
 use crate::state::AppEvent;
 
 use super::IssuesMessage;
-use super::message_names::{is_issue_property_app_event, is_issue_property_msg};
+use super::names::{is_issue_property_app_event, is_issue_property_msg};
 
 impl From<IssuesMessage> for AppEvent {
     fn from(message: IssuesMessage) -> Self {
@@ -252,23 +252,10 @@ impl IssuesMessage {
             | AppEvent::InlineCursorDown
             | AppEvent::InlineSubmit
             | AppEvent::InlineCancelOrEsc => Self::from_app_event_simple_controls(event),
-            AppEvent::MutationSubmitted { .. }
-            | AppEvent::IssueCreated { .. }
-            | AppEvent::CommentCreated { .. }
-            | AppEvent::CommentCreateFailed { .. }
-            | AppEvent::IssueBodyUpdated { .. }
-            | AppEvent::CommentUpdated { .. }
-            | AppEvent::MutationFailed { .. } => Self::from_app_event_mutation(event),
-            AppEvent::OpenAgentChooser
-            | AppEvent::AgentChooserNavigateUp
-            | AppEvent::AgentChooserNavigateDown
-            | AppEvent::AgentChooserConfirm
-            | AppEvent::AgentChooserCancel
-            | AppEvent::SendToAgentCompleted
-            | AppEvent::SendToAgentFailed { .. }
-            | AppEvent::IssueSelfAssignmentFailed { .. } => Self::from_app_event_agent(event),
-            e if is_issue_property_app_event(&e) => Self::from_app_event_property(e),
-            _ => unreachable!("non-issues AppEvent routed to issues converter"),
+            property if is_issue_property_app_event(&property) => {
+                Self::from_app_event_property(property)
+            }
+            other => Self::from_app_event_mutation_and_agent(other),
         }
     }
 
@@ -290,6 +277,14 @@ impl IssuesMessage {
             AppEvent::UpdateDraftFilter { field, value } => {
                 Self::UpdateDraftFilter { field, value }
             }
+            other => Self::from_app_event_composer_and_inline(other),
+        }
+    }
+
+    /// Composer-open and inline-editor events; delegates mutation/agent and
+    /// further events to `from_app_event_mutation_and_agent`.
+    fn from_app_event_composer_and_inline(event: AppEvent) -> Self {
+        match event {
             AppEvent::OpenNewIssueComposer => Self::OpenNewIssueComposer,
             AppEvent::OpenNewCommentComposer => Self::OpenNewCommentComposer,
             AppEvent::OpenReplyComposer { comment_index } => {
@@ -306,13 +301,21 @@ impl IssuesMessage {
             AppEvent::InlineCursorDown => Self::InlineCursorDown,
             AppEvent::InlineSubmit => Self::InlineSubmit,
             AppEvent::InlineCancelOrEsc => Self::InlineCancelOrEsc,
-            _ => unreachable!("non-simple AppEvent routed to simple controls converter"),
+            other => Self::from_app_event_mutation_and_agent(other),
         }
     }
 
-    /// Agent chooser and send-to-agent events.
-    fn from_app_event_agent(event: AppEvent) -> Self {
+    /// Mutation-lifecycle and agent-chooser events; delegates close-family
+    /// events to `from_app_event_close_family`.
+    fn from_app_event_mutation_and_agent(event: AppEvent) -> Self {
         match event {
+            AppEvent::MutationSubmitted { .. }
+            | AppEvent::IssueCreated { .. }
+            | AppEvent::CommentCreated { .. }
+            | AppEvent::CommentCreateFailed { .. }
+            | AppEvent::IssueBodyUpdated { .. }
+            | AppEvent::CommentUpdated { .. }
+            | AppEvent::MutationFailed { .. } => Self::from_app_event_mutation(event),
             AppEvent::OpenAgentChooser => Self::OpenAgentChooser,
             AppEvent::AgentChooserNavigateUp => Self::AgentChooserNavigateUp,
             AppEvent::AgentChooserNavigateDown => Self::AgentChooserNavigateDown,
@@ -320,6 +323,98 @@ impl IssuesMessage {
             AppEvent::AgentChooserCancel => Self::AgentChooserCancel,
             AppEvent::SendToAgentCompleted => Self::SendToAgentCompleted,
             AppEvent::SendToAgentFailed { error } => Self::SendToAgentFailed { error },
+            other => Self::from_app_event_close_family(other),
+        }
+    }
+
+    /// Close/delete lifecycle, close-reason chooser, and self-assignment events.
+    fn from_app_event_close_family(event: AppEvent) -> Self {
+        match event {
+            AppEvent::CloseIssue
+            | AppEvent::OpenDeleteIssueConfirm
+            | AppEvent::IssueDeleteConfirm
+            | AppEvent::IssueDeleteCancel
+            | AppEvent::IssueClosed { .. }
+            | AppEvent::IssueDeleted { .. } => Self::from_app_event_lifecycle(event),
+            AppEvent::OpenCloseReasonChooser
+            | AppEvent::CloseReasonNavigateUp
+            | AppEvent::CloseReasonNavigateDown
+            | AppEvent::CloseReasonSelect
+            | AppEvent::CloseReasonDuplicateSearchChar(_)
+            | AppEvent::CloseReasonDuplicateSearchBackspace
+            | AppEvent::CloseReasonDuplicateSearchNavigateUp
+            | AppEvent::CloseReasonDuplicateSearchNavigateDown
+            | AppEvent::CloseReasonConfirm
+            | AppEvent::CloseReasonCancel => Self::from_app_event_close_reason(event),
+            AppEvent::IssueSelfAssignmentFailed { .. } => {
+                Self::from_app_event_self_assignment(event)
+            }
+            _ => unreachable!("non-issues AppEvent routed to issues converter"),
+        }
+    }
+
+    /// Close/delete lifecycle events (issue #182) — extracted from
+    /// `from_app_event_controls` to stay within the per-function line budget.
+    fn from_app_event_lifecycle(event: AppEvent) -> Self {
+        match event {
+            AppEvent::CloseIssue => Self::CloseIssue,
+            AppEvent::OpenDeleteIssueConfirm => Self::OpenDeleteIssueConfirm,
+            AppEvent::IssueDeleteConfirm => Self::IssueDeleteConfirm,
+            AppEvent::IssueDeleteCancel => Self::IssueDeleteCancel,
+            AppEvent::IssueClosed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                close_reason,
+                duplicate_of,
+            } => Self::IssueClosed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                close_reason,
+                duplicate_of,
+            },
+            AppEvent::IssueDeleted {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            } => Self::IssueDeleted {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            },
+            _ => unreachable!("non-lifecycle AppEvent routed to lifecycle converter"),
+        }
+    }
+
+    /// Close-reason chooser events (issue #188) — extracted from
+    /// `from_app_event_lifecycle` to stay within the per-function line budget.
+    fn from_app_event_close_reason(event: AppEvent) -> Self {
+        match event {
+            AppEvent::OpenCloseReasonChooser => Self::OpenCloseReasonChooser,
+            AppEvent::CloseReasonNavigateUp => Self::CloseReasonNavigateUp,
+            AppEvent::CloseReasonNavigateDown => Self::CloseReasonNavigateDown,
+            AppEvent::CloseReasonSelect => Self::CloseReasonSelect,
+            AppEvent::CloseReasonDuplicateSearchChar(c) => Self::CloseReasonDuplicateSearchChar(c),
+            AppEvent::CloseReasonDuplicateSearchBackspace => {
+                Self::CloseReasonDuplicateSearchBackspace
+            }
+            AppEvent::CloseReasonDuplicateSearchNavigateUp => {
+                Self::CloseReasonDuplicateSearchNavigateUp
+            }
+            AppEvent::CloseReasonDuplicateSearchNavigateDown => {
+                Self::CloseReasonDuplicateSearchNavigateDown
+            }
+            AppEvent::CloseReasonConfirm => Self::CloseReasonConfirm,
+            AppEvent::CloseReasonCancel => Self::CloseReasonCancel,
+            _ => unreachable!("non-close-reason AppEvent routed to close-reason converter"),
+        }
+    }
+
+    /// Self-assignment follow-up event (issue #186) — extracted from
+    /// `from_app_event_controls` to stay within the per-function line budget.
+    fn from_app_event_self_assignment(event: AppEvent) -> Self {
+        match event {
             AppEvent::IssueSelfAssignmentFailed {
                 owner_repo,
                 issue_number,
@@ -329,110 +424,7 @@ impl IssuesMessage {
                 issue_number,
                 error,
             },
-            _ => unreachable!("non-agent AppEvent routed to agent converter"),
-        }
-    }
-
-    /// Property-editor events (issue #175).
-    fn from_app_event_mutation(event: AppEvent) -> Self {
-        match event {
-            AppEvent::MutationSubmitted { .. }
-            | AppEvent::IssueCreated { .. }
-            | AppEvent::CommentCreated { .. }
-            | AppEvent::CommentCreateFailed { .. } => Self::from_app_event_mutation_start(event),
-            AppEvent::IssueBodyUpdated { .. }
-            | AppEvent::CommentUpdated { .. }
-            | AppEvent::MutationFailed { .. } => Self::from_app_event_mutation_finish(event),
-            _ => unreachable!("non-mutation AppEvent routed to mutation converter"),
-        }
-    }
-
-    fn from_app_event_mutation_start(event: AppEvent) -> Self {
-        match event {
-            AppEvent::MutationSubmitted {
-                scope_repo_id,
-                mutation_id,
-                target,
-            } => Self::MutationSubmitted {
-                scope_repo_id,
-                mutation_id,
-                target,
-            },
-            AppEvent::IssueCreated {
-                scope_repo_id,
-                mutation_id,
-                issue_number,
-            } => Self::IssueCreated {
-                scope_repo_id,
-                mutation_id,
-                issue_number,
-            },
-            AppEvent::CommentCreated {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                comment,
-            } => Self::CommentCreated {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                comment,
-            },
-            AppEvent::CommentCreateFailed {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                error,
-            } => Self::CommentCreateFailed {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                error,
-            },
-            _ => unreachable!("non-start mutation AppEvent routed to start converter"),
-        }
-    }
-
-    fn from_app_event_mutation_finish(event: AppEvent) -> Self {
-        match event {
-            AppEvent::IssueBodyUpdated {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                body,
-            } => Self::IssueBodyUpdated {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                body,
-            },
-            AppEvent::CommentUpdated {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                comment_id,
-                comment_index,
-                body,
-            } => Self::CommentUpdated {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                comment_id,
-                comment_index,
-                body,
-            },
-            AppEvent::MutationFailed {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                error,
-            } => Self::MutationFailed {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                error,
-            },
-            _ => unreachable!("non-finish mutation AppEvent routed to finish converter"),
+            _ => unreachable!("non-self-assignment AppEvent routed to self-assignment converter"),
         }
     }
 
@@ -677,23 +669,8 @@ impl IssuesMessage {
             | Self::InlineCursorDown
             | Self::InlineSubmit
             | Self::InlineCancelOrEsc => self.into_app_event_simple_controls(),
-            Self::MutationSubmitted { .. }
-            | Self::IssueCreated { .. }
-            | Self::CommentCreated { .. }
-            | Self::CommentCreateFailed { .. }
-            | Self::IssueBodyUpdated { .. }
-            | Self::CommentUpdated { .. }
-            | Self::MutationFailed { .. } => self.into_app_event_mutation(),
-            Self::OpenAgentChooser
-            | Self::AgentChooserNavigateUp
-            | Self::AgentChooserNavigateDown
-            | Self::AgentChooserConfirm
-            | Self::AgentChooserCancel
-            | Self::SendToAgentCompleted
-            | Self::SendToAgentFailed { .. }
-            | Self::IssueSelfAssignmentFailed { .. } => self.into_app_event_agent(),
-            s if is_issue_property_msg(&s) => s.into_app_event_property(),
-            _ => unreachable!("routed IssuesMessage variant reached controls converter"),
+            property if is_issue_property_msg(&property) => property.into_app_event_property(),
+            other => other.into_app_event_mutation_and_agent(),
         }
     }
 
@@ -715,6 +692,14 @@ impl IssuesMessage {
             Self::UpdateDraftFilter { field, value } => {
                 AppEvent::UpdateDraftFilter { field, value }
             }
+            other => other.into_app_event_composer_and_inline(),
+        }
+    }
+
+    /// Composer-open and inline-editor messages; delegates mutation/agent and
+    /// further messages to `into_app_event_mutation_and_agent`.
+    fn into_app_event_composer_and_inline(self) -> AppEvent {
+        match self {
             Self::OpenNewIssueComposer => AppEvent::OpenNewIssueComposer,
             Self::OpenNewCommentComposer => AppEvent::OpenNewCommentComposer,
             Self::OpenReplyComposer { comment_index } => {
@@ -731,13 +716,21 @@ impl IssuesMessage {
             Self::InlineCursorDown => AppEvent::InlineCursorDown,
             Self::InlineSubmit => AppEvent::InlineSubmit,
             Self::InlineCancelOrEsc => AppEvent::InlineCancelOrEsc,
-            _ => unreachable!("routed IssuesMessage variant reached simple controls converter"),
+            other => other.into_app_event_mutation_and_agent(),
         }
     }
 
-    /// Agent chooser and send-to-agent messages → AppEvent.
-    fn into_app_event_agent(self) -> AppEvent {
+    /// Mutation-lifecycle and agent-chooser messages; delegates close-family
+    /// messages to `into_app_event_close_family`.
+    fn into_app_event_mutation_and_agent(self) -> AppEvent {
         match self {
+            Self::MutationSubmitted { .. }
+            | Self::IssueCreated { .. }
+            | Self::CommentCreated { .. }
+            | Self::CommentCreateFailed { .. }
+            | Self::IssueBodyUpdated { .. }
+            | Self::CommentUpdated { .. }
+            | Self::MutationFailed { .. } => self.into_app_event_mutation(),
             Self::OpenAgentChooser => AppEvent::OpenAgentChooser,
             Self::AgentChooserNavigateUp => AppEvent::AgentChooserNavigateUp,
             Self::AgentChooserNavigateDown => AppEvent::AgentChooserNavigateDown,
@@ -745,6 +738,96 @@ impl IssuesMessage {
             Self::AgentChooserCancel => AppEvent::AgentChooserCancel,
             Self::SendToAgentCompleted => AppEvent::SendToAgentCompleted,
             Self::SendToAgentFailed { error } => AppEvent::SendToAgentFailed { error },
+            other => other.into_app_event_close_family(),
+        }
+    }
+
+    /// Close/delete lifecycle, close-reason chooser, and self-assignment messages.
+    fn into_app_event_close_family(self) -> AppEvent {
+        match self {
+            Self::CloseIssue
+            | Self::OpenDeleteIssueConfirm
+            | Self::IssueDeleteConfirm
+            | Self::IssueDeleteCancel
+            | Self::IssueClosed { .. }
+            | Self::IssueDeleted { .. } => self.into_app_event_lifecycle(),
+            Self::OpenCloseReasonChooser
+            | Self::CloseReasonNavigateUp
+            | Self::CloseReasonNavigateDown
+            | Self::CloseReasonSelect
+            | Self::CloseReasonDuplicateSearchChar(_)
+            | Self::CloseReasonDuplicateSearchBackspace
+            | Self::CloseReasonDuplicateSearchNavigateUp
+            | Self::CloseReasonDuplicateSearchNavigateDown
+            | Self::CloseReasonConfirm
+            | Self::CloseReasonCancel => self.into_app_event_close_reason(),
+            Self::IssueSelfAssignmentFailed { .. } => self.into_app_event_self_assignment(),
+            _ => unreachable!("non-issues IssuesMessage routed to issues converter"),
+        }
+    }
+
+    /// Close/delete lifecycle messages (issue #182) — extracted from
+    /// `into_app_event_controls` to stay within the per-function line budget.
+    fn into_app_event_lifecycle(self) -> AppEvent {
+        match self {
+            Self::CloseIssue => AppEvent::CloseIssue,
+            Self::OpenDeleteIssueConfirm => AppEvent::OpenDeleteIssueConfirm,
+            Self::IssueDeleteConfirm => AppEvent::IssueDeleteConfirm,
+            Self::IssueDeleteCancel => AppEvent::IssueDeleteCancel,
+            Self::IssueClosed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                close_reason,
+                duplicate_of,
+            } => AppEvent::IssueClosed {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+                close_reason,
+                duplicate_of,
+            },
+            Self::IssueDeleted {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            } => AppEvent::IssueDeleted {
+                scope_repo_id,
+                issue_number,
+                mutation_id,
+            },
+            _ => unreachable!("non-lifecycle IssuesMessage routed to lifecycle converter"),
+        }
+    }
+
+    /// Close-reason chooser messages (issue #188) — extracted from
+    /// `into_app_event_lifecycle` to stay within the per-function line budget.
+    fn into_app_event_close_reason(self) -> AppEvent {
+        match self {
+            Self::OpenCloseReasonChooser => AppEvent::OpenCloseReasonChooser,
+            Self::CloseReasonNavigateUp => AppEvent::CloseReasonNavigateUp,
+            Self::CloseReasonNavigateDown => AppEvent::CloseReasonNavigateDown,
+            Self::CloseReasonSelect => AppEvent::CloseReasonSelect,
+            Self::CloseReasonDuplicateSearchChar(c) => AppEvent::CloseReasonDuplicateSearchChar(c),
+            Self::CloseReasonDuplicateSearchBackspace => {
+                AppEvent::CloseReasonDuplicateSearchBackspace
+            }
+            Self::CloseReasonDuplicateSearchNavigateUp => {
+                AppEvent::CloseReasonDuplicateSearchNavigateUp
+            }
+            Self::CloseReasonDuplicateSearchNavigateDown => {
+                AppEvent::CloseReasonDuplicateSearchNavigateDown
+            }
+            Self::CloseReasonConfirm => AppEvent::CloseReasonConfirm,
+            Self::CloseReasonCancel => AppEvent::CloseReasonCancel,
+            _ => unreachable!("non-close-reason IssuesMessage routed to close-reason converter"),
+        }
+    }
+
+    /// Self-assignment follow-up message (issue #186) — extracted from
+    /// `into_app_event_controls` to stay within the per-function line budget.
+    fn into_app_event_self_assignment(self) -> AppEvent {
+        match self {
             Self::IssueSelfAssignmentFailed {
                 owner_repo,
                 issue_number,
@@ -754,110 +837,9 @@ impl IssuesMessage {
                 issue_number,
                 error,
             },
-            _ => unreachable!("routed IssuesMessage variant reached agent converter"),
-        }
-    }
-
-    /// Property-editor messages → AppEvent (issue #175).
-    fn into_app_event_mutation(self) -> AppEvent {
-        match self {
-            Self::MutationSubmitted { .. }
-            | Self::IssueCreated { .. }
-            | Self::CommentCreated { .. }
-            | Self::CommentCreateFailed { .. } => self.into_app_event_mutation_start(),
-            Self::IssueBodyUpdated { .. }
-            | Self::CommentUpdated { .. }
-            | Self::MutationFailed { .. } => self.into_app_event_mutation_finish(),
-            _ => unreachable!("non-mutation IssuesMessage routed to mutation converter"),
-        }
-    }
-
-    fn into_app_event_mutation_start(self) -> AppEvent {
-        match self {
-            Self::MutationSubmitted {
-                scope_repo_id,
-                mutation_id,
-                target,
-            } => AppEvent::MutationSubmitted {
-                scope_repo_id,
-                mutation_id,
-                target,
-            },
-            Self::IssueCreated {
-                scope_repo_id,
-                mutation_id,
-                issue_number,
-            } => AppEvent::IssueCreated {
-                scope_repo_id,
-                mutation_id,
-                issue_number,
-            },
-            Self::CommentCreated {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                comment,
-            } => AppEvent::CommentCreated {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                comment,
-            },
-            Self::CommentCreateFailed {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                error,
-            } => AppEvent::CommentCreateFailed {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                error,
-            },
-            _ => unreachable!("non-start mutation IssuesMessage routed to start converter"),
-        }
-    }
-
-    fn into_app_event_mutation_finish(self) -> AppEvent {
-        match self {
-            Self::IssueBodyUpdated {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                body,
-            } => AppEvent::IssueBodyUpdated {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                body,
-            },
-            Self::CommentUpdated {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                comment_id,
-                comment_index,
-                body,
-            } => AppEvent::CommentUpdated {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                comment_id,
-                comment_index,
-                body,
-            },
-            Self::MutationFailed {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                error,
-            } => AppEvent::MutationFailed {
-                scope_repo_id,
-                issue_number,
-                mutation_id,
-                error,
-            },
-            _ => unreachable!("non-finish mutation IssuesMessage routed to finish converter"),
+            _ => unreachable!(
+                "non-self-assignment IssuesMessage routed to self-assignment converter"
+            ),
         }
     }
 }

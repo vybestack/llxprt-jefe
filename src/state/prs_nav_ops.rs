@@ -77,11 +77,11 @@ impl AppState {
     /// @requirement REQ-PR-006
     /// @pseudocode component-001 lines 99-106
     fn navigate_pr_list_up(&mut self) {
-        let previous = self.prs_state.selected_pr_index;
+        let previous = self.prs_state.selected_pr_index();
         if let Some(idx) = previous
             && idx > 0
         {
-            self.prs_state.selected_pr_index = Some(idx - 1);
+            self.prs_state.list.set_selected_index(Some(idx - 1));
         }
         self.update_pr_list_scroll_offset();
         self.invalidate_detail_requests_if_pr_selection_changed(previous);
@@ -93,11 +93,11 @@ impl AppState {
     /// @requirement REQ-PR-006
     /// @pseudocode component-001 lines 108-117
     fn navigate_pr_list_down(&mut self) {
-        let previous = self.prs_state.selected_pr_index;
+        let previous = self.prs_state.selected_pr_index();
         if let Some(idx) = previous
-            && idx + 1 < self.prs_state.pull_requests.len()
+            && idx + 1 < self.prs_state.pull_requests().len()
         {
-            self.prs_state.selected_pr_index = Some(idx + 1);
+            self.prs_state.list.set_selected_index(Some(idx + 1));
         }
         self.update_pr_list_scroll_offset();
         self.invalidate_detail_requests_if_pr_selection_changed(previous);
@@ -109,10 +109,12 @@ impl AppState {
     /// @requirement REQ-PR-006
     /// @pseudocode component-001 lines 119-124
     fn navigate_pr_list_page_up(&mut self) {
-        let previous = self.prs_state.selected_pr_index;
+        let previous = self.prs_state.selected_pr_index();
         let page = self.prs_state.list_viewport_rows.max(1);
         if let Some(idx) = previous {
-            self.prs_state.selected_pr_index = Some(idx.saturating_sub(page));
+            self.prs_state
+                .list
+                .set_selected_index(Some(idx.saturating_sub(page)));
         }
         self.update_pr_list_scroll_offset();
         self.invalidate_detail_requests_if_pr_selection_changed(previous);
@@ -124,11 +126,13 @@ impl AppState {
     /// @requirement REQ-PR-006
     /// @pseudocode component-001 lines 119-124
     fn navigate_pr_list_page_down(&mut self) {
-        let previous = self.prs_state.selected_pr_index;
+        let previous = self.prs_state.selected_pr_index();
         let page = self.prs_state.list_viewport_rows.max(1);
         if let Some(idx) = previous {
-            let max = self.prs_state.pull_requests.len().saturating_sub(1);
-            self.prs_state.selected_pr_index = Some((idx + page).min(max));
+            let max = self.prs_state.pull_requests().len().saturating_sub(1);
+            self.prs_state
+                .list
+                .set_selected_index(Some((idx + page).min(max)));
         }
         self.update_pr_list_scroll_offset();
         self.invalidate_detail_requests_if_pr_selection_changed(previous);
@@ -140,9 +144,9 @@ impl AppState {
     /// @requirement REQ-PR-006
     /// @pseudocode component-001 lines 119-124
     fn navigate_pr_list_home(&mut self) {
-        let previous = self.prs_state.selected_pr_index;
-        if !self.prs_state.pull_requests.is_empty() {
-            self.prs_state.selected_pr_index = Some(0);
+        let previous = self.prs_state.selected_pr_index();
+        if !self.prs_state.pull_requests().is_empty() {
+            self.prs_state.list.set_selected_index(Some(0));
         }
         self.update_pr_list_scroll_offset();
         self.invalidate_detail_requests_if_pr_selection_changed(previous);
@@ -154,9 +158,11 @@ impl AppState {
     /// @requirement REQ-PR-006
     /// @pseudocode component-001 lines 119-124
     fn navigate_pr_list_end(&mut self) {
-        let previous = self.prs_state.selected_pr_index;
-        if !self.prs_state.pull_requests.is_empty() {
-            self.prs_state.selected_pr_index = Some(self.prs_state.pull_requests.len() - 1);
+        let previous = self.prs_state.selected_pr_index();
+        if !self.prs_state.pull_requests().is_empty() {
+            self.prs_state
+                .list
+                .set_selected_index(Some(self.prs_state.pull_requests().len() - 1));
         }
         self.update_pr_list_scroll_offset();
         self.invalidate_detail_requests_if_pr_selection_changed(previous);
@@ -168,8 +174,8 @@ impl AppState {
     /// @requirement REQ-PR-006
     /// @pseudocode component-001 lines 182-189
     fn update_pr_list_scroll_offset(&mut self) {
-        let sel = self.prs_state.selected_pr_index.unwrap_or(0);
-        let len = self.prs_state.pull_requests.len();
+        let sel = self.prs_state.selected_pr_index().unwrap_or(0);
+        let len = self.prs_state.pull_requests().len();
         let vp = self.prs_state.list_viewport_rows;
         self.prs_state.list_scroll_offset = crate::layout::list_first_visible_index(sel, len, vp);
     }
@@ -180,7 +186,7 @@ impl AppState {
     /// @requirement REQ-PR-NFR-002
     /// @pseudocode component-001 lines 88-98
     fn invalidate_detail_requests_if_pr_selection_changed(&mut self, previous: Option<usize>) {
-        if self.prs_state.selected_pr_index == previous {
+        if self.prs_state.selected_pr_index() == previous {
             return;
         }
         self.prs_state.loading.detail = false;
@@ -354,7 +360,7 @@ impl AppState {
         match event {
             AppEvent::PrListEnter => {
                 if self.prs_state.pr_focus == PrFocus::PrList
-                    && self.prs_state.selected_pr_index.is_some()
+                    && self.prs_state.selected_pr_index().is_some()
                 {
                     self.prs_state.pr_focus = PrFocus::PrDetail;
                     self.prs_state.detail_subfocus = super::PrDetailSubfocus::Body;

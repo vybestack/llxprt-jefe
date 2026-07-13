@@ -9,14 +9,15 @@ use jefe::domain::{AgentId, LaunchSignature, SandboxEngine};
 use jefe::persistence::PersistenceManager;
 use jefe::runtime::{RuntimeError, RuntimeManager};
 use jefe::state::{
-    AgentFormFocus, AppEvent, ConfirmFocus, ModalState, PaneFocus, RepositoryFormFocus,
+    AgentFormFocus, AppEvent, AuthDialogPhase, ConfirmFocus, ModalState, PaneFocus,
+    RepositoryFormFocus,
 };
 use jefe::theme::ThemeManager;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, clear_agent_runtime_attachment,
-    close_modal_and_persist, execute_agent_launch, launch_signature_for_agent,
-    mark_agent_runtime_attached, persist_state, preflight_or_prompt,
+    AppStateHandle, SharedContext, apply_and_persist, auth_remediation,
+    clear_agent_runtime_attachment, close_modal_and_persist, execute_agent_launch,
+    launch_signature_for_agent, mark_agent_runtime_attached, persist_state, preflight_or_prompt,
     repository_focus_toggles_checkbox, to_persisted_state,
 };
 
@@ -114,7 +115,7 @@ pub fn handle_mode_confirm_key(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     key_event: &KeyEvent,
-) {
+) -> bool {
     match key_event.code {
         KeyCode::Esc | KeyCode::Char('n' | 'N') => close_modal_and_persist(app_state, ctx),
         KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab => {
@@ -126,6 +127,50 @@ pub fn handle_mode_confirm_key(
         }
         _ => {}
     }
+    true
+}
+
+/// Handle keys while the in-app device-code auth dialog is open (issue #244).
+///
+/// - Esc: cancel the flow (dismiss; sets an actionable error_message).
+/// - `r` / Enter when `Failed`: retry the device-code flow.
+/// - All other keys are ignored — the dialog is not text-editable; the code +
+///   URL are displayed for the user to act on in a browser.
+///
+/// # Orphaned `gh` on cancel
+/// Esc closes the modal but does NOT kill the background `gh auth login`
+/// subprocess (its `Child` handle is not retained across the dispatch seam).
+/// This is accepted for v1: `gh`'s device-code flow has a server-side expiry
+/// (~15 min), and with stdin null + `GH_BROWSER=/bin/true` it exits on its own
+/// once the code expires or the user authorizes elsewhere. The leak is bounded
+/// and inert (issue #244).
+///
+/// Returns `true` so the caller short-circuits (the auth modal consumes the
+/// key), mirroring the form/search handlers.
+pub fn handle_mode_auth_key(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    key_event: &KeyEvent,
+) -> bool {
+    let in_failed_phase = {
+        let state = app_state.read();
+        matches!(
+            &state.modal,
+            ModalState::Auth {
+                state: dialog
+            } if matches!(dialog.phase, AuthDialogPhase::Failed { .. })
+        )
+    };
+
+    match key_event.code {
+        KeyCode::Esc => apply_and_persist(app_state, ctx, AppEvent::AuthCancelled),
+        KeyCode::Char('r' | 'R') | KeyCode::Enter if in_failed_phase => {
+            apply_and_persist(app_state, ctx, AppEvent::AuthRetry);
+            auth_remediation::spawn_device_auth_flow(app_state, ctx);
+        }
+        _ => {}
+    }
+    true
 }
 
 fn handle_confirm_enter(app_state: &mut AppStateHandle, ctx: &SharedContext) {

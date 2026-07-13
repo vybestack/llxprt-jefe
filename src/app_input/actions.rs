@@ -1,5 +1,7 @@
 use iocraft::prelude::*;
-use jefe::state::{ActionsFocus, AppEvent, AppState};
+use jefe::state::{ActionsFilterField, ActionsFocus, AppEvent, AppState};
+
+use super::filter_controls::{FilterControlCommand, FilterEditorKind, resolve_filter_control_key};
 
 /// Pure key resolver for Actions mode.
 pub fn resolve_actions_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
@@ -43,13 +45,24 @@ fn resolve_search_key_event(state: &AppState, key_event: &KeyEvent) -> Option<Ap
     }
 }
 
-fn resolve_filter_key_event(_state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
-    match key_event.code {
-        KeyCode::Esc => Some(AppEvent::ActionsCloseFilterControls),
-        KeyCode::Enter => Some(AppEvent::ActionsApplyFilter),
-        KeyCode::Tab => Some(AppEvent::ActionsFilterNavigateNext),
-        KeyCode::BackTab => Some(AppEvent::ActionsFilterNavigatePrev),
-        KeyCode::Up | KeyCode::Down => Some(AppEvent::ActionsCycleFilterStatus),
+fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    match resolve_filter_control_key(FilterEditorKind::Choice, key_event)? {
+        FilterControlCommand::Apply => Some(AppEvent::ActionsApplyFilter),
+        FilterControlCommand::Cancel => Some(AppEvent::ActionsCloseFilterControls),
+        FilterControlCommand::Next => Some(AppEvent::ActionsFilterNavigateNext),
+        FilterControlCommand::Previous => Some(AppEvent::ActionsFilterNavigatePrev),
+        FilterControlCommand::ClearAll => Some(AppEvent::ActionsClearDraftFilter),
+        FilterControlCommand::ClearCurrent => Some(AppEvent::ActionsUpdateDraftFilter {
+            field: match state.actions_state.ui.filter_field_index {
+                0 => ActionsFilterField::Workflow,
+                1 => ActionsFilterField::Status,
+                _ => return None,
+            },
+            value: String::new(),
+        }),
+        FilterControlCommand::CycleNext | FilterControlCommand::CyclePrevious => {
+            Some(AppEvent::ActionsCycleFilterStatus)
+        }
         _ => None,
     }
 }
@@ -112,5 +125,49 @@ fn resolve_focus_key_event(state: &AppState, key_event: &KeyEvent) -> Option<App
             KeyCode::Tab => Some(AppEvent::ActionsCycleFocus),
             _ => None,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iocraft::prelude::KeyEventKind;
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(KeyEventKind::Press, code)
+    }
+
+    #[test]
+    fn actions_filter_supports_advertised_clear_commands() {
+        let mut state = AppState::default();
+        state.actions_state.ui.filter_ui_open = true;
+        state.actions_state.ui.filter_field_index = 0;
+
+        assert!(matches!(
+            resolve_actions_key_event(&state, &key(KeyCode::Delete)),
+            Some(AppEvent::ActionsUpdateDraftFilter {
+                field: ActionsFilterField::Workflow,
+                value
+            }) if value.is_empty()
+        ));
+
+        state.actions_state.ui.filter_field_index = 1;
+        assert!(matches!(
+            resolve_actions_key_event(&state, &key(KeyCode::Delete)),
+            Some(AppEvent::ActionsUpdateDraftFilter {
+                field: ActionsFilterField::Status,
+                value
+            }) if value.is_empty()
+        ));
+
+        state.actions_state.ui.filter_field_index = 2;
+        assert!(resolve_actions_key_event(&state, &key(KeyCode::Delete)).is_none());
+
+        let mut clear_all = key(KeyCode::Char('l'));
+        clear_all.modifiers = KeyModifiers::CONTROL;
+        assert!(matches!(
+            resolve_actions_key_event(&state, &clear_all),
+            Some(AppEvent::ActionsClearDraftFilter)
+        ));
     }
 }

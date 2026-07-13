@@ -25,6 +25,7 @@ use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::types::{PaneFocus, PrDetailSubfocus, PrFocus, ScreenMode};
 
+use super::prs_test_fixtures::begin_pr_list_reload;
 use std::path::PathBuf;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -36,7 +37,7 @@ use std::path::PathBuf;
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-006
 /// @pseudocode component-002 lines 22-34
-fn make_test_pr(number: u64) -> PullRequest {
+pub(super) fn make_test_pr(number: u64) -> PullRequest {
     PullRequest {
         number,
         title: format!("PR #{number}"),
@@ -111,7 +112,7 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-001
 /// @pseudocode component-001 lines 66-76
-fn dashboard_state() -> AppState {
+pub(super) fn dashboard_state() -> AppState {
     let mut state = AppState::default();
     for slug in ["repo-1", "repo-2"] {
         state.repositories.push(Repository::new(
@@ -134,10 +135,12 @@ fn active_prs_state_with_list() -> AppState {
     let mut state = dashboard_state();
     state = state.apply(AppEvent::EnterPrsMode);
     let scope = RepositoryId("repo-1".to_string());
+    let filter = state.prs_state.committed_filter.clone();
+    let request_id = begin_pr_list_reload(&mut state, "repo-1", filter);
     state.apply_in_place(AppEvent::PrListLoaded {
         scope_repo_id: scope,
         filter: std::boxed::Box::new(state.prs_state.committed_filter.clone()),
-        request_id: 0,
+        request_id,
         pull_requests: vec![make_test_pr(1), make_test_pr(2)],
         cursor: None,
         has_more: false,
@@ -150,7 +153,7 @@ fn active_prs_state_with_list() -> AppState {
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-001
 /// @pseudocode component-001 lines 66-291
-trait ApplyInPlace {
+pub(super) trait ApplyInPlace {
     fn apply_in_place(&mut self, event: AppEvent);
 }
 
@@ -171,10 +174,11 @@ impl ApplyInPlace for AppState {
 fn state_with_loaded_pr_detail() -> AppState {
     let mut state = active_prs_state_with_list();
     state.apply_in_place(AppEvent::PrListEnter);
+    state.mark_pr_detail_loading(RepositoryId("repo-1".to_string()), 1, 1);
     state.apply_in_place(AppEvent::PrDetailLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         pr_number: 1,
-        request_id: 0,
+        request_id: 1,
         detail: std::boxed::Box::new(make_test_pr_detail(1)),
     });
     state
@@ -222,10 +226,11 @@ fn it_select_pr_loads_detail_with_reviews_and_checks() {
     // event (the event the background thread would produce).
     let scope = RepositoryId("repo-1".to_string());
     let detail = make_test_pr_detail(1);
+    state.mark_pr_detail_loading(scope.clone(), 1, 1);
     state.apply_in_place(AppEvent::PrDetailLoaded {
         scope_repo_id: scope,
         pr_number: 1,
-        request_id: 0,
+        request_id: 1,
         detail: std::boxed::Box::new(detail.clone()),
     });
 
@@ -297,10 +302,11 @@ fn it_scroll_detail_paginates_comments() {
     let mut detail = make_test_pr_detail(1);
     detail.has_more_comments = true;
     detail.comments_cursor = Some("cursor-1".to_string());
+    state.mark_pr_detail_loading(scope.clone(), 1, 1);
     state.apply_in_place(AppEvent::PrDetailLoaded {
         scope_repo_id: scope.clone(),
         pr_number: 1,
-        request_id: 0,
+        request_id: 1,
         detail: std::boxed::Box::new(detail),
     });
 
@@ -571,7 +577,7 @@ fn it_stale_response_discarded_after_repo_switch() {
         "repo nav must move to repo-2"
     );
     assert!(
-        state.prs_state.pull_requests.is_empty(),
+        state.prs_state.pull_requests().is_empty(),
         "list must be cleared after repo switch"
     );
 
@@ -588,11 +594,12 @@ fn it_stale_response_discarded_after_repo_switch() {
 
     // The stale response must be discarded: list stays empty.
     assert!(
-        state.prs_state.pull_requests.is_empty(),
+        state.prs_state.pull_requests().is_empty(),
         "stale PrListLoaded for old scope must be discarded"
     );
     assert_eq!(
-        state.prs_state.selected_pr_index, None,
+        state.prs_state.selected_pr_index(),
+        None,
         "stale response must not set selected_pr_index"
     );
 }
@@ -615,13 +622,17 @@ fn it_stale_response_discarded_after_repo_switch() {
 fn it_not_authenticated_shows_auth_error() {
     let mut state = dashboard_state();
     state = state.apply(AppEvent::EnterPrsMode);
-    assert!(state.prs_state.loading.list);
+    let filter = state.prs_state.committed_filter.clone();
+    let request_id = begin_pr_list_reload(&mut state, "repo-1", filter);
+    assert!(
+        state.prs_state.list_loading(),
+        "reload must set list loading"
+    );
 
     let scope = RepositoryId("repo-1".to_string());
-    // Set up the reload pending to match request_id=0 (scope match).
     state.apply_in_place(AppEvent::PrListLoadFailed {
         scope_repo_id: scope,
-        request_id: 0,
+        request_id,
         error: "gh is not authenticated. Run: gh auth login".to_string(),
     });
 
@@ -639,7 +650,7 @@ fn it_not_authenticated_shows_auth_error() {
         "error must mention auth, got: {error}"
     );
     assert!(
-        !state.prs_state.loading.list,
+        !state.prs_state.list_loading(),
         "PrListLoadFailed must clear loading.list"
     );
 }
@@ -662,25 +673,28 @@ fn it_empty_pr_list_shows_empty_state() {
     let mut state = dashboard_state();
     state = state.apply(AppEvent::EnterPrsMode);
     // Seed a non-empty list so the empty-result clearing is observable.
-    state.prs_state.pull_requests = vec![make_test_pr(42)];
-    state.prs_state.selected_pr_index = Some(0);
+    state.prs_state.list.replace_items(vec![make_test_pr(42)]);
+    state.prs_state.list.set_selected_index(Some(0));
 
     let scope = RepositoryId("repo-1".to_string());
+    let filter = state.prs_state.committed_filter.clone();
+    let request_id = begin_pr_list_reload(&mut state, "repo-1", filter);
     state.apply_in_place(AppEvent::PrListLoaded {
         scope_repo_id: scope,
         filter: std::boxed::Box::new(state.prs_state.committed_filter.clone()),
-        request_id: 0,
+        request_id,
         pull_requests: vec![],
         cursor: None,
         has_more: false,
     });
 
     assert!(
-        state.prs_state.pull_requests.is_empty(),
+        state.prs_state.pull_requests().is_empty(),
         "empty PrListLoaded must clear the list"
     );
     assert_eq!(
-        state.prs_state.selected_pr_index, None,
+        state.prs_state.selected_pr_index(),
+        None,
         "empty PrListLoaded must reset selected_pr_index"
     );
     assert!(
@@ -726,154 +740,6 @@ fn it_dashboard_and_issues_modes_unaffected() {
         !exited.prs_state.active,
         "PR mode must not be active after Issues enter/exit"
     );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Checkpoint 19: it_pr_list_pagination_lazy_loads_appends_preserves_selection_and_discards_stale
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Load the first page of 30 PRs, navigate selection to the last row, and mark
-/// list_page_pending. Returns the request_id used.
-///
-/// @plan PLAN-20260624-PR-MODE.P15
-/// @requirement REQ-PR-007
-/// @pseudocode component-001 lines 114-115,182-189,213-214
-fn load_first_page_and_navigate_to_end(state: &mut AppState) -> u64 {
-    let scope = RepositoryId("repo-1".to_string());
-    let first_page: Vec<PullRequest> = (1..=30).map(make_test_pr).collect();
-    state.apply_in_place(AppEvent::PrListLoaded {
-        scope_repo_id: scope.clone(),
-        filter: std::boxed::Box::new(state.prs_state.committed_filter.clone()),
-        request_id: 0,
-        pull_requests: first_page,
-        cursor: Some("cursor-page-1".to_string()),
-        has_more: true,
-    });
-    assert_eq!(state.prs_state.pull_requests.len(), 30);
-    assert!(state.prs_state.has_more_prs);
-    assert_eq!(state.prs_state.selected_pr_index, Some(0));
-
-    state.prs_state.list_viewport_rows = 10;
-    for _ in 0..29 {
-        state.apply_in_place(AppEvent::PrNavigateDown);
-    }
-    assert_eq!(state.prs_state.selected_pr_index, Some(29));
-
-    let request_id = 1;
-    state.mark_pr_list_page_loading(
-        scope,
-        state.prs_state.committed_filter.clone(),
-        state.prs_state.list_cursor.clone(),
-        request_id,
-    );
-    request_id
-}
-
-/// Deliver PrListPageLoaded for the second page and assert APPEND + scroll-follow.
-///
-/// @plan PLAN-20260624-PR-MODE.P15
-/// @requirement REQ-PR-007
-/// @pseudocode component-001 lines 224-229
-fn deliver_second_page_and_assert_append(state: &mut AppState, request_id: u64) {
-    let scope = RepositoryId("repo-1".to_string());
-    let second_page: Vec<PullRequest> = (31..=60).map(make_test_pr).collect();
-    state.apply_in_place(AppEvent::PrListPageLoaded {
-        scope_repo_id: scope,
-        request_id,
-        pull_requests: second_page,
-        cursor: Some("cursor-page-2".to_string()),
-        has_more: false,
-    });
-
-    assert_eq!(state.prs_state.pull_requests.len(), 60);
-    assert_eq!(state.prs_state.pull_requests[0].number, 1);
-    assert_eq!(state.prs_state.pull_requests[59].number, 60);
-    assert_eq!(state.prs_state.selected_pr_index, Some(29));
-    assert!(state.prs_state.list_page_pending.is_none());
-    assert_eq!(
-        state.prs_state.list_cursor,
-        Some("cursor-page-2".to_string())
-    );
-    assert!(!state.prs_state.has_more_prs);
-
-    let sel = state.prs_state.selected_pr_index.unwrap_or(0);
-    let len = state.prs_state.pull_requests.len();
-    let vp = state.prs_state.list_viewport_rows.max(1);
-    let expected_first = crate::layout::list_first_visible_index(sel, len, vp);
-    assert_eq!(state.prs_state.list_scroll_offset, expected_first);
-    let visible = crate::layout::list_visible_window(&state.prs_state.pull_requests, sel, vp);
-    assert!(!visible.is_empty());
-    assert!(
-        sel >= expected_first && sel < expected_first + visible.len(),
-        "selected row must stay visible"
-    );
-}
-
-/// Deliver stale page responses (wrong scope + wrong request_id) and assert
-/// they are DISCARDED.
-///
-/// @plan PLAN-20260624-PR-MODE.P15
-/// @requirement REQ-PR-007
-/// @pseudocode component-001 lines 224-225
-fn assert_stale_pages_discarded(state: &mut AppState) {
-    let scope = RepositoryId("repo-1".to_string());
-    let stale_request_id = 2;
-    state.mark_pr_list_page_loading(
-        scope.clone(),
-        state.prs_state.committed_filter.clone(),
-        state.prs_state.list_cursor.clone(),
-        stale_request_id,
-    );
-
-    // Wrong scope_id — must be discarded.
-    let wrong_scope = RepositoryId("repo-2".to_string());
-    let stale_page: Vec<PullRequest> = (61..=90).map(make_test_pr).collect();
-    state.apply_in_place(AppEvent::PrListPageLoaded {
-        scope_repo_id: wrong_scope,
-        request_id: stale_request_id,
-        pull_requests: stale_page,
-        cursor: None,
-        has_more: false,
-    });
-    assert_eq!(state.prs_state.pull_requests.len(), 60);
-    assert_eq!(state.prs_state.selected_pr_index, Some(29));
-
-    // Wrong request_id (correct scope) — must be discarded.
-    let stale_page_2: Vec<PullRequest> = (91..=120).map(make_test_pr).collect();
-    state.apply_in_place(AppEvent::PrListPageLoaded {
-        scope_repo_id: scope,
-        request_id: 999,
-        pull_requests: stale_page_2,
-        cursor: None,
-        has_more: false,
-    });
-    assert_eq!(state.prs_state.pull_requests.len(), 60);
-}
-
-/// End-to-end PR list pagination / lazy-load:
-///
-/// 1. Load first page (30 rows, has_more=true, stored endCursor).
-/// 2. Navigate selection DOWN to the last loaded row so the lazy-load trigger
-///    fires (selected_pr_index == pull_requests.len()-1 AND has_more_prs).
-/// 3. Simulate the page-load dispatch by marking list_page_pending.
-/// 4. Deliver PrListPageLoaded and assert apply_pr_list_page_loaded APPENDS
-///    the new rows (30 to 60), PRESERVES existing rows + the current selection
-///    index, and recomputes list_scroll_offset via list_first_visible_index so
-///    the selected row stays visible (no jump, no clipping, #54/#55).
-/// 5. Deliver a STALE page response (wrong scope_id or stale request_id) and
-///    assert it is DISCARDED (rows NOT duplicated/appended, selection unchanged).
-///
-/// @plan PLAN-20260624-PR-MODE.P15
-/// @requirement REQ-PR-007
-/// @pseudocode component-001 lines 114-115,182-189,213-214,224-229
-#[test]
-fn it_pr_list_pagination_lazy_loads_appends_preserves_selection_and_discards_stale() {
-    let mut state = dashboard_state();
-    state = state.apply(AppEvent::EnterPrsMode);
-
-    let request_id = load_first_page_and_navigate_to_end(&mut state);
-    deliver_second_page_and_assert_append(&mut state, request_id);
-    assert_stale_pages_discarded(&mut state);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

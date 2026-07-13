@@ -23,7 +23,10 @@ use super::step::Step;
 use super::tmux_driver::{TmuxDriver, TmuxDriverError, TmuxSession, TmuxStartRequest};
 use tracing::warn;
 
+#[cfg(not(windows))]
 const DEFAULT_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(windows)]
+const DEFAULT_WAIT_TIMEOUT: Duration = Duration::from_secs(15);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Result of a scenario run.
@@ -35,6 +38,7 @@ pub struct RunSummary {
     pub steps_run: usize,
     pub artifact_dir: Option<PathBuf>,
     pub soft_failures: Vec<RunnerFailure>,
+    pub multiplexer_details: Option<String>,
 }
 
 /// Structured failure details for a step.
@@ -204,11 +208,24 @@ pub fn run_tmux_scenario(
     let effective_request = request
         .clone()
         .with_keep_session(request.keep_session || expanded.config.keep_session);
-    let session = tmux
-        .start_session(&effective_request)
-        .map_err(|err| RunnerError::Driver(err.to_string()))?;
+    let effective_artifact_dir = artifact_dir
+        .map(Path::to_path_buf)
+        .or_else(|| expanded.config.out_dir.clone());
+    if let Some(directory) = &effective_artifact_dir {
+        write_text(directory.join("multiplexer.txt"), &tmux.diagnostics())?;
+    }
+    let session = match tmux.start_session(&effective_request) {
+        Ok(session) => session,
+        Err(error) => {
+            write_startup_failure_artifact(effective_artifact_dir.as_ref(), &error);
+            return Err(RunnerError::Driver(error.to_string()));
+        }
+    };
     let mut driver = TmuxHarnessDriver::new(tmux.clone(), session.clone());
-    let result = run_expanded_scenario(&expanded, &mut driver, artifact_dir);
+    let mut result = run_expanded_scenario(&expanded, &mut driver, artifact_dir);
+    if let Ok(summary) = &mut result {
+        summary.multiplexer_details = Some(tmux.diagnostics());
+    }
     let cleanup = tmux.cleanup_session(&session);
     match (result, cleanup) {
         (Ok(summary), Ok(())) => Ok(summary),
@@ -252,6 +269,7 @@ fn run_steps<D: HarnessDriver>(
         steps_run: steps.len(),
         artifact_dir: context.artifact_dir.clone(),
         soft_failures: context.soft_failures.clone(),
+        multiplexer_details: None,
     })
 }
 
@@ -545,6 +563,18 @@ fn write_text(path: PathBuf, text: &str) -> Result<(), RunnerError> {
         path,
         reason: err.to_string(),
     })
+}
+
+fn write_startup_failure_artifact(directory: Option<&PathBuf>, error: &TmuxDriverError) {
+    if let Some(directory) = directory {
+        let artifact = write_text(
+            directory.join("error.txt"),
+            &format!("startup error: {error}"),
+        );
+        if let Err(artifact_error) = artifact {
+            warn!(%artifact_error, "failed to write harness startup failure artifact");
+        }
+    }
 }
 
 fn driver_call<E: std::fmt::Display>(result: Result<(), E>) -> Result<(), RunnerError> {

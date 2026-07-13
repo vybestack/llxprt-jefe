@@ -820,3 +820,176 @@ line2",
     let down = resolve_issues_key_event(&state, &key(KeyCode::Down));
     assert!(matches!(down, Some(AppEvent::InlineCursorDown)));
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// F12 mode-aware behavior + cross-mode `p` (issue #164)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// F12 in IssueDetail focus returns to the issue list (issue #164).
+#[test]
+fn f12_in_issue_detail_returns_to_list() {
+    let state = issues_state_with_focus(IssueFocus::IssueDetail);
+    let event = resolve_issues_key_event(&state, &key(KeyCode::F(12)));
+    assert!(
+        matches!(event, Some(AppEvent::RefocusIssueList)),
+        "F12 in IssueDetail must yield RefocusIssueList, got {event:?}"
+    );
+}
+
+/// F12 at the issue list with the terminal unfocused is a no-op (issue #164).
+#[test]
+fn f12_in_issue_list_is_noop() {
+    let mut state = issues_base_state();
+    state.terminal_focused = false;
+    let event = resolve_issues_key_event(&state, &key(KeyCode::F(12)));
+    assert!(
+        event.is_none(),
+        "F12 at IssueList (terminal unfocused) must be None, got {event:?}"
+    );
+}
+/// F12 while the terminal is focused defocuses it (issue #164).
+#[test]
+fn f12_while_terminal_focused_defocuses() {
+    let mut state = issues_base_state();
+    state.terminal_focused = true;
+    let event = resolve_issues_key_event(&state, &key(KeyCode::F(12)));
+    assert!(
+        matches!(event, Some(AppEvent::ToggleTerminalFocus)),
+        "F12 with terminal focused must yield ToggleTerminalFocus, got {event:?}"
+    );
+}
+
+/// F12 does not fire when the inline composer is open (overlay owns the key).
+#[test]
+fn f12_does_not_fire_when_inline_composer_open() {
+    let state = issues_state_with_inline(InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: String::new(),
+        cursor: 0,
+    });
+    let event = resolve_issues_key_event(&state, &key(KeyCode::F(12)));
+    assert!(
+        event.is_none(),
+        "F12 must be suppressed by inline composer, got {event:?}"
+    );
+}
+
+/// F12 does not fire when the search input is focused (overlay owns the key).
+#[test]
+fn f12_does_not_fire_when_search_input_focused() {
+    let mut state = issues_base_state();
+    state.issues_state.search_input_focused = true;
+    let event = resolve_issues_key_event(&state, &key(KeyCode::F(12)));
+    assert!(
+        event.is_none(),
+        "F12 must be suppressed by search input focus, got {event:?}"
+    );
+}
+
+/// `p` from Issues mode enters PR mode (issue #164 cross-mode navigation).
+#[test]
+fn p_from_issues_enters_prs_mode() {
+    let state = issues_base_state();
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('p')));
+    assert!(
+        matches!(event, Some(AppEvent::EnterPrsMode)),
+        "'p' from Issues must yield EnterPrsMode, got {event:?}"
+    );
+}
+
+/// `p` does not fire when the inline composer is open (overlay owns the key).
+#[test]
+fn p_from_issues_does_not_fire_when_composer_open() {
+    let state = issues_state_with_inline(InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: String::new(),
+        cursor: 0,
+    });
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('p')));
+    assert!(
+        matches!(event, Some(AppEvent::InlineChar('p'))),
+        "'p' with inline open must yield InlineChar('p'), got {event:?}"
+    );
+}
+
+/// `i` from IssueDetail still refocuses the issue list (regression, issue #164).
+#[test]
+fn i_from_issues_still_refocuses_list() {
+    let state = issues_state_with_focus(IssueFocus::IssueDetail);
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('i')));
+    assert!(
+        matches!(event, Some(AppEvent::RefocusIssueList)),
+        "'i' in IssueDetail must yield RefocusIssueList, got {event:?}"
+    );
+}
+
+// ─── Overlay precedence for cross-mode keys (issue #164 review Finding 4) ──
+
+/// F12 while the terminal is focused AND in IssueDetail defocuses the
+/// terminal first (one-layer-at-a-time). The detail view stays — only the
+/// terminal defocus wins.
+#[test]
+fn f12_while_terminal_focused_and_in_detail_defocuses_terminal_first() {
+    let mut state = issues_state_with_focus(IssueFocus::IssueDetail);
+    state.terminal_focused = true;
+    let event = resolve_issues_key_event(&state, &key(KeyCode::F(12)));
+    assert!(
+        matches!(event, Some(AppEvent::ToggleTerminalFocus)),
+        "F12 with terminal focused must yield ToggleTerminalFocus even in IssueDetail, got {event:?}"
+    );
+}
+
+/// `p` while the search input is focused types into the query — it must NOT
+/// switch to PR mode (overlay owns the key before the global tier).
+#[test]
+fn p_in_search_input_does_not_switch_modes() {
+    let mut state = issues_base_state();
+    state.issues_state.search_input_focused = true;
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('p')));
+    assert!(
+        matches!(event, Some(AppEvent::SetSearchQuery { .. })),
+        "'p' with search focused must yield SetSearchQuery, got {event:?}"
+    );
+    assert!(
+        !matches!(event, Some(AppEvent::EnterPrsMode)),
+        "'p' with search focused must NOT yield EnterPrsMode"
+    );
+}
+
+/// `p` while the filter controls are open must NOT switch to PR mode (the
+/// filter resolver owns the key before the global tier).
+#[test]
+fn p_in_filter_controls_does_not_switch_modes() {
+    let mut state = issues_base_state();
+    state.issues_state.filter_ui.controls_open = true;
+    // Default field_index is 0 (state cycle field); 'p' matches no filter
+    // arm and is consumed as None by the filter resolver's fallthrough.
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('p')));
+    assert!(
+        event.is_none(),
+        "'p' with filter controls open must be consumed as None, got {event:?}"
+    );
+    assert!(
+        !matches!(event, Some(AppEvent::EnterPrsMode)),
+        "'p' with filter controls open must NOT yield EnterPrsMode, got {event:?}"
+    );
+}
+
+/// `p` while the inline composer is active types the character into the
+/// composer — it must NOT switch to PR mode.
+#[test]
+fn p_in_inline_composer_types_char() {
+    let state = issues_state_with_inline(InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: String::new(),
+        cursor: 0,
+    });
+    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('p')));
+    assert!(
+        matches!(event, Some(AppEvent::InlineChar('p'))),
+        "'p' with inline composer must yield InlineChar('p'), got {event:?}"
+    );
+}
+
+#[path = "issues_close_delete_key_tests.rs"]
+mod close_delete;

@@ -12,6 +12,7 @@ use crate::domain::{
 use crate::state::{EditorTarget, InlineState, ReadOnlyHintKind};
 
 mod issues_conversion;
+mod issues_mutation_conversion;
 mod issues_property_conversion;
 mod issues_silent_refresh_conversion;
 // @plan PLAN-20260624-PR-MODE.P03
@@ -26,8 +27,7 @@ pub use actions::ActionsMessage;
 // @requirement REQ-PR-002
 // @pseudocode component-004 lines 46-50
 mod event_conversion;
-
-mod message_names;
+mod names;
 
 /// Stable domain channel names used for routing, tracing, and policy tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -323,6 +323,7 @@ pub enum IssuesMessage {
         scope_repo_id: RepositoryId,
         issue_number: u64,
         mutation_id: u64,
+        title: String,
         body: String,
     },
     CommentUpdated {
@@ -338,6 +339,34 @@ pub enum IssuesMessage {
         issue_number: Option<u64>,
         mutation_id: Option<u64>,
         error: String,
+    },
+    // Issue Close / Delete lifecycle (issue #182)
+    CloseIssue,
+    OpenDeleteIssueConfirm,
+    IssueDeleteConfirm,
+    IssueDeleteCancel,
+    // Issue Close-with-reason chooser (issue #188)
+    OpenCloseReasonChooser,
+    CloseReasonNavigateUp,
+    CloseReasonNavigateDown,
+    CloseReasonSelect,
+    CloseReasonDuplicateSearchChar(char),
+    CloseReasonDuplicateSearchBackspace,
+    CloseReasonDuplicateSearchNavigateUp,
+    CloseReasonDuplicateSearchNavigateDown,
+    CloseReasonConfirm,
+    CloseReasonCancel,
+    IssueClosed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
+        close_reason: Option<crate::domain::CloseReason>,
+        duplicate_of: Option<u64>,
+    },
+    IssueDeleted {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
     },
     OpenAgentChooser,
     AgentChooserNavigateUp,
@@ -753,6 +782,23 @@ pub enum SystemMessage {
     Quit,
     ClearError,
     ClearWarning,
+    /// Open the in-app device-code auth dialog (issue #244).
+    OpenAuthDialog,
+    /// One-time code + verification URL parsed from `gh auth login` stderr.
+    AuthCodeReceived {
+        code: String,
+        url: String,
+    },
+    /// Device-code flow succeeded.
+    AuthSucceeded,
+    /// Device-code flow failed (transient — retry offered).
+    AuthFailed {
+        error: String,
+    },
+    /// User cancelled the auth dialog.
+    AuthCancelled,
+    /// User requested a retry of the auth flow.
+    AuthRetry,
 }
 
 /// Top-level typed message routed by the bus.

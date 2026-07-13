@@ -18,9 +18,15 @@ pub mod expand;
 pub mod macro_def;
 pub mod matchers;
 pub mod parser;
+#[cfg(windows)]
+mod psmux_process;
 pub mod runner;
 pub mod scenario;
 pub mod step;
+#[cfg(windows)]
+#[path = "psmux_driver.rs"]
+pub mod tmux_driver;
+#[cfg(not(windows))]
 pub mod tmux_driver;
 
 pub use capture::{PaneStatus, PaneStatusParseError, ScreenCapture, ScrollbackSample};

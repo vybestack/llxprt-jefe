@@ -21,6 +21,7 @@ fn dashboard_issues_state() -> AppState {
 fn make_test_issue(number: u64) -> Issue {
     Issue {
         number,
+        node_id: String::new(),
         title: format!("Test Issue #{number}"),
         state: IssueState::Open,
         author_login: "testuser".to_string(),
@@ -42,6 +43,7 @@ fn make_test_detail(comments: Vec<IssueComment>) -> IssueDetail {
     IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 42,
+        node_id: String::new(),
         title: "Test detail issue".to_string(),
         state: IssueState::Open,
         author_login: "octocat".to_string(),
@@ -71,6 +73,8 @@ fn state_with_repo(repo_id: &str) -> AppState {
     state.selected_repository_index = Some(0);
     state
 }
+
+use super::issues_test_fixtures::begin_issue_list_reload;
 
 /// Test 1: EnterIssuesMode sets screen mode, activates issues state, and focuses issue list.
 /// @plan PLAN-20260329-ISSUES-MODE.P04
@@ -273,17 +277,17 @@ fn test_issues_navigate_up_in_issue_list() {
     let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueList;
-    state.issues_state.issues = vec![
+    state.issues_state.list.replace_items(vec![
         make_test_issue(1),
         make_test_issue(2),
         make_test_issue(3),
         make_test_issue(4),
         make_test_issue(5),
-    ];
-    state.issues_state.selected_issue_index = Some(3);
+    ]);
+    state.issues_state.list.set_selected_index(Some(3));
 
     let new_state = state.apply(AppEvent::IssuesNavigateUp);
-    assert_eq!(new_state.issues_state.selected_issue_index, Some(2));
+    assert_eq!(new_state.issues_state.selected_issue_index(), Some(2));
 }
 
 /// Test 9: IssuesNavigateUp clamps at zero.
@@ -295,11 +299,15 @@ fn test_issues_navigate_up_clamps_at_zero() {
     let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueList;
-    state.issues_state.issues = vec![make_test_issue(1), make_test_issue(2), make_test_issue(3)];
-    state.issues_state.selected_issue_index = Some(0);
+    state.issues_state.list.replace_items(vec![
+        make_test_issue(1),
+        make_test_issue(2),
+        make_test_issue(3),
+    ]);
+    state.issues_state.list.set_selected_index(Some(0));
 
     let new_state = state.apply(AppEvent::IssuesNavigateUp);
-    assert_eq!(new_state.issues_state.selected_issue_index, Some(0));
+    assert_eq!(new_state.issues_state.selected_issue_index(), Some(0));
 }
 
 /// Test 10: IssuesNavigateDown increments selected_issue_index.
@@ -311,17 +319,17 @@ fn test_issues_navigate_down_in_issue_list() {
     let mut state = dashboard_issues_state();
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::IssueList;
-    state.issues_state.issues = vec![
+    state.issues_state.list.replace_items(vec![
         make_test_issue(1),
         make_test_issue(2),
         make_test_issue(3),
         make_test_issue(4),
         make_test_issue(5),
-    ];
-    state.issues_state.selected_issue_index = Some(2);
+    ]);
+    state.issues_state.list.set_selected_index(Some(2));
 
     let new_state = state.apply(AppEvent::IssuesNavigateDown);
-    assert_eq!(new_state.issues_state.selected_issue_index, Some(3));
+    assert_eq!(new_state.issues_state.selected_issue_index(), Some(3));
 }
 
 /// Test 11: IssueListLoaded selects the first issue and clears loading state.
@@ -331,7 +339,6 @@ fn test_issues_navigate_down_in_issue_list() {
 #[test]
 fn test_issue_list_loaded_selects_first() {
     let mut state = dashboard_issues_state();
-    state.issues_state.loading.list = true;
 
     // Set up repository
     state.repositories.push(Repository::new(
@@ -341,21 +348,22 @@ fn test_issue_list_loaded_selects_first() {
         PathBuf::from("/tmp/repo1"),
     ));
     state.selected_repository_index = Some(0);
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
 
     let issues = vec![make_test_issue(1), make_test_issue(2), make_test_issue(3)];
 
     let new_state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(IssueFilter::default()),
-        request_id: 0,
+        request_id,
         issues: issues.clone(),
         cursor: None,
         has_more: false,
     });
 
-    assert_eq!(new_state.issues_state.selected_issue_index, Some(0));
-    assert!(!new_state.issues_state.loading.list);
-    assert_eq!(new_state.issues_state.issues.len(), 3);
+    assert_eq!(new_state.issues_state.selected_issue_index(), Some(0));
+    assert!(!new_state.issues_state.list_loading());
+    assert_eq!(new_state.issues_state.issues().len(), 3);
 }
 
 /// Test 12: IssueListLoaded with empty issues sets selected_index to None.
@@ -365,7 +373,6 @@ fn test_issue_list_loaded_selects_first() {
 #[test]
 fn test_issue_list_loaded_empty() {
     let mut state = dashboard_issues_state();
-    state.issues_state.loading.list = true;
 
     // Set up repository
     state.repositories.push(Repository::new(
@@ -375,17 +382,18 @@ fn test_issue_list_loaded_empty() {
         PathBuf::from("/tmp/repo1"),
     ));
     state.selected_repository_index = Some(0);
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
 
     let new_state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(IssueFilter::default()),
-        request_id: 0,
+        request_id,
         issues: vec![],
         cursor: None,
         has_more: false,
     });
 
-    assert_eq!(new_state.issues_state.selected_issue_index, None);
+    assert_eq!(new_state.issues_state.selected_issue_index(), None);
     assert!(new_state.issues_state.issue_detail.is_none());
 }
 
@@ -405,7 +413,7 @@ fn test_issue_list_loaded_stale_scope_discarded() {
         PathBuf::from("/tmp/repo1"),
     ));
     state.selected_repository_index = Some(0);
-    state.issues_state.loading.list = true;
+    let _request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
 
     // Try to load issues for wrong repo
     let new_state = state.apply(AppEvent::IssueListLoaded {
@@ -418,16 +426,20 @@ fn test_issue_list_loaded_stale_scope_discarded() {
     });
 
     // State should be unchanged (stale scope discarded)
-    assert!(new_state.issues_state.issues.is_empty());
-    assert!(new_state.issues_state.loading.list);
+    assert!(new_state.issues_state.issues().is_empty());
+    assert!(new_state.issues_state.list_loading());
 }
 
 #[test]
 fn test_issue_list_loaded_stale_filter_discarded() {
     let mut state = state_with_repo("repo-1");
-    state.issues_state.loading.list = true;
     state.issues_state.committed_filter.query_text = "new".to_string();
-    state.issues_state.issues = vec![make_test_issue(99)];
+    state
+        .issues_state
+        .list
+        .replace_items(vec![make_test_issue(99)]);
+    let new_filter = state.issues_state.committed_filter.clone();
+    begin_issue_list_reload(&mut state, "repo-1", new_filter);
 
     let mut stale_filter = state.issues_state.committed_filter.clone();
     stale_filter.query_text = "old".to_string();
@@ -440,17 +452,19 @@ fn test_issue_list_loaded_stale_filter_discarded() {
         has_more: true,
     });
 
-    assert_eq!(new_state.issues_state.issues[0].number, 99);
-    assert!(new_state.issues_state.loading.list);
-    assert!(new_state.issues_state.list_cursor.is_none());
+    assert_eq!(new_state.issues_state.issues()[0].number, 99);
+    assert!(new_state.issues_state.list_loading());
+    assert!(!new_state.issues_state.has_more_issues());
 }
 
 #[test]
 fn test_issue_list_loaded_stale_request_id_discarded() {
     let mut state = state_with_repo("repo-1");
     state.issues_state.committed_filter.query_text = "same filter".to_string();
-    state.issues_state.issues = vec![make_test_issue(99)];
-    state.issues_state.loading.list = true;
+    state
+        .issues_state
+        .list
+        .replace_items(vec![make_test_issue(99)]);
     state.issues_state.error = Some("newer request still loading".to_string());
     let filter = state.issues_state.committed_filter.clone();
     state.mark_issue_list_reload_loading(RepositoryId("repo-1".to_string()), filter.clone(), 2);
@@ -464,20 +478,19 @@ fn test_issue_list_loaded_stale_request_id_discarded() {
         has_more: true,
     });
 
-    assert_eq!(new_state.issues_state.issues[0].number, 99);
-    assert!(new_state.issues_state.loading.list);
+    assert_eq!(new_state.issues_state.issues()[0].number, 99);
+    assert!(new_state.issues_state.list_loading());
     assert_eq!(
         new_state.issues_state.error.as_deref(),
         Some("newer request still loading")
     );
-    assert!(new_state.issues_state.list_cursor.is_none());
+    assert!(!new_state.issues_state.has_more_issues());
 }
 
 #[test]
 fn test_issue_list_load_failed_stale_request_id_discarded() {
     let mut state = state_with_repo("repo-1");
     state.issues_state.committed_filter.query_text = "same filter".to_string();
-    state.issues_state.loading.list = true;
     state.issues_state.error = Some("newer request still loading".to_string());
     let filter = state.issues_state.committed_filter.clone();
     state.mark_issue_list_reload_loading(RepositoryId("repo-1".to_string()), filter.clone(), 2);
@@ -490,19 +503,22 @@ fn test_issue_list_load_failed_stale_request_id_discarded() {
         error: "old failure".to_string(),
     });
 
-    assert!(new_state.issues_state.loading.list);
+    assert!(new_state.issues_state.list_loading());
     assert_eq!(
         new_state.issues_state.error.as_deref(),
         Some("newer request still loading")
     );
-    assert!(new_state.issues_state.list_reload_pending.is_some());
+    assert!(new_state.issues_state.list_pending());
 }
 
 #[test]
 fn test_issue_detail_loaded_stale_selection_discarded() {
     let mut state = state_with_repo("repo-1");
-    state.issues_state.issues = vec![make_test_issue(1), make_test_issue(2)];
-    state.issues_state.selected_issue_index = Some(1);
+    state
+        .issues_state
+        .list
+        .replace_items(vec![make_test_issue(1), make_test_issue(2)]);
+    state.issues_state.list.set_selected_index(Some(1));
     state.issues_state.loading.detail = true;
     let mut current_detail = make_test_detail(vec![]);
     current_detail.number = 2;
@@ -543,27 +559,42 @@ fn test_issue_list_page_loaded_appends() {
     ));
     state.selected_repository_index = Some(0);
 
-    // Start with 3 issues
-    state.issues_state.issues = vec![make_test_issue(1), make_test_issue(2), make_test_issue(3)];
-    state.issues_state.selected_issue_index = Some(1);
-    state.mark_issue_list_page_loading(
-        RepositoryId("repo-1".to_string()),
-        IssueFilter::default(),
-        None,
-    );
-
-    let new_state = state.apply(AppEvent::IssueListPageLoaded {
+    // Establish a loaded list with a continuation cursor, then begin a page
+    // load for that continuation. A page load only fires after a reload set
+    // `next_page`, so this mirrors the real lifecycle.
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
+    let mut new_state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(IssueFilter::default()),
-        request_id: 0,
-        request_cursor: None,
+        request_id,
+        issues: vec![make_test_issue(1), make_test_issue(2), make_test_issue(3)],
+        cursor: Some("page2".to_string()),
+        has_more: true,
+    });
+    new_state.issues_state.list.set_selected_index(Some(1));
+    let page_request_id = {
+        let Ok(id) = new_state.issues_state.list.next_request_id() else {
+            panic!("request id allocation must succeed in test setup");
+        };
+        new_state
+            .issues_state
+            .list
+            .begin_page(crate::domain::PageToken::Cursor("page2".to_string()), id);
+        id.get()
+    };
+
+    let result = new_state.apply(AppEvent::IssueListPageLoaded {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(IssueFilter::default()),
+        request_id: page_request_id,
+        request_cursor: Some("page2".to_string()),
         issues: vec![make_test_issue(4), make_test_issue(5)],
         cursor: None,
         has_more: false,
     });
 
-    assert_eq!(new_state.issues_state.issues.len(), 5);
-    assert_eq!(new_state.issues_state.selected_issue_index, Some(1)); // Unchanged
+    assert_eq!(result.issues_state.issues().len(), 5);
+    assert_eq!(result.issues_state.selected_issue_index(), Some(1)); // Unchanged
 }
 
 #[test]
@@ -576,8 +607,10 @@ fn test_issue_list_page_loaded_stale_filter_discarded() {
         PathBuf::from("/tmp/repo1"),
     ));
     state.selected_repository_index = Some(0);
-    state.issues_state.issues = vec![make_test_issue(1)];
-    state.issues_state.loading.list = true;
+    state
+        .issues_state
+        .list
+        .replace_items(vec![make_test_issue(1)]);
     state.issues_state.error = Some("current error".to_string());
     state.issues_state.committed_filter.query_text = "new filter".to_string();
     state.mark_issue_list_page_loading(
@@ -600,13 +633,12 @@ fn test_issue_list_page_loaded_stale_filter_discarded() {
         has_more: true,
     });
 
-    assert_eq!(new_state.issues_state.issues.len(), 1);
-    assert!(new_state.issues_state.loading.list);
+    assert_eq!(new_state.issues_state.issues().len(), 1);
     assert_eq!(
         new_state.issues_state.error.as_deref(),
         Some("current error")
     );
-    assert_eq!(new_state.issues_state.list_cursor, None);
+    assert!(!new_state.issues_state.has_more_issues());
 }
 
 #[test]
@@ -619,10 +651,11 @@ fn test_issue_list_page_loaded_stale_cursor_discarded() {
         PathBuf::from("/tmp/repo1"),
     ));
     state.selected_repository_index = Some(0);
-    state.issues_state.issues = vec![make_test_issue(1)];
-    state.issues_state.loading.list = true;
+    state
+        .issues_state
+        .list
+        .replace_items(vec![make_test_issue(1)]);
     state.issues_state.error = Some("current page still loading".to_string());
-    state.issues_state.list_cursor = Some("current-cursor".to_string());
     state.mark_issue_list_page_loading(
         RepositoryId("repo-1".to_string()),
         IssueFilter::default(),
@@ -639,16 +672,11 @@ fn test_issue_list_page_loaded_stale_cursor_discarded() {
         has_more: false,
     });
 
-    assert_eq!(new_state.issues_state.issues.len(), 1);
-    assert_eq!(new_state.issues_state.issues[0].number, 1);
-    assert!(new_state.issues_state.loading.list);
+    assert_eq!(new_state.issues_state.issues().len(), 1);
+    assert_eq!(new_state.issues_state.issues()[0].number, 1);
     assert_eq!(
         new_state.issues_state.error.as_deref(),
         Some("current page still loading")
-    );
-    assert_eq!(
-        new_state.issues_state.list_cursor.as_deref(),
-        Some("current-cursor")
     );
 }
 
@@ -656,10 +684,9 @@ fn test_issue_list_page_loaded_stale_cursor_discarded() {
 fn test_issue_detail_loaded_while_list_empty_is_discarded() {
     let mut state = state_with_repo("repo-1");
     state.issues_state.loading.detail = true;
-    state.issues_state.loading.list = true;
     state.mark_issue_detail_loading(RepositoryId("repo-1".to_string()), 2);
-    state.issues_state.issues.clear();
-    state.issues_state.selected_issue_index = None;
+    state.issues_state.list.clear();
+    state.issues_state.list.set_selected_index(None);
     state.issues_state.issue_detail = None;
 
     let stale_detail = make_test_detail(vec![]);
@@ -689,6 +716,7 @@ fn test_detail_subfocus_tab_with_comments() {
     state.issues_state.issue_detail = Some(IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 1,
+        node_id: String::new(),
         title: "Test Issue".to_string(),
         state: IssueState::Open,
         author_login: "testuser".to_string(),
@@ -761,6 +789,7 @@ fn test_detail_subfocus_tab_no_comments() {
     state.issues_state.issue_detail = Some(IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 1,
+        node_id: String::new(),
         title: "Test Issue".to_string(),
         state: IssueState::Open,
         author_login: "testuser".to_string(),
@@ -931,7 +960,7 @@ fn test_stale_scope_list_loaded_discarded() {
         PathBuf::from("/tmp/repo-a"),
     ));
     state.selected_repository_index = Some(0);
-    state.issues_state.loading.list = true;
+    let _request_id = begin_issue_list_reload(&mut state, "repo-A", IssueFilter::default());
 
     // Load issues for wrong repo "repo-B"
     let new_state = state.apply(AppEvent::IssueListLoaded {
@@ -944,6 +973,6 @@ fn test_stale_scope_list_loaded_discarded() {
     });
 
     // Issues list should remain unchanged
-    assert!(new_state.issues_state.issues.is_empty());
-    assert!(new_state.issues_state.loading.list);
+    assert!(new_state.issues_state.issues().is_empty());
+    assert!(new_state.issues_state.list_loading());
 }

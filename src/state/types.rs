@@ -15,6 +15,16 @@ pub use pr_types::*;
 mod form_types;
 pub use form_types::*;
 
+// Issues-mode aggregate state extracted to keep this file under the length limit.
+#[path = "issues_types.rs"]
+mod issues_types;
+pub use issues_types::*;
+
+// `ISSUE_FILTER_FIELD_COUNT` lives in `issues_types.rs`; the PR sibling stays
+// here so each mode filter references its own count.
+/// Number of PR filter fields for FilterNavigate wrap (issue #163).
+pub const PR_FILTER_FIELD_COUNT: usize = 8;
+
 /// Captured issue self-assignment follow-up for an issue-driven launch
 /// (issue #186).
 ///
@@ -50,6 +60,83 @@ pub enum ConfirmFocus {
     #[default]
     Cancel,
     Confirm,
+}
+
+/// Phase of the in-app device-code auth dialog state machine (issue #244).
+///
+/// The dialog drives `gh auth login --web` non-interactively; these phases
+/// track where the flow is so the UI is render-only and the reducer stays
+/// deterministic.
+///
+/// `Debug` is implemented manually to redact the one-time device code: it is
+/// a short-lived bearer credential while valid, so it must never leak through
+/// `AppState` debug logs, crash reports, or test snapshots.
+#[derive(Clone, PartialEq, Eq)]
+pub enum AuthDialogPhase {
+    /// Dialog not shown (modal closed).
+    Idle,
+    /// `gh auth login` subprocess spawned; waiting for the one-time code to
+    /// be parsed from its stderr.
+    AwaitingCode,
+    /// Code + URL have been parsed and shown to the user; the subprocess is
+    /// polling until the user authorizes in a browser.
+    Confirming { code: String, url: String },
+    /// A transient failure occurred (network, code expiry); a retry is offered.
+    Failed { error: String, can_retry: bool },
+    /// The user cancelled (Esc); the modal is being dismissed.
+    Cancelled,
+}
+
+impl std::fmt::Debug for AuthDialogPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Idle => f.write_str("AuthDialogPhase::Idle"),
+            Self::AwaitingCode => f.write_str("AuthDialogPhase::AwaitingCode"),
+            Self::Confirming { url, .. } => f
+                .debug_struct("AuthDialogPhase::Confirming")
+                .field("code", &"<redacted>")
+                .field("url", url)
+                .finish(),
+            Self::Failed { error, can_retry } => {
+                // Defense-in-depth: the dispatch layer already scrubs the code
+                // shape before storing, but redact again here so a future caller
+                // cannot leak a one-time code via a Debug print (issue #244).
+                let redacted = crate::github::redact_device_codes(error);
+                f.debug_struct("AuthDialogPhase::Failed")
+                    .field("error", &redacted)
+                    .field("can_retry", can_retry)
+                    .finish()
+            }
+            Self::Cancelled => f.write_str("AuthDialogPhase::Cancelled"),
+        }
+    }
+}
+
+/// State carried by [`ModalState::Auth`].
+///
+/// Runtime-only — never persisted (auth is an interactive, ephemeral flow).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthDialogState {
+    pub phase: AuthDialogPhase,
+}
+
+impl Default for AuthDialogState {
+    fn default() -> Self {
+        Self {
+            phase: AuthDialogPhase::Idle,
+        }
+    }
+}
+
+impl AuthDialogState {
+    /// Construct a fresh dialog in the [`AuthDialogPhase::AwaitingCode`]
+    /// phase — the entry point when the auth flow starts.
+    #[must_use]
+    pub fn awaiting_code() -> Self {
+        Self {
+            phase: AuthDialogPhase::AwaitingCode,
+        }
+    }
 }
 
 /// Modal/form state variants.
@@ -167,6 +254,11 @@ pub enum ModalState {
         fields: WorkflowDispatchFormFields,
         focus: WorkflowDispatchFormFocus,
         cursor: WorkflowDispatchFormCursor,
+    },
+    /// In-app device-code auth remediation dialog (issue #244). Render-only
+    /// data: the runtime layer owns the `gh auth login --web` subprocess.
+    Auth {
+        state: AuthDialogState,
     },
 }
 
@@ -449,10 +541,23 @@ pub enum ActionsFilterField {
     Status,
 }
 
+/// Identity for the Actions runs list — a result is stale unless both the
+/// scope repo and the committed filter match exactly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionsListIdentity {
+    /// Repository scope the list was loaded for.
+    pub scope_repo_id: RepositoryId,
+    /// Committed filter snapshot when the load was started.
+    pub filter: crate::domain::ActionsFilter,
+}
+
 /// Loading/pending state for Actions mode async operations.
+///
+/// List loading is now derived from `ActionsState::list` (the
+/// `PaginatedList::is_loading()` / `has_pending_request()` accessors). Only
+/// detail loading remains as an explicit flag here.
 #[derive(Debug, Clone, Default)]
 pub struct ActionsLoadingState {
-    pub list: bool,
     pub detail: bool,
 }
 
@@ -477,15 +582,16 @@ pub struct ActionsUiState {
 #[derive(Debug, Clone, Default)]
 pub struct ActionsState {
     pub active: bool,
-    pub runs: Vec<crate::domain::WorkflowRun>,
-    pub selected_run_index: Option<usize>,
+    /// Unified list state: runs, selection, pagination continuation, and
+    /// pending load correlation. List loading is derived from this container.
+    pub list:
+        crate::state::pagination::PaginatedList<crate::domain::WorkflowRun, ActionsListIdentity>,
     pub run_detail: Option<crate::domain::WorkflowRunDetail>,
     pub workflows: Vec<crate::domain::Workflow>,
     pub committed_filter: crate::domain::ActionsFilter,
     pub draft_filter: crate::domain::ActionsFilter,
     pub search_query: String,
     pub error: Option<String>,
-    pub page: u32,
     pub focus: ActionsFocus,
     pub detail_scroll_offset: usize,
     pub detail_viewport_rows: usize,
@@ -495,8 +601,6 @@ pub struct ActionsState {
     /// Focused job index within the detail pane's job list (for keyboard
     /// navigation of expand/collapse). `None` when no detail is loaded.
     pub focused_job_index: Option<usize>,
-    pub list_reload_pending: Option<ActionsListReloadPending>,
-    pub next_list_request_id: u64,
     pub detail_pending: Option<ActionsDetailPending>,
     pub next_detail_request_id: u64,
     pub workflows_pending: Option<WorkflowsPending>,
@@ -504,11 +608,7 @@ pub struct ActionsState {
     pub prior_agent_focus: Option<PriorAgentFocus>,
     pub dispatch_pending: Option<ActionsDispatchPending>,
     pub next_dispatch_request_id: u64,
-    /// Pagination marker received from the last list load. Currently only page
-    /// 1 is loaded (no load-more path exists); this field is retained for
-    /// future pagination support and is never read for any load decision.
-    pub has_more: bool,
-    /// Decomposed loading/pending state.
+    /// Decomposed loading/pending state (detail-only now).
     pub loading: ActionsLoadingState,
     /// Decomposed UI control state.
     pub ui: ActionsUiState,
@@ -519,14 +619,36 @@ impl ActionsState {
     pub fn dispatch_pending(&self) -> bool {
         self.dispatch_pending.is_some()
     }
-}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ActionsListReloadPending {
-    pub scope_repo_id: RepositoryId,
-    pub filter: crate::domain::ActionsFilter,
-    pub page: u32,
-    pub request_id: u64,
+    /// Read-only access to the loaded runs.
+    #[must_use]
+    pub fn runs(&self) -> &[crate::domain::WorkflowRun] {
+        self.list.items()
+    }
+
+    /// The currently selected run index, if any.
+    #[must_use]
+    pub fn selected_run_index(&self) -> Option<usize> {
+        self.list.selected_index()
+    }
+
+    /// Whether the list is visibly loading (reload-visible or page pending).
+    #[must_use]
+    pub fn list_loading(&self) -> bool {
+        self.list.is_loading()
+    }
+
+    /// Whether any list operation is pending (visible or silent).
+    #[must_use]
+    pub fn list_pending(&self) -> bool {
+        self.list.has_pending_request()
+    }
+
+    /// Whether more pages are available.
+    #[must_use]
+    pub fn has_more(&self) -> bool {
+        self.list.has_more()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -541,95 +663,6 @@ pub struct WorkflowsPending {
     pub scope_repo_id: RepositoryId,
     pub request_id: u64,
 }
-
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-001
-/// @pseudocode component-001 lines 33-40
-/// Aggregate state for Issues Mode.
-#[derive(Debug, Clone, Default)]
-pub struct IssuesState {
-    pub active: bool,
-    pub issues: Vec<crate::domain::Issue>,
-    pub selected_issue_index: Option<usize>,
-    pub issue_detail: Option<crate::domain::IssueDetail>,
-    pub committed_filter: crate::domain::IssueFilter,
-    pub draft_filter: crate::domain::IssueFilter,
-    pub search_query: String,
-    pub loading: IssueLoadingState,
-    pub list_cursor: Option<String>,
-    pub has_more_issues: bool,
-    pub error: Option<String>,
-    pub issue_focus: IssueFocus,
-    pub detail_subfocus: DetailSubfocus,
-    /// Scroll offset (in lines) for the detail pane viewport.
-    pub detail_scroll_offset: usize,
-    /// Last rendered detail viewport height in rows.
-    pub detail_viewport_rows: usize,
-    pub inline_state: InlineState,
-    pub agent_chooser: Option<AgentChooserState>,
-    pub filter_ui: IssueFilterUiState,
-    pub search_input_focused: bool,
-    pub prior_agent_focus: Option<PriorAgentFocus>,
-    pub draft_notice: Option<String>,
-    pub mutation_pending: Option<IssueMutationPending>,
-    pub next_mutation_id: u64,
-    pub property_editor: Option<IssuePropertyEditorState>,
-    pub property_mutation_pending: Option<PropertyMutationPending>,
-    pub next_property_request_id: u64,
-    pub list_reload_pending: Option<IssueListReloadPending>,
-    pub next_issue_list_request_id: u64,
-    pub list_page_pending: Option<IssueListPagePending>,
-    pub detail_pending: Option<IssueDetailPending>,
-    pub next_issue_detail_request_id: u64,
-    pub comments_page_pending: Option<IssueCommentsPagePending>,
-    pub next_comments_page_request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueListReloadPending {
-    pub scope_repo_id: RepositoryId,
-    pub filter: crate::domain::IssueFilter,
-    pub request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueListPagePending {
-    pub scope_repo_id: RepositoryId,
-    pub filter: crate::domain::IssueFilter,
-    pub cursor: Option<String>,
-    pub request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueDetailPending {
-    pub scope_repo_id: RepositoryId,
-    pub issue_number: u64,
-    pub request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueCommentsPagePending {
-    pub scope_repo_id: RepositoryId,
-    pub issue_number: u64,
-    pub cursor: Option<String>,
-    pub request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueMutationPending {
-    pub scope_repo_id: RepositoryId,
-    pub id: u64,
-    pub target: InlineState,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct IssueLoadingState {
-    pub list: bool,
-    pub detail: bool,
-    pub comments: bool,
-}
-
-pub const ISSUE_FILTER_FIELD_COUNT: usize = 8;
 
 /// Which property of an issue the user is editing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -713,78 +746,4 @@ pub struct PrPropertyEditorState {
     pub options_loading: bool,
     /// Request ID for the in-flight options load (M6 correlation).
     pub load_request_id: u64,
-}
-
-/// Number of PR filter fields for FilterNavigate wrap (issue #163).
-pub const PR_FILTER_FIELD_COUNT: usize = 8;
-
-#[derive(Debug, Clone, Default)]
-pub struct IssueFilterUiState {
-    pub controls_open: bool,
-    /// Index of the currently focused filter field (0=state, 1=author, 2=assignee, 3=labels, 4=type, 5=milestone, 6=module, 7=query_text).
-    pub field_index: usize,
-    /// Raw labels text while editing (preserves trailing commas). Parsed into Vec on apply.
-    pub draft_labels_text: String,
-}
-
-impl IssuesState {
-    /// Count the number of rendered content lines for the current detail view.
-    #[must_use]
-    pub fn detail_content_line_count(&self) -> usize {
-        let Some(detail) = &self.issue_detail else {
-            return 0;
-        };
-
-        crate::issue_detail_content::detail_content_line_count(
-            detail,
-            &self.inline_state,
-            self.loading.comments,
-        )
-    }
-
-    /// Maximum scroll offset so the last line of content sits at the bottom of the viewport.
-    /// Returns 0 when content fits entirely within the viewport (no scrolling needed).
-    #[must_use]
-    pub fn max_detail_scroll_offset(&self) -> usize {
-        let viewport_rows = if self.detail_viewport_rows == 0 {
-            crate::layout::detail_viewport_rows(40)
-        } else {
-            self.detail_viewport_rows
-        };
-        self.max_detail_scroll_offset_for_viewport(viewport_rows)
-    }
-
-    /// Maximum detail scroll offset for a caller-provided viewport row count.
-    #[must_use]
-    pub fn max_detail_scroll_offset_for_viewport(&self, viewport_rows: usize) -> usize {
-        if self.issue_detail.is_none() {
-            return 0;
-        }
-        let composer_active = matches!(
-            self.inline_state,
-            InlineState::Composer {
-                target: ComposerTarget::NewComment | ComposerTarget::Reply { .. },
-                ..
-            }
-        );
-        self.detail_content_line_count().saturating_sub(
-            crate::layout::issue_detail_document_viewport_rows(viewport_rows, composer_active),
-        )
-    }
-
-    /// Maximum detail scroll offset for the Issues-mode layout bands currently
-    /// visible in the UI.
-    #[must_use]
-    pub fn max_detail_scroll_offset_for_layout(
-        &self,
-        term_rows: usize,
-        error_visible: bool,
-        filter_controls_open: bool,
-    ) -> usize {
-        self.max_detail_scroll_offset_for_viewport(crate::layout::issues_detail_viewport_rows(
-            term_rows,
-            error_visible,
-            filter_controls_open,
-        ))
-    }
 }

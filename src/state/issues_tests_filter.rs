@@ -3,6 +3,8 @@ use crate::state::events::AppEvent;
 use crate::state::types::ScreenMode;
 use crate::state::{AppState, ISSUE_FILTER_FIELD_COUNT};
 
+use super::issues_test_fixtures::begin_issue_list_reload;
+
 fn dashboard_issues_state() -> AppState {
     AppState {
         screen_mode: ScreenMode::DashboardIssues,
@@ -22,6 +24,7 @@ fn filter_open_state() -> AppState {
 fn make_test_issue(number: u64) -> Issue {
     Issue {
         number,
+        node_id: String::new(),
         title: format!("Test Issue #{number}"),
         state: IssueState::Open,
         author_login: "testuser".to_string(),
@@ -168,7 +171,6 @@ fn test_apply_filter_commits_and_reloads() {
     state.issues_state.draft_filter.issue_type = "bug".to_string();
     state.issues_state.draft_filter.milestone = "v1".to_string();
     state.issues_state.draft_filter.module = "ui".to_string();
-    state.issues_state.loading.list = false;
 
     let state = state.apply(AppEvent::ApplyFilter);
     assert!(!state.issues_state.filter_ui.controls_open);
@@ -176,8 +178,8 @@ fn test_apply_filter_commits_and_reloads() {
     assert_eq!(state.issues_state.committed_filter.issue_type, "bug");
     assert_eq!(state.issues_state.committed_filter.milestone, "v1");
     assert_eq!(state.issues_state.committed_filter.module, "ui");
-    assert!(state.issues_state.loading.list, "should trigger reload");
-    assert!(state.issues_state.issues.is_empty());
+    assert!(!state.issues_state.list_loading());
+    assert!(state.issues_state.issues().is_empty());
 }
 
 /// ClearFilter resets both committed and draft, closes controls, and marks for reload.
@@ -186,13 +188,12 @@ fn test_clear_filter_resets_and_reloads() {
     let mut state = filter_open_state();
     state.issues_state.draft_filter.author = "bob".to_string();
     state.issues_state.committed_filter.author = "bob".to_string();
-    state.issues_state.loading.list = false;
 
     let state = state.apply(AppEvent::ClearFilter);
     assert!(!state.issues_state.filter_ui.controls_open);
     assert!(state.issues_state.committed_filter.author.is_empty());
     assert!(state.issues_state.draft_filter.author.is_empty());
-    assert!(state.issues_state.loading.list, "should trigger reload");
+    assert!(!state.issues_state.list_loading());
 }
 
 fn populate_all_draft_filter_fields(state: AppState) -> AppState {
@@ -285,7 +286,7 @@ fn test_clear_draft_filter_keeps_controls_open_and_resets_draft() {
     assert!(state.issues_state.active);
     assert!(state.issues_state.filter_ui.controls_open);
     assert_eq!(state.issues_state.filter_ui.field_index, 5);
-    assert!(!state.issues_state.loading.list);
+    assert!(!state.issues_state.list_loading());
     assert!(state.issues_state.filter_ui.draft_labels_text.is_empty());
 }
 
@@ -295,23 +296,24 @@ fn test_apply_filter_fresh_list_loaded_selects_first_issue() {
     let mut state = state_with_repo();
     state.issues_state.draft_filter.author = "alice".to_string();
 
-    let state = state.apply(AppEvent::ApplyFilter);
-    assert!(state.issues_state.loading.list);
-    assert_eq!(state.issues_state.selected_issue_index, None);
+    let mut state = state.apply(AppEvent::ApplyFilter);
+    assert!(!state.issues_state.list_loading());
+    assert_eq!(state.issues_state.selected_issue_index(), None);
     let committed_filter = state.issues_state.committed_filter.clone();
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", committed_filter.clone());
 
     let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(committed_filter),
-        request_id: 0,
+        request_id,
         issues: vec![make_test_issue(1), make_test_issue(2)],
         cursor: Some("next".to_string()),
         has_more: true,
     });
 
-    assert!(!state.issues_state.loading.list);
-    assert_eq!(state.issues_state.selected_issue_index, Some(0));
-    assert_eq!(state.issues_state.issues.len(), 2);
+    assert!(!state.issues_state.list_loading());
+    assert_eq!(state.issues_state.selected_issue_index(), Some(0));
+    assert_eq!(state.issues_state.issues().len(), 2);
 }
 
 #[test]
@@ -320,8 +322,8 @@ fn test_clear_filter_fresh_list_loaded_selects_first_issue() {
     state.issues_state.draft_filter.author = "bob".to_string();
     state.issues_state.committed_filter.author = "bob".to_string();
 
-    let state = state.apply(AppEvent::ClearFilter);
-    assert!(state.issues_state.loading.list);
+    let mut state = state.apply(AppEvent::ClearFilter);
+    assert!(!state.issues_state.list_loading());
     assert_eq!(
         state.issues_state.committed_filter,
         IssueFilter {
@@ -329,22 +331,24 @@ fn test_clear_filter_fresh_list_loaded_selects_first_issue() {
             ..IssueFilter::default()
         }
     );
+    let open_filter = IssueFilter {
+        state: Some(IssueFilterState::Open),
+        ..IssueFilter::default()
+    };
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", open_filter.clone());
 
     let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: Box::new(IssueFilter {
-            state: Some(IssueFilterState::Open),
-            ..IssueFilter::default()
-        }),
-        request_id: 0,
+        filter: Box::new(open_filter),
+        request_id,
         issues: vec![make_test_issue(3)],
         cursor: None,
         has_more: false,
     });
 
-    assert!(!state.issues_state.loading.list);
-    assert_eq!(state.issues_state.selected_issue_index, Some(0));
-    assert_eq!(state.issues_state.issues.len(), 1);
+    assert!(!state.issues_state.list_loading());
+    assert_eq!(state.issues_state.selected_issue_index(), Some(0));
+    assert_eq!(state.issues_state.issues().len(), 1);
 }
 /// ApplyFilter must invalidate any in-flight detail/comments requests so a
 /// late response for the previous filter cannot overwrite the reloaded list.
@@ -410,7 +414,7 @@ fn test_apply_search_preserves_literal_any_query() {
     let state = state.apply(AppEvent::from(IssuesMessage::ApplySearch));
 
     assert_eq!(state.issues_state.committed_filter.query_text, "ANY");
-    assert!(state.issues_state.loading.list);
+    assert!(!state.issues_state.list_loading());
 }
 
 #[test]

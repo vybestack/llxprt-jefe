@@ -101,6 +101,25 @@ pub enum AppEvent {
     ClearError,
     ClearWarning,
 
+    // In-app device-code auth remediation (issue #244)
+    /// Open the auth dialog and start the device-code flow.
+    OpenAuthDialog,
+    /// The one-time code + verification URL were parsed from `gh` stderr.
+    AuthCodeReceived {
+        code: String,
+        url: String,
+    },
+    /// The device-code flow completed successfully (token stored by `gh`).
+    AuthSucceeded,
+    /// The device-code flow failed (network, code expiry, denied).
+    AuthFailed {
+        error: String,
+    },
+    /// The user cancelled the auth dialog (Esc).
+    AuthCancelled,
+    /// The user requested a retry from the Failed phase.
+    AuthRetry,
+
     // Terminal scrollback (issue #198)
     /// Scroll the terminal viewport up (back in history) by one line.
     TerminalScrollUp,
@@ -283,6 +302,7 @@ pub enum AppEvent {
         scope_repo_id: RepositoryId,
         issue_number: u64,
         mutation_id: u64,
+        title: String,
         body: String,
     },
     CommentUpdated {
@@ -299,6 +319,51 @@ pub enum AppEvent {
         mutation_id: Option<u64>,
         error: String,
     },
+
+    // Issue Close / Delete lifecycle (issue #182)
+    /// Key-layer request: close the focused issue (dispatch resolves context).
+    CloseIssue,
+    /// Key-layer request: open the delete confirm overlay.
+    OpenDeleteIssueConfirm,
+    /// Delete confirm overlay arm/confirm signal (two-step like merge chooser).
+    IssueDeleteConfirm,
+    /// Delete confirm overlay cancel.
+    IssueDeleteCancel,
+    /// Close mutation succeeded.
+    IssueClosed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
+        /// Close reason carried from the chooser (issue #188). `None` for the
+        /// legacy plain-close path.
+        close_reason: Option<crate::domain::CloseReason>,
+        /// For a Duplicate close, the canonical issue number (issue #188).
+        duplicate_of: Option<u64>,
+    },
+    /// Delete mutation succeeded.
+    IssueDeleted {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        mutation_id: u64,
+    },
+
+    // Issue Close-with-reason chooser (issue #188)
+    /// Open the close-reason chooser overlay.
+    OpenCloseReasonChooser,
+    CloseReasonNavigateUp,
+    CloseReasonNavigateDown,
+    /// Enter on a reason: for Duplicate enters duplicate-search; otherwise arms
+    /// confirmation.
+    CloseReasonSelect,
+    CloseReasonDuplicateSearchChar(char),
+    CloseReasonDuplicateSearchBackspace,
+    CloseReasonDuplicateSearchNavigateUp,
+    CloseReasonDuplicateSearchNavigateDown,
+    /// Second Enter: dispatches the actual close with reason.
+    CloseReasonConfirm,
+    /// Esc: close the chooser without closing the issue.
+    CloseReasonCancel,
+
     OpenAgentChooser,
     AgentChooserNavigateUp,
     AgentChooserNavigateDown,
@@ -529,6 +594,23 @@ pub enum AppEvent {
         has_more: bool,
     },
     ActionsRunsLoadFailed {
+        scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::ActionsFilter>,
+        page: u32,
+        request_id: u64,
+        error: String,
+    },
+    /// Page append result (load-more path).
+    ActionsRunsPageLoaded {
+        scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::ActionsFilter>,
+        page: u32,
+        request_id: u64,
+        runs: Vec<crate::domain::WorkflowRun>,
+        has_more: bool,
+    },
+    /// Page append failure.
+    ActionsRunsPageLoadFailed {
         scope_repo_id: RepositoryId,
         filter: Box<crate::domain::ActionsFilter>,
         page: u32,

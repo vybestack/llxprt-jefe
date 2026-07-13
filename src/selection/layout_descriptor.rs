@@ -32,6 +32,10 @@ pub enum OverlayPane {
     MergeChooser,
     /// Property editor (positioned overlay inside the workspace). Issue #175.
     PropertyEditor,
+    /// Close reason chooser (positioned overlay inside the workspace). Issue #188.
+    CloseReasonChooser,
+    /// Issue delete confirmation (positioned overlay inside the workspace). Issue #182.
+    IssueDeleteConfirm,
 }
 
 impl OverlayPane {
@@ -47,6 +51,8 @@ impl OverlayPane {
             Self::AgentChooser => Some(SelectablePane::AgentChooser),
             Self::MergeChooser => Some(SelectablePane::MergeChooser),
             Self::PropertyEditor => Some(SelectablePane::PropertyEditor),
+            Self::CloseReasonChooser => Some(SelectablePane::CloseReasonChooser),
+            Self::IssueDeleteConfirm => Some(SelectablePane::IssueDeleteConfirm),
         }
     }
 
@@ -56,11 +62,14 @@ impl OverlayPane {
     /// (choosers) only intercept coordinates inside their bounds.
     #[must_use]
     pub const fn is_full_screen(self) -> bool {
-        // Exhaustive match so adding a new OverlayPane variant forces a
-        // conscious decision here (issue #178 z-order correctness).
         match self {
             Self::HelpModal | Self::AgentForm | Self::RepositoryForm | Self::ConfirmModal => true,
-            Self::None | Self::AgentChooser | Self::MergeChooser | Self::PropertyEditor => false,
+            Self::None
+            | Self::AgentChooser
+            | Self::MergeChooser
+            | Self::PropertyEditor
+            | Self::CloseReasonChooser
+            | Self::IssueDeleteConfirm => false,
         }
     }
 }

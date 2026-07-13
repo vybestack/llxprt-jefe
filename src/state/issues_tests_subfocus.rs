@@ -19,6 +19,7 @@ fn p15_detail(number: u64) -> IssueDetail {
     IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number,
+        node_id: String::new(),
         title: format!("Issue #{number}"),
         state: IssueState::Open,
         author_login: "octocat".to_string(),

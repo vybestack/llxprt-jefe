@@ -9,6 +9,7 @@ fn make_state_with_detail() -> AppState {
     let detail = IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 42,
+        node_id: String::new(),
         title: "Test Issue".to_string(),
         state: IssueState::Open,
         author_login: "alice".to_string(),
@@ -43,6 +44,62 @@ fn add_repo(state: &mut AppState) {
         std::path::PathBuf::from("/tmp/repo"),
     ));
     state.selected_repository_index = Some(0);
+}
+
+#[test]
+fn full_detail_load_preserves_issue_type_from_list_row() {
+    let mut state = make_state_with_detail();
+    add_repo(&mut state);
+    let issue = crate::domain::Issue {
+        number: 42,
+        node_id: String::new(),
+        title: "Test Issue".to_string(),
+        state: IssueState::Open,
+        author_login: "alice".to_string(),
+        updated_at: "2024-01-02".to_string(),
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
+        assignees: Vec::new(),
+        labels: Vec::new(),
+        issue_type: "Bug".to_string(),
+        milestone: String::new(),
+        module: String::new(),
+        comment_count: 0,
+        body: String::new(),
+    };
+    state.issues_state.list.replace_items(vec![issue]);
+    state.issues_state.list.set_selected_index(Some(0));
+    state.mark_issue_detail_loading(RepositoryId("r1".to_string()), 42);
+    let request_id = state
+        .issues_state
+        .detail_pending
+        .as_ref()
+        .map_or(0, |pending| pending.request_id);
+    let mut detail = state
+        .issues_state
+        .issue_detail
+        .take()
+        .unwrap_or_else(|| panic!("fixture detail should exist"));
+    detail.issue_type_name = None;
+
+    let state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: RepositoryId("r1".to_string()),
+        issue_number: 42,
+        request_id,
+        detail: Box::new(detail),
+    });
+    let state = state.apply(AppEvent::IssueOpenPropertyEditor {
+        kind: IssuePropertyKind::Type,
+    });
+    let Some(editor) = state.issues_state.property_editor.as_ref() else {
+        panic!("type editor should open");
+    };
+    assert!(
+        editor
+            .options
+            .iter()
+            .any(|option| option.label == "Bug" && option.selected)
+    );
 }
 
 fn require_issue_editor(state: &AppState) -> &IssuePropertyEditorState {

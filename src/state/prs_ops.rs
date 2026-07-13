@@ -12,8 +12,8 @@
 //! @requirement REQ-PR-013
 
 use super::{
-    AgentChooserState, AppEvent, AppState, InlineState, PaneFocus, PrFocus, PriorAgentFocus,
-    ReadOnlyHintKind, ScreenMode,
+    AgentChooserState, AppEvent, AppState, InlineState, IssueFocus, PaneFocus, PrFocus,
+    PriorAgentFocus, ReadOnlyHintKind, ScreenMode,
 };
 use crate::domain::{PrFilter, PrFilterState};
 use crate::messages::PullRequestsMessage;
@@ -23,29 +23,52 @@ use crate::state::PR_FILTER_FIELD_COUNT;
 impl AppState {
     /// Enter PR mode: save prior focus, set active, clear data, set default filter.
     ///
+    /// When entering from Issues mode (cross-mode `p` key, issue #164), the
+    /// Issues mode is deactivated in-place: its per-repo preferences are
+    /// snapshot and its overlays cleared, but `prior_agent_focus` is NOT
+    /// restored to Dashboard (that would bounce the user out of list-mode
+    /// UX). The exclusivity invariant holds: at most one of
+    /// `issues_state.active` / `prs_state.active` is true after this call.
+    ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-001
     /// @pseudocode component-001 lines 66-76
     fn enter_prs_mode(&mut self) {
-        self.prs_state.prior_agent_focus = Some(PriorAgentFocus {
-            pane_focus: self.pane_focus,
-            selected_repository_index: self.selected_repository_index,
-            selected_agent_index: self.selected_agent_index,
-        });
+        // Finding 1: deactivate Issues mode if active so both list modes are
+        // never simultaneously active (which would corrupt per-repo
+        // preferences on a repo change).
+        if self.issues_state.active {
+            self.remember_issue_preferences();
+            self.issues_state.active = false;
+            self.issues_state.issue_focus = IssueFocus::IssueList;
+            self.issues_state.inline_state = InlineState::None;
+            self.issues_state.agent_chooser = None;
+            self.issues_state.filter_ui.controls_open = false;
+            self.issues_state.search_input_focused = false;
+        }
+        // Finding 1: only save prior_agent_focus if none exists yet, so a
+        // Dashboard → PRs → Issues → PRs round-trip does not clobber the
+        // original saved focus.
+        if self.prs_state.prior_agent_focus.is_none() {
+            self.prs_state.prior_agent_focus = Some(PriorAgentFocus {
+                pane_focus: self.pane_focus,
+                selected_repository_index: self.selected_repository_index,
+                selected_agent_index: self.selected_agent_index,
+            });
+        }
+        // Finding 2: normalize terminal-focus state so a cross-mode switch
+        // from a terminal-focused Issues view does not leave terminal capture
+        // active in a list-mode render.
+        self.terminal_focused = false;
+        self.pane_focus = PaneFocus::Agents;
         self.screen_mode = ScreenMode::DashboardPullRequests;
         self.prs_state.active = true;
         self.prs_state.pr_focus = PrFocus::PrList;
-        self.prs_state.pull_requests.clear();
-        self.prs_state.selected_pr_index = None;
+        self.prs_state.list.clear();
         self.prs_state.pr_detail = None;
-        self.prs_state.list_cursor = None;
-        self.prs_state.has_more_prs = false;
         self.prs_state.error = None;
-        self.prs_state.loading.list = true;
         self.prs_state.loading.detail = false;
         self.prs_state.loading.comments = false;
-        self.prs_state.list_reload_pending = None;
-        self.prs_state.list_page_pending = None;
         self.prs_state.detail_pending = None;
         self.prs_state.comments_page_pending = None;
         self.prs_state.inline_state = InlineState::None;
@@ -128,20 +151,13 @@ impl AppState {
             self.prs_state.draft_notice = Some("Draft discarded (repo changed)".to_string());
             self.prs_state.inline_state = InlineState::None;
         }
-        // M7: clear property editor and pending mutation on scope reset.
         self.prs_state.property_editor = None;
         self.prs_state.property_mutation_pending = None;
-        self.prs_state.pull_requests.clear();
-        self.prs_state.selected_pr_index = None;
+        self.prs_state.list.clear();
         self.prs_state.pr_detail = None;
-        self.prs_state.list_cursor = None;
-        self.prs_state.has_more_prs = false;
         self.prs_state.error = None;
-        self.prs_state.loading.list = true;
         self.prs_state.loading.detail = false;
         self.prs_state.loading.comments = false;
-        self.prs_state.list_reload_pending = None;
-        self.prs_state.list_page_pending = None;
         self.prs_state.detail_pending = None;
         self.prs_state.comments_page_pending = None;
         self.prs_state.detail_scroll_offset = 0;
@@ -150,6 +166,11 @@ impl AppState {
         self.prs_state.merge_chooser = None;
         self.prs_state.merge_mutation_pending = None;
         self.restore_pr_preferences();
+        // Begin a fresh reload so `list_pending()` is observable before the
+        // dispatch layer spawns the actual fetch (mirrors Actions).
+        if let Some(repo_id) = self.selected_repository().map(|r| r.id.clone()) {
+            self.begin_prs_reload(repo_id);
+        }
     }
 
     // ---- Filter controls ----
@@ -191,6 +212,8 @@ impl AppState {
                     .field_index
                     .min(PR_FILTER_FIELD_COUNT.saturating_sub(1));
                 self.prs_state.draft_filter = self.prs_state.committed_filter.clone();
+                self.prs_state.filter_ui.draft_labels_text =
+                    self.prs_state.committed_filter.labels.join(",");
                 true
             }
             AppEvent::PrCloseFilterControls => {
@@ -376,11 +399,12 @@ impl AppState {
     /// @requirement REQ-PR-008
     /// @pseudocode component-001 lines 275-281
     fn reload_pr_list_for_filter_change(&mut self) {
-        self.prs_state.list_cursor = None;
-        self.prs_state.has_more_prs = false;
-        self.prs_state.loading.list = true;
-        self.prs_state.list_page_pending = None;
-        self.prs_state.list_reload_pending = None;
+        self.prs_state.list.clear();
+        // Begin a fresh reload so `list_pending()` is observable before the
+        // dispatch layer spawns the actual fetch (mirrors Actions).
+        if let Some(repo_id) = self.selected_repository().map(|r| r.id.clone()) {
+            self.begin_prs_reload(repo_id);
+        }
     }
 
     // ---- Agent chooser ----
@@ -483,6 +507,11 @@ impl AppState {
             ReadOnlyHintKind::ReadOnlyResolveOnThread => {
                 "Select a review thread to resolve (read-only context)".to_string()
             }
+            ReadOnlyHintKind::IssueAlreadyClosed => "Issue is already closed".to_string(),
+            ReadOnlyHintKind::NoIssueFocused => "No issue selected".to_string(),
+            ReadOnlyHintKind::NoDuplicateTarget => {
+                "Select an issue to mark as duplicate".to_string()
+            }
         };
         self.prs_state.draft_notice = Some(text);
     }
@@ -495,7 +524,7 @@ impl AppState {
     fn apply_pr_open_browser_event(&mut self, event: &AppEvent) -> bool {
         match event {
             AppEvent::PrOpenInBrowser => {
-                if self.prs_state.selected_pr_index.is_none() {
+                if self.prs_state.selected_pr_index().is_none() {
                     self.prs_state.draft_notice =
                         Some("No pull request selected to open".to_string());
                 } else {

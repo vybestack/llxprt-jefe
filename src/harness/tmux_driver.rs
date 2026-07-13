@@ -215,6 +215,29 @@ impl TmuxDriver {
             .is_ok_and(|out| out.status.success())
     }
 
+    /// Describe the isolated multiplexer used by this harness run.
+    #[must_use]
+    pub fn diagnostics(&self) -> String {
+        let version = match tmux_command().arg("-V").output() {
+            Ok(output) if output.status.success() => {
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
+            }
+            Ok(output) => {
+                let details = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                if details.is_empty() {
+                    format!("unavailable ({})", output.status)
+                } else {
+                    format!("unavailable ({details})")
+                }
+            }
+            Err(error) => format!("unavailable ({error})"),
+        };
+        format!(
+            "multiplexer: tmux\ntmux version: {version}\nnamespace: {}\n",
+            harness_socket_name()
+        )
+    }
+
     /// Start a detached tmux session.
     ///
     /// # Errors

@@ -31,6 +31,8 @@ impl ActionsMessage {
             AppEvent::ActionsNavigateJobDown => Self::NavigateJob(NavDir::Down),
             AppEvent::ActionsRunsLoaded { .. } => Self::from_runs_loaded(event),
             AppEvent::ActionsRunsLoadFailed { .. } => Self::from_runs_failed(event),
+            AppEvent::ActionsRunsPageLoaded { .. } => Self::from_runs_page_loaded(event),
+            AppEvent::ActionsRunsPageLoadFailed { .. } => Self::from_runs_page_failed(event),
             AppEvent::ActionsDetailLoaded { .. } => Self::from_detail_loaded(event),
             AppEvent::ActionsDetailLoadFailed { .. } => Self::from_detail_failed(event),
             AppEvent::WorkflowsLoaded { .. } => Self::from_workflows_loaded(event),
@@ -89,6 +91,8 @@ impl ActionsMessage {
             },
             Self::RunsLoaded { .. } => Self::into_runs_loaded(self),
             Self::RunsLoadFailed { .. } => Self::into_runs_failed(self),
+            Self::RunsPageLoaded { .. } => Self::into_runs_page_loaded(self),
+            Self::RunsPageLoadFailed { .. } => Self::into_runs_page_failed(self),
             Self::DetailLoaded { .. } => Self::into_detail_loaded(self),
             Self::DetailLoadFailed { .. } => Self::into_detail_failed(self),
             Self::WorkflowsLoaded { .. } => Self::into_workflows_loaded(self),
@@ -171,6 +175,46 @@ impl ActionsMessage {
                 request_id,
                 error,
             } => Self::RunsLoadFailed {
+                scope_repo_id,
+                filter,
+                page,
+                request_id,
+                error,
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn from_runs_page_loaded(event: AppEvent) -> Self {
+        match event {
+            AppEvent::ActionsRunsPageLoaded {
+                scope_repo_id,
+                filter,
+                page,
+                request_id,
+                runs,
+                has_more,
+            } => Self::RunsPageLoaded {
+                scope_repo_id,
+                filter,
+                page,
+                request_id,
+                runs,
+                has_more,
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn from_runs_page_failed(event: AppEvent) -> Self {
+        match event {
+            AppEvent::ActionsRunsPageLoadFailed {
+                scope_repo_id,
+                filter,
+                page,
+                request_id,
+                error,
+            } => Self::RunsPageLoadFailed {
                 scope_repo_id,
                 filter,
                 page,
@@ -307,6 +351,46 @@ impl ActionsMessage {
                 request_id,
                 error,
             } => AppEvent::ActionsRunsLoadFailed {
+                scope_repo_id,
+                filter,
+                page,
+                request_id,
+                error,
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn into_runs_page_loaded(self) -> AppEvent {
+        match self {
+            Self::RunsPageLoaded {
+                scope_repo_id,
+                filter,
+                page,
+                request_id,
+                runs,
+                has_more,
+            } => AppEvent::ActionsRunsPageLoaded {
+                scope_repo_id,
+                filter,
+                page,
+                request_id,
+                runs,
+                has_more,
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn into_runs_page_failed(self) -> AppEvent {
+        match self {
+            Self::RunsPageLoadFailed {
+                scope_repo_id,
+                filter,
+                page,
+                request_id,
+                error,
+            } => AppEvent::ActionsRunsPageLoadFailed {
                 scope_repo_id,
                 filter,
                 page,

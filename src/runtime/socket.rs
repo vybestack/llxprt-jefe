@@ -213,7 +213,7 @@ pub fn jefe_tmux_socket_path() -> &'static std::path::Path {
     SOCKET_PATH.get_or_init(|| ensure_dir_or_fallback(resolve_socket_path()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

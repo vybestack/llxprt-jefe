@@ -47,6 +47,18 @@ fn run(args: CliArgs) -> ExitCode {
     match request.and_then(|req| run_tmux_scenario(&scenario, &req, args.out_dir.as_deref())) {
         Ok(summary) => {
             write_stdout(&format!("ok: {} steps\n", summary.steps_run));
+            if args.keep_session || scenario.config.keep_session {
+                write_stdout(&format!("retained session: {}\n", args.session));
+                if let Some(details) = summary.multiplexer_details {
+                    write_stdout(&details);
+                }
+                if let Some(directory) = summary.artifact_dir {
+                    write_stdout(&format!(
+                        "multiplexer details file: {}\n",
+                        directory.join("multiplexer.txt").display()
+                    ));
+                }
+            }
             ExitCode::SUCCESS
         }
         Err(err) => {

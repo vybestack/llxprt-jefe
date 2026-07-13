@@ -27,10 +27,16 @@ use super::{AppStateHandle, SharedContext};
 /// @requirement REQ-ISS-002
 /// @pseudocode component-003 lines 01-38
 pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
-    // P0.5: property editor overlay (issue #175) — checked before inline/chooser
-    // so Up/Down/Space/Enter/Esc route to the editor while it is open.
     if state.issues_state.property_editor.is_some() {
         return resolve_property_editor_key_event(key_event);
+    }
+
+    if state.issues_state.close_reason_chooser.is_some() {
+        return resolve_close_reason_chooser_key_event(state, key_event);
+    }
+
+    if state.issues_state.delete_confirm.is_some() {
+        return resolve_delete_confirm_key_event(key_event);
     }
 
     if state.issues_state.inline_state != InlineState::None {
@@ -109,6 +115,56 @@ fn resolve_property_editor_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
     }
 }
 
+/// Route key events when the delete confirm overlay is open.
+/// Enter confirms (arms or dispatches), Esc cancels, everything else is consumed.
+fn resolve_delete_confirm_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Enter => Some(AppEvent::IssueDeleteConfirm),
+        KeyCode::Esc => Some(AppEvent::IssueDeleteCancel),
+        _ => None,
+    }
+}
+
+/// Route key events when the close-reason chooser overlay is open.
+///
+/// When `duplicate_search` is active (Duplicate reason selected), digits
+/// update the search query, Backspace deletes, Up/Down navigate candidates,
+/// and Enter confirms the duplicate selection. Otherwise, Up/Down navigate
+/// the reason list, Enter selects/confirms, and Esc cancels.
+fn resolve_close_reason_chooser_key_event(
+    state: &AppState,
+    key_event: &KeyEvent,
+) -> Option<AppEvent> {
+    let chooser = state.issues_state.close_reason_chooser.as_ref()?;
+    if chooser.duplicate_search.is_some() {
+        return match key_event.code {
+            KeyCode::Char(c) if c.is_ascii_digit() => {
+                Some(AppEvent::CloseReasonDuplicateSearchChar(c))
+            }
+            KeyCode::Backspace => Some(AppEvent::CloseReasonDuplicateSearchBackspace),
+            KeyCode::Up => Some(AppEvent::CloseReasonDuplicateSearchNavigateUp),
+            KeyCode::Down => Some(AppEvent::CloseReasonDuplicateSearchNavigateDown),
+            KeyCode::Enter => Some(AppEvent::CloseReasonConfirm),
+            KeyCode::Esc => Some(AppEvent::CloseReasonCancel),
+            _ => None,
+        };
+    }
+    if chooser.awaiting_confirmation {
+        return match key_event.code {
+            KeyCode::Enter => Some(AppEvent::CloseReasonConfirm),
+            KeyCode::Esc => Some(AppEvent::CloseReasonCancel),
+            _ => None,
+        };
+    }
+    match key_event.code {
+        KeyCode::Up => Some(AppEvent::CloseReasonNavigateUp),
+        KeyCode::Down => Some(AppEvent::CloseReasonNavigateDown),
+        KeyCode::Enter => Some(AppEvent::CloseReasonSelect),
+        KeyCode::Esc => Some(AppEvent::CloseReasonCancel),
+        _ => None,
+    }
+}
+
 fn resolve_search_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     match key_event.code {
         KeyCode::Enter => Some(AppEvent::ApplySearch),
@@ -137,8 +193,26 @@ fn resolve_global_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Op
         }
         KeyCode::Char('a') | KeyCode::Esc => Some(AppEvent::ExitIssuesMode),
         KeyCode::Char('i') => Some(AppEvent::RefocusIssueList),
+        // Cross-mode navigation: `p` from Issues switches to PR mode (issue #164).
+        KeyCode::Char('p') => Some(AppEvent::EnterPrsMode),
+        // F12 defocuses the terminal or returns to the issue list (issue #164).
+        KeyCode::F(12) => f12_event_for_issues(state),
         KeyCode::Char('?' | 'h') | KeyCode::F(1) => Some(AppEvent::OpenHelp),
         _ => None,
+    }
+}
+
+/// F12 semantics in Issues mode (issue #164): defocus the terminal if it is
+/// focused, otherwise return to the issue list from the detail view. A no-op
+/// (returns `None`) when already at the issue list with the terminal
+/// unfocused.
+fn f12_event_for_issues(state: &AppState) -> Option<AppEvent> {
+    if state.terminal_focused {
+        Some(AppEvent::ToggleTerminalFocus)
+    } else if state.issues_state.issue_focus == IssueFocus::IssueDetail {
+        Some(AppEvent::RefocusIssueList)
+    } else {
+        None
     }
 }
 
@@ -164,6 +238,8 @@ fn resolve_issue_list_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
         KeyCode::Char('n' | 'N') => Some(AppEvent::OpenNewIssueComposer),
         KeyCode::Char('f') => Some(AppEvent::OpenFilterControls),
         KeyCode::Char('/') => Some(AppEvent::FocusSearchInput),
+        KeyCode::Char('C') => Some(AppEvent::OpenCloseReasonChooser),
+        KeyCode::Char('D') => Some(AppEvent::OpenDeleteIssueConfirm),
         _ => None,
     }
 }
@@ -180,6 +256,8 @@ fn resolve_issue_detail_key_event(state: &AppState, key_event: &KeyEvent) -> Opt
         KeyCode::Char('c') => Some(AppEvent::OpenNewCommentComposer),
         KeyCode::Char('r') => reply_event_for_subfocus(state.issues_state.detail_subfocus),
         KeyCode::Char('S') if !state.agents.is_empty() => Some(AppEvent::OpenAgentChooser),
+        KeyCode::Char('C') => Some(AppEvent::OpenCloseReasonChooser),
+        KeyCode::Char('D') => Some(AppEvent::OpenDeleteIssueConfirm),
         KeyCode::Tab | KeyCode::Char('j') => Some(AppEvent::IssueDetailSubfocusNext),
         KeyCode::BackTab | KeyCode::Char('k') => Some(AppEvent::IssueDetailSubfocusPrev),
         _ => resolve_issue_property_open_key(state, key_event),
@@ -193,6 +271,8 @@ fn resolve_issue_detail_key_event(state: &AppState, key_event: &KeyEvent) -> Opt
 fn resolve_issue_property_open_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     if state.issues_state.detail_subfocus != DetailSubfocus::Body
         || state.issues_state.property_editor.is_some()
+        || state.issues_state.close_reason_chooser.is_some()
+        || state.issues_state.delete_confirm.is_some()
     {
         return None;
     }
@@ -269,3 +349,7 @@ mod tests;
 #[cfg(test)]
 #[path = "issues_property_key_tests.rs"]
 mod issues_property_key_tests;
+
+#[cfg(test)]
+#[path = "issues_close_reason_key_tests.rs"]
+mod close_reason_key_tests;

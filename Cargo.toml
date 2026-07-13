@@ -1,6 +1,6 @@
 [package]
 name = "jefe"
-version = "0.0.28"
+version = "0.0.29"
 edition = "2024"
 authors = ["Vybestack LLC"]
 description = "Terminal application for managing multiple llxprt coding agents"
@@ -49,6 +49,14 @@ lru = "0.12"
 # support and ratatui-markdown produces ratatui-specific types that do not fit
 # jefe's iocraft pipeline.
 comrak = { version = "0.53", default-features = false }
+
+[features]
+psmux-smoke = []
+
+[[bin]]
+name = "jefe-psmux-smoke-fixture"
+path = "tests/fixtures/psmux_smoke_fixture.rs"
+required-features = ["psmux-smoke"]
 
 [patch.crates-io]
 iocraft = { path = "vendor/iocraft" }
