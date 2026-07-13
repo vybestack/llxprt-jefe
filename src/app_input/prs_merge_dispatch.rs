@@ -253,9 +253,18 @@ fn pr_merge_methods_event(
     name: &str,
     pr_number: u64,
 ) -> Option<AppEvent> {
-    let methods = super::github_client(ctx)?
-        .get_repo_merge_methods(owner, name)
-        .ok()?;
+    let client = super::github_client(ctx)?;
+    let methods = match client.get_repo_merge_methods(owner, name) {
+        Ok(methods) => methods,
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                repository = %format_args!("{owner}/{name}"),
+                "could not load PR merge methods; keeping all methods available"
+            );
+            return None;
+        }
+    };
     Some(AppEvent::PrMergeMethodsLoaded {
         scope_repo_id: scope.clone(),
         pr_number,
