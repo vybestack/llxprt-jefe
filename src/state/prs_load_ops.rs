@@ -375,6 +375,13 @@ impl AppState {
 
     /// Apply a PR comments page failure (scoped error, never silent).
     ///
+    /// Always surfaces the error when the scope matches the selected repo, so
+    /// a failure is never silently dropped even when no pending comment-page
+    /// request can correlate it (e.g. the detail was cleared while the request
+    /// was in flight). Clears `loading.comments` if a matching pending was
+    /// canceled; an unmatched failure leaves loading alone since some other
+    /// request may legitimately be in flight.
+    ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-NFR-002
     /// @pseudocode component-001 lines 242-247
@@ -388,24 +395,25 @@ impl AppState {
         if self.selected_repository_id() != Some(scope_repo_id) {
             return;
         }
-        let Some(detail) = &mut self.prs_state.pr_detail else {
-            return;
-        };
-        let correlation = LoadCorrelation::Page {
-            identity: CommentDetailIdentity {
-                scope_repo_id: scope_repo_id.clone(),
-                number: pr_number,
-            },
-            token: detail.comments.next_page().clone(),
-            request_id: ListRequestId::from_raw(request_id),
-        };
-        if matches!(
-            detail.comments.accept_failure(&correlation),
-            AcceptOutcome::Applied
-        ) {
-            self.prs_state.loading.comments = false;
-            self.prs_state.error = Some(error);
+        if let Some(detail) = &mut self.prs_state.pr_detail
+            && detail.number == pr_number
+        {
+            let correlation = LoadCorrelation::Page {
+                identity: CommentDetailIdentity {
+                    scope_repo_id: scope_repo_id.clone(),
+                    number: pr_number,
+                },
+                token: detail.comments.next_page().clone(),
+                request_id: ListRequestId::from_raw(request_id),
+            };
+            if matches!(
+                detail.comments.accept_failure(&correlation),
+                AcceptOutcome::Applied
+            ) {
+                self.prs_state.loading.comments = false;
+            }
         }
+        self.prs_state.error = Some(error);
     }
 
     /// Check if a pending detail request matches scope + pr_number + request_id.

@@ -107,18 +107,22 @@ pub(super) fn p15_detail(number: u64) -> IssueDetail {
         milestone: None,
         body: "Issue body".to_string(),
         external_url: format!("https://github.com/owner/repo/issues/{number}"),
-        comments: empty_issue_comments(number),
+        comments: empty_issue_comments(
+            crate::domain::RepositoryId("owner/repo".to_string()),
+            number,
+        ),
     }
 }
 
 /// An empty, exhausted comment list (no more pages) for detail fixtures.
 fn empty_issue_comments(
+    scope_repo_id: crate::domain::RepositoryId,
     number: u64,
 ) -> crate::domain::PaginatedList<crate::domain::IssueComment, crate::domain::CommentDetailIdentity>
 {
     crate::domain::PaginatedList::from_loaded(
         crate::domain::CommentDetailIdentity {
-            scope_repo_id: crate::domain::RepositoryId::default(),
+            scope_repo_id,
             number,
         },
         Vec::new(),

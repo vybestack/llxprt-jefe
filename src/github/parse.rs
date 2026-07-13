@@ -302,9 +302,10 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         })
         .transpose()?
         .unwrap_or_default();
+    let comments = exhausted_comments(repo_owner_name.clone(), number, comments);
 
     Ok(IssueDetail {
-        repo_owner_name: repo_owner_name.clone(),
+        repo_owner_name,
         number,
         node_id,
         title,
@@ -317,7 +318,7 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         milestone,
         body,
         external_url,
-        comments: exhausted_comments(repo_owner_name.clone(), number, comments),
+        comments,
     })
 }
 

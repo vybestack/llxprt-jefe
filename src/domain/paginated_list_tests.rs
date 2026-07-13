@@ -82,8 +82,26 @@ fn new_reload_supersedes_pending_page() {
     let req3 = alloc_request_id(&mut list);
     let reload_outcome = list.begin_reload(ident(1), req3);
     assert_eq!(reload_outcome, BeginOutcome::Started);
-    // The pending is now a reload (identity may be same but kind changed).
+    // The pending is now the reload (req3), not the superseded page (req2).
     assert!(list.has_pending_request());
+    // The superseded page result is now stale (its request no longer matches).
+    let stale_page = list.accept_page(PageResult {
+        identity: ident(1),
+        request_id: req2,
+        requested_token: PageToken::PageNumber(2),
+        items: vec![99],
+        next_page: PageToken::Done,
+    });
+    assert_eq!(stale_page, AcceptOutcome::Stale);
+    // The reload (req3) is still the pending operation and can complete.
+    let reload_ok = list.accept_loaded(ReloadResult {
+        identity: ident(1),
+        request_id: req3,
+        items: vec![10, 20],
+        next_page: PageToken::Done,
+    });
+    assert_eq!(reload_ok, AcceptOutcome::Applied);
+    assert!(!list.has_pending_request());
 }
 
 // ── Reload accept ─────────────────────────────────────────────────────────

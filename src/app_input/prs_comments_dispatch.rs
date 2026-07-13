@@ -185,6 +185,11 @@ fn comment_cursor(token: &PageToken) -> Option<String> {
 }
 
 /// Mark the comment-page failure as pending so the reducer clears loading.
+///
+/// Returns the failure event (with a real request id when a pending comment
+/// page could be started) so the caller routes it through `apply_and_persist`,
+/// which both applies the reducer and persists state. The reducer surfaces the
+/// error for the current scope even when no pending request correlates.
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-010
 /// @pseudocode component-004 lines 146-155
@@ -201,26 +206,21 @@ fn mark_pr_comment_failure_pending(
     else {
         return None;
     };
+    // Try to correlate with an in-flight pending comment page so the reducer
+    // can clear the loading flag. If none can start (no detail, busy,
+    // exhausted, repo mismatch) the reducer still surfaces the error for the
+    // current scope via apply_pr_comments_page_failed.
     let cursor = comment_cursor_from_state(app_state);
     let request_id = app_state
         .write()
-        .begin_pr_comment_page(&scope_repo_id, pr_number, cursor);
-    if let Some(request_id) = request_id {
-        return Some(AppEvent::PrCommentsPageFailed {
-            scope_repo_id,
-            pr_number,
-            request_id,
-            error,
-        });
-    }
-
-    // The page could not start (no detail, busy, exhausted, or repo mismatch).
-    // Surface the error directly because no pending request can correlate it.
-    let mut state = app_state.write();
-    if current_pr_scope_repo_id(&state) == scope_repo_id {
-        state.prs_state.error = Some(error);
-    }
-    None
+        .begin_pr_comment_page(&scope_repo_id, pr_number, cursor)
+        .unwrap_or(0);
+    Some(AppEvent::PrCommentsPageFailed {
+        scope_repo_id,
+        pr_number,
+        request_id,
+        error,
+    })
 }
 
 fn comment_cursor_from_state(app_state: &AppStateHandle) -> Option<String> {
