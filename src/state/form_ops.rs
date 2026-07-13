@@ -729,6 +729,7 @@ impl AppState {
                     self.error_message = Some(error.to_string());
                     return;
                 }
+                self.error_message = None;
                 if let Some(repo) = Self::create_repository_from_fields(&fields) {
                     self.repositories.push(repo);
                     self.selected_repository_index = Some(self.repositories.len() - 1);
@@ -743,6 +744,7 @@ impl AppState {
                     self.error_message = Some(error.to_string());
                     return;
                 }
+                self.error_message = None;
                 let Some(repo) = self.repositories.iter_mut().find(|r| r.id == id) else {
                     return;
                 };

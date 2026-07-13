@@ -69,17 +69,17 @@ impl std::error::Error for ResolveTrackerError {}
 /// Source-aware resolved tracker outcome (issue #266 defect remediation).
 ///
 /// Distinguishes a successfully resolved target from a genuinely absent
-/// configuration and from a **malformed** nonblank override. Callers that
-/// surface user-visible errors must match on [`Self::Malformed`] so the raw
-/// override and its reason reach the UI, rather than collapsing into an
-/// indistinguishable "missing GitHub Repo" message.
+/// configuration and malformed input in either the nonblank override or the
+/// fallback `github_repo`. Callers that surface user-visible errors must match
+/// on [`Self::Malformed`] so the offending raw value and reason reach the UI,
+/// rather than collapsing into an indistinguishable missing-repository message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedTracker {
     /// A valid `owner/repo` was resolved (override or fallback).
     Resolved(TrackerTarget),
     /// No tracker is configured at all (both override and fallback are blank).
     Absent,
-    /// A nonblank override is present but malformed. Carries the original
+    /// The selected override or fallback is malformed. Carries the original
     /// parse error (raw value + categorized reason) so the UI can surface it.
     Malformed(GitHubRepoRefError),
 }
@@ -87,11 +87,10 @@ pub enum ResolvedTracker {
 /// Resolve the effective tracker target for a specific repository as a
 /// source-aware outcome.
 ///
-/// Returns [`ResolvedTracker`] so the caller can distinguish a malformed
-/// nonblank override (which must surface
-/// its raw value and reason) from a genuinely absent configuration. This is
-/// the preferred entry point for paths that build user-visible error
-/// messages.
+/// Returns [`ResolvedTracker`] so the caller can distinguish malformed input
+/// from either selected source (with its raw value and reason) from a genuinely
+/// absent configuration. This is the preferred entry point for paths that
+/// build user-visible error messages.
 pub(super) fn resolve_tracker_outcome(repo: &Repository) -> ResolvedTracker {
     match repo.effective_issue_pr_repo() {
         Ok(Some(reference)) => ResolvedTracker::Resolved(TrackerTarget::from(&reference)),
@@ -105,7 +104,7 @@ pub(super) fn resolve_tracker_outcome(repo: &Repository) -> ResolvedTracker {
 /// Delegates to [`Repository::effective_issue_pr_repo`] so the override
 /// selection logic lives in the domain layer. Returns `Ok(Some(target))`
 /// when a valid `owner/repo` is available, `Ok(None)` when no tracker is
-/// configured, and `Err` when a nonblank override is malformed.
+/// configured, and `Err` when the selected override or fallback is malformed.
 #[cfg(test)]
 pub(super) fn resolve_tracker_for_repo(
     repo: &Repository,

@@ -345,22 +345,32 @@ fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
     }
     let scope_repo_id = current_scope_repo_id(&state);
     let issue_number = detail.number;
-    let (owner, repo, malformed_message) = resolve_gh_repo_or_triple(&state);
-    if owner.is_empty() || repo.is_empty() {
-        let error = malformed_message.unwrap_or_else(|| MISSING_DETAIL_REPO_MSG.to_owned());
-        return CommentPageRequest::Fail(AppEvent::IssueCommentsPageFailed {
-            scope_repo_id,
-            issue_number,
-            request_id: 0,
-            request_cursor: detail.comments_cursor.clone(),
-            error,
-        });
-    }
+    let tracker = match jefe::domain::GitHubRepoRef::parse(&detail.repo_owner_name) {
+        Ok(Some(tracker)) => tracker,
+        Ok(None) => {
+            return CommentPageRequest::Fail(AppEvent::IssueCommentsPageFailed {
+                scope_repo_id,
+                issue_number,
+                request_id: 0,
+                request_cursor: detail.comments_cursor.clone(),
+                error: MISSING_DETAIL_REPO_MSG.to_owned(),
+            });
+        }
+        Err(error) => {
+            return CommentPageRequest::Fail(AppEvent::IssueCommentsPageFailed {
+                scope_repo_id,
+                issue_number,
+                request_id: 0,
+                request_cursor: detail.comments_cursor.clone(),
+                error: error.to_string(),
+            });
+        }
+    };
     let params = CommentPageParams {
         scope_repo_id,
         issue_number,
-        owner,
-        repo,
+        owner: tracker.owner().to_owned(),
+        repo: tracker.repo().to_owned(),
         cursor: detail.comments_cursor.clone(),
         page_size: 30,
         request_id: 0,
