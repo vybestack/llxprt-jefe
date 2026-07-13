@@ -53,6 +53,8 @@ impl Dimensions for TermDimensions {
 #[derive(Clone, Copy, Debug)]
 pub struct RuntimeListener;
 
+// ClipboardStore uses the same OSC 52 boundary as Jefe selections. This keeps
+// provider policy centralized; unsupported outer terminals may ignore OSC 52.
 fn forward_clipboard_store<F>(text: &str, mut writer: F) -> std::io::Result<()>
 where
     F: FnMut(&str) -> std::io::Result<()>,

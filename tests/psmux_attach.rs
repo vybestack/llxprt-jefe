@@ -14,6 +14,7 @@ use jefe::runtime::{
 
 const FIXTURE: &str = env!("CARGO_BIN_EXE_jefe-psmux-smoke-fixture");
 const TIMEOUT: Duration = Duration::from_secs(8);
+const PSMUX_STATUS_ROWS: u16 = 1;
 static NAMESPACE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 struct ServerCleanup {
@@ -23,7 +24,11 @@ struct ServerCleanup {
 impl Drop for ServerCleanup {
     fn drop(&mut self) {
         let mut cleanup = self.plan.command();
-        let _ = cleanup.arg("kill-server").status();
+        match cleanup.arg("kill-server").status() {
+            Ok(status) if status.success() => {}
+            Ok(status) => tracing::warn!(%status, "psmux cleanup failed"),
+            Err(error) => tracing::warn!(?error, "psmux cleanup could not start"),
+        }
     }
 }
 
@@ -187,9 +192,10 @@ fn assert_resize(
     viewer
         .resize(28, 90)
         .map_err(|error| format!("resize production viewer: {error}"))?;
-    // psmux reserves one attached-client status row; the pane receives the
-    // remaining rows while Jefe's terminal model retains the requested 90x28.
-    wait_for_dimensions(plan, session, "90x27")?;
+    // psmux 3.3.6 reserves `PSMUX_STATUS_ROWS` for its attached-client status;
+    // Jefe's terminal model retains the complete requested geometry.
+    let expected_pane = format!("90x{}", 28 - PSMUX_STATUS_ROWS);
+    wait_for_dimensions(plan, session, &expected_pane)?;
     let resized = viewer
         .snapshot()
         .ok_or_else(|| "resized viewer snapshot unavailable".to_owned())?;
@@ -253,7 +259,14 @@ fn query_dimensions(plan: &MultiplexerPlan, session: &str) -> Result<String, Str
             "#{pane_width}x#{pane_height}",
         ])
         .output()
-        .map_err(|error| format!("query pane geometry: {error}"))?;
+        .map_err(|error| format!("query pane geometry: {error:?}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "query pane geometry failed with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
@@ -261,7 +274,12 @@ fn snapshot_text(snapshot: &TerminalSnapshot) -> String {
     snapshot
         .cells
         .iter()
-        .map(|row| row.iter().map(|cell| cell.ch).collect::<String>())
+        .map(|row| {
+            row.iter()
+                .filter(|cell| !cell.wide_spacer)
+                .map(|cell| cell.ch)
+                .collect::<String>()
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
