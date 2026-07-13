@@ -205,16 +205,17 @@ fn windows_extensions(pathext: Option<&OsStr>) -> Vec<(String, AgentWrapperKind)
         .split(';')
         .filter_map(classify_windows_extension)
         .collect::<Vec<_>>();
-    if !extensions
-        .iter()
-        .any(|(extension, _)| extension.eq_ignore_ascii_case(".ps1"))
-    {
+    if !extensions.iter().any(|(extension, _)| extension == ".ps1") {
         extensions.push((".ps1".to_owned(), AgentWrapperKind::PowerShellScript));
     }
     extensions
 }
 
 fn classify_windows_extension(extension: &str) -> Option<(String, AgentWrapperKind)> {
+    let extension = extension.trim();
+    if extension.is_empty() {
+        return None;
+    }
     let normalized = if extension.starts_with('.') {
         extension.to_ascii_lowercase()
     } else {

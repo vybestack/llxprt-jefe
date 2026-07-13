@@ -6,6 +6,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -53,24 +54,33 @@ pub fn write_launch_plan(
         args: args.to_vec(),
         environment: environment.to_vec(),
     };
-    let bytes = serde_json::to_vec(&payload).map_err(|_| AgentLauncherError::InvalidPlan)?;
+    let bytes =
+        serde_json::to_vec(&payload).map_err(|_| AgentLauncherError::PlanSerializationFailed)?;
     for _ in 0..16 {
         let sequence = LAUNCH_PLAN_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
         let path = std::env::temp_dir().join(format!(
-            "jefe-agent-launch-{}-{sequence:x}.json",
+            "jefe-agent-launch-{}-{timestamp:x}-{sequence:x}.json",
             std::process::id()
         ));
         match secure_launch_plan_file(&path) {
             Ok(mut file) => {
-                file.write_all(&bytes)
-                    .map_err(|_| AgentLauncherError::InvalidPlan)?;
+                if file.write_all(&bytes).is_err() {
+                    drop(file);
+                    return match std::fs::remove_file(&path) {
+                        Ok(()) => Err(AgentLauncherError::PlanWriteFailed),
+                        Err(_) => Err(AgentLauncherError::CleanupFailed),
+                    };
+                }
                 return Ok(path);
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(_) => return Err(AgentLauncherError::InvalidPlan),
+            Err(_) => return Err(AgentLauncherError::PlanCreateFailed),
         }
     }
-    Err(AgentLauncherError::InvalidPlan)
+    Err(AgentLauncherError::PlanCreateFailed)
 }
 
 /// Consume and execute a private launch plan, returning the child status.
@@ -78,10 +88,10 @@ pub fn run_launch_plan(path: &Path) -> Result<ExitStatus, AgentLauncherError> {
     if !valid_launch_plan_path(path) {
         return Err(AgentLauncherError::InvalidPlan);
     }
-    let bytes = std::fs::read(path).map_err(|_| AgentLauncherError::InvalidPlan)?;
+    let bytes = std::fs::read(path).map_err(|_| AgentLauncherError::PlanReadFailed)?;
     std::fs::remove_file(path).map_err(|_| AgentLauncherError::CleanupFailed)?;
     let payload: AgentLaunchPayload =
-        serde_json::from_slice(&bytes).map_err(|_| AgentLauncherError::InvalidPlan)?;
+        serde_json::from_slice(&bytes).map_err(|_| AgentLauncherError::InvalidPlanPayload)?;
     let mut command = command_for_payload(&payload);
     for variable in ["TMUX", "TMUX_PANE", "TMUX_TMPDIR"] {
         command.env_remove(variable);
@@ -158,6 +168,11 @@ fn command_for_payload(payload: &AgentLaunchPayload) -> Command {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentLauncherError {
     InvalidPlan,
+    PlanSerializationFailed,
+    PlanCreateFailed,
+    PlanWriteFailed,
+    PlanReadFailed,
+    InvalidPlanPayload,
     CleanupFailed,
     LaunchFailed,
 }
@@ -165,7 +180,22 @@ pub enum AgentLauncherError {
 impl std::fmt::Display for AgentLauncherError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidPlan => formatter.write_str("invalid internal agent launch plan"),
+            Self::InvalidPlan => formatter.write_str("invalid internal agent launch plan path"),
+            Self::PlanSerializationFailed => {
+                formatter.write_str("internal agent launch plan could not be serialized")
+            }
+            Self::PlanCreateFailed => {
+                formatter.write_str("internal agent launch plan file could not be created")
+            }
+            Self::PlanWriteFailed => {
+                formatter.write_str("internal agent launch plan file could not be written")
+            }
+            Self::PlanReadFailed => {
+                formatter.write_str("internal agent launch plan file could not be read")
+            }
+            Self::InvalidPlanPayload => {
+                formatter.write_str("internal agent launch plan payload is malformed")
+            }
             Self::CleanupFailed => formatter.write_str("internal agent launch plan cleanup failed"),
             Self::LaunchFailed => formatter.write_str("agent process could not be started"),
         }

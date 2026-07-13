@@ -84,11 +84,11 @@ fn write_startup_error(error: &jefe::persistence::PersistenceError) {
     );
 }
 
-fn run_internal_agent_launch_if_requested() -> bool {
+fn run_internal_agent_launch_if_requested() {
     let mut args = std::env::args();
     let _program = args.next();
     if args.next().as_deref() != Some(jefe::runtime::INTERNAL_LAUNCH_ARGUMENT) {
-        return false;
+        return;
     }
     let Some(plan_path) = args.next() else {
         std::process::exit(2);
@@ -109,9 +109,7 @@ fn run_internal_agent_launch_if_requested() -> bool {
 }
 
 fn main() {
-    if run_internal_agent_launch_if_requested() {
-        return;
-    }
+    run_internal_agent_launch_if_requested();
     let Some(cli_args) = parse_cli_or_exit() else {
         return;
     };

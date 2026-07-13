@@ -368,6 +368,16 @@ fn psmux_agent_launch_preserves_arguments_working_directory_and_environment_poli
     while !fixture.record.is_file() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(50));
     }
+    assert_agent_launch_observation(&fixture);
+    let session_status = namespace.run(&["has-session", "-t", "agent-launch"]);
+    if session_status.is_ok() {
+        namespace
+            .run(&["kill-session", "-t", "agent-launch"])
+            .unwrap_or_else(|error| panic!("clean up recording session: {error}"));
+    }
+}
+
+fn assert_agent_launch_observation(fixture: &AgentLaunchFixture) {
     let bytes = fs::read(&fixture.record)
         .unwrap_or_else(|error| panic!("read fixture observation: {error}"));
     let observation: LaunchObservation = serde_json::from_slice(&bytes)
@@ -389,6 +399,7 @@ fn psmux_agent_launch_preserves_arguments_working_directory_and_environment_poli
     assert_eq!(observation.tmux_pane, None);
     assert_eq!(observation.tmux_tmpdir, None);
 }
+
 #[test]
 fn psmux_command_contract_rejects_invalid_command_with_diagnostics() {
     let Some((executable, version_text)) = qualified_psmux() else {
