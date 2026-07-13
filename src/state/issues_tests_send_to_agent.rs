@@ -4,7 +4,7 @@
 //! Extracted from `issues_tests_detail_flow.rs` to keep that file under the
 //! source-file-size hard limit.
 
-use crate::domain::{Agent, AgentId, Repository, RepositoryId};
+use crate::domain::{Agent, AgentId, AgentKind, Repository, RepositoryId};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::types::{
@@ -29,7 +29,6 @@ fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
 #[test]
 fn test_send_to_agent_agent_in_different_repository() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
     state.agents.push(Agent::new(
         AgentId("agent-other".to_string()),
         RepositoryId("repo-2".to_string()),
@@ -55,13 +54,15 @@ fn test_send_to_agent_agent_in_different_repository() {
 #[test]
 fn test_send_to_agent_eligible_clears_stale_notice_and_opens_chooser() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
-    state.agents.push(Agent::new(
+    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    let mut agent = Agent::new(
         AgentId("agent-1".to_string()),
         RepositoryId("repo-1".to_string()),
         "My Agent".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
-    ));
+    );
+    agent.agent_kind = AgentKind::Llxprt;
+    state.agents.push(agent);
     state.issues_state.draft_notice = Some("No agents available".to_string());
 
     let state = state.apply(AppEvent::OpenAgentChooser);

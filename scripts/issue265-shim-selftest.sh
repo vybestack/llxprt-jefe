@@ -37,6 +37,10 @@ FAIL=0
 TMPAUDIT=$(mktemp)
 TMPSTDERR=$(mktemp)
 trap 'rm -f "$TMPAUDIT" "$TMPSTDERR"' EXIT
+[[ -w "$TMPAUDIT" ]] || {
+    echo "FATAL: audit temp file is not writable: $TMPAUDIT" >&2
+    exit 1
+}
 
 # Run the shim with given args; capture output, audit, and bounded exit status.
 run_shim() {

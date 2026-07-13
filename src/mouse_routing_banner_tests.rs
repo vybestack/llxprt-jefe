@@ -7,7 +7,7 @@
 
 use super::super::{refresh_detail_viewport_rows, resolve_pane};
 use jefe::selection::SelectablePane;
-use jefe::state::{AppState, IssuesState, PullRequestsState, ScreenMode};
+use jefe::state::{AppState, IssueFilterUiState, IssuesState, PullRequestsState, ScreenMode};
 
 /// A notice-only banner (draft_notice set, no error) must shift the Issues
 /// workspace down by one row for mouse hit testing — exactly like an error
@@ -33,11 +33,14 @@ fn notice_only_banner_shifts_issues_workspace_for_mouse_routing() {
     let Some((pane, geo)) = resolve_pane(&state, 40, 2, 120, 40, false) else {
         panic!("expected a selectable pane at workspace row 2 with notice banner");
     };
+    assert!(
+        matches!(pane, SelectablePane::IssueList),
+        "notice banner must shift the issue-list pane rather than another pane"
+    );
     assert_eq!(
         geo.origin_row, 2,
         "workspace must start at row 2 (shifted by notice banner)"
     );
-    let _ = pane;
 }
 
 /// When neither error nor draft_notice is set, no banner row is reserved:
@@ -218,9 +221,13 @@ fn pr_error_in_pr_mode_shifts_pr_geometry() {
         "PR error banner row 1 must be non-selectable"
     );
     // Row 2+ is the workspace.
-    let Some((_pane, geo)) = resolve_pane(&state, 40, 2, 120, 40, false) else {
+    let Some((pane, geo)) = resolve_pane(&state, 40, 2, 120, 40, false) else {
         panic!("expected workspace at row 2 with PR error banner");
     };
+    assert!(
+        matches!(pane, SelectablePane::PrList),
+        "PR error banner must shift the PR-list pane rather than another pane"
+    );
     assert_eq!(geo.origin_row, 2);
 }
 
@@ -228,7 +235,6 @@ fn pr_error_in_pr_mode_shifts_pr_geometry() {
 /// filter isolation).
 #[test]
 fn issues_filter_open_does_not_shift_pr_mode_geometry() {
-    use jefe::state::IssueFilterUiState;
     let state = AppState {
         screen_mode: ScreenMode::DashboardPullRequests,
         issues_state: IssuesState {

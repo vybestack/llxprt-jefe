@@ -25,6 +25,11 @@ ARTIFACT_DIR="$PROJECT_ROOT/target/tmux-harness/issue265"
 CONFIG_DIR="$ARTIFACT_DIR/config"
 AUDIT_FILE="$ARTIFACT_DIR/gh-audit.log"
 
+command -v timeout >/dev/null 2>&1 || {
+    echo "FATAL: timeout is required for the Linux tmux scenario" >&2
+    exit 1
+}
+
 # Optional extra args passed to the harness binary (array, properly quoted).
 HARNESS_ARGS=()
 if [[ "${1:-}" == "--keep-session" ]]; then
@@ -104,9 +109,10 @@ export GH_SHIM_AUDIT="$AUDIT_FILE"
 echo "Running scenario..."
 cd "$PROJECT_ROOT"
 
-PATH="$SHIM_DIR:$PATH" \
-GH_SHIM_AUDIT="$AUDIT_FILE" \
-"$HARNESS_BIN" \
+timeout 180s env \
+    PATH="$SHIM_DIR:$PATH" \
+    GH_SHIM_AUDIT="$AUDIT_FILE" \
+    "$HARNESS_BIN" \
     --scenario "$SCENARIO" \
     --jefe-bin "$JEFE_BIN" \
     --config "$CONFIG_DIR" \

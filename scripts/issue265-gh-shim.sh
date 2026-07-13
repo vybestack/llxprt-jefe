@@ -65,8 +65,8 @@ audit_write() {
     local record="$1"
     local audit_fd
     exec {audit_fd}>> "$AUDIT_FILE"
-    if ! flock -x "$audit_fd"; then
-        echo "gh shim: failed to lock audit file: $AUDIT_FILE" >&2
+    if ! flock -w 5 -x "$audit_fd"; then
+        echo "gh shim: timed out or failed while locking audit file: $AUDIT_FILE" >&2
         exec {audit_fd}>&-
         exit 2
     fi
