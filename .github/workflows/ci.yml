@@ -153,27 +153,30 @@ jobs:
       JEFE_REQUIRE_PSMUX: "1"
       RUST_BACKTRACE: full
       RUST_TEST_THREADS: "1"
+      PSMUX_VERSION: "3.3.6"
+      PSMUX_SHA256: a56a890ea0829567818b9a368f16dcbd39c087f27328573df17c10dd39618947
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           target: x86_64-pc-windows-msvc
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           cache-targets: false
           shared-key: windows-msvc
       - name: Initialize Windows diagnostics
         shell: pwsh
         run: New-Item -ItemType Directory -Force target/windows-ci | Out-Null
-      - name: Install pinned psmux 3.3.6
+      - name: Install pinned psmux
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $url = 'https://github.com/psmux/psmux/releases/download/v3.3.6/psmux-v3.3.6-windows-x64.zip'
-          $expected = 'a56a890ea0829567818b9a368f16dcbd39c087f27328573df17c10dd39618947'
-          $archive = Join-Path $env:RUNNER_TEMP 'psmux-v3.3.6-windows-x64.zip'
-          $install = Join-Path $env:RUNNER_TOOL_CACHE 'psmux\3.3.6\x64'
+          $archiveName = "psmux-v$env:PSMUX_VERSION-windows-x64.zip"
+          $url = "https://github.com/psmux/psmux/releases/download/v$env:PSMUX_VERSION/$archiveName"
+          $expected = $env:PSMUX_SHA256
+          $archive = Join-Path $env:RUNNER_TEMP $archiveName
+          $install = Join-Path $env:RUNNER_TOOL_CACHE "psmux/$env:PSMUX_VERSION/x64"
           Invoke-WebRequest -Uri $url -OutFile $archive
           $actual = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actual -ne $expected) {
@@ -198,8 +201,9 @@ jobs:
           if ($status -ne 0) {
             exit $status
           }
-          if ($version -notmatch '3\.3\.6') {
-            throw "expected qualified psmux 3.3.6, got: $version"
+          $versionText = ($version | Out-String).Trim()
+          if ($versionText -ne "tmux $env:PSMUX_VERSION") {
+            throw "expected qualified psmux $env:PSMUX_VERSION, got: $versionText"
           }
       - name: Check formatting
         shell: pwsh
@@ -236,10 +240,10 @@ jobs:
         run: |
           $config = Join-Path $env:RUNNER_TEMP 'jefe windows ci config'
           $working = Join-Path $env:RUNNER_TEMP 'jefe windows ci working directory'
-          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'target\tmux-harness\windows-startup'
+          $artifacts = Join-Path $env:GITHUB_WORKSPACE 'target/tmux-harness/windows-startup'
           New-Item -ItemType Directory -Force $config, $working, $artifacts | Out-Null
-          $harness = Join-Path $env:GITHUB_WORKSPACE 'target\debug\jefe-tmux-harness.exe'
-          $jefe = Join-Path $env:GITHUB_WORKSPACE 'target\debug\jefe.exe'
+          $harness = Join-Path $env:GITHUB_WORKSPACE 'target/debug/jefe-tmux-harness.exe'
+          $jefe = Join-Path $env:GITHUB_WORKSPACE 'target/debug/jefe.exe'
           & $harness `
             --scenario dev-docs/tmux-scenarios/startup-quit.json `
             --jefe-bin $jefe `
@@ -270,7 +274,7 @@ jobs:
           exit 0
       - name: Upload native Windows diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-windows-psmux-artifacts
           path: |

@@ -9,17 +9,17 @@ use crate::runtime::commands::{
     remote_tmux_command, run_remote_ssh, shell_escape_single, tmux_command,
 };
 
-/// Check if a process with the given PID is alive via `kill -0`.
+/// Check if a process with the given PID is alive.
 ///
 /// This **complements**, not replaces, [`check_session_alive`]. When the jefe
-/// tmux server has died but the `llxprt` worker was reparented to launchd
-/// (ppid=1) and is still running, `check_session_alive` reports false (no
-/// tmux session) while `pid_alive` reports true — letting jefe recognize the
-/// worker is recoverable rather than marking the agent Dead.
+/// multiplexer server has died but the worker is still running,
+/// `check_session_alive` reports false while `pid_alive` reports true — letting
+/// jefe recognize the worker is recoverable rather than marking the agent Dead.
 ///
-/// Uses a shell-out to `kill -0` (resolved via PATH) because the project
-/// forbids `unsafe` code and the `libc`/`nix`/`sysinfo` crates. Local-only:
-/// remote agents must stay on the tmux/SSH-only path.
+/// Uses `kill -0` on Unix and filtered `tasklist` output on Windows because the
+/// project forbids `unsafe` code and the `libc`/`nix`/`sysinfo` crates. A spawn
+/// failure is fail-open on both platforms to avoid marking a potentially live
+/// worker Dead. Local-only: remote agents stay on the tmux/SSH-only path.
 #[must_use]
 pub fn pid_alive(pid: u32) -> bool {
     pid_alive_on_platform(pid)
