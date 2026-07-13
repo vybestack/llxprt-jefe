@@ -15,13 +15,14 @@ use crate::domain::{
 use crate::state::AppState;
 use crate::state::types::{InlineState, PrFocus, PrListIdentity, ScreenMode};
 
-/// Build an empty comment list bound to the given detail number (test helper).
+/// Build an empty comment list bound to the detail's repo and number (test helper).
 fn empty_comments(
+    scope_repo_id: RepositoryId,
     number: u64,
 ) -> PaginatedList<crate::domain::IssueComment, CommentDetailIdentity> {
     PaginatedList::from_loaded(
         CommentDetailIdentity {
-            scope_repo_id: RepositoryId::default(),
+            scope_repo_id,
             number,
         },
         Vec::new(),
@@ -84,7 +85,7 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments: empty_comments(pr_number),
+        comments: empty_comments(RepositoryId(repo_id.to_string()), pr_number),
         mergeable: None,
         merge_state_status: None,
     });

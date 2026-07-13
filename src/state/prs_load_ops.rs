@@ -560,6 +560,9 @@ impl AppState {
             .begin_page(pr_page_token(cursor), request_id);
         if matches!(outcome, crate::state::pagination::BeginOutcome::Started) {
             self.prs_state.loading.comments = true;
+            // Clear any stale error from a prior failed page so the UI does
+            // not show both an error and the loading spinner at once.
+            self.prs_state.error = None;
             Some(request_id.get())
         } else {
             None

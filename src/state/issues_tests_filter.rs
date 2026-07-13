@@ -379,13 +379,8 @@ fn test_apply_filter_clears_stale_detail_and_comment_pending() {
     assert!(!state.issues_state.loading.detail);
     assert!(!state.issues_state.loading.comments);
     assert!(state.issues_state.detail_pending.is_none());
-    assert!(
-        !state
-            .issues_state
-            .issue_detail
-            .as_ref()
-            .is_some_and(|detail| detail.comments.has_pending_request())
-    );
+    // The detail is dropped on filter change, which also discards any pending
+    // comment-page request held on the detail's comment list.
     assert!(state.issues_state.issue_detail.is_none());
 }
 
