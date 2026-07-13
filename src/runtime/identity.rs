@@ -44,6 +44,7 @@ fn current_identity_material() -> Vec<u8> {
 fn current_identity_material() -> Vec<u8> {
     std::env::var_os("USER")
         .or_else(|| std::env::var_os("LOGNAME"))
+        .filter(|value| !value.is_empty())
         .map_or_else(
             || b"local-user".to_vec(),
             |value| value.as_encoded_bytes().to_vec(),

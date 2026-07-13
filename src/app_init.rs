@@ -210,9 +210,9 @@ fn reconcile_running_agents(state: &AppState, runtime: &TmuxRuntimeManager) -> V
                 .and_then(|binding| binding.process_identity),
         ));
     }
-    for (agent_id, signature, pid) in running_agents {
+    for (agent_id, signature, process_identity) in running_agents {
         let session_exists = runtime.session_exists_for_signature(&agent_id, &signature);
-        if is_agent_dead(session_exists, signature.remote.enabled, pid) {
+        if is_agent_dead(session_exists, signature.remote.enabled, process_identity) {
             dead_ids.push(agent_id);
         }
     }

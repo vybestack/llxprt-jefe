@@ -73,11 +73,7 @@ fn spawn_sleeping_fixture(duration: Duration) -> std::process::Child {
     let executable =
         std::env::current_exe().unwrap_or_else(|error| panic!("resolve test executable: {error}"));
     Command::new(executable)
-        .args([
-            "--exact",
-            "runtime::process_tests::native_sleep_fixture",
-            "--nocapture",
-        ])
+        .args(["--exact", "runtime::process_tests::native_sleep_fixture"])
         .env(
             "JEFE_PROCESS_TEST_SLEEP_MS",
             duration.as_millis().to_string(),

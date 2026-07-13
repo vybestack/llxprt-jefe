@@ -52,7 +52,7 @@ comrak = { version = "0.53", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 winsafe = { version = "0.0.27", features = ["kernel"] }
-whoami = "=2.1.2"
+whoami = "2.1.2"
 
 [features]
 psmux-smoke = []
