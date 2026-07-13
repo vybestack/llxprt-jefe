@@ -27,6 +27,10 @@ use super::{AppStateHandle, SharedContext};
 /// @requirement REQ-ISS-002
 /// @pseudocode component-003 lines 01-38
 pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    if state.issues_state.close_reason_chooser.is_some() {
+        return resolve_close_reason_chooser_key_event(state, key_event);
+    }
+
     if state.issues_state.delete_confirm.is_some() {
         return resolve_delete_confirm_key_event(key_event);
     }
@@ -89,6 +93,46 @@ fn resolve_delete_confirm_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
     match key_event.code {
         KeyCode::Enter => Some(AppEvent::IssueDeleteConfirm),
         KeyCode::Esc => Some(AppEvent::IssueDeleteCancel),
+        _ => None,
+    }
+}
+
+/// Route key events when the close-reason chooser overlay is open.
+///
+/// When `duplicate_search` is active (Duplicate reason selected), digits
+/// update the search query, Backspace deletes, Up/Down navigate candidates,
+/// and Enter confirms the duplicate selection. Otherwise, Up/Down navigate
+/// the reason list, Enter selects/confirms, and Esc cancels.
+fn resolve_close_reason_chooser_key_event(
+    state: &AppState,
+    key_event: &KeyEvent,
+) -> Option<AppEvent> {
+    let chooser = state.issues_state.close_reason_chooser.as_ref()?;
+    if chooser.duplicate_search.is_some() {
+        return match key_event.code {
+            KeyCode::Char(c) if c.is_ascii_digit() => {
+                Some(AppEvent::CloseReasonDuplicateSearchChar(c))
+            }
+            KeyCode::Backspace => Some(AppEvent::CloseReasonDuplicateSearchBackspace),
+            KeyCode::Up => Some(AppEvent::CloseReasonDuplicateSearchNavigateUp),
+            KeyCode::Down => Some(AppEvent::CloseReasonDuplicateSearchNavigateDown),
+            KeyCode::Enter => Some(AppEvent::CloseReasonConfirm),
+            KeyCode::Esc => Some(AppEvent::CloseReasonCancel),
+            _ => None,
+        };
+    }
+    if chooser.awaiting_confirmation {
+        return match key_event.code {
+            KeyCode::Enter => Some(AppEvent::CloseReasonConfirm),
+            KeyCode::Esc => Some(AppEvent::CloseReasonCancel),
+            _ => None,
+        };
+    }
+    match key_event.code {
+        KeyCode::Up => Some(AppEvent::CloseReasonNavigateUp),
+        KeyCode::Down => Some(AppEvent::CloseReasonNavigateDown),
+        KeyCode::Enter => Some(AppEvent::CloseReasonSelect),
+        KeyCode::Esc => Some(AppEvent::CloseReasonCancel),
         _ => None,
     }
 }
@@ -166,7 +210,7 @@ fn resolve_issue_list_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
         KeyCode::Char('n' | 'N') => Some(AppEvent::OpenNewIssueComposer),
         KeyCode::Char('f') => Some(AppEvent::OpenFilterControls),
         KeyCode::Char('/') => Some(AppEvent::FocusSearchInput),
-        KeyCode::Char('C') => Some(AppEvent::CloseIssue),
+        KeyCode::Char('C') => Some(AppEvent::OpenCloseReasonChooser),
         KeyCode::Char('D') => Some(AppEvent::OpenDeleteIssueConfirm),
         _ => None,
     }
@@ -184,7 +228,7 @@ fn resolve_issue_detail_key_event(state: &AppState, key_event: &KeyEvent) -> Opt
         KeyCode::Char('c') => Some(AppEvent::OpenNewCommentComposer),
         KeyCode::Char('r') => reply_event_for_subfocus(state.issues_state.detail_subfocus),
         KeyCode::Char('S') if !state.agents.is_empty() => Some(AppEvent::OpenAgentChooser),
-        KeyCode::Char('C') => Some(AppEvent::CloseIssue),
+        KeyCode::Char('C') => Some(AppEvent::OpenCloseReasonChooser),
         KeyCode::Char('D') => Some(AppEvent::OpenDeleteIssueConfirm),
         KeyCode::Tab | KeyCode::Char('j') => Some(AppEvent::IssueDetailSubfocusNext),
         KeyCode::BackTab | KeyCode::Char('k') => Some(AppEvent::IssueDetailSubfocusPrev),
@@ -249,3 +293,7 @@ pub fn handle_issues_mode_key(
 #[cfg(test)]
 #[path = "issues_key_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "issues_close_reason_key_tests.rs"]
+mod close_reason_key_tests;

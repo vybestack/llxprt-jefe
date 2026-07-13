@@ -9,6 +9,7 @@ use super::commands::tmux_command;
 /// Capture pane output for a session as plain text lines.
 pub fn capture_pane_lines(session_name: &str) -> Option<Vec<String>> {
     let output = tmux_command()
+        .ok()?
         .args(["capture-pane", "-p", "-t", session_name])
         .output()
         .ok()?;
@@ -65,7 +66,7 @@ pub fn capture_pane_history_args(session_name: &str, history_lines: usize) -> Ve
 pub fn capture_pane_history(session_name: &str, history_lines: usize) -> Option<Vec<String>> {
     let argv = capture_pane_history_args(session_name, history_lines);
     let argv_refs: Vec<&str> = argv.iter().map(String::as_str).collect();
-    let output = tmux_command().args(&argv_refs).output().ok()?;
+    let output = tmux_command().ok()?.args(&argv_refs).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -101,6 +102,7 @@ pub fn parse_pane_pid(stdout: &str) -> Option<u32> {
 #[must_use]
 pub fn pane_pid(session_name: &str) -> Option<u32> {
     let output = tmux_command()
+        .ok()?
         .args(["list-panes", "-t", session_name, "-F", "#{pane_pid}"])
         .output()
         .ok()?;

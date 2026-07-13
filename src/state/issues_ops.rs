@@ -50,16 +50,11 @@ impl AppState {
         self.screen_mode = ScreenMode::DashboardIssues;
         self.issues_state.active = true;
         self.issues_state.issue_focus = IssueFocus::IssueList;
-        self.issues_state.issues.clear();
-        self.issues_state.selected_issue_index = None;
+        self.issues_state.list.clear();
         self.issues_state.issue_detail = None;
-        self.issues_state.list_cursor = None;
-        self.issues_state.has_more_issues = false;
         self.issues_state.error = None;
         self.issues_state.loading.comments = false;
         self.issues_state.comments_page_pending = None;
-        self.issues_state.list_reload_pending = None;
-        self.issues_state.list_page_pending = None;
         self.issues_state.detail_pending = None;
         self.issues_state.inline_state = InlineState::None;
         self.issues_state.agent_chooser = None;
@@ -68,7 +63,6 @@ impl AppState {
         self.restore_issue_preferences();
         self.issues_state.detail_subfocus = DetailSubfocus::Body;
         self.issues_state.draft_notice = None;
-        self.issues_state.loading.list = true;
     }
 
     /// Restore the current repo's issue filter/search/field-index from
@@ -248,17 +242,11 @@ impl AppState {
             self.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
             self.issues_state.inline_state = InlineState::None;
         }
-        self.issues_state.issues.clear();
-        self.issues_state.selected_issue_index = None;
+        self.issues_state.list.clear();
         self.issues_state.issue_detail = None;
-        self.issues_state.list_cursor = None;
-        self.issues_state.has_more_issues = false;
         self.issues_state.error = None;
-        self.issues_state.loading.list = true;
         self.issues_state.loading.detail = false;
         self.issues_state.loading.comments = false;
-        self.issues_state.list_reload_pending = None;
-        self.issues_state.list_page_pending = None;
         self.issues_state.detail_pending = None;
         self.issues_state.comments_page_pending = None;
         self.issues_state.delete_confirm = None;
@@ -268,60 +256,65 @@ impl AppState {
     }
 
     fn navigate_issue_list_up(&mut self) {
-        let previous = self.issues_state.selected_issue_index;
+        let previous = self.issues_state.selected_issue_index();
         if let Some(idx) = previous
             && idx > 0
         {
-            self.issues_state.selected_issue_index = Some(idx - 1);
+            self.issues_state.list.set_selected_index(Some(idx - 1));
         }
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
     fn navigate_issue_list_down(&mut self) {
-        let previous = self.issues_state.selected_issue_index;
+        let previous = self.issues_state.selected_issue_index();
         if let Some(idx) = previous
-            && idx + 1 < self.issues_state.issues.len()
+            && idx + 1 < self.issues_state.issues().len()
         {
-            self.issues_state.selected_issue_index = Some(idx + 1);
+            self.issues_state.list.set_selected_index(Some(idx + 1));
         }
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
     fn navigate_issue_list_page_up(&mut self) {
-        let previous = self.issues_state.selected_issue_index;
+        let previous = self.issues_state.selected_issue_index();
         if let Some(idx) = previous {
-            self.issues_state.selected_issue_index = Some(idx.saturating_sub(10));
+            self.issues_state
+                .list
+                .set_selected_index(Some(idx.saturating_sub(super::VIEWPORT_PAGE_JUMP)));
         }
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
     fn navigate_issue_list_page_down(&mut self) {
-        let previous = self.issues_state.selected_issue_index;
+        let previous = self.issues_state.selected_issue_index();
         if let Some(idx) = previous {
-            let max = self.issues_state.issues.len().saturating_sub(1);
-            self.issues_state.selected_issue_index = Some((idx + 10).min(max));
+            let max = self.issues_state.issues().len().saturating_sub(1);
+            self.issues_state
+                .list
+                .set_selected_index(Some((idx + super::VIEWPORT_PAGE_JUMP).min(max)));
         }
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
     fn navigate_issue_list_home(&mut self) {
-        let previous = self.issues_state.selected_issue_index;
-        if !self.issues_state.issues.is_empty() {
-            self.issues_state.selected_issue_index = Some(0);
+        let previous = self.issues_state.selected_issue_index();
+        if !self.issues_state.issues().is_empty() {
+            self.issues_state.list.set_selected_index(Some(0));
         }
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
     fn navigate_issue_list_end(&mut self) {
-        let previous = self.issues_state.selected_issue_index;
-        if !self.issues_state.issues.is_empty() {
-            self.issues_state.selected_issue_index = Some(self.issues_state.issues.len() - 1);
+        let previous = self.issues_state.selected_issue_index();
+        let len = self.issues_state.issues().len();
+        if len > 0 {
+            self.issues_state.list.set_selected_index(Some(len - 1));
         }
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
     fn invalidate_detail_requests_if_issue_selection_changed(&mut self, previous: Option<usize>) {
-        if self.issues_state.selected_issue_index == previous {
+        if self.issues_state.selected_issue_index() == previous {
             return;
         }
         self.issues_state.loading.detail = false;
@@ -366,7 +359,7 @@ impl AppState {
             AppEvent::IssuesNavigateEnd => self.navigate_issue_list_end(),
             AppEvent::IssuesEnter
                 if self.issues_state.issue_focus == IssueFocus::IssueList
-                    && self.issues_state.selected_issue_index.is_some() =>
+                    && self.issues_state.selected_issue_index().is_some() =>
             {
                 self.issues_state.issue_focus = IssueFocus::IssueDetail;
             }
@@ -409,19 +402,13 @@ impl AppState {
                 self.issues_state.committed_filter.query_text =
                     self.issues_state.search_query.trim().to_string();
                 self.issues_state.search_input_focused = false;
-                self.issues_state.issues.clear();
-                self.issues_state.selected_issue_index = None;
+                self.issues_state.list.clear();
                 self.issues_state.issue_detail = None;
-                self.issues_state.list_cursor = None;
-                self.issues_state.has_more_issues = false;
                 self.issues_state.error = None;
-                self.issues_state.loading.list = true;
                 self.issues_state.loading.detail = false;
                 self.issues_state.loading.comments = false;
                 self.issues_state.detail_pending = None;
                 self.issues_state.comments_page_pending = None;
-                self.issues_state.list_reload_pending = None;
-                self.issues_state.list_page_pending = None;
                 self.issues_state.mutation_pending = None;
                 self.issues_state.inline_state = InlineState::None;
                 self.remember_issue_preferences();
@@ -444,13 +431,15 @@ impl AppState {
                 }
             }
             AppEvent::IssuesScrollDetailPageUp => {
-                self.issues_state.detail_scroll_offset =
-                    self.issues_state.detail_scroll_offset.saturating_sub(10);
+                self.issues_state.detail_scroll_offset = self
+                    .issues_state
+                    .detail_scroll_offset
+                    .saturating_sub(super::VIEWPORT_PAGE_JUMP);
             }
             AppEvent::IssuesScrollDetailPageDown => {
                 let max = self.issues_state.max_detail_scroll_offset();
                 self.issues_state.detail_scroll_offset =
-                    (self.issues_state.detail_scroll_offset + 10).min(max);
+                    (self.issues_state.detail_scroll_offset + super::VIEWPORT_PAGE_JUMP).min(max);
             }
             _ => return false,
         }
@@ -458,23 +447,17 @@ impl AppState {
     }
 
     fn reload_issue_list_for_filter_change(&mut self) {
-        self.issues_state.issues.clear();
-        self.issues_state.selected_issue_index = None;
+        self.issues_state.list.clear();
         self.issues_state.issue_detail = None;
-        self.issues_state.list_cursor = None;
-        self.issues_state.has_more_issues = false;
         self.issues_state.loading.detail = false;
         self.issues_state.loading.comments = false;
         self.issues_state.detail_pending = None;
         self.issues_state.comments_page_pending = None;
-        self.issues_state.list_reload_pending = None;
-        self.issues_state.list_page_pending = None;
         // A filter change reloads the list; dismiss the transient delete-confirm
         // overlay (it targets a specific list row that may no longer be present).
         // In-flight close/delete mutations are intentionally KEPT — their result
         // still carries the original scope+issue and matches the pending.
         self.issues_state.delete_confirm = None;
-        self.issues_state.loading.list = true;
     }
 
     fn apply_issue_filter_event(&mut self, event: AppEvent) -> bool {
@@ -645,6 +628,7 @@ impl AppState {
     pub(super) fn apply_issues_event(&mut self, event: AppEvent) -> bool {
         self.apply_issue_scroll_event(&event)
             || self.apply_issue_lifecycle_event(event.clone())
+            || self.apply_issue_close_reason_event(&event)
             || self.apply_issue_close_delete_event(&event)
             || self.apply_issue_filter_event(event.clone())
             || self.apply_inline_open_event(event.clone())

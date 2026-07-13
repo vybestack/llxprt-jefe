@@ -301,6 +301,11 @@ pub enum AppEvent {
         scope_repo_id: RepositoryId,
         issue_number: u64,
         mutation_id: u64,
+        /// Close reason carried from the chooser (issue #188). `None` for the
+        /// legacy plain-close path.
+        close_reason: Option<crate::domain::CloseReason>,
+        /// For a Duplicate close, the canonical issue number (issue #188).
+        duplicate_of: Option<u64>,
     },
     /// Delete mutation succeeded.
     IssueDeleted {
@@ -308,6 +313,23 @@ pub enum AppEvent {
         issue_number: u64,
         mutation_id: u64,
     },
+
+    // Issue Close-with-reason chooser (issue #188)
+    /// Open the close-reason chooser overlay.
+    OpenCloseReasonChooser,
+    CloseReasonNavigateUp,
+    CloseReasonNavigateDown,
+    /// Enter on a reason: for Duplicate enters duplicate-search; otherwise arms
+    /// confirmation.
+    CloseReasonSelect,
+    CloseReasonDuplicateSearchChar(char),
+    CloseReasonDuplicateSearchBackspace,
+    CloseReasonDuplicateSearchNavigateUp,
+    CloseReasonDuplicateSearchNavigateDown,
+    /// Second Enter: dispatches the actual close with reason.
+    CloseReasonConfirm,
+    /// Esc: close the chooser without closing the issue.
+    CloseReasonCancel,
 
     OpenAgentChooser,
     AgentChooserNavigateUp,
@@ -544,6 +566,23 @@ pub enum AppEvent {
         has_more: bool,
     },
     ActionsRunsLoadFailed {
+        scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::ActionsFilter>,
+        page: u32,
+        request_id: u64,
+        error: String,
+    },
+    /// Page append result (load-more path).
+    ActionsRunsPageLoaded {
+        scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::ActionsFilter>,
+        page: u32,
+        request_id: u64,
+        runs: Vec<crate::domain::WorkflowRun>,
+        has_more: bool,
+    },
+    /// Page append failure.
+    ActionsRunsPageLoadFailed {
         scope_repo_id: RepositoryId,
         filter: Box<crate::domain::ActionsFilter>,
         page: u32,

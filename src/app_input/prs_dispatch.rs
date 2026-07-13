@@ -172,8 +172,8 @@ pub(super) fn pr_detail_load_params(app_state: &AppStateHandle) -> Option<PrDeta
     let state = app_state.read();
     let pr_number = state
         .prs_state
-        .selected_pr_index
-        .and_then(|idx| state.prs_state.pull_requests.get(idx))
+        .selected_pr_index()
+        .and_then(|idx| state.prs_state.pull_requests().get(idx))
         .map(|pr| pr.number)?;
     let (owner, repo, malformed_message) = resolve_pr_gh_repo_or_triple(&state);
     let params = PrDetailLoadParams {
@@ -280,8 +280,8 @@ pub(super) fn selected_pr_still_matches(
     }
     state
         .prs_state
-        .selected_pr_index
-        .and_then(|idx| state.prs_state.pull_requests.get(idx))
+        .selected_pr_index()
+        .and_then(|idx| state.prs_state.pull_requests().get(idx))
         .is_some_and(|pr| pr.number == pr_number)
 }
 
@@ -298,8 +298,8 @@ fn build_pr_preview_for_selection(
     let scope_repo_id = current_pr_scope_repo_id(state);
     let pr = state
         .prs_state
-        .selected_pr_index
-        .and_then(|idx| state.prs_state.pull_requests.get(idx))?;
+        .selected_pr_index()
+        .and_then(|idx| state.prs_state.pull_requests().get(idx))?;
     let (owner, repo) = resolve_pr_gh_repo(state);
     let repo_owner_name = if owner.is_empty() || repo.is_empty() {
         String::new()
@@ -621,8 +621,8 @@ pub(super) fn pr_open_in_browser_info_from_state(
 ) -> Result<PrOpenInBrowserInfo, RepoContextError> {
     let number = state
         .prs_state
-        .selected_pr_index
-        .and_then(|idx| state.prs_state.pull_requests.get(idx))
+        .selected_pr_index()
+        .and_then(|idx| state.prs_state.pull_requests().get(idx))
         .map(|pr| pr.number)
         .ok_or(RepoContextError::NoSelection)?;
     let (owner, name, malformed) = resolve_pr_gh_repo_or_triple(state);
@@ -655,8 +655,8 @@ pub(super) fn pr_open_in_browser_failure_context_from_state(
     let scope = current_pr_scope_repo_id(state);
     let pr_number = state
         .prs_state
-        .selected_pr_index
-        .and_then(|idx| state.prs_state.pull_requests.get(idx))
+        .selected_pr_index()
+        .and_then(|idx| state.prs_state.pull_requests().get(idx))
         .map_or(0, |pr| pr.number);
     (scope, pr_number)
 }

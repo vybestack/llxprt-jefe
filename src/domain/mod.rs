@@ -18,6 +18,11 @@ mod quick_resume;
 pub use actions::*;
 pub use quick_resume::QuickResume;
 
+/// Pagination contracts (PageToken, ListRequestId) shared across list state
+/// and boundary messages. Pure value types, no project-internal deps.
+mod pagination;
+pub use pagination::*;
+
 // Issues Mode domain entities extracted to keep this file under the
 // source-file-size limit.
 mod issues;
@@ -314,7 +319,6 @@ pub struct Repository {
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-006
 /// @requirement REQ-PR-009
-/// @pseudocode component-002 lines 74-101
 /// PR lifecycle state (derived from `gh pr` JSON `state` + `mergedAt`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrState {
@@ -327,7 +331,6 @@ pub enum PrState {
 ///
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-009
-/// @pseudocode component-002 lines 74-101
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MergeMethod {
     /// Create a merge commit (`--merge`).
@@ -342,7 +345,6 @@ pub enum MergeMethod {
 ///
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-009
-/// @pseudocode component-002 lines 74-101
 pub const MERGE_METHODS: [MergeMethod; 3] =
     [MergeMethod::Merge, MergeMethod::Squash, MergeMethod::Rebase];
 
@@ -351,7 +353,6 @@ impl MergeMethod {
     ///
     /// @plan PLAN-20260624-PR-MODE.P03
     /// @requirement REQ-PR-009
-    /// @pseudocode component-002 lines 74-101
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {

@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use jefe::domain::{
-    Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature, RemoteRepositorySettings,
-    Repository, RepositoryId, RuntimeBinding, SandboxEngine,
+    ActionsFilter, Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
+    RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
 };
 use jefe::messages::{
     AppMessage, IssuesMessage, MessageDomain, ModalMessage, PersistenceMessage,
@@ -65,6 +65,34 @@ fn app_events_route_to_domain_channels() {
     for (event, domain, name) in routes {
         let route = AppMessage::from(event).route();
         assert_eq!(route.domain, domain);
+        assert_eq!(route.name, name);
+    }
+}
+
+#[test]
+fn actions_page_results_route_to_actions_channel() {
+    let loaded = AppEvent::ActionsRunsPageLoaded {
+        scope_repo_id: RepositoryId("repo-1".into()),
+        filter: Box::new(ActionsFilter::default()),
+        page: 2,
+        request_id: 2,
+        runs: Vec::new(),
+        has_more: false,
+    };
+    let failed = AppEvent::ActionsRunsPageLoadFailed {
+        scope_repo_id: RepositoryId("repo-1".into()),
+        filter: Box::new(ActionsFilter::default()),
+        page: 2,
+        request_id: 2,
+        error: "network".into(),
+    };
+
+    for (event, name) in [
+        (loaded, "ActionsRunsPageLoaded"),
+        (failed, "ActionsRunsPageLoadFailed"),
+    ] {
+        let route = AppMessage::from(event).route();
+        assert_eq!(route.domain, MessageDomain::Actions);
         assert_eq!(route.name, name);
     }
 }
@@ -184,24 +212,37 @@ fn typed_persistence_save_success_clears_stale_errors() {
 }
 
 #[test]
-fn typed_apply_search_commits_query_and_starts_reload() {
+fn typed_apply_search_commits_query_and_clears_list() {
+    use jefe::domain::IssueFilter;
+
     let mut state = AppState::default();
     state.issues_state.search_input_focused = true;
     state.issues_state.search_query = "  open bug  ".to_string();
-    state.issues_state.selected_issue_index = Some(0);
-    state.issues_state.list_cursor = Some("cursor".to_string());
-    state.issues_state.has_more_issues = true;
+    // Establish list state (cursor + selection) with an empty item set so we
+    // can verify ApplySearch clears the cursor/selection. items_mut is
+    // crate-private, so drive through the public reload+load API instead.
+    let repo_id = RepositoryId("repo-1".to_string());
+    let filter = IssueFilter::default();
+    state.mark_issue_list_reload_loading(repo_id.clone(), filter.clone(), 1);
+    let mut state = state.apply(AppEvent::IssueListLoaded {
+        scope_repo_id: repo_id,
+        filter: Box::new(filter),
+        request_id: 1,
+        issues: vec![],
+        cursor: Some("cursor".to_string()),
+        has_more: true,
+    });
+    state.issues_state.list.set_selected_index(Some(0));
 
     let state = state.apply_message(AppMessage::Issues(IssuesMessage::ApplySearch));
 
     assert_eq!(state.issues_state.committed_filter.query_text, "open bug");
     assert!(!state.issues_state.search_input_focused);
-    assert!(state.issues_state.issues.is_empty());
-    assert_eq!(state.issues_state.selected_issue_index, None);
+    assert!(state.issues_state.issues().is_empty());
+    assert_eq!(state.issues_state.selected_issue_index(), None);
     assert!(state.issues_state.issue_detail.is_none());
-    assert_eq!(state.issues_state.list_cursor, None);
-    assert!(!state.issues_state.has_more_issues);
-    assert!(state.issues_state.loading.list);
+    assert!(!state.issues_state.has_more_issues());
+    assert!(!state.issues_state.list_loading());
 }
 
 #[test]
@@ -248,6 +289,7 @@ fn issue_self_assignment_failed_round_trips_through_message_bus() {
     assert_eq!(error, "repo restricts assignees");
 }
 
+#[cfg(unix)]
 #[test]
 fn architecture_boundary_script_passes_in_ci_tests() {
     let output = std::process::Command::new("bash")

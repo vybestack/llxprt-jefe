@@ -7,6 +7,8 @@
 //!
 //! Pseudocode reference: component-002 lines 01-35
 
+mod agent_executable;
+mod agent_launcher;
 mod attach;
 mod attach_scheduler;
 mod capabilities;
@@ -16,12 +18,18 @@ mod errors;
 mod gh_auth;
 mod liveness;
 mod manager;
+mod multiplexer;
 mod pane_capture;
 mod preflight;
 mod session;
 mod socket;
 mod stub_manager;
 
+pub use agent_executable::{
+    AgentExecutableError, AgentExecutablePlatform, AgentExecutableResolver, AgentWrapperKind,
+    ResolvedAgentExecutable,
+};
+pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use capabilities::{
     AgentRuntimeCapabilities, ModelDiscovery, code_puppy_help_supports_yolo, static_capabilities,
@@ -31,6 +39,10 @@ pub use errors::RuntimeError;
 pub use gh_auth::{AuthRunResult, run_device_auth};
 pub use liveness::{check_remote_session_alive, check_session_alive, pid_alive};
 pub use manager::{LivenessCheck, RuntimeManager, TmuxRuntimeManager};
+pub use multiplexer::{
+    LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation, MultiplexerPlan,
+    MultiplexerVersion, ProbeObservation, classify_probe,
+};
 pub use preflight::{
     PreflightAction, PreflightIssue, execute_preflight_action, platform_engine_diagnostic,
     sandbox_preflight, sandbox_ssh_agent_warning,
@@ -38,6 +50,14 @@ pub use preflight::{
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 pub use socket::jefe_tmux_socket_path;
 pub use stub_manager::StubRuntimeManager;
+
+#[cfg(test)]
+#[path = "agent_executable_tests.rs"]
+mod agent_executable_tests;
+
+#[cfg(test)]
+#[path = "multiplexer_tests.rs"]
+mod multiplexer_tests;
 
 #[cfg(test)]
 mod tests {

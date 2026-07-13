@@ -818,6 +818,9 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
     if state.prs_state.merge_chooser.is_some() {
         return OverlayPane::MergeChooser;
     }
+    if state.issues_state.close_reason_chooser.is_some() {
+        return OverlayPane::CloseReasonChooser;
+    }
     OverlayPane::None
 }
 

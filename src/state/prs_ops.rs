@@ -64,17 +64,11 @@ impl AppState {
         self.screen_mode = ScreenMode::DashboardPullRequests;
         self.prs_state.active = true;
         self.prs_state.pr_focus = PrFocus::PrList;
-        self.prs_state.pull_requests.clear();
-        self.prs_state.selected_pr_index = None;
+        self.prs_state.list.clear();
         self.prs_state.pr_detail = None;
-        self.prs_state.list_cursor = None;
-        self.prs_state.has_more_prs = false;
         self.prs_state.error = None;
-        self.prs_state.loading.list = true;
         self.prs_state.loading.detail = false;
         self.prs_state.loading.comments = false;
-        self.prs_state.list_reload_pending = None;
-        self.prs_state.list_page_pending = None;
         self.prs_state.detail_pending = None;
         self.prs_state.comments_page_pending = None;
         self.prs_state.inline_state = InlineState::None;
@@ -154,17 +148,11 @@ impl AppState {
             self.prs_state.draft_notice = Some("Draft discarded (repo changed)".to_string());
             self.prs_state.inline_state = InlineState::None;
         }
-        self.prs_state.pull_requests.clear();
-        self.prs_state.selected_pr_index = None;
+        self.prs_state.list.clear();
         self.prs_state.pr_detail = None;
-        self.prs_state.list_cursor = None;
-        self.prs_state.has_more_prs = false;
         self.prs_state.error = None;
-        self.prs_state.loading.list = true;
         self.prs_state.loading.detail = false;
         self.prs_state.loading.comments = false;
-        self.prs_state.list_reload_pending = None;
-        self.prs_state.list_page_pending = None;
         self.prs_state.detail_pending = None;
         self.prs_state.comments_page_pending = None;
         self.prs_state.detail_scroll_offset = 0;
@@ -173,6 +161,11 @@ impl AppState {
         self.prs_state.merge_chooser = None;
         self.prs_state.merge_mutation_pending = None;
         self.restore_pr_preferences();
+        // Begin a fresh reload so `list_pending()` is observable before the
+        // dispatch layer spawns the actual fetch (mirrors Actions).
+        if let Some(repo_id) = self.selected_repository().map(|r| r.id.clone()) {
+            self.begin_prs_reload(repo_id);
+        }
     }
 
     // ---- Filter controls ----
@@ -401,11 +394,12 @@ impl AppState {
     /// @requirement REQ-PR-008
     /// @pseudocode component-001 lines 275-281
     fn reload_pr_list_for_filter_change(&mut self) {
-        self.prs_state.list_cursor = None;
-        self.prs_state.has_more_prs = false;
-        self.prs_state.loading.list = true;
-        self.prs_state.list_page_pending = None;
-        self.prs_state.list_reload_pending = None;
+        self.prs_state.list.clear();
+        // Begin a fresh reload so `list_pending()` is observable before the
+        // dispatch layer spawns the actual fetch (mirrors Actions).
+        if let Some(repo_id) = self.selected_repository().map(|r| r.id.clone()) {
+            self.begin_prs_reload(repo_id);
+        }
     }
 
     // ---- Agent chooser ----
@@ -510,6 +504,9 @@ impl AppState {
             }
             ReadOnlyHintKind::IssueAlreadyClosed => "Issue is already closed".to_string(),
             ReadOnlyHintKind::NoIssueFocused => "No issue selected".to_string(),
+            ReadOnlyHintKind::NoDuplicateTarget => {
+                "Select an issue to mark as duplicate".to_string()
+            }
         };
         self.prs_state.draft_notice = Some(text);
     }
@@ -522,7 +519,7 @@ impl AppState {
     fn apply_pr_open_browser_event(&mut self, event: &AppEvent) -> bool {
         match event {
             AppEvent::PrOpenInBrowser => {
-                if self.prs_state.selected_pr_index.is_none() {
+                if self.prs_state.selected_pr_index().is_none() {
                     self.prs_state.draft_notice =
                         Some("No pull request selected to open".to_string());
                 } else {

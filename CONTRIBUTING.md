@@ -40,6 +40,51 @@ clippy-allow policy, source-file-size policy, clippy complexity gates, the 30%
 line-coverage gate, a workspace build, and the full test suite. See
 [Testing and Quality](dev-docs/standards/testing-and-quality.md) for every job.
 
+## Reproduce the native Windows CI gate
+
+Run the Windows gate from native PowerShell with the x86-64 MSVC toolchain. Do
+not use WSL, Cygwin, MSYS2, Git Bash, Docker, or another Unix compatibility
+layer for this qualification.
+
+CI pins psmux 3.3.6 from the official release archive
+`psmux-v3.3.6-windows-x64.zip` and verifies SHA-256
+`a56a890ea0829567818b9a368f16dcbd39c087f27328573df17c10dd39618947` before
+extracting it. Local contributors may install the same qualified release with:
+
+```powershell
+winget install --id marlocarlo.psmux --version 3.3.6 --exact
+psmux -V
+```
+
+Set `JEFE_PSMUX_BIN` if `psmux.exe` is not on `PATH`, then run the same required
+commands as CI:
+
+```powershell
+$env:JEFE_REQUIRE_PSMUX = '1'
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo build --workspace --all-features --locked
+cargo test --workspace --all-features --locked
+cargo test --features psmux-smoke --test psmux_smoke -- --nocapture
+
+$workspace = (Get-Location).Path
+$config = Join-Path $workspace 'target/windows local/config with spaces'
+$working = Join-Path $workspace 'target/windows local/working with spaces'
+$artifacts = Join-Path $workspace 'target/tmux-harness/windows-local'
+New-Item -ItemType Directory -Force $config, $working, $artifacts | Out-Null
+& (Join-Path $workspace 'target/debug/jefe-tmux-harness.exe') `
+  --scenario (Join-Path $workspace 'dev-docs/tmux-scenarios/startup-quit.json') `
+  --jefe-bin (Join-Path $workspace 'target/debug/jefe.exe') `
+  --config $config `
+  --working-dir $working `
+  --session 'jefe-windows-local' `
+  --out-dir $artifacts
+```
+
+The smoke suite and harness own unique psmux namespaces and only issue
+namespace-scoped cleanup. Failure diagnostics are written beneath
+`target/psmux-smoke` and `target/tmux-harness`.
+
 ## Branch and PR conventions
 
 - **One issue branch per issue** (e.g. `issue42`), branched from `main`.

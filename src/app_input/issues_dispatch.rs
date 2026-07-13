@@ -82,8 +82,8 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
         let state = app_state.read();
         state
             .issues_state
-            .selected_issue_index
-            .and_then(|idx| state.issues_state.issues.get(idx))
+            .selected_issue_index()
+            .and_then(|idx| state.issues_state.issues().get(idx))
             .map(|issue| {
                 let gh_repo = resolve_gh_repo(&state);
                 jefe::domain::IssueDetail {
@@ -175,8 +175,8 @@ fn detail_load_params(app_state: &AppStateHandle) -> Option<DetailLoadParams> {
     let state = app_state.read();
     let issue_number = state
         .issues_state
-        .selected_issue_index
-        .and_then(|idx| state.issues_state.issues.get(idx))
+        .selected_issue_index()
+        .and_then(|idx| state.issues_state.issues().get(idx))
         .map(|issue| issue.number)?;
     let (owner, repo, malformed_message) = resolve_gh_repo_or_triple(&state);
     let params = DetailLoadParams {
@@ -525,7 +525,17 @@ pub(super) fn dispatch_issues_message(
         message @ (IssuesMessage::CloseIssue
         | IssuesMessage::OpenDeleteIssueConfirm
         | IssuesMessage::IssueDeleteConfirm
-        | IssuesMessage::IssueDeleteCancel) => {
+        | IssuesMessage::IssueDeleteCancel
+        | IssuesMessage::OpenCloseReasonChooser
+        | IssuesMessage::CloseReasonNavigateUp
+        | IssuesMessage::CloseReasonNavigateDown
+        | IssuesMessage::CloseReasonSelect
+        | IssuesMessage::CloseReasonDuplicateSearchChar(_)
+        | IssuesMessage::CloseReasonDuplicateSearchBackspace
+        | IssuesMessage::CloseReasonDuplicateSearchNavigateUp
+        | IssuesMessage::CloseReasonDuplicateSearchNavigateDown
+        | IssuesMessage::CloseReasonCancel
+        | IssuesMessage::CloseReasonConfirm) => {
             dispatch_issues_lifecycle(app_state, ctx, message);
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),

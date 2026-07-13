@@ -14,6 +14,8 @@ use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::types::{PrFocus, ScreenMode};
 
+use super::prs_test_fixtures::begin_pr_list_reload;
+
 /// Helper: PR-mode state with a selected repo.
 fn prs_mode_state(repo_id: &str) -> AppState {
     let mut state = AppState {
@@ -88,13 +90,14 @@ fn make_test_pr_detail(number: u64, comments: Vec<IssueComment>) -> PullRequestD
 /// @pseudocode component-001 lines 209-220
 #[test]
 fn test_list_loaded_renders_all_rows_including_first_and_last() {
-    let state = prs_mode_state("repo-1");
+    let mut state = prs_mode_state("repo-1");
     let prs: Vec<PullRequest> = (1u64..=10).map(make_test_pr).collect();
+    let request_id = begin_pr_list_reload(&mut state, "repo-1", PrFilter::default());
 
     let new_state = state.apply(AppEvent::PrListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(PrFilter::default()),
-        request_id: 0,
+        request_id,
         pull_requests: prs,
         cursor: None,
         has_more: false,
@@ -102,14 +105,14 @@ fn test_list_loaded_renders_all_rows_including_first_and_last() {
 
     // All 10 rows present (no dropped rows — #54).
     assert_eq!(
-        new_state.prs_state.pull_requests.len(),
+        new_state.prs_state.pull_requests().len(),
         10,
         "all N loaded rows must be present (#54)"
     );
-    assert_eq!(new_state.prs_state.pull_requests[0].number, 1);
-    assert_eq!(new_state.prs_state.pull_requests[9].number, 10);
+    assert_eq!(new_state.prs_state.pull_requests()[0].number, 1);
+    assert_eq!(new_state.prs_state.pull_requests()[9].number, 10);
     // First row selected, scroll offset at 0.
-    assert_eq!(new_state.prs_state.selected_pr_index, Some(0));
+    assert_eq!(new_state.prs_state.selected_pr_index(), Some(0));
     assert_eq!(new_state.prs_state.list_scroll_offset, 0);
 }
 
@@ -122,8 +125,8 @@ fn test_list_loaded_renders_all_rows_including_first_and_last() {
 #[test]
 fn test_list_loaded_discards_stale_scope_or_request_id() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.loading.list = true;
-    state.prs_state.pull_requests = vec![make_test_pr(99)];
+    let _request_id = begin_pr_list_reload(&mut state, "repo-1", PrFilter::default());
+    state.prs_state.list.replace_items(vec![make_test_pr(99)]);
 
     // Stale scope.
     let new_state = state.apply(AppEvent::PrListLoaded {
@@ -135,13 +138,13 @@ fn test_list_loaded_discards_stale_scope_or_request_id() {
         has_more: false,
     });
     assert_eq!(
-        new_state.prs_state.pull_requests.len(),
+        new_state.prs_state.pull_requests().len(),
         1,
         "stale-scope list must be discarded"
     );
-    assert_eq!(new_state.prs_state.pull_requests[0].number, 99);
+    assert_eq!(new_state.prs_state.pull_requests()[0].number, 99);
     assert!(
-        new_state.prs_state.loading.list,
+        new_state.prs_state.list_loading(),
         "loading.list must remain true after discarding stale scope"
     );
 }
@@ -156,14 +159,11 @@ fn test_list_loaded_discards_stale_scope_or_request_id() {
 #[test]
 fn test_list_loaded_discards_mismatched_request_id() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.loading.list = true;
-    state.prs_state.pull_requests = vec![make_test_pr(99)];
     // Seed a list reload pending under request_id = R1 (=100).
-    state.prs_state.list_reload_pending = Some(crate::state::types::PrListReloadPending {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: PrFilter::default(),
-        request_id: 100,
-    });
+    let _r1 = begin_pr_list_reload(&mut state, "repo-1", PrFilter::default());
+    state.prs_state.list.replace_items(vec![make_test_pr(99)]);
+    // Override the request_id to 100 by beginning a manual reload.
+    state.mark_pr_list_reload_loading(RepositoryId("repo-1".to_string()), PrFilter::default(), 100);
 
     // Dispatch PrListLoaded with a DIFFERENT request_id = R2 (=200), same scope.
     let new_state = state.apply(AppEvent::PrListLoaded {
@@ -177,20 +177,21 @@ fn test_list_loaded_discards_mismatched_request_id() {
 
     // The stale-request-id payload must be DISCARDED: list NOT replaced/updated.
     assert_eq!(
-        new_state.prs_state.pull_requests.len(),
+        new_state.prs_state.pull_requests().len(),
         1,
         "mismatched-request_id list must be discarded (no replace)"
     );
     assert_eq!(
-        new_state.prs_state.pull_requests[0].number, 99,
+        new_state.prs_state.pull_requests()[0].number,
+        99,
         "pre-existing list row must remain after mismatched request_id"
     );
     assert!(
-        new_state.prs_state.loading.list,
+        new_state.prs_state.list_loading(),
         "loading.list must remain true after discarding mismatched request_id"
     );
     assert!(
-        new_state.prs_state.list_reload_pending.is_some(),
+        new_state.prs_state.list_pending(),
         "list_reload_pending must remain after discarding mismatched request_id"
     );
 }
@@ -204,36 +205,50 @@ fn test_list_loaded_discards_mismatched_request_id() {
 #[test]
 fn test_list_page_loaded_appends_without_reordering() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1), make_test_pr(2), make_test_pr(3)];
-    state.prs_state.selected_pr_index = Some(1);
-    state.prs_state.next_pr_list_request_id = 1;
-    state.prs_state.list_page_pending = Some(crate::state::types::PrListPagePending {
+    // Establish page-1 with a continuation (cursor-1) via a real reload result
+    // so the subsequent page begin has a matching next_page token.
+    let filter = state.prs_state.committed_filter.clone();
+    let request_id = begin_pr_list_reload(&mut state, "repo-1", filter.clone());
+    state = state.apply(AppEvent::PrListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
-        filter: PrFilter::default(),
+        filter: std::boxed::Box::new(filter),
+        request_id,
+        pull_requests: vec![make_test_pr(1), make_test_pr(2), make_test_pr(3)],
         cursor: Some("cursor-1".to_string()),
-        request_id: 0,
+        has_more: true,
     });
+    state.prs_state.list.set_selected_index(Some(1));
+    // Begin a page load for cursor-1.
+    let page_request_id = state
+        .prs_state
+        .list
+        .next_request_id()
+        .map_or(0, crate::domain::ListRequestId::get);
+    state.prs_state.list.begin_page(
+        crate::domain::PageToken::Cursor("cursor-1".to_string()),
+        crate::domain::ListRequestId::from_raw(page_request_id),
+    );
 
     let new_state = state.apply(AppEvent::PrListPageLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
-        request_id: 0,
+        request_id: page_request_id,
         pull_requests: vec![make_test_pr(4), make_test_pr(5)],
         cursor: Some("cursor-2".to_string()),
         has_more: false,
     });
 
     assert_eq!(
-        new_state.prs_state.pull_requests.len(),
+        new_state.prs_state.pull_requests().len(),
         5,
         "page must append, not replace"
     );
     // Original order preserved, new rows appended.
-    assert_eq!(new_state.prs_state.pull_requests[0].number, 1);
-    assert_eq!(new_state.prs_state.pull_requests[2].number, 3);
-    assert_eq!(new_state.prs_state.pull_requests[3].number, 4);
-    assert_eq!(new_state.prs_state.pull_requests[4].number, 5);
+    assert_eq!(new_state.prs_state.pull_requests()[0].number, 1);
+    assert_eq!(new_state.prs_state.pull_requests()[2].number, 3);
+    assert_eq!(new_state.prs_state.pull_requests()[3].number, 4);
+    assert_eq!(new_state.prs_state.pull_requests()[4].number, 5);
     // Selection preserved.
-    assert_eq!(new_state.prs_state.selected_pr_index, Some(1));
+    assert_eq!(new_state.prs_state.selected_pr_index(), Some(1));
 }
 
 /// PrNavigateDown must increment selected_pr_index within bounds and
@@ -245,34 +260,37 @@ fn test_list_page_loaded_appends_without_reordering() {
 #[test]
 fn test_list_navigation_keeps_selection_in_bounds() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1), make_test_pr(2), make_test_pr(3)];
-    state.prs_state.selected_pr_index = Some(0);
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(1), make_test_pr(2), make_test_pr(3)]);
+    state.prs_state.list.set_selected_index(Some(0));
 
     // Down advances.
     let new_state = state.apply(AppEvent::PrNavigateDown);
-    assert_eq!(new_state.prs_state.selected_pr_index, Some(1));
+    assert_eq!(new_state.prs_state.selected_pr_index(), Some(1));
 
     // Down to last.
     let new_state = new_state.apply(AppEvent::PrNavigateDown);
-    assert_eq!(new_state.prs_state.selected_pr_index, Some(2));
+    assert_eq!(new_state.prs_state.selected_pr_index(), Some(2));
 
     // Down at bottom clamps.
     let new_state = new_state.apply(AppEvent::PrNavigateDown);
     assert_eq!(
-        new_state.prs_state.selected_pr_index,
+        new_state.prs_state.selected_pr_index(),
         Some(2),
         "selection must clamp at the last index"
     );
 
     // Up decrements.
     let new_state = new_state.apply(AppEvent::PrNavigateUp);
-    assert_eq!(new_state.prs_state.selected_pr_index, Some(1));
+    assert_eq!(new_state.prs_state.selected_pr_index(), Some(1));
 
     // Up at top clamps.
     let new_state = new_state.apply(AppEvent::PrNavigateUp);
     let new_state = new_state.apply(AppEvent::PrNavigateUp);
     assert_eq!(
-        new_state.prs_state.selected_pr_index,
+        new_state.prs_state.selected_pr_index(),
         Some(0),
         "selection must clamp at index 0"
     );
@@ -303,8 +321,8 @@ fn test_comments_page_loaded_appends_older_stable_order() {
 
     let mut state = prs_mode_state("repo-1");
     state.prs_state.pr_detail = Some(make_test_pr_detail(1, vec![existing]));
-    state.prs_state.pull_requests = vec![make_test_pr(1)];
-    state.prs_state.selected_pr_index = Some(0);
+    state.prs_state.list.replace_items(vec![make_test_pr(1)]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.comments_page_pending = Some(crate::state::types::PrCommentsPagePending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         pr_number: 1,
@@ -457,16 +475,16 @@ fn test_list_loaded_non_empty_clears_stale_pr_detail() {
     state.prs_state.pr_detail = Some(make_test_pr_detail(99, vec![]));
     state.prs_state.detail_scroll_offset = 5;
     state.prs_state.detail_subfocus = crate::state::types::PrDetailSubfocus::Comment(0);
-    state.prs_state.loading.list = true;
-    state.prs_state.pull_requests = vec![make_test_pr(99)];
-    state.prs_state.selected_pr_index = Some(0);
-    // Use request_id 0 so the reload guard passes (matches scope + filter).
+    let request_id = begin_pr_list_reload(&mut state, "repo-1", PrFilter::default());
+    state.prs_state.list.replace_items(vec![make_test_pr(99)]);
+    state.prs_state.list.set_selected_index(Some(0));
+    // Use request_id from the reload so the guard passes (matches scope + filter).
     state.prs_state.committed_filter = PrFilter::default();
 
     let new_state = state.apply(AppEvent::PrListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(PrFilter::default()),
-        request_id: 0,
+        request_id,
         // Non-empty list that does NOT contain #99.
         pull_requests: vec![make_test_pr(1), make_test_pr(2)],
         cursor: None,
@@ -478,7 +496,7 @@ fn test_list_loaded_non_empty_clears_stale_pr_detail() {
         "stale pr_detail MUST be cleared when a new non-empty list arrives"
     );
     assert_eq!(
-        new_state.prs_state.selected_pr_index,
+        new_state.prs_state.selected_pr_index(),
         Some(0),
         "first PR must be selected"
     );
@@ -503,8 +521,8 @@ fn test_list_loaded_non_empty_clears_stale_pr_detail() {
 #[test]
 fn esc_from_pr_detail_during_loading_refocuses_list() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1)];
-    state.prs_state.selected_pr_index = Some(0);
+    state.prs_state.list.replace_items(vec![make_test_pr(1)]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.pr_focus = PrFocus::PrDetail;
     state.prs_state.loading.detail = true;
     state.prs_state.detail_pending = Some(crate::state::types::PrDetailPending {
@@ -535,8 +553,8 @@ fn esc_from_pr_detail_during_loading_refocuses_list() {
 #[test]
 fn stale_detail_result_after_refocus_is_ignored() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1)];
-    state.prs_state.selected_pr_index = Some(0);
+    state.prs_state.list.replace_items(vec![make_test_pr(1)]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.pr_focus = PrFocus::PrDetail;
     state.prs_state.loading.detail = true;
     state.prs_state.detail_pending = Some(crate::state::types::PrDetailPending {

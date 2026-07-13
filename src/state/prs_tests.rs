@@ -16,6 +16,8 @@ use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::types::{PaneFocus, PrFocus, PriorAgentFocus, PullRequestsState, ScreenMode};
 
+use super::prs_test_fixtures::begin_pr_list_reload;
+
 /// Helper: a Dashboard AppState with two repositories selected at index 0.
 fn dashboard_state() -> AppState {
     let mut state = AppState::default();
@@ -208,8 +210,8 @@ fn test_app_state_default_has_inactive_prs_state() {
         state.prs_state,
         PullRequestsState { active: false, .. }
     ));
-    assert!(state.prs_state.pull_requests.is_empty());
-    assert!(state.prs_state.selected_pr_index.is_none());
+    assert!(state.prs_state.pull_requests().is_empty());
+    assert!(state.prs_state.selected_pr_index().is_none());
     assert!(state.prs_state.pr_detail.is_none());
     assert!(!state.prs_state.active);
 }
@@ -233,7 +235,7 @@ fn test_empty_pr_list_shows_empty_state_not_panic() {
     // Seed with a NON-empty list + selection + detail so the no-op stub would
     // leave them intact (and the test would FAIL). Only a real reducer that
     // clears the list on an empty loaded result will pass.
-    state.prs_state.pull_requests = vec![PullRequest {
+    state.prs_state.list.replace_items(vec![PullRequest {
         number: 42,
         title: "Seeded PR #42".to_string(),
         state: PrState::Open,
@@ -247,14 +249,17 @@ fn test_empty_pr_list_shows_empty_state_not_panic() {
         assignee_summary: String::new(),
         labels_summary: String::new(),
         comment_count: 0,
-    }];
-    state.prs_state.selected_pr_index = Some(0);
+    }]);
+    state.prs_state.list.set_selected_index(Some(0));
+
+    // Begin a real list reload so the subsequent PrListLoaded is accepted.
+    let request_id = begin_pr_list_reload(&mut state, "repo-1", PrFilter::default());
 
     // Dispatch the "list loaded with EMPTY result for the current scope" event.
     let new_state = state.apply(AppEvent::PrListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(PrFilter::default()),
-        request_id: 0,
+        request_id,
         pull_requests: vec![],
         cursor: None,
         has_more: false,
@@ -262,11 +267,12 @@ fn test_empty_pr_list_shows_empty_state_not_panic() {
 
     // The reducer must CLEAR the seeded list and show the empty-state.
     assert!(
-        new_state.prs_state.pull_requests.is_empty(),
+        new_state.prs_state.pull_requests().is_empty(),
         "empty loaded result must clear the previously-seeded list"
     );
     assert_eq!(
-        new_state.prs_state.selected_pr_index, None,
+        new_state.prs_state.selected_pr_index(),
+        None,
         "empty loaded result must reset selected_pr_index to None"
     );
     assert!(

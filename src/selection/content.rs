@@ -107,6 +107,7 @@ pub fn pane_content_lines(
         SelectablePane::RepositoryForm => repository_form_lines(state),
         SelectablePane::AgentChooser => overlay_content::agent_chooser_lines(state),
         SelectablePane::MergeChooser => overlay_content::merge_chooser_lines(state),
+        SelectablePane::CloseReasonChooser => overlay_content::close_reason_chooser_lines(state),
         SelectablePane::ConfirmModal => overlay_content::confirm_modal_lines(state),
     }
 }
@@ -176,8 +177,8 @@ fn issue_list_lines(state: &AppState, term_cols: u16, term_rows: u16) -> PaneCon
     let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
     let available_width = crate::layout::issue_list_content_width(term_cols);
     let rows = issue_list_visible_rows(
-        &state.issues_state.issues,
-        state.issues_state.selected_issue_index,
+        state.issues_state.issues(),
+        state.issues_state.selected_issue_index(),
         list_pane_rows,
         IssueListLayout::Compact,
         Some(available_width),
@@ -199,8 +200,8 @@ fn pr_list_lines(state: &AppState, term_cols: u16, term_rows: u16) -> PaneConten
     let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
     let available_width = crate::layout::pr_list_content_width(term_cols);
     let rows = pr_list_visible_rows(
-        &state.prs_state.pull_requests,
-        state.prs_state.selected_pr_index,
+        state.prs_state.pull_requests(),
+        state.prs_state.selected_pr_index(),
         list_pane_rows,
         Some(available_width),
     );
@@ -541,7 +542,7 @@ mod tests {
     fn pr_list_lines_match_rendered_projection_with_prefix() {
         use crate::domain::{PrCheckStatus, PrState, PullRequest};
         let mut state = AppState::default();
-        state.prs_state.pull_requests.push(PullRequest {
+        state.prs_state.list.replace_items(vec![PullRequest {
             number: 7,
             title: "A title".to_string(),
             state: PrState::Open,
@@ -555,8 +556,8 @@ mod tests {
             assignee_summary: String::new(),
             labels_summary: String::new(),
             comment_count: 0,
-        });
-        state.prs_state.selected_pr_index = Some(0);
+        }]);
+        state.prs_state.list.set_selected_index(Some(0));
         let content = pane_content_lines(SelectablePane::PrList, &state, None, &[], 120, 40);
         // Compact mode: one line per PR, with the "> " selected prefix and #N.
         assert_eq!(content.lines.len(), 1);
@@ -567,7 +568,7 @@ mod tests {
     fn issue_list_lines_match_rendered_projection_with_prefix() {
         use crate::domain::{Issue, IssueState};
         let mut state = AppState::default();
-        state.issues_state.issues.push(Issue {
+        state.issues_state.list.items_mut().push(Issue {
             number: 3,
             node_id: String::new(),
             title: "Bug".to_string(),
@@ -584,7 +585,7 @@ mod tests {
             comment_count: 0,
             body: String::new(),
         });
-        state.issues_state.selected_issue_index = Some(0);
+        state.issues_state.list.set_selected_index(Some(0));
         let content = pane_content_lines(SelectablePane::IssueList, &state, None, &[], 120, 40);
         assert_eq!(content.lines.len(), 1);
         assert!(content.lines[0].starts_with("> #3 "));

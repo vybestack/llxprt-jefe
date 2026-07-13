@@ -159,6 +159,7 @@ mod tests {
         // On non-Unix there are no symlinks to create; skip.
     }
 
+    #[cfg(unix)]
     fn rand_label() -> String {
         use std::sync::atomic::{AtomicU64, Ordering};
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -170,10 +171,12 @@ mod tests {
         format!("{nanos}-{seq}")
     }
 
+    #[cfg(unix)]
     trait TestResultStringExt {
         fn error_or_panic(self, context: &str) -> String;
     }
 
+    #[cfg(unix)]
     impl TestResultStringExt for Result<(), String> {
         fn error_or_panic(self, context: &str) -> String {
             match self {
@@ -183,10 +186,12 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     trait TestOptionExt<T> {
         fn value_or_panic(self, context: &str) -> T;
     }
 
+    #[cfg(unix)]
     impl<T> TestOptionExt<T> for Option<T> {
         fn value_or_panic(self, context: &str) -> T {
             match self {
@@ -196,10 +201,12 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     trait TestIoResultExt<T> {
         fn value_or_panic(self, context: &str) -> T;
     }
 
+    #[cfg(unix)]
     impl<T> TestIoResultExt<T> for std::io::Result<T> {
         fn value_or_panic(self, context: &str) -> T {
             match self {

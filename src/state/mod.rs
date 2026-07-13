@@ -6,6 +6,7 @@
 //!
 //! Pseudocode reference: component-001 lines 01-12
 
+mod actions_load_ops;
 #[cfg(test)]
 mod actions_load_tests;
 mod actions_ops;
@@ -20,11 +21,14 @@ mod form_projection;
 mod form_runtime;
 mod form_workflow_dispatch;
 mod issues_close_delete_ops;
+mod issues_close_reason_ops;
 mod issues_inline_ops;
 mod issues_load_ops;
 mod issues_mutation_ops;
 mod issues_ops;
 mod modal_ops;
+/// Generic deterministic pagination state container (`PaginatedList<T, I>`).
+pub mod pagination;
 // In-app device-code auth dialog state machine (issue #244).
 mod auth_ops;
 // Per-repository user-preference snapshot/restore operations (issue #163).
@@ -46,9 +50,13 @@ mod types;
 mod util;
 
 pub use events::*;
+pub use issues_close_reason_ops::filter_duplicate_candidates;
 pub use scrollback_ops::{FollowIndicator, terminal_follow_indicator};
 pub use state_ops::{delete_selected_agent, delete_selected_repository};
 pub use types::*;
+
+/// Default row jump for list and detail page navigation without a measured viewport.
+pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
 
 pub use form_projection::{
     AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds, effective_kinds_hint,
@@ -843,10 +851,6 @@ impl AppState {
     }
 }
 
-#[cfg(test)]
-#[path = "issues_tests.rs"]
-mod issues_tests;
-
 // In-app device-code auth dialog state-machine tests (issue #244).
 #[cfg(test)]
 #[path = "auth_ops_tests.rs"]
@@ -856,56 +860,56 @@ mod auth_ops_tests;
 #[path = "confirm_focus_tests.rs"]
 mod confirm_focus_tests;
 #[cfg(test)]
+#[path = "issues_tests.rs"]
+mod issues_tests;
+#[cfg(test)]
 #[path = "issues_tests_components.rs"]
 mod issues_tests_components;
-
+#[cfg(test)]
+#[path = "issues_tests_composer_focus.rs"]
+mod issues_tests_composer_focus;
 #[cfg(test)]
 #[path = "issues_tests_detail.rs"]
 mod issues_tests_detail;
-
 #[cfg(test)]
-#[path = "issues_tests_subfocus.rs"]
-mod issues_tests_subfocus;
-
+mod issues_tests_detail_content;
 #[cfg(test)]
 #[path = "issues_tests_detail_flow.rs"]
 mod issues_tests_detail_flow;
+#[cfg(test)]
+#[path = "issues_tests_filter.rs"]
+mod issues_tests_filter;
+#[cfg(test)]
+#[path = "issues_tests_repo_nav.rs"]
+mod issues_tests_repo_nav;
+#[cfg(test)]
+#[path = "issues_tests_subfocus.rs"]
+mod issues_tests_subfocus;
 
 #[cfg(test)]
 #[path = "issues_tests_self_assignment.rs"]
 mod issues_tests_self_assignment;
 
 #[cfg(test)]
-#[path = "issues_tests_repo_nav.rs"]
-mod issues_tests_repo_nav;
-
-#[cfg(test)]
-#[path = "issues_tests_filter.rs"]
-mod issues_tests_filter;
-
-#[cfg(test)]
-#[path = "issues_tests_composer_focus.rs"]
-mod issues_tests_composer_focus;
-
-#[cfg(test)]
 #[path = "issues_tests_close_delete.rs"]
 mod issues_tests_close_delete;
 
 #[cfg(test)]
+#[path = "issues_tests_close_reason.rs"]
+mod issues_tests_close_reason;
+
+#[cfg(test)]
 #[path = "prs_tests.rs"]
 mod prs_tests;
-
 #[cfg(test)]
 #[path = "prs_tests_detail.rs"]
 mod prs_tests_detail;
-
-#[cfg(test)]
-#[path = "prs_tests_merge.rs"]
-mod prs_tests_merge;
-
 #[cfg(test)]
 #[path = "prs_tests_filter.rs"]
 mod prs_tests_filter;
+#[cfg(test)]
+#[path = "prs_tests_merge.rs"]
+mod prs_tests_merge;
 
 // Per-repository user-preference persistence tests (issue #163).
 #[cfg(test)]
@@ -916,6 +920,9 @@ mod preferences_tests;
 #[path = "prs_tests_repo_nav.rs"]
 mod prs_tests_repo_nav;
 
+#[cfg(test)]
+#[path = "issues_test_fixtures.rs"]
+mod issues_test_fixtures;
 /// Shared `#[cfg(test)]` fixtures used by the PR-mode reducer test modules.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
@@ -924,7 +931,6 @@ mod prs_tests_repo_nav;
 #[cfg(test)]
 #[path = "prs_test_fixtures.rs"]
 mod prs_test_fixtures;
-
 #[cfg(test)]
 #[path = "prs_tests_composer_focus.rs"]
 mod prs_tests_composer_focus;
@@ -933,7 +939,6 @@ mod prs_tests_composer_focus;
 #[cfg(test)]
 #[path = "prs_tests_cursor_arrows.rs"]
 mod prs_tests_cursor_arrows;
-
 #[cfg(test)]
 #[path = "prs_tests_detail_flow.rs"]
 mod prs_tests_detail_flow;
@@ -958,3 +963,12 @@ mod prs_tests_bodyless_review_nav;
 #[cfg(test)]
 #[path = "prs_integration_tests.rs"]
 mod prs_integration_tests;
+
+/// PR list pagination / lazy-load integration tests (extracted from
+/// `prs_integration_tests.rs` to keep that file under the source-size limit).
+///
+/// @plan PLAN-20260624-PR-MODE.P15
+/// @requirement REQ-PR-007
+#[cfg(test)]
+#[path = "prs_tests_pagination.rs"]
+mod prs_tests_pagination;

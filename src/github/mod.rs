@@ -16,11 +16,16 @@ use crate::domain::{
 use std::process::Command;
 
 mod create_issue;
+mod error;
 mod issue_lifecycle;
 mod pr_threads;
 mod repo_merge;
 pub use create_issue::{CreatedIssue, parse_created_issue_json};
-pub use issue_lifecycle::{build_close_issue_args, build_delete_issue_args};
+pub use error::GhError;
+pub use issue_lifecycle::{
+    build_close_issue_args, build_close_issue_with_reason_args, build_delete_issue_args,
+    build_issue_node_id_args, build_mark_duplicate_args, parse_issue_node_id_json,
+};
 use repo_merge::parse_repo_merge_methods;
 
 mod auth_device;
@@ -53,38 +58,6 @@ pub use parse_pr::{
     parse_pull_request_detail_json, parse_pull_requests_json, parse_review_decision,
     parse_thread_reply_json, rollup_nodes, sort_pull_requests,
 };
-
-/// Error types for GitHub CLI operations.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-013
-/// @pseudocode component-002 lines 84-91
-#[derive(Debug)]
-pub enum GhError {
-    NotAuthenticated(String),
-    NotInstalled,
-    RateLimited,
-    AccessDenied(String),
-    ApiError(String),
-    ParseError(String),
-    NetworkError(String),
-}
-
-impl std::fmt::Display for GhError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotAuthenticated(msg) => write!(f, "Not authenticated: {msg}"),
-            Self::NotInstalled => write!(f, "GitHub CLI (gh) is not installed"),
-            Self::RateLimited => write!(f, "GitHub API rate limit exceeded"),
-            Self::AccessDenied(msg) => write!(f, "Access denied: {msg}"),
-            Self::ApiError(msg) => write!(f, "API error: {msg}"),
-            Self::ParseError(msg) => write!(f, "Parse error: {msg}"),
-            Self::NetworkError(msg) => write!(f, "Network error: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for GhError {}
 
 /// Response from listing issues.
 pub struct IssueListResponse {

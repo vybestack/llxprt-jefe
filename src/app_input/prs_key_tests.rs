@@ -583,6 +583,15 @@ fn test_space_on_state_cycle_field_still_cycles() {
 #[test]
 fn test_apply_commits_review_and_checks_filters_and_triggers_reload() {
     let mut state = prs_state_with_filter_open(2);
+    // A selected repository is required so the reducer can begin a real
+    // list reload (the dispatch layer normally supplies the scope).
+    state.repositories.push(jefe::domain::Repository::new(
+        jefe::domain::RepositoryId("repo-1".to_string()),
+        "Repo 1".to_string(),
+        "owner/repo".to_string(),
+        std::path::PathBuf::from("/tmp/repo1"),
+    ));
+    state.selected_repository_index = Some(0);
     // Cycle review + checks draft fields first.
     state = state.apply(AppEvent::PrCycleReviewFilter);
     state = state.apply(AppEvent::PrCycleChecksFilter);
@@ -601,7 +610,7 @@ fn test_apply_commits_review_and_checks_filters_and_triggers_reload() {
         "apply must copy draft -> committed"
     );
     assert!(
-        after.prs_state.loading.list,
+        after.prs_state.list_loading(),
         "apply must trigger a list reload (loading.list=true)"
     );
 }
@@ -786,7 +795,8 @@ fn test_capital_s_opens_agent_chooser_from_detail() {
 fn test_o_on_loaded_pr_emits_open_in_browser() {
     // PrList with a selected PR.
     let mut list = prs_state_with_focus(PrFocus::PrList);
-    list.prs_state.selected_pr_index = Some(0);
+    list.prs_state.list.replace_items(vec![test_pr(1)]);
+    list.prs_state.list.set_selected_index(Some(0));
     let event = resolve_prs_key_event(&list, &key(KeyCode::Char('o')));
     assert!(matches!(event, Some(AppEvent::PrOpenInBrowser)));
     // PrDetail with a loaded detail.
@@ -849,6 +859,26 @@ fn test_suppressed_keys_ctrl_d_ctrl_k_l_consumed_noop() {
     // l => consumed no-op.
     let l = resolve_prs_key_event(&state, &key(KeyCode::Char('l')));
     assert!(l.is_none(), "'l' must be consumed-no-op (got {l:?})");
+}
+
+/// Minimal PR for list-selection presence checks (REQ-PR-012 o-key).
+fn test_pr(number: u64) -> jefe::domain::PullRequest {
+    use jefe::domain::{PrCheckStatus, PrState};
+    jefe::domain::PullRequest {
+        number,
+        title: format!("PR {number}"),
+        state: PrState::Open,
+        author_login: String::from("author"),
+        updated_at: String::new(),
+        head_ref: String::new(),
+        base_ref: String::new(),
+        is_draft: false,
+        review_decision: None,
+        checks_status: PrCheckStatus::Success,
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
+        comment_count: 0,
+    }
 }
 
 /// Minimal PR detail for presence checks (REQ-PR-012 o-key).

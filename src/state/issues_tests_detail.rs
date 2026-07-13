@@ -5,7 +5,9 @@ use crate::state::types::{
     ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueFocus, ScreenMode,
 };
 
-fn dashboard_issues_state() -> AppState {
+use super::issues_test_fixtures::begin_issue_list_reload;
+
+pub(super) fn dashboard_issues_state() -> AppState {
     AppState {
         screen_mode: ScreenMode::DashboardIssues,
         ..AppState::default()
@@ -88,7 +90,7 @@ fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
 }
 
 /// Helper: create a minimal IssueDetail with given number and empty comments.
-fn p15_detail(number: u64) -> IssueDetail {
+pub(super) fn p15_detail(number: u64) -> IssueDetail {
     IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number,
@@ -109,7 +111,12 @@ fn p15_detail(number: u64) -> IssueDetail {
     }
 }
 
-fn p15_comment(comment_id: u64, author_login: &str, created_at: &str, body: &str) -> IssueComment {
+pub(super) fn p15_comment(
+    comment_id: u64,
+    author_login: &str,
+    created_at: &str,
+    body: &str,
+) -> IssueComment {
     IssueComment {
         comment_id,
         author_login: author_login.to_string(),
@@ -146,28 +153,29 @@ fn p15_state_with_loaded_detail(repo_id: &RepositoryId, issue_number: u64) -> Ap
 #[test]
 fn test_mode_lifecycle_enter_browse_exit() {
     // Enter issues mode
-    let state = issues_mode_state_with_repo("repo-1");
+    let mut state = issues_mode_state_with_repo("repo-1");
     assert_eq!(state.screen_mode, ScreenMode::DashboardIssues);
     assert!(state.issues_state.active);
     assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueList);
 
     // Load issues
     let filter = state.issues_state.committed_filter.clone();
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", filter.clone());
     let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(filter),
-        request_id: 0,
+        request_id,
         issues: vec![make_test_issue(1), make_test_issue(2), make_test_issue(3)],
         cursor: None,
         has_more: false,
     });
-    assert_eq!(state.issues_state.issues.len(), 3);
-    assert_eq!(state.issues_state.selected_issue_index, Some(0));
-    assert!(!state.issues_state.loading.list);
+    assert_eq!(state.issues_state.issues().len(), 3);
+    assert_eq!(state.issues_state.selected_issue_index(), Some(0));
+    assert!(!state.issues_state.list_loading());
 
     // Navigate down to select issue #2
     let state = state.apply(AppEvent::IssuesNavigateDown);
-    assert_eq!(state.issues_state.selected_issue_index, Some(1));
+    assert_eq!(state.issues_state.selected_issue_index(), Some(1));
 
     // Exit issues mode
     let state = state.apply(AppEvent::ExitIssuesMode);
@@ -181,15 +189,16 @@ fn test_mode_lifecycle_enter_browse_exit() {
 /// @requirement REQ-ISS-001
 #[test]
 fn test_mode_lifecycle_enter_interact_exit() {
-    let state = issues_mode_state_with_repo("repo-1");
+    let mut state = issues_mode_state_with_repo("repo-1");
 
     // Load issues and open detail
     let filter = state.issues_state.committed_filter.clone();
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", filter.clone());
     let state = state
         .apply(AppEvent::IssueListLoaded {
             scope_repo_id: RepositoryId("repo-1".to_string()),
             filter: Box::new(filter),
-            request_id: 0,
+            request_id,
             issues: vec![make_test_issue(10)],
             cursor: None,
             has_more: false,
@@ -262,8 +271,11 @@ fn test_key_routing_all_focus_domains() {
     // IssueList domain: IssuesEnter (with issue selected) transitions to IssueDetail
     let mut state = state;
     state.issues_state.issue_focus = IssueFocus::IssueList;
-    state.issues_state.issues = vec![make_test_issue(1)];
-    state.issues_state.selected_issue_index = Some(0);
+    state
+        .issues_state
+        .list
+        .replace_items(vec![make_test_issue(1)]);
+    state.issues_state.list.set_selected_index(Some(0));
     let state = state.apply(AppEvent::IssuesEnter);
     assert_eq!(state.issues_state.issue_focus, IssueFocus::IssueDetail);
 
@@ -298,7 +310,6 @@ fn test_key_routing_suppression_comprehensive() {
         IssueFocus::IssueList,
         IssueFocus::IssueDetail,
     ];
-
     for domain in domains {
         let mut state = dashboard_issues_state();
         state.issues_state.active = true;
@@ -389,14 +400,15 @@ fn test_error_handling_rate_limit_preserves_draft() {
 /// @requirement REQ-ISS-013
 #[test]
 fn test_error_handling_auth_failure_blocks_ops() {
-    let state = issues_mode_state_with_repo("repo-1");
+    let mut state = issues_mode_state_with_repo("repo-1");
     assert!(state.issues_state.active);
 
     let filter = state.issues_state.committed_filter.clone();
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", filter.clone());
     let state = state.apply(AppEvent::IssueListLoadFailed {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(filter),
-        request_id: 0,
+        request_id,
         request_cursor: None,
         error: "authentication required: token expired".to_string(),
     });
@@ -413,7 +425,7 @@ fn test_error_handling_auth_failure_blocks_ops() {
     assert!(state.issues_state.active);
     assert_eq!(state.screen_mode, ScreenMode::DashboardIssues);
     // List loading is cleared
-    assert!(!state.issues_state.loading.list);
+    assert!(!state.issues_state.list_loading());
 }
 
 /// P15 Test 7: Apply network error — mode/focus stable, error shown.
@@ -422,14 +434,15 @@ fn test_error_handling_auth_failure_blocks_ops() {
 /// @requirement REQ-ISS-013
 #[test]
 fn test_error_handling_network_error_stable_mode() {
-    let state = issues_mode_state_with_repo("repo-1");
+    let mut state = issues_mode_state_with_repo("repo-1");
     let focus_before = state.issues_state.issue_focus;
 
     let filter = state.issues_state.committed_filter.clone();
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", filter.clone());
     let state = state.apply(AppEvent::IssueListLoadFailed {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(filter),
-        request_id: 0,
+        request_id,
         request_cursor: None,
         error: "network timeout: connection refused".to_string(),
     });
@@ -449,51 +462,26 @@ fn test_error_handling_network_error_stable_mode() {
 /// @requirement REQ-ISS-007
 #[test]
 fn test_pagination_issue_list_auto_load() {
-    let state = issues_mode_state_with_repo("repo-1");
+    let mut state = issues_mode_state_with_repo("repo-1");
     let filter = state.issues_state.committed_filter.clone();
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", filter.clone());
     let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(filter),
-        request_id: 0,
+        request_id,
         issues: vec![make_test_issue(1), make_test_issue(2)],
         cursor: Some("cursor-abc".to_string()),
         has_more: true,
     });
 
-    assert!(state.issues_state.has_more_issues);
-    assert_eq!(
-        state.issues_state.list_cursor,
-        Some("cursor-abc".to_string())
-    );
-    assert_eq!(state.issues_state.issues.len(), 2);
+    assert!(state.issues_state.has_more_issues());
+    assert!(matches!(
+        state.issues_state.list.next_page(),
+        crate::domain::PageToken::Cursor(c) if c == "cursor-abc"
+    ));
+    assert_eq!(state.issues_state.issues().len(), 2);
 }
 
-#[test]
-fn test_detail_content_line_count_includes_empty_comments_separator() {
-    let mut state = dashboard_issues_state();
-    state.issues_state.issue_detail = Some(p15_detail(1));
-
-    assert_eq!(state.issues_state.detail_content_line_count(), 8);
-}
-
-#[test]
-fn test_detail_content_line_count_includes_loading_comments_separator() {
-    let mut state = dashboard_issues_state();
-    state.issues_state.issue_detail = Some(p15_detail(1));
-    state.issues_state.loading.comments = true;
-
-    assert_eq!(state.issues_state.detail_content_line_count(), 8);
-}
-
-#[test]
-fn test_detail_content_line_count_includes_non_empty_comments_separator() {
-    let mut detail = p15_detail(1);
-    detail.comments = vec![p15_comment(101, "alice", "2024-01-03T00:00:00Z", "hello")];
-    let mut state = dashboard_issues_state();
-    state.issues_state.issue_detail = Some(detail);
-
-    assert_eq!(state.issues_state.detail_content_line_count(), 10);
-}
 /// P15 Test 9: Load detail, load first comments page, load second — all comments present in order.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
@@ -669,15 +657,18 @@ fn test_stale_comment_page_same_issue_different_cursor_does_not_clear_current_lo
 fn test_issue_navigation_invalidates_pending_detail_responses() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.issues_state.issues = vec![make_test_issue(42), make_test_issue(43)];
-    state.issues_state.selected_issue_index = Some(0);
+    state
+        .issues_state
+        .list
+        .replace_items(vec![make_test_issue(42), make_test_issue(43)]);
+    state.issues_state.list.set_selected_index(Some(0));
     state.issues_state.issue_focus = IssueFocus::IssueList;
     state.issues_state.issue_detail = Some(p15_detail(42));
     state.mark_issue_detail_loading(repo_id.clone(), 42);
 
     let state = state.apply(AppEvent::IssuesNavigateDown);
 
-    assert_eq!(state.issues_state.selected_issue_index, Some(1));
+    assert_eq!(state.issues_state.selected_issue_index(), Some(1));
     assert!(!state.issues_state.loading.detail);
     assert!(state.issues_state.detail_pending.is_none());
 
@@ -712,8 +703,11 @@ fn test_issue_navigation_invalidates_pending_detail_responses() {
 fn test_issue_navigation_away_and_back_invalidates_pending_comment_page() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.issues_state.issues = vec![make_test_issue(42), make_test_issue(43)];
-    state.issues_state.selected_issue_index = Some(0);
+    state
+        .issues_state
+        .list
+        .replace_items(vec![make_test_issue(42), make_test_issue(43)]);
+    state.issues_state.list.set_selected_index(Some(0));
     state.issues_state.issue_focus = IssueFocus::IssueList;
     let mut detail = p15_detail(42);
     detail.has_more_comments = true;
@@ -725,7 +719,7 @@ fn test_issue_navigation_away_and_back_invalidates_pending_comment_page() {
         .apply(AppEvent::IssuesNavigateDown)
         .apply(AppEvent::IssuesNavigateUp);
 
-    assert_eq!(state.issues_state.selected_issue_index, Some(0));
+    assert_eq!(state.issues_state.selected_issue_index(), Some(0));
     assert!(!state.issues_state.loading.comments);
     assert!(state.issues_state.comments_page_pending.is_none());
 
@@ -761,15 +755,18 @@ fn test_issue_navigation_away_and_back_invalidates_pending_comment_page() {
 fn test_issue_navigate_end_invalidates_pending_detail_responses() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.issues_state.issues = vec![make_test_issue(42), make_test_issue(43)];
-    state.issues_state.selected_issue_index = Some(0);
+    state
+        .issues_state
+        .list
+        .replace_items(vec![make_test_issue(42), make_test_issue(43)]);
+    state.issues_state.list.set_selected_index(Some(0));
     state.issues_state.issue_focus = IssueFocus::IssueList;
     state.issues_state.issue_detail = Some(p15_detail(42));
     state.mark_issue_detail_loading(repo_id.clone(), 42);
 
     let state = state.apply(AppEvent::IssuesNavigateEnd);
 
-    assert_eq!(state.issues_state.selected_issue_index, Some(1));
+    assert_eq!(state.issues_state.selected_issue_index(), Some(1));
     assert!(!state.issues_state.loading.detail);
     assert!(state.issues_state.detail_pending.is_none());
 
@@ -794,8 +791,11 @@ fn test_issue_navigate_end_invalidates_pending_detail_responses() {
 fn test_issue_navigate_home_invalidates_pending_comment_page() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.issues_state.issues = vec![make_test_issue(42), make_test_issue(43)];
-    state.issues_state.selected_issue_index = Some(1);
+    state
+        .issues_state
+        .list
+        .replace_items(vec![make_test_issue(42), make_test_issue(43)]);
+    state.issues_state.list.set_selected_index(Some(1));
     state.issues_state.issue_focus = IssueFocus::IssueList;
     let mut detail = p15_detail(43);
     detail.has_more_comments = true;
@@ -805,7 +805,7 @@ fn test_issue_navigate_home_invalidates_pending_comment_page() {
 
     let state = state.apply(AppEvent::IssuesNavigateHome);
 
-    assert_eq!(state.issues_state.selected_issue_index, Some(0));
+    assert_eq!(state.issues_state.selected_issue_index(), Some(0));
     assert!(!state.issues_state.loading.comments);
     assert!(state.issues_state.comments_page_pending.is_none());
 

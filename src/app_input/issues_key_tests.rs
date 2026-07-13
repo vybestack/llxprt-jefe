@@ -847,7 +847,6 @@ fn f12_in_issue_list_is_noop() {
         "F12 at IssueList (terminal unfocused) must be None, got {event:?}"
     );
 }
-
 /// F12 while the terminal is focused defocuses it (issue #164).
 #[test]
 fn f12_while_terminal_focused_defocuses() {

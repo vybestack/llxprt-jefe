@@ -9,6 +9,8 @@ use crate::state::types::{
     ScreenMode,
 };
 
+use super::issues_test_fixtures::begin_issue_list_reload;
+
 fn dashboard_issues_state() -> AppState {
     AppState {
         screen_mode: ScreenMode::DashboardIssues,
@@ -359,29 +361,30 @@ fn test_scope_change_invalidation() {
     state.selected_repository_index = Some(0);
 
     // Enter issues mode and load some issues for repo-1
-    let state = state.apply(AppEvent::EnterIssuesMode);
+    let mut state = state.apply(AppEvent::EnterIssuesMode);
     let filter = state.issues_state.committed_filter.clone();
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", filter.clone());
     let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(filter),
-        request_id: 0,
+        request_id,
         issues: vec![make_test_issue(1), make_test_issue(2)],
         cursor: Some("cur".to_string()),
         has_more: true,
     });
-    assert_eq!(state.issues_state.issues.len(), 2);
-    assert!(state.issues_state.has_more_issues);
-    assert!(!state.issues_state.loading.list);
+    assert_eq!(state.issues_state.issues().len(), 2);
+    assert!(state.issues_state.has_more_issues());
+    assert!(!state.issues_state.list_loading());
 
-    // Switch to a different repository
+    // Switch to a different repository.
     let state = state.apply(AppEvent::SelectRepository(1));
 
-    // Issues data should be cleared and reload triggered
-    assert!(state.issues_state.issues.is_empty());
-    assert!(state.issues_state.loading.list);
-    assert!(!state.issues_state.has_more_issues);
-    assert!(state.issues_state.list_cursor.is_none());
-    assert!(state.issues_state.selected_issue_index.is_none());
+    // The reducer clears stale issues; the dispatch layer (not exercised by
+    // this pure-reducer test) begins the reload.
+    assert!(state.issues_state.issues().is_empty());
+    assert!(!state.issues_state.list_loading());
+    assert!(!state.issues_state.has_more_issues());
+    assert!(state.issues_state.selected_issue_index().is_none());
 }
 
 /// P15 Test 13: SelectRepository clears existing data when repo changes.
@@ -408,20 +411,20 @@ fn test_stale_scope_response_suppressed() {
     ));
     state.selected_repository_index = Some(0);
 
-    let state = state
-        .apply(AppEvent::EnterIssuesMode)
-        .apply(AppEvent::IssueListLoaded {
-            scope_repo_id: RepositoryId("repo-1".to_string()),
-            filter: Box::new(IssueFilter::default()),
-            request_id: 0,
-            issues: vec![make_test_issue(1)],
-            cursor: None,
-            has_more: false,
-        });
+    let mut state = state.apply(AppEvent::EnterIssuesMode);
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
+    let state = state.apply(AppEvent::IssueListLoaded {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(IssueFilter::default()),
+        request_id,
+        issues: vec![make_test_issue(1)],
+        cursor: None,
+        has_more: false,
+    });
 
     // Switch repos
     let state = state.apply(AppEvent::SelectRepository(1));
-    assert!(state.issues_state.issues.is_empty());
+    assert!(state.issues_state.issues().is_empty());
 
     // Now a stale response for repo-1 arrives
     let state = state.apply(AppEvent::IssueListLoaded {
@@ -434,7 +437,7 @@ fn test_stale_scope_response_suppressed() {
     });
 
     // Stale data is discarded — repo-1 data does not appear since current repo is repo-2
-    assert!(state.issues_state.issues.is_empty());
+    assert!(state.issues_state.issues().is_empty());
 }
 
 /// P15 Test 14: Open composer with text, change repo — inline cancelled, draft_notice set.
@@ -559,16 +562,16 @@ fn test_inline_exclusivity_all_combinations() {
 /// @requirement REQ-ISS-011
 #[test]
 fn test_send_to_agent_payload_complete() {
-    let mut state = state_with_repo_and_agent()
-        .apply(AppEvent::EnterIssuesMode)
-        .apply(AppEvent::IssueListLoaded {
-            scope_repo_id: RepositoryId("repo-1".to_string()),
-            filter: Box::new(IssueFilter::default()),
-            request_id: 0,
-            issues: vec![make_test_issue(7)],
-            cursor: None,
-            has_more: false,
-        });
+    let mut state = state_with_repo_and_agent().apply(AppEvent::EnterIssuesMode);
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
+    let mut state = state.apply(AppEvent::IssueListLoaded {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(IssueFilter::default()),
+        request_id,
+        issues: vec![make_test_issue(7)],
+        cursor: None,
+        has_more: false,
+    });
     state.mark_issue_detail_loading(RepositoryId("repo-1".to_string()), 7);
     let state = state.apply(AppEvent::IssueDetailLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),

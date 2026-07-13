@@ -89,8 +89,8 @@ fn test_issues_repo_navigation_independent_of_pane_focus() {
     let state = state.apply(AppEvent::IssuesNavigateDown);
     assert_eq!(state.selected_repository_index, Some(1));
     assert!(
-        state.issues_state.loading.list,
-        "issues should reload for new repo"
+        !state.issues_state.list_loading(),
+        "issues list should be cleared (not loading) after repo change"
     );
 
     // Down again to repo index 2
@@ -105,8 +105,8 @@ fn test_issues_repo_navigation_independent_of_pane_focus() {
     let state = state.apply(AppEvent::IssuesNavigateUp);
     assert_eq!(state.selected_repository_index, Some(1));
     assert!(
-        state.issues_state.loading.list,
-        "issues should reload for new repo"
+        !state.issues_state.list_loading(),
+        "issues list should be cleared (not loading) after repo change"
     );
 
     // Up again to repo index 0
@@ -162,25 +162,27 @@ fn test_issues_repo_navigation_resets_issues_state() {
     state.selected_repository_index = Some(0);
     state.issues_state.active = true;
     state.issues_state.issue_focus = IssueFocus::RepoList;
-    state.issues_state.issues = vec![make_test_issue(1), make_test_issue(2)];
-    state.issues_state.selected_issue_index = Some(1);
+    state
+        .issues_state
+        .list
+        .replace_items(vec![make_test_issue(1), make_test_issue(2)]);
+    state.issues_state.list.set_selected_index(Some(1));
     state.issues_state.issue_detail = Some(make_detail(1));
-    state.issues_state.loading.list = false;
     state.pane_focus = PaneFocus::Agents;
 
     let state = state.apply(AppEvent::IssuesNavigateDown);
     assert_eq!(state.selected_repository_index, Some(1));
     assert!(
-        state.issues_state.issues.is_empty(),
+        state.issues_state.issues().is_empty(),
         "issues should be cleared"
     );
-    assert_eq!(state.issues_state.selected_issue_index, None);
+    assert_eq!(state.issues_state.selected_issue_index(), None);
     assert!(
         state.issues_state.issue_detail.is_none(),
         "detail should be cleared"
     );
     assert!(
-        state.issues_state.loading.list,
-        "list_loading should be set for new fetch"
+        !state.issues_state.list_loading(),
+        "list should be cleared (not loading) after repo change"
     );
 }

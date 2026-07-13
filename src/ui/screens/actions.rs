@@ -69,15 +69,15 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
 
     // ── Actions data ────────────────────────────────────────────────────────
     let actions_focus = state.map_or(ActionsFocus::RunList, |s| s.actions_state.focus);
-    let runs = state.map_or_else(Vec::new, |s| s.actions_state.runs.clone());
-    let selected_run_idx = state.and_then(|s| s.actions_state.selected_run_index);
+    let runs = state.map_or_else(Vec::new, |s| s.actions_state.runs().to_vec());
+    let selected_run_idx = state.and_then(|s| s.actions_state.selected_run_index());
     let detail = state.and_then(|s| s.actions_state.run_detail.clone());
     let error_message = state.and_then(|s| s.actions_state.error.clone());
     let filter_open = state.is_some_and(|s| s.actions_state.ui.filter_ui_open);
     let filter_field_index = state.map_or(0, |s| s.actions_state.ui.filter_field_index);
     let draft_filter =
         state.map_or_else(Default::default, |s| s.actions_state.draft_filter.clone());
-    let loading = state.is_some_and(|s| s.actions_state.loading.list);
+    let loading = state.is_some_and(|s| s.actions_state.list_loading());
     let detail_scroll_offset = state.map_or(0, |s| s.actions_state.detail_scroll_offset);
     let expanded_jobs = state.map_or_else(std::collections::HashSet::new, |s| {
         s.actions_state.expanded_jobs.clone()
