@@ -21,6 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SCENARIO="$PROJECT_ROOT/dev-docs/tmux-scenarios/issue265-linux-keys.json"
 SHIM="$PROJECT_ROOT/scripts/issue265-gh-shim.sh"
+FIXTURES="$PROJECT_ROOT/scripts/issue265-gh-shim-fixtures.sh"
 ARTIFACT_DIR="$PROJECT_ROOT/target/tmux-harness/issue265"
 CONFIG_DIR="$ARTIFACT_DIR/config"
 AUDIT_FILE="$ARTIFACT_DIR/gh-audit.log"
@@ -37,6 +38,11 @@ command -v timeout >/dev/null 2>&1 || {
 
 [[ -r "$SHIM" ]] || {
     echo "FATAL: gh shim is missing or not readable: $SHIM" >&2
+    exit 1
+}
+
+[[ -r "$FIXTURES" ]] || {
+    echo "FATAL: shared shim fixtures are missing or not readable: $FIXTURES" >&2
     exit 1
 }
 
@@ -112,6 +118,7 @@ SHIM_DIR="$ARTIFACT_DIR/shim-bin"
 rm -rf "$SHIM_DIR"
 mkdir -p "$SHIM_DIR"
 cp "$SHIM" "$SHIM_DIR/gh"
+cp "$FIXTURES" "$SHIM_DIR/issue265-gh-shim-fixtures.sh"
 chmod +x "$SHIM_DIR/gh"
 
 export GH_SHIM_AUDIT="$AUDIT_FILE"
@@ -179,9 +186,14 @@ fi
 #
 # Extract ACCEPTED operation labels (normalize whitespace, ignore timestamps).
 # Filter out auth-status so the four-operation sequence check is exact.
+#
+# The `grep -v '^auth-status$'` returns exit 1 when only auth-status records
+# exist (no issue-read operations). Under `set -o pipefail` that would abort
+# the script before reaching the explicit `FAIL:` branch below, so `|| true`
+# lets an empty result flow through to the no-operations check.
 accepted_seq=$(grep -oE 'ACCEPTED [A-Za-z0-9_-]+' "$AUDIT_FILE" \
     | sed 's/ACCEPTED //' \
-    | grep -v '^auth-status$')
+    | grep -v '^auth-status$' || true)
 
 if [[ -z "$accepted_seq" ]]; then
     echo "FAIL: no ACCEPTED issue-read operations in audit."

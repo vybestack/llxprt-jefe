@@ -164,37 +164,40 @@ fn issues_banner_text_none_when_both_absent() {
 /// because the `error_visible` sizing parameter is derived from the SAME
 /// `issues_banner_text` projection used for rendering (issue #265).
 ///
-/// This is NOT a tautological comparison: it proves that the banner
-/// projection — which has error precedence over notice — produces a
-/// `Some` value for both an error-only and a notice-only input, and that
-/// value's `is_some()` is what feeds `issues_pane_rows`. A no-banner input
-/// produces `None`, reserving zero banner rows.
+/// Asserts the concrete projection outputs and the one-row sizing contract:
+/// error precedence, notice fallback, `None` when both absent, and that a
+/// present banner reserves exactly one row versus no banner.
 #[test]
 fn issues_pane_rows_banner_projection_drives_sizing() {
-    // Error-only: banner is Some, so error_visible=true.
-    let error_banner = issues_banner_text(Some("load failed"), None);
-    let error_visible = error_banner.is_some();
-    let error_rows = issues_pane_rows(40, error_visible, false);
-
-    // Notice-only: banner is Some (notice fallback), so error_visible=true.
-    let notice_banner = issues_banner_text(None, Some("No agents available"));
-    let notice_visible = notice_banner.is_some();
-    let notice_rows = issues_pane_rows(40, notice_visible, false);
-
-    // Both reserve the same banner row because both project to Some.
+    // Error precedence: error wins over notice.
     assert_eq!(
-        error_rows, notice_rows,
-        "error-only and notice-only banners must reserve the same row count"
+        issues_banner_text(Some("load failed"), Some("No agents available")),
+        Some("load failed"),
     );
-
-    // No banner at all: None, error_visible=false, one more detail row.
-    let no_banner = issues_banner_text(None::<&str>, None::<&str>);
-    let none_visible = no_banner.is_some();
-    let no_rows = issues_pane_rows(40, none_visible, false);
+    // Notice fallback: notice used when no error.
     assert_eq!(
-        error_rows.1 + 1,
-        no_rows.1,
-        "a present banner must reserve exactly one row vs no banner"
+        issues_banner_text(None, Some("No agents available")),
+        Some("No agents available"),
+    );
+    // None when both absent.
+    assert_eq!(issues_banner_text(None::<&str>, None::<&str>), None,);
+
+    // Feed those same projections into sizing: a present banner reserves one
+    // row while an absent banner reserves none.
+    let banner_rows = issues_pane_rows(
+        40,
+        issues_banner_text(Some("load failed"), None).is_some(),
+        false,
+    );
+    let no_banner_rows = issues_pane_rows(
+        40,
+        issues_banner_text(None::<&str>, None::<&str>).is_some(),
+        false,
+    );
+    assert_eq!(
+        banner_rows.1 + 1,
+        no_banner_rows.1,
+        "a present banner must reserve exactly one detail row vs no banner"
     );
 }
 

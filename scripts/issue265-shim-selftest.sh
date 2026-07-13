@@ -16,9 +16,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SHIM="$PROJECT_ROOT/scripts/issue265-gh-shim.sh"
+FIXTURES="$SCRIPT_DIR/issue265-gh-shim-fixtures.sh"
 
 [[ -x "$SHIM" ]] || {
     echo "FATAL: shim not found or not executable: $SHIM" >&2
+    exit 1
+}
+[[ -r "$FIXTURES" ]] || {
+    echo "FATAL: shared fixtures file is missing or not readable: $FIXTURES" >&2
     exit 1
 }
 command -v timeout >/dev/null 2>&1 || {
@@ -26,17 +31,25 @@ command -v timeout >/dev/null 2>&1 || {
     exit 1
 }
 
-# The exact production vectors (must match the shim's readonly constants).
-SEARCH_QUERY_BODY='query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { id number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }'
-SEARCH_QUERY_STRING='repo:owner/repo-265 is:issue state:open'
-ISSUE_VIEW_JSON_FIELDS='number,title,state,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id'
-COMMENTS_QUERY_BODY='query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first) { nodes { id databaseId author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }'
+# Source the shared readonly production-vector constants so the self-test
+# and shim can never drift apart.
+# shellcheck source=issue265-gh-shim-fixtures.sh
+. "$FIXTURES"
+readonly -p SEARCH_QUERY_BODY SEARCH_QUERY_STRING ISSUE_VIEW_JSON_FIELDS COMMENTS_QUERY_BODY >/dev/null 2>&1 || {
+    echo "FATAL: shared fixtures did not declare all four expected constants" >&2
+    exit 1
+}
 
 PASS=0
 FAIL=0
 TMPAUDIT=$(mktemp)
 TMPSTDERR=$(mktemp)
-trap 'rm -f "$TMPAUDIT" "$TMPSTDERR"' EXIT
+DEPLOYED_SHIM_DIR=$(mktemp -d)
+trap 'rm -f "$TMPAUDIT" "$TMPSTDERR"; rm -rf "$DEPLOYED_SHIM_DIR"' EXIT
+cp "$SHIM" "$DEPLOYED_SHIM_DIR/gh"
+cp "$FIXTURES" "$DEPLOYED_SHIM_DIR/issue265-gh-shim-fixtures.sh"
+chmod +x "$DEPLOYED_SHIM_DIR/gh"
+SHIM="$DEPLOYED_SHIM_DIR/gh"
 [[ -w "$TMPAUDIT" ]] || {
     echo "FATAL: audit temp file is not writable: $TMPAUDIT" >&2
     exit 1
@@ -67,15 +80,28 @@ record_failure() {
     echo "  audit: $SHIM_AUDIT"
 }
 
+# Return 0 only when the audit content is exactly one non-empty line.
+# Rejects empty content and multi-line content. Avoids the fragile
+# `grep -c '^'` here-string pattern which can exit 1 under `set -e` when
+# the count is zero.
+exact_one_nonempty_audit_record() {
+    local content="${SHIM_AUDIT:-}"
+    local stripped="${content%$'\n'}"
+    if [[ -n "$stripped" && "$stripped" != *$'\n'* ]]; then
+        return 0
+    fi
+    return 1
+}
+
 # Assert the shim ACCEPTS the given args and records the expected operation.
 expect_accept() {
     local label="$1"
     local operation="$2"
     shift 2
     run_shim "$@"
-    if [[ $SHIM_EXIT -eq 0 \
-        && $(grep -c '^' <<<"$SHIM_AUDIT") -eq 1 \
-        && "$SHIM_AUDIT" == *"] ACCEPTED $operation -- gh "* ]]; then
+    if [[ $SHIM_EXIT -eq 0 ]] \
+        && exact_one_nonempty_audit_record \
+        && [[ "$SHIM_AUDIT" == *"] ACCEPTED $operation -- gh "* ]]; then
         PASS=$((PASS + 1))
     else
         record_failure "ACCEPT ($operation)" "$label"
@@ -86,9 +112,9 @@ expect_accept() {
 expect_reject() {
     local label="$1"; shift
     run_shim "$@"
-    if [[ $SHIM_EXIT -ne 0 && $SHIM_EXIT -ne 124 \
-        && $(grep -c '^' <<<"$SHIM_AUDIT") -eq 1 \
-        && "$SHIM_AUDIT" == *"] REJECTED unmatched argv (not an exact allowlisted vector) -- gh"* ]]; then
+    if [[ $SHIM_EXIT -ne 0 && $SHIM_EXIT -ne 124 ]] \
+        && exact_one_nonempty_audit_record \
+        && [[ "$SHIM_AUDIT" == *"] REJECTED unmatched argv (not an exact allowlisted vector) -- gh"* ]]; then
         PASS=$((PASS + 1))
     else
         record_failure "REJECT" "$label"

@@ -277,3 +277,40 @@ fn open_inline_editor_clears_stale_draft_notice() {
         "OpenInlineEditor must preserve a real error"
     );
 }
+
+#[test]
+fn blocked_inline_opens_preserve_draft_notice_and_active_editor() {
+    let events = [
+        AppEvent::OpenNewIssueComposer,
+        AppEvent::OpenNewCommentComposer,
+        AppEvent::OpenReplyComposer { comment_index: 0 },
+        AppEvent::OpenInlineEditor {
+            target: EditorTarget::IssueBody,
+        },
+    ];
+
+    for event in events {
+        let mut state = issues_mode_state_with_repo("repo-1");
+        state.issues_state.draft_notice = Some("No agents available".to_string());
+        state.issues_state.inline_state = InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            text: "existing draft".to_string(),
+            cursor: 14,
+        };
+
+        let state = state.apply(event);
+
+        assert_eq!(
+            state.issues_state.draft_notice.as_deref(),
+            Some("No agents available"),
+        );
+        assert!(matches!(
+            state.issues_state.inline_state,
+            InlineState::Composer {
+                target: ComposerTarget::NewComment,
+                ref text,
+                cursor: 14,
+            } if text == "existing draft"
+        ));
+    }
+}

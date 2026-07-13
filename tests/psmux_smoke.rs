@@ -14,8 +14,13 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const POLL_TIMEOUT: Duration = Duration::from_secs(5);
 const FIXTURE: &str = env!("CARGO_BIN_EXE_jefe-psmux-smoke-fixture");
 
-/// Windows `STATUS_DLL_INIT_FAILED` represented by `ExitStatus::code()`.
-const STATUS_DLL_INIT_FAILED: i32 = 0xc0000142_u32 as i32;
+/// Windows `STATUS_DLL_INIT_FAILED` as returned by `ExitStatus::code()`.
+///
+/// On Windows, `ExitStatus::from_raw(0xc000_0142)` causes `code()` to return
+/// the raw NTSTATUS reinterpreted as a signed `i32` (two's complement of the
+/// bit pattern `0xc000_0142`). We store that exact signed value here instead
+/// of casting so Clippy's `as_conversions` lint stays clean.
+const STATUS_DLL_INIT_FAILED: i32 = -1_073_741_502;
 const MAX_VERSION_PROBE_ATTEMPTS: u32 = 4;
 const VERSION_PROBE_BACKOFF: Duration = Duration::from_millis(500);
 
@@ -541,7 +546,7 @@ where
         }
     }
     Err(format!(
-        "STATUS_DLL_INIT_FAILED (0xc0000142) persisted across {MAX_VERSION_PROBE_ATTEMPTS} attempts:\n{}",
+        "STATUS_DLL_INIT_FAILED (0xc000_0142) persisted across {MAX_VERSION_PROBE_ATTEMPTS} attempts:\n{}",
         diagnostics.join("\n---\n")
     ))
 }
@@ -607,13 +612,13 @@ fn version_probe_retry_is_limited_to_dll_init_failure() {
     use std::os::windows::process::ExitStatusExt;
 
     assert!(is_retryable_version_probe_status(
-        std::process::ExitStatus::from_raw(0xc0000142)
+        std::process::ExitStatus::from_raw(0xc000_0142)
     ));
     assert!(!is_retryable_version_probe_status(
         std::process::ExitStatus::from_raw(1)
     ));
     assert!(!is_retryable_version_probe_status(
-        std::process::ExitStatus::from_raw(0xc0000005)
+        std::process::ExitStatus::from_raw(0xc000_0005)
     ));
 }
 
@@ -629,29 +634,54 @@ fn probe_output(raw_status: u32, stdout: &str, stderr: &str) -> Output {
     }
 }
 
-fn run_probe_sequence(
-    sequence: Vec<ProbeAttempt>,
-) -> (Result<(String, Vec<String>), String>, usize, usize) {
+type ProbeResult = Result<(String, Vec<String>), String>;
+
+struct ProbeSequenceOutcome {
+    result: ProbeResult,
+    probes: usize,
+    sleeps: usize,
+}
+
+fn run_probe_sequence(sequence: Vec<ProbeAttempt>) -> ProbeSequenceOutcome {
     let mut sequence = std::collections::VecDeque::from(sequence);
     let probes = std::cell::Cell::new(0);
     let sleeps = std::cell::Cell::new(0);
     let result = probe_qualified_version(
         || {
             probes.set(probes.get() + 1);
-            match sequence.pop_front().expect("probe sequence exhausted") {
-                Ok(output) => Ok(output),
-                Err(message) => Err(std::io::Error::other(message)),
+            match sequence.pop_front() {
+                Some(Ok(output)) => Ok(output),
+                Some(Err(message)) => Err(std::io::Error::other(message)),
+                None => panic!("probe sequence exhausted"),
             }
         },
         |_| sleeps.set(sleeps.get() + 1),
     );
-    (result, probes.get(), sleeps.get())
+    ProbeSequenceOutcome {
+        result,
+        probes: probes.get(),
+        sleeps: sleeps.get(),
+    }
+}
+
+fn assert_probe_error(outcome: ProbeSequenceOutcome) -> (String, usize, usize) {
+    match outcome.result {
+        Err(reason) => (reason, outcome.probes, outcome.sleeps),
+        Ok((version, _)) => panic!("probe unexpectedly qualified as {version:?}"),
+    }
+}
+
+fn assert_probe_ok(outcome: ProbeSequenceOutcome) -> ((String, Vec<String>), usize, usize) {
+    match outcome.result {
+        Ok(value) => (value, outcome.probes, outcome.sleeps),
+        Err(reason) => panic!("probe unexpectedly failed: {reason}"),
+    }
 }
 
 #[test]
 fn version_probe_stops_immediately_on_non_retryable_failure() {
-    let (result, probes, sleeps) = run_probe_sequence(vec![Ok(probe_output(1, "", "fatal"))]);
-    let reason = result.expect_err("generic failure must not retry");
+    let outcome = run_probe_sequence(vec![Ok(probe_output(1, "", "fatal"))]);
+    let (reason, probes, sleeps) = assert_probe_error(outcome);
     assert_eq!((probes, sleeps), (1, 0));
     assert!(reason.contains("attempt 1/4") && reason.contains("fatal"));
 }
@@ -659,11 +689,11 @@ fn version_probe_stops_immediately_on_non_retryable_failure() {
 #[test]
 fn version_probe_recovers_after_loader_transient() {
     let sequence = vec![
-        Ok(probe_output(0xc0000142, "", "first transient")),
+        Ok(probe_output(0xc000_0142, "", "first transient")),
         Ok(probe_output(0, "tmux 3.3.6\n", "")),
     ];
-    let (result, probes, sleeps) = run_probe_sequence(sequence);
-    let (version, diagnostics) = result.expect("second attempt should qualify");
+    let outcome = run_probe_sequence(sequence);
+    let ((version, diagnostics), probes, sleeps) = assert_probe_ok(outcome);
     assert_eq!((version.as_str(), probes, sleeps), ("tmux 3.3.6", 2, 1));
     assert_eq!(diagnostics.len(), 2);
     assert!(diagnostics[0].contains("first transient"));
@@ -674,14 +704,14 @@ fn version_probe_bounds_loader_retries_and_reports_every_attempt() {
     let sequence = (1..=4)
         .map(|attempt| {
             Ok(probe_output(
-                0xc0000142,
+                0xc000_0142,
                 "",
                 &format!("transient-{attempt}"),
             ))
         })
         .collect();
-    let (result, probes, sleeps) = run_probe_sequence(sequence);
-    let reason = result.expect_err("four loader failures must exhaust retries");
+    let outcome = run_probe_sequence(sequence);
+    let (reason, probes, sleeps) = assert_probe_error(outcome);
     assert_eq!((probes, sleeps), (4, 3));
     for attempt in 1..=4 {
         assert!(reason.contains(&format!("transient-{attempt}")));
@@ -691,11 +721,11 @@ fn version_probe_bounds_loader_retries_and_reports_every_attempt() {
 #[test]
 fn version_probe_reports_transient_before_terminal_failure() {
     let sequence = vec![
-        Ok(probe_output(0xc0000142, "", "first transient")),
+        Ok(probe_output(0xc000_0142, "", "first transient")),
         Ok(probe_output(1, "", "terminal failure")),
     ];
-    let (result, probes, sleeps) = run_probe_sequence(sequence);
-    let reason = result.expect_err("terminal failure must stop retries");
+    let outcome = run_probe_sequence(sequence);
+    let (reason, probes, sleeps) = assert_probe_error(outcome);
     assert_eq!((probes, sleeps), (2, 1));
     assert!(reason.contains("first transient") && reason.contains("terminal failure"));
 }
@@ -703,11 +733,11 @@ fn version_probe_reports_transient_before_terminal_failure() {
 #[test]
 fn version_probe_reports_spawn_failure_after_transient() {
     let sequence = vec![
-        Ok(probe_output(0xc0000142, "", "first transient")),
+        Ok(probe_output(0xc000_0142, "", "first transient")),
         Err("spawn unavailable"),
     ];
-    let (result, probes, sleeps) = run_probe_sequence(sequence);
-    let reason = result.expect_err("spawn failure must stop retries");
+    let outcome = run_probe_sequence(sequence);
+    let (reason, probes, sleeps) = assert_probe_error(outcome);
     assert_eq!((probes, sleeps), (2, 1));
     assert!(reason.contains("first transient") && reason.contains("spawn unavailable"));
 }

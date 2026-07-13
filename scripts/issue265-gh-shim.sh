@@ -31,6 +31,15 @@ if ! command -v flock >/dev/null 2>&1; then
     exit 2
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FIXTURES="$SCRIPT_DIR/issue265-gh-shim-fixtures.sh"
+if [[ ! -r "$FIXTURES" ]]; then
+    echo "gh shim: shared fixtures file is missing or not readable: $FIXTURES" >&2
+    exit 2
+fi
+# shellcheck source=issue265-gh-shim-fixtures.sh
+. "$FIXTURES"
+
 AUDIT_FILE="${GH_SHIM_AUDIT:-/tmp/jefe-issue265-gh-audit.log}"
 if ! : 2>/dev/null >> "$AUDIT_FILE"; then
     echo "gh shim: audit file is not writable: $AUDIT_FILE" >&2
@@ -127,27 +136,12 @@ argv_eq() {
 
 # ─── Exact production argument vectors ───────────────────────────────────
 #
-# These are extracted verbatim from the production source code for the
-# issue #265 scenario (owner=owner, repo=repo-265, number=265, filter=default
-# open, page_size=30, no cursor).
-
-# The exact GraphQL search-list query body (no cursor — first page).
-# Source: src/github/parse.rs build_issue_search_args, cursor=None branch.
-readonly SEARCH_QUERY_BODY='query($searchQuery: String!, $first: Int!) { search(type: ISSUE, query: $searchQuery, first: $first) { nodes { ... on Issue { id number title state author { login } updatedAt assignees(first: 10) { nodes { login } } labels(first: 20) { nodes { name } } issueType { name } milestone { title } comments { totalCount } } } pageInfo { hasNextPage endCursor } } }'
-
-# The exact search query string for the default open filter on owner/repo-265.
-readonly SEARCH_QUERY_STRING='repo:owner/repo-265 is:issue state:open'
-
-# The exact --json field list for `gh issue view`.
-# Source: src/github/mod.rs get_issue_detail.
-readonly ISSUE_VIEW_JSON_FIELDS='number,title,state,author,createdAt,updatedAt,labels,assignees,milestone,body,url,comments,id'
-
-# The exact GraphQL comments query body (no cursor — first page).
-# Source: src/github/mod.rs list_comments, cursor=None branch.
-readonly COMMENTS_QUERY_BODY='query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first) { nodes { id databaseId author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }'
+# The readonly constants (SEARCH_QUERY_BODY, SEARCH_QUERY_STRING,
+# ISSUE_VIEW_JSON_FIELDS, COMMENTS_QUERY_BODY) are sourced from
+# issue265-gh-shim-fixtures.sh so the shim and its self-test stay in sync.
 
 # Build the exact expected argv for each operation. These are constructed
-# from the readonly constants above so they cannot drift.
+# from the sourced readonly constants so they cannot drift.
 
 build_search_argv() {
     # gh api graphql -f query=<body> -F searchQuery=<query> -F first=30
