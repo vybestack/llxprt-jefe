@@ -5,6 +5,7 @@
 //! @pseudocode component-002 lines 07-14
 
 use std::io::{Read, Write};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -54,6 +55,7 @@ impl Dimensions for TermDimensions {
 #[derive(Clone, Copy, Debug)]
 pub struct RuntimeListener;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn copy_to_system_clipboard(text: &str) {
     if text.is_empty() {
         return;
@@ -111,6 +113,8 @@ fn copy_to_system_clipboard(text: &str) {
         warn!("failed to store OSC52 clipboard data: xclip/xsel unavailable or failed");
     }
 }
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn copy_to_system_clipboard(_text: &str) {}
 
 impl EventListener for RuntimeListener {
     fn send_event(&self, event: TermEvent) {

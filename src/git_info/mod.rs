@@ -43,7 +43,7 @@ const BRANCH_TTL: Duration = Duration::from_secs(5);
 ///
 /// The origin URL changes very rarely (essentially never during a session),
 /// so this is much longer than the branch TTL.
-const ORIGIN_TTL: Duration = Duration::from_secs(300);
+const ORIGIN_TTL: Duration = Duration::from_mins(5);
 
 /// Resolved git display info for an agent's work directory.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

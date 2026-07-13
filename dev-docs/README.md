@@ -39,6 +39,8 @@ TUI harness scenarios (real-TTY end-to-end checks) under [`testing/`](./testing/
 
 - [`tmux-harness.md`](./testing/tmux-harness.md) — scenario JSON schema, step
   catalog, local execution, artifacts, optional smoke checks.
+- [`psmux-smoke.md`](./testing/psmux-smoke.md) — native-Windows psmux minimum
+  version, command-surface compatibility matrix, execution, and diagnostics.
 
 ## Redirect stubs
 

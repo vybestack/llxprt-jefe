@@ -18,6 +18,10 @@ fn dev_docs_index_links_to_tmux_harness_guide() {
         readme.contains("[`tmux-harness.md`](./testing/tmux-harness.md)"),
         "dev-docs index should link the tmux harness guide (moved under testing/)"
     );
+    assert!(
+        readme.contains("[`psmux-smoke.md`](./testing/psmux-smoke.md)"),
+        "dev-docs index should link the native Windows psmux smoke guide"
+    );
 }
 
 /// @plan PLAN-20260629-TMUX-HARNESS.P05

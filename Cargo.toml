@@ -50,6 +50,14 @@ lru = "0.12"
 # jefe's iocraft pipeline.
 comrak = { version = "0.53", default-features = false }
 
+[features]
+psmux-smoke = []
+
+[[bin]]
+name = "jefe-psmux-smoke-fixture"
+path = "tests/fixtures/psmux_smoke_fixture.rs"
+required-features = ["psmux-smoke"]
+
 [patch.crates-io]
 iocraft = { path = "vendor/iocraft" }
 
