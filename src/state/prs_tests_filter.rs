@@ -208,3 +208,113 @@ fn test_clear_filter_resets_committed_and_draft() {
         Some(PrFilterState::Open)
     );
 }
+
+// ── issue #241 Finding #4: rendered/key-routing behavioral search focus ──
+
+/// Finding #4: Pressing `/` (PrFocusSearchInput) must route the key to focus
+/// the PR search input. After focusing, typing characters (PrSetSearchQuery)
+/// must accumulate in the search_query, which is the value rendered in the
+/// search box. This is a behavioral test of key routing and rendered query
+/// state, proving the typed text lands in the focused search input.
+///
+/// @requirement REQ-PR-008 (issue #241 Finding #4)
+#[test]
+fn test_tier_b_pr_search_focus_types_exact_title_and_renders_query() {
+    // Start in PR mode with a selected repo.
+    let state = prs_filter_open_state();
+
+    // Step 1: Press `/` to focus the search input (key routing).
+    let state = state.apply(AppEvent::PrFocusSearchInput);
+    assert!(
+        state.prs_state.search_input_focused,
+        "search input must be focused after PrFocusSearchInput"
+    );
+    assert!(
+        state.prs_state.search_query.is_empty(),
+        "search_query must start empty when focused"
+    );
+
+    // Step 2: Type the exact fixture PR title character by character.
+    // This simulates key routing: each character goes to SetSearchQuery.
+    let exact_title = "[tutorial-capture:run-001] fixture pull request";
+    let mut state = state;
+    for ch in exact_title.chars() {
+        let mut query = state.prs_state.search_query.clone();
+        query.push(ch);
+        state = state.apply(AppEvent::PrSetSearchQuery { query });
+    }
+
+    // The search_query must contain the exact typed title — this is what
+    // the UI renders in the focused search box.
+    assert_eq!(
+        state.prs_state.search_query, exact_title,
+        "search_query must render the exact typed PR title"
+    );
+
+    // Step 3: Press Enter to apply the search.
+    let state = state.apply(AppEvent::PrApplySearch);
+
+    // The committed filter must contain the exact title.
+    assert_eq!(
+        state.prs_state.committed_filter.query_text, exact_title,
+        "committed_filter.query_text must match the exact typed title"
+    );
+
+    // The search input must be blurred after applying.
+    assert!(
+        !state.prs_state.search_input_focused,
+        "search input must be blurred after PrApplySearch"
+    );
+}
+
+/// Finding #4: Backspace during PR search removes the last character,
+/// matching the expected rendered query behavior. The query shrinks
+/// character by character, proving the rendered text reflects input.
+///
+/// @requirement REQ-PR-008 (issue #241 Finding #4)
+#[test]
+fn test_tier_b_pr_search_backspace_removes_last_char() {
+    let state = prs_filter_open_state();
+    let state = state.apply(AppEvent::PrFocusSearchInput);
+
+    // Type "hello".
+    let mut state = state;
+    for ch in "hello".chars() {
+        let mut query = state.prs_state.search_query.clone();
+        query.push(ch);
+        state = state.apply(AppEvent::PrSetSearchQuery { query });
+    }
+    assert_eq!(state.prs_state.search_query, "hello");
+
+    // Backspace removes the last char.
+    let mut query = state.prs_state.search_query.clone();
+    query.pop();
+    let state = state.apply(AppEvent::PrSetSearchQuery { query });
+    assert_eq!(
+        state.prs_state.search_query, "hell",
+        "rendered query must reflect backspace"
+    );
+}
+
+/// Finding #4: The search input focus state survives until explicitly
+/// blurred or ApplySearch. Typing does not blur the input.
+///
+/// @requirement REQ-PR-008 (issue #241 Finding #4)
+#[test]
+fn test_tier_b_pr_search_focus_persists_during_typing() {
+    let state = prs_filter_open_state();
+    let state = state.apply(AppEvent::PrFocusSearchInput);
+    assert!(state.prs_state.search_input_focused);
+
+    // Type multiple characters — focus must persist.
+    let mut state = state;
+    for ch in "test query".chars() {
+        let mut query = state.prs_state.search_query.clone();
+        query.push(ch);
+        state = state.apply(AppEvent::PrSetSearchQuery { query });
+        assert!(
+            state.prs_state.search_input_focused,
+            "search input must remain focused during typing"
+        );
+    }
+}

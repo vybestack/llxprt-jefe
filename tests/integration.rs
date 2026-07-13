@@ -9,4 +9,5 @@ mod core;
 mod e2e;
 mod runtime;
 mod support;
+mod tutorial_capture_artifacts;
 mod ui;

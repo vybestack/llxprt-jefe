@@ -7,6 +7,7 @@
 //! @plan PLAN-20260629-TMUX-HARNESS.P03
 //! @requirement REQ-TMUX-HARNESS-003
 
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::OnceLock;
@@ -69,6 +70,17 @@ pub struct TmuxStartRequest {
     pub rows: u16,
     pub history_limit: u32,
     pub keep_session: bool,
+    /// Optional controlled PATH for the launched process. When set, the pane
+    /// wrapper exports `PATH=<value>` before exec-ing the command, so the
+    /// tutorial-capture workflow can inject run-scoped PATH shims (issue #241).
+    pub env_path: Option<String>,
+    /// Extra environment variables to export in the pane wrapper before
+    /// exec-ing the command. Each entry is a `KEY=VALUE` pair.
+    ///
+    /// **issue #241 Finding #2**: Used by the tutorial-capture workflow to
+    /// inject `JEFE_TUTORIAL_CAPTURE=1` so Jefe's runtime disables the
+    /// nested managed-agent tmux status bar.
+    pub extra_env: Vec<(String, String)>,
 }
 
 impl TmuxStartRequest {
@@ -97,6 +109,8 @@ impl TmuxStartRequest {
             rows,
             history_limit,
             keep_session: false,
+            env_path: None,
+            extra_env: Vec::new(),
         };
         request.validate()?;
         Ok(request)
@@ -141,17 +155,55 @@ impl TmuxStartRequest {
         self
     }
 
+    /// Return a copy of this request with a controlled PATH for the launched
+    /// process. When set, the pane wrapper exports `PATH=<value>` before
+    /// exec-ing the command.
+    #[must_use]
+    pub fn with_env_path(mut self, path: impl Into<String>) -> Self {
+        self.env_path = Some(path.into());
+        self
+    }
+
+    /// Return a copy of this request with an additional environment variable
+    /// to export in the pane wrapper.
+    ///
+    /// **issue #241 Finding #2**: Used by the tutorial-capture workflow to
+    /// inject `JEFE_TUTORIAL_CAPTURE=1`.
+    #[must_use]
+    pub fn with_extra_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.extra_env.push((key.into(), value.into()));
+        self
+    }
+
     fn validate(&self) -> Result<(), TmuxDriverError> {
         if self.session_name.trim().is_empty() {
             return Err(invalid_request("session name must not be empty"));
         }
+        if self.session_name.contains('\0') {
+            return Err(invalid_request("session name must not contain NUL bytes"));
+        }
         if self.command.is_empty() || self.command.iter().any(String::is_empty) {
             return Err(invalid_request("command must contain non-empty argv"));
+        }
+        if self.command.iter().any(|c| c.contains('\0')) {
+            return Err(invalid_request("command must not contain NUL bytes"));
         }
         if self.cols == 0 || self.rows == 0 || self.history_limit == 0 {
             return Err(invalid_request(
                 "cols, rows, and history limit must be non-zero",
             ));
+        }
+        if let Some(ref path) = self.env_path
+            && path.contains('\0')
+        {
+            return Err(invalid_request("env_path must not contain NUL bytes"));
+        }
+        if self
+            .extra_env
+            .iter()
+            .any(|(k, v)| k.contains('\0') || v.contains('\0'))
+        {
+            return Err(invalid_request("extra_env must not contain NUL bytes"));
         }
         Ok(())
     }
@@ -259,6 +311,16 @@ impl TmuxDriver {
         self.send_key(session, "Enter")
     }
 
+    /// Send literal text without pressing Enter. Used for typing into form
+    /// fields where Enter would submit the form prematurely.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TmuxDriverError`] if tmux rejects the key send.
+    pub fn send_type(&self, session: &TmuxSession, text: &str) -> Result<(), TmuxDriverError> {
+        run_tmux(&["send-keys", "-l", "-t", &session.name, "--", text], None)
+    }
+
     /// Send a single named key.
     ///
     /// # Errors
@@ -302,6 +364,22 @@ impl TmuxDriver {
             session.cols,
             output_lines(&output.stdout),
         ))
+    }
+
+    /// Capture the current visible pane screen WITH ANSI escape sequences
+    /// (for color-preserving SVG rendering).
+    ///
+    /// Uses `tmux capture-pane -e -p` which includes SGR escape sequences.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TmuxDriverError`] if tmux capture fails.
+    pub fn capture_screen_with_color(
+        &self,
+        session: &TmuxSession,
+    ) -> Result<Vec<String>, TmuxDriverError> {
+        let output = run_tmux_capture(&["capture-pane", "-e", "-p", "-t", &session.name])?;
+        Ok(output_lines(&output.stdout))
     }
 
     /// Capture a bounded sample of pane history.
@@ -467,11 +545,37 @@ fn tmux_pane_wrapper_command(request: &TmuxStartRequest) -> String {
     // `-L {socket}` against the outer server's socket directory, silently
     // leaving `remain-on-exit`/`history-limit` unconfigured on the real
     // harness session (#173).
+    //
+    // `status off` disables the tmux status bar for the session so captures
+    // never include the hostname, session name, or live clock that the status
+    // bar would render.
     let prefix = harness_tmux_prefix_str();
+    let path_export = request
+        .env_path
+        .as_deref()
+        .filter(|p| !p.is_empty())
+        .map(|p| format!("export PATH={}; ", shell_escape_single(p)))
+        .unwrap_or_default();
+    // issue #241 Finding #2: export extra env vars (e.g.
+    // JEFE_TUTORIAL_CAPTURE=1) before exec-ing the command.
+    let mut extra_env_export = String::new();
+    for (k, v) in &request.extra_env {
+        let _ = write!(
+            extra_env_export,
+            "export {}={}; ",
+            shell_escape_single(k),
+            shell_escape_single(v)
+        );
+    }
+    // Session name is single-quote escaped to prevent shell injection via
+    // session names containing double quotes, $(), backticks, newlines, or
+    // backslashes (#241 Finding #1). The `status off` set-option targets
+    // the session by this escaped name.
+    let escaped_session = shell_escape_single(&request.session_name);
     format!(
-        "unset TMUX TMUX_PANE TMUX_TMPDIR; {prefix} set-option -pt \"$TMUX_PANE\" remain-on-exit on; {prefix} set-option -wt \"$TMUX_PANE\" history-limit {}; exec {}",
-        request.history_limit,
-        shell_join(&request.command)
+        "unset TMUX TMUX_PANE TMUX_TMPDIR; {path_export}{extra_env_export}{prefix} set-option -t {escaped_session} status off; {prefix} set-option -pt \"$TMUX_PANE\" remain-on-exit on; {prefix} set-option -wt \"$TMUX_PANE\" history-limit {history_limit}; exec {command}",
+        history_limit = request.history_limit,
+        command = shell_join(&request.command)
     )
 }
 

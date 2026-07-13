@@ -674,10 +674,22 @@ fn submit_form_and_snapshot_launch(
 
 fn focus_terminal_after_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let mut state = app_state.write();
-    state.terminal_focused = true;
+    apply_focus_terminal_after_submit(&mut state);
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
+}
+
+/// Pure, deterministic terminal-focus assignment called by
+/// [`focus_terminal_after_submit`].
+///
+/// Sets both `terminal_focused = true` and `pane_focus = Terminal` on the
+/// raw [`AppState`]. Extracted so it can be tested directly without
+/// constructing an `AppStateHandle`. If either assignment is removed from
+/// production, the behavioral test fails.
+pub fn apply_focus_terminal_after_submit(state: &mut jefe::state::AppState) {
+    state.terminal_focused = true;
+    state.pane_focus = PaneFocus::Terminal;
 }
 
 fn handle_form_space(app_state: &mut AppStateHandle, ctx: &SharedContext) -> Option<AppEvent> {

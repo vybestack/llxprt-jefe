@@ -385,6 +385,57 @@ fn test_agent_chooser_consumes_keys_before_search() {
     assert!(matches!(event, Some(AppEvent::PrAgentChooserNavigateDown)));
 }
 
+/// `/` from PrList focus dispatches `PrFocusSearchInput`, mirroring the
+/// issues-mode `/` key that focuses the search input before typing a query.
+///
+/// **issue #241 Tier B**: exact selection requires focusing search before
+/// typing so the typed text lands in the search box, not as a list
+/// navigation key.
+///
+/// @plan PLAN-20260624-PR-MODE.P10
+/// @requirement REQ-PR-002
+/// @requirement REQ-PR-008
+#[test]
+fn test_slash_focuses_search_from_pr_list_focus() {
+    let state = prs_state_with_focus(PrFocus::PrList);
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('/')));
+    assert!(
+        matches!(event, Some(AppEvent::PrFocusSearchInput)),
+        "'/' from PrList must focus the search input (got {event:?})"
+    );
+}
+
+/// `/` from RepoList focus also dispatches `PrFocusSearchInput`, so search
+/// is reachable from any list pane (consistent with issues-mode).
+///
+/// @plan PLAN-20260624-PR-MODE.P10
+/// @requirement REQ-PR-002
+/// @requirement REQ-PR-008
+#[test]
+fn test_slash_focuses_search_from_pr_repo_list_focus() {
+    let state = prs_state_with_focus(PrFocus::RepoList);
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('/')));
+    assert!(
+        matches!(event, Some(AppEvent::PrFocusSearchInput)),
+        "'/' from RepoList must focus the search input (got {event:?})"
+    );
+}
+
+/// `/` from PrDetail focus returns `None` (no-op) — search applies to list
+/// navigation, not the detail view.
+///
+/// @plan PLAN-20260624-PR-MODE.P10
+/// @requirement REQ-PR-002
+#[test]
+fn test_slash_is_noop_from_pr_detail_focus() {
+    let state = prs_state_with_detail_subfocus(PrDetailSubfocus::Body);
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('/')));
+    assert!(
+        event.is_none(),
+        "'/' from PrDetail must be a no-op (got {event:?})"
+    );
+}
+
 /// Search input routes chars to the query (P3).
 ///
 /// @plan PLAN-20260624-PR-MODE.P10

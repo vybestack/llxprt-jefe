@@ -836,3 +836,67 @@ fn expansion_is_idempotent() {
     );
     assert_eq!(twice.steps, once.steps);
 }
+
+/// Macro expansion substitutes `$param` placeholders in `Step::Type` steps,
+/// not just `Step::Line`. This is required for tutorial-capture scenarios
+/// that use `{"type": "$value"}` inside macros to inject unique values
+/// (issue numbers, PR numbers, agent names) into form fields.
+///
+/// @plan PLAN-20260629-TMUX-HARNESS.P01
+/// @requirement REQ-TMUX-HARNESS-001
+#[test]
+fn macro_expansion_substitutes_type_step() {
+    let json = r#"{
+        "config": { "cols": 80, "rows": 24 },
+        "macros": {
+            "fill": {
+                "params": ["value"],
+                "steps": [ { "type": "$value" }, { "key": "Enter" } ]
+            }
+        },
+        "steps": [ { "macro": "fill", "args": { "value": "issue-42" } } ]
+    }"#;
+    let scenario = parse_scenario(json).value_or_panic("should parse");
+    let expanded = expand_macros(&scenario).value_or_panic("should expand");
+    assert_eq!(expanded.steps.len(), 2, "macro body has 2 steps");
+    assert!(
+        matches!(&expanded.steps[0], Step::Type { text } if text == "issue-42"),
+        "type step must have substituted text"
+    );
+    assert!(matches!(&expanded.steps[1], Step::Key { key } if key == "Enter"));
+}
+
+/// Macro expansion substitutes `$param` placeholders in multiple `Step::Type`
+/// fields within a single macro body, each with a different argument.
+///
+/// @plan PLAN-20260629-TMUX-HARNESS.P01
+/// @requirement REQ-TMUX-HARNESS-001
+#[test]
+fn macro_expansion_substitutes_multiple_type_steps() {
+    let json = r#"{
+        "config": { "cols": 80, "rows": 24 },
+        "macros": {
+            "double": {
+                "params": ["first", "second"],
+                "steps": [
+                    { "type": "$first" },
+                    { "key": "Tab" },
+                    { "type": "$second" }
+                ]
+            }
+        },
+        "steps": [ { "macro": "double", "args": { "first": "aaa", "second": "bbb" } } ]
+    }"#;
+    let scenario = parse_scenario(json).value_or_panic("should parse");
+    let expanded = expand_macros(&scenario).value_or_panic("should expand");
+    assert_eq!(expanded.steps.len(), 3);
+    assert!(
+        matches!(&expanded.steps[0], Step::Type { text } if text == "aaa"),
+        "first type must substitute"
+    );
+    assert!(matches!(&expanded.steps[1], Step::Key { key } if key == "Tab"));
+    assert!(
+        matches!(&expanded.steps[2], Step::Type { text } if text == "bbb"),
+        "second type must substitute"
+    );
+}

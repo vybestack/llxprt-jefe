@@ -13,6 +13,7 @@ mod commands;
 mod errors;
 mod liveness;
 mod manager;
+mod nested_status;
 mod pane_capture;
 mod preflight;
 mod session;

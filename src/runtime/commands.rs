@@ -13,6 +13,7 @@ use tracing::debug;
 use crate::domain::{AgentKind, LaunchSignature};
 
 use super::errors::RuntimeError;
+use super::nested_status::disable_nested_tmux_status_if_capture;
 use super::preflight::sandbox_ssh_agent_warning;
 use super::socket::jefe_tmux_socket_path;
 
@@ -794,6 +795,9 @@ fn finalize_local_session(session_name: &str, warning: Option<String>) {
         None,
     );
     apply_session_style(session_name);
+    // issue #241 Finding #2: disable nested tmux status bar under tutorial
+    // capture so agent sessions never leak hostname/clock into captures.
+    disable_nested_tmux_status_if_capture(session_name, |args| tmux_cmd_status(args, None));
 
     if let Some(warning) = warning {
         debug!(session_name = %session_name, warning = %warning, "runtime launch preflight warning");

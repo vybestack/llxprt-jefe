@@ -35,6 +35,8 @@ pub struct RunSummary {
     pub steps_run: usize,
     pub artifact_dir: Option<PathBuf>,
     pub soft_failures: Vec<RunnerFailure>,
+    /// Semantic labels of captures made during the run, in order.
+    pub captures: Vec<String>,
 }
 
 /// Structured failure details for a step.
@@ -91,6 +93,7 @@ pub trait HarnessDriver {
     type Error: std::fmt::Display;
 
     fn send_line(&mut self, line: &str) -> Result<(), Self::Error>;
+    fn send_type(&mut self, text: &str) -> Result<(), Self::Error>;
     fn send_key(&mut self, key: &str) -> Result<(), Self::Error>;
     fn send_keys(&mut self, keys: &[String]) -> Result<(), Self::Error>;
     fn capture_screen(&mut self) -> Result<ScreenCapture, Self::Error>;
@@ -98,6 +101,13 @@ pub trait HarnessDriver {
     fn pane_status(&mut self) -> Result<PaneStatus, Self::Error>;
     fn history_size(&mut self) -> Result<u64, Self::Error>;
     fn copy_mode(&mut self, enabled: bool) -> Result<(), Self::Error>;
+
+    /// Capture the current pane screen WITH ANSI escape sequences for
+    /// color-preserving SVG rendering. Returns the same plain-text lines
+    /// if color capture is not supported.
+    ///
+    /// Default implementation returns an empty color capture (plain text only).
+    fn capture_screen_with_color(&mut self) -> Result<Vec<String>, Self::Error>;
 }
 
 /// Concrete adapter from [`TmuxDriver`] plus session handle to the runner seam.
@@ -123,6 +133,10 @@ impl HarnessDriver for TmuxHarnessDriver {
         self.driver.send_line(&self.session, line)
     }
 
+    fn send_type(&mut self, text: &str) -> Result<(), Self::Error> {
+        self.driver.send_type(&self.session, text)
+    }
+
     fn send_key(&mut self, key: &str) -> Result<(), Self::Error> {
         self.driver.send_key(&self.session, key)
     }
@@ -133,6 +147,10 @@ impl HarnessDriver for TmuxHarnessDriver {
 
     fn capture_screen(&mut self) -> Result<ScreenCapture, Self::Error> {
         self.driver.capture_screen(&self.session)
+    }
+
+    fn capture_screen_with_color(&mut self) -> Result<Vec<String>, Self::Error> {
+        self.driver.capture_screen_with_color(&self.session)
     }
 
     fn capture_scrollback(&mut self, lines: u32) -> Result<ScrollbackSample, Self::Error> {
@@ -222,6 +240,7 @@ struct RunContext {
     assert_mode: AssertMode,
     history_samples: BTreeMap<String, ScrollbackSample>,
     soft_failures: Vec<RunnerFailure>,
+    captures: Vec<String>,
 }
 
 impl RunContext {
@@ -231,6 +250,7 @@ impl RunContext {
             assert_mode,
             history_samples: BTreeMap::new(),
             soft_failures: Vec::new(),
+            captures: Vec::new(),
         }
     }
 }
@@ -252,6 +272,7 @@ fn run_steps<D: HarnessDriver>(
         steps_run: steps.len(),
         artifact_dir: context.artifact_dir.clone(),
         soft_failures: context.soft_failures.clone(),
+        captures: context.captures.clone(),
     })
 }
 
@@ -267,6 +288,7 @@ fn execute_step<D: HarnessDriver>(
             Ok(())
         }
         Step::Line { text } => driver_call(driver.send_line(text)),
+        Step::Type { text } => driver_call(driver.send_type(text)),
         Step::Key { key } => driver_call(driver.send_key(key)),
         Step::Keys { keys } => driver_call(driver.send_keys(keys)),
         Step::WaitFor { pattern } => wait_for_pattern(index, step, driver, pattern, true),
@@ -426,10 +448,10 @@ fn expect_history_delta<D: HarnessDriver>(
 
 fn capture_artifact<D: HarnessDriver>(
     driver: &mut D,
-    context: &RunContext,
+    context: &mut RunContext,
     name: &str,
 ) -> Result<(), RunnerError> {
-    let Some(dir) = &context.artifact_dir else {
+    let Some(dir) = context.artifact_dir.clone() else {
         return Ok(());
     };
     let capture = driver.capture_screen().map_err(driver_error)?;
@@ -437,7 +459,17 @@ fn capture_artifact<D: HarnessDriver>(
     write_text(
         dir.join(format!("{label}.screen.txt")),
         &capture.lines.join("\n"),
-    )
+    )?;
+    // Also capture with ANSI escape sequences for color-preserving SVG.
+    // ANSI capture and write errors must fail the checkpoint/run so missing
+    // color data is never silently swallowed.
+    let color_lines = driver.capture_screen_with_color().map_err(driver_error)?;
+    write_text(
+        dir.join(format!("{label}.screen.ansi")),
+        &color_lines.join("\n"),
+    )?;
+    context.captures.push(name.to_string());
+    Ok(())
 }
 
 fn write_history_sample(
@@ -559,6 +591,7 @@ fn step_kind(step: &Step) -> String {
     match step {
         Step::Wait { .. } => "wait",
         Step::Line { .. } => "line",
+        Step::Type { .. } => "type",
         Step::Key { .. } => "key",
         Step::Keys { .. } => "keys",
         Step::WaitFor { .. } => "waitFor",

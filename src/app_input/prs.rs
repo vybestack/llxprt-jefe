@@ -152,6 +152,7 @@ fn handle_pr_repo_key(_state: &AppState, key_event: &KeyEvent) -> Option<AppEven
         KeyCode::Down => Some(AppEvent::PrNavigateDown),
         KeyCode::Left => Some(AppEvent::PrCycleFocusReverse),
         KeyCode::Right => Some(AppEvent::PrCycleFocus),
+        KeyCode::Char('/') => Some(AppEvent::PrFocusSearchInput),
         _ => None,
     }
 }
@@ -180,6 +181,7 @@ fn handle_pr_list_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent
         KeyCode::End => Some(AppEvent::PrNavigateEnd),
         KeyCode::Enter => Some(AppEvent::PrListEnter),
         KeyCode::Char('o') => Some(pr_open_in_browser_or_notice(selected_pr_present(state))),
+        KeyCode::Char('/') => Some(AppEvent::PrFocusSearchInput),
         _ => None,
     }
 }

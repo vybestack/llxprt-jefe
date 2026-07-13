@@ -79,6 +79,11 @@ impl HarnessDriver for FakeDriver {
         Ok(())
     }
 
+    fn send_type(&mut self, text: &str) -> Result<(), Self::Error> {
+        self.lines_sent.push(text.to_string());
+        Ok(())
+    }
+
     fn send_key(&mut self, key: &str) -> Result<(), Self::Error> {
         self.keys_sent.push(key.to_string());
         Ok(())
@@ -124,6 +129,12 @@ impl HarnessDriver for FakeDriver {
     fn copy_mode(&mut self, enabled: bool) -> Result<(), Self::Error> {
         self.copy_modes.push(enabled);
         Ok(())
+    }
+
+    fn capture_screen_with_color(&mut self) -> Result<Vec<String>, Self::Error> {
+        // Return plain text lines from capture_screen for tests.
+        let capture = self.capture_screen()?;
+        Ok(capture.lines().to_vec())
     }
 }
 
@@ -878,3 +889,7 @@ fn run_restart_scenario(jefe_binary: &std::path::Path, config_dir: &std::path::P
 
     run_tmux_scenario(&scenario, &request, None).value_or_panic("run restart scenario")
 }
+
+#[cfg(test)]
+#[path = "runtime_validation_tests.rs"]
+mod runtime_validation_tests;

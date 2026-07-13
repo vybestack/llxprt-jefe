@@ -102,6 +102,34 @@ fn start_request_rejects_empty_argv_element() {
     assert!(matches!(result, Err(TmuxDriverError::InvalidRequest(_))));
 }
 
+/// `TmuxStartRequest` rejects NUL bytes in command argv (path injection).
+#[test]
+fn start_request_rejects_nul_in_command() {
+    let result = TmuxStartRequest::command(
+        "demo",
+        vec!["echo\0rm".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    );
+    assert!(matches!(result, Err(TmuxDriverError::InvalidRequest(_))));
+}
+
+/// `TmuxStartRequest` rejects NUL bytes in session name (path injection).
+#[test]
+fn start_request_rejects_nul_in_session_name() {
+    let result = TmuxStartRequest::command(
+        "ses\0sion",
+        vec!["echo".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    );
+    assert!(matches!(result, Err(TmuxDriverError::InvalidRequest(_))));
+}
+
 /// The new-session argv passes a single shell command with shell-escaped parts.
 ///
 /// @plan PLAN-20260629-TMUX-HARNESS.P03
@@ -125,7 +153,7 @@ fn new_session_command_shell_escapes_argv_parts() {
     let args = new_session_args(&request);
     let socket = harness_socket_name();
     let expected = format!(
-        "unset TMUX TMUX_PANE TMUX_TMPDIR; tmux -f /dev/null -L {socket} set-option -pt \"$TMUX_PANE\" remain-on-exit on; tmux -f /dev/null -L {socket} set-option -wt \"$TMUX_PANE\" history-limit 1000; exec '/bin/echo' 'a b' 'quote'\\''it'"
+        "unset TMUX TMUX_PANE TMUX_TMPDIR; tmux -f /dev/null -L {socket} set-option -t 'demo' status off; tmux -f /dev/null -L {socket} set-option -pt \"$TMUX_PANE\" remain-on-exit on; tmux -f /dev/null -L {socket} set-option -wt \"$TMUX_PANE\" history-limit 1000; exec '/bin/echo' 'a b' 'quote'\\''it'"
     );
     assert_eq!(args.last().map(String::as_str), Some(expected.as_str()));
 }
@@ -168,6 +196,218 @@ fn tmux_pane_wrapper_command_scrubs_tmux_env_before_inner_calls() {
     assert!(
         wrapper.ends_with("exec '/bin/true'"),
         "exec'd command must survive verbatim after the unset/inner calls; got {wrapper}"
+    );
+}
+
+/// `with_env_path` sets the `env_path` field so the pane wrapper exports a
+/// controlled PATH before exec-ing the command (issue #241).
+#[test]
+fn with_env_path_sets_field_on_request() {
+    let request = TmuxStartRequest::command(
+        "env-path-test",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let with_path = request.clone().with_env_path("/tmp/shims:/usr/bin");
+    assert_eq!(with_path.env_path.as_deref(), Some("/tmp/shims:/usr/bin"));
+    // Original is unchanged (builder consumes self, so clone first).
+    assert!(request.env_path.is_none());
+}
+
+/// When `env_path` is set, the pane wrapper includes `export PATH=...` before
+/// the first inner tmux call (issue #241). The PATH value is shell-escaped
+/// using single-quote escaping (same as command argv), preventing injection.
+#[test]
+fn pane_wrapper_includes_path_export_when_env_path_set() {
+    let request = TmuxStartRequest::command(
+        "env-export-test",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid")
+    .with_env_path("/tmp/shims:/usr/bin");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    let export_pos = wrapper
+        .find("export PATH='/tmp/shims:/usr/bin';")
+        .unwrap_or_else(|| panic!("PATH export missing from wrapper: {wrapper}"));
+    let unset_pos = wrapper
+        .find("unset TMUX TMUX_PANE TMUX_TMPDIR;")
+        .unwrap_or_else(|| panic!("unset prefix missing from wrapper: {wrapper}"));
+    let tmux_pos = wrapper
+        .find("tmux -f /dev/null -L")
+        .unwrap_or_else(|| panic!("inner tmux prefix missing from wrapper: {wrapper}"));
+
+    assert!(
+        unset_pos < export_pos,
+        "unset scrub must precede the PATH export; got wrapper={wrapper}"
+    );
+    assert!(
+        export_pos < tmux_pos,
+        "PATH export must precede the inner tmux calls; got wrapper={wrapper}"
+    );
+}
+
+/// When `env_path` contains single quotes, they must be shell-escaped to
+/// prevent PATH injection (issue #241 review fix #2).
+#[test]
+fn pane_wrapper_shell_escapes_single_quotes_in_env_path() {
+    let request = TmuxStartRequest::command(
+        "env-escape-test",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid")
+    .with_env_path("/tmp/it's a path");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    // The single quote in the path must be escaped as '\'' by shell_escape_single.
+    assert!(
+        wrapper.contains(r"'/tmp/it'\''s a path'"),
+        "single quote in PATH must be shell-escaped; got wrapper={wrapper}"
+    );
+}
+
+/// `env_path` containing NUL bytes must be rejected by validation.
+#[test]
+fn env_path_with_nul_byte_is_rejected() {
+    let result = TmuxStartRequest::command(
+        "nul-path-test",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid")
+    .with_env_path("safe\0evil");
+
+    assert!(
+        result.validate().is_err(),
+        "env_path with NUL byte must be rejected"
+    );
+}
+
+/// `env_path` with backticks or $() must not be executed — single-quote
+/// escaping neutralizes them.
+#[test]
+fn env_path_with_backticks_is_neutralized() {
+    let request = TmuxStartRequest::command(
+        "backtick-path-test",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid")
+    .with_env_path("/tmp/$(whoami)/bin");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    // The value is inside single quotes, so $() is not expanded.
+    assert!(
+        wrapper.contains("'/tmp/$(whoami)/bin'"),
+        "backtick/$(...) in PATH must be inside single quotes (not expanded); got wrapper={wrapper}"
+    );
+}
+
+/// When `env_path` is `None`, the pane wrapper does not include a PATH export.
+#[test]
+fn pane_wrapper_omits_path_export_when_env_path_absent() {
+    let request = TmuxStartRequest::command(
+        "no-env-path-test",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    assert!(
+        !wrapper.contains("export PATH="),
+        "wrapper should not include PATH export when env_path is None; got {wrapper}"
+    );
+}
+
+/// The pane wrapper disables the tmux status bar so captures never show the
+/// hostname, session name, or live clock.
+#[test]
+fn pane_wrapper_disables_tmux_status_bar() {
+    let request = TmuxStartRequest::command(
+        "status-off-test",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    assert!(
+        wrapper.contains("status off"),
+        "wrapper must disable tmux status bar; got {wrapper}"
+    );
+    assert!(
+        wrapper.contains("'status-off-test'"),
+        "status off must target the session name (single-quote escaped); got {wrapper}"
+    );
+}
+
+/// **issue #241 Finding #2**: The pane wrapper exports extra env vars (e.g.
+/// `JEFE_TUTORIAL_CAPTURE=1`) so the launched Jefe process knows to disable
+/// nested managed-agent tmux status bars.
+#[test]
+fn pane_wrapper_exports_extra_env_vars() {
+    let request = TmuxStartRequest::command(
+        "extra-env-test",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid")
+    .with_extra_env("JEFE_TUTORIAL_CAPTURE", "1");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    assert!(
+        wrapper.contains("export 'JEFE_TUTORIAL_CAPTURE'='1'"),
+        "wrapper must export extra env var; got {wrapper}"
+    );
+}
+
+/// **issue #241 Finding #2**: Without extra env vars, the wrapper does not
+/// include any extra export statements (normal production is unchanged).
+#[test]
+fn pane_wrapper_omits_extra_env_when_empty() {
+    let request = TmuxStartRequest::command(
+        "no-extra-env",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    assert!(
+        !wrapper.contains("JEFE_TUTORIAL_CAPTURE"),
+        "wrapper must not include tutorial-capture env when not set: {wrapper}"
     );
 }
 
@@ -539,5 +779,171 @@ fn harness_session_runs_on_dedicated_socket() {
             .lines()
             .any(|line| line.starts_with(&format!("{}:", guard.session.name))),
         "harness session leaked onto the default/shared tmux server (#171); listing:\n{listing}"
+    );
+}
+
+// --- #241 Finding #1: session name shell-injection adversarial tests ---------
+
+/// The session name is interpolated into a shell command string inside
+/// double quotes (`set-option -t "{session}"`). A session name containing
+/// a double quote must be escaped so it cannot break out of the quoting
+/// context and inject shell commands.
+///
+/// We verify by asserting the wrapper string contains the session name
+/// inside single quotes (via `shell_escape_single`), NOT inside double
+/// quotes. If the session name were still in a double-quoted context, a
+/// `"` character would prematurely close the quote.
+#[test]
+fn session_name_with_double_quote_is_escaped_in_wrapper() {
+    let request = TmuxStartRequest::command(
+        "evil\";touch /tmp/pwned;#",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    // The session name must NOT appear unescaped in a double-quoted context.
+    // Instead it must be single-quote escaped.
+    assert!(
+        !wrapper.contains("\"evil\""),
+        "session name with double quote must not appear in a double-quoted context: {wrapper}"
+    );
+    // The session name (including the injected text) must be inside single
+    // quotes so the shell treats it as a literal string, not commands.
+    assert!(
+        wrapper.contains("'evil\";touch /tmp/pwned;#'"),
+        "session name with double quote must be fully enclosed in single quotes: {wrapper}"
+    );
+}
+
+/// A session name containing `$()` command substitution must not execute.
+/// In a double-quoted context, `$()` would be expanded by the shell. With
+/// single-quote escaping, it is inert.
+#[test]
+fn session_name_with_dollar_paren_is_neutralized() {
+    let request = TmuxStartRequest::command(
+        "evil$(whoami)",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    // The $() must be inside single quotes so it is not expanded.
+    assert!(
+        wrapper.contains("'evil$(whoami)'"),
+        "session name with $() must be single-quote escaped: {wrapper}"
+    );
+}
+
+/// A session name containing backticks must not execute.
+#[test]
+fn session_name_with_backticks_is_neutralized() {
+    let request = TmuxStartRequest::command(
+        "evil`whoami`",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    assert!(
+        wrapper.contains("'evil`whoami`'"),
+        "session name with backticks must be single-quote escaped: {wrapper}"
+    );
+}
+
+/// A session name containing a newline must not break the shell command.
+/// Single-quote escaping wraps the entire name so newlines are literal.
+#[test]
+fn session_name_with_newline_is_escaped() {
+    let request = TmuxStartRequest::command(
+        "evil\nwhoami",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    // The wrapper must still contain the exec command at the end.
+    assert!(
+        wrapper.contains("exec '/bin/true'"),
+        "wrapper must still end with exec command despite newline in session name: {wrapper}"
+    );
+}
+
+/// A session name containing a backslash must not escape the quoting context.
+#[test]
+fn session_name_with_backslash_is_escaped() {
+    let request = TmuxStartRequest::command(
+        "evil\\\"",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    // In single-quote escaping, backslash is literal (not an escape char).
+    // The wrapper must not have the backslash escape a closing single quote.
+    assert!(
+        wrapper.contains("exec '/bin/true'"),
+        "wrapper must still end with exec command despite backslash in session name: {wrapper}"
+    );
+}
+
+/// A normal (safe) session name still works correctly after the escaping fix.
+#[test]
+fn normal_session_name_unaffected_by_escaping() {
+    let request = TmuxStartRequest::command(
+        "my-harness-session",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    assert!(
+        wrapper.contains("'my-harness-session'"),
+        "normal session name must appear in single-quoted form: {wrapper}"
+    );
+}
+
+/// A session name containing a single quote is properly escaped using the
+/// `'\''` idiom.
+#[test]
+fn session_name_with_single_quote_uses_escape_idiom() {
+    let request = TmuxStartRequest::command(
+        "it's",
+        vec!["/bin/true".to_string()],
+        temp_path(),
+        80,
+        24,
+        1000,
+    )
+    .value_or_panic("request should be valid");
+
+    let wrapper = tmux_pane_wrapper_command(&request);
+    assert!(
+        wrapper.contains("'it'\\''s'"),
+        "session name with single quote must use the '\\'' escape idiom: {wrapper}"
     );
 }

@@ -27,6 +27,10 @@ pub enum Step {
     Wait { milliseconds: u64 },
     /// Type a full line of text (implies a trailing Enter in later phases).
     Line { text: String },
+    /// Type literal text without pressing Enter (for form fields).
+    /// Uses `send-keys -l` so the text is sent literally, not interpreted
+    /// as tmux key names.
+    Type { text: String },
     /// Send a single named key (e.g. `"Enter"`, `"Escape"`).
     Key { key: String },
     /// Send a sequence of named keys.
@@ -76,6 +80,7 @@ impl Step {
             Self::Macro { name, args } => validate_macro_invocation(name, args),
             Self::Wait { .. }
             | Self::Line { .. }
+            | Self::Type { .. }
             | Self::CopyMode { .. }
             | Self::WaitForExit { .. } => Ok(()),
         }
@@ -125,6 +130,7 @@ struct StepParts {
 enum StepCore {
     Wait(u64),
     Line(String),
+    Type(String),
     Key(String),
     Keys(Vec<String>),
     WaitFor(String),
@@ -174,6 +180,7 @@ impl StepParts {
                 no_aux(count, args.as_ref()).map(|()| Step::Wait { milliseconds })
             }
             StepCore::Line(text) => no_aux(count, args.as_ref()).map(|()| Step::Line { text }),
+            StepCore::Type(text) => no_aux(count, args.as_ref()).map(|()| Step::Type { text }),
             StepCore::Key(key) => no_aux(count, args.as_ref()).map(|()| Step::Key { key }),
             StepCore::Keys(keys) => no_aux(count, args.as_ref()).map(|()| Step::Keys { keys }),
             StepCore::WaitFor(pattern) => {
@@ -213,6 +220,7 @@ where
     match key.as_str() {
         "wait" => set_core(map, parts, &key, StepCore::Wait)?,
         "line" => set_core(map, parts, &key, StepCore::Line)?,
+        "type" => set_core(map, parts, &key, StepCore::Type)?,
         "key" => set_core(map, parts, &key, StepCore::Key)?,
         "keys" => set_core(map, parts, &key, StepCore::Keys)?,
         "waitFor" => set_core(map, parts, &key, StepCore::WaitFor)?,

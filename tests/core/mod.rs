@@ -8,4 +8,8 @@ mod domain_state_contracts;
 mod message_bus_contracts;
 mod persistence_theme_contracts;
 mod tmux_harness_docs_contracts;
+mod tutorial_capture_contracts;
+mod tutorial_capture_fatal_saves;
+mod tutorial_capture_scenario_artifacts;
+mod tutorial_capture_tier_b_contracts;
 mod visibility_filter_contracts;

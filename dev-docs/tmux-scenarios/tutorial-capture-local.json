@@ -1,0 +1,60 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 32,
+    "history_limit": 2000,
+    "initial_wait_ms": 200,
+    "assert_mode": "strict"
+  },
+  "macros": {
+    "quit": {
+      "params": [],
+      "steps": [
+        { "key": "C-q" },
+        { "waitForExit": 3000 }
+      ]
+    }
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "expect": "No terminal attached" },
+    { "capture": "dashboard-oriented" },
+
+    { "key": "N" },
+    { "waitFor": "New Repository" },
+    { "capture": "new-repository-form" },
+
+    { "type": "TutorialRepo" },
+    { "key": "Tab" },
+    { "type": "." },
+    { "key": "Enter" },
+    { "wait": 300 },
+    { "expect": "TutorialRepo" },
+    { "capture": "repository-added" },
+
+    { "key": "n" },
+    { "waitFor": "New Agent" },
+    { "expect": "Agent Runtime" },
+    { "capture": "new-agent-runtime-choice" },
+
+    { "key": "Tab" },
+    { "type": "TutorialAgent" },
+    { "key": "Enter" },
+    { "wait": 1000 },
+    { "expect": "TutorialAgent" },
+    { "capture": "agent-running" },
+
+    { "waitFor": "runtime-shim: ready" },
+    { "capture": "terminal-capture-active" },
+
+    { "type": "hello from tutorial" },
+    { "key": "Enter" },
+    { "waitFor": "hello from tutorial" },
+    { "capture": "shim-terminal-interaction" },
+
+    { "key": "F12" },
+    { "wait": 200 },
+
+    { "macro": "quit", "args": {} }
+  ]
+}

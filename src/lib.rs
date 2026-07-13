@@ -65,4 +65,8 @@ mod github_tests_pr_threads;
 
 /// Current application version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub mod harness;
+/// Reusable agent-driven tutorial-capture workflow around the tmux harness
+/// (issue #241).
+pub mod tutorial_capture;

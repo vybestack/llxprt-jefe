@@ -50,6 +50,10 @@ lru = "0.12"
 # jefe's iocraft pipeline.
 comrak = { version = "0.53", default-features = false }
 
+# SHA-256 digest for tutorial-capture binary/scenario reproducibility metadata
+# (issue #241). Pure-Rust, no-std compatible, no unsafe.
+sha2 = "0.10"
+
 [patch.crates-io]
 iocraft = { path = "vendor/iocraft" }
 

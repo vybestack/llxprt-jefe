@@ -1,0 +1,68 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 32,
+    "history_limit": 2000,
+    "initial_wait_ms": 200,
+    "assert_mode": "strict"
+  },
+  "macros": {
+    "quit": {
+      "params": [],
+      "steps": [
+        { "key": "C-q" },
+        { "waitForExit": 3000 }
+      ]
+    },
+    "send-to-agent": {
+      "params": ["agent"],
+      "steps": [
+        { "key": "S" },
+        { "waitFor": "Send" },
+        { "expect": "$agent" },
+        { "capture": "issue-send-chooser-$agent" },
+        { "key": "Enter" },
+        { "wait": 500 },
+        { "expect": "$agent" },
+        { "capture": "issue-sent-$agent" }
+      ]
+    }
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "capture": "github-dashboard-oriented" },
+
+    { "key": "i" },
+    { "waitFor": "Issues" },
+    { "expect": "Open" },
+    { "capture": "issues-workspace" },
+
+    { "key": "Enter" },
+    { "waitFor": "issue" },
+    { "capture": "issue-detail" },
+
+    { "macro": "send-to-agent", "args": { "agent": "TutorialAgent" } },
+
+    { "key": "Escape" },
+    { "wait": 200 },
+    { "key": "Escape" },
+    { "wait": 200 },
+
+    { "key": "p" },
+    { "waitFor": "Pull Requests" },
+    { "capture": "pull-requests-workspace" },
+
+    { "key": "Enter" },
+    { "waitFor": "pull" },
+    { "capture": "pr-detail" },
+
+    { "macro": "send-to-agent", "args": { "agent": "TutorialAgent" } },
+
+    { "key": "Escape" },
+    { "wait": 200 },
+    { "key": "Escape" },
+    { "wait": 200 },
+
+    { "macro": "quit", "args": {} }
+  ]
+}
