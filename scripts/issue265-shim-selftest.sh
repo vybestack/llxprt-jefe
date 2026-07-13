@@ -306,6 +306,15 @@ expect_reject "api POST mutation" \
 
 # ── NEGATIVE: missing args ───────────────────────────────────────────────
 
+run_shim
+if [[ $SHIM_EXIT -ne 0 && $SHIM_EXIT -ne 124 ]] \
+    && exact_one_nonempty_audit_record \
+    && [[ "$SHIM_AUDIT" == *"] REJECTED no subcommand -- gh ''"* ]]; then
+    PASS=$((PASS + 1))
+else
+    record_failure "REJECT (no subcommand)" "no arguments"
+fi
+
 expect_reject "search missing first var" \
     api graphql \
     -f "query=${SEARCH_QUERY_BODY}" \

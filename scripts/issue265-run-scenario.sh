@@ -22,9 +22,10 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 SCENARIO="$PROJECT_ROOT/dev-docs/tmux-scenarios/issue265-linux-keys.json"
 SHIM="$PROJECT_ROOT/scripts/issue265-gh-shim.sh"
 FIXTURES="$PROJECT_ROOT/scripts/issue265-gh-shim-fixtures.sh"
-ARTIFACT_DIR="$PROJECT_ROOT/target/tmux-harness/issue265"
+ARTIFACT_DIR="$PROJECT_ROOT/target/tmux-harness/issue265-$$"
 CONFIG_DIR="$ARTIFACT_DIR/config"
 SHIM_DIR="$ARTIFACT_DIR/shim-bin"
+REPO_DIR="$ARTIFACT_DIR/repo"
 AUDIT_FILE="$ARTIFACT_DIR/gh-audit.log"
 
 command -v timeout >/dev/null 2>&1 || {
@@ -100,9 +101,10 @@ require_target_descendant() {
 require_target_descendant "$ARTIFACT_DIR"
 require_target_descendant "$CONFIG_DIR"
 require_target_descendant "$SHIM_DIR"
+require_target_descendant "$REPO_DIR"
 
 rm -rf "$CONFIG_DIR"
-mkdir -p "$CONFIG_DIR"
+mkdir -p "$CONFIG_DIR" "$REPO_DIR"
 
 # Seed settings.toml (TOML format, schema version 1).
 cat > "$CONFIG_DIR/settings.toml" <<'EOF'
@@ -116,7 +118,7 @@ EOF
 # in Issue Detail yields the "No agents available" notice.
 #
 # The repository id is "repo-265" and github_repo is "owner/repo-265".
-cat > "$CONFIG_DIR/state.json" <<'EOF'
+cat > "$CONFIG_DIR/state.json" <<EOF
 {
   "schema_version": 1,
   "repositories": [
@@ -124,7 +126,7 @@ cat > "$CONFIG_DIR/state.json" <<'EOF'
       "id": "repo-265",
       "name": "repo-265",
       "slug": "repo-265",
-      "base_dir": "/tmp/jefe-issue265-repo",
+      "base_dir": "$REPO_DIR",
       "default_profile": "",
       "default_code_puppy_model": "",
       "github_repo": "owner/repo-265",
@@ -180,6 +182,7 @@ if [[ $harness_status -ne 0 ]]; then
     cleanup_failed_session
     exit "$harness_status"
 fi
+cleanup_failed_session
 
 echo ""
 echo "== Verifying gh audit =="
