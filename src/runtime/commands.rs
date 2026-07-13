@@ -100,8 +100,12 @@ fn apply_session_style(session_name: &str) {
     );
 }
 
-/// Disable the tmux prefix key (`prefix` and `prefix2`) on a jefe-managed
-/// session so application control chords pass through to the child unchanged.
+/// Configure multiplexer prefix keys so application control chords pass
+/// through to the child unchanged.
+///
+/// Unix applies this to `session_name`. Windows psmux ignores session-scoped
+/// prefix values, so its private per-Jefe server is configured globally; the
+/// parameter still identifies the session whose attach is being remediated.
 ///
 /// tmux's default prefix is `C-b` (byte `0x02`). The interactive attach client
 /// consumes it before forwarding input, which breaks Code Puppy's `Ctrl-X
@@ -119,7 +123,7 @@ fn apply_session_style(session_name: &str) {
 /// can memoize the session as remediated only on real success (mirroring the
 /// remote path). A transient tmux failure returns `Err` and the caller leaves
 /// the session un-memoized so the next attach retries.
-pub fn disable_prefix_for_passthrough(session_name: &str) -> Result<(), String> {
+pub fn configure_prefix_for_passthrough(session_name: &str) -> Result<(), String> {
     for option in prefix_disable_option_names() {
         let value = if *option == "prefix" {
             local_prefix_value()
@@ -197,7 +201,7 @@ fn prefix_disable_tmux_subcommands(escaped_session: &str) -> String {
 /// Build the remote shell fragment that disables both tmux prefix keys on an
 /// existing remote session. Used on the remote reattach/attach path to
 /// remediate remote sessions created before the inline-script fix (#200),
-/// mirroring [`disable_prefix_for_passthrough`] for the local path.
+/// mirroring [`configure_prefix_for_passthrough`] for the local path.
 fn remote_disable_prefix_fragment(escaped_session: &str) -> String {
     format!("tmux {}", prefix_disable_tmux_subcommands(escaped_session))
 }
@@ -794,7 +798,7 @@ fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
 
 fn finalize_local_session(session_name: &str, warning: Option<String>) {
     enforce_clipboard_passthrough(session_name);
-    if let Err(error) = disable_prefix_for_passthrough(session_name) {
+    if let Err(error) = configure_prefix_for_passthrough(session_name) {
         debug!(session_name = %session_name, error = %error, "prefix passthrough option failed on create; will retry on attach");
     }
     let _ = tmux_cmd_status(

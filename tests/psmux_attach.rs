@@ -26,8 +26,9 @@ impl Drop for ServerCleanup {
 
 #[test]
 fn native_psmux_attachment_preserves_terminal_contract_and_session() {
-    let executable =
-        std::env::var_os("JEFE_PSMUX_BIN").map_or_else(|| PathBuf::from("psmux"), PathBuf::from);
+    let executable = std::env::var_os("JEFE_PSMUX_BIN")
+        .filter(|value| !value.is_empty())
+        .map_or_else(|| PathBuf::from("psmux"), PathBuf::from);
     if Command::new(&executable).arg("-V").output().is_err() {
         assert!(
             std::env::var_os("JEFE_REQUIRE_PSMUX").is_none(),
@@ -223,22 +224,18 @@ fn wait_for_dimensions(
 ) -> Result<(), String> {
     let deadline = Instant::now() + TIMEOUT;
     while Instant::now() < deadline {
-        let mut command = plan.command();
-        let output = command
-            .args([
-                "display-message",
-                "-p",
-                "-t",
-                session,
-                "#{pane_width}x#{pane_height}",
-            ])
-            .output()
-            .map_err(|error| format!("query pane geometry: {error}"))?;
-        if String::from_utf8_lossy(&output.stdout).trim() == expected {
+        if query_dimensions(plan, session)? == expected {
             return Ok(());
         }
         thread::sleep(Duration::from_millis(50));
     }
+    let final_dimensions = query_dimensions(plan, session)?;
+    Err(format!(
+        "pane geometry did not become {expected}; final={final_dimensions:?}"
+    ))
+}
+
+fn query_dimensions(plan: &MultiplexerPlan, session: &str) -> Result<String, String> {
     let mut command = plan.command();
     let output = command
         .args([
@@ -249,11 +246,8 @@ fn wait_for_dimensions(
             "#{pane_width}x#{pane_height}",
         ])
         .output()
-        .map_err(|error| format!("query final pane geometry: {error}"))?;
-    Err(format!(
-        "pane geometry did not become {expected}; final={:?}",
-        String::from_utf8_lossy(&output.stdout).trim()
-    ))
+        .map_err(|error| format!("query pane geometry: {error}"))?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
 fn snapshot_text(snapshot: &TerminalSnapshot) -> String {

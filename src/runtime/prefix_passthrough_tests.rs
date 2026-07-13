@@ -1,7 +1,7 @@
 //! Real-tmux integration tests for tmux prefix passthrough (#200).
 //!
 //! These tests prove that when jefe disables the tmux prefix (`prefix None` /
-//! `prefix2 None`, as [`super::disable_prefix_for_passthrough`] does in
+//! `prefix2 None`, as [`super::configure_prefix_for_passthrough`] does in
 //! production), application control chords written through an attached
 //! `tmux attach-session` client reach the pane child unchanged and in order.
 //!
