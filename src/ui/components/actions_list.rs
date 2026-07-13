@@ -144,11 +144,12 @@ pub fn actions_list_status_message(
 /// Build [`SelectableListProps`] for the Actions run-list pane.
 ///
 /// Calls [`crate::actions_view::project_runs_list`] and maps each projected run
-/// into a [`SelectableRow`]. The pane chrome (title + border = 2 rows) is
-/// subtracted to get the inner viewport height. In Full mode each run occupies
-/// 2 terminal rows (title + meta), so the run-budget is half the row-budget;
-/// in Compact mode each run is 1 row. This ensures scrolling reaches every run
-/// regardless of row height — no run is permanently hidden below the fold.
+/// into a [`SelectableRow`]. The pane chrome (top border + title + bottom
+/// border = 3 rows) is subtracted to get the inner viewport height. In Full
+/// mode each run occupies 2 terminal rows (title + meta), so the run-budget is
+/// half the row-budget; in Compact mode each run is 1 row. This ensures
+/// scrolling reaches every run regardless of row height — no run is permanently
+/// hidden below the fold.
 #[must_use]
 pub fn actions_list_props(
     runs: &[WorkflowRun],
@@ -159,7 +160,7 @@ pub fn actions_list_props(
     selection: Option<TextSelection>,
 ) -> SelectableListProps {
     let content_rows = (usize::from(window.list_pane_rows))
-        .saturating_sub(2)
+        .saturating_sub(3)
         .max(1);
     let run_budget = if window.layout.is_compact() {
         content_rows

@@ -110,7 +110,7 @@ impl AppState {
     /// @pseudocode component-001 lines 119-124
     fn navigate_pr_list_page_up(&mut self) {
         let previous = self.prs_state.selected_pr_index();
-        let page = self.prs_state.list_viewport_rows.max(1);
+        let page = super::VIEWPORT_PAGE_JUMP;
         if let Some(idx) = previous {
             self.prs_state
                 .list
@@ -127,7 +127,7 @@ impl AppState {
     /// @pseudocode component-001 lines 119-124
     fn navigate_pr_list_page_down(&mut self) {
         let previous = self.prs_state.selected_pr_index();
-        let page = self.prs_state.list_viewport_rows.max(1);
+        let page = super::VIEWPORT_PAGE_JUMP;
         if let Some(idx) = previous {
             let max = self.prs_state.pull_requests().len().saturating_sub(1);
             self.prs_state
@@ -176,7 +176,10 @@ impl AppState {
     fn update_pr_list_scroll_offset(&mut self) {
         let sel = self.prs_state.selected_pr_index().unwrap_or(0);
         let len = self.prs_state.pull_requests().len();
-        let vp = self.prs_state.list_viewport_rows;
+        let vp = self
+            .prs_state
+            .list_viewport_rows
+            .max(super::VIEWPORT_PAGE_JUMP);
         self.prs_state.list_scroll_offset = crate::layout::list_first_visible_index(sel, len, vp);
     }
 

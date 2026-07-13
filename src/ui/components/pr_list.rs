@@ -19,6 +19,10 @@ use crate::ui::components::selectable_list::{
     ListBorder, SelectableListProps, SelectableRow, SelectableSpan, SelectionStyle, SpanColor,
 };
 
+/// Rows consumed by the bordered list container and title before item content.
+/// Must match the issue list constant (3: top border + title + bottom border).
+const LIST_CHROME_ROWS: u16 = 3;
+
 /// PR list density variant.
 ///
 /// @plan PLAN-20260624-PR-MODE.P12
@@ -120,7 +124,7 @@ pub fn pr_list_visible_rows(
     list_pane_rows: u16,
     available_width: Option<u16>,
 ) -> Vec<PrListRowView> {
-    let viewport = list_pane_rows as usize;
+    let viewport = (list_pane_rows.saturating_sub(LIST_CHROME_ROWS)).max(1) as usize;
     let window =
         crate::layout::list_visible_window(pull_requests, selected_index.unwrap_or(0), viewport);
     let first_visible = crate::layout::list_first_visible_index(
@@ -415,6 +419,61 @@ mod tests {
             review_glyph(Some(PrReviewState::None)),
             "-review",
             "None review must map to the neutral glyph"
+        );
+    }
+
+    /// The PR list viewport must subtract chrome rows (border + title + border
+    /// = 3 rows) from `list_pane_rows` before computing the item-level
+    /// viewport. Without this subtraction the selection goes off-screen by ~3
+    /// rows before the scroll window catches up.
+    ///
+    /// This test creates 30 PRs with a 10-row pane. With the chrome subtraction
+    /// (10 - 3 = 7 visible items), selecting index 9 should scroll so that
+    /// the window starts at index 3 (items 3-9 visible). Without the fix,
+    /// viewport = 10 and no scrolling happens at all (items 0-9 all "fit"),
+    /// leaving the selected item off the visible area.
+    #[test]
+    fn test_pr_list_viewport_subtracts_chrome_rows() {
+        use super::pr_list_visible_rows;
+        use crate::domain::{PrCheckStatus, PrState, PullRequest};
+
+        let prs: Vec<PullRequest> = (0..30)
+            .map(|i| PullRequest {
+                number: i + 1,
+                title: format!("PR {i}"),
+                state: PrState::Open,
+                author_login: "octocat".to_string(),
+                updated_at: "2026-01-01T00:00:00Z".to_string(),
+                head_ref: "feature".to_string(),
+                base_ref: "main".to_string(),
+                is_draft: false,
+                review_decision: None,
+                checks_status: PrCheckStatus::None,
+                assignee_summary: String::new(),
+                labels_summary: String::new(),
+                comment_count: 0,
+            })
+            .collect();
+
+        let pane_rows: u16 = 10;
+        let rows = pr_list_visible_rows(&prs, Some(9), pane_rows, None);
+        let visible_count = rows.len();
+        // 10 pane rows - 3 chrome (border+title+border) = 7 visible items.
+        assert_eq!(
+            visible_count, 7,
+            "with 10-row pane and 3 chrome rows, exactly 7 items must be visible"
+        );
+        // The last visible item must be the selected index 9.
+        let Some(last) = rows.last() else {
+            panic!("should have rows for 30 PRs in a 10-row pane");
+        };
+        assert!(
+            last.is_selected,
+            "last visible row must be the selected row (index 9)"
+        );
+        assert!(
+            last.title_line.contains("#10"),
+            "last visible row must be PR #10 (index 9)"
         );
     }
 }
