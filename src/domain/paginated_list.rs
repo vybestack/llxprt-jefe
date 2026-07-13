@@ -64,7 +64,10 @@ pub enum LoadCorrelation<I> {
 pub enum AcceptOutcome {
     /// The result was applied; items changed.
     Applied,
-    /// The result was applied but the item set is empty.
+    /// The result was applied but its replacement set or incoming page was empty.
+    ///
+    /// See [`accept_loaded`](Self::accept_loaded) and
+    /// [`accept_page`](Self::accept_page) for the operation-specific meaning.
     Empty,
     /// The result did not match the pending operation; state is unchanged.
     Stale,
@@ -231,10 +234,13 @@ impl<T, I> PaginatedList<T, I> {
         &mut self.items
     }
 
-    /// Replace the entire item set without touching selection or pagination
-    /// (seed/snapshot-restore). Intended for test setup and restoring a
-    /// persisted snapshot where the full item set is known but the reload
-    /// lifecycle should not be re-driven.
+    /// Replace the entire item set without touching selection or pagination.
+    ///
+    /// Production state adapters use this to splice server-side mutations back
+    /// into an already-loaded list (e.g. reflecting a close/delete or filter
+    /// result) without re-driving the reload lifecycle. Test setup and
+    /// snapshot-restore also use it when the full item set is known but pending
+    /// state should not be disturbed.
     pub fn replace_items(&mut self, items: Vec<T>) {
         self.items = items;
         self.set_selected_index(self.selected_index);
@@ -489,6 +495,12 @@ impl<T, I: PartialEq> PaginatedList<T, I> {
     /// Stale unless pending is a `Page` with matching identity, request id,
     /// and requested token. On match: append items, store continuation, clear
     /// pending, preserve selection.
+    /// Accept a page result (append).
+    ///
+    /// `Empty` is returned when the incoming page contributed zero items,
+    /// which differs from `accept_loaded` where `Empty` means the resulting
+    /// list is empty. This distinction is intentional: a page can arrive empty
+    /// while the list still holds items from prior pages.
     pub fn accept_page(&mut self, result: PageResult<T, I>) -> AcceptOutcome {
         let PageResult {
             identity,
