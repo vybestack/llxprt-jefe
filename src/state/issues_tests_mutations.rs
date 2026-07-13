@@ -67,11 +67,9 @@ fn test_stale_mutation_events_same_repo_different_issue_do_not_mutate_or_clear_i
 
     let state = apply_three_stale_mutation_events(state, &repo_id);
 
-    let detail = state
-        .issues_state
-        .issue_detail
-        .as_ref()
-        .unwrap_or_else(|| panic!("expected detail"));
+    let Some(detail) = state.issues_state.issue_detail.as_ref() else {
+        panic!("expected detail");
+    };
     assert_eq!(detail.body, "Issue body");
     assert_eq!(detail.comments.len(), 1);
 
@@ -119,17 +117,14 @@ fn test_comment_update_matches_by_comment_id_when_index_shifted() {
             body: "updated by id".to_string(),
         });
 
-    let detail = state
-        .issues_state
-        .issue_detail
-        .as_ref()
-        .unwrap_or_else(|| panic!("expected detail"));
+    let Some(detail) = state.issues_state.issue_detail.as_ref() else {
+        panic!("expected detail");
+    };
     assert_eq!(detail.comments[0].body, "first");
     assert_eq!(detail.comments[1].body, "updated by id");
 }
 
-/// P15 Test 10: Enter issues, exit — prior focus (pane_focus, selected_agent_index) restored.
-
+/// Stale failures for another issue preserve the active draft and current error.
 #[test]
 fn test_stale_mutation_failures_same_repo_different_issue_do_not_clear_inline_state() {
     let repo_id = RepositoryId("repo-1".to_string());

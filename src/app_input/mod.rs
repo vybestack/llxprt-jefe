@@ -914,6 +914,11 @@ fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
     // Clear the unified list (items, selection, identity, continuation,
     // pending) for the repo switch; a fresh reload is kicked off by the caller.
     state.issues_state.list.clear();
+    // Cancel any pending comment page before dropping the detail so a stale
+    // comment response cannot corrupt the next repo's state.
+    if let Some(detail) = state.issues_state.issue_detail.as_mut() {
+        detail.comments.cancel_pending();
+    }
     state.issues_state.issue_detail = None;
     state.issues_state.error = None;
     if state.issues_state.inline_state != jefe::state::InlineState::None {
@@ -924,9 +929,6 @@ fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.issues_state.loading.detail = false;
     state.issues_state.loading.comments = false;
     state.issues_state.detail_pending = None;
-    if let Some(detail) = &mut state.issues_state.issue_detail {
-        detail.comments.cancel_pending();
-    }
     state.issues_state.agent_chooser = None;
 }
 

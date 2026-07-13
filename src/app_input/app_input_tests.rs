@@ -332,7 +332,7 @@ fn test_pr_detail(number: u64) -> jefe::domain::PullRequestDetail {
         comments: jefe::domain::PaginatedList::from_loaded(
             jefe::domain::CommentDetailIdentity {
                 scope_repo_id: jefe::domain::RepositoryId::default(),
-                number: 0,
+                number,
             },
             vec![],
             jefe::domain::PageToken::from_cursor(None, false),

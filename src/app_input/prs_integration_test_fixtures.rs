@@ -6,11 +6,11 @@ use jefe::domain::{
 };
 
 /// Build an empty comment list for a PR detail fixture.
-fn empty_comments() -> PaginatedList<IssueComment, CommentDetailIdentity> {
+fn empty_comments(number: u64) -> PaginatedList<IssueComment, CommentDetailIdentity> {
     PaginatedList::from_loaded(
         CommentDetailIdentity {
             scope_repo_id: RepositoryId::default(),
-            number: 0,
+            number,
         },
         Vec::new(),
         PageToken::from_cursor(None, false),
@@ -39,7 +39,7 @@ pub(super) fn make_test_pr_detail(number: u64) -> PullRequestDetail {
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments: empty_comments(),
+        comments: empty_comments(number),
         mergeable: None,
         merge_state_status: None,
     }

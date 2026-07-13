@@ -101,7 +101,7 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
         comments: crate::domain::PaginatedList::from_loaded(
             crate::domain::CommentDetailIdentity {
                 scope_repo_id: crate::domain::RepositoryId::default(),
-                number: 0,
+                number,
             },
             vec![],
             crate::domain::PageToken::from_cursor(None, false),

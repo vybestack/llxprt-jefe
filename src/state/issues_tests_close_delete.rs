@@ -70,7 +70,7 @@ fn make_detail(number: u64, node_id: &str) -> IssueDetail {
         comments: crate::domain::PaginatedList::from_loaded(
             crate::domain::CommentDetailIdentity {
                 scope_repo_id: crate::domain::RepositoryId::default(),
-                number: 0,
+                number,
             },
             Vec::new(),
             crate::domain::PageToken::from_cursor(None, false),

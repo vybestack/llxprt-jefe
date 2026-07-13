@@ -204,13 +204,23 @@ fn mark_pr_comment_failure_pending(
     let cursor = comment_cursor_from_state(app_state);
     let request_id = app_state
         .write()
-        .begin_pr_comment_page(&scope_repo_id, pr_number, cursor)?;
-    Some(AppEvent::PrCommentsPageFailed {
-        scope_repo_id,
-        pr_number,
-        request_id,
-        error,
-    })
+        .begin_pr_comment_page(&scope_repo_id, pr_number, cursor);
+    if let Some(request_id) = request_id {
+        return Some(AppEvent::PrCommentsPageFailed {
+            scope_repo_id,
+            pr_number,
+            request_id,
+            error,
+        });
+    }
+
+    // The page could not start (no detail, busy, exhausted, or repo mismatch).
+    // Surface the error directly because no pending request can correlate it.
+    let mut state = app_state.write();
+    if current_pr_scope_repo_id(&state) == scope_repo_id {
+        state.prs_state.error = Some(error);
+    }
+    None
 }
 
 fn comment_cursor_from_state(app_state: &AppStateHandle) -> Option<String> {

@@ -96,12 +96,12 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
         comments: crate::domain::PaginatedList::from_loaded(
             crate::domain::CommentDetailIdentity {
                 scope_repo_id: crate::domain::RepositoryId::default(),
-                number: 0,
+                number,
             },
             vec![IssueComment {
                 comment_id: 1,
                 author_login: "commenter".to_string(),
-                created_at: "2024-01-01T10:00:00Z".to_string(),
+                created_at: "2024-01-01T10:00:00:Z".to_string(),
                 edited_at: None,
                 body: "First comment".to_string(),
             }],

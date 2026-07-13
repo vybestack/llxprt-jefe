@@ -356,20 +356,36 @@ fn test_clear_filter_fresh_list_loaded_selects_first_issue() {
 fn test_apply_filter_clears_stale_detail_and_comment_pending() {
     use crate::state::types::IssueDetailPending;
 
+    let repo_id = RepositoryId("repo-1".to_string());
     let mut state = state_with_repo();
     state.issues_state.loading.detail = true;
-    state.issues_state.loading.comments = true;
+    state.issues_state.issue_detail = Some(super::issues_tests_detail::p15_detail(7));
+    state.mark_comments_page_loading(repo_id.clone(), 7, Some("cursor-1".to_string()));
     state.issues_state.detail_pending = Some(IssueDetailPending {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
+        scope_repo_id: repo_id,
         issue_number: 7,
         request_id: 1,
     });
+    assert!(
+        state
+            .issues_state
+            .issue_detail
+            .as_ref()
+            .is_some_and(|detail| detail.comments.has_pending_request())
+    );
 
     let state = state.apply(AppEvent::ApplyFilter);
 
     assert!(!state.issues_state.loading.detail);
     assert!(!state.issues_state.loading.comments);
     assert!(state.issues_state.detail_pending.is_none());
+    assert!(
+        !state
+            .issues_state
+            .issue_detail
+            .as_ref()
+            .is_some_and(|detail| detail.comments.has_pending_request())
+    );
     assert!(state.issues_state.issue_detail.is_none());
 }
 

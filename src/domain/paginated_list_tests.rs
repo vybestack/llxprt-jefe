@@ -240,7 +240,7 @@ fn begin_page_while_pending_returns_busy() {
     list.begin_reload(ident(1), req);
 
     let req2 = alloc_request_id(&mut list);
-    // Even with a matching token, pending reload blocks page begin.
+    // The pending-state check returns Busy before the mismatched token is validated.
     let outcome = list.begin_page(PageToken::PageNumber(2), req2);
     assert_eq!(outcome, BeginOutcome::Busy);
 }
