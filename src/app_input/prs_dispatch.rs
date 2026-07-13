@@ -373,6 +373,7 @@ pub(super) fn preview_pr_from_list(app_state: &mut AppStateHandle) {
             return;
         }
         state.prs_state.pr_detail = Some(detail);
+        state.prs_state.error = None;
         state.prs_state.loading.detail = false;
         state.prs_state.loading.comments = false;
         state.prs_state.detail_pending = None;

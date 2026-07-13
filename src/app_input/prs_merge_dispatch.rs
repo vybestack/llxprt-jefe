@@ -72,9 +72,12 @@ pub(super) fn pr_merge_info_from_state(
 ///
 /// @requirement REQ-PR-009
 pub(super) fn dispatch_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let info = {
+    let (info, failure_context) = {
         let state = app_state.read();
-        pr_merge_info_from_state(&state)
+        (
+            pr_merge_info_from_state(&state),
+            pr_merge_failure_context_from_state(&state),
+        )
     };
     match info {
         Ok(info) => spawn_pr_merge(app_state, ctx, info),
@@ -82,7 +85,7 @@ pub(super) fn dispatch_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedCont
             tracing::debug!("ignored PR merge dispatch without a pending selection");
         }
         Err(RepoContextError::Malformed(message)) => {
-            let (scope, pr_number, mutation_id) = pr_merge_failure_context(app_state);
+            let (scope, pr_number, mutation_id) = failure_context;
             apply_and_persist(
                 app_state,
                 ctx,
@@ -95,7 +98,7 @@ pub(super) fn dispatch_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedCont
             );
         }
         Err(RepoContextError::InvalidSlug) => {
-            let (scope, pr_number, mutation_id) = pr_merge_failure_context(app_state);
+            let (scope, pr_number, mutation_id) = failure_context;
             apply_and_persist(
                 app_state,
                 ctx,
@@ -172,16 +175,14 @@ fn pr_merge_event(ctx: &SharedContext, info: &PrMergeInfo) -> AppEvent {
 }
 
 /// Resolve the scope, PR number, and mutation id for a merge failure event.
-fn pr_merge_failure_context(app_state: &AppStateHandle) -> (RepositoryId, u64, u64) {
-    let state = app_state.read();
+fn pr_merge_failure_context_from_state(state: &jefe::state::AppState) -> (RepositoryId, u64, u64) {
     let pending = state.prs_state.merge_mutation_pending.as_ref();
     let scope = pending.map_or_else(
-        || current_pr_scope_repo_id(&state),
+        || current_pr_scope_repo_id(state),
         |p| p.scope_repo_id.clone(),
     );
     let pr_number = pending.map_or(0, |p| p.pr_number);
     let mutation_id = pending.map_or(0, |p| p.mutation_id);
-    drop(state);
     (scope, pr_number, mutation_id)
 }
 
