@@ -852,12 +852,16 @@ fn test_detail_load_failure_with_pending_token_surfaces_error() {
 fn test_comment_page_failure_with_pending_token_surfaces_error() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut state = p15_state_with_loaded_detail(&repo_id, 42);
-    state.mark_comments_page_loading(repo_id.clone(), 42, Some("cursor-1".to_string()));
+    let Some(request_id) =
+        state.begin_issue_comment_page_for_test(repo_id.clone(), 42, Some("cursor-1".to_string()))
+    else {
+        panic!("comment page should start");
+    };
 
     let state = state.apply(AppEvent::IssueCommentsPageFailed {
         scope_repo_id: repo_id,
         issue_number: 42,
-        request_id: 0,
+        request_id,
         request_cursor: Some("cursor-1".to_string()),
         error: "No GitHub repository configured".to_string(),
     });

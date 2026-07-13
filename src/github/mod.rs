@@ -260,7 +260,7 @@ impl GhClient {
         let mut detail = parse_issue_detail_json(&stdout)?;
         let comments_response =
             self.list_comments(owner, repo, number, None, ISSUE_DETAIL_COMMENT_PAGE_SIZE)?;
-        detail.comments = loaded_comments(format!("{owner}/{repo}"), number, comments_response);
+        detail.comments = loaded_comments(comments_response);
         Ok(detail)
     }
 
@@ -624,7 +624,7 @@ impl GhClient {
         })?;
 
         let mut detail = detail;
-        detail.comments = loaded_comments(format!("{owner}/{name}"), number, comments);
+        detail.comments = loaded_comments(comments);
         assign_threads_to_reviews(&mut detail.reviews, threads);
         Ok(detail)
     }

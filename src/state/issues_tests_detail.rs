@@ -172,11 +172,12 @@ fn p15_comment_page() -> Vec<IssueComment> {
 
 fn p15_state_with_loaded_detail(repo_id: &RepositoryId, issue_number: u64) -> AppState {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.mark_issue_detail_loading(repo_id.clone(), issue_number);
+    let request_id = state.next_issue_detail_request_id();
+    state.mark_issue_detail_loading_with_request_id(repo_id.clone(), issue_number, request_id);
     state.apply(AppEvent::IssueDetailLoaded {
         scope_repo_id: repo_id.clone(),
         issue_number,
-        request_id: 0,
+        request_id,
         detail: Box::new(p15_detail(issue_number)),
     })
 }
@@ -519,7 +520,7 @@ fn test_pagination_issue_list_auto_load() {
     assert_eq!(state.issues_state.issues().len(), 2);
 }
 
-/// P15 Test 9: Load detail, load first comments page, load second — all comments present in order.
+/// P15 Test 9: Load detail with a first comments page, then append the second page in order.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
 /// @requirement REQ-ISS-007
@@ -527,89 +528,90 @@ fn test_pagination_issue_list_auto_load() {
 fn load_comment_page(
     mut state: AppState,
     repo_id: &RepositoryId,
+    issue_number: u64,
     cursor: String,
-    comments: Vec<IssueComment>,
-    result_cursor: Option<String>,
-    has_more: bool,
+    result: crate::github::CommentsResponse,
 ) -> AppState {
-    let detail = state
-        .issues_state
-        .issue_detail
-        .as_mut()
-        .unwrap_or_else(|| panic!("expected detail"));
+    let Some(detail) = state.issues_state.issue_detail.as_mut() else {
+        panic!("expected detail");
+    };
     let loaded_comments = detail.comments.items().to_vec();
-    detail.comments = issue_comments_with_cursor(repo_id, 42, cursor.clone(), loaded_comments);
-    let request_id = state
-        .begin_issue_comment_page(repo_id, 42, Some(cursor.clone()))
-        .unwrap_or_else(|| panic!("comment page should start"));
+    detail.comments =
+        issue_comments_with_cursor(repo_id, issue_number, cursor.clone(), loaded_comments);
+    let Some(request_id) =
+        state.begin_issue_comment_page(repo_id, issue_number, Some(cursor.clone()))
+    else {
+        panic!("comment page should start");
+    };
     state.apply(AppEvent::IssueCommentsPageLoaded {
         scope_repo_id: repo_id.clone(),
-        issue_number: 42,
+        issue_number,
         request_id,
         request_cursor: Some(cursor),
-        comments,
-        cursor: result_cursor,
-        has_more,
+        comments: result.comments,
+        cursor: result.cursor,
+        has_more: result.has_more,
     })
 }
 
 #[test]
 fn test_pagination_comments_append() {
     let repo_id = RepositoryId("repo-1".to_string());
+    let issue_number = 42;
 
-    let state = p15_state_with_loaded_detail(&repo_id, 42);
-    let detail = state
-        .issues_state
-        .issue_detail
-        .as_ref()
-        .unwrap_or_else(|| panic!("expected value"));
-    assert_eq!(detail.comments.len(), 0);
-
-    // Load first page of comments
-    let state = load_comment_page(
-        state,
-        &repo_id,
-        String::new(),
-        p15_comment_page(),
-        Some("page2".to_string()),
-        true,
+    let mut state = p15_state_with_loaded_detail(&repo_id, issue_number);
+    let Some(detail) = state.issues_state.issue_detail.as_mut() else {
+        panic!("expected detail");
+    };
+    assert!(detail.comments.is_empty());
+    assert!(!detail.comments.has_more());
+    assert_eq!(detail.comments.next_page(), &crate::domain::PageToken::Done);
+    assert_eq!(
+        detail.comments.identity(),
+        Some(&crate::domain::CommentDetailIdentity {
+            scope_repo_id: repo_id.clone(),
+            number: issue_number,
+        })
     );
-    let detail = state
-        .issues_state
-        .issue_detail
-        .as_ref()
-        .unwrap_or_else(|| panic!("expected value"));
+
+    // Model the first API page already loaded with its real continuation.
+    detail.comments = issue_comments_with_cursor(
+        &repo_id,
+        issue_number,
+        "page2".to_string(),
+        p15_comment_page(),
+    );
     assert_eq!(detail.comments.len(), 2);
     assert!(detail.comments.has_more());
 
-    // Load second page of comments
     let state = load_comment_page(
         state,
         &repo_id,
+        issue_number,
         "page2".to_string(),
-        vec![p15_comment(
-            3,
-            "carol",
-            "2024-01-03T00:00:00Z",
-            "Third comment",
-        )],
-        None,
-        false,
+        crate::github::CommentsResponse {
+            comments: vec![p15_comment(
+                3,
+                "carol",
+                "2024-01-03T00:00:00Z",
+                "Third comment",
+            )],
+            cursor: None,
+            has_more: false,
+        },
     );
-    let detail = state
-        .issues_state
-        .issue_detail
-        .as_ref()
-        .unwrap_or_else(|| panic!("expected value"));
+    let Some(detail) = state.issues_state.issue_detail.as_ref() else {
+        panic!("expected detail");
+    };
     assert_eq!(detail.comments.len(), 3);
     assert!(!detail.comments.has_more());
-    // Comments appear in insertion order
+    assert_eq!(detail.comments.next_page(), &crate::domain::PageToken::Done);
     assert_eq!(
         detail
             .comments
             .items()
             .iter()
-            .map(|c| c.comment_id)
+            .map(|comment| comment.comment_id)
             .collect::<Vec<_>>(),
         vec![1, 2, 3]
     );
@@ -618,33 +620,30 @@ fn test_pagination_comments_append() {
 #[test]
 fn test_stale_comment_page_same_repo_different_issue_does_not_clear_current_loading_or_error() {
     let repo_id = RepositoryId("repo-1".to_string());
-    let mut state = issues_mode_state_with_repo("repo-1");
-    state.mark_issue_detail_loading(repo_id.clone(), 42);
-    let mut state = state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: repo_id.clone(),
-        issue_number: 42,
-        request_id: 0,
-        detail: Box::new(p15_detail(42)),
-    });
+    let mut state = p15_state_with_loaded_detail(&repo_id, 42);
     state.issues_state.loading.comments = true;
     state.issues_state.error = Some("current load still pending".to_string());
-    state.mark_comments_page_loading(repo_id.clone(), 42, Some("current-cursor".to_string()));
+    let Some(current_request_id) = state.begin_issue_comment_page_for_test(
+        repo_id.clone(),
+        42,
+        Some("current-cursor".to_string()),
+    ) else {
+        panic!("current comment page should start");
+    };
 
     let state = state.apply(AppEvent::IssueCommentsPageLoaded {
         scope_repo_id: repo_id.clone(),
         issue_number: 99,
-        request_id: 0,
+        request_id: current_request_id,
         request_cursor: Some("stale-cursor".to_string()),
         comments: vec![p15_comment(99, "stale", "2024-01-04T00:00:00Z", "stale")],
         cursor: None,
         has_more: false,
     });
 
-    let detail = state
-        .issues_state
-        .issue_detail
-        .as_ref()
-        .unwrap_or_else(|| panic!("expected detail"));
+    let Some(detail) = state.issues_state.issue_detail.as_ref() else {
+        panic!("expected detail");
+    };
     assert_eq!(detail.number, 42);
     assert!(detail.comments.is_empty());
     assert!(state.issues_state.loading.comments);
@@ -656,7 +655,7 @@ fn test_stale_comment_page_same_repo_different_issue_does_not_clear_current_load
     let state = state.apply(AppEvent::IssueCommentsPageFailed {
         scope_repo_id: repo_id,
         issue_number: 99,
-        request_id: 0,
+        request_id: current_request_id,
         request_cursor: Some("stale-cursor".to_string()),
         error: "stale failure".to_string(),
     });
@@ -671,33 +670,30 @@ fn test_stale_comment_page_same_repo_different_issue_does_not_clear_current_load
 #[test]
 fn test_stale_comment_page_same_issue_different_cursor_does_not_clear_current_loading_or_error() {
     let repo_id = RepositoryId("repo-1".to_string());
-    let mut state = issues_mode_state_with_repo("repo-1");
-    state.mark_issue_detail_loading(repo_id.clone(), 42);
-    let mut state = state.apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: repo_id.clone(),
-        issue_number: 42,
-        request_id: 0,
-        detail: Box::new(p15_detail(42)),
-    });
+    let mut state = p15_state_with_loaded_detail(&repo_id, 42);
     state.issues_state.loading.comments = true;
     state.issues_state.error = Some("current comments page pending".to_string());
-    state.mark_comments_page_loading(repo_id.clone(), 42, Some("current-cursor".to_string()));
+    let Some(current_request_id) = state.begin_issue_comment_page_for_test(
+        repo_id.clone(),
+        42,
+        Some("current-cursor".to_string()),
+    ) else {
+        panic!("current comment page should start");
+    };
 
     let state = state.apply(AppEvent::IssueCommentsPageLoaded {
         scope_repo_id: repo_id.clone(),
         issue_number: 42,
-        request_id: 0,
+        request_id: current_request_id,
         request_cursor: Some("stale-cursor".to_string()),
         comments: vec![p15_comment(99, "stale", "2024-01-04T00:00:00Z", "stale")],
         cursor: None,
         has_more: false,
     });
 
-    let detail = state
-        .issues_state
-        .issue_detail
-        .as_ref()
-        .unwrap_or_else(|| panic!("expected detail"));
+    let Some(detail) = state.issues_state.issue_detail.as_ref() else {
+        panic!("expected detail");
+    };
     assert!(detail.comments.is_empty());
     assert!(state.issues_state.loading.comments);
     assert_eq!(
@@ -708,7 +704,7 @@ fn test_stale_comment_page_same_issue_different_cursor_does_not_clear_current_lo
     let state = state.apply(AppEvent::IssueCommentsPageFailed {
         scope_repo_id: repo_id,
         issue_number: 42,
-        request_id: 0,
+        request_id: current_request_id,
         request_cursor: Some("stale-cursor".to_string()),
         error: "stale failure".to_string(),
     });
@@ -717,6 +713,54 @@ fn test_stale_comment_page_same_issue_different_cursor_does_not_clear_current_lo
     assert_eq!(
         state.issues_state.error.as_deref(),
         Some("current comments page pending")
+    );
+}
+
+#[test]
+fn test_comment_page_for_detail_is_ignored_after_repository_scope_changes() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = p15_state_with_loaded_detail(&repo_id, 42);
+    let Some(detail) = state.issues_state.issue_detail.as_mut() else {
+        panic!("expected issue detail");
+    };
+    detail.comments = issue_comments_with_cursor(&repo_id, 42, "cursor-1".to_string(), Vec::new());
+    let Some(request_id) =
+        state.begin_issue_comment_page(&repo_id, 42, Some("cursor-1".to_string()))
+    else {
+        panic!("comment page should start");
+    };
+    state.repositories.push(Repository::new(
+        RepositoryId("repo-2".to_string()),
+        "Other Repo".to_string(),
+        "repo-2".to_string(),
+        std::path::PathBuf::from("/tmp/other"),
+    ));
+    state.selected_repository_index = Some(1);
+    state.issues_state.error = Some("new scope remains active".to_string());
+    let Some(detail) = state.issues_state.issue_detail.as_ref() else {
+        panic!("expected issue detail");
+    };
+    assert!(detail.comments.has_pending_request());
+
+    let state = state.apply(AppEvent::IssueCommentsPageLoaded {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        request_id,
+        request_cursor: Some("cursor-1".to_string()),
+        comments: vec![p15_comment(99, "stale", "2024-01-04T00:00:00Z", "stale")],
+        cursor: None,
+        has_more: false,
+    });
+
+    let Some(detail) = state.issues_state.issue_detail.as_ref() else {
+        panic!("stale detail remains until scope reset");
+    };
+    assert!(detail.comments.is_empty());
+    assert!(detail.comments.has_pending_request());
+    assert!(state.issues_state.loading.comments);
+    assert_eq!(
+        state.issues_state.error.as_deref(),
+        Some("new scope remains active")
     );
 }
 
@@ -779,7 +823,11 @@ fn test_issue_navigation_away_and_back_invalidates_pending_comment_page() {
     let mut detail = p15_detail(42);
     detail.comments = issue_comments_with_cursor(&repo_id, 42, "cursor-1".to_string(), Vec::new());
     state.issues_state.issue_detail = Some(detail);
-    state.mark_comments_page_loading(repo_id.clone(), 42, Some("cursor-1".to_string()));
+    let Some(request_id) =
+        state.begin_issue_comment_page_for_test(repo_id.clone(), 42, Some("cursor-1".to_string()))
+    else {
+        panic!("comment page should start");
+    };
 
     let state = state
         .apply(AppEvent::IssuesNavigateDown)
@@ -798,7 +846,7 @@ fn test_issue_navigation_away_and_back_invalidates_pending_comment_page() {
     let state = state.apply(AppEvent::IssueCommentsPageLoaded {
         scope_repo_id: repo_id.clone(),
         issue_number: 42,
-        request_id: 0,
+        request_id,
         request_cursor: Some("cursor-1".to_string()),
         comments: vec![p15_comment(99, "stale", "2024-01-04T00:00:00Z", "stale")],
         cursor: None,
@@ -872,7 +920,11 @@ fn test_issue_navigate_home_invalidates_pending_comment_page() {
     let mut detail = p15_detail(43);
     detail.comments = issue_comments_with_cursor(&repo_id, 43, "cursor-1".to_string(), Vec::new());
     state.issues_state.issue_detail = Some(detail);
-    state.mark_comments_page_loading(repo_id.clone(), 43, Some("cursor-1".to_string()));
+    let Some(request_id) =
+        state.begin_issue_comment_page_for_test(repo_id.clone(), 43, Some("cursor-1".to_string()))
+    else {
+        panic!("comment page should start");
+    };
 
     let state = state.apply(AppEvent::IssuesNavigateHome);
 
@@ -889,7 +941,7 @@ fn test_issue_navigate_home_invalidates_pending_comment_page() {
     let state = state.apply(AppEvent::IssueCommentsPageLoaded {
         scope_repo_id: repo_id,
         issue_number: 43,
-        request_id: 0,
+        request_id,
         request_cursor: Some("cursor-1".to_string()),
         comments: vec![p15_comment(99, "stale", "2024-01-04T00:00:00Z", "stale")],
         cursor: None,

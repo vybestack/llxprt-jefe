@@ -65,14 +65,14 @@ impl AppState {
         self.prs_state.active = true;
         self.prs_state.pr_focus = PrFocus::PrList;
         self.prs_state.list.clear();
+        if let Some(detail) = &mut self.prs_state.pr_detail {
+            detail.comments.cancel_pending();
+        }
         self.prs_state.pr_detail = None;
         self.prs_state.error = None;
         self.prs_state.loading.detail = false;
         self.prs_state.loading.comments = false;
         self.prs_state.detail_pending = None;
-        if let Some(detail) = &mut self.prs_state.pr_detail {
-            detail.comments.cancel_pending();
-        }
         self.prs_state.inline_state = InlineState::None;
         self.prs_state.agent_chooser = None;
         self.prs_state.merge_chooser = None;
@@ -151,14 +151,14 @@ impl AppState {
             self.prs_state.inline_state = InlineState::None;
         }
         self.prs_state.list.clear();
+        if let Some(detail) = &mut self.prs_state.pr_detail {
+            detail.comments.cancel_pending();
+        }
         self.prs_state.pr_detail = None;
         self.prs_state.error = None;
         self.prs_state.loading.detail = false;
         self.prs_state.loading.comments = false;
         self.prs_state.detail_pending = None;
-        if let Some(detail) = &mut self.prs_state.pr_detail {
-            detail.comments.cancel_pending();
-        }
         self.prs_state.detail_scroll_offset = 0;
         self.prs_state.detail_subfocus = super::PrDetailSubfocus::Body;
         self.prs_state.mutation_pending = None;
@@ -692,6 +692,7 @@ impl AppState {
                 | AppEvent::PrDetailLoadFailed { .. }
                 | AppEvent::PrDetailSilentRefreshFailed { .. }
                 | AppEvent::PrCommentsPageFailed { .. }
+                | AppEvent::PrCommentsPageDispatchFailed { .. }
         );
         if handled {
             self.apply_prs_load_error(event.clone());

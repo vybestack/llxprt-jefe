@@ -373,14 +373,10 @@ impl AppState {
         }
     }
 
-    /// Apply a PR comments page failure (scoped error, never silent).
+    /// Apply a correlated PR comments page failure.
     ///
-    /// Always surfaces the error when the scope matches the selected repo, so
-    /// a failure is never silently dropped even when no pending comment-page
-    /// request can correlate it (e.g. the detail was cleared while the request
-    /// was in flight). Clears `loading.comments` if a matching pending was
-    /// canceled; an unmatched failure leaves loading alone since some other
-    /// request may legitimately be in flight.
+    /// Only the currently pending request may clear loading and surface its
+    /// error. Late failures cannot overwrite a newer request's state.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-NFR-002
@@ -411,8 +407,32 @@ impl AppState {
                 AcceptOutcome::Applied
             ) {
                 self.prs_state.loading.comments = false;
+                self.prs_state.error = Some(error);
             }
         }
+    }
+
+    /// Surface a failure that prevented a PR comment-page request dispatch.
+    ///
+    /// There is no correlation id because no request started. The event is
+    /// ignored unless its repository and detail are still current, and it
+    /// never overwrites an actual pending request.
+    pub(super) fn apply_pr_comments_page_dispatch_failed(
+        &mut self,
+        scope_repo_id: &RepositoryId,
+        pr_number: u64,
+        error: String,
+    ) {
+        if self.selected_repository_id() != Some(scope_repo_id) {
+            return;
+        }
+        let Some(detail) = &self.prs_state.pr_detail else {
+            return;
+        };
+        if detail.number != pr_number || detail.comments.has_pending_request() {
+            return;
+        }
+        self.prs_state.loading.comments = false;
         self.prs_state.error = Some(error);
     }
 
@@ -790,6 +810,11 @@ impl AppState {
                 request_id,
                 error,
             } => self.apply_pr_comments_page_failed(&scope_repo_id, pr_number, request_id, error),
+            AppEvent::PrCommentsPageDispatchFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            } => self.apply_pr_comments_page_dispatch_failed(&scope_repo_id, pr_number, error),
             _ => {}
         }
     }

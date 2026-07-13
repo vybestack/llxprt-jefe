@@ -46,6 +46,50 @@ fn request_id_exhaustion_returns_error() {
     assert_eq!(list.next_request_id(), Err(RequestIdExhausted));
 }
 
+// ── Snapshot replacement ──────────────────────────────────────────────────
+
+#[test]
+fn unbound_boundary_list_requires_stable_identity_before_paging() {
+    let mut list: PaginatedList<u32, TestIdentity> =
+        PaginatedList::from_unbound(vec![10], PageToken::Cursor("next".to_string()));
+    let request_id = alloc_request_id(&mut list);
+
+    assert_eq!(list.identity(), None);
+    assert_eq!(
+        list.begin_page(PageToken::Cursor("next".to_string()), request_id),
+        BeginOutcome::TokenMismatch
+    );
+
+    list.rebind_identity(ident(1));
+    assert_eq!(list.identity(), Some(&ident(1)));
+    assert_eq!(
+        list.begin_page(PageToken::Cursor("next".to_string()), request_id),
+        BeginOutcome::Started
+    );
+}
+
+#[test]
+fn replace_items_clamps_selection_when_replacement_shrinks() {
+    let mut list = PaginatedList::from_loaded(ident(1), vec![10, 20, 30, 40], PageToken::Done);
+    list.set_selected_index(Some(3));
+
+    list.replace_items(vec![100, 200]);
+
+    assert_eq!(list.items(), &[100, 200]);
+    assert_eq!(list.selected_index(), Some(1));
+}
+
+#[test]
+fn replace_items_clears_selection_when_replacement_is_empty() {
+    let mut list = PaginatedList::from_loaded(ident(1), vec![10], PageToken::Done);
+    list.set_selected_index(Some(0));
+
+    list.replace_items(Vec::new());
+
+    assert!(list.is_empty());
+    assert_eq!(list.selected_index(), None);
+}
+
 // ── Reload begin ─────────────────────────────────────────────────────────
 
 #[test]

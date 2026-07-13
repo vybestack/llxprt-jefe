@@ -94,9 +94,9 @@ impl PullRequestsMessage {
             | AppEvent::PrDetailLoadFailed { .. }
             | AppEvent::PrDetailSilentRefreshed { .. }
             | AppEvent::PrDetailSilentRefreshFailed { .. } => Self::from_app_event_detail(event),
-            AppEvent::PrCommentsPageLoaded { .. } | AppEvent::PrCommentsPageFailed { .. } => {
-                Self::from_app_event_comments(event)
-            }
+            AppEvent::PrCommentsPageLoaded { .. }
+            | AppEvent::PrCommentsPageFailed { .. }
+            | AppEvent::PrCommentsPageDispatchFailed { .. } => Self::from_app_event_comments(event),
             other => Self::from_app_event_controls(other),
         }
     }
@@ -265,6 +265,15 @@ impl PullRequestsMessage {
                 scope_repo_id,
                 pr_number,
                 request_id,
+                error,
+            },
+            AppEvent::PrCommentsPageDispatchFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            } => Self::CommentsPageDispatchFailed {
+                scope_repo_id,
+                pr_number,
                 error,
             },
             _ => unreachable!("non-comments AppEvent routed to comments converter"),
@@ -563,9 +572,9 @@ impl PullRequestsMessage {
             | Self::DetailLoadFailed { .. }
             | Self::DetailSilentRefreshed { .. }
             | Self::DetailSilentRefreshFailed { .. } => self.into_app_event_detail(),
-            Self::CommentsPageLoaded { .. } | Self::CommentsPageFailed { .. } => {
-                self.into_app_event_comments()
-            }
+            Self::CommentsPageLoaded { .. }
+            | Self::CommentsPageFailed { .. }
+            | Self::CommentsPageDispatchFailed { .. } => self.into_app_event_comments(),
             other => other.into_app_event_controls(),
         }
     }
@@ -734,6 +743,15 @@ impl PullRequestsMessage {
                 scope_repo_id,
                 pr_number,
                 request_id,
+                error,
+            },
+            Self::CommentsPageDispatchFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            } => AppEvent::PrCommentsPageDispatchFailed {
+                scope_repo_id,
+                pr_number,
                 error,
             },
             _ => unreachable!("non-comments PullRequestsMessage routed to comments"),

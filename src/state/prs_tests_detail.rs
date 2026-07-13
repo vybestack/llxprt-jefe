@@ -107,12 +107,17 @@ fn test_detail_loaded_sets_subfocus_body_and_clears_loading() {
     assert!(!new_state.prs_state.loading.detail);
     assert_eq!(new_state.prs_state.detail_subfocus, PrDetailSubfocus::Body);
     assert_eq!(new_state.prs_state.detail_scroll_offset, 0);
-    let loaded = new_state
-        .prs_state
-        .pr_detail
-        .clone()
-        .unwrap_or_else(|| panic!("pr_detail should be Some"));
+    let Some(loaded) = new_state.prs_state.pr_detail.as_ref() else {
+        panic!("pr_detail should be Some");
+    };
     assert_eq!(loaded.number, 1);
+    assert_eq!(
+        loaded.comments.identity(),
+        Some(&crate::domain::CommentDetailIdentity {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            number: 1,
+        })
+    );
 }
 
 /// PrDetailLoaded with a stale pr_number (does not match the selected PR)

@@ -415,6 +415,11 @@ pub enum AppEvent {
         request_id: u64,
         error: String,
     },
+    PrCommentsPageDispatchFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        error: String,
+    },
     PrOpenFilterControls,
     PrCloseFilterControls,
     PrApplyFilter,

@@ -22,12 +22,10 @@ use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_c
 /// @requirement REQ-PR-010
 /// @pseudocode component-004 lines 147-155
 pub(super) fn load_more_pr_comments(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let mut params = match pr_comment_page_params(app_state) {
+    let params = match pr_comment_page_params(app_state) {
         PrCommentPageRequest::Ready(params) => params,
         PrCommentPageRequest::Fail(event) => {
-            if let Some(event) = mark_pr_comment_failure_pending(app_state, event) {
-                apply_and_persist(app_state, ctx, event);
-            }
+            apply_and_persist(app_state, ctx, event);
             return;
         }
         PrCommentPageRequest::Skip => return,
@@ -44,14 +42,14 @@ pub(super) fn load_more_pr_comments(app_state: &mut AppStateHandle, ctx: &Shared
     let Some(request_id) = request_id else {
         return;
     };
-    params.request_id = request_id;
+    let dispatched = DispatchedPrCommentPageParams { params, request_id };
 
-    let panic_params = params.clone();
+    let panic_params = dispatched.clone();
     gh_async::spawn_gh_task_with_panic(
         app_state,
         ctx,
         move |mut app_state, ctx| {
-            let event = pr_comment_page_event(&ctx, &params);
+            let event = pr_comment_page_event(&ctx, &dispatched);
             apply_and_persist(&mut app_state, &ctx, event);
         },
         move |mut app_state, ctx, message| {
@@ -59,8 +57,8 @@ pub(super) fn load_more_pr_comments(app_state: &mut AppStateHandle, ctx: &Shared
                 &mut app_state,
                 &ctx,
                 AppEvent::PrCommentsPageFailed {
-                    scope_repo_id: panic_params.scope_repo_id,
-                    pr_number: panic_params.pr_number,
+                    scope_repo_id: panic_params.params.scope_repo_id,
+                    pr_number: panic_params.params.pr_number,
                     request_id: panic_params.request_id,
                     error: format!("GitHub PR comments task panicked: {message}"),
                 },
@@ -79,6 +77,11 @@ struct PrCommentPageParams {
     owner: String,
     repo: String,
     cursor: Option<String>,
+}
+
+#[derive(Clone)]
+struct DispatchedPrCommentPageParams {
+    params: PrCommentPageParams,
     request_id: u64,
 }
 
@@ -142,6 +145,10 @@ pub(super) fn pr_detail_max_scroll_offset(state: &jefe::state::AppState) -> usiz
 /// @pseudocode component-004 lines 146-155
 fn pr_comment_page_params(app_state: &AppStateHandle) -> PrCommentPageRequest {
     let state = app_state.read();
+    pr_comment_page_request(&state)
+}
+
+fn pr_comment_page_request(state: &jefe::state::AppState) -> PrCommentPageRequest {
     let Some(detail) = state.prs_state.pr_detail.as_ref() else {
         return PrCommentPageRequest::Skip;
     };
@@ -150,31 +157,27 @@ fn pr_comment_page_params(app_state: &AppStateHandle) -> PrCommentPageRequest {
     }
     // Only load more comments if scrolled near the bottom, using the CANONICAL
     // rendered line count (MED-8) so the threshold matches the real viewport.
-    let max_offset = pr_detail_max_scroll_offset(&state);
+    let max_offset = pr_detail_max_scroll_offset(state);
     if state.prs_state.detail_scroll_offset < max_offset {
         return PrCommentPageRequest::Skip;
     }
-    let scope_repo_id = current_pr_scope_repo_id(&state);
+    let scope_repo_id = current_pr_scope_repo_id(state);
     let pr_number = detail.number;
-    let (owner, repo) = resolve_pr_gh_repo(&state);
+    let (owner, repo) = resolve_pr_gh_repo(state);
     if owner.is_empty() || repo.is_empty() {
-        return PrCommentPageRequest::Fail(AppEvent::PrCommentsPageFailed {
+        return PrCommentPageRequest::Fail(AppEvent::PrCommentsPageDispatchFailed {
             scope_repo_id,
             pr_number,
-            request_id: 0,
             error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
         });
     }
-    let params = PrCommentPageParams {
+    PrCommentPageRequest::Ready(PrCommentPageParams {
         scope_repo_id,
         pr_number,
         owner,
         repo,
         cursor: comment_cursor(detail.comments.next_page()),
-        request_id: 0,
-    };
-    drop(state);
-    PrCommentPageRequest::Ready(params)
+    })
 }
 
 fn comment_cursor(token: &PageToken) -> Option<String> {
@@ -184,59 +187,15 @@ fn comment_cursor(token: &PageToken) -> Option<String> {
     }
 }
 
-/// Mark the comment-page failure as pending so the reducer clears loading.
-///
-/// Returns the failure event (with a real request id when a pending comment
-/// page could be started) so the caller routes it through `apply_and_persist`,
-/// which both applies the reducer and persists state. The reducer surfaces the
-/// error for the current scope even when no pending request correlates.
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-010
-/// @pseudocode component-004 lines 146-155
-fn mark_pr_comment_failure_pending(
-    app_state: &mut AppStateHandle,
-    event: AppEvent,
-) -> Option<AppEvent> {
-    let AppEvent::PrCommentsPageFailed {
-        scope_repo_id,
-        pr_number,
-        error,
-        ..
-    } = event
-    else {
-        return None;
-    };
-    // Try to correlate with an in-flight pending comment page so the reducer
-    // can clear the loading flag. If none can start (no detail, busy,
-    // exhausted, repo mismatch) the reducer still surfaces the error for the
-    // current scope via apply_pr_comments_page_failed.
-    let cursor = comment_cursor_from_state(app_state);
-    let request_id = app_state
-        .write()
-        .begin_pr_comment_page(&scope_repo_id, pr_number, cursor)
-        .unwrap_or(0);
-    Some(AppEvent::PrCommentsPageFailed {
-        scope_repo_id,
-        pr_number,
-        request_id,
-        error,
-    })
-}
-
-fn comment_cursor_from_state(app_state: &AppStateHandle) -> Option<String> {
-    app_state
-        .read()
-        .prs_state
-        .pr_detail
-        .as_ref()
-        .and_then(|detail| comment_cursor(detail.comments.next_page()))
-}
-
 /// Build the comments-page-loaded/failed event from the gh result.
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-010
 /// @pseudocode component-004 lines 146-155
-fn pr_comment_page_event(ctx: &SharedContext, params: &PrCommentPageParams) -> AppEvent {
+fn pr_comment_page_event(
+    ctx: &SharedContext,
+    dispatched: &DispatchedPrCommentPageParams,
+) -> AppEvent {
+    let params = &dispatched.params;
     let result = github_client(ctx).map(|client| {
         client.list_pr_comments(
             &params.owner,
@@ -250,7 +209,7 @@ fn pr_comment_page_event(ctx: &SharedContext, params: &PrCommentPageParams) -> A
         Some(Ok(response)) => AppEvent::PrCommentsPageLoaded {
             scope_repo_id: params.scope_repo_id.clone(),
             pr_number: params.pr_number,
-            request_id: params.request_id,
+            request_id: dispatched.request_id,
             comments: response.comments,
             cursor: response.cursor,
             has_more: response.has_more,
@@ -258,13 +217,13 @@ fn pr_comment_page_event(ctx: &SharedContext, params: &PrCommentPageParams) -> A
         Some(Err(error)) => AppEvent::PrCommentsPageFailed {
             scope_repo_id: params.scope_repo_id.clone(),
             pr_number: params.pr_number,
-            request_id: params.request_id,
+            request_id: dispatched.request_id,
             error: error.to_string(),
         },
         None => AppEvent::PrCommentsPageFailed {
             scope_repo_id: params.scope_repo_id.clone(),
             pr_number: params.pr_number,
-            request_id: params.request_id,
+            request_id: dispatched.request_id,
             error: "Application context unavailable".to_string(),
         },
     }
@@ -422,5 +381,45 @@ mod tests {
             expected,
             "comments pagination max offset must reserve embedded TextBox rows"
         );
+    }
+
+    #[test]
+    fn test_missing_github_repo_returns_dispatch_failure_without_request_id() {
+        let prs_state = PullRequestsState {
+            active: true,
+            pr_detail: Some(seeded_pr_detail()),
+            detail_viewport_rows: 6,
+            ..PullRequestsState::default()
+        };
+        let mut state = AppState {
+            screen_mode: ScreenMode::DashboardPullRequests,
+            prs_state,
+            ..AppState::default()
+        };
+        state.repositories.push(Repository::new(
+            jefe::domain::RepositoryId("repo-1".to_string()),
+            "Repo 1".to_string(),
+            String::new(),
+            PathBuf::from("/tmp/repo1"),
+        ));
+        state.selected_repository_index = Some(0);
+        state.prs_state.detail_scroll_offset = pr_detail_max_scroll_offset(&state);
+
+        let request = pr_comment_page_request(&state);
+
+        let PrCommentPageRequest::Fail(AppEvent::PrCommentsPageDispatchFailed {
+            scope_repo_id,
+            pr_number,
+            error,
+        }) = request
+        else {
+            panic!("missing GitHub repo should produce a dispatch failure event");
+        };
+        assert_eq!(
+            scope_repo_id,
+            jefe::domain::RepositoryId("repo-1".to_string())
+        );
+        assert_eq!(pr_number, 1);
+        assert!(error.contains("No GitHub repository configured"));
     }
 }

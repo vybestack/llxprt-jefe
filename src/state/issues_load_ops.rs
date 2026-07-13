@@ -113,6 +113,9 @@ impl AppState {
     }
 
     fn apply_issue_comments_page_loaded(&mut self, page: IssueCommentsPageLoadedData) {
+        if !self.current_detail_matches(&page.scope_repo_id, page.issue_number) {
+            return;
+        }
         let result = PageResult {
             identity: CommentDetailIdentity {
                 scope_repo_id: page.scope_repo_id,
@@ -177,32 +180,22 @@ impl AppState {
     }
 
     #[cfg(test)]
-    pub(crate) fn mark_comments_page_loading(
+    pub(crate) fn begin_issue_comment_page_for_test(
         &mut self,
         scope_repo_id: RepositoryId,
         issue_number: u64,
         cursor: Option<String>,
-    ) {
-        let Some(detail) = self.issues_state.issue_detail.as_mut() else {
-            return;
-        };
-        let token = issue_page_token(cursor);
+    ) -> Option<u64> {
+        let detail = self.issues_state.issue_detail.as_mut()?;
         detail.comments = crate::domain::PaginatedList::from_loaded(
             CommentDetailIdentity {
-                scope_repo_id,
+                scope_repo_id: scope_repo_id.clone(),
                 number: issue_number,
             },
             detail.comments.items().to_vec(),
-            token.clone(),
+            issue_page_token(cursor.clone()),
         );
-        if matches!(
-            detail
-                .comments
-                .begin_page(token, ListRequestId::from_raw(0)),
-            crate::state::pagination::BeginOutcome::Started
-        ) {
-            self.issues_state.loading.comments = true;
-        }
+        self.begin_issue_comment_page(&scope_repo_id, issue_number, cursor)
     }
 
     pub fn mark_issue_list_page_loading(

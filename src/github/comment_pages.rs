@@ -1,37 +1,22 @@
 //! Comment pagination construction shared by GitHub boundary operations.
 
-use crate::domain::{CommentDetailIdentity, IssueComment, PageToken, PaginatedList, RepositoryId};
+use crate::domain::{CommentDetailIdentity, IssueComment, PageToken, PaginatedList};
 
 use super::CommentsResponse;
 
-/// Bind a paginated API response to its issue or pull-request detail.
+/// Build comments loaded before the application supplies a stable detail scope.
 pub(super) fn loaded_comments(
-    repo_owner_name: String,
-    number: u64,
     response: CommentsResponse,
 ) -> PaginatedList<IssueComment, CommentDetailIdentity> {
-    PaginatedList::from_loaded(
-        CommentDetailIdentity {
-            scope_repo_id: RepositoryId(repo_owner_name),
-            number,
-        },
+    PaginatedList::from_unbound(
         response.comments,
         PageToken::from_cursor(response.cursor, response.has_more),
     )
 }
 
-/// Bind comments embedded in a detail response to an exhausted page.
+/// Build embedded detail comments as an exhausted, identity-free page.
 pub(super) fn exhausted_comments(
-    repo_owner_name: String,
-    number: u64,
     comments: Vec<IssueComment>,
 ) -> PaginatedList<IssueComment, CommentDetailIdentity> {
-    PaginatedList::from_loaded(
-        CommentDetailIdentity {
-            scope_repo_id: RepositoryId(repo_owner_name),
-            number,
-        },
-        comments,
-        PageToken::Done,
-    )
+    PaginatedList::from_unbound(comments, PageToken::Done)
 }

@@ -10,12 +10,12 @@
 //! NOT import `crate::ui`, `crate::state`, or `crate::app_input`.
 
 use crate::domain::{
-    ChecksFilter, CommentDetailIdentity, IssueComment, PageToken, PaginatedList, PrCheck,
-    PrCheckStatus, PrFilter, PrFilterState, PrReview, PrReviewState, PrReviewThread, PrState,
-    PullRequest, PullRequestDetail, RepositoryId, ReviewDecisionFilter,
+    ChecksFilter, IssueComment, PrCheck, PrCheckStatus, PrFilter, PrFilterState, PrReview,
+    PrReviewState, PrReviewThread, PrState, PullRequest, PullRequestDetail, ReviewDecisionFilter,
 };
 use serde_json::Value;
 
+use super::comment_pages::exhausted_comments;
 use super::parse::parse_page_info;
 use super::{GhError, PrListResponse};
 
@@ -364,14 +364,7 @@ pub fn parse_pull_request_detail_json(
         checks_status: parse_checks_rollup(&rollup),
         reviews,
         checks,
-        comments: PaginatedList::from_loaded(
-            CommentDetailIdentity {
-                scope_repo_id: RepositoryId(owner_name.to_string()),
-                number,
-            },
-            Vec::new(),
-            PageToken::Done,
-        ),
+        comments: exhausted_comments(Vec::new()),
         mergeable: value.get("mergeable").and_then(Value::as_bool),
         merge_state_status: value
             .get("mergeStateStatus")

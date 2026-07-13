@@ -443,6 +443,127 @@ fn test_comments_page_loaded_appends_and_clears_when_detail_matches() {
     assert!(!loaded.comments.has_pending_request());
 }
 
+#[test]
+fn test_stale_comments_page_failure_does_not_override_newer_pending_request() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.pr_detail = Some(make_test_pr_detail(1, Vec::new()));
+
+    let Some(stale_request_id) =
+        state.begin_pr_comment_page(&repo_id, 1, Some("cursor-1".to_string()))
+    else {
+        panic!("first comment page should start");
+    };
+    let Some(detail) = state.prs_state.pr_detail.as_mut() else {
+        panic!("expected PR detail");
+    };
+    detail.comments.cancel_pending();
+    state.prs_state.loading.comments = false;
+    let Some(current_request_id) =
+        state.begin_pr_comment_page(&repo_id, 1, Some("cursor-1".to_string()))
+    else {
+        panic!("replacement comment page should start");
+    };
+    assert_ne!(stale_request_id, current_request_id);
+
+    let state = state.apply(AppEvent::PrCommentsPageFailed {
+        scope_repo_id: repo_id,
+        pr_number: 1,
+        request_id: stale_request_id,
+        error: "stale page failed".to_string(),
+    });
+
+    assert!(state.prs_state.error.is_none());
+    assert!(state.prs_state.loading.comments);
+    assert!(
+        state
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .is_some_and(|detail| detail.comments.has_pending_request())
+    );
+}
+
+#[test]
+fn test_current_comments_dispatch_failure_surfaces_and_clears_orphaned_loading() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.pr_detail = Some(make_test_pr_detail(1, Vec::new()));
+    state.prs_state.loading.comments = true;
+
+    let state = state.apply(AppEvent::PrCommentsPageDispatchFailed {
+        scope_repo_id: repo_id,
+        pr_number: 1,
+        error: "repository unavailable".to_string(),
+    });
+
+    assert_eq!(
+        state.prs_state.error.as_deref(),
+        Some("repository unavailable")
+    );
+    assert!(!state.prs_state.loading.comments);
+}
+
+#[test]
+fn test_stale_comments_dispatch_failure_is_ignored() {
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.pr_detail = Some(make_test_pr_detail(2, Vec::new()));
+    state.prs_state.loading.comments = true;
+    state.prs_state.error = Some("current error".to_string());
+
+    let state = state.apply(AppEvent::PrCommentsPageDispatchFailed {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
+        error: "stale dispatch".to_string(),
+    });
+
+    assert_eq!(state.prs_state.error.as_deref(), Some("current error"));
+    assert!(state.prs_state.loading.comments);
+}
+
+#[test]
+fn test_stale_scope_comments_dispatch_failure_is_ignored() {
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.pr_detail = Some(make_test_pr_detail(1, Vec::new()));
+    state.prs_state.loading.comments = true;
+    state.prs_state.error = Some("current error".to_string());
+
+    let state = state.apply(AppEvent::PrCommentsPageDispatchFailed {
+        scope_repo_id: RepositoryId("repo-2".to_string()),
+        pr_number: 1,
+        error: "stale scope dispatch".to_string(),
+    });
+
+    assert_eq!(state.prs_state.error.as_deref(), Some("current error"));
+    assert!(state.prs_state.loading.comments);
+}
+
+#[test]
+fn test_comments_dispatch_failure_does_not_override_pending_request() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.pr_detail = Some(make_test_pr_detail(1, Vec::new()));
+    let Some(_) = state.begin_pr_comment_page(&repo_id, 1, Some("cursor-1".to_string())) else {
+        panic!("comment page should start");
+    };
+
+    let state = state.apply(AppEvent::PrCommentsPageDispatchFailed {
+        scope_repo_id: repo_id,
+        pr_number: 1,
+        error: "uncorrelated dispatch".to_string(),
+    });
+
+    assert!(state.prs_state.error.is_none());
+    assert!(state.prs_state.loading.comments);
+    assert!(
+        state
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .is_some_and(|detail| detail.comments.has_pending_request())
+    );
+}
+
 /// HIGH-3: When a non-empty PR list reload arrives, the previously-shown
 /// `pr_detail` for a DIFFERENT PR must be cleared so the detail pane does not
 /// show stale content until the fresh detail load completes. The empty branch

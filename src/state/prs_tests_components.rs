@@ -217,6 +217,27 @@ fn test_pr_show_notice_round_trips_and_sets_draft_notice() {
     assert!(state.prs_state.draft_notice.is_some());
 }
 
+#[test]
+fn test_comments_dispatch_failure_round_trips_and_has_canonical_name() {
+    let event = AppEvent::PrCommentsPageDispatchFailed {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 7,
+        error: "repository unavailable".to_string(),
+    };
+
+    let message: AppMessage = event.into();
+    assert_eq!(message.name(), "PrCommentsPageDispatchFailed");
+    let round_trip: AppEvent = message.into();
+    assert!(matches!(
+        round_trip,
+        AppEvent::PrCommentsPageDispatchFailed {
+            scope_repo_id: RepositoryId(ref id),
+            pr_number: 7,
+            ref error,
+        } if id == "repo-1" && error == "repository unavailable"
+    ));
+}
+
 /// PrOpenInBrowser / PrOpenedInBrowser / PrOpenInBrowserFailed ↔ the matching
 /// PullRequestsMessage variants round-trip.
 ///

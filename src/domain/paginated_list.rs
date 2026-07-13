@@ -151,6 +151,23 @@ where
 }
 
 impl<T, I> PaginatedList<T, I> {
+    /// Build a settled list from boundary data that has no stable application
+    /// identity yet.
+    ///
+    /// State reducers must call [`Self::rebind_identity`] with the selected
+    /// repository and detail identity before beginning pagination.
+    #[must_use]
+    pub fn from_unbound(items: Vec<T>, next_page: PageToken) -> Self {
+        Self {
+            items,
+            selected_index: None,
+            identity: None,
+            next_page,
+            pending: None,
+            last_request_id: ListRequestId::default(),
+        }
+    }
+
     /// Build a settled list from data loaded at a boundary.
     #[must_use]
     pub fn from_loaded(identity: I, items: Vec<T>, next_page: PageToken) -> Self {
@@ -220,6 +237,7 @@ impl<T, I> PaginatedList<T, I> {
     /// lifecycle should not be re-driven.
     pub fn replace_items(&mut self, items: Vec<T>) {
         self.items = items;
+        self.set_selected_index(self.selected_index);
     }
 
     /// Returns the selected row index, if any.

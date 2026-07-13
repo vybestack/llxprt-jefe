@@ -700,7 +700,7 @@ fn test_create_pr_comment_parses_created_comment() {
 /// @requirement REQ-PR-009
 /// @pseudocode component-002 lines 74-101
 #[test]
-fn test_get_pull_request_detail_sources_comments_via_list_pr_comments() {
+fn test_parsed_pr_comments_are_identity_free_before_reducer_rebind() {
     // The PR --json set OMITS comments, so parse_pull_request_detail_json must
     // yield an empty comments list with an exhausted continuation, proving
     // comments MUST be sourced from the separate list_pr_comments fetch.
@@ -722,6 +722,7 @@ fn test_get_pull_request_detail_sources_comments_via_list_pr_comments() {
             &crate::domain::PageToken::Done,
             "continuation is exhausted until list_pr_comments populates comments"
         );
+        assert!(detail.comments.identity().is_none());
     }
 }
 

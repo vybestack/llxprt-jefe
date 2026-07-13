@@ -302,7 +302,7 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         })
         .transpose()?
         .unwrap_or_default();
-    let comments = exhausted_comments(repo_owner_name.clone(), number, comments);
+    let comments = exhausted_comments(comments);
 
     Ok(IssueDetail {
         repo_owner_name,

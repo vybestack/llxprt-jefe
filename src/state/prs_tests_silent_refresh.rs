@@ -581,6 +581,16 @@ fn test_silent_detail_refresh_preserves_subfocus_and_scroll() {
         !new_state.prs_state.loading.detail,
         "silent detail refresh must NOT set loading.detail"
     );
+    let Some(detail) = new_state.prs_state.pr_detail.as_ref() else {
+        panic!("silent detail refresh should preserve a loaded detail");
+    };
+    assert_eq!(
+        detail.comments.identity(),
+        Some(&crate::domain::CommentDetailIdentity {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            number: 5,
+        })
+    );
 }
 
 /// Silent detail refresh failure must clear `detail_pending` WITHOUT setting an

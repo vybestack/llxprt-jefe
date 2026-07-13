@@ -360,7 +360,11 @@ fn test_apply_filter_clears_stale_detail_and_comment_pending() {
     let mut state = state_with_repo();
     state.issues_state.loading.detail = true;
     state.issues_state.issue_detail = Some(super::issues_tests_detail::p15_detail(7));
-    state.mark_comments_page_loading(repo_id.clone(), 7, Some("cursor-1".to_string()));
+    let Some(_) =
+        state.begin_issue_comment_page_for_test(repo_id.clone(), 7, Some("cursor-1".to_string()))
+    else {
+        panic!("comment page should start");
+    };
     state.issues_state.detail_pending = Some(IssueDetailPending {
         scope_repo_id: repo_id,
         issue_number: 7,
