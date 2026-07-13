@@ -181,7 +181,15 @@ impl TmuxDriver {
         }
         let session_cleanup = self.run(&["kill-session", "-t", &session.name]);
         let namespace_cleanup = self.kill_owned_namespace();
-        namespace_cleanup.and(session_cleanup)
+        match (session_cleanup, namespace_cleanup) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(session), Ok(())) => Err(session),
+            (Ok(()), Err(namespace)) => Err(namespace),
+            (Err(session), Err(namespace)) => Err(TmuxDriverError::Cleanup {
+                session: session.to_string(),
+                namespace: namespace.to_string(),
+            }),
+        }
     }
 
     pub fn send_line(&self, session: &TmuxSession, line: &str) -> Result<(), TmuxDriverError> {
@@ -369,6 +377,7 @@ pub enum TmuxDriverError {
     Timeout { command: String },
     Failed { command: String, stderr: String },
     Parse { command: String, value: String },
+    Cleanup { session: String, namespace: String },
     PaneStatus(PaneStatusParseError),
 }
 
@@ -398,6 +407,10 @@ impl std::fmt::Display for TmuxDriverError {
             Self::Parse { command, value } => {
                 write!(formatter, "failed to parse {command} output: '{value}'")
             }
+            Self::Cleanup { session, namespace } => write!(
+                formatter,
+                "psmux cleanup failed: session cleanup: {session}; namespace cleanup: {namespace}"
+            ),
             Self::PaneStatus(error) => write!(formatter, "{error}"),
         }
     }
