@@ -49,14 +49,7 @@ pub(super) struct PrOpenInBrowserInfo {
     pub number: u64,
 }
 
-/// Resolve the effective PR repository for compatibility-oriented callers.
-/// User-visible operations must use [`resolve_pr_gh_repo_or_error`] so a
-/// malformed override is not collapsed into an empty repository identity.
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-009
-/// @requirement REQ-PR-013
-/// @pseudocode component-003 lines 217-228
+#[cfg(test)]
 pub(super) fn resolve_pr_gh_repo(state: &jefe::state::AppState) -> (String, String) {
     resolve_pr_gh_repo_or_error(state).unwrap_or_default()
 }
@@ -298,13 +291,16 @@ pub(super) fn selected_pr_still_matches(
 /// @pseudocode component-004 lines 119-126
 fn build_pr_preview_for_selection(
     state: &jefe::state::AppState,
-) -> Option<(RepositoryId, u64, jefe::domain::PullRequestDetail)> {
+) -> Result<Option<(RepositoryId, u64, jefe::domain::PullRequestDetail)>, MalformedPrRepo> {
     let scope_repo_id = current_pr_scope_repo_id(state);
-    let pr = state
+    let Some(pr) = state
         .prs_state
         .selected_pr_index()
-        .and_then(|idx| state.prs_state.pull_requests().get(idx))?;
-    let (owner, repo) = resolve_pr_gh_repo(state);
+        .and_then(|idx| state.prs_state.pull_requests().get(idx))
+    else {
+        return Ok(None);
+    };
+    let (owner, repo) = resolve_pr_gh_repo_or_error(state)?;
     let repo_owner_name = if owner.is_empty() || repo.is_empty() {
         String::new()
     } else {
@@ -346,7 +342,7 @@ fn build_pr_preview_for_selection(
         mergeable: None,
         merge_state_status: None,
     };
-    Some((scope_repo_id, pr.number, detail))
+    Ok(Some((scope_repo_id, pr.number, detail)))
 }
 
 /// Build a lightweight PR detail preview from list data (no I/O).
@@ -362,7 +358,15 @@ pub(super) fn preview_pr_from_list(app_state: &mut AppStateHandle) {
         build_pr_preview_for_selection(&state)
     };
 
-    if let Some((preview_scope_repo_id, preview_pr_number, detail)) = preview {
+    let (preview_scope_repo_id, preview_pr_number, detail) = match preview {
+        Ok(Some(preview)) => preview,
+        Ok(None) => return,
+        Err(error) => {
+            app_state.write().prs_state.error = Some(error.message);
+            return;
+        }
+    };
+    {
         let mut state = app_state.write();
         // TOCTOU re-validation: between the read lock above and this write lock,
         // the selection could have changed. Only apply the preview if the
