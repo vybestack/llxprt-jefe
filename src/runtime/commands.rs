@@ -200,10 +200,9 @@ fn prefix_disable_tmux_subcommands(escaped_session: &str) -> String {
     parts.join(" ")
 }
 
-/// Build the remote shell fragment that disables both tmux prefix keys on an
-/// existing remote session. Used on the remote reattach/attach path to
-/// remediate remote sessions created before the inline-script fix (#200),
-/// mirroring [`configure_prefix_for_passthrough`] for the local path.
+/// Build the remote Unix tmux fragment that sets both prefix keys to `None`.
+/// Used to remediate remote sessions created before the inline fix (#200);
+/// Windows remotes are outside the SSH/tmux runtime contract.
 fn remote_disable_prefix_fragment(escaped_session: &str) -> String {
     format!("tmux {}", prefix_disable_tmux_subcommands(escaped_session))
 }
