@@ -49,6 +49,10 @@ pub(super) struct PrOpenInBrowserInfo {
     pub number: u64,
 }
 
+/// Resolve the effective PR repository for compatibility-oriented callers.
+/// User-visible operations must use [`resolve_pr_gh_repo_or_error`] so a
+/// malformed override is not collapsed into an empty repository identity.
+///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-013

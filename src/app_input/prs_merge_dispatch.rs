@@ -112,7 +112,9 @@ pub(super) fn dispatch_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedCont
 ///
 /// @requirement REQ-PR-009
 fn spawn_pr_merge(app_state: &AppStateHandle, ctx: &SharedContext, info: PrMergeInfo) {
-    let panic_info = info.clone();
+    let panic_scope = info.scope.clone();
+    let panic_pr_number = info.number;
+    let panic_mutation_id = info.mutation_id;
     gh_async::spawn_gh_task_with_panic(
         app_state,
         ctx,
@@ -130,9 +132,9 @@ fn spawn_pr_merge(app_state: &AppStateHandle, ctx: &SharedContext, info: PrMerge
                 &mut app_state,
                 &ctx,
                 AppEvent::PrMergeFailed {
-                    scope_repo_id: panic_info.scope.clone(),
-                    pr_number: panic_info.number,
-                    mutation_id: panic_info.mutation_id,
+                    scope_repo_id: panic_scope,
+                    pr_number: panic_pr_number,
+                    mutation_id: panic_mutation_id,
                     error: format!("GitHub merge task panicked: {message}"),
                 },
             );
@@ -162,7 +164,7 @@ fn pr_merge_event(ctx: &SharedContext, info: &PrMergeInfo) -> AppEvent {
             scope_repo_id: info.scope.clone(),
             pr_number: info.number,
             mutation_id: info.mutation_id,
-            error: "Application context unavailable".to_string(),
+            error: "GitHub client unavailable from application context".to_string(),
         },
     }
 }
@@ -230,7 +232,8 @@ pub(super) fn dispatch_pr_merge_methods_load(app_state: &mut AppStateHandle, ctx
                         apply_and_persist(&mut app_state, &ctx, event);
                     }
                 },
-                // On panic: deliver nothing (chooser stays in "all available" mode).
+                // The shared task wrapper logs panics; the chooser keeps its
+                // graceful "all available" fallback instead of surfacing one.
                 move |_app_state, _ctx, _message| {},
             );
         }
