@@ -32,6 +32,10 @@ impl AppState {
             AppEvent::PrPropertyEditorValidationError { .. } => {
                 self.apply_pr_property_validation_error(event)
             }
+            AppEvent::PrPostMutationRefreshStarted => {
+                self.prs_state.post_mutation_refresh.started();
+                true
+            }
             _ => false,
         }
     }
@@ -559,6 +563,7 @@ impl AppState {
             return true;
         }
         self.prs_state.property_mutation_pending = None;
+        self.prs_state.post_mutation_refresh.request();
         if self
             .prs_state
             .pr_detail
@@ -659,6 +664,15 @@ impl AppState {
             number: pr_number,
         });
         Some(request_id)
+    }
+
+    /// Whether a successful PR mutation's coalesced refresh can start now.
+    #[must_use]
+    pub fn pr_post_mutation_refresh_ready(&self) -> bool {
+        self.prs_state.post_mutation_refresh.is_ready(
+            self.prs_state.list.has_pending_request(),
+            self.prs_state.detail_pending.is_some(),
+        )
     }
 }
 

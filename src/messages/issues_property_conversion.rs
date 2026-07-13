@@ -21,6 +21,7 @@ impl IssuesMessage {
             AppEvent::IssuePropertyEditorValidationError { kind, error } => {
                 Self::PropertyEditorValidationError { kind, error }
             }
+            AppEvent::IssuePostMutationRefreshStarted => Self::PostMutationRefreshStarted,
             other => Self::from_app_event_property_simple(other),
         }
     }
@@ -113,6 +114,7 @@ impl IssuesMessage {
             Self::PropertyEditorValidationError { kind, error } => {
                 AppEvent::IssuePropertyEditorValidationError { kind, error }
             }
+            Self::PostMutationRefreshStarted => AppEvent::IssuePostMutationRefreshStarted,
             other => other.into_app_event_property_simple(),
         }
     }

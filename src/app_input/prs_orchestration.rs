@@ -231,6 +231,21 @@ pub fn request_pr_background_refresh(app_state: &mut AppStateHandle, ctx: &Share
     }
 }
 
+/// Start a coalesced post-mutation refresh once earlier requests have settled.
+pub(super) fn resume_pr_post_mutation_refresh(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let ready = {
+        let state = app_state.read();
+        state.screen_mode == jefe::state::ScreenMode::DashboardPullRequests
+            && state.pr_post_mutation_refresh_ready()
+    };
+    if !ready {
+        return;
+    }
+    apply_and_persist(app_state, ctx, AppEvent::PrPostMutationRefreshStarted);
+    prs_list_dispatch::request_pr_list_silent_refresh(app_state, ctx);
+    load_pr_detail_silent_refresh(app_state, ctx);
+}
+
 /// Pure guard predicate for `request_pr_background_refresh` (issue #128).
 /// Returns `true` when the PR view is open AND no list/detail load is in
 /// flight. Extracted so the guard logic is unit-testable without an

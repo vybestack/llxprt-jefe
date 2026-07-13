@@ -102,6 +102,111 @@ fn full_detail_load_preserves_issue_type_from_list_row() {
     );
 }
 
+fn issue_row_with_type(issue_type: &str) -> crate::domain::Issue {
+    crate::domain::Issue {
+        number: 42,
+        node_id: String::new(),
+        title: "Test Issue".to_string(),
+        state: IssueState::Open,
+        author_login: "alice".to_string(),
+        updated_at: "2024-01-02".to_string(),
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
+        assignees: Vec::new(),
+        labels: Vec::new(),
+        issue_type: issue_type.to_string(),
+        milestone: String::new(),
+        module: String::new(),
+        comment_count: 0,
+        body: String::new(),
+    }
+}
+
+fn issue_type_refresh_state(initial_type: &str) -> AppState {
+    let mut state = make_state_with_detail();
+    add_repo(&mut state);
+    state
+        .issues_state
+        .list
+        .replace_items(vec![issue_row_with_type(initial_type)]);
+    state.issues_state.list.set_selected_index(Some(0));
+    state.issues_state.list.begin_silent_reload(
+        crate::state::IssueListIdentity {
+            scope_repo_id: RepositoryId("r1".to_string()),
+            filter: crate::domain::IssueFilter::default(),
+        },
+        crate::domain::ListRequestId::from_raw(7),
+    );
+    state.mark_issue_detail_silent_loading(RepositoryId("r1".to_string()), 42, 8);
+    state
+}
+
+fn apply_issue_type_refreshes(
+    mut state: AppState,
+    refreshed_type: &str,
+    detail_first: bool,
+) -> AppState {
+    let mut detail = state
+        .issues_state
+        .issue_detail
+        .clone()
+        .unwrap_or_else(|| panic!("fixture detail should exist"));
+    detail.issue_type_name = None;
+    let detail_event = AppEvent::IssueDetailSilentRefreshed {
+        scope_repo_id: RepositoryId("r1".to_string()),
+        issue_number: 42,
+        request_id: 8,
+        detail: Box::new(detail),
+    };
+    let list_event = AppEvent::IssueListSilentRefreshed {
+        scope_repo_id: RepositoryId("r1".to_string()),
+        filter: Box::new(crate::domain::IssueFilter::default()),
+        request_id: 7,
+        issues: vec![issue_row_with_type(refreshed_type)],
+        cursor: None,
+        has_more: false,
+    };
+    if detail_first {
+        state = state.apply(detail_event);
+        state.apply(list_event)
+    } else {
+        state = state.apply(list_event);
+        state.apply(detail_event)
+    }
+}
+
+fn assert_refreshed_issue_type(initial: &str, refreshed: &str, detail_first: bool) {
+    let state =
+        apply_issue_type_refreshes(issue_type_refresh_state(initial), refreshed, detail_first);
+    let actual = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .and_then(|detail| detail.issue_type_name.as_deref());
+    let expected = (!refreshed.is_empty()).then_some(refreshed);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn issue_type_set_converges_when_detail_finishes_before_list() {
+    assert_refreshed_issue_type("", "Bug", true);
+}
+
+#[test]
+fn issue_type_set_converges_when_list_finishes_before_detail() {
+    assert_refreshed_issue_type("", "Bug", false);
+}
+
+#[test]
+fn issue_type_clear_converges_when_detail_finishes_before_list() {
+    assert_refreshed_issue_type("Bug", "", true);
+}
+
+#[test]
+fn issue_type_clear_converges_when_list_finishes_before_detail() {
+    assert_refreshed_issue_type("Bug", "", false);
+}
+
 fn require_issue_editor(state: &AppState) -> &IssuePropertyEditorState {
     state
         .issues_state
@@ -416,6 +521,31 @@ fn succeeded_clears_editor() {
         request_id: rid,
     });
     assert!(state.issues_state.property_editor.is_none());
+}
+
+#[test]
+fn succeeded_requests_one_coalesced_refresh() {
+    let mut state = make_state_with_detail();
+    add_repo(&mut state);
+    state = state.apply(AppEvent::IssueOpenPropertyEditor {
+        kind: IssuePropertyKind::Labels,
+    });
+    let Some(request_id) =
+        state.mark_issue_property_mutation_pending(RepositoryId("r1".to_string()), 42)
+    else {
+        panic!("confirm should allocate request_id");
+    };
+
+    state = state.apply(AppEvent::IssuePropertyEditSucceeded {
+        scope_repo_id: RepositoryId("r1".to_string()),
+        issue_number: 42,
+        kind: IssuePropertyKind::Labels,
+        request_id,
+    });
+    assert!(state.issue_post_mutation_refresh_ready());
+
+    state = state.apply(AppEvent::IssuePostMutationRefreshStarted);
+    assert!(!state.issue_post_mutation_refresh_ready());
 }
 
 #[test]

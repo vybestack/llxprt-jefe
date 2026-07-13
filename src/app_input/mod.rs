@@ -14,6 +14,9 @@ mod normal;
 mod persist_focus;
 mod preflight;
 mod pty_passthrough;
+mod settled_refresh;
+
+use settled_refresh::SettledRefresh;
 
 // Re-export so sibling modules importing `super::preflight_or_prompt` keep
 // resolving after the helper moved into the `preflight` submodule.
@@ -227,11 +230,21 @@ fn agent_and_signature(
 }
 
 fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
+    let settled_refresh = SettledRefresh::from_event(&evt);
     let mut state = app_state.write();
     *state = std::mem::take(&mut *state).apply(evt);
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
+    match settled_refresh {
+        Some(SettledRefresh::Issues) => {
+            issues_dispatch::resume_issue_post_mutation_refresh(app_state, ctx);
+        }
+        Some(SettledRefresh::PullRequests) => {
+            prs_orchestration::resume_pr_post_mutation_refresh(app_state, ctx);
+        }
+        None => {}
+    }
 }
 
 fn close_modal_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext) {

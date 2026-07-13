@@ -110,6 +110,7 @@ impl AppState {
                 .position(|issue| issue.number == issue_number)
         {
             self.issues_state.list.set_selected_index(Some(index));
+            self.rehydrate_visible_issue_type(issue_number);
         }
     }
 
@@ -207,6 +208,25 @@ impl AppState {
             .map(|issue| issue.issue_type.trim())
             .filter(|issue_type| !issue_type.is_empty())
             .map(str::to_string);
+    }
+
+    fn rehydrate_visible_issue_type(&mut self, issue_number: u64) {
+        let issue_type_name = self
+            .issues_state
+            .issues()
+            .iter()
+            .find(|issue| issue.number == issue_number)
+            .map(|issue| issue.issue_type.trim())
+            .filter(|issue_type| !issue_type.is_empty())
+            .map(str::to_string);
+        if let Some(detail) = self
+            .issues_state
+            .issue_detail
+            .as_mut()
+            .filter(|detail| detail.number == issue_number)
+        {
+            detail.issue_type_name = issue_type_name;
+        }
     }
 
     /// Apply a silent background detail refresh failure (issue #175). Clears

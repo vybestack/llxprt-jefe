@@ -734,6 +734,8 @@ pub enum AppEvent {
         kind: super::IssuePropertyKind,
         request_id: u64,
     },
+    /// Consume a queued issue refresh immediately before orchestration starts it.
+    IssuePostMutationRefreshStarted,
     IssuePropertyEditFailed {
         scope_repo_id: RepositoryId,
         issue_number: u64,
@@ -783,6 +785,8 @@ pub enum AppEvent {
         kind: super::PrPropertyKind,
         request_id: u64,
     },
+    /// Consume a queued PR refresh immediately before orchestration starts it.
+    PrPostMutationRefreshStarted,
     PrPropertyEditFailed {
         scope_repo_id: RepositoryId,
         pr_number: u64,

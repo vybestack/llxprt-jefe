@@ -35,6 +35,10 @@ mod auth_ops;
 // Per-repository user-preference snapshot/restore operations (issue #163).
 mod preferences_ops;
 // @plan PLAN-20260624-PR-MODE.P03
+/// Coalesced post-mutation refresh scheduling state.
+pub mod post_mutation_refresh;
+#[cfg(test)]
+mod post_mutation_refresh_tests;
 // @requirement REQ-PR-001
 mod prs_inline_ops;
 mod prs_load_ops;

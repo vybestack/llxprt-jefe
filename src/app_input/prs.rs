@@ -471,11 +471,14 @@ fn handle_pr_merge_chooser_key(_state: &AppState, key_event: &KeyEvent) -> Optio
 /// Mirrors the merge-chooser key router: Up/Down navigate, Space toggles,
 /// Enter confirms, Esc cancels. Title editing keys (char, backspace, delete,
 /// cursor left/right) are also routed. All other keys are consumed as `None`.
-fn handle_pr_property_editor_key(_state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+fn handle_pr_property_editor_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    let kind = state.prs_state.property_editor.as_ref()?.kind;
     match key_event.code {
         KeyCode::Up => Some(AppEvent::PrPropertyEditorNavigateUp),
         KeyCode::Down => Some(AppEvent::PrPropertyEditorNavigateDown),
-        KeyCode::Char(' ') => Some(AppEvent::PrPropertyEditorToggle),
+        KeyCode::Char(' ') if kind != PrPropertyKind::Title => {
+            Some(AppEvent::PrPropertyEditorToggle)
+        }
         KeyCode::Enter => Some(AppEvent::PrPropertyEditorConfirm),
         KeyCode::Esc => Some(AppEvent::PrPropertyEditorCancel),
         KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {

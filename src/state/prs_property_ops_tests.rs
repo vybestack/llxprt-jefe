@@ -321,6 +321,31 @@ fn succeeded_clears_editor() {
 }
 
 #[test]
+fn succeeded_requests_one_coalesced_pr_refresh() {
+    let mut state = make_state_with_detail();
+    add_repo(&mut state);
+    state = state.apply(AppEvent::PrOpenPropertyEditor {
+        kind: PrPropertyKind::Labels,
+    });
+    let Some(request_id) =
+        state.mark_pr_property_mutation_pending(RepositoryId("r1".to_string()), 42)
+    else {
+        panic!("confirm should allocate request_id");
+    };
+
+    state = state.apply(AppEvent::PrPropertyEditSucceeded {
+        scope_repo_id: RepositoryId("r1".to_string()),
+        pr_number: 42,
+        kind: PrPropertyKind::Labels,
+        request_id,
+    });
+    assert!(state.pr_post_mutation_refresh_ready());
+
+    state = state.apply(AppEvent::PrPostMutationRefreshStarted);
+    assert!(!state.pr_post_mutation_refresh_ready());
+}
+
+#[test]
 fn failed_sets_error_keeps_editor_open() {
     let mut state = make_state_with_detail();
     add_repo(&mut state);

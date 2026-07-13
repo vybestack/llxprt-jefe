@@ -1,19 +1,17 @@
 //! Property editor overlay (issue #175).
 //!
-//! Mirrors the merge-chooser overlay (`merge_chooser.rs`). Renders a
-//! selectable list of property options (Labels, Assignees, Milestone, Type,
-//! State) or a single-line title text-box (Title kind). Up/Down navigates,
-//! Space toggles (multi-select) or selects (single-select), Enter confirms,
-//! Esc cancels.
-//!
-//! @requirement REQ-ISS-010
+//! Renders the shared pure overlay projection used by selection content and
+//! mouse geometry. The component owns no viewport, caret, footer, or bounds
+//! calculations.
 
 use iocraft::prelude::*;
 
 use crate::selection::{SelectablePane, TextSelection};
-use crate::text_box_view::build_text_box_view;
 use crate::theme::{ResolvedColors, SelectionColors, ThemeColors};
-use crate::ui::components::property_editor_view::build_property_editor_view;
+use crate::ui::components::property_editor_view::{
+    PropertyEditorProjectionInput, PropertyEditorProjectionLineKind,
+    build_property_editor_projection,
+};
 use crate::ui::components::selectable_line;
 
 /// Props for the property editor overlay.
@@ -25,193 +23,77 @@ pub struct PropertyEditorProps {
     pub header: String,
     /// `(label, selected)` pairs for the option list.
     pub options: Vec<(String, bool)>,
-    /// 0-based cursor index into `options`.
+    /// Cursor index into `options`.
     pub selected_index: usize,
-    /// Whether multiple options can be selected simultaneously
-    /// (Labels/Assignees). Single-select (Milestone/Type/State) uses `>`
-    /// cursor markers instead of `(x)`/`( )`.
+    /// Whether multiple options can be selected simultaneously.
     pub multi_select: bool,
-    /// For Title kind: the editable text.
+    /// Editable title text.
     pub title_text: String,
     /// Byte cursor within `title_text`.
     pub title_cursor: usize,
-    /// Render the title text-box instead of the option list.
+    /// Render title editing instead of options.
     pub is_title: bool,
-    /// Error message shown in the footer when a mutation fails.
+    /// Current validation or mutation error.
     pub error: Option<String>,
-    /// Maximum option rows to render (cursor-following window, issue #175 F4).
-    pub viewport_rows: usize,
+    /// Live terminal width used by the shared projection.
+    pub terminal_cols: u16,
+    /// Live terminal height used by the shared projection.
+    pub terminal_rows: u16,
     /// Theme colors.
     pub colors: ThemeColors,
-    /// Active text selection for drag-highlight (issue #178).
+    /// Active text selection for drag-highlight.
     pub selection: Option<TextSelection>,
 }
 
-const SEPARATOR: &str = "─────────────────────────────────────────";
-
-/// Append a scroll indicator to the footer hint when the option list is
-/// longer than the viewport (issue #175 F4).
-fn scroll_hint(base: &str, windowed: bool) -> String {
-    if windowed {
-        format!("{base}  (more below)")
-    } else {
-        base.to_string()
-    }
-}
-
-/// Property editor overlay — lists options with selection, or a title
-/// text-box; Enter confirms, Esc cancels.
-///
-/// @requirement REQ-ISS-010
+/// Property editor overlay rendered directly from its pure projection.
 #[component]
 pub fn PropertyEditor(props: &PropertyEditorProps) -> impl Into<AnyElement<'static>> {
     if !props.visible {
-        return element! {
-            Box(width: 0u32, height: 0u32) {}
-        };
+        return element! { Box(width: 0u32, height: 0u32) {} };
     }
-
+    let projection = build_property_editor_projection(PropertyEditorProjectionInput {
+        header: &props.header,
+        options: &props.options,
+        selected_index: props.selected_index,
+        multi_select: props.multi_select,
+        title_text: &props.title_text,
+        title_cursor: props.title_cursor,
+        is_title: props.is_title,
+        error: props.error.as_deref(),
+        terminal_cols: props.terminal_cols,
+        terminal_rows: props.terminal_rows,
+    });
     let rc = ResolvedColors::from_theme(Some(&props.colors));
     let sel = SelectionColors::from_resolved(&rc);
     let pane = SelectablePane::PropertyEditor;
-    let selection = props.selection;
-    let mut line_idx: usize = 0;
-
-    let mut lines: Vec<AnyElement<'static>> = Vec::new();
-
-    // Header + separator
-    lines.push(selectable_line(
-        &props.header,
-        {
-            line_idx += 1;
-            0
-        },
-        selection,
-        pane,
-        rc.bright,
-        sel,
-    ));
-    lines.push(selectable_line(
-        SEPARATOR,
-        {
-            let i = line_idx;
-            line_idx += 1;
-            i
-        },
-        selection,
-        pane,
-        rc.dim,
-        sel,
-    ));
-
-    // F4: compute the option window once so the option list and the scroll
-    // indicator in the footer stay consistent.
-    let prop_view = build_property_editor_view(
-        props.options.len(),
-        props.selected_index,
-        props.viewport_rows,
-    );
-    // True when some options are scrolled out of view (issue #175 F4).
-    let windowed = prop_view.visible_count < props.options.len();
-
-    if props.is_title {
-        let view = build_text_box_view(&props.title_text, props.title_cursor, 1, 78);
-        let row = &view.rows[0];
-        let text_with_caret = if let Some(col) = row.caret_col {
-            let chars: Vec<char> = row.text.chars().collect();
-            let before: String = chars.iter().take(col).collect();
-            let after: String = chars.iter().skip(col).collect();
-            format!("{before}▏{after}")
-        } else {
-            row.text.clone()
-        };
-        lines.push(selectable_line(
-            &text_with_caret,
-            {
-                line_idx += 1;
-                0
-            },
-            selection,
-            pane,
-            rc.fg,
-            sel,
-        ));
-    } else {
-        for full_index in prop_view.iter_visible() {
-            let Some((label, selected)) = props.options.get(full_index) else {
-                break;
+    let lines: Vec<AnyElement<'static>> = projection
+        .lines
+        .iter()
+        .enumerate()
+        .map(|(line_index, line)| {
+            let color = match line.kind {
+                PropertyEditorProjectionLineKind::Header
+                | PropertyEditorProjectionLineKind::Option { cursor: true, .. }
+                | PropertyEditorProjectionLineKind::Footer { error: true } => rc.bright,
+                PropertyEditorProjectionLineKind::Separator
+                | PropertyEditorProjectionLineKind::Footer { error: false } => rc.dim,
+                PropertyEditorProjectionLineKind::Option { cursor: false, .. }
+                | PropertyEditorProjectionLineKind::Title => rc.fg,
             };
-            // prop_view.contains is the authoritative window test; assert it
-            // here so the cursor highlight never drifts from the window.
-            let is_cursor =
-                full_index == props.selected_index && prop_view.contains(props.selected_index);
-            let label_text = if props.multi_select {
-                let marker = if *selected { "(x)" } else { "( )" };
-                format!("{marker} {label}")
-            } else {
-                let marker = if is_cursor { ">" } else { " " };
-                format!("{marker} {label}")
-            };
-            let color = if is_cursor { rc.bright } else { rc.fg };
-            lines.push(selectable_line(
-                &label_text,
-                {
-                    let li = line_idx;
-                    line_idx += 1;
-                    li
-                },
-                selection,
-                pane,
-                color,
-                sel,
-            ));
-        }
-    }
-
-    // Separator + footer hint
-    lines.push(selectable_line(
-        SEPARATOR,
-        {
-            let i = line_idx;
-            line_idx += 1;
-            i
-        },
-        selection,
-        pane,
-        rc.dim,
-        sel,
-    ));
-
-    let hint = if let Some(ref err) = props.error {
-        err.clone()
-    } else if props.is_title {
-        "type title  Enter apply  Esc cancel".to_string()
-    } else if props.multi_select {
-        let base = "Up/Down move  Space toggle  Enter apply  Esc cancel";
-        scroll_hint(base, windowed)
-    } else {
-        let base = "Up/Down move  Enter apply  Esc cancel";
-        scroll_hint(base, windowed)
-    };
-    let hint_color = if props.error.is_some() {
-        rc.bright
-    } else {
-        rc.dim
-    };
-    lines.push(selectable_line(
-        &hint, line_idx, selection, pane, hint_color, sel,
-    ));
+            selectable_line(&line.text, line_index, props.selection, pane, color, sel)
+        })
+        .collect();
 
     element! {
         Box(
+            width: u32::from(projection.bounds.outer_width),
+            height: u32::from(projection.bounds.outer_height),
             flex_direction: FlexDirection::Column,
             border_style: BorderStyle::Double,
             border_color: rc.bright,
             background_color: rc.bg,
             padding_left: 1u32,
             padding_right: 1u32,
-            padding_top: 0u32,
-            padding_bottom: 0u32,
         ) {
             #(lines)
         }

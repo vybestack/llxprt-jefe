@@ -193,6 +193,7 @@ message_names!(IssuesMessage {
     Self::PropertyEditorOptionsLoaded { .. } => "IssuePropertyEditorOptionsLoaded",
     Self::PropertyEditorOptionsFailed { .. } => "IssuePropertyEditorOptionsFailed",
     Self::PropertyEditSucceeded { .. } => "IssuePropertyEditSucceeded",
+    Self::PostMutationRefreshStarted => "IssuePostMutationRefreshStarted",
     Self::PropertyEditFailed { .. } => "IssuePropertyEditFailed",
     Self::PropertyEditorValidationError { .. } => "IssuePropertyEditorValidationError",
 });
@@ -278,6 +279,7 @@ message_names!(PullRequestsMessage {
     Self::PropertyEditorOptionsLoaded { .. } => "PrPropertyEditorOptionsLoaded",
     Self::PropertyEditorOptionsFailed { .. } => "PrPropertyEditorOptionsFailed",
     Self::PropertyEditSucceeded { .. } => "PrPropertyEditSucceeded",
+    Self::PostMutationRefreshStarted => "PrPostMutationRefreshStarted",
     Self::PropertyEditFailed { .. } => "PrPropertyEditFailed",
     Self::PropertyEditorValidationError { .. } => "PrPropertyEditorValidationError",
 });
@@ -309,6 +311,7 @@ pub(super) fn is_issue_property_app_event(event: &AppEvent) -> bool {
             | AppEvent::IssuePropertyEditorOptionsLoaded { .. }
             | AppEvent::IssuePropertyEditorOptionsFailed { .. }
             | AppEvent::IssuePropertyEditSucceeded { .. }
+            | AppEvent::IssuePostMutationRefreshStarted
             | AppEvent::IssuePropertyEditFailed { .. }
             | AppEvent::IssuePropertyEditorValidationError { .. }
     )
@@ -333,6 +336,7 @@ pub(super) fn is_issue_property_msg(message: &IssuesMessage) -> bool {
             | IssuesMessage::PropertyEditorOptionsLoaded { .. }
             | IssuesMessage::PropertyEditorOptionsFailed { .. }
             | IssuesMessage::PropertyEditSucceeded { .. }
+            | IssuesMessage::PostMutationRefreshStarted
             | IssuesMessage::PropertyEditFailed { .. }
             | IssuesMessage::PropertyEditorValidationError { .. }
     )

@@ -417,6 +417,8 @@ pub enum IssuesMessage {
         kind: crate::state::IssuePropertyKind,
         request_id: u64,
     },
+    /// Consume a queued issue refresh immediately before orchestration starts it.
+    PostMutationRefreshStarted,
     PropertyEditFailed {
         scope_repo_id: RepositoryId,
         issue_number: u64,
@@ -667,6 +669,8 @@ pub enum PullRequestsMessage {
         kind: crate::state::PrPropertyKind,
         request_id: u64,
     },
+    /// Consume a queued PR refresh immediately before orchestration starts it.
+    PostMutationRefreshStarted,
     PropertyEditFailed {
         scope_repo_id: RepositoryId,
         pr_number: u64,

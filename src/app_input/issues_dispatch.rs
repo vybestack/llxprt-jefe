@@ -634,22 +634,22 @@ fn dispatch_issue_property_message(
     }
 }
 
-/// Refresh list and detail after a successful property mutation without
-/// changing visible loading/error state or the user's current detail position.
-pub(super) fn request_issue_background_refresh(
+/// Start a coalesced post-mutation refresh once earlier requests have settled.
+pub(super) fn resume_issue_post_mutation_refresh(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
 ) {
-    let should_refresh = {
+    let ready = {
         let state = app_state.read();
         state.screen_mode == jefe::state::ScreenMode::DashboardIssues
-            && !state.issues_state.list_pending()
-            && state.issues_state.detail_pending.is_none()
+            && state.issue_post_mutation_refresh_ready()
     };
-    if should_refresh {
-        issues_list_dispatch::request_issue_list_silent_refresh(app_state, ctx);
-        load_issue_detail_silent_refresh(app_state, ctx);
+    if !ready {
+        return;
     }
+    apply_and_persist(app_state, ctx, AppEvent::IssuePostMutationRefreshStarted);
+    issues_list_dispatch::request_issue_list_silent_refresh(app_state, ctx);
+    load_issue_detail_silent_refresh(app_state, ctx);
 }
 
 #[cfg(test)]

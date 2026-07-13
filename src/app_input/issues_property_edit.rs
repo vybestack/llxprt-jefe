@@ -461,5 +461,5 @@ pub fn dispatch_issue_property_post_mutation(
     event: AppEvent,
 ) {
     apply_and_persist(app_state, ctx, event);
-    super::issues_dispatch::request_issue_background_refresh(app_state, ctx);
+    super::issues_dispatch::resume_issue_post_mutation_refresh(app_state, ctx);
 }

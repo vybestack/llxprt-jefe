@@ -137,6 +137,7 @@ impl IssuesMessage {
 
     /// Silent-refresh list events (issue #175).
     /// Detail loaded/error payload events (including silent refresh, issue #175).
+    /// Falls through to comments/controls on classifier drift instead of panicking.
     fn from_app_event_detail(event: AppEvent) -> Self {
         match event {
             AppEvent::IssueDetailLoaded {
@@ -181,7 +182,7 @@ impl IssuesMessage {
                 issue_number,
                 request_id,
             },
-            _ => unreachable!("non-detail AppEvent routed to detail converter"),
+            other => Self::from_app_event_comments_and_controls(other),
         }
     }
 
@@ -305,17 +306,10 @@ impl IssuesMessage {
         }
     }
 
-    /// Mutation-lifecycle and agent-chooser events; delegates close-family
-    /// events to `from_app_event_close_family`.
+    /// Mutation-lifecycle and agent-chooser events; delegates non-mutation,
+    /// non-agent events to the close-family dispatcher.
     fn from_app_event_mutation_and_agent(event: AppEvent) -> Self {
         match event {
-            AppEvent::MutationSubmitted { .. }
-            | AppEvent::IssueCreated { .. }
-            | AppEvent::CommentCreated { .. }
-            | AppEvent::CommentCreateFailed { .. }
-            | AppEvent::IssueBodyUpdated { .. }
-            | AppEvent::CommentUpdated { .. }
-            | AppEvent::MutationFailed { .. } => Self::from_app_event_mutation(event),
             AppEvent::OpenAgentChooser => Self::OpenAgentChooser,
             AppEvent::AgentChooserNavigateUp => Self::AgentChooserNavigateUp,
             AppEvent::AgentChooserNavigateDown => Self::AgentChooserNavigateDown,
@@ -323,12 +317,12 @@ impl IssuesMessage {
             AppEvent::AgentChooserCancel => Self::AgentChooserCancel,
             AppEvent::SendToAgentCompleted => Self::SendToAgentCompleted,
             AppEvent::SendToAgentFailed { error } => Self::SendToAgentFailed { error },
-            other => Self::from_app_event_close_family(other),
+            other => Self::from_app_event_mutation_or_close(other),
         }
     }
 
     /// Close/delete lifecycle, close-reason chooser, and self-assignment events.
-    fn from_app_event_close_family(event: AppEvent) -> Self {
+    pub(super) fn from_app_event_close_family(event: AppEvent) -> Self {
         match event {
             AppEvent::CloseIssue
             | AppEvent::OpenDeleteIssueConfirm
@@ -720,17 +714,10 @@ impl IssuesMessage {
         }
     }
 
-    /// Mutation-lifecycle and agent-chooser messages; delegates close-family
-    /// messages to `into_app_event_close_family`.
+    /// Mutation-lifecycle and agent-chooser messages; delegates non-mutation,
+    /// non-agent messages to the close-family dispatcher.
     fn into_app_event_mutation_and_agent(self) -> AppEvent {
         match self {
-            Self::MutationSubmitted { .. }
-            | Self::IssueCreated { .. }
-            | Self::CommentCreated { .. }
-            | Self::CommentCreateFailed { .. }
-            | Self::IssueBodyUpdated { .. }
-            | Self::CommentUpdated { .. }
-            | Self::MutationFailed { .. } => self.into_app_event_mutation(),
             Self::OpenAgentChooser => AppEvent::OpenAgentChooser,
             Self::AgentChooserNavigateUp => AppEvent::AgentChooserNavigateUp,
             Self::AgentChooserNavigateDown => AppEvent::AgentChooserNavigateDown,
@@ -738,12 +725,12 @@ impl IssuesMessage {
             Self::AgentChooserCancel => AppEvent::AgentChooserCancel,
             Self::SendToAgentCompleted => AppEvent::SendToAgentCompleted,
             Self::SendToAgentFailed { error } => AppEvent::SendToAgentFailed { error },
-            other => other.into_app_event_close_family(),
+            other => other.into_app_event_mutation_or_close(),
         }
     }
 
     /// Close/delete lifecycle, close-reason chooser, and self-assignment messages.
-    fn into_app_event_close_family(self) -> AppEvent {
+    pub(super) fn into_app_event_close_family(self) -> AppEvent {
         match self {
             Self::CloseIssue
             | Self::OpenDeleteIssueConfirm

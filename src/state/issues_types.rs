@@ -50,6 +50,8 @@ pub struct IssuesState {
     pub property_editor: Option<super::IssuePropertyEditorState>,
     /// Pending property mutation staleness guard (issue #175).
     pub property_mutation_pending: Option<super::PropertyMutationPending>,
+    /// Coalesced silent refresh requested by a successful property mutation.
+    pub post_mutation_refresh: crate::state::post_mutation_refresh::PostMutationRefresh,
     /// Monotonic request id for property option loads / mutations (issue #175).
     pub next_property_request_id: u64,
     /// Delete confirm overlay state (two-step confirm like merge chooser).

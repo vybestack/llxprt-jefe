@@ -1,27 +1,18 @@
 //! Mutation message conversion for Issues mode.
 //!
 //! Extracted from `issues_conversion.rs` to keep that file under the
-//! source-file-size hard limit.
+//! source-file-size hard limit. Instead of `unreachable!` on classifier
+//! drift, these converters fall through to the next dispatch layer so the
+//! TUI never panics on routing mistakes.
 
 use crate::state::AppEvent;
 
 use super::IssuesMessage;
 
 impl IssuesMessage {
-    pub(super) fn from_app_event_mutation(event: AppEvent) -> Self {
-        match event {
-            AppEvent::MutationSubmitted { .. }
-            | AppEvent::IssueCreated { .. }
-            | AppEvent::CommentCreated { .. }
-            | AppEvent::CommentCreateFailed { .. } => Self::from_app_event_mutation_start(event),
-            AppEvent::IssueBodyUpdated { .. }
-            | AppEvent::CommentUpdated { .. }
-            | AppEvent::MutationFailed { .. } => Self::from_app_event_mutation_finish(event),
-            _ => unreachable!("non-mutation AppEvent routed to mutation converter"),
-        }
-    }
-
-    fn from_app_event_mutation_start(event: AppEvent) -> Self {
+    /// Convert mutation AppEvents, or fall through to the close-family
+    /// dispatcher for non-mutation events.
+    pub(super) fn from_app_event_mutation_or_close(event: AppEvent) -> Self {
         match event {
             AppEvent::MutationSubmitted {
                 scope_repo_id,
@@ -63,11 +54,11 @@ impl IssuesMessage {
                 mutation_id,
                 error,
             },
-            _ => unreachable!("non-start mutation AppEvent routed to start converter"),
+            other => Self::from_app_event_mutation_finish_or_close(other),
         }
     }
 
-    fn from_app_event_mutation_finish(event: AppEvent) -> Self {
+    fn from_app_event_mutation_finish_or_close(event: AppEvent) -> Self {
         match event {
             AppEvent::IssueBodyUpdated {
                 scope_repo_id,
@@ -108,24 +99,13 @@ impl IssuesMessage {
                 mutation_id,
                 error,
             },
-            _ => unreachable!("non-finish mutation AppEvent routed to finish converter"),
+            other => Self::from_app_event_close_family(other),
         }
     }
 
-    pub(super) fn into_app_event_mutation(self) -> AppEvent {
-        match self {
-            Self::MutationSubmitted { .. }
-            | Self::IssueCreated { .. }
-            | Self::CommentCreated { .. }
-            | Self::CommentCreateFailed { .. } => self.into_app_event_mutation_start(),
-            Self::IssueBodyUpdated { .. }
-            | Self::CommentUpdated { .. }
-            | Self::MutationFailed { .. } => self.into_app_event_mutation_finish(),
-            _ => unreachable!("non-mutation IssuesMessage routed to mutation converter"),
-        }
-    }
-
-    fn into_app_event_mutation_start(self) -> AppEvent {
+    /// Convert mutation IssuesMessages, or fall through to the close-family
+    /// dispatcher for non-mutation messages.
+    pub(super) fn into_app_event_mutation_or_close(self) -> AppEvent {
         match self {
             Self::MutationSubmitted {
                 scope_repo_id,
@@ -167,11 +147,11 @@ impl IssuesMessage {
                 mutation_id,
                 error,
             },
-            _ => unreachable!("non-start mutation IssuesMessage routed to start converter"),
+            other => other.into_app_event_mutation_finish_or_close(),
         }
     }
 
-    fn into_app_event_mutation_finish(self) -> AppEvent {
+    fn into_app_event_mutation_finish_or_close(self) -> AppEvent {
         match self {
             Self::IssueBodyUpdated {
                 scope_repo_id,
@@ -212,7 +192,7 @@ impl IssuesMessage {
                 mutation_id,
                 error,
             },
-            _ => unreachable!("non-finish mutation IssuesMessage routed to finish converter"),
+            other => other.into_app_event_close_family(),
         }
     }
 }

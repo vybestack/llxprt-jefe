@@ -421,5 +421,5 @@ pub fn dispatch_pr_property_post_mutation(
     event: AppEvent,
 ) {
     apply_and_persist(app_state, ctx, event);
-    super::prs_orchestration::request_pr_background_refresh(app_state, ctx);
+    super::prs_orchestration::resume_pr_post_mutation_refresh(app_state, ctx);
 }

@@ -181,8 +181,6 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
         .map_or_else(String::new, |e| e.title_text.clone());
     let prop_title_cursor = prop_editor.as_ref().map_or(0, |e| e.title_cursor);
     let prop_error = prop_editor.as_ref().and_then(|e| e.error.clone());
-    // F4: cap the option list to the available terminal rows.
-    let prop_viewport_rows = term_rows.saturating_sub(7).max(1) as usize;
 
     // Sidebar is highlighted when RepoList focus or PaneFocus::Repositories
     let sidebar_focused = pane_focus == PaneFocus::Repositories || pr_focus == PrFocus::RepoList;
@@ -365,7 +363,8 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
                                     title_cursor: prop_title_cursor,
                                     is_title: prop_is_title,
                                     error: prop_error.clone(),
-                                    viewport_rows: prop_viewport_rows,
+                                    terminal_cols: term_cols,
+                                    terminal_rows: term_rows,
                                     colors: colors.clone(),
                                     selection: selection,
                                 )

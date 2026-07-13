@@ -20,6 +20,7 @@ impl PullRequestsMessage {
             AppEvent::PrPropertyEditorValidationError { kind, error } => {
                 Self::PropertyEditorValidationError { kind, error }
             }
+            AppEvent::PrPostMutationRefreshStarted => Self::PostMutationRefreshStarted,
             other => Self::from_app_event_property_simple(other),
         }
     }
@@ -149,6 +150,7 @@ impl PullRequestsMessage {
             Self::PropertyEditorValidationError { kind, error } => {
                 AppEvent::PrPropertyEditorValidationError { kind, error }
             }
+            Self::PostMutationRefreshStarted => AppEvent::PrPostMutationRefreshStarted,
             other => other.into_app_event_property_simple(),
         }
     }

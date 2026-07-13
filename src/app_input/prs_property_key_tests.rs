@@ -155,6 +155,25 @@ fn test_pr_property_editor_space_toggles() {
 }
 
 #[test]
+fn test_pr_title_property_editor_routes_spaces_at_every_cursor_position() {
+    for (text, cursor) in [("word", 0), ("word", 2), ("word", 4)] {
+        let mut state = prs_state_with_property_editor();
+        let Some(editor) = state.prs_state.property_editor.as_mut() else {
+            panic!("test property editor should be present");
+        };
+        editor.kind = PrPropertyKind::Title;
+        editor.title_text = text.to_string();
+        editor.title_cursor = cursor;
+
+        let event = resolve_prs_key_event(&state, &key(KeyCode::Char(' ')));
+        assert!(
+            matches!(event, Some(AppEvent::PrPropertyEditorTitleChar(' '))),
+            "PR title space at cursor {cursor} should edit the title, got {event:?}"
+        );
+    }
+}
+
+#[test]
 fn test_pr_property_editor_enter_confirms() {
     let state = prs_state_with_property_editor();
     let event = resolve_prs_key_event(&state, &key(KeyCode::Enter));

@@ -140,6 +140,8 @@ pub struct PullRequestsState {
     pub property_editor: Option<super::PrPropertyEditorState>,
     /// Pending property mutation staleness guard (issue #175).
     pub property_mutation_pending: Option<super::PropertyMutationPending>,
+    /// Coalesced silent refresh requested by a successful property mutation.
+    pub post_mutation_refresh: crate::state::post_mutation_refresh::PostMutationRefresh,
     /// Monotonic request id for property option loads / mutations (issue #175).
     pub next_property_request_id: u64,
     pub detail_pending: Option<PrDetailPending>,

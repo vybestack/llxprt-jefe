@@ -35,6 +35,10 @@ impl AppState {
             AppEvent::IssuePropertyEditorValidationError { .. } => {
                 self.apply_issue_property_validation_error(event)
             }
+            AppEvent::IssuePostMutationRefreshStarted => {
+                self.issues_state.post_mutation_refresh.started();
+                true
+            }
             _ => false,
         }
     }
@@ -579,8 +583,10 @@ impl AppState {
         if !pending_matches {
             return true;
         }
-        // Clear pending regardless (the mutation is done).
+        // Clear pending and queue one refresh; orchestration starts it once
+        // list and detail request channels are both idle.
         self.issues_state.property_mutation_pending = None;
+        self.issues_state.post_mutation_refresh.request();
         if self
             .issues_state
             .issue_detail
@@ -687,6 +693,14 @@ impl AppState {
             number: issue_number,
         });
         Some(request_id)
+    }
+    /// Whether a successful issue mutation's coalesced refresh can start now.
+    #[must_use]
+    pub fn issue_post_mutation_refresh_ready(&self) -> bool {
+        self.issues_state.post_mutation_refresh.is_ready(
+            self.issues_state.list_pending(),
+            self.issues_state.detail_pending.is_some(),
+        )
     }
 }
 

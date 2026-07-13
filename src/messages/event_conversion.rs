@@ -376,6 +376,7 @@ impl AppMessage {
                 | AppEvent::IssuePropertyEditorOptionsLoaded { .. }
                 | AppEvent::IssuePropertyEditorOptionsFailed { .. }
                 | AppEvent::IssuePropertyEditSucceeded { .. }
+                | AppEvent::IssuePostMutationRefreshStarted
                 | AppEvent::IssuePropertyEditFailed { .. }
                 | AppEvent::IssuePropertyEditorValidationError { .. }
                 | AppEvent::IssueListSilentRefreshed { .. }

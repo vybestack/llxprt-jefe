@@ -27,8 +27,8 @@ use super::{AppStateHandle, SharedContext};
 /// @requirement REQ-ISS-002
 /// @pseudocode component-003 lines 01-38
 pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
-    if state.issues_state.property_editor.is_some() {
-        return resolve_property_editor_key_event(key_event);
+    if let Some(editor) = state.issues_state.property_editor.as_ref() {
+        return resolve_property_editor_key_event(editor.kind, key_event);
     }
 
     if state.issues_state.close_reason_chooser.is_some() {
@@ -97,11 +97,16 @@ fn resolve_agent_chooser_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
 /// confirms, Esc cancels. When `kind == Title`, character input, Backspace,
 /// Delete, and Left/Right edit the title text. All other keys are consumed
 /// as `None` so the overlay is modal.
-fn resolve_property_editor_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
+fn resolve_property_editor_key_event(
+    kind: IssuePropertyKind,
+    key_event: &KeyEvent,
+) -> Option<AppEvent> {
     match key_event.code {
         KeyCode::Up => Some(AppEvent::IssuePropertyEditorNavigateUp),
         KeyCode::Down => Some(AppEvent::IssuePropertyEditorNavigateDown),
-        KeyCode::Char(' ') => Some(AppEvent::IssuePropertyEditorToggle),
+        KeyCode::Char(' ') if kind != IssuePropertyKind::Title => {
+            Some(AppEvent::IssuePropertyEditorToggle)
+        }
         KeyCode::Enter => Some(AppEvent::IssuePropertyEditorConfirm),
         KeyCode::Esc => Some(AppEvent::IssuePropertyEditorCancel),
         KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
