@@ -82,6 +82,53 @@ fn version_parser_accepts_tmux_compatible_psmux_output() {
 }
 
 #[test]
+fn version_parser_accepts_final_release_letter_suffix() {
+    // macOS/Homebrew tmux emits `tmux 3.7b`; the trailing release letter must
+    // not block session creation preflight (issue #283).
+    assert_eq!(
+        MultiplexerVersion::parse("tmux 3.7b"),
+        Ok(MultiplexerVersion::new(3, 7, 0))
+    );
+    assert_eq!(
+        MultiplexerVersion::parse("tmux 3.3.6a\r\n"),
+        Ok(MultiplexerVersion::new(3, 3, 6))
+    );
+    // The suffix is permitted only on the final present component; everything
+    // else stays strict.
+    for malformed in [
+        "tmux 3a.7",
+        "tmux 3.7a.6",
+        "tmux 3.7.b",
+        "tmux 3.7ab",
+        "tmux 3.7-rc1",
+        "tmux 3.7.6.1",
+    ] {
+        assert!(
+            matches!(
+                MultiplexerVersion::parse(malformed),
+                Err(MultiplexerError::MalformedVersion { .. })
+            ),
+            "version should be rejected: {malformed:?}"
+        );
+    }
+}
+
+#[test]
+fn probe_classification_accepts_homebrew_tmux_release_letter() {
+    let observation = ProbeObservation::Output {
+        platform: LocalPlatform::Unix,
+        path: PathBuf::from("/opt/homebrew/bin/tmux"),
+        status_success: true,
+        stdout: "tmux 3.7b\n".to_owned(),
+        stderr: String::new(),
+    };
+    assert_eq!(
+        classify_probe(observation),
+        Ok(MultiplexerVersion::new(3, 7, 0))
+    );
+}
+
+#[test]
 fn probe_classification_distinguishes_required_failure_modes() {
     let path = PathBuf::from("C:/Program Files/psmux/psmux.exe");
     assert!(matches!(
