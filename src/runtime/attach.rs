@@ -5,8 +5,6 @@
 //! @pseudocode component-002 lines 07-14
 
 use std::io::{Read, Write};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -55,72 +53,23 @@ impl Dimensions for TermDimensions {
 #[derive(Clone, Copy, Debug)]
 pub struct RuntimeListener;
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn copy_to_system_clipboard(text: &str) {
+fn forward_clipboard_store<F>(text: &str, mut writer: F) -> std::io::Result<()>
+where
+    F: FnMut(&str) -> std::io::Result<()>,
+{
     if text.is_empty() {
-        return;
+        return Ok(());
     }
-
-    #[cfg(target_os = "macos")]
-    {
-        let mut child = match Command::new("pbcopy")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-        {
-            Ok(child) => child,
-            Err(error) => {
-                warn!(%error, "failed to spawn pbcopy for OSC52 clipboard store");
-                return;
-            }
-        };
-
-        if let Some(stdin) = child.stdin.as_mut()
-            && let Err(error) = stdin.write_all(text.as_bytes())
-        {
-            warn!(%error, "failed to write clipboard payload to pbcopy");
-        }
-
-        if let Err(error) = child.wait() {
-            warn!(%error, "failed waiting for pbcopy to complete");
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        for (cmd, args) in [
-            ("xclip", ["-selection", "clipboard"].as_slice()),
-            ("xsel", ["--clipboard", "--input"].as_slice()),
-        ] {
-            let Ok(mut child) = Command::new(cmd)
-                .args(args)
-                .stdin(std::process::Stdio::piped())
-                .spawn()
-            else {
-                continue;
-            };
-
-            if let Some(stdin) = child.stdin.as_mut()
-                && stdin.write_all(text.as_bytes()).is_err()
-            {
-                continue;
-            }
-
-            if child.wait().is_ok_and(|status| status.success()) {
-                return;
-            }
-        }
-
-        warn!("failed to store OSC52 clipboard data: xclip/xsel unavailable or failed");
-    }
+    writer(text)
 }
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn copy_to_system_clipboard(_text: &str) {}
 
 impl EventListener for RuntimeListener {
     fn send_event(&self, event: TermEvent) {
         if let TermEvent::ClipboardStore(_, text) = event {
             debug!(len = text.len(), "received OSC52 ClipboardStore event");
-            copy_to_system_clipboard(&text);
+            if let Err(error) = forward_clipboard_store(&text, crate::clipboard::write_osc52) {
+                warn!(%error, "failed to forward OSC52 clipboard store");
+            }
         }
     }
 }
@@ -520,6 +469,7 @@ fn ensure_wrap_slot(wraps: &mut Vec<bool>, rows: usize) {
 fn attach_command(
     session_name: &str,
     ssh_command: Option<&str>,
+    multiplexer_plan: Option<&super::multiplexer::MultiplexerPlan>,
 ) -> Result<CommandBuilder, RuntimeError> {
     let mut cmd = if let Some(ssh_command) = ssh_command {
         let mut cmd = CommandBuilder::new("sh");
@@ -530,8 +480,14 @@ fn attach_command(
         // Local attachment uses the same resolved executable and isolation
         // policy as every other runtime command. The remote SSH branch remains
         // an intentionally Unix command executed on the remote host.
-        let plan =
-            super::multiplexer::MultiplexerPlan::current().map_err(RuntimeError::Multiplexer)?;
+        let resolved_plan;
+        let plan = if let Some(plan) = multiplexer_plan {
+            plan
+        } else {
+            resolved_plan = super::multiplexer::MultiplexerPlan::current()
+                .map_err(RuntimeError::Multiplexer)?;
+            &resolved_plan
+        };
         let mut cmd = CommandBuilder::new(plan.executable());
         for arg in plan.base_args() {
             cmd.arg(arg);
@@ -561,7 +517,19 @@ impl AttachedViewer {
     ///
     /// @pseudocode component-002 lines 10-13
     pub fn spawn(session_name: &str, rows: u16, cols: u16) -> Result<Self, RuntimeError> {
-        Self::spawn_command(session_name, rows, cols, None)
+        Self::spawn_command(session_name, rows, cols, None, None)
+    }
+
+    /// Spawn through an injected local multiplexer plan for the real psmux
+    /// integration suite.
+    #[cfg(feature = "psmux-smoke")]
+    pub fn spawn_with_plan(
+        session_name: &str,
+        rows: u16,
+        cols: u16,
+        plan: &super::multiplexer::MultiplexerPlan,
+    ) -> Result<Self, RuntimeError> {
+        Self::spawn_command(session_name, rows, cols, None, Some(plan))
     }
 
     pub fn spawn_remote(
@@ -570,7 +538,7 @@ impl AttachedViewer {
         cols: u16,
         ssh_command: &str,
     ) -> Result<Self, RuntimeError> {
-        Self::spawn_command(session_name, rows, cols, Some(ssh_command))
+        Self::spawn_command(session_name, rows, cols, Some(ssh_command), None)
     }
 
     fn spawn_command(
@@ -578,11 +546,12 @@ impl AttachedViewer {
         rows: u16,
         cols: u16,
         ssh_command: Option<&str>,
+        multiplexer_plan: Option<&super::multiplexer::MultiplexerPlan>,
     ) -> Result<Self, RuntimeError> {
         debug!(session_name = %session_name, rows, cols, remote = ssh_command.is_some(), "AttachedViewer::spawn start");
 
         let pty_pair = open_pty(rows, cols)?;
-        let cmd = attach_command(session_name, ssh_command)?;
+        let cmd = attach_command(session_name, ssh_command, multiplexer_plan)?;
 
         let child = pty_pair
             .slave
@@ -637,6 +606,7 @@ impl AttachedViewer {
     }
 
     /// Check if the viewer is still alive.
+    #[must_use]
     pub fn is_alive(&self) -> bool {
         self.alive.load(Ordering::Relaxed)
     }
@@ -717,12 +687,14 @@ impl AttachedViewer {
     }
 
     /// Get a snapshot of the terminal state.
+    #[must_use]
     pub fn snapshot(&self) -> Option<TerminalSnapshot> {
         let term = self.term.lock().ok()?;
         Some(snapshot_from_term(&term))
     }
 
     /// Whether the attached application has terminal mouse reporting enabled.
+    #[must_use]
     pub fn mouse_reporting_active(&self) -> bool {
         let Ok(term) = self.term.lock() else {
             return false;
@@ -735,6 +707,7 @@ impl AttachedViewer {
     }
 
     /// Whether the attached application has bracketed paste enabled.
+    #[must_use]
     pub fn bracketed_paste_active(&self) -> bool {
         let Ok(term) = self.term.lock() else {
             return false;

@@ -103,20 +103,13 @@ fn apply_session_style(session_name: &str) {
 /// Disable the tmux prefix key (`prefix` and `prefix2`) on a jefe-managed
 /// session so application control chords pass through to the child unchanged.
 ///
-/// tmux's default prefix is `C-b` (byte `0x02`). jefe starts tmux with
-/// `-f /dev/null`, which leaves that default active. The embedded viewer runs
-/// an interactive `tmux attach-session` client, and the client consumes the
-/// prefix byte from the input stream before forwarding the rest to the pane.
-/// That eats the `0x02` in a Code Puppy `Ctrl-X Ctrl-B` (`0x18 0x02`) chord,
-/// so the child only sees `0x18` and the chord never completes (#200).
-///
-/// jefe controls its private sessions programmatically (send-keys, capture,
-/// attach) and never exposes a user-facing tmux command table, so no prefix is
-/// needed. Setting `prefix None` / `prefix2 None` makes the client stop
-/// intercepting the prefix key, restoring raw PTY semantics for every runtime.
-/// This is general (not a Code Puppy-specific rewrite) and keeps jefe's own
-/// F12 escape/focus mechanism untouched (F12 is handled by the host app shell
-/// before any byte reaches the PTY).
+/// tmux's default prefix is `C-b` (byte `0x02`). The interactive attach client
+/// consumes it before forwarding input, which breaks Code Puppy's `Ctrl-X
+/// Ctrl-B` chord (#200). Unix tmux honors `prefix None`; psmux 3.3.6 continues
+/// reserving `C-b` even when configured to `None`, so Windows assigns the prefix
+/// to F12 instead. Jefe owns F12 and intercepts it before PTY forwarding, leaving
+/// every terminal-owned control byte transparent (#260). `prefix2` remains
+/// disabled on every platform.
 ///
 /// This is safe to call repeatedly (the options are idempotent), so it is also
 /// used on the reattach path to remediate sessions created before this fix
@@ -128,21 +121,44 @@ fn apply_session_style(session_name: &str) {
 /// the session un-memoized so the next attach retries.
 pub fn disable_prefix_for_passthrough(session_name: &str) -> Result<(), String> {
     for option in prefix_disable_option_names() {
-        tmux_cmd_status(
-            ["set-option", "-t", session_name, option, "None"].as_ref(),
-            None,
-        )?;
+        let value = if *option == "prefix" {
+            local_prefix_value()
+        } else {
+            "None"
+        };
+        if cfg!(windows) {
+            tmux_cmd_status(["set-option", "-g", option, value].as_ref(), None)?;
+        } else {
+            tmux_cmd_status(
+                ["set-option", "-t", session_name, option, value].as_ref(),
+                None,
+            )?;
+        }
     }
     Ok(())
 }
 
-/// The tmux option names that must be set to `None` so no prefix key is
-/// reserved on a jefe-managed session (#200).
+/// Prefix value that keeps psmux from consuming terminal-owned control chords.
 ///
-/// Single source of truth shared by the local path
-/// ([`disable_prefix_for_passthrough`]) and the remote path
-/// ([`remote_disable_prefix_command`]) so the two cannot drift, and so tests
-/// can prove the production option set is applied rather than re-deriving it.
+/// psmux 3.3.6 accepts `None` but its attached client still reserves `C-b`.
+/// F12 is safe because Jefe owns and intercepts it before PTY forwarding.
+#[must_use]
+const fn local_prefix_value() -> &'static str {
+    if cfg!(windows) { "F12" } else { "None" }
+}
+
+#[cfg(test)]
+#[test]
+fn local_prefix_reserves_only_jefe_owned_key_on_windows() {
+    let expected = if cfg!(windows) { "F12" } else { "None" };
+    assert_eq!(local_prefix_value(), expected);
+}
+/// The tmux prefix option names managed for transparent agent input (#200).
+///
+/// Remote Unix sessions disable both options. Local Windows psmux assigns the
+/// primary option to Jefe-owned F12 and disables the secondary option at the
+/// private server's global scope, because psmux attach ignores session-scoped
+/// prefix values (#260).
 #[must_use]
 pub fn prefix_disable_option_names() -> &'static [&'static str] {
     &["prefix", "prefix2"]
