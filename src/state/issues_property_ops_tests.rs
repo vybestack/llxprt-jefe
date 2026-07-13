@@ -472,11 +472,11 @@ fn options_loaded_preserves_user_deselection() {
     // Baseline label "bug" is selected. User deselects it before load.
     {
         let mut s = state.clone();
-        s.issues_state.property_editor.as_mut().map(|e| {
-            for opt in &mut e.options {
+        if let Some(editor) = s.issues_state.property_editor.as_mut() {
+            for opt in &mut editor.options {
                 opt.selected = false;
             }
-        });
+        }
         state = s;
     }
     // Options arrive including the baseline "bug".
@@ -510,11 +510,9 @@ fn state_editor_cursor_starts_at_closed_for_closed_issue() {
     use crate::domain::IssueState;
     let mut state = make_state_with_detail();
     // Make the issue closed.
-    state
-        .issues_state
-        .issue_detail
-        .as_mut()
-        .map(|d| d.state = IssueState::Closed);
+    if let Some(detail) = state.issues_state.issue_detail.as_mut() {
+        detail.state = IssueState::Closed;
+    }
     add_repo(&mut state);
     state = state.apply(AppEvent::IssueOpenPropertyEditor {
         kind: IssuePropertyKind::State,
@@ -534,4 +532,3 @@ fn state_editor_cursor_starts_at_closed_for_closed_issue() {
         "a closed issue must open the State editor with the cursor on Closed"
     );
 }
-
