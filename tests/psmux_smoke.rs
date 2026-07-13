@@ -373,7 +373,14 @@ fn psmux_agent_launch_preserves_arguments_working_directory_and_environment_poli
     let observation: LaunchObservation = serde_json::from_slice(&bytes)
         .unwrap_or_else(|error| panic!("decode fixture observation: {error}"));
     assert_eq!(observation.args, fixture.expected);
-    assert_eq!(Path::new(&observation.cwd), fixture.work_dir.path());
+    assert!(
+        std::fs::canonicalize(&observation.cwd).is_ok_and(|observed| {
+            std::fs::canonicalize(fixture.work_dir.path())
+                .is_ok_and(|expected| observed == expected)
+        }),
+        "observed cwd: {}",
+        observation.cwd
+    );
     assert_eq!(
         observation.selected_environment.as_deref(),
         Some("environment & (Ω) %value%")
