@@ -122,7 +122,7 @@ fn configure_prefix_with(
     session_name: &str,
     mut apply: impl FnMut(&[&str]) -> Result<(), String>,
 ) -> Result<(), String> {
-    for option in prefix_disable_option_names() {
+    for option in prefix_options_for_passthrough() {
         let value = if *option == "prefix" {
             local_prefix_value()
         } else {
@@ -160,18 +160,18 @@ const fn local_prefix_value() -> &'static str {
 
 #[cfg(test)]
 #[test]
-fn local_prefix_reserves_only_jefe_owned_key_on_windows() {
+fn local_prefix_value_matches_platform_policy() {
     let expected = if cfg!(windows) { "F12" } else { "None" };
     assert_eq!(local_prefix_value(), expected);
 }
 /// The tmux prefix options managed for transparent agent input (#200, #260).
 #[must_use]
-pub fn prefix_disable_option_names() -> &'static [&'static str] {
+pub fn prefix_options_for_passthrough() -> &'static [&'static str] {
     &["prefix", "prefix2"]
 }
 
 /// Build the `\;`-joined sequence of `set-option -t <session> <option> None`
-/// sub-commands for every option in [`prefix_disable_option_names`].
+/// sub-commands for every option in [`prefix_options_for_passthrough`].
 ///
 /// This is the single builder for the remote prefix-disable sub-command
 /// sequence, shared by the remote reattach fragment
@@ -186,7 +186,7 @@ pub fn prefix_disable_option_names() -> &'static [&'static str] {
 fn prefix_disable_tmux_subcommands(escaped_session: &str) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut first = true;
-    for option in prefix_disable_option_names() {
+    for option in prefix_options_for_passthrough() {
         if !first {
             parts.push("\\;".to_owned());
         }

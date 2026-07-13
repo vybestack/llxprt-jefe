@@ -1,7 +1,7 @@
 //! Real-tmux integration tests for tmux prefix passthrough (#200).
 //!
 //! These tests prove that when jefe disables the tmux prefix (`prefix None` /
-//! `prefix2 None`, as [`super::configure_prefix_for_passthrough`] does in
+//! `prefix2 None`, as [`super::commands::configure_prefix_for_passthrough`] does in
 //! production), application control chords written through an attached
 //! `tmux attach-session` client reach the pane child unchanged and in order.
 //!
@@ -94,7 +94,7 @@ impl IsolatedTmux {
     /// via `capture-pane` without a custom reader binary.
     ///
     /// When `prefix_disabled` is true, the prefix is disabled using the
-    /// *production* option list ([`super::prefix_disable_option_names`]) so a
+    /// *production* option list ([`super::prefix_options_for_passthrough`]) so a
     /// regression in the real helper (wrong option name, omitted `prefix2`) is
     /// caught here, not just the tmux concept in isolation (#200 review).
     fn new(prefix_disabled: bool) -> Self {
@@ -150,12 +150,12 @@ impl IsolatedTmux {
         instance.run(&["set-option", "-t", &session, "remain-on-exit", "on"]);
 
         if prefix_disabled {
-            for option in super::prefix_disable_option_names() {
+            for option in super::prefix_options_for_passthrough() {
                 instance.run(&["set-option", "-t", &session, option, "None"]);
             }
             // Assert the production helper's options actually took effect on
             // this isolated session: both must read back as `None`.
-            for option in super::prefix_disable_option_names() {
+            for option in super::prefix_options_for_passthrough() {
                 let value = instance.show_option(option);
                 assert_eq!(
                     value, "None",
