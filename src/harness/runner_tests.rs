@@ -576,6 +576,7 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         },
         attached: false,
         last_seen: None,
+        process_identity: None,
         pid: None,
     });
 
@@ -831,6 +832,7 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         },
         attached: false,
         last_seen: None,
+        process_identity: None,
         pid: None,
     });
 

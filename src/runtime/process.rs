@@ -143,11 +143,27 @@ fn probe_process(pid: u32) -> ProcessObservation {
     {
         Ok(status) if status.success() => ProcessObservation::Running(ProcessIdentity {
             pid,
-            started_at: None,
+            started_at: unix_process_start_time(pid),
         }),
         Ok(_) => ProcessObservation::Exited,
         Err(_) => ProcessObservation::ProbeFailed,
     }
+}
+
+#[cfg(target_os = "linux")]
+fn unix_process_start_time(pid: u32) -> Option<u64> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let command_end = stat.rfind(')')?;
+    stat.get(command_end + 2..)?
+        .split_whitespace()
+        .nth(19)?
+        .parse()
+        .ok()
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+const fn unix_process_start_time(_pid: u32) -> Option<u64> {
+    None
 }
 
 #[cfg(not(any(unix, windows)))]
