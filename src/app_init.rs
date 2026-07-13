@@ -333,13 +333,13 @@ fn restore_one_agent(
                     // returns None (e.g. a tmux list-panes hiccup right after
                     // create). Without this, the revived agent's binding could
                     // be persisted with pid: None, stripping the fallback.
-                    let pid = runtime.worker_pid(&agent.id).or(pid);
+                    let resolved_pid = runtime.worker_pid(&agent.id).or(pid);
                     let process_identity = runtime
                         .worker_process_identity(&agent.id)
                         .or(process_identity);
                     RestoreOneOutcome::Revived {
                         signature: Box::new(signature),
-                        pid,
+                        pid: resolved_pid,
                         process_identity,
                     }
                 }
