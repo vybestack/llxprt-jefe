@@ -45,6 +45,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     output.write_all(b"\x1b[31mCOLOR_RED\x1b[0m\r\n")?;
     output.write_all("UNICODE_Ω_界_e\u{301}\r\n".as_bytes())?;
     output.write_all(b"CURSOR_AB\x1b[D!\r\n")?;
+    output.write_all(b"\x1b]52;c;bmF0aXZlIGNsaXBib2FyZA==\x07")?;
     output.write_all(b"PSMUX_SMOKE_READY\r\n")?;
     output.flush()?;
 

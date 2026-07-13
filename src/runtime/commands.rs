@@ -124,6 +124,21 @@ fn apply_session_style(session_name: &str) {
 /// remote path). A transient tmux failure returns `Err` and the caller leaves
 /// the session un-memoized so the next attach retries.
 pub fn configure_prefix_for_passthrough(session_name: &str) -> Result<(), String> {
+    configure_prefix_with(session_name, |args| tmux_cmd_status(args, None))
+}
+
+#[cfg(feature = "psmux-smoke")]
+pub fn configure_prefix_for_passthrough_with_plan(
+    session_name: &str,
+    plan: &MultiplexerPlan,
+) -> Result<(), String> {
+    configure_prefix_with(session_name, |args| multiplexer_cmd_status(plan, args))
+}
+
+fn configure_prefix_with(
+    session_name: &str,
+    mut apply: impl FnMut(&[&str]) -> Result<(), String>,
+) -> Result<(), String> {
     for option in prefix_disable_option_names() {
         let value = if *option == "prefix" {
             local_prefix_value()
@@ -131,15 +146,29 @@ pub fn configure_prefix_for_passthrough(session_name: &str) -> Result<(), String
             "None"
         };
         if cfg!(windows) {
-            tmux_cmd_status(["set-option", "-g", option, value].as_ref(), None)?;
+            apply(["set-option", "-g", option, value].as_ref())?;
         } else {
-            tmux_cmd_status(
-                ["set-option", "-t", session_name, option, value].as_ref(),
-                None,
-            )?;
+            apply(["set-option", "-t", session_name, option, value].as_ref())?;
         }
     }
     Ok(())
+}
+
+#[cfg(feature = "psmux-smoke")]
+fn multiplexer_cmd_status(plan: &MultiplexerPlan, args: &[&str]) -> Result<(), String> {
+    let output = plan
+        .command()
+        .args(args)
+        .output()
+        .map_err(|error| format!("failed to run multiplexer {args:?}: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "multiplexer {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
 }
 
 /// Prefix value that keeps psmux from consuming terminal-owned control chords.

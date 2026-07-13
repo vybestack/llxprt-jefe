@@ -39,6 +39,8 @@ pub use capabilities::{
     AgentRuntimeCapabilities, ModelDiscovery, code_puppy_help_supports_yolo, static_capabilities,
     validate_code_puppy_launch,
 };
+#[cfg(feature = "psmux-smoke")]
+pub use commands::configure_prefix_for_passthrough_with_plan;
 pub use errors::RuntimeError;
 pub use gh_auth::{AuthRunResult, run_device_auth};
 pub use liveness::{check_remote_session_alive, check_session_alive, pid_alive};

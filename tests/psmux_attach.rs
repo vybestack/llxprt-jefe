@@ -3,15 +3,18 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use jefe::runtime::{
     AttachedViewer, LocalPlatform, MultiplexerIsolation, MultiplexerPlan, TerminalSnapshot,
+    configure_prefix_for_passthrough_with_plan,
 };
 
 const FIXTURE: &str = env!("CARGO_BIN_EXE_jefe-psmux-smoke-fixture");
 const TIMEOUT: Duration = Duration::from_secs(8);
+static NAMESPACE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 struct ServerCleanup {
     plan: MultiplexerPlan,
@@ -64,20 +67,17 @@ fn native_psmux_attachment_preserves_terminal_contract_and_session() {
         status.success(),
         "fixture session creation failed: {status}"
     );
-    for (option, value) in [
-        ("prefix", "F12"),
-        ("prefix2", "None"),
-        ("allow-passthrough", "on"),
-    ] {
-        let mut configure = plan.command();
-        // psmux reads prefix options from the private server's global scope
-        // when an attached client starts; session-scoped values are ignored.
-        let status = configure
-            .args(["set-option", "-g", option, value])
-            .status()
-            .unwrap_or_else(|error| panic!("configure {option}: {error}"));
-        assert!(status.success(), "configure {option} failed: {status}");
-    }
+    configure_prefix_for_passthrough_with_plan(session, &plan)
+        .unwrap_or_else(|error| panic!("configure production prefix policy: {error}"));
+    let mut passthrough = plan.command();
+    let status = passthrough
+        .args(["set-option", "-g", "allow-passthrough", "on"])
+        .status()
+        .unwrap_or_else(|error| panic!("configure allow-passthrough: {error}"));
+    assert!(
+        status.success(),
+        "configure allow-passthrough failed: {status}"
+    );
 
     let result = exercise_attachment(&plan, session);
     drop(cleanup);
@@ -120,6 +120,9 @@ fn assert_initial_render(
         if !text.contains(expected) {
             return Err(format!("snapshot missing {expected:?}:\n{text}"));
         }
+    }
+    if text.contains("native clipboard") || text.contains("bmF0aXZlIGNsaXBib2FyZA==") {
+        return Err("OSC 52 clipboard payload leaked into rendered cells".to_owned());
     }
     if !viewer.mouse_reporting_active() || !viewer.bracketed_paste_active() {
         return Err("fixture terminal modes were not propagated".to_owned());
@@ -202,6 +205,7 @@ fn assert_resize(
 
 fn wait_for_snapshot(viewer: &AttachedViewer, needle: &str) -> Result<TerminalSnapshot, String> {
     let deadline = Instant::now() + TIMEOUT;
+    let mut delay = Duration::from_millis(20);
     let mut latest = String::new();
     while Instant::now() < deadline {
         if let Some(snapshot) = viewer.snapshot() {
@@ -210,7 +214,8 @@ fn wait_for_snapshot(viewer: &AttachedViewer, needle: &str) -> Result<TerminalSn
                 return Ok(snapshot);
             }
         }
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(delay);
+        delay = (delay * 2).min(Duration::from_millis(200));
     }
     Err(format!(
         "viewer snapshot did not contain {needle:?}:\n{latest}"
@@ -223,11 +228,13 @@ fn wait_for_dimensions(
     expected: &str,
 ) -> Result<(), String> {
     let deadline = Instant::now() + TIMEOUT;
+    let mut delay = Duration::from_millis(20);
     while Instant::now() < deadline {
         if query_dimensions(plan, session)? == expected {
             return Ok(());
         }
-        thread::sleep(Duration::from_millis(50));
+        thread::sleep(delay);
+        delay = (delay * 2).min(Duration::from_millis(200));
     }
     let final_dimensions = query_dimensions(plan, session)?;
     Err(format!(
@@ -254,13 +261,15 @@ fn snapshot_text(snapshot: &TerminalSnapshot) -> String {
     snapshot
         .cells
         .iter()
-        .flat_map(|row| row.iter().map(|cell| cell.ch).chain(std::iter::once('\n')))
-        .collect()
+        .map(|row| row.iter().map(|cell| cell.ch).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn unique_namespace() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_nanos());
-    format!("jefe-attach-{}-{nanos:x}", std::process::id())
+    let sequence = NAMESPACE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("jefe-attach-{}-{nanos:x}-{sequence:x}", std::process::id())
 }
