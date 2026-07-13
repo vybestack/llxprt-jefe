@@ -219,22 +219,19 @@ impl AppState {
             .unwrap_or(CloseReason::Completed);
 
         let duplicate_of = if reason == CloseReason::Duplicate {
-            chooser
-                .duplicate_search
-                .as_ref()
-                .and_then(|s| {
-                    if s.query.is_empty() {
-                        None
-                    } else {
-                        s.query.parse::<u64>().ok()
-                    }
-                })
-                .or_else(|| {
-                    chooser.duplicate_search.as_ref().and_then(|s| {
-                        let filtered = filter_duplicate_candidates(&s.candidates, &s.query);
-                        filtered.get(s.selected_index).map(|(n, _)| *n)
-                    })
-                })
+            chooser.duplicate_search.as_ref().and_then(|s| {
+                let filtered = filter_duplicate_candidates(&s.candidates, &s.query);
+                // Prefer the typed query if it resolves to an actual candidate
+                // (guards against arbitrary/out-of-scope numbers like "999").
+                // Otherwise fall back to the highlighted candidate.
+                if let Ok(typed) = s.query.parse::<u64>()
+                    && filtered.iter().any(|(n, _)| *n == typed)
+                {
+                    Some(typed)
+                } else {
+                    filtered.get(s.selected_index).map(|(n, _)| *n)
+                }
+            })
         } else {
             None
         };

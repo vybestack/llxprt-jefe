@@ -64,6 +64,22 @@ fn navigate_to_duplicate(state: AppState) -> AppState {
     s
 }
 
+/// Navigate the chooser to the Completed reason by computed index, robust to
+/// CLOSE_REASONS reordering.
+fn navigate_to_completed(state: AppState) -> AppState {
+    let completed_index = crate::domain::CLOSE_REASONS
+        .iter()
+        .position(|&r| r == CloseReason::Completed);
+    let Some(completed_index) = completed_index else {
+        panic!("CLOSE_REASONS must contain Completed");
+    };
+    let mut s = state;
+    for _ in 0..completed_index {
+        s = s.apply(AppEvent::CloseReasonNavigateDown);
+    }
+    s
+}
+
 // ── OpenCloseReasonChooser ────────────────────────────────────────────────
 
 #[test]
@@ -177,7 +193,8 @@ fn navigate_down_clamps_at_last() {
 fn select_non_duplicate_arms_confirmation() {
     let state = issues_state_with_list("repo-1");
     let state = state.apply(AppEvent::OpenCloseReasonChooser);
-    // Selected index 0 = Completed
+    // Navigate to Completed by computed index (robust to CLOSE_REASONS order).
+    let state = navigate_to_completed(state);
     let state = state.apply(AppEvent::CloseReasonSelect);
     let Some(c) = state.issues_state.close_reason_chooser.as_ref() else {
         panic!("chooser should still be open");

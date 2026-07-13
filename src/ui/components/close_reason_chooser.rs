@@ -311,4 +311,22 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn projection_confirmation_hint_wins_over_duplicate_search() {
+        // The combination awaiting_confirmation=true + duplicate_search_query
+        // is the final-confirm path after picking a duplicate target. The
+        // confirmation hint must take precedence so the user knows Enter will
+        // commit the close.
+        let candidates = vec![(2u64, "Other".to_string())];
+        let lines = close_reason_chooser_lines(7, 2, true, Some("2"), &candidates, 0);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l == "Press Enter to confirm close, Esc to cancel"),
+            "awaiting-confirmation hint must win over duplicate-search hint"
+        );
+        // The duplicate-search section should still render the resolved target.
+        assert!(lines.iter().any(|l| l.contains("Duplicate of: #2")));
+    }
 }

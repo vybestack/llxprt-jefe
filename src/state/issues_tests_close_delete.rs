@@ -445,7 +445,8 @@ fn issue_deleted_when_last_in_list_clears_selection() {
         mutation_id: 1,
         issue_number: 7,
         node_id: Some("I_7".to_string()),
-        ..Default::default()
+        close_reason: None,
+        duplicate_of: None,
     });
     let state = state.apply(AppEvent::IssueDeleted {
         scope_repo_id: RepositoryId("repo-1".to_string()),

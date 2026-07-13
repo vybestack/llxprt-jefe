@@ -323,6 +323,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                                     duplicate_candidates: cr_dup_candidates.clone(),
                                     duplicate_selected_index: cr_dup_selected,
                                     colors: colors.clone(),
+                                    selection: selection,
                                 )
                             }
                         }]

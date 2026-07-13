@@ -177,6 +177,15 @@ pub fn parse_issue_node_id_json(stdout: &str) -> Result<String, GhError> {
     }
     let value: serde_json::Value = serde_json::from_str(trimmed)
         .map_err(|e| GhError::ParseError(format!("invalid JSON resolving issue node id: {e}")))?;
+    // GitHub's GraphQL API returns HTTP 200 with a top-level `errors` array on
+    // validation/auth/resource failures. Surface those messages rather than a
+    // generic "not found" so duplicate-close failures are diagnosable.
+    if let Some(messages) = graphql_error_messages(&value) {
+        return Err(GhError::ApiError(format!(
+            "GraphQL error resolving issue node id: {}",
+            messages.join("; ")
+        )));
+    }
     let id = value
         .get("data")
         .and_then(|d| d.get("repository"))
@@ -191,6 +200,21 @@ pub fn parse_issue_node_id_json(stdout: &str) -> Result<String, GhError> {
     }
     Ok(id.to_string())
 }
+
+/// Extract non-empty GraphQL error messages from a parsed response, if any.
+fn graphql_error_messages(value: &serde_json::Value) -> Option<Vec<String>> {
+    let errors = value.get("errors")?.as_array()?;
+    let messages: Vec<String> = errors
+        .iter()
+        .filter_map(|e| e.get("message").and_then(|m| m.as_str()).map(String::from))
+        .collect();
+    if messages.is_empty() {
+        None
+    } else {
+        Some(messages)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -390,5 +414,19 @@ mod tests {
     fn parse_issue_node_id_errors_on_invalid_json() {
         let result = parse_issue_node_id_json("{ not valid json");
         assert!(matches!(result, Err(GhError::ParseError(_))));
+    }
+
+    #[test]
+    fn parse_issue_node_id_surfaces_graphql_errors_array() {
+        // GitHub returns HTTP 200 with a top-level `errors` array on failures.
+        let json = r#"{"data":null,"errors":[{"message":"issue not found"}]}"#;
+        let result = parse_issue_node_id_json(json);
+        match result {
+            Err(GhError::ApiError(msg)) => assert!(
+                msg.contains("issue not found"),
+                "should surface the GraphQL error message, got: {msg}"
+            ),
+            other => panic!("expected ApiError, got {other:?}"),
+        }
     }
 }
