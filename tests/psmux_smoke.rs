@@ -281,13 +281,15 @@ struct LaunchObservation {
     tmux_tmpdir: Option<String>,
 }
 
-#[test]
-#[allow(clippy::too_many_lines)]
-fn psmux_agent_launch_preserves_arguments_working_directory_and_environment_policy() {
-    let Some((executable, version_text)) = qualified_psmux() else {
-        return;
-    };
-    let mut namespace = namespace_or_panic(executable.clone(), "agent-launch", &version_text);
+struct AgentLaunchFixture {
+    work_dir: tempfile::TempDir,
+    agent_executable: jefe::runtime::ResolvedAgentExecutable,
+    record: PathBuf,
+    expected: Vec<&'static str>,
+    launch_args: Vec<OsString>,
+}
+
+fn prepare_agent_launch_fixture() -> AgentLaunchFixture {
     let work_dir = tempfile::Builder::new()
         .prefix("jefe launch Ω ")
         .tempdir()
@@ -295,25 +297,17 @@ fn psmux_agent_launch_preserves_arguments_working_directory_and_environment_poli
     let fixture_dir = work_dir.path().join("runtime space 犬");
     fs::create_dir_all(&fixture_dir)
         .unwrap_or_else(|error| panic!("create fixture directory: {error}"));
-    let fixture_path = fixture_dir.join("code-puppy.exe");
-    fs::copy(FIXTURE, &fixture_path)
+    fs::copy(FIXTURE, fixture_dir.join("code-puppy.exe"))
         .unwrap_or_else(|error| panic!("copy fixture executable: {error}"));
-    let policy = AgentExecutableResolver::for_platform(
+    let agent_executable = AgentExecutableResolver::for_platform(
         AgentExecutablePlatform::Windows,
         vec![fixture_dir],
         Some(OsString::from(".EXE;.CMD;.BAT")),
-    );
-    let agent_executable = policy
-        .resolve(AgentKind::CodePuppy)
-        .unwrap_or_else(|error| panic!("resolve fixture executable: {error}"));
-    let plan = MultiplexerPlan::for_platform(
-        LocalPlatform::Windows,
-        executable,
-        MultiplexerIsolation::Namespace(namespace.name.clone()),
     )
-    .unwrap_or_else(|error| panic!("construct psmux plan: {error}"));
+    .resolve(AgentKind::CodePuppy)
+    .unwrap_or_else(|error| panic!("resolve fixture executable: {error}"));
     let record = work_dir.path().join("launch observation.json");
-    let expected = [
+    let expected = vec![
         "space value",
         "quote\"value",
         "amp&value",
@@ -325,10 +319,32 @@ fn psmux_agent_launch_preserves_arguments_working_directory_and_environment_poli
     ];
     let mut launch_args = vec![OsString::from("--record"), record.as_os_str().to_owned()];
     launch_args.extend(expected.iter().map(OsString::from));
+    AgentLaunchFixture {
+        work_dir,
+        agent_executable,
+        record,
+        expected,
+        launch_args,
+    }
+}
+
+#[test]
+fn psmux_agent_launch_preserves_arguments_working_directory_and_environment_policy() {
+    let Some((executable, version_text)) = qualified_psmux() else {
+        return;
+    };
+    let mut namespace = namespace_or_panic(executable.clone(), "agent-launch", &version_text);
+    let fixture = prepare_agent_launch_fixture();
+    let plan = MultiplexerPlan::for_platform(
+        LocalPlatform::Windows,
+        executable,
+        MultiplexerIsolation::Namespace(namespace.name.clone()),
+    )
+    .unwrap_or_else(|error| panic!("construct psmux plan: {error}"));
     let pane = plan
         .agent_pane_command_args_with_launcher(
-            &agent_executable,
-            &launch_args,
+            &fixture.agent_executable,
+            &fixture.launch_args,
             &[(
                 OsString::from("JEFE_FIXTURE_VALUE"),
                 OsString::from("environment & (Ω) %value%"),
@@ -342,22 +358,22 @@ fn psmux_agent_launch_preserves_arguments_working_directory_and_environment_poli
         OsString::from("-s"),
         OsString::from("agent-launch"),
         OsString::from("-c"),
-        work_dir.path().as_os_str().to_owned(),
+        fixture.work_dir.path().as_os_str().to_owned(),
     ];
     command.extend(pane);
     namespace
         .run_os(&command)
         .unwrap_or_else(|error| panic!("launch recording fixture through psmux: {error}"));
     let deadline = Instant::now() + POLL_TIMEOUT;
-    while !record.is_file() && Instant::now() < deadline {
+    while !fixture.record.is_file() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(50));
     }
-    let bytes =
-        fs::read(&record).unwrap_or_else(|error| panic!("read fixture observation: {error}"));
+    let bytes = fs::read(&fixture.record)
+        .unwrap_or_else(|error| panic!("read fixture observation: {error}"));
     let observation: LaunchObservation = serde_json::from_slice(&bytes)
         .unwrap_or_else(|error| panic!("decode fixture observation: {error}"));
-    assert_eq!(observation.args, expected);
-    assert_eq!(Path::new(&observation.cwd), work_dir.path());
+    assert_eq!(observation.args, fixture.expected);
+    assert_eq!(Path::new(&observation.cwd), fixture.work_dir.path());
     assert_eq!(
         observation.selected_environment.as_deref(),
         Some("environment & (Ω) %value%")

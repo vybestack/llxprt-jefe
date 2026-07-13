@@ -91,15 +91,15 @@ fn unix_resolution_keeps_extensionless_executable_contract() {
     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))
         .unwrap_or_else(|error| panic!("mark fixture executable: {error}"));
     write_candidate(&directory, "llxprt.exe");
-    let resolver = AgentExecutableResolver::for_platform(
+    let policy = AgentExecutableResolver::for_platform(
         AgentExecutablePlatform::Unix,
         vec![directory.path().to_path_buf()],
         None,
     );
 
-    let resolved = resolver
+    let agent_executable = policy
         .resolve(AgentKind::Llxprt)
         .unwrap_or_else(|error| panic!("Unix executable should resolve: {error}"));
-    assert_eq!(resolved.path(), executable);
-    assert_eq!(resolved.wrapper_kind(), AgentWrapperKind::Direct);
+    assert_eq!(agent_executable.path(), executable);
+    assert_eq!(agent_executable.wrapper_kind(), AgentWrapperKind::Direct);
 }
