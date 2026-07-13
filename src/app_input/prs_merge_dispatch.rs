@@ -78,7 +78,9 @@ pub(super) fn dispatch_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedCont
     };
     match info {
         Ok(info) => spawn_pr_merge(app_state, ctx, info),
-        Err(RepoContextError::NoSelection) => {}
+        Err(RepoContextError::NoSelection) => {
+            tracing::debug!("ignored PR merge dispatch without a pending selection");
+        }
         Err(RepoContextError::Malformed(message)) => {
             let (scope, pr_number, mutation_id) = pr_merge_failure_context(app_state);
             apply_and_persist(

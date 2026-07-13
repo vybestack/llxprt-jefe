@@ -16,10 +16,8 @@ use crate::runtime::commands::{
 /// `check_session_alive` reports false while `pid_alive` reports true — letting
 /// jefe recognize the worker is recoverable rather than marking the agent Dead.
 ///
-/// Uses `kill -0` on Unix and filtered `tasklist` output on Windows because the
-/// project forbids `unsafe` code and the `libc`/`nix`/`sysinfo` crates. A spawn
-/// failure is fail-open on both platforms to avoid marking a potentially live
-/// worker Dead. Local-only: remote agents stay on the tmux/SSH-only path.
+/// Uses `kill -0` on Unix and the native process-identity probe on Windows.
+/// Local-only: remote agents stay on the tmux/SSH-only path.
 #[must_use]
 pub fn pid_alive(pid: u32) -> bool {
     pid_alive_on_platform(pid)
@@ -45,21 +43,7 @@ fn pid_alive_on_platform(pid: u32) -> bool {
 
 #[cfg(windows)]
 fn pid_alive_on_platform(pid: u32) -> bool {
-    let filter = format!("PID eq {pid}");
-    match std::process::Command::new("tasklist")
-        .args(["/FI", &filter, "/FO", "CSV", "/NH"])
-        .output()
-    {
-        Ok(output) if output.status.success() => {
-            let expected = format!("\",\"{pid}\",");
-            String::from_utf8_lossy(&output.stdout).contains(&expected)
-        }
-        Ok(_) => false,
-        Err(e) => {
-            tracing::warn!(error = %e, pid, "failed to spawn tasklist; assuming worker alive");
-            true
-        }
-    }
+    super::process::capture_process_identity(pid).is_ok()
 }
 
 #[cfg(not(any(unix, windows)))]

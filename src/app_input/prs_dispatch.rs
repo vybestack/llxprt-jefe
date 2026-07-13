@@ -100,13 +100,9 @@ pub(super) fn load_pr_detail_for_selection(app_state: &mut AppStateHandle, ctx: 
     if params.owner.is_empty() || params.repo.is_empty() {
         let error = params
             .malformed_message
-            .clone()
-            .unwrap_or_else(|| MISSING_PR_DETAIL_REPO_MSG.to_owned());
-        apply_and_persist(
-            app_state,
-            ctx,
-            missing_pr_detail_repo_event(&params, &error),
-        );
+            .as_deref()
+            .unwrap_or(MISSING_PR_DETAIL_REPO_MSG);
+        apply_and_persist(app_state, ctx, missing_pr_detail_repo_event(&params, error));
         return;
     }
 

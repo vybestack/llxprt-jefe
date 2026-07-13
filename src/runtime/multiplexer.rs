@@ -7,7 +7,6 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::agent_executable::ResolvedAgentExecutable;
 use super::agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, write_launch_plan};
@@ -88,16 +87,29 @@ impl MultiplexerVersion {
                 path: None,
                 output: output.to_owned(),
             })?;
-        let parts: Vec<_> = token.split('.').collect();
-        if !(2..=3).contains(&parts.len()) {
+        let mut components = token.split('.');
+        let major_raw = components.next().ok_or_else(|| malformed_version(output))?;
+        let major = parse_strict_version_part(major_raw, output)?;
+        let minor_raw = components.next();
+        let patch_raw = components.next();
+        // After consuming up to three components, no trailing component may remain.
+        if components.next().is_some() {
             return Err(malformed_version(output));
         }
-        let major = parse_version_part(parts.first().copied(), output, false)?;
-        let minor_is_last_component = parts.len() == 2;
-        let minor = parse_version_part(parts.get(1).copied(), output, minor_is_last_component)?;
-        let patch = parts
-            .get(2)
-            .map_or(Ok(0), |part| parse_version_part(Some(part), output, true))?;
+        // The major component is always strict. Only the final present component
+        // may carry a single alphabetic release letter (e.g. Homebrew `tmux 3.7b`).
+        let (minor, patch) = match (minor_raw, patch_raw) {
+            (Some(minor_raw), None) => {
+                let minor = parse_final_version_part(minor_raw, output)?;
+                (minor, 0)
+            }
+            (Some(minor_raw), Some(patch_raw)) => {
+                let minor = parse_strict_version_part(minor_raw, output)?;
+                let patch = parse_final_version_part(patch_raw, output)?;
+                (minor, patch)
+            }
+            (None, _) => return Err(malformed_version(output)),
+        };
         Ok(Self::new(major, minor, patch))
     }
 }
@@ -688,42 +700,38 @@ fn find_on_path(candidate: &OsStr) -> Option<PathBuf> {
 }
 
 fn unique_test_namespace() -> String {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("jefe-test-{}-{sequence:x}", std::process::id())
+    super::identity::unique_current_user_namespace()
 }
 
 fn stable_jefe_namespace() -> String {
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for value in [
-        std::env::var_os("USERNAME"),
-        std::env::current_exe().ok().map(PathBuf::into_os_string),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        for byte in value.as_encoded_bytes() {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-    }
-    format!("jefe-{hash:016x}")
+    super::identity::stable_current_user_namespace()
 }
 
-fn parse_version_part(
-    part: Option<&str>,
-    source: &str,
-    allow_letter_suffix: bool,
-) -> Result<u32, MultiplexerError> {
-    let Some(part) = part else {
+fn parse_strict_version_part(part: &str, source: &str) -> Result<u32, MultiplexerError> {
+    if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(malformed_version(source));
-    };
-    let digits = if allow_letter_suffix {
-        part.trim_end_matches(|ch: char| ch.is_ascii_alphabetic())
-    } else {
-        part
-    };
-    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+    }
+    part.parse::<u32>().map_err(|_| malformed_version(source))
+}
+
+/// Parse the final present version component, permitting an optional single
+/// trailing ASCII alphabetic release letter (e.g. Homebrew `tmux 3.7b`).
+///
+/// The letter carries no semantic weight beyond release identification; it is
+/// discarded so that `3.7b` resolves to `3.7.0` and `3.3.6a` to `3.3.6`.
+fn parse_final_version_part(part: &str, source: &str) -> Result<u32, MultiplexerError> {
+    let digits_end = part
+        .bytes()
+        .position(|byte| !byte.is_ascii_digit())
+        .unwrap_or(part.len());
+    let (digits, suffix) = part.split_at(digits_end);
+    let valid_suffix = suffix.is_empty()
+        || (suffix.len() == 1
+            && suffix
+                .bytes()
+                .next()
+                .is_some_and(|byte| byte.is_ascii_lowercase()));
+    if digits.is_empty() || !valid_suffix {
         return Err(malformed_version(source));
     }
     digits.parse::<u32>().map_err(|_| malformed_version(source))

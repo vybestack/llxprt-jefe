@@ -74,11 +74,10 @@ pub(super) fn dispatch_pr_list_fetch(
             // (do NOT surface a visible error — issue #128).
             return;
         }
-        let error = params.malformed_message.clone().unwrap_or_else(|| {
-            "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings."
-                .to_string()
-        });
-        persist_missing_github_repo_with(app_state, ctx, &error);
+        let error = params.malformed_message.as_deref().unwrap_or(
+            "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.",
+        );
+        persist_missing_github_repo_with(app_state, ctx, error);
         return;
     }
 

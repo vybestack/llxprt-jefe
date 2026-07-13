@@ -770,6 +770,26 @@ pub struct Agent {
     pub runtime_binding: Option<RuntimeBinding>,
 }
 
+/// Stable identity of one operating-system process instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessIdentity {
+    pub pid: u32,
+    /// Platform process creation discriminator. Windows exposes this as the
+    /// process creation FILETIME; `None` supports legacy/Unix bindings.
+    #[serde(default)]
+    pub started_at: Option<u64>,
+}
+
+impl ProcessIdentity {
+    #[must_use]
+    pub const fn new(pid: u32, started_at: u64) -> Self {
+        Self {
+            pid,
+            started_at: Some(started_at),
+        }
+    }
+}
+
 /// Runtime session binding metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeBinding {
@@ -789,6 +809,10 @@ pub struct RuntimeBinding {
     /// files that predate this field.
     #[serde(default)]
     pub pid: Option<u32>,
+    /// Process-instance identity captured with the PID. Older state files omit
+    /// this field and continue through the legacy PID-only migration path.
+    #[serde(default)]
+    pub process_identity: Option<ProcessIdentity>,
 }
 
 /// Launch signature for recreating runtime sessions.

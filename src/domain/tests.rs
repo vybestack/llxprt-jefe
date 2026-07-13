@@ -398,6 +398,7 @@ fn runtime_binding_deserializes_missing_pid_as_none() {
     let binding: RuntimeBinding =
         serde_json::from_value(value).value_or_panic("binding should deserialize");
     assert!(binding.pid.is_none());
+    assert!(binding.process_identity.is_none());
 }
 
 #[test]
@@ -422,12 +423,17 @@ fn runtime_binding_roundtrips_pid_when_present() {
         attached: false,
         last_seen: None,
         pid: Some(42_000),
+        process_identity: Some(ProcessIdentity::new(42_000, 123_456)),
     };
 
     let json = serde_json::to_value(&binding).value_or_panic("should serialize");
     let binding2: RuntimeBinding =
         serde_json::from_value(json).value_or_panic("should deserialize");
     assert_eq!(binding2.pid, Some(42_000));
+    assert_eq!(
+        binding2.process_identity,
+        Some(ProcessIdentity::new(42_000, 123_456))
+    );
 }
 
 // =============================================================================

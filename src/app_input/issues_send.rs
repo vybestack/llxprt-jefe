@@ -34,7 +34,7 @@ use super::issues_dispatch;
 use super::{
     AppStateHandle, REMOTE_ATTACH_SETTLE_DELAY, SharedContext, apply_and_persist,
     close_modal_and_persist, gh_async, github_client, launch_signature_for_agent, persist_state,
-    pid_on_success, preflight_or_prompt, to_persisted_state,
+    preflight_or_prompt, process_on_success, to_persisted_state,
 };
 
 pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -520,10 +520,16 @@ fn launch_issue_agent(
     // Resolve the worker PID for the persisted binding's PID-liveness
     // fallback, before taking the app-state write lock (lock-ordering
     // constraint). Skipped on the failure path (no binding persisted).
-    let pid = pid_on_success(ctx, &agent_id, launched);
+    let (pid, process_identity) = process_on_success(ctx, &agent_id, launched);
     let mut state = app_state.write();
     if launched {
-        persist_issue_agent_launch_success(&mut state, &agent_id, launch_sig, pid);
+        persist_issue_agent_launch_success(
+            &mut state,
+            &agent_id,
+            launch_sig,
+            pid,
+            process_identity,
+        );
     } else {
         *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
             error: "Failed to launch agent".to_string(),
@@ -606,6 +612,7 @@ fn persist_issue_agent_launch_success(
     agent_id: &AgentId,
     launch_sig: LaunchSignature,
     pid: Option<u32>,
+    process_identity: Option<jefe::domain::ProcessIdentity>,
 ) {
     if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
         agent.status = jefe::domain::AgentStatus::Running;
@@ -615,6 +622,7 @@ fn persist_issue_agent_launch_success(
             launch_signature: launch_sig,
             attached: false,
             last_seen: None,
+            process_identity,
             pid,
         });
     }
