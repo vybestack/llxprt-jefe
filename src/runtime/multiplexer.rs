@@ -92,6 +92,9 @@ impl MultiplexerVersion {
         let patch = parts
             .next()
             .map_or(Ok(0), |part| parse_version_part(Some(part), output))?;
+        if parts.next().is_some() {
+            return Err(malformed_version(output));
+        }
         Ok(Self::new(major, minor, patch))
     }
 }
@@ -639,17 +642,19 @@ fn stable_jefe_namespace() -> String {
 
 fn parse_version_part(part: Option<&str>, source: &str) -> Result<u32, MultiplexerError> {
     let Some(part) = part else {
-        return Err(MultiplexerError::MalformedVersion {
-            path: None,
-            output: source.to_owned(),
-        });
+        return Err(malformed_version(source));
     };
-    part.trim_matches(|ch: char| !ch.is_ascii_digit())
-        .parse::<u32>()
-        .map_err(|_| MultiplexerError::MalformedVersion {
-            path: None,
-            output: source.to_owned(),
-        })
+    if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(malformed_version(source));
+    }
+    part.parse::<u32>().map_err(|_| malformed_version(source))
+}
+
+fn malformed_version(source: &str) -> MultiplexerError {
+    MultiplexerError::MalformedVersion {
+        path: None,
+        output: source.to_owned(),
+    }
 }
 
 fn output_observation(platform: LocalPlatform, path: &Path, output: Output) -> ProbeObservation {
