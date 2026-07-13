@@ -148,15 +148,20 @@ impl AppState {
         let title_cursor = 0;
         let load_request_id = self.prs_state.next_property_request_id;
         self.prs_state.next_property_request_id += 1;
+        let needs_load = needs_pr_background_options(kind);
+        // F2: initialize cursor to the currently-selected option for
+        // single-select kinds (State, Milestone).
+        let selected_index = initial_pr_selected_index(kind, &options);
         self.prs_state.property_editor = Some(PrPropertyEditorState {
             kind,
             options,
-            selected_index: 0,
+            selected_index,
             title_text,
             title_cursor,
             error: None,
             baseline,
             loading_failed: false,
+            options_loading: needs_load,
             load_request_id,
         });
     }
@@ -371,7 +376,7 @@ impl AppState {
         pr_number: u64,
         kind: PrPropertyKind,
         request_id: u64,
-        options: &[(String, bool)],
+        options: &[(Option<String>, String, bool)],
     ) -> bool {
         if !self.pr_property_scope_matches(scope_repo_id, pr_number) {
             return true;
@@ -398,19 +403,29 @@ impl AppState {
     /// Multi-select options (labels, assignees): preserve baseline selections.
     fn apply_pr_property_multi_select_options(
         editor: &mut PrPropertyEditorState,
-        options: &[(String, bool)],
+        options: &[(Option<String>, String, bool)],
     ) {
         let current_selected: Vec<String> = editor.baseline.clone();
+        // M6: preserve user toggles from the current editor state.
+        let prior_selections: Vec<String> = editor
+            .options
+            .iter()
+            .filter(|o| o.selected)
+            .map(|o| o.label.clone())
+            .collect();
         editor.options = options
             .iter()
-            .map(|(label, _)| {
-                let selected = current_selected
+            .map(|(id, label, _)| {
+                let from_baseline = current_selected
+                    .iter()
+                    .any(|s| s.eq_ignore_ascii_case(label));
+                let from_toggle = prior_selections
                     .iter()
                     .any(|s| s.eq_ignore_ascii_case(label));
                 PropertyOption {
                     label: label.clone(),
-                    selected,
-                    id: None,
+                    selected: from_toggle || from_baseline,
+                    id: id.clone(),
                 }
             })
             .collect();
@@ -428,16 +443,31 @@ impl AppState {
                 });
             }
         }
+        // M6: preserve toggles that are not in the fetched option set.
+        for toggle_label in &prior_selections {
+            if !editor
+                .options
+                .iter()
+                .any(|o| o.label.eq_ignore_ascii_case(toggle_label))
+            {
+                editor.options.push(PropertyOption {
+                    label: toggle_label.clone(),
+                    selected: true,
+                    id: None,
+                });
+            }
+        }
         if editor.selected_index >= editor.options.len() {
             editor.selected_index = 0;
         }
+        editor.options_loading = false;
     }
 
     /// Single-select options (milestone): preserve current selection,
     /// add "(clear)" option.
     fn apply_pr_property_single_select_options(
         editor: &mut PrPropertyEditorState,
-        options: &[(String, bool)],
+        options: &[(Option<String>, String, bool)],
     ) {
         let current = editor
             .options
@@ -446,12 +476,12 @@ impl AppState {
             .map(|o| o.label.clone());
         let mut new_opts: Vec<PropertyOption> = options
             .iter()
-            .map(|(label, _)| PropertyOption {
+            .map(|(id, label, _)| PropertyOption {
                 label: label.clone(),
                 selected: current
                     .as_ref()
                     .is_some_and(|c| c.eq_ignore_ascii_case(label)),
-                id: None,
+                id: id.clone(),
             })
             .collect();
         if let Some(ref c) = current
@@ -469,7 +499,9 @@ impl AppState {
             id: None,
         });
         editor.options = new_opts;
-        editor.selected_index = 0;
+        // F2: initialize cursor to the currently-selected option, not 0.
+        editor.selected_index = editor.options.iter().position(|o| o.selected).unwrap_or(0);
+        editor.options_loading = false;
     }
 
     fn apply_pr_property_options_failed(
@@ -490,6 +522,7 @@ impl AppState {
             return true;
         }
         editor.loading_failed = true;
+        editor.options_loading = false;
         editor.error = Some(error.to_string());
         true
     }
@@ -601,6 +634,25 @@ impl AppState {
             number: pr_number,
         });
         Some(request_id)
+    }
+}
+
+/// Whether a PR property kind requires a background fetch of options.
+fn needs_pr_background_options(kind: PrPropertyKind) -> bool {
+    matches!(
+        kind,
+        PrPropertyKind::Labels | PrPropertyKind::Assignees | PrPropertyKind::Milestone
+    )
+}
+
+/// F2: Initialize `selected_index` to the position of the currently-selected
+/// option for single-select kinds (State, Milestone).
+fn initial_pr_selected_index(kind: PrPropertyKind, options: &[PropertyOption]) -> usize {
+    match kind {
+        PrPropertyKind::Milestone | PrPropertyKind::State => {
+            options.iter().position(|o| o.selected).unwrap_or(0)
+        }
+        _ => 0,
     }
 }
 

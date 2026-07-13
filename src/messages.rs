@@ -344,7 +344,7 @@ pub enum IssuesMessage {
         issue_number: u64,
         kind: crate::state::IssuePropertyKind,
         request_id: u64,
-        options: Vec<(String, bool)>,
+        options: Vec<(Option<String>, String, bool)>,
     },
     PropertyEditorOptionsFailed {
         scope_repo_id: RepositoryId,
@@ -589,7 +589,7 @@ pub enum PullRequestsMessage {
         pr_number: u64,
         kind: crate::state::PrPropertyKind,
         request_id: u64,
-        options: Vec<(String, bool)>,
+        options: Vec<(Option<String>, String, bool)>,
     },
     PropertyEditorOptionsFailed {
         scope_repo_id: RepositoryId,

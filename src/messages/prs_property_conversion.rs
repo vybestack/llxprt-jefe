@@ -29,13 +29,16 @@ impl PullRequestsMessage {
             AppEvent::PrPropertyEditorNavigateDown => Self::PropertyEditorNavigateDown,
             AppEvent::PrPropertyEditorToggle => Self::PropertyEditorToggle,
             AppEvent::PrPropertyEditorConfirm => Self::PropertyEditorConfirm,
-            AppEvent::PrPropertyEditorCancel => Self::PropertyEditorCancel,
             AppEvent::PrPropertyEditorTitleChar(c) => Self::PropertyEditorTitleChar(c),
             AppEvent::PrPropertyEditorTitleBackspace => Self::PropertyEditorTitleBackspace,
             AppEvent::PrPropertyEditorTitleDelete => Self::PropertyEditorTitleDelete,
             AppEvent::PrPropertyEditorTitleCursorLeft => Self::PropertyEditorTitleCursorLeft,
             AppEvent::PrPropertyEditorTitleCursorRight => Self::PropertyEditorTitleCursorRight,
-            _ => Self::EnterMode,
+            // Non-property events should never reach this converter; the
+            // routing guard filters them upstream. If one slips through,
+            // it is safer to no-op (close the editor) than to panic or
+            // enter an unrelated mode.
+            _ => Self::PropertyEditorCancel,
         }
     }
 
@@ -92,7 +95,7 @@ impl PullRequestsMessage {
                 request_id,
                 error,
             },
-            _ => Self::EnterMode,
+            _ => Self::PropertyEditorCancel,
         }
     }
 
@@ -152,13 +155,15 @@ impl PullRequestsMessage {
             Self::PropertyEditorNavigateDown => AppEvent::PrPropertyEditorNavigateDown,
             Self::PropertyEditorToggle => AppEvent::PrPropertyEditorToggle,
             Self::PropertyEditorConfirm => AppEvent::PrPropertyEditorConfirm,
-            Self::PropertyEditorCancel => AppEvent::PrPropertyEditorCancel,
             Self::PropertyEditorTitleChar(c) => AppEvent::PrPropertyEditorTitleChar(c),
             Self::PropertyEditorTitleBackspace => AppEvent::PrPropertyEditorTitleBackspace,
             Self::PropertyEditorTitleDelete => AppEvent::PrPropertyEditorTitleDelete,
             Self::PropertyEditorTitleCursorLeft => AppEvent::PrPropertyEditorTitleCursorLeft,
             Self::PropertyEditorTitleCursorRight => AppEvent::PrPropertyEditorTitleCursorRight,
-            _ => AppEvent::EnterPrsMode,
+            // Non-property messages should never reach this converter. If
+            // one slips through, close the editor rather than entering an
+            // unrelated mode.
+            _ => AppEvent::PrPropertyEditorCancel,
         }
     }
 
@@ -215,7 +220,7 @@ impl PullRequestsMessage {
                 request_id,
                 error,
             },
-            _ => AppEvent::EnterPrsMode,
+            _ => AppEvent::PrPropertyEditorCancel,
         }
     }
 

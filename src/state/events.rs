@@ -604,7 +604,7 @@ pub enum AppEvent {
         issue_number: u64,
         kind: super::IssuePropertyKind,
         request_id: u64,
-        options: Vec<(String, bool)>,
+        options: Vec<(Option<String>, String, bool)>,
     },
     IssuePropertyEditorOptionsFailed {
         scope_repo_id: RepositoryId,
@@ -646,7 +646,7 @@ pub enum AppEvent {
         pr_number: u64,
         kind: super::PrPropertyKind,
         request_id: u64,
-        options: Vec<(String, bool)>,
+        options: Vec<(Option<String>, String, bool)>,
     },
     PrPropertyEditorOptionsFailed {
         scope_repo_id: RepositoryId,

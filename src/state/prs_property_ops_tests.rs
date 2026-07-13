@@ -236,7 +236,7 @@ fn stale_options_response_ignored() {
         pr_number: 42,
         kind: PrPropertyKind::Labels,
         request_id: labels_rid,
-        options: vec![("stale".to_string(), false)],
+        options: vec![(None, "stale".to_string(), false)],
     });
     let editor = require_pr_editor(&state);
     assert!(!editor.options.iter().any(|o| o.label == "stale"));

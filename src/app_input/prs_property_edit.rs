@@ -378,21 +378,21 @@ fn pr_options_load_event(ctx: &SharedContext, params: &PrOptionsLoadParams) -> A
 fn fetch_pr_options(
     client: jefe::github::GhClient,
     params: &PrOptionsLoadParams,
-) -> Result<Vec<(String, bool)>, jefe::github::GhError> {
+) -> Result<Vec<(Option<String>, String, bool)>, jefe::github::GhError> {
     // M10: page sizes are limited. Currently-applied values are preserved by
     // the reducer (added back if missing from the first page).
     match params.kind {
         PrPropertyKind::Labels => {
             let names = client.fetch_label_names(&params.owner, &params.repo)?;
-            Ok(names.into_iter().map(|n| (n, false)).collect())
+            Ok(names.into_iter().map(|n| (None, n, false)).collect())
         }
         PrPropertyKind::Assignees => {
             let logins = client.fetch_assignee_logins(&params.owner, &params.repo)?;
-            Ok(logins.into_iter().map(|l| (l, false)).collect())
+            Ok(logins.into_iter().map(|l| (None, l, false)).collect())
         }
         PrPropertyKind::Milestone => {
             let titles = client.fetch_milestone_titles(&params.owner, &params.repo)?;
-            Ok(titles.into_iter().map(|t| (t, false)).collect())
+            Ok(titles.into_iter().map(|t| (None, t, false)).collect())
         }
         _ => Ok(Vec::new()),
     }

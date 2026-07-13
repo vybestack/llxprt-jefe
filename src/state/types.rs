@@ -684,11 +684,12 @@ pub struct IssuePropertyEditorState {
     pub error: Option<String>,
     /// Baseline labels/assignees currently applied (for diff computation, M8).
     pub baseline: Vec<String>,
-    /// Parallel list of opaque node IDs for issue-type options (H2).
-    pub option_ids: Vec<String>,
     /// Whether the background options fetch failed (H5). When true, confirm is
     /// disabled to prevent destructive writes from missing data.
     pub loading_failed: bool,
+    /// Whether options are still loading (M6). Set true on open, false on
+    /// load-success/load-failure. Confirm is blocked while true.
+    pub options_loading: bool,
     /// Request ID for the in-flight options load (M6 correlation).
     pub load_request_id: u64,
 }
@@ -707,6 +708,9 @@ pub struct PrPropertyEditorState {
     /// Whether the background options fetch failed (H5). When true, confirm is
     /// disabled to prevent destructive writes from missing data.
     pub loading_failed: bool,
+    /// Whether options are still loading (M6). Set true on open, false on
+    /// load-success/load-failure. Confirm is blocked while true.
+    pub options_loading: bool,
     /// Request ID for the in-flight options load (M6 correlation).
     pub load_request_id: u64,
 }

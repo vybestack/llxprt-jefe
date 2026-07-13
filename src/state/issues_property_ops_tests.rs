@@ -261,7 +261,7 @@ fn stale_options_response_ignored() {
         issue_number: 42,
         kind: IssuePropertyKind::Labels,
         request_id: labels_rid,
-        options: vec![("stale".to_string(), false)],
+        options: vec![(None, "stale".to_string(), false)],
     });
     let editor = require_issue_editor(&state);
     // Milestone options should NOT contain "stale"
@@ -394,8 +394,8 @@ fn options_loaded_preserves_selection() {
         kind: IssuePropertyKind::Labels,
         request_id: load_rid,
         options: vec![
-            ("bug".to_string(), false),
-            ("enhancement".to_string(), false),
+            (None, "bug".to_string(), false),
+            (None, "enhancement".to_string(), false),
         ],
     });
     let editor = require_issue_editor(&state);
@@ -417,7 +417,7 @@ fn options_loaded_preserves_baseline_labels_not_in_page() {
         issue_number: 42,
         kind: IssuePropertyKind::Labels,
         request_id: load_rid,
-        options: vec![("enhancement".to_string(), false)],
+        options: vec![(None, "enhancement".to_string(), false)],
     });
     let editor = require_issue_editor(&state);
     // "bug" should be present (preserved from baseline)

@@ -383,7 +383,7 @@ fn options_load_event(ctx: &SharedContext, params: &OptionsLoadParams) -> AppEve
 fn fetch_options(
     client: jefe::github::GhClient,
     params: &OptionsLoadParams,
-) -> Result<Vec<(String, bool)>, jefe::github::GhError> {
+) -> Result<Vec<(Option<String>, String, bool)>, jefe::github::GhError> {
     // M10: page sizes are limited (labels: 100, milestones: 50, assignees:
     // 100, issue types: 50). Currently-applied values are preserved by the
     // reducer (added back if missing from the first page). Full pagination
@@ -391,22 +391,25 @@ fn fetch_options(
     match params.kind {
         IssuePropertyKind::Labels => {
             let names = client.fetch_label_names(&params.owner, &params.repo)?;
-            Ok(names.into_iter().map(|n| (n, false)).collect())
+            Ok(names.into_iter().map(|n| (None, n, false)).collect())
         }
         IssuePropertyKind::Assignees => {
             let logins = client.fetch_assignee_logins(&params.owner, &params.repo)?;
-            Ok(logins.into_iter().map(|l| (l, false)).collect())
+            Ok(logins.into_iter().map(|l| (None, l, false)).collect())
         }
         IssuePropertyKind::Milestone => {
             let titles = client.fetch_milestone_titles(&params.owner, &params.repo)?;
-            Ok(titles.into_iter().map(|t| (t, false)).collect())
+            Ok(titles.into_iter().map(|t| (None, t, false)).collect())
         }
         IssuePropertyKind::Type => {
-            // H2: display name, carry id. Store id on the option via the
-            // reducer (the option's `id` field). Here we return (name, false)
-            // pairs; the IDs are fetched separately by the reducer.
+            // F1: carry the node ID so confirm can pass it to the GraphQL
+            // mutation. Without the ID, selecting a type sends issueTypeId:null
+            // which CLEARS the type instead of setting it.
             let types = client.fetch_issue_types(&params.owner, &params.repo)?;
-            Ok(types.into_iter().map(|(_id, name)| (name, false)).collect())
+            Ok(types
+                .into_iter()
+                .map(|(id, name)| (Some(id), name, false))
+                .collect())
         }
         _ => Ok(Vec::new()),
     }

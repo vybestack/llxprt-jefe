@@ -131,8 +131,8 @@ fn issues_state_with_property_editor() -> AppState {
         title_cursor: 0,
         error: None,
         baseline: Vec::new(),
-        option_ids: Vec::new(),
         loading_failed: false,
+        options_loading: false,
         load_request_id: 0,
     });
     state
