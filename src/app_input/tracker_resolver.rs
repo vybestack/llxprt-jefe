@@ -51,14 +51,14 @@ impl From<&GitHubRepoRef> for TrackerTarget {
 pub enum ResolveTrackerError {
     /// A nonblank `github_issue_pr_repo` override is malformed. The original
     /// error carries the raw value and categorized reason.
-    MalformedOverride(GitHubRepoRefError),
+    Malformed(GitHubRepoRefError),
 }
 
 #[cfg(test)]
 impl std::fmt::Display for ResolveTrackerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MalformedOverride(error) => write!(f, "{error}"),
+            Self::Malformed(error) => write!(f, "{error}"),
         }
     }
 }
@@ -112,7 +112,7 @@ pub(super) fn resolve_tracker_for_repo(
     match resolve_tracker_outcome(repo) {
         ResolvedTracker::Resolved(target) => Ok(Some(target)),
         ResolvedTracker::Absent => Ok(None),
-        ResolvedTracker::Malformed(error) => Err(ResolveTrackerError::MalformedOverride(error)),
+        ResolvedTracker::Malformed(error) => Err(ResolveTrackerError::Malformed(error)),
     }
 }
 
@@ -189,7 +189,7 @@ mod tests {
             "malformed override must fail",
         );
         match err {
-            ResolveTrackerError::MalformedOverride(error) => {
+            ResolveTrackerError::Malformed(error) => {
                 assert!(error.raw.contains("not-a-valid-repo"));
             }
         }

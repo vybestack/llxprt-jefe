@@ -733,7 +733,6 @@ impl AppState {
                 if let Some(repo) = Self::create_repository_from_fields(&fields) {
                     self.repositories.push(repo);
                     self.selected_repository_index = Some(self.repositories.len() - 1);
-                    self.error_message = None;
                     self.modal = ModalState::None;
                 }
             }
@@ -749,7 +748,6 @@ impl AppState {
                     return;
                 };
                 if Self::update_repository_from_fields(repo, &fields) {
-                    self.error_message = None;
                     self.modal = ModalState::None;
                 }
             }
