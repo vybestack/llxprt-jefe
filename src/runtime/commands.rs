@@ -100,56 +100,78 @@ fn apply_session_style(session_name: &str) {
     );
 }
 
-/// Disable the tmux prefix key (`prefix` and `prefix2`) on a jefe-managed
-/// session so application control chords pass through to the child unchanged.
+/// Configure multiplexer prefix keys for transparent child input (#200, #260).
 ///
-/// tmux's default prefix is `C-b` (byte `0x02`). jefe starts tmux with
-/// `-f /dev/null`, which leaves that default active. The embedded viewer runs
-/// an interactive `tmux attach-session` client, and the client consumes the
-/// prefix byte from the input stream before forwarding the rest to the pane.
-/// That eats the `0x02` in a Code Puppy `Ctrl-X Ctrl-B` (`0x18 0x02`) chord,
-/// so the child only sees `0x18` and the chord never completes (#200).
-///
-/// jefe controls its private sessions programmatically (send-keys, capture,
-/// attach) and never exposes a user-facing tmux command table, so no prefix is
-/// needed. Setting `prefix None` / `prefix2 None` makes the client stop
-/// intercepting the prefix key, restoring raw PTY semantics for every runtime.
-/// This is general (not a Code Puppy-specific rewrite) and keeps jefe's own
-/// F12 escape/focus mechanism untouched (F12 is handled by the host app shell
-/// before any byte reaches the PTY).
-///
-/// This is safe to call repeatedly (the options are idempotent), so it is also
-/// used on the reattach path to remediate sessions created before this fix
-/// existed (#200).
-///
-/// Returns `Ok(())` only when every option was applied successfully, so callers
-/// can memoize the session as remediated only on real success (mirroring the
-/// remote path). A transient tmux failure returns `Err` and the caller leaves
-/// the session un-memoized so the next attach retries.
-pub fn disable_prefix_for_passthrough(session_name: &str) -> Result<(), String> {
-    for option in prefix_disable_option_names() {
-        tmux_cmd_status(
-            ["set-option", "-t", session_name, option, "None"].as_ref(),
-            None,
-        )?;
+/// Unix applies this to `session_name`. Windows psmux ignores session-scoped
+/// prefix values, so its private server is configured globally. Windows assigns
+/// `prefix` to Jefe-owned F12 because psmux 3.3.6 still reserves `C-b` when the
+/// option is `None`; `prefix2` stays disabled.
+pub fn configure_prefix_for_passthrough(session_name: &str) -> Result<(), String> {
+    configure_prefix_with(session_name, |args| tmux_cmd_status(args, None))
+}
+
+#[cfg(feature = "psmux-smoke")]
+pub fn configure_prefix_for_passthrough_with_plan(
+    session_name: &str,
+    plan: &MultiplexerPlan,
+) -> Result<(), String> {
+    configure_prefix_with(session_name, |args| multiplexer_cmd_status(plan, args))
+}
+
+fn configure_prefix_with(
+    session_name: &str,
+    mut apply: impl FnMut(&[&str]) -> Result<(), String>,
+) -> Result<(), String> {
+    for option in prefix_options_for_passthrough() {
+        let value = if *option == "prefix" {
+            local_prefix_value()
+        } else {
+            "None"
+        };
+        if cfg!(windows) {
+            apply(["set-option", "-g", option, value].as_ref())?;
+        } else {
+            apply(["set-option", "-t", session_name, option, value].as_ref())?;
+        }
     }
     Ok(())
 }
 
-/// The tmux option names that must be set to `None` so no prefix key is
-/// reserved on a jefe-managed session (#200).
-///
-/// Single source of truth shared by the local path
-/// ([`disable_prefix_for_passthrough`]) and the remote path
-/// ([`remote_disable_prefix_command`]) so the two cannot drift, and so tests
-/// can prove the production option set is applied rather than re-deriving it.
+#[cfg(feature = "psmux-smoke")]
+fn multiplexer_cmd_status(plan: &MultiplexerPlan, args: &[&str]) -> Result<(), String> {
+    let output = plan
+        .command()
+        .args(args)
+        .output()
+        .map_err(|error| format!("failed to run multiplexer {args:?}: {error}"))?;
+    output.status.success().then_some(()).ok_or_else(|| {
+        format!(
+            "multiplexer {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+    })
+}
+
+/// Prefix value that preserves `C-b`; Jefe intercepts F12 before forwarding.
 #[must_use]
-pub fn prefix_disable_option_names() -> &'static [&'static str] {
+const fn local_prefix_value() -> &'static str {
+    if cfg!(windows) { "F12" } else { "None" }
+}
+
+#[cfg(test)]
+#[test]
+fn local_prefix_value_matches_platform_policy() {
+    let expected = if cfg!(windows) { "F12" } else { "None" };
+    assert_eq!(local_prefix_value(), expected);
+}
+/// The tmux prefix options managed for transparent agent input (#200, #260).
+#[must_use]
+pub fn prefix_options_for_passthrough() -> &'static [&'static str] {
     &["prefix", "prefix2"]
 }
 
 /// Build the `\;`-joined sequence of `set-option -t <session> <option> None`
-/// sub-commands for every option in [`prefix_disable_option_names`].
+/// sub-commands for every option in [`prefix_options_for_passthrough`].
 ///
 /// This is the single builder for the remote prefix-disable sub-command
 /// sequence, shared by the remote reattach fragment
@@ -164,7 +186,7 @@ pub fn prefix_disable_option_names() -> &'static [&'static str] {
 fn prefix_disable_tmux_subcommands(escaped_session: &str) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut first = true;
-    for option in prefix_disable_option_names() {
+    for option in prefix_options_for_passthrough() {
         if !first {
             parts.push("\\;".to_owned());
         }
@@ -178,10 +200,9 @@ fn prefix_disable_tmux_subcommands(escaped_session: &str) -> String {
     parts.join(" ")
 }
 
-/// Build the remote shell fragment that disables both tmux prefix keys on an
-/// existing remote session. Used on the remote reattach/attach path to
-/// remediate remote sessions created before the inline-script fix (#200),
-/// mirroring [`disable_prefix_for_passthrough`] for the local path.
+/// Build the remote Unix tmux fragment that sets both prefix keys to `None`.
+/// Used to remediate remote sessions created before the inline fix (#200);
+/// Windows remotes are outside the SSH/tmux runtime contract.
 fn remote_disable_prefix_fragment(escaped_session: &str) -> String {
     format!("tmux {}", prefix_disable_tmux_subcommands(escaped_session))
 }
@@ -778,7 +799,7 @@ fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
 
 fn finalize_local_session(session_name: &str, warning: Option<String>) {
     enforce_clipboard_passthrough(session_name);
-    if let Err(error) = disable_prefix_for_passthrough(session_name) {
+    if let Err(error) = configure_prefix_for_passthrough(session_name) {
         debug!(session_name = %session_name, error = %error, "prefix passthrough option failed on create; will retry on attach");
     }
     let _ = tmux_cmd_status(
