@@ -526,18 +526,25 @@ fn sandbox_flags_env_value_is_raw_for_tmux_argv() {
 }
 
 #[test]
-fn tmux_base_args_include_config_skip_and_dedicated_socket() {
-    let args = tmux_base_args();
-    let socket = crate::runtime::jefe_tmux_socket_path();
-    assert_eq!(
-        args,
-        vec![
-            "-f".to_owned(),
-            "/dev/null".to_owned(),
-            "-S".to_owned(),
-            socket.to_string_lossy().into_owned(),
-        ]
-    );
+fn local_multiplexer_plan_uses_platform_isolation() {
+    let plan = MultiplexerPlan::current()
+        .unwrap_or_else(|error| panic!("local multiplexer plan should resolve: {error}"));
+    if cfg!(windows) {
+        assert!(plan.base_args().iter().any(|arg| arg == "-L"));
+        assert!(!plan.base_args().iter().any(|arg| arg == "/dev/null"));
+        assert!(!plan.base_args().iter().any(|arg| arg == "-S"));
+    } else {
+        let socket = crate::runtime::jefe_tmux_socket_path();
+        assert_eq!(
+            plan.base_args(),
+            [
+                std::ffi::OsString::from("-f"),
+                std::ffi::OsString::from("/dev/null"),
+                std::ffi::OsString::from("-S"),
+                socket.as_os_str().to_owned(),
+            ]
+        );
+    }
 }
 
 #[test]

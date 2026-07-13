@@ -21,6 +21,7 @@ mod form_projection;
 mod form_runtime;
 mod form_workflow_dispatch;
 mod issues_close_delete_ops;
+mod issues_close_reason_ops;
 mod issues_inline_ops;
 mod issues_load_ops;
 mod issues_mutation_ops;
@@ -49,6 +50,7 @@ mod types;
 mod util;
 
 pub use events::*;
+pub use issues_close_reason_ops::filter_duplicate_candidates;
 pub use scrollback_ops::{FollowIndicator, terminal_follow_indicator};
 pub use state_ops::{delete_selected_agent, delete_selected_repository};
 pub use types::*;
@@ -894,6 +896,10 @@ mod issues_tests_self_assignment;
 #[cfg(test)]
 #[path = "issues_tests_close_delete.rs"]
 mod issues_tests_close_delete;
+
+#[cfg(test)]
+#[path = "issues_tests_close_reason.rs"]
+mod issues_tests_close_reason;
 
 #[cfg(test)]
 #[path = "prs_tests.rs"]

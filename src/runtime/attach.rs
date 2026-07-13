@@ -517,20 +517,23 @@ fn ensure_wrap_slot(wraps: &mut Vec<bool>, rows: usize) {
     }
 }
 
-fn attach_command(session_name: &str, ssh_command: Option<&str>) -> CommandBuilder {
+fn attach_command(
+    session_name: &str,
+    ssh_command: Option<&str>,
+) -> Result<CommandBuilder, RuntimeError> {
     let mut cmd = if let Some(ssh_command) = ssh_command {
         let mut cmd = CommandBuilder::new("sh");
         cmd.arg("-lc");
         cmd.arg(ssh_command);
         cmd
     } else {
-        // Reuse `commands::tmux_base_args()` which encodes exactly
-        // `-f /dev/null -S <jefe-socket>`, reducing drift versus the rest of
-        // jefe's tmux command construction. The remote (SSH) branch is
-        // intentionally left without `-S` because remote tmux runs on the
-        // remote host under its own (possibly shared) socket.
-        let mut cmd = CommandBuilder::new("tmux");
-        for arg in super::commands::tmux_base_args() {
+        // Local attachment uses the same resolved executable and isolation
+        // policy as every other runtime command. The remote SSH branch remains
+        // an intentionally Unix command executed on the remote host.
+        let plan =
+            super::multiplexer::MultiplexerPlan::current().map_err(RuntimeError::Multiplexer)?;
+        let mut cmd = CommandBuilder::new(plan.executable());
+        for arg in plan.base_args() {
             cmd.arg(arg);
         }
         cmd.arg("attach-session");
@@ -539,7 +542,7 @@ fn attach_command(session_name: &str, ssh_command: Option<&str>) -> CommandBuild
         cmd
     };
     cmd.env("TERM", "xterm-256color");
-    cmd
+    Ok(cmd)
 }
 
 fn open_pty(rows: u16, cols: u16) -> Result<PtyPair, RuntimeError> {
@@ -579,7 +582,7 @@ impl AttachedViewer {
         debug!(session_name = %session_name, rows, cols, remote = ssh_command.is_some(), "AttachedViewer::spawn start");
 
         let pty_pair = open_pty(rows, cols)?;
-        let cmd = attach_command(session_name, ssh_command);
+        let cmd = attach_command(session_name, ssh_command)?;
 
         let child = pty_pair
             .slave

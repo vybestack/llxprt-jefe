@@ -11,10 +11,10 @@ use crate::state::{AppState, IssueFocus, PaneFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
-    AgentChooser, IssueDeleteConfirmOverlay, IssueDetailProjectionInputs, IssueListLayout,
-    IssueListWindow, KeybindBar, Sidebar, StatusBar, detail_pane_element, filter_bar_element,
-    issue_detail_props, issue_filter_props, issue_list_props, issue_list_status_message,
-    selectable_list_element,
+    AgentChooser, CloseReasonChooser, IssueDeleteConfirmOverlay, IssueDetailProjectionInputs,
+    IssueListLayout, IssueListWindow, KeybindBar, Sidebar, StatusBar, detail_pane_element,
+    filter_bar_element, issue_detail_props, issue_filter_props, issue_list_props,
+    issue_list_status_message, selectable_list_element,
 };
 
 /// Props for the issues mode screen.
@@ -148,6 +148,30 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
     let delete_awaiting = delete_confirm
         .as_ref()
         .is_some_and(|c| c.awaiting_confirmation);
+
+    // Close reason chooser overlay (issue #188)
+    let close_reason_chooser = state.and_then(|s| s.issues_state.close_reason_chooser.clone());
+    let close_reason_visible = close_reason_chooser.is_some();
+    let cr_issue_number = close_reason_chooser.as_ref().map_or(0, |c| c.issue_number);
+    let cr_selected = close_reason_chooser
+        .as_ref()
+        .map_or(0, |c| c.selected_index);
+    let cr_awaiting = close_reason_chooser
+        .as_ref()
+        .is_some_and(|c| c.awaiting_confirmation);
+    let cr_dup_query = close_reason_chooser
+        .as_ref()
+        .and_then(|c| c.duplicate_search.as_ref())
+        .map(|s| s.query.clone());
+    let cr_dup_candidates = close_reason_chooser
+        .as_ref()
+        .and_then(|c| c.duplicate_search.as_ref())
+        .map(|s| s.candidates.clone())
+        .unwrap_or_default();
+    let cr_dup_selected = close_reason_chooser
+        .as_ref()
+        .and_then(|c| c.duplicate_search.as_ref())
+        .map_or(0, |s| s.selected_index);
 
     // Sidebar is highlighted when RepoList focus or PaneFocus::Repositories
     let sidebar_focused =
@@ -298,6 +322,31 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                                     issue_number: delete_issue_number,
                                     awaiting_confirmation: delete_awaiting,
                                     colors: colors.clone(),
+                                )
+                            }
+                        }]
+                    } else {
+                        vec![]
+                    })
+
+                    // Close reason chooser overlay (issue #188)
+                    #(if close_reason_visible {
+                        vec![element! {
+                            Box(
+                                position: Position::Absolute,
+                                top: 2,
+                                left: 4,
+                            ) {
+                                CloseReasonChooser(
+                                    visible: true,
+                                    issue_number: cr_issue_number,
+                                    selected_index: cr_selected,
+                                    awaiting_confirmation: cr_awaiting,
+                                    duplicate_search_query: cr_dup_query.clone(),
+                                    duplicate_candidates: cr_dup_candidates.clone(),
+                                    duplicate_selected_index: cr_dup_selected,
+                                    colors: colors.clone(),
+                                    selection: selection,
                                 )
                             }
                         }]
