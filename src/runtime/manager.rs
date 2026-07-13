@@ -428,6 +428,17 @@ impl TmuxRuntimeManager {
         self.sessions.get(agent_id).and_then(|s| s.pid)
     }
 
+    /// Return the stable worker process identity for restart reconciliation.
+    #[must_use]
+    pub fn worker_process_identity(
+        &self,
+        agent_id: &AgentId,
+    ) -> Option<crate::domain::ProcessIdentity> {
+        self.sessions
+            .get(agent_id)
+            .and_then(|session| session.process_identity)
+    }
+
     fn spawn_session_internal(
         &mut self,
         agent_id: &AgentId,
@@ -521,6 +532,8 @@ impl TmuxRuntimeManager {
         // Store/refresh session binding.
         let mut session = RuntimeSession::new(agent_id.clone(), session_name, signature.clone());
         session.pid = captured_pid;
+        session.process_identity =
+            captured_pid.and_then(|pid| super::process::capture_process_identity(pid).ok());
         self.sessions.insert(agent_id.clone(), session);
 
         // Remove from dead signatures if present.
