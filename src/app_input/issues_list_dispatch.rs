@@ -55,11 +55,10 @@ pub(super) fn dispatch_issue_list_fetch(
     let mut params = issue_fetch_params(app_state, fresh_reload);
 
     if params.owner.is_empty() || params.repo.is_empty() {
-        let error = params.malformed_message.clone().unwrap_or_else(|| {
-            "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings."
-                .to_string()
-        });
-        persist_missing_github_repo_with(app_state, ctx, &error);
+        let error = params.malformed_message.as_deref().unwrap_or(
+            "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.",
+        );
+        persist_missing_github_repo_with(app_state, ctx, error);
         return;
     }
 

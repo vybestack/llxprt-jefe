@@ -193,7 +193,6 @@ impl GitHubRepoRef {
 /// Detect whether `value` is a URL or SSH clone string rather than a bare
 /// `owner/repo`.
 fn is_url_or_ssh_form(value: &str) -> bool {
-    let lowercase = value.to_ascii_lowercase();
     [
         "http://",
         "https://",
@@ -206,7 +205,11 @@ fn is_url_or_ssh_form(value: &str) -> bool {
         "git+file://",
     ]
     .iter()
-    .any(|prefix| lowercase.starts_with(prefix))
+    .any(|prefix| {
+        value
+            .get(..prefix.len())
+            .is_some_and(|candidate| candidate.eq_ignore_ascii_case(prefix))
+    })
 }
 
 #[cfg(test)]
