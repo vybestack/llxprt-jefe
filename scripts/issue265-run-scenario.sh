@@ -30,6 +30,16 @@ command -v timeout >/dev/null 2>&1 || {
     exit 1
 }
 
+[[ -r "$SCENARIO" ]] || {
+    echo "FATAL: scenario file is missing or not readable: $SCENARIO" >&2
+    exit 1
+}
+
+[[ -r "$SHIM" ]] || {
+    echo "FATAL: gh shim is missing or not readable: $SHIM" >&2
+    exit 1
+}
+
 # Optional extra args passed to the harness binary (array, properly quoted).
 HARNESS_ARGS=()
 if [[ "${1:-}" == "--keep-session" ]]; then
@@ -169,7 +179,7 @@ fi
 #
 # Extract ACCEPTED operation labels (normalize whitespace, ignore timestamps).
 # Filter out auth-status so the four-operation sequence check is exact.
-accepted_seq=$(grep -oE 'ACCEPTED [a-z-]+' "$AUDIT_FILE" \
+accepted_seq=$(grep -oE 'ACCEPTED [A-Za-z0-9_-]+' "$AUDIT_FILE" \
     | sed 's/ACCEPTED //' \
     | grep -v '^auth-status$')
 

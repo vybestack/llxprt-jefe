@@ -149,6 +149,8 @@ fn refocus_issue_list_preserves_real_error() {
 fn open_new_issue_composer_clears_stale_draft_notice() {
     let mut state = issues_mode_state_with_repo("repo-1");
     state.issues_state.draft_notice = Some("No agents available".to_string());
+    // Seed a real error to prove the transition does not erase it.
+    state.issues_state.error = Some("load failed".to_string());
 
     let state = state.apply(AppEvent::OpenNewIssueComposer);
 
@@ -162,6 +164,11 @@ fn open_new_issue_composer_clears_stale_draft_notice() {
             crate::state::types::InlineState::Composer { .. }
         ),
         "OpenNewIssueComposer must still open the composer"
+    );
+    assert_eq!(
+        state.issues_state.error.as_deref(),
+        Some("load failed"),
+        "OpenNewIssueComposer must preserve a real error"
     );
 }
 
@@ -189,6 +196,8 @@ fn open_new_comment_composer_clears_stale_draft_notice() {
         comments_cursor: None,
     });
     state.issues_state.draft_notice = Some("No agents available".to_string());
+    // Seed a real error to prove the transition does not erase it.
+    state.issues_state.error = Some("load failed".to_string());
 
     let state = state.apply(AppEvent::OpenNewCommentComposer);
 
@@ -210,6 +219,11 @@ fn open_new_comment_composer_clears_stale_draft_notice() {
         state.issues_state.detail_subfocus,
         DetailSubfocus::NewComment,
         "OpenNewCommentComposer must focus the new-comment composer"
+    );
+    assert_eq!(
+        state.issues_state.error.as_deref(),
+        Some("load failed"),
+        "OpenNewCommentComposer must preserve a real error"
     );
 }
 
@@ -236,6 +250,8 @@ fn open_inline_editor_clears_stale_draft_notice() {
         comments_cursor: None,
     });
     state.issues_state.draft_notice = Some("No agents available".to_string());
+    // Seed a real error to prove the transition does not erase it.
+    state.issues_state.error = Some("load failed".to_string());
 
     let state = state.apply(AppEvent::OpenInlineEditor {
         target: crate::state::types::EditorTarget::IssueBody,
@@ -254,5 +270,10 @@ fn open_inline_editor_clears_stale_draft_notice() {
             }
         ),
         "OpenInlineEditor must open the requested issue-body editor"
+    );
+    assert_eq!(
+        state.issues_state.error.as_deref(),
+        Some("load failed"),
+        "OpenInlineEditor must preserve a real error"
     );
 }
