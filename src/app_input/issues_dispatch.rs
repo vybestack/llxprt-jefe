@@ -6,8 +6,8 @@ use jefe::messages::IssuesMessage;
 use jefe::state::AppEvent;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, dispatch_issues_lifecycle,
-    dispatch_issues_navigation, gh_async, github_client,
+    AppStateHandle, SharedContext, apply_and_persist, dispatch_issues_lifecycle, gh_async,
+    github_client, issues_navigation::dispatch_issues_navigation,
 };
 use super::{
     issues_list_dispatch, issues_mutation, issues_property_edit, issues_send,
