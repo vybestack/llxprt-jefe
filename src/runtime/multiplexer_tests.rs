@@ -196,8 +196,11 @@ fn production_namespace_is_stable_while_test_namespaces_are_distinct() {
     if !cfg!(windows) {
         return;
     }
-    let production_first = MultiplexerPlan::current()
-        .unwrap_or_else(|error| panic!("first production plan should resolve: {error}"));
+    let production_first = match MultiplexerPlan::current() {
+        Ok(plan) => plan,
+        Err(_) if std::env::var("JEFE_REQUIRE_PSMUX").as_deref() != Ok("1") => return,
+        Err(error) => panic!("required production plan should resolve: {error}"),
+    };
     let production_second = MultiplexerPlan::current()
         .unwrap_or_else(|error| panic!("second production plan should resolve: {error}"));
     assert_eq!(production_first.isolation(), production_second.isolation());
