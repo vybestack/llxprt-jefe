@@ -4,7 +4,7 @@
 //! Extracted from `issues_tests_detail_flow.rs` to keep that file under the
 //! source-file-size hard limit.
 
-use crate::domain::{Agent, AgentId, AgentKind, Repository, RepositoryId};
+use crate::domain::{Agent, AgentId, AgentKind, IssueDetail, IssueState, Repository, RepositoryId};
 use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::types::{
@@ -23,18 +23,42 @@ fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
     state.apply(AppEvent::EnterIssuesMode)
 }
 
+fn issue_detail() -> IssueDetail {
+    IssueDetail {
+        repo_owner_name: "owner/repo".to_string(),
+        number: 1,
+        node_id: String::new(),
+        title: "T".to_string(),
+        state: IssueState::Open,
+        author_login: "a".to_string(),
+        created_at: String::new(),
+        updated_at: String::new(),
+        labels: Vec::new(),
+        assignees: Vec::new(),
+        milestone: None,
+        body: String::new(),
+        external_url: String::new(),
+        comments: Vec::new(),
+        has_more_comments: false,
+        comments_cursor: None,
+    }
+}
+
 /// Issue #265: an agent that belongs to a DIFFERENT repository than the
 /// selected one must NOT appear in the chooser. The reducer must surface the
 /// `No agents available` notice and leave the chooser closed.
 #[test]
 fn test_send_to_agent_agent_in_different_repository() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.agents.push(Agent::new(
+    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    let mut agent = Agent::new(
         AgentId("agent-other".to_string()),
         RepositoryId("repo-2".to_string()),
         "Other Repo Agent".to_string(),
         std::path::PathBuf::from("/tmp/a-other"),
-    ));
+    );
+    agent.agent_kind = AgentKind::Llxprt;
+    state.agents.push(agent);
 
     let state = state.apply(AppEvent::OpenAgentChooser);
 
@@ -176,25 +200,7 @@ fn open_new_issue_composer_clears_stale_draft_notice() {
 #[test]
 fn open_new_comment_composer_clears_stale_draft_notice() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    // Need an issue detail to open a comment composer against.
-    state.issues_state.issue_detail = Some(crate::domain::IssueDetail {
-        repo_owner_name: "owner/repo".to_string(),
-        number: 1,
-        node_id: String::new(),
-        title: "T".to_string(),
-        state: crate::domain::IssueState::Open,
-        author_login: "a".to_string(),
-        created_at: String::new(),
-        updated_at: String::new(),
-        labels: Vec::new(),
-        assignees: Vec::new(),
-        milestone: None,
-        body: String::new(),
-        external_url: String::new(),
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
-    });
+    state.issues_state.issue_detail = Some(issue_detail());
     state.issues_state.draft_notice = Some("No agents available".to_string());
     // Seed a real error to prove the transition does not erase it.
     state.issues_state.error = Some("load failed".to_string());
@@ -231,24 +237,7 @@ fn open_new_comment_composer_clears_stale_draft_notice() {
 #[test]
 fn open_inline_editor_clears_stale_draft_notice() {
     let mut state = issues_mode_state_with_repo("repo-1");
-    state.issues_state.issue_detail = Some(crate::domain::IssueDetail {
-        repo_owner_name: "owner/repo".to_string(),
-        number: 1,
-        node_id: String::new(),
-        title: "T".to_string(),
-        state: crate::domain::IssueState::Open,
-        author_login: "a".to_string(),
-        created_at: String::new(),
-        updated_at: String::new(),
-        labels: Vec::new(),
-        assignees: Vec::new(),
-        milestone: None,
-        body: String::new(),
-        external_url: String::new(),
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
-    });
+    state.issues_state.issue_detail = Some(issue_detail());
     state.issues_state.draft_notice = Some("No agents available".to_string());
     // Seed a real error to prove the transition does not erase it.
     state.issues_state.error = Some("load failed".to_string());
@@ -292,8 +281,8 @@ fn blocked_inline_opens_preserve_draft_notice_and_active_editor() {
     for event in events {
         let mut state = issues_mode_state_with_repo("repo-1");
         state.issues_state.draft_notice = Some("No agents available".to_string());
-        state.issues_state.inline_state = InlineState::Composer {
-            target: ComposerTarget::NewComment,
+        state.issues_state.inline_state = InlineState::Editor {
+            target: EditorTarget::Comment { comment_index: 0 },
             text: "existing draft".to_string(),
             cursor: 14,
         };
@@ -306,8 +295,8 @@ fn blocked_inline_opens_preserve_draft_notice_and_active_editor() {
         );
         assert!(matches!(
             state.issues_state.inline_state,
-            InlineState::Composer {
-                target: ComposerTarget::NewComment,
+            InlineState::Editor {
+                target: EditorTarget::Comment { comment_index: 0 },
                 ref text,
                 cursor: 14,
             } if text == "existing draft"

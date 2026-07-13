@@ -119,8 +119,10 @@ shell_quote() {
 }
 
 reject() {
-    audit_reject "$@"
-    echo "gh shim: REJECTED ($1): gh ${*:2}" >&2
+    local reason="$1"
+    shift
+    audit_reject "$reason" "$@"
+    echo "gh shim: REJECTED ($reason): gh $(shell_quote "$@")" >&2
     exit 1
 }
 
