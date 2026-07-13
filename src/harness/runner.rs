@@ -23,7 +23,10 @@ use super::step::Step;
 use super::tmux_driver::{TmuxDriver, TmuxDriverError, TmuxSession, TmuxStartRequest};
 use tracing::warn;
 
+#[cfg(not(windows))]
 const DEFAULT_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(windows)]
+const DEFAULT_WAIT_TIMEOUT: Duration = Duration::from_secs(15);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Result of a scenario run.
