@@ -9,7 +9,7 @@ use crate::domain::{
 };
 use crate::state::AppState;
 use crate::state::events::AppEvent;
-use crate::state::types::ScreenMode;
+use crate::state::types::{InlineState, ScreenMode};
 use crate::state::{ISSUE_FILTER_FIELD_COUNT, PR_FILTER_FIELD_COUNT};
 
 use super::prs_test_fixtures::prs_state_with_detail;
@@ -894,3 +894,6 @@ fn issue_jump_to_agent_in_other_repo_does_not_leak_filter() {
         "repo-1's applied issue filter must be persisted before the jump"
     );
 }
+
+#[path = "cross_mode_transition_tests.rs"]
+mod cross_mode_transition;

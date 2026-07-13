@@ -85,6 +85,31 @@ pub fn merge_chooser_lines(state: &AppState) -> PaneContent {
     PaneContent::new(SelectablePane::MergeChooser, lines)
 }
 
+/// Close-reason chooser overlay lines: header + separator + reasons + optional
+/// duplicate search + hints (issue #188).
+#[must_use]
+pub fn close_reason_chooser_lines(state: &AppState) -> PaneContent {
+    let Some(chooser) = state.issues_state.close_reason_chooser.as_ref() else {
+        return PaneContent::empty(SelectablePane::CloseReasonChooser);
+    };
+    let lines = crate::ui::components::close_reason_chooser_lines(
+        chooser.issue_number,
+        chooser.selected_index,
+        chooser.awaiting_confirmation,
+        chooser.duplicate_search.as_ref().map(|s| s.query.as_str()),
+        &chooser
+            .duplicate_search
+            .as_ref()
+            .map(|s| s.candidates.clone())
+            .unwrap_or_default(),
+        chooser
+            .duplicate_search
+            .as_ref()
+            .map_or(0, |s| s.selected_index),
+    );
+    PaneContent::new(SelectablePane::CloseReasonChooser, lines)
+}
+
 /// Confirm modal lines: title + blank + message + optional checkbox + buttons + blank.
 ///
 /// The ConfirmModal renders inside a 50x10 bordered box with padding 1 (6

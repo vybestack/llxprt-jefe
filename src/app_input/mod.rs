@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
+mod filter_controls;
 mod issues;
 mod issues_dispatch;
 mod issues_filter;
+mod issues_lifecycle;
 mod issues_list_dispatch;
 mod issues_mutation;
 mod issues_subfocus_dispatch;
@@ -31,7 +33,10 @@ mod prs_orchestration;
 
 mod actions;
 mod actions_orchestration;
+// In-app device-code auth remediation dispatch (issue #244).
+mod auth_remediation;
 mod gh_async;
+mod list_loader;
 
 mod agent_runtime;
 mod availability;
@@ -50,7 +55,8 @@ use agent_runtime::{
 };
 
 pub use modal_handlers::{
-    handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key, handle_mode_theme_picker_key,
+    handle_f12_toggle, handle_mode_auth_key, handle_mode_confirm_key, handle_mode_form_key,
+    handle_mode_theme_picker_key,
 };
 
 pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
@@ -463,8 +469,15 @@ pub fn try_intercept_terminal_scrollback(
     ctx: &SharedContext,
     key_event: &KeyEvent,
 ) -> bool {
-    let offset_is_some = app_state.read().terminal_history_offset.is_some();
-    let Some(scroll_evt) = jefe::input::should_intercept_for_scrollback(key_event, offset_is_some)
+    let (offset_is_some, kennel_mode) = {
+        let state = app_state.read();
+        (
+            state.terminal_history_offset.is_some(),
+            state.is_kennel_mode(),
+        )
+    };
+    let Some(scroll_evt) =
+        jefe::input::should_intercept_for_scrollback(key_event, offset_is_some, kennel_mode)
     else {
         return false;
     };
@@ -541,40 +554,8 @@ pub fn dispatch_app_message(
         AppMessage::Runtime(RuntimeMessage::RestartAgent(agent_id)) => {
             dispatch_restart_agent(app_state, ctx, agent_id);
         }
-        AppMessage::Issues(
-            message @ (IssuesMessage::NavigateUp
-            | IssuesMessage::NavigateDown
-            | IssuesMessage::NavigatePageUp
-            | IssuesMessage::NavigatePageDown
-            | IssuesMessage::NavigateHome
-            | IssuesMessage::NavigateEnd),
-        ) => {
-            dispatch_issues_navigation(app_state, ctx, message);
-        }
-        AppMessage::Issues(
-            message @ (IssuesMessage::EnterMode
-            | IssuesMessage::RefocusList
-            | IssuesMessage::ApplyFilter
-            | IssuesMessage::ClearFilter
-            | IssuesMessage::ApplySearch),
-        ) => issues_list_dispatch::dispatch_issue_list_reload(app_state, ctx, message),
-        AppMessage::Issues(IssuesMessage::Enter) => {
-            apply_and_persist(app_state, ctx, AppEvent::IssuesEnter);
-            issues_dispatch::load_issue_detail_for_selection(app_state, ctx);
-        }
-        AppMessage::Issues(
-            message @ (IssuesMessage::ScrollDetailDown
-            | IssuesMessage::ScrollDetailPageDown
-            | IssuesMessage::DetailSubfocusNext
-            | IssuesMessage::DetailSubfocusPrev),
-        ) => issues_subfocus_dispatch::dispatch_issues_detail_scroll_or_subfocus(
-            app_state, ctx, message,
-        ),
-        AppMessage::Issues(IssuesMessage::AgentChooserConfirm) => {
-            issues_send::dispatch_agent_chooser_confirm(app_state, ctx);
-        }
-        AppMessage::Issues(IssuesMessage::InlineSubmit) => {
-            issues_mutation::handle_inline_submit(app_state, ctx);
+        AppMessage::Issues(message) => {
+            issues_dispatch::dispatch_issues_message(app_state, ctx, message);
         }
         // ── PR-mode dispatch arms ───────────────────────────────────────────
         // @plan PLAN-20260624-PR-MODE.P11
@@ -591,6 +572,53 @@ pub fn dispatch_app_message(
             actions_orchestration::dispatch_actions_message(app_state, ctx, message);
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+    }
+}
+
+/// Dispatch issues close/delete lifecycle messages (issue #182).
+///
+/// Applies the reducer event first, then — for the action events that start an
+/// off-thread gh mutation — hands off to the lifecycle dispatch helper.
+fn dispatch_issues_lifecycle(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: IssuesMessage,
+) {
+    match message {
+        IssuesMessage::CloseIssue => {
+            apply_and_persist(app_state, ctx, AppEvent::CloseIssue);
+            issues_lifecycle::handle_issue_close(app_state, ctx);
+        }
+        IssuesMessage::CloseReasonConfirm => {
+            apply_and_persist(app_state, ctx, AppEvent::CloseReasonConfirm);
+            issues_lifecycle::handle_issue_close_with_reason(app_state, ctx);
+        }
+        message @ (IssuesMessage::OpenCloseReasonChooser
+        | IssuesMessage::CloseReasonNavigateUp
+        | IssuesMessage::CloseReasonNavigateDown
+        | IssuesMessage::CloseReasonSelect
+        | IssuesMessage::CloseReasonDuplicateSearchChar(_)
+        | IssuesMessage::CloseReasonDuplicateSearchBackspace
+        | IssuesMessage::CloseReasonDuplicateSearchNavigateUp
+        | IssuesMessage::CloseReasonDuplicateSearchNavigateDown
+        | IssuesMessage::CloseReasonCancel) => {
+            apply_and_persist(app_state, ctx, AppEvent::from(message));
+        }
+        IssuesMessage::OpenDeleteIssueConfirm => {
+            apply_and_persist(app_state, ctx, AppEvent::OpenDeleteIssueConfirm);
+        }
+        IssuesMessage::IssueDeleteConfirm => {
+            apply_and_persist(app_state, ctx, AppEvent::IssueDeleteConfirm);
+            issues_lifecycle::handle_issue_delete_confirm(app_state, ctx);
+        }
+        IssuesMessage::IssueDeleteCancel => {
+            apply_and_persist(app_state, ctx, AppEvent::IssueDeleteCancel);
+        }
+        // Defensive fallback: the sole caller (dispatch_app_message) pre-filters
+        // to the lifecycle variants above, so other IssuesMessage variants
+        // never reach here. Kept as a no-op safety net rather than forcing this
+        // match to enumerate every IssuesMessage variant.
+        _ => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
 }
 
@@ -854,7 +882,7 @@ fn dispatch_issues_navigation(
         (
             state.issues_state.issue_focus,
             state.selected_repository_index,
-            state.issues_state.selected_issue_index,
+            state.issues_state.selected_issue_index(),
         )
     };
 
@@ -898,11 +926,10 @@ fn refresh_repo_scope_if_changed(
 
 fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
     let mut state = app_state.write();
-    state.issues_state.issues.clear();
-    state.issues_state.selected_issue_index = None;
+    // Clear the unified list (items, selection, identity, continuation,
+    // pending) for the repo switch; a fresh reload is kicked off by the caller.
+    state.issues_state.list.clear();
     state.issues_state.issue_detail = None;
-    state.issues_state.list_cursor = None;
-    state.issues_state.has_more_issues = false;
     state.issues_state.error = None;
     if state.issues_state.inline_state != jefe::state::InlineState::None {
         state.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
@@ -913,14 +940,11 @@ fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.issues_state.loading.comments = false;
     state.issues_state.detail_pending = None;
     state.issues_state.comments_page_pending = None;
-    state.issues_state.list_reload_pending = None;
-    state.issues_state.list_page_pending = None;
     state.issues_state.agent_chooser = None;
-    state.issues_state.loading.list = true;
 }
 
 fn refresh_issue_preview_if_changed(app_state: &mut AppStateHandle, prev_issue_idx: Option<usize>) {
-    let new_issue_idx = app_state.read().issues_state.selected_issue_index;
+    let new_issue_idx = app_state.read().issues_state.selected_issue_index();
     if new_issue_idx != prev_issue_idx {
         issues_dispatch::preview_issue_from_list(app_state);
     }

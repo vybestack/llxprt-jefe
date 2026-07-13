@@ -6,6 +6,7 @@
 mod app_init;
 mod app_input;
 mod app_shell;
+mod detail_wrap_map;
 mod mouse_routing;
 mod pty_encoding;
 

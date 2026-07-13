@@ -25,9 +25,9 @@ pub(crate) const PR_REPLY_ANCHOR: &str = "    [Reply]";
 ///
 /// Mirrors `issue_detail_content::detail_content_line_count` so the PR scroll
 /// bounds derive from the REAL rendered length and cannot drift from what
-/// `build_pr_detail_content` emits. Like Issues mode, the reducer NEVER wraps:
-/// the renderer (ScrollableText) truncates long lines, so line counts and
-/// cursor coordinates can never drift between the two layers.
+/// `build_pr_detail_content` emits. The scroll offset stays in CONTENT-LINE
+/// units (the renderer word-wraps each line into display rows at render time),
+/// so line counts and cursor coordinates stay consistent between the layers.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009

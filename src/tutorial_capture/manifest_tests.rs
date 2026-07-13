@@ -36,39 +36,32 @@ fn error_or_panic<T: std::fmt::Debug, E>(result: Result<T, E>, context: &str) ->
 
 // ── RunId validation ──────────────────────────────────────────────────
 
-#[test]
 fn run_id_accepts_alphanumeric_and_hyphens() {
     let id = RunId::new("tutorial-2026-07-12").value_or_panic("valid run id");
     assert_eq!(id.as_str(), "tutorial-2026-07-12");
 }
 
-#[test]
 fn run_id_rejects_empty() {
     assert!(RunId::new("").is_none());
 }
 
-#[test]
 fn run_id_rejects_underscores() {
     assert!(RunId::new("run_id").is_none());
 }
 
-#[test]
 fn run_id_rejects_spaces() {
     assert!(RunId::new("run id").is_none());
 }
 
-#[test]
 fn run_id_rejects_slashes() {
     assert!(RunId::new("run/id").is_none());
 }
 
-#[test]
 fn run_id_rejects_too_long() {
     let long = "a".repeat(65);
     assert!(RunId::new(&long).is_none());
 }
 
-#[test]
 fn run_id_accepts_max_length() {
     let max = "a".repeat(64);
     assert!(RunId::new(&max).is_some());
@@ -76,7 +69,6 @@ fn run_id_accepts_max_length() {
 
 // ── Manifest ownership ────────────────────────────────────────────────
 
-#[test]
 fn manifest_starts_empty() {
     let manifest = RunManifest::new(
         RunId::new("test-run").value_or_panic("valid id"),
@@ -93,7 +85,6 @@ fn manifest_starts_empty() {
     assert!(!manifest.cleanup_completed);
 }
 
-#[test]
 fn manifest_records_owned_path() {
     let mut manifest = RunManifest::new(
         RunId::new("test-run").value_or_panic("valid id"),
@@ -110,7 +101,6 @@ fn manifest_records_owned_path() {
     assert!(manifest.owns_path(&path));
 }
 
-#[test]
 fn manifest_deduplicates_owned_paths() {
     let mut manifest = RunManifest::new(
         RunId::new("test-run").value_or_panic("valid id"),
@@ -127,7 +117,6 @@ fn manifest_deduplicates_owned_paths() {
     assert_eq!(manifest.owned_paths.len(), 1);
 }
 
-#[test]
 fn manifest_does_not_own_unrelated_path() {
     let manifest = RunManifest::new(
         RunId::new("test-run").value_or_panic("valid id"),
@@ -140,7 +129,6 @@ fn manifest_does_not_own_unrelated_path() {
     assert!(!manifest.owns_path(&PathBuf::from("/usr/local/jefe")));
 }
 
-#[test]
 fn manifest_records_github_resource() {
     let mut manifest = RunManifest::new(
         RunId::new("test-run").value_or_panic("valid id"),
@@ -162,7 +150,6 @@ fn manifest_records_github_resource() {
     assert_eq!(manifest.github_resources[0].kind, GitHubResourceKind::Issue);
 }
 
-#[test]
 fn manifest_serializes_and_deserializes_roundtrip() {
     let mut manifest = RunManifest::new(
         RunId::new("tutorial-run-001").value_or_panic("valid id"),
@@ -198,7 +185,6 @@ fn manifest_serializes_and_deserializes_roundtrip() {
     assert!(restored.cleanup_completed);
 }
 
-#[test]
 fn manifest_fixture_github_repo_matching_is_case_insensitive() {
     let mut manifest = RunManifest::new(
         RunId::new("test-run").value_or_panic("valid id"),
@@ -214,7 +200,6 @@ fn manifest_fixture_github_repo_matching_is_case_insensitive() {
     assert!(!manifest.is_fixture_github_repo("other/repo"));
 }
 
-#[test]
 fn manifest_json_roundtrip_preserves_github_resources() {
     let mut manifest = RunManifest::new(
         RunId::new("gh-run-001").value_or_panic("valid id"),
@@ -251,14 +236,12 @@ fn manifest_json_roundtrip_preserves_github_resources() {
     );
 }
 
-#[test]
 fn manifest_from_malformed_json_returns_error() {
     let err = error_or_panic(RunManifest::from_json("{ not json"), "should fail");
     let _ = err;
 }
 
 /// Finding #8: Visual artifact kind exists and serializes correctly.
-#[test]
 fn visual_artifact_kind_serializes_correctly() {
     let mut manifest = RunManifest::new(
         RunId::new("visual-test").value_or_panic("valid id"),
@@ -282,26 +265,22 @@ fn visual_artifact_kind_serializes_correctly() {
     assert_eq!(restored.artifacts[0].kind, ArtifactKind::Visual);
 }
 
-#[test]
 fn runtime_profile_is_shim_flag() {
     assert!(RuntimeProfile::Shim.is_shim());
     assert!(!RuntimeProfile::RealLlxprt.is_shim());
     assert!(!RuntimeProfile::RealCodePuppy.is_shim());
 }
 
-#[test]
 fn run_id_display() {
     let id = RunId::new("abc-123").value_or_panic("valid id");
     assert_eq!(format!("{id}"), "abc-123");
 }
 
-#[test]
 fn run_id_into_inner() {
     let id = RunId::new("abc-123").value_or_panic("valid id");
     assert_eq!(id.into_inner(), "abc-123");
 }
 
-#[test]
 fn find_path_by_kind_returns_matching_path() {
     let mut manifest = RunManifest::new(
         RunId::new("test-run").value_or_panic("valid id"),
@@ -322,7 +301,6 @@ fn find_path_by_kind_returns_matching_path() {
     assert_eq!(found, Some(config_path.as_path()));
 }
 
-#[test]
 fn find_path_by_kind_returns_none_when_absent() {
     let manifest = RunManifest::new(
         RunId::new("test-run").value_or_panic("valid id"),
@@ -344,7 +322,6 @@ fn find_path_by_kind_returns_none_when_absent() {
 /// Verify that artifact relative_path roundtrips through JSON
 /// serialization/deserialization correctly. Paths are relative to
 /// ArtifactDir (no "artifacts/" prefix).
-#[test]
 fn artifact_entry_relative_path_roundtrip_preserves_relative_to_artifact_dir() {
     let mut manifest = RunManifest::new(
         RunId::new("roundtrip-test").value_or_panic("valid id"),
@@ -393,7 +370,6 @@ fn artifact_entry_relative_path_roundtrip_preserves_relative_to_artifact_dir() {
 
 /// Verify that paths are stored relative to ArtifactDir (not including
 /// "artifacts/" prefix) and can be resolved back to the full path.
-#[test]
 fn artifact_entry_path_resolves_to_full_artifact_dir_path() {
     let mut manifest = RunManifest::new(
         RunId::new("resolve-test").value_or_panic("valid id"),
@@ -420,7 +396,6 @@ fn artifact_entry_path_resolves_to_full_artifact_dir_path() {
 
 /// Verify that paths with parent-dir traversal are still rejected
 /// (security invariant maintained after normalization).
-#[test]
 fn artifact_entry_rejects_traversal_in_normalized_path() {
     let mut manifest = RunManifest::new(
         RunId::new("traversal-test").value_or_panic("valid id"),
@@ -439,4 +414,33 @@ fn artifact_entry_rejects_traversal_in_normalized_path() {
         manifest.artifacts.is_empty(),
         "traversal paths must be rejected"
     );
+}
+
+#[test]
+fn manifest_behaviors() {
+    run_id_accepts_alphanumeric_and_hyphens();
+    run_id_rejects_empty();
+    run_id_rejects_underscores();
+    run_id_rejects_spaces();
+    run_id_rejects_slashes();
+    run_id_rejects_too_long();
+    run_id_accepts_max_length();
+    manifest_starts_empty();
+    manifest_records_owned_path();
+    manifest_deduplicates_owned_paths();
+    manifest_does_not_own_unrelated_path();
+    manifest_records_github_resource();
+    manifest_serializes_and_deserializes_roundtrip();
+    manifest_fixture_github_repo_matching_is_case_insensitive();
+    manifest_json_roundtrip_preserves_github_resources();
+    manifest_from_malformed_json_returns_error();
+    visual_artifact_kind_serializes_correctly();
+    runtime_profile_is_shim_flag();
+    run_id_display();
+    run_id_into_inner();
+    find_path_by_kind_returns_matching_path();
+    find_path_by_kind_returns_none_when_absent();
+    artifact_entry_relative_path_roundtrip_preserves_relative_to_artifact_dir();
+    artifact_entry_path_resolves_to_full_artifact_dir_path();
+    artifact_entry_rejects_traversal_in_normalized_path();
 }

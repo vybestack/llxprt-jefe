@@ -37,6 +37,7 @@ pub struct RunSummary {
     pub soft_failures: Vec<RunnerFailure>,
     /// Semantic labels of captures made during the run, in order.
     pub captures: Vec<String>,
+    pub multiplexer_details: Option<String>,
 }
 
 /// Structured failure details for a step.
@@ -273,6 +274,7 @@ fn run_steps<D: HarnessDriver>(
         artifact_dir: context.artifact_dir.clone(),
         soft_failures: context.soft_failures.clone(),
         captures: context.captures.clone(),
+        multiplexer_details: None,
     })
 }
 

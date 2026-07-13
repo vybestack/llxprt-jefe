@@ -101,7 +101,6 @@ fn make_test_manifest() -> RunManifest {
 
 // ─── Basic cleanup execution ────────────────────────────────────────
 
-#[test]
 fn execute_github_cleanup_runs_all_commands() {
     let mut manifest = make_test_manifest();
     manifest.set_fixture_github_repo("fixture/test");
@@ -122,7 +121,6 @@ fn execute_github_cleanup_runs_all_commands() {
 // ─── Finding #4: cleanup validation (skips block completion) ────────
 
 /// Cleanup must SKIP resources with empty identifiers (fail-closed).
-#[test]
 fn cleanup_skips_resource_with_empty_identifier() {
     let mut manifest = make_test_manifest();
     manifest.set_fixture_github_repo("fixture/test");
@@ -150,7 +148,6 @@ fn cleanup_skips_resource_with_empty_identifier() {
 }
 
 /// Cleanup must SKIP resources that don't belong to the fixture GitHub repo.
-#[test]
 fn cleanup_skips_resource_from_wrong_repo() {
     let mut manifest = make_test_manifest();
     manifest.set_fixture_github_repo("fixture/test");
@@ -178,7 +175,6 @@ fn cleanup_skips_resource_from_wrong_repo() {
 }
 
 /// Cleanup must SKIP resources in production repos (fail-closed).
-#[test]
 fn cleanup_skips_production_repo_resource() {
     let mut manifest = make_test_manifest();
     manifest.add_github_resource(GitHubResource {
@@ -205,7 +201,6 @@ fn cleanup_skips_production_repo_resource() {
 }
 
 /// Cleanup with an allowlist must SKIP resources not in the allowlist.
-#[test]
 fn cleanup_skips_resource_not_in_allowlist() {
     let mut manifest = make_test_manifest();
     manifest.add_github_resource(GitHubResource {
@@ -246,7 +241,6 @@ impl CommandRunner for FailingCleanupRunner {
     }
 }
 
-#[test]
 fn cleanup_returns_error_on_command_failure_with_outcomes() {
     let mut manifest = make_test_manifest();
     manifest.set_fixture_github_repo("fixture/test");
@@ -277,7 +271,6 @@ fn cleanup_returns_error_on_command_failure_with_outcomes() {
 
 // ─── Finding #4: Clone destination containment validation ──────────
 
-#[test]
 fn validate_clone_destination_accepts_exact_fixture_clone() {
     let run_root = PathBuf::from("/tmp/jefe-run-001");
     let clone_dest = run_root.join("fixture-clone");
@@ -285,7 +278,6 @@ fn validate_clone_destination_accepts_exact_fixture_clone() {
         .value_or_panic("exact fixture-clone must be accepted");
 }
 
-#[test]
 fn validate_clone_destination_rejects_arbitrary_external_path() {
     let run_root = PathBuf::from("/tmp/jefe-run-001");
     let clone_dest = PathBuf::from("/tmp/some-other-path");
@@ -299,7 +291,6 @@ fn validate_clone_destination_rejects_arbitrary_external_path() {
     );
 }
 
-#[test]
 fn validate_clone_destination_rejects_wrong_subdirectory() {
     let run_root = PathBuf::from("/tmp/jefe-run-001");
     let clone_dest = run_root.join("wrong-dir");
@@ -313,7 +304,6 @@ fn validate_clone_destination_rejects_wrong_subdirectory() {
     );
 }
 
-#[test]
 fn validate_clone_destination_rejects_path_traversal() {
     let run_root = PathBuf::from("/tmp/jefe-run-001");
     let clone_dest = run_root.join("..").join("fixture-clone");
@@ -327,7 +317,6 @@ fn validate_clone_destination_rejects_path_traversal() {
     );
 }
 
-#[test]
 fn validate_clone_destination_rejects_nul_byte() {
     let run_root = PathBuf::from("/tmp/jefe-run-001");
     let clone_dest = PathBuf::from("/tmp/jefe-run-001/fixture-clone\0evil");
@@ -341,7 +330,6 @@ fn validate_clone_destination_rejects_nul_byte() {
     );
 }
 
-#[test]
 fn execute_tier_b_rejects_non_contained_clone_dest() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let run_root = PathBuf::from("/tmp/jefe-run-002");
@@ -386,7 +374,6 @@ impl CommandRunner for AlreadyClosedRunner {
     }
 }
 
-#[test]
 fn cleanup_treats_already_closed_as_idempotent_success() {
     let mut manifest = make_test_manifest();
     manifest.set_fixture_github_repo("fixture/test");
@@ -408,7 +395,6 @@ fn cleanup_treats_already_closed_as_idempotent_success() {
     );
 }
 
-#[test]
 fn cleanup_treats_already_deleted_branch_as_idempotent_success() {
     let mut manifest = make_test_manifest();
     manifest.set_fixture_github_repo("fixture/test");
@@ -442,7 +428,6 @@ impl CommandRunner for AlreadyDeletedRunner {
     }
 }
 
-#[test]
 fn cleanup_revalidates_against_creation_allowlist() {
     let mut manifest = make_test_manifest();
     manifest.set_fixture_github_repo("fixture/test");
@@ -476,7 +461,6 @@ fn cleanup_revalidates_against_creation_allowlist() {
 
 /// Verify that the `FixtureAllowlist::normalized_repos` method returns
 /// the normalized (lowercase, trimmed) repos for provenance persistence.
-#[test]
 fn allowlist_normalized_repos_are_lowercase_and_sorted() {
     let allowlist = FixtureAllowlist::new(["Fixture/Beta", "  fixture/alpha  "]);
     let repos = allowlist.normalized_repos();
@@ -486,7 +470,6 @@ fn allowlist_normalized_repos_are_lowercase_and_sorted() {
 /// Task #3: cleanup uses immutable manifest provenance, not env.
 /// When the manifest has a creation_allowlist, resources not in it are
 /// skipped even if no runtime allowlist is passed (None).
-#[test]
 fn cleanup_skips_resource_not_in_manifest_provenance_without_env_allowlist() {
     let mut manifest = RunManifest::new(
         RunId::new("prov-test").value_or_panic("valid id"),
@@ -537,7 +520,6 @@ fn cleanup_skips_resource_not_in_manifest_provenance_without_env_allowlist() {
 /// When the manifest has creation_allowlist from CLI/file sources (no env),
 /// cleanup with no runtime allowlist (None) still cleans resources that ARE
 /// in the manifest provenance.
-#[test]
 fn cleanup_cleans_resource_in_manifest_provenance_with_cli_only_auth() {
     let mut manifest = RunManifest::new(
         RunId::new("cli-auth-test").value_or_panic("valid id"),
@@ -575,7 +557,6 @@ fn cleanup_cleans_resource_in_manifest_provenance_with_cli_only_auth() {
 
 /// Fail-closed: if GitHub resources exist but creation_allowlist is empty,
 /// cleanup must refuse to proceed.
-#[test]
 fn cleanup_fails_closed_when_creation_allowlist_empty() {
     let id = RunId::new("fail-closed-test").value_or_panic("valid id");
     let mut manifest = RunManifest::new(id, "0.0.28", "test", 100, 32, RuntimeProfile::Shim);
@@ -624,7 +605,6 @@ impl CommandRunner for MergedBranchRunner {
 
 /// Idempotent: merged PR or auto-deleted branch should be treated as
 /// already cleaned.
-#[test]
 fn cleanup_recognizes_merged_pr_as_idempotent() {
     let mut manifest = make_test_manifest();
     manifest.set_fixture_github_repo("fixture/test");
@@ -656,7 +636,6 @@ fn cleanup_recognizes_merged_pr_as_idempotent() {
 /// `CleanupPartialFailure` must contain ALL outcomes so the CLI can
 /// process every one through `process_cleanup_outcome` and persist
 /// the correct discrepancies.
-#[test]
 fn cleanup_partial_failure_contains_all_outcomes_when_mixed() {
     let mut manifest = make_test_manifest();
     manifest.set_fixture_github_repo("fixture/test");
@@ -725,4 +704,29 @@ fn cleanup_partial_failure_contains_all_outcomes_when_mixed() {
         }
         other => panic!("expected CleanupPartialFailure, got {other:?}"),
     }
+}
+
+#[test]
+fn github_cleanup_behaviors() {
+    execute_github_cleanup_runs_all_commands();
+    cleanup_skips_resource_with_empty_identifier();
+    cleanup_skips_resource_from_wrong_repo();
+    cleanup_skips_production_repo_resource();
+    cleanup_skips_resource_not_in_allowlist();
+    cleanup_returns_error_on_command_failure_with_outcomes();
+    validate_clone_destination_accepts_exact_fixture_clone();
+    validate_clone_destination_rejects_arbitrary_external_path();
+    validate_clone_destination_rejects_wrong_subdirectory();
+    validate_clone_destination_rejects_path_traversal();
+    validate_clone_destination_rejects_nul_byte();
+    execute_tier_b_rejects_non_contained_clone_dest();
+    cleanup_treats_already_closed_as_idempotent_success();
+    cleanup_treats_already_deleted_branch_as_idempotent_success();
+    cleanup_revalidates_against_creation_allowlist();
+    allowlist_normalized_repos_are_lowercase_and_sorted();
+    cleanup_skips_resource_not_in_manifest_provenance_without_env_allowlist();
+    cleanup_cleans_resource_in_manifest_provenance_with_cli_only_auth();
+    cleanup_fails_closed_when_creation_allowlist_empty();
+    cleanup_recognizes_merged_pr_as_idempotent();
+    cleanup_partial_failure_contains_all_outcomes_when_mixed();
 }

@@ -13,8 +13,9 @@ use jefe::messages::PullRequestsMessage;
 use jefe::state::AppEvent;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client, persist_state,
-    prs_dispatch, to_persisted_state,
+    AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client,
+    list_loader::{ListLoad, ListLoader},
+    persist_state, prs_dispatch, to_persisted_state,
 };
 
 /// Apply a list-reload message through the reducer, then fetch the list.
@@ -77,7 +78,12 @@ pub(super) fn dispatch_pr_list_fetch(
         return;
     }
 
-    params.request_id = mark_pr_list_fetch_loading(app_state, &params);
+    params.request_id = match mark_pr_list_fetch_loading(app_state, &params) {
+        Some(id) => id,
+        // Request-id space exhausted: do not spawn a request (id 0 is reserved
+        // as "no ids allocated yet" and must never be used as a correlation id).
+        None => return,
+    };
     let panic_params = params.clone();
     gh_async::spawn_gh_task_with_panic(
         app_state,
@@ -139,31 +145,39 @@ struct PrFetchParams {
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-NFR-002
 /// @pseudocode component-001 lines 209-223
-fn mark_pr_list_fetch_loading(app_state: &mut AppStateHandle, params: &PrFetchParams) -> u64 {
-    let mut state = app_state.write();
-    let request_id = state.prs_state.next_pr_list_request_id.saturating_add(1);
-    state.prs_state.next_pr_list_request_id = request_id;
-    if params.silent && params.fresh_reload {
-        state.mark_pr_list_silent_refresh_loading(
-            params.scope_repo_id.clone(),
-            params.filter.clone(),
-            request_id,
-        );
-    } else if params.fresh_reload {
-        state.mark_pr_list_reload_loading(
-            params.scope_repo_id.clone(),
-            params.filter.clone(),
-            request_id,
-        );
-    } else {
-        state.mark_pr_list_page_loading(
-            params.scope_repo_id.clone(),
-            params.filter.clone(),
-            params.cursor.clone(),
-            request_id,
-        );
+fn mark_pr_list_fetch_loading(
+    app_state: &mut AppStateHandle,
+    params: &PrFetchParams,
+) -> Option<u64> {
+    // Scope the write guard so it is released before the caller spawns GitHub
+    // I/O. A page load that did not start (Busy/Exhausted/TokenMismatch) must
+    // not spawn I/O, so it returns None.
+    {
+        let mut state = app_state.write();
+        let identity = jefe::state::PrListIdentity {
+            scope_repo_id: params.scope_repo_id.clone(),
+            filter: params.filter.clone(),
+        };
+        let load = if params.silent && params.fresh_reload {
+            ListLoad::SilentReload
+        } else if params.fresh_reload {
+            ListLoad::Reload
+        } else {
+            ListLoad::Page(params.cursor.clone().map_or(
+                jefe::domain::PageToken::Done,
+                jefe::domain::PageToken::Cursor,
+            ))
+        };
+        let request_id = ListLoader::begin(&mut state.prs_state.list, identity, load)?;
+        // A visible reload supersedes any in-flight detail load; discard it so
+        // a stale detail never lands on the freshly-replaced list. Silent
+        // refresh intentionally keeps detail_pending (issue #128).
+        if params.fresh_reload && !params.silent {
+            state.prs_state.detail_pending = None;
+        }
+        drop(state);
+        Some(request_id.get())
     }
-    request_id
 }
 
 /// Gather the fetch params (repo slug, filter, cursor) from state.
@@ -181,7 +195,10 @@ fn pr_fetch_params(app_state: &AppStateHandle, fresh_reload: bool, silent: bool)
         filter: state.prs_state.committed_filter.clone(),
         request_id: 0,
         cursor: (!fresh_reload)
-            .then(|| state.prs_state.list_cursor.clone())
+            .then(|| match state.prs_state.list.next_page() {
+                jefe::domain::PageToken::Cursor(c) => Some(c.clone()),
+                _ => None,
+            })
             .flatten(),
         fresh_reload,
         silent,
@@ -195,7 +212,9 @@ fn pr_fetch_params(app_state: &AppStateHandle, fresh_reload: bool, silent: bool)
 /// @pseudocode component-004 lines 127-137
 fn persist_missing_github_repo(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let mut state = app_state.write();
-    state.prs_state.loading.list = false;
+    // No repo configured: cancel any pending list load so the spinner clears
+    // (loading is now derived from the pending marker).
+    state.prs_state.list.clear();
     state.prs_state.error = Some(
         "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings."
             .to_string(),
@@ -267,14 +286,15 @@ fn persist_pr_list_loaded(
             .selected_repository_index
             .and_then(|idx| state.repositories.get(idx))
             .is_some_and(|repo| repo.id == params.scope_repo_id)
-        && state
+        && !state
             .prs_state
-            .list_reload_pending
-            .as_ref()
-            .is_some_and(|pending| {
-                pending.scope_repo_id == params.scope_repo_id
-                    && pending.filter == params.filter
-                    && pending.request_id == params.request_id
+            .list
+            .is_stale(&jefe::state::pagination::LoadCorrelation::Reload {
+                identity: jefe::state::PrListIdentity {
+                    scope_repo_id: params.scope_repo_id.clone(),
+                    filter: params.filter.clone(),
+                },
+                request_id: jefe::domain::ListRequestId::from_raw(params.request_id),
             });
     let event = if params.silent {
         AppEvent::PrListSilentRefreshed {
@@ -331,6 +351,12 @@ fn persist_pr_list_failed(
             request_id: params.request_id,
         }
     } else {
+        // User-initiated load failed because gh is unauthenticated: offer the
+        // in-app device-code auth dialog (issue #244). Silent background
+        // refreshes must NOT pop the dialog.
+        if super::auth_remediation::offer_auth_remediation(app_state, ctx, &error) {
+            return;
+        }
         AppEvent::PrListLoadFailed {
             scope_repo_id: params.scope_repo_id.clone(),
             request_id: params.request_id,
@@ -348,17 +374,10 @@ fn persist_pr_list_failed(
 pub(super) fn load_more_prs_if_at_end(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let should_load = {
         let state = app_state.read();
-        let at_end = state
+        state
             .prs_state
-            .selected_pr_index
-            .is_some_and(|idx| idx + 1 >= state.prs_state.pull_requests.len());
-        // Guard against a pending silent refresh (`loading.list` is false but
-        // `list_reload_pending` is `Some`) so pagination does not clobber an
-        // in-flight background refresh (issue #128).
-        at_end
-            && state.prs_state.has_more_prs
-            && !state.prs_state.loading.list
-            && state.prs_state.list_reload_pending.is_none()
+            .list
+            .should_load_more(state.prs_state.selected_pr_index())
     };
     if should_load {
         dispatch_pr_list_fetch(app_state, ctx, false, false);

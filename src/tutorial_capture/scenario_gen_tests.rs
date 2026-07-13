@@ -68,7 +68,6 @@ fn sample_manifest_with_resources() -> RunManifest {
     manifest
 }
 
-#[test]
 fn extract_scenario_params_returns_exact_manifest_values() {
     let manifest = sample_manifest_with_resources();
     let params =
@@ -89,7 +88,6 @@ fn extract_scenario_params_returns_exact_manifest_values() {
     );
 }
 
-#[test]
 fn extract_scenario_params_returns_none_without_resources() {
     let run_id = RunId::new("run-002").value_or_panic("valid run id");
     let manifest = RunManifest::new(run_id, "0.0.28", "test", 100, 32, RuntimeProfile::Shim);
@@ -99,7 +97,6 @@ fn extract_scenario_params_returns_none_without_resources() {
     );
 }
 
-#[test]
 fn generate_tier_b_scenario_injects_exact_titles_and_numbers() {
     let params = TierBScenarioParams {
         issue_title: "[tutorial-capture:run-001] fixture issue".to_string(),
@@ -132,7 +129,6 @@ fn generate_tier_b_scenario_injects_exact_titles_and_numbers() {
     );
 }
 
-#[test]
 fn generate_tier_b_scenario_uses_filter_and_expect_on_exact_identity() {
     let params = TierBScenarioParams {
         issue_title: "[tutorial-capture:run-001] fixture issue".to_string(),
@@ -161,7 +157,6 @@ fn generate_tier_b_scenario_uses_filter_and_expect_on_exact_identity() {
     );
 }
 
-#[test]
 fn generate_tier_b_merge_scenario_injects_exact_pr_title_and_number() {
     let params = TierBScenarioParams {
         issue_title: "[tutorial-capture:run-001] fixture issue".to_string(),
@@ -182,7 +177,6 @@ fn generate_tier_b_merge_scenario_injects_exact_pr_title_and_number() {
     );
 }
 
-#[test]
 fn generate_tier_b_scenario_escapes_quotes_in_titles() {
     let params = TierBScenarioParams {
         issue_title: "[tutorial-capture:run-001] \"quoted\" issue".to_string(),
@@ -221,7 +215,6 @@ fn sample_params() -> TierBScenarioParams {
 /// Finding #4: After sending an issue to an agent, the scenario must assert
 /// a concrete `Running` marker — not just that the chooser appeared. This
 /// proves the agent was actually started.
-#[test]
 fn generate_tier_b_scenario_asserts_running_after_issue_send() {
     let params = sample_params();
     let json = generate_tier_b_scenario(&params);
@@ -248,7 +241,6 @@ fn generate_tier_b_scenario_asserts_running_after_issue_send() {
 
 /// Finding #4: After sending a PR to an agent, the scenario must assert
 /// a concrete `Running` marker.
-#[test]
 fn generate_tier_b_scenario_asserts_running_after_pr_send() {
     let params = sample_params();
     let json = generate_tier_b_scenario(&params);
@@ -278,7 +270,6 @@ fn generate_tier_b_scenario_asserts_running_after_pr_send() {
 /// navigation. The issue scenario already types into the issues search
 /// input which is focused by default; the PR steps must explicitly focus
 /// search with `/` first.
-#[test]
 fn generate_tier_b_scenario_pr_steps_press_slash_before_typing_pr_title() {
     let params = sample_params();
     let json = generate_tier_b_scenario(&params);
@@ -319,7 +310,6 @@ fn generate_tier_b_scenario_pr_steps_press_slash_before_typing_pr_title() {
 
 /// **issue #241 Tier B**: The Tier B merge scenario must press `/` to focus
 /// the PR search input BEFORE typing the exact PR title.
-#[test]
 fn generate_tier_b_merge_scenario_presses_slash_before_typing_pr_title() {
     let params = sample_params();
     let json = generate_tier_b_merge_scenario(&params);
@@ -358,7 +348,6 @@ fn generate_tier_b_merge_scenario_presses_slash_before_typing_pr_title() {
 /// Finding #4: Issue and PR sends use distinct capture labels so evidence
 /// can be distinguished. Issue captures use `issue-sent-*` / `issue-send-chooser-*`;
 /// PR captures use `pr-sent-*` / `pr-send-chooser-*`.
-#[test]
 fn generate_tier_b_scenario_distinguishes_issue_and_pr_capture_labels() {
     let params = sample_params();
     let json = generate_tier_b_scenario(&params);
@@ -382,7 +371,6 @@ fn generate_tier_b_scenario_distinguishes_issue_and_pr_capture_labels() {
 
 /// Finding #4: The scenario uses distinct macros for issue vs PR sends
 /// (`send-issue-to-agent` and `send-pr-to-agent`), not a single shared macro.
-#[test]
 fn generate_tier_b_scenario_uses_distinct_send_macros() {
     let params = sample_params();
     let json = generate_tier_b_scenario(&params);
@@ -410,7 +398,6 @@ fn generate_tier_b_scenario_uses_distinct_send_macros() {
 /// Finding #1: The Tier B scenario must press `/` to focus the issue search
 /// input BEFORE typing the exact issue title, so the typed text lands in the
 /// search/filter box and narrows the list to the exact fixture issue.
-#[test]
 fn generate_tier_b_scenario_issue_steps_press_slash_before_typing_issue_title() {
     let params = sample_params();
     let json = generate_tier_b_scenario(&params);
@@ -452,7 +439,6 @@ fn generate_tier_b_scenario_issue_steps_press_slash_before_typing_issue_title() 
 /// pressing Enter (applying the filter), the scenario must `waitFor` the
 /// exact issue title to appear (proving the filter narrowed the list),
 /// BEFORE opening the detail.
-#[test]
 fn generate_tier_b_scenario_issue_filter_waits_for_exact_title_after_enter() {
     let params = sample_params();
     let json = generate_tier_b_scenario(&params);
@@ -504,7 +490,6 @@ use crate::tutorial_capture::scenario_gen::TierBValidationError;
 
 /// Finding #2: A manifest with all three resources (issue, branch, PR)
 /// from the same fixture repo passes validation.
-#[test]
 fn validate_tier_b_resources_accepts_complete_consistent_set() {
     let manifest = sample_manifest_with_resources();
     let result = crate::tutorial_capture::validate_tier_b_resources(&manifest);
@@ -516,7 +501,6 @@ fn validate_tier_b_resources_accepts_complete_consistent_set() {
 
 /// Finding #2: A manifest missing the PR resource must be refused —
 /// capture-github fails closed rather than running a generic scenario.
-#[test]
 fn validate_tier_b_resources_refuses_missing_pr() {
     let mut manifest = sample_manifest_with_resources();
     // Remove the PR resource.
@@ -533,7 +517,6 @@ fn validate_tier_b_resources_refuses_missing_pr() {
 }
 
 /// Finding #2: A manifest missing the issue resource must be refused.
-#[test]
 fn validate_tier_b_resources_refuses_missing_issue() {
     let mut manifest = sample_manifest_with_resources();
     manifest
@@ -549,7 +532,6 @@ fn validate_tier_b_resources_refuses_missing_issue() {
 }
 
 /// Finding #2: A manifest missing the branch resource must be refused.
-#[test]
 fn validate_tier_b_resources_refuses_missing_branch() {
     let mut manifest = sample_manifest_with_resources();
     manifest
@@ -565,7 +547,6 @@ fn validate_tier_b_resources_refuses_missing_branch() {
 }
 
 /// Finding #2: A manifest with no resources at all must be refused.
-#[test]
 fn validate_tier_b_resources_refuses_empty_resources() {
     let run_id = RunId::new("run-empty").value_or_panic("valid run id");
     let manifest = RunManifest::new(run_id, "0.0.28", "test", 100, 32, RuntimeProfile::Shim);
@@ -580,7 +561,6 @@ fn validate_tier_b_resources_refuses_empty_resources() {
 
 /// Finding #2: Resources from the wrong repository (not matching
 /// fixture_github_repo) must be refused.
-#[test]
 fn validate_tier_b_resources_refuses_wrong_repo() {
     let mut manifest = sample_manifest_with_resources();
     manifest.set_fixture_github_repo("fixture/wrong-repo");
@@ -594,7 +574,6 @@ fn validate_tier_b_resources_refuses_wrong_repo() {
 }
 
 /// Finding #2: Resources from mixed repositories must be refused.
-#[test]
 fn validate_tier_b_resources_refuses_mixed_repos() {
     let mut manifest = sample_manifest_with_resources();
     // Change one resource's repo to something different.
@@ -616,7 +595,6 @@ fn validate_tier_b_resources_refuses_mixed_repos() {
 }
 
 /// Finding #2: Duplicate resources of the same kind must be refused.
-#[test]
 fn validate_tier_b_resources_refuses_duplicate_issues() {
     let mut manifest = sample_manifest_with_resources();
     // Add a second issue resource.
@@ -637,7 +615,6 @@ fn validate_tier_b_resources_refuses_duplicate_issues() {
 }
 
 /// Finding #2: A resource with an empty identifier must be refused.
-#[test]
 fn validate_tier_b_resources_refuses_empty_identifier() {
     let mut manifest = sample_manifest_with_resources();
     // Set the issue identifier to empty.
@@ -663,7 +640,6 @@ fn validate_tier_b_resources_refuses_empty_identifier() {
 /// scenario must `waitFor` the exact PR title to appear in the filtered list
 /// BEFORE pressing Enter to open the PR detail. This proves the search
 /// narrowed to the correct PR before navigation.
-#[test]
 fn generate_tier_b_scenario_pr_filter_waits_for_exact_title_before_detail_enter() {
     let params = sample_params();
     let json = generate_tier_b_scenario(&params);
@@ -725,7 +701,6 @@ fn generate_tier_b_scenario_pr_filter_waits_for_exact_title_before_detail_enter(
 
 /// Finding #3: The merge scenario must also waitFor the exact PR title
 /// after the search filter Enter, before pressing Enter to open the detail.
-#[test]
 fn generate_tier_b_merge_scenario_pr_filter_waits_for_exact_title_before_detail_enter() {
     let params = sample_params();
     let json = generate_tier_b_merge_scenario(&params);
@@ -779,7 +754,6 @@ fn generate_tier_b_merge_scenario_pr_filter_waits_for_exact_title_before_detail_
 
 /// Finding #3: After the PR detail opens, there must be detail-specific
 /// assertions: waitFor the PR number AND expect the exact PR title.
-#[test]
 fn generate_tier_b_scenario_pr_detail_has_specific_assertions() {
     let params = sample_params();
     let json = generate_tier_b_scenario(&params);
@@ -819,7 +793,6 @@ fn generate_tier_b_scenario_pr_detail_has_specific_assertions() {
 /// Finding #5: Generated scenario JSON must be valid and parseable by
 /// serde_json. This verifies the scenario uses proper serialization rather
 /// than manual string escaping.
-#[test]
 fn generate_tier_b_scenario_produces_valid_serde_json() {
     let params = TierBScenarioParams {
         issue_title: "[tutorial-capture:run-001] fixture issue".to_string(),
@@ -840,7 +813,6 @@ fn generate_tier_b_scenario_produces_valid_serde_json() {
 
 /// Finding #5: Titles with special characters are properly escaped by
 /// serde_json serialization, not manual escaping.
-#[test]
 fn generate_tier_b_scenario_handles_special_chars_via_serde_json() {
     let params = TierBScenarioParams {
         issue_title: "[test] \"quotes\" and \\ backslash".to_string(),
@@ -874,7 +846,6 @@ fn generate_tier_b_scenario_handles_special_chars_via_serde_json() {
 }
 
 /// Finding #5: Merge scenario also produces valid serde_json output.
-#[test]
 fn generate_tier_b_merge_scenario_produces_valid_serde_json() {
     let params = sample_params();
     let json = generate_tier_b_merge_scenario(&params);
@@ -882,4 +853,37 @@ fn generate_tier_b_merge_scenario_produces_valid_serde_json() {
         serde_json::from_str(&json).value_or_panic("merge scenario must be valid JSON");
     assert!(parsed.is_object());
     assert!(parsed.get("steps").is_some());
+}
+
+#[test]
+fn scenario_generation_behaviors() {
+    extract_scenario_params_returns_exact_manifest_values();
+    extract_scenario_params_returns_none_without_resources();
+    generate_tier_b_scenario_injects_exact_titles_and_numbers();
+    generate_tier_b_scenario_uses_filter_and_expect_on_exact_identity();
+    generate_tier_b_merge_scenario_injects_exact_pr_title_and_number();
+    generate_tier_b_scenario_escapes_quotes_in_titles();
+    generate_tier_b_scenario_asserts_running_after_issue_send();
+    generate_tier_b_scenario_asserts_running_after_pr_send();
+    generate_tier_b_scenario_pr_steps_press_slash_before_typing_pr_title();
+    generate_tier_b_merge_scenario_presses_slash_before_typing_pr_title();
+    generate_tier_b_scenario_distinguishes_issue_and_pr_capture_labels();
+    generate_tier_b_scenario_uses_distinct_send_macros();
+    generate_tier_b_scenario_issue_steps_press_slash_before_typing_issue_title();
+    generate_tier_b_scenario_issue_filter_waits_for_exact_title_after_enter();
+    validate_tier_b_resources_accepts_complete_consistent_set();
+    validate_tier_b_resources_refuses_missing_pr();
+    validate_tier_b_resources_refuses_missing_issue();
+    validate_tier_b_resources_refuses_missing_branch();
+    validate_tier_b_resources_refuses_empty_resources();
+    validate_tier_b_resources_refuses_wrong_repo();
+    validate_tier_b_resources_refuses_mixed_repos();
+    validate_tier_b_resources_refuses_duplicate_issues();
+    validate_tier_b_resources_refuses_empty_identifier();
+    generate_tier_b_scenario_pr_filter_waits_for_exact_title_before_detail_enter();
+    generate_tier_b_merge_scenario_pr_filter_waits_for_exact_title_before_detail_enter();
+    generate_tier_b_scenario_pr_detail_has_specific_assertions();
+    generate_tier_b_scenario_produces_valid_serde_json();
+    generate_tier_b_scenario_handles_special_chars_via_serde_json();
+    generate_tier_b_merge_scenario_produces_valid_serde_json();
 }

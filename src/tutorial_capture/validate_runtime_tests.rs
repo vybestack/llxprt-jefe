@@ -34,7 +34,6 @@ impl<T> TestResultExt<T> for Option<T> {
 
 // ── runtime_binary_name ──────────────────────────────────────────────
 
-#[test]
 fn runtime_binary_name_real_llxprt() {
     assert_eq!(
         runtime_binary_name(RuntimeProfile::RealLlxprt),
@@ -42,7 +41,6 @@ fn runtime_binary_name_real_llxprt() {
     );
 }
 
-#[test]
 fn runtime_binary_name_real_code_puppy() {
     assert_eq!(
         runtime_binary_name(RuntimeProfile::RealCodePuppy),
@@ -50,19 +48,16 @@ fn runtime_binary_name_real_code_puppy() {
     );
 }
 
-#[test]
 fn runtime_binary_name_shim_returns_none() {
     assert_eq!(runtime_binary_name(RuntimeProfile::Shim), None);
 }
 
 // ── runtime_label (Finding #2) ───────────────────────────────────────
 
-#[test]
 fn runtime_label_real_llxprt() {
     assert_eq!(runtime_label(RuntimeProfile::RealLlxprt), Some("LLxprt"));
 }
 
-#[test]
 fn runtime_label_real_code_puppy() {
     assert_eq!(
         runtime_label(RuntimeProfile::RealCodePuppy),
@@ -70,14 +65,12 @@ fn runtime_label_real_code_puppy() {
     );
 }
 
-#[test]
 fn runtime_label_shim_returns_none() {
     assert_eq!(runtime_label(RuntimeProfile::Shim), None);
 }
 
 // ── generate_validate_runtime_scenario ───────────────────────────────
 
-#[test]
 fn scenario_for_real_llxprt_contains_llxprt_label() {
     let json = generate_validate_runtime_scenario(RuntimeProfile::RealLlxprt)
         .value_or_panic("should generate scenario for real-llxprt");
@@ -87,7 +80,6 @@ fn scenario_for_real_llxprt_contains_llxprt_label() {
     );
 }
 
-#[test]
 fn scenario_for_real_code_puppy_contains_code_puppy_label() {
     let json = generate_validate_runtime_scenario(RuntimeProfile::RealCodePuppy)
         .value_or_panic("should generate scenario for real-code-puppy");
@@ -97,7 +89,6 @@ fn scenario_for_real_code_puppy_contains_code_puppy_label() {
     );
 }
 
-#[test]
 fn scenario_for_shim_returns_none() {
     assert!(
         generate_validate_runtime_scenario(RuntimeProfile::Shim).is_none(),
@@ -105,7 +96,6 @@ fn scenario_for_shim_returns_none() {
     );
 }
 
-#[test]
 fn scenario_is_valid_json() {
     for profile in [RuntimeProfile::RealLlxprt, RuntimeProfile::RealCodePuppy] {
         let json = generate_validate_runtime_scenario(profile)
@@ -118,7 +108,6 @@ fn scenario_is_valid_json() {
 
 /// Finding #7: The scenario asserts on the actual runtime label in the
 /// chooser via an `expect` step, not just a title or heading.
-#[test]
 fn scenario_uses_expect_on_actual_runtime_label() {
     let json = generate_validate_runtime_scenario(RuntimeProfile::RealLlxprt)
         .value_or_panic("should generate scenario");
@@ -129,7 +118,6 @@ fn scenario_uses_expect_on_actual_runtime_label() {
 }
 
 /// Finding #2: The scenario captures semantic evidence checkpoints.
-#[test]
 fn scenario_captures_semantic_evidence_checkpoints() {
     let json = generate_validate_runtime_scenario(RuntimeProfile::RealCodePuppy)
         .value_or_panic("should generate scenario");
@@ -146,7 +134,6 @@ fn scenario_captures_semantic_evidence_checkpoints() {
 /// Finding #2: The scenario opens New Agent (lowercase `n`) after creating
 /// a repo (uppercase `N`) to trigger the runtime chooser. Jefe routes
 /// lowercase `n` to New Agent when a repo exists.
-#[test]
 fn scenario_opens_new_agent() {
     let json = generate_validate_runtime_scenario(RuntimeProfile::RealLlxprt)
         .value_or_panic("should generate scenario");
@@ -178,7 +165,6 @@ fn scenario_opens_new_agent() {
 /// detection by asserting the chooser shows the runtime label. The step
 /// immediately after the chooser capture must be the quit macro (not any
 /// agent-starting action).
-#[test]
 fn scenario_does_not_start_agent() {
     let json = generate_validate_runtime_scenario(RuntimeProfile::RealLlxprt)
         .value_or_panic("should generate scenario");
@@ -235,7 +221,6 @@ fn scenario_does_not_start_agent() {
 
 /// Finding #2: The scenario uses strict assert mode so detection failures
 /// fail the validation.
-#[test]
 fn scenario_uses_strict_assert_mode() {
     let json = generate_validate_runtime_scenario(RuntimeProfile::RealLlxprt)
         .value_or_panic("should generate scenario");
@@ -250,7 +235,6 @@ fn scenario_uses_strict_assert_mode() {
 /// Finding #2: The scenario must assert on the full "Agent Runtime" label
 /// row text (not just the runtime label), proving the chooser rendered the
 /// runtime selector row.
-#[test]
 fn scenario_asserts_full_agent_runtime_row() {
     let json = generate_validate_runtime_scenario(RuntimeProfile::RealLlxprt)
         .value_or_panic("should generate scenario");
@@ -263,7 +247,6 @@ fn scenario_asserts_full_agent_runtime_row() {
 /// Finding #2: The scenario for llxprt must assert that the opposite runtime
 /// label `code_puppy` is ABSENT via `waitForNot`, the supported harness step
 /// that blocks until a pattern no longer appears on screen.
-#[test]
 fn scenario_for_llxprt_asserts_code_puppy_absent() {
     let json = generate_validate_runtime_scenario(RuntimeProfile::RealLlxprt)
         .value_or_panic("should generate scenario");
@@ -275,7 +258,6 @@ fn scenario_for_llxprt_asserts_code_puppy_absent() {
 
 /// Finding #2: The scenario for code-puppy must assert that the opposite
 /// runtime label `LLxprt` is ABSENT via `waitForNot`.
-#[test]
 fn scenario_for_code_puppy_asserts_llxprt_absent() {
     let json = generate_validate_runtime_scenario(RuntimeProfile::RealCodePuppy)
         .value_or_panic("should generate scenario");
@@ -287,7 +269,6 @@ fn scenario_for_code_puppy_asserts_llxprt_absent() {
 
 /// Finding #2: The scenario must NOT use the unsupported `expectAbsent` step
 /// kind — the harness only supports `waitForNot` for absence checking.
-#[test]
 fn scenario_does_not_use_expectabsent() {
     for profile in [RuntimeProfile::RealLlxprt, RuntimeProfile::RealCodePuppy] {
         let json = generate_validate_runtime_scenario(profile)
@@ -302,7 +283,6 @@ fn scenario_does_not_use_expectabsent() {
 /// Finding #2: The scenario must NOT reference binary names (e.g. `llxprt`,
 /// `code-puppy`) — these are internal identifiers never displayed in the TUI
 /// form. Only visible UI labels (`LLxprt`, `code_puppy`) should be used.
-#[test]
 fn scenario_does_not_reference_binary_names() {
     for profile in [RuntimeProfile::RealLlxprt, RuntimeProfile::RealCodePuppy] {
         let json = generate_validate_runtime_scenario(profile)
@@ -328,7 +308,6 @@ fn scenario_does_not_reference_binary_names() {
 
 /// Finding #2: The scenario for llxprt must still contain the selected
 /// runtime label `LLxprt` as a positive assertion.
-#[test]
 fn scenario_for_llxprt_contains_llxprt_label_positive() {
     let json = generate_validate_runtime_scenario(RuntimeProfile::RealLlxprt)
         .value_or_panic("should generate scenario");
@@ -340,7 +319,6 @@ fn scenario_for_llxprt_contains_llxprt_label_positive() {
 
 /// Finding #2: The scenario for code-puppy must still contain the selected
 /// runtime label `code_puppy` as a positive assertion.
-#[test]
 fn scenario_for_code_puppy_contains_code_puppy_label_positive() {
     let json = generate_validate_runtime_scenario(RuntimeProfile::RealCodePuppy)
         .value_or_panic("should generate scenario");
@@ -353,7 +331,6 @@ fn scenario_for_code_puppy_contains_code_puppy_label_positive() {
 /// Finding #2: Both runtime profiles must assert on the actual runtime label
 /// via `expect`, not just `waitFor` (assertion proves detection, not just
 /// that the UI appeared).
-#[test]
 fn scenario_uses_expect_not_just_waitfor_for_runtime_label() {
     for profile in [RuntimeProfile::RealLlxprt, RuntimeProfile::RealCodePuppy] {
         let json = generate_validate_runtime_scenario(profile)
@@ -370,7 +347,6 @@ fn scenario_uses_expect_not_just_waitfor_for_runtime_label() {
 /// The generated scenario JSON must parse successfully through the harness
 /// `parse_scenario` function — proving the scenario uses only supported step
 /// kinds and well-formed structure.
-#[test]
 fn scenario_parses_through_harness_parse_scenario() {
     for profile in [RuntimeProfile::RealLlxprt, RuntimeProfile::RealCodePuppy] {
         let json = generate_validate_runtime_scenario(profile)
@@ -426,7 +402,6 @@ fn setup_test_run(
 /// Finding #1: `prepare_validate_runtime_scenario` writes the scenario under
 /// `artifacts/scenarios/`, registers it in the manifest as
 /// `ArtifactKind::Scenario`, and persists the manifest.
-#[test]
 fn prepare_scenario_writes_under_artifacts_scenarios_and_registers() {
     let (_base, run_root, artifact_dir, mut manifest) =
         setup_test_run("vr-001", RuntimeProfile::RealLlxprt);
@@ -484,7 +459,6 @@ fn prepare_scenario_writes_under_artifacts_scenarios_and_registers() {
 
 /// Finding #1: The scenario file is written atomically (complete content, no
 /// partial write).
-#[test]
 fn prepare_scenario_atomic_write_produces_complete_file() {
     let (_base, run_root, artifact_dir, mut manifest) =
         setup_test_run("vr-002", RuntimeProfile::RealCodePuppy);
@@ -498,7 +472,6 @@ fn prepare_scenario_atomic_write_produces_complete_file() {
 }
 
 /// Finding #1: `prepare_validate_runtime_scenario` fails for Shim profile.
-#[test]
 fn prepare_scenario_fails_for_shim_profile() {
     let (_base, run_root, artifact_dir, mut manifest) =
         setup_test_run("vr-003", RuntimeProfile::Shim);
@@ -508,4 +481,35 @@ fn prepare_scenario_fails_for_shim_profile() {
         result.is_err(),
         "Shim profile must not produce a validate-runtime scenario"
     );
+}
+
+#[test]
+fn validate_runtime_behaviors() {
+    runtime_binary_name_real_llxprt();
+    runtime_binary_name_real_code_puppy();
+    runtime_binary_name_shim_returns_none();
+    runtime_label_real_llxprt();
+    runtime_label_real_code_puppy();
+    runtime_label_shim_returns_none();
+    scenario_for_real_llxprt_contains_llxprt_label();
+    scenario_for_real_code_puppy_contains_code_puppy_label();
+    scenario_for_shim_returns_none();
+    scenario_is_valid_json();
+    scenario_uses_expect_on_actual_runtime_label();
+    scenario_captures_semantic_evidence_checkpoints();
+    scenario_opens_new_agent();
+    scenario_does_not_start_agent();
+    scenario_uses_strict_assert_mode();
+    scenario_asserts_full_agent_runtime_row();
+    scenario_for_llxprt_asserts_code_puppy_absent();
+    scenario_for_code_puppy_asserts_llxprt_absent();
+    scenario_does_not_use_expectabsent();
+    scenario_does_not_reference_binary_names();
+    scenario_for_llxprt_contains_llxprt_label_positive();
+    scenario_for_code_puppy_contains_code_puppy_label_positive();
+    scenario_uses_expect_not_just_waitfor_for_runtime_label();
+    scenario_parses_through_harness_parse_scenario();
+    prepare_scenario_writes_under_artifacts_scenarios_and_registers();
+    prepare_scenario_atomic_write_produces_complete_file();
+    prepare_scenario_fails_for_shim_profile();
 }

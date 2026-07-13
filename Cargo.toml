@@ -1,6 +1,6 @@
 [package]
 name = "jefe"
-version = "0.0.28"
+version = "0.0.29"
 edition = "2024"
 authors = ["Vybestack LLC"]
 description = "Terminal application for managing multiple llxprt coding agents"
@@ -53,6 +53,14 @@ comrak = { version = "0.53", default-features = false }
 # SHA-256 digest for tutorial-capture binary/scenario reproducibility metadata
 # (issue #241). Pure-Rust, no-std compatible, no unsafe.
 sha2 = "0.10"
+
+[features]
+psmux-smoke = []
+
+[[bin]]
+name = "jefe-psmux-smoke-fixture"
+path = "tests/fixtures/psmux_smoke_fixture.rs"
+required-features = ["psmux-smoke"]
 
 [patch.crates-io]
 iocraft = { path = "vendor/iocraft" }

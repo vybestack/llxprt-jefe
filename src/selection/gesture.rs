@@ -8,11 +8,12 @@
 //!
 //! # Decision table (at left-down)
 //!
-//! | shift | reporting | owner decision                                               |
-//! |:-----:|:---------:|--------------------------------------------------------------|
-//! | yes   | any       | Jefe owns (shift means "I want a Jefe selection")            |
-//! | no    | no        | Jefe owns (selection over snapshot)                          |
-//! | no    | yes       | **pending** — buffer the down, decide on the next event     |
+//! | shift | reporting | kennel | owner decision                                              |
+//! |:-----:|:---------:|:------:|-------------------------------------------------------------|
+//! | yes   | any       | any    | Jefe owns (shift means "I want a Jefe selection")           |
+//! | no    | no        | any    | Jefe owns (selection over snapshot)                         |
+//! | no    | yes       | no     | **PTY owns** — forward down immediately, latch PtyOwned (#245) |
+//! | no    | yes       | yes    | **pending** — buffer the down, decide on the next event (#197) |
 //!
 //! # Pending resolution
 //!
@@ -28,6 +29,18 @@
 //! - A stray second **left-down** (rare with well-formed event sequences) →
 //!   flush the buffered down to the PTY first, then start the new gesture, so
 //!   the reporting app never loses a press.
+//!
+//! # PTY-owned resolution (non-kennel, issue #245)
+//!
+//! While **pty-owned** (non-kennel reporting child, non-shift left-down
+//! forwarded immediately):
+//! - A left-button **drag** → forward the drag to the PTY (scrollbar drag,
+//!   text selection in the child TUI, etc.).
+//! - Left-button **up** → forward the up to the PTY, then reset to idle.
+//! - Any **non-left-button** event (wheel/right/middle) or a stray second
+//!   **left-down** → reset to idle and process the event from idle (nothing is
+//!   buffered in PtyOwned — the down was already forwarded — so no flush is
+//!   needed).
 //!
 //! # Other gestures
 //!
@@ -76,6 +89,11 @@ pub struct GestureEvent {
     /// reads it once per event under a single lock acquisition (issue #197
     /// TOCTOU fix).
     pub mouse_reporting_active: bool,
+    /// Whether the agent is a kennel (Code Puppy) agent. Injected per-event by
+    /// the router so the state machine stays pure. Kennel agents use Jefe's
+    /// text selection over reporting terminals (issue #197); non-kennel agents
+    /// (llxprt) own their left-button mouse events over the PTY (issue #245).
+    pub kennel_mode: bool,
 }
 
 /// The action the router should take in response to an event.
@@ -154,6 +172,13 @@ pub enum GestureState {
         /// The anchor point (content coordinates).
         anchor: SelectionPoint,
     },
+    /// The PTY owns the gesture: a non-kennel reporting child's left-button
+    /// down was forwarded immediately, and subsequent drags/up are forwarded
+    /// too (issue #245: non-kennel scrollbar drags/clicks must reach the PTY,
+    /// not Jefe's text selection). Nothing is buffered — the down was already
+    /// forwarded — so a non-left event or stray left-down simply resets to
+    /// Idle.
+    PtyOwned,
 }
 
 impl GestureState {
@@ -168,6 +193,22 @@ impl GestureState {
     where
         R: Fn(u16, u16) -> Option<SelectionPoint>,
     {
+        // A non-left event (wheel/right/middle) or a stray second LeftDown
+        // while PtyOwned → reset to Idle and process the event from Idle.
+        // PtyOwned has nothing buffered (the down was already forwarded), so
+        // no flush is needed — unlike Pending (issue #245).
+        if matches!(self, Self::PtyOwned)
+            && matches!(
+                event.kind,
+                GestureEventKind::LeftDown
+                    | GestureEventKind::ScrollUp
+                    | GestureEventKind::ScrollDown
+                    | GestureEventKind::OtherButton
+            )
+        {
+            return Self::Idle.process(event, resolve_point);
+        }
+
         // Any non-drag left-button-terminating event while pending → flush:
         // replay the buffered down to the PTY, then process the current event
         // from idle. This prevents a reporting app from being starved of its
@@ -231,7 +272,23 @@ impl GestureState {
             };
         }
 
-        // Reporting child, non-shift → pending: buffer the down, decide later.
+        // Reporting child, non-shift:
+        // - Non-kennel (llxprt) → PTY owns: forward the down immediately and
+        //   latch PtyOwned so the whole gesture (scrollbar drag / click) reaches
+        //   the child (issue #245).
+        // - Kennel (Code Puppy) → pending: buffer the down, decide on the next
+        //   event (unchanged #197 behavior).
+        if !event.kennel_mode {
+            return (
+                GestureAction::ForwardToPty(vec![PtyReplay {
+                    col: event.col,
+                    row: event.row,
+                    kind: GestureEventKind::LeftDown,
+                }]),
+                Self::PtyOwned,
+            );
+        }
+
         (
             GestureAction::Noop,
             Self::Pending {
@@ -297,6 +354,17 @@ impl GestureState {
                 // Drag without a preceding down — ignore.
                 (GestureAction::Noop, Self::Idle)
             }
+            Self::PtyOwned => {
+                // PTY owns the gesture: forward the drag to the child.
+                (
+                    GestureAction::ForwardToPty(vec![PtyReplay {
+                        col: event.col,
+                        row: event.row,
+                        kind: GestureEventKind::LeftDrag,
+                    }]),
+                    Self::PtyOwned,
+                )
+            }
         }
     }
 
@@ -328,6 +396,17 @@ impl GestureState {
                 )
             }
             Self::Idle => (GestureAction::Noop, Self::Idle),
+            Self::PtyOwned => {
+                // PTY owns the gesture: forward the up to the child, then reset.
+                (
+                    GestureAction::ForwardToPty(vec![PtyReplay {
+                        col: event.col,
+                        row: event.row,
+                        kind: GestureEventKind::LeftUp,
+                    }]),
+                    Self::Idle,
+                )
+            }
         }
     }
 

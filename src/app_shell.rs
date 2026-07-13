@@ -9,8 +9,8 @@ use tracing::{debug, trace, warn};
 use crate::AppContext;
 use crate::app_input::{
     dispatch_app_event, forward_key_to_pty, handle_f12_toggle, handle_global_shortcut_key,
-    handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key, handle_mode_search_key,
-    handle_mode_theme_picker_key, handle_normal_key_event, persist_state,
+    handle_mode_auth_key, handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key,
+    handle_mode_search_key, handle_mode_theme_picker_key, handle_normal_key_event, persist_state,
     request_pr_background_refresh, to_persisted_state, try_ctrl_c_interrupt_passthrough,
     try_intercept_terminal_scrollback,
 };
@@ -669,7 +669,15 @@ fn handle_key_event(
 
     update_paste_enter_suppression(app_state, suppress_next_enter, &key_event);
 
-    if key_event.code == KeyCode::F(12) {
+    // F12 toggles terminal focus in Dashboard/Split/Actions. In Issues/PR
+    // mode F12 is mode-aware (defocus / return to list) and is handled by
+    // the mode-specific resolvers below, so it must NOT be intercepted here.
+    if key_event.code == KeyCode::F(12)
+        && matches!(
+            screen_mode,
+            ScreenMode::Dashboard | ScreenMode::Split | ScreenMode::DashboardActions
+        )
+    {
         handle_f12_toggle(app_state, &ctx.cloned());
         return;
     }
@@ -749,14 +757,12 @@ fn dispatch_mode_specific_key(
             handle_mode_help_key(app_state, &ctx.cloned(), help_scroll, key_event);
             true
         }
-        InputMode::Confirm => {
-            handle_mode_confirm_key(app_state, &ctx.cloned(), key_event);
-            true
-        }
+        InputMode::Confirm => handle_mode_confirm_key(app_state, &ctx.cloned(), key_event),
         InputMode::ThemePicker => {
             handle_mode_theme_picker_key(app_state, &ctx.cloned(), key_event);
             true
         }
+        InputMode::Auth => handle_mode_auth_key(app_state, &ctx.cloned(), key_event),
         InputMode::Search => handle_mode_search_key(app_state, &ctx.cloned(), key_event),
         InputMode::Form => handle_mode_form_key(app_state, &ctx.cloned(), key_event),
         // @plan PLAN-20260329-ISSUES-MODE.P03

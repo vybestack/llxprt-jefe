@@ -6,14 +6,19 @@ use crate::domain::{
 use std::fmt::Write;
 use std::process::Command;
 
-/// Percent-encode a value for use in a URL path segment (RFC 3986). Keeps
-/// unreserved characters (`A-Za-z0-9-._~`) and `/` (workflow filter may be a
-/// `.github/workflows/ci.yml` path) verbatim; encodes everything else.
+/// Percent-encode a SINGLE URL path segment (RFC 3986). Keeps unreserved
+/// characters (`A-Za-z0-9-._~`) verbatim; encodes everything else, including
+/// `/` (as `%2F`) so a stray full path can never silently leak slashes into
+/// one segment and reproduce the #206 404.
+///
+/// This is intentionally segment-only: it does NOT preserve `/` as a path
+/// separator. Callers building multi-segment paths must join already-encoded
+/// segments with literal `/` themselves; do not pass a composite path here.
 fn percent_encode_path(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for &b in value.as_bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
                 out.push(b as char);
             }
             _ => {
@@ -22,6 +27,25 @@ fn percent_encode_path(value: &str) -> String {
         }
     }
     out
+}
+
+/// Return the bare workflow filename (last path segment) of a workflow
+/// file path. The GitHub REST API
+/// `repos/{owner}/{repo}/actions/workflows/{workflow_id_or_filename}/runs`
+/// endpoint accepts the workflow's filename (e.g. `ci.yml`) but NOT the
+/// full `.github/workflows/ci.yml` path — literal slashes in the path
+/// segment make the API route to a different resource and return 404.
+///
+/// Trailing slashes are trimmed first so a non-canonical path like
+/// `.github/workflows/ci.yml/` resolves to `ci.yml` rather than an empty
+/// segment (which would produce a malformed `/workflows//runs` URL).
+#[must_use]
+fn workflow_filename(path: &str) -> &str {
+    let trimmed = path.trim_end_matches('/');
+    match trimmed.rsplit_once('/') {
+        Some((_, name)) => name,
+        None => trimmed,
+    }
 }
 
 /// Percent-encode a value for use in a URL query component (RFC 3986). Keeps
@@ -263,9 +287,18 @@ fn run_gh<S: AsRef<std::ffi::OsStr>>(args: &[S]) -> Result<String, GhError> {
 
 /// Build the GitHub API path for listing workflow runs with filters.
 ///
-/// Pure function extracted from `list_runs` for unit testability — verifies
-/// the workflow filter uses `workflow_path` (file path) not `workflow` (display
-/// name), since the API rejects display names with HTTP 404.
+/// Pure function extracted from `list_runs` for unit testability. When a
+/// workflow filter is set, only the bare **filename** of `workflow_path`
+/// (its last `/`-separated segment, via [`workflow_filename`]) is sent as
+/// the `actions/workflows/{filename}/runs` endpoint segment — the GitHub
+/// REST API rejects the full `.github/workflows/...` path (literal slashes
+/// route to a different resource, returning HTTP 404) and also rejects the
+/// `workflow` display name with HTTP 404.
+///
+/// The sentinel ("all") and emptiness checks run against the normalized
+/// filename, so non-canonical inputs (`"all/"`, `"/"`, `"///"`, `""`) all
+/// fall through to the generic `actions/runs` endpoint rather than producing
+/// a malformed workflow-specific URL.
 #[must_use]
 pub fn build_runs_api_path(
     owner: &str,
@@ -274,9 +307,14 @@ pub fn build_runs_api_path(
     page: u32,
     per_page: u32,
 ) -> String {
-    let workflow_enc = percent_encode_path(&filter.workflow_path);
+    // Normalize once: the sentinel ("all") and emptiness checks run against
+    // the SAME value used in the path segment, so "all/", "/", "///", and ""
+    // all route to the generic runs endpoint instead of producing malformed
+    // workflow-specific URLs like /workflows/all/runs or /workflows//runs.
+    let workflow_id = workflow_filename(&filter.workflow_path);
+    let workflow_enc = percent_encode_path(workflow_id);
     let status_enc = percent_encode_query(&filter.status);
-    let mut api_path = if filter.workflow_path != "all" && !filter.workflow_path.is_empty() {
+    let mut api_path = if workflow_id != "all" && !workflow_id.is_empty() {
         format!(
             "repos/{owner}/{repo}/actions/workflows/{workflow_enc}/runs?page={page}&per_page={per_page}"
         )
@@ -399,10 +437,45 @@ mod tests {
     use super::*;
     use crate::domain::ActionsFilter;
 
-    /// The API path must use the workflow FILE PATH, not the display name.
-    /// Using the display name would produce HTTP 404 (BUG 2).
+    /// `percent_encode_path` must encode `/` as `%2F` so a stray full path
+    /// passed without going through `workflow_filename` can never silently
+    /// leak slashes into a single path segment (the #206 404 regression).
     #[test]
-    fn build_runs_api_path_uses_workflow_path_not_name() {
+    fn percent_encode_path_encodes_slash() {
+        let encoded = percent_encode_path(".github/workflows/ci.yml");
+        assert!(
+            encoded.contains("%2F"),
+            "slash must be percent-encoded, got: {encoded}"
+        );
+        assert!(
+            !encoded.contains('/'),
+            "no literal slash may remain, got: {encoded}"
+        );
+    }
+
+    /// A non-canonical trailing slash must not collapse the filename to an
+    /// empty segment (which would yield a malformed `/workflows//runs` URL).
+    #[test]
+    fn build_runs_api_path_trailing_slash_still_uses_filename() {
+        let filter = ActionsFilter {
+            workflow: "CI".to_string(),
+            workflow_path: ".github/workflows/ci.yml/".to_string(),
+            ..ActionsFilter::default()
+        };
+        let path = build_runs_api_path("owner", "repo", &filter, 1, 30);
+        assert_eq!(
+            path, "repos/owner/repo/actions/workflows/ci.yml/runs?page=1&per_page=30",
+            "trailing slash must be trimmed before extracting the filename, got: {path}"
+        );
+    }
+
+    /// The API path must use the workflow FILENAME (last path segment), not
+    /// the full `.github/workflows/ci.yml` path. The GitHub REST endpoint
+    /// `actions/workflows/{workflow_id_or_filename}/runs` rejects the full
+    /// path with HTTP 404 because the literal slashes split the path into
+    /// wrong segments.
+    #[test]
+    fn build_runs_api_path_uses_workflow_filename_not_full_path() {
         let filter = ActionsFilter {
             workflow: "CI".to_string(),
             workflow_path: ".github/workflows/ci.yml".to_string(),
@@ -410,12 +483,55 @@ mod tests {
         };
         let path = build_runs_api_path("owner", "repo", &filter, 1, 30);
         assert!(
-            path.contains(".github/workflows/ci.yml"),
-            "API path must contain the workflow file path, got: {path}"
+            path.contains("/workflows/ci.yml/runs"),
+            "API path must contain the bare workflow filename, got: {path}"
+        );
+        assert!(
+            !path.contains(".github/"),
+            "API path must NOT leak the full directory path, got: {path}"
+        );
+        assert!(
+            !path.contains("%2F"),
+            "API path must NOT contain encoded slashes, got: {path}"
         );
         assert!(
             !path.contains("/workflows/CI/"),
             "API path must NOT contain the display name, got: {path}"
+        );
+    }
+
+    /// A nested workflow path like `.github/workflows/ocr-review.yml` must
+    /// resolve to the bare filename `ocr-review.yml` in the API path segment.
+    #[test]
+    fn build_runs_api_path_uses_filename_for_nested_workflow_path() {
+        let filter = ActionsFilter {
+            workflow: "OCR Review".to_string(),
+            workflow_path: ".github/workflows/ocr-review.yml".to_string(),
+            ..ActionsFilter::default()
+        };
+        let path = build_runs_api_path("owner", "repo", &filter, 1, 30);
+        // Exact contract: only the bare filename appears as the workflow
+        // segment; the `.github/workflows/` prefix must not leak into the URL.
+        assert_eq!(
+            path, "repos/owner/repo/actions/workflows/ocr-review.yml/runs?page=1&per_page=30",
+            "API path must use the bare workflow filename, got: {path}"
+        );
+    }
+
+    /// A workflow path that is already just a filename (no directory
+    /// separator) must be used unchanged. Defensive: guards against future
+    /// state changes where the path may be normalized to a bare filename.
+    #[test]
+    fn build_runs_api_path_filename_without_directory_separator() {
+        let filter = ActionsFilter {
+            workflow: "CI".to_string(),
+            workflow_path: "ci.yml".to_string(),
+            ..ActionsFilter::default()
+        };
+        let path = build_runs_api_path("owner", "repo", &filter, 1, 30);
+        assert!(
+            path.contains("/workflows/ci.yml/runs"),
+            "API path must contain the bare filename, got: {path}"
         );
     }
 
@@ -429,6 +545,29 @@ mod tests {
             path.ends_with("/actions/runs?page=1&per_page=30"),
             "expected generic runs endpoint, got: {path}"
         );
+    }
+
+    /// Non-canonical "all" / empty inputs must fall through to the generic
+    /// runs endpoint, not a malformed workflow-specific URL. The sentinel is
+    /// checked against the normalized filename, so "all/" and "///" resolve
+    /// to "all" / "" respectively.
+    #[test]
+    fn build_runs_api_path_non_canonical_all_routes_to_generic_endpoint() {
+        for raw in ["all/", "/", "///", ""] {
+            let filter = ActionsFilter {
+                workflow_path: raw.to_string(),
+                ..ActionsFilter::default()
+            };
+            let path = build_runs_api_path("owner", "repo", &filter, 1, 30);
+            assert!(
+                path.ends_with("/actions/runs?page=1&per_page=30"),
+                "raw {raw:?} must route to the generic runs endpoint, got: {path}"
+            );
+            assert!(
+                !path.contains("/workflows/"),
+                "raw {raw:?} must not produce a workflow-specific URL, got: {path}"
+            );
+        }
     }
 
     /// Status filter is appended as a query parameter.

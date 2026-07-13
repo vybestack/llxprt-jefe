@@ -159,6 +159,9 @@ pub fn header_row(
 /// Both Issues and PRs detail panes use the same match arms and the same
 /// composer prefixes, so this single helper replaces the duplicated
 /// `active_issue_composer` / `active_pr_composer`.
+///
+/// `NewIssue` is routed through the wrapping `TextBox` too (issue #212) so the
+/// new-issue editor word-wraps instead of truncating off the right edge.
 #[must_use]
 pub fn composer_from_inline_state(
     inline_state: &InlineState,
@@ -166,7 +169,7 @@ pub fn composer_from_inline_state(
     use crate::state::ComposerTarget;
     match inline_state {
         InlineState::Composer {
-            target: ComposerTarget::NewComment,
+            target: ComposerTarget::NewComment | ComposerTarget::NewIssue,
             text,
             cursor,
         } => Some((
@@ -179,12 +182,7 @@ pub fn composer_from_inline_state(
             text,
             cursor,
         } => Some((text.clone(), *cursor, crate::layout::REPLY_COMPOSER_PREFIX)),
-        InlineState::Composer {
-            target: ComposerTarget::NewIssue,
-            ..
-        }
-        | InlineState::Editor { .. }
-        | InlineState::None => None,
+        InlineState::Editor { .. } | InlineState::None => None,
     }
 }
 

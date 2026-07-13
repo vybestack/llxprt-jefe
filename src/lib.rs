@@ -35,6 +35,10 @@ pub mod state;
 /// @requirement REQ-PR-009
 /// @requirement REQ-PR-010
 pub mod text_box_view;
+/// Pure, iocraft-free word-wrap projection shared by the editor and displayer.
+///
+/// @requirement REQ-TEXT-WRAP
+pub mod text_wrap;
 pub mod theme;
 pub mod ui;
 
@@ -65,7 +69,6 @@ mod github_tests_pr_threads;
 
 /// Current application version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-
 pub mod harness;
 /// Reusable agent-driven tutorial-capture workflow around the tmux harness
 /// (issue #241).

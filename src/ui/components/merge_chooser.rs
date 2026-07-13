@@ -73,7 +73,7 @@ pub fn MergeChooser(props: &MergeChooserProps) -> impl Into<AnyElement<'static>>
         sel,
     ));
     lines.push(selectable_line(
-        "─────────────────────────────────────────",
+        super::SEPARATOR_LINE,
         {
             let i = line_idx;
             line_idx += 1;
@@ -118,7 +118,7 @@ pub fn MergeChooser(props: &MergeChooserProps) -> impl Into<AnyElement<'static>>
 
     // Separator + hints
     lines.push(selectable_line(
-        "─────────────────────────────────────────",
+        super::SEPARATOR_LINE,
         {
             let i = line_idx;
             line_idx += 1;

@@ -12,6 +12,8 @@ use iocraft::prelude::*;
 
 use jefe::state::{AppEvent, AppState};
 
+use super::filter_controls::{FilterControlCommand, FilterEditorKind, resolve_filter_control_key};
+
 /// The eight filter fields indexed by `filter_ui.field_index`.
 /// State field (index 0) is the default for Space cycling.
 const DRAFT_FIELD: usize = 1;
@@ -36,20 +38,26 @@ pub(super) fn handle_pr_filter_controls_key(
     key_event: &KeyEvent,
 ) -> Option<AppEvent> {
     let field_idx = state.prs_state.filter_ui.field_index;
-    match key_event.code {
-        KeyCode::Enter => Some(AppEvent::PrApplyFilter),
-        KeyCode::Esc => Some(AppEvent::PrCloseFilterControls),
-        KeyCode::Tab => Some(AppEvent::PrFilterNavigateNext),
-        KeyCode::BackTab => Some(AppEvent::PrFilterNavigatePrev),
-        KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(AppEvent::PrClearFilter)
+    let editor = if is_text_field(field_idx) {
+        FilterEditorKind::Text
+    } else {
+        FilterEditorKind::Cycle
+    };
+    match resolve_filter_control_key(editor, key_event)? {
+        FilterControlCommand::Apply => Some(AppEvent::PrApplyFilter),
+        FilterControlCommand::Cancel => Some(AppEvent::PrCloseFilterControls),
+        FilterControlCommand::Next => Some(AppEvent::PrFilterNavigateNext),
+        FilterControlCommand::Previous => Some(AppEvent::PrFilterNavigatePrev),
+        FilterControlCommand::ClearAll => Some(AppEvent::PrClearFilter),
+        FilterControlCommand::ClearCurrent if is_text_field(field_idx) => {
+            Some(text_clear_event(state, field_idx))
         }
-        KeyCode::Char(' ') if !is_text_field(field_idx) => Some(space_event_for_field(field_idx)),
-        KeyCode::Char(c) if is_text_field(field_idx) => Some(text_char_event(state, field_idx, c)),
-        KeyCode::Backspace if is_text_field(field_idx) => {
-            Some(text_backspace_event(state, field_idx))
+        FilterControlCommand::CycleNext | FilterControlCommand::CyclePrevious => {
+            Some(space_event_for_field(field_idx))
         }
-        _ => None,
+        FilterControlCommand::Append(c) => Some(text_char_event(state, field_idx, c)),
+        FilterControlCommand::Backspace => Some(text_backspace_event(state, field_idx)),
+        FilterControlCommand::ClearCurrent => None,
     }
 }
 
@@ -101,6 +109,14 @@ fn text_backspace_event(state: &AppState, field_idx: usize) -> AppEvent {
     let (field, mut value) = text_field_value(state, field_idx);
     value.pop();
     AppEvent::PrUpdateDraftFilter { field, value }
+}
+
+fn text_clear_event(state: &AppState, field_idx: usize) -> AppEvent {
+    let (field, _) = text_field_value(state, field_idx);
+    AppEvent::PrUpdateDraftFilter {
+        field,
+        value: String::new(),
+    }
 }
 
 /// Read the (field_name, current_value) for the active text field.

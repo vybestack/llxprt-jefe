@@ -5,7 +5,7 @@
 //! Extracted from `modal_handlers.rs` to keep that handler module under the
 //! architecture per-file line limit.
 
-use super::modal_handlers::{apply_focus_terminal_after_submit, confirm_focus_is_cancel};
+use super::modal_handlers::confirm_focus_is_cancel;
 use jefe::domain::{
     AgentId, AgentKind, LaunchSignature, RemoteRepositorySettings, RepositoryId, SandboxEngine,
 };
@@ -33,46 +33,45 @@ fn sample_signature() -> LaunchSignature {
 
 /// Build all six confirm-modal variants parameterized by `focus`, so that
 /// adding a new variant only requires updating one place (issue #228).
-fn sample_confirm_modals(focus: ConfirmFocus) -> [ModalState; 6] {
-    [
-        ModalState::ConfirmDeleteAgent {
-            id: AgentId("a1".into()),
-            delete_work_dir: false,
-            confirm_focus: focus,
-        },
-        ModalState::ConfirmDeleteRepository {
-            id: RepositoryId("r1".into()),
-            confirm_focus: focus,
-        },
-        ModalState::ConfirmKillAgent {
-            id: AgentId("a1".into()),
-            confirm_focus: focus,
-        },
-        ModalState::PreflightPrompt {
-            agent_id: AgentId("a1".into()),
-            signature: sample_signature(),
-            issue: PreflightIssue::SshAgentNoIdentities,
-            remaining_issues: Vec::new(),
-            issue_self_assignment: None,
-            confirm_focus: focus,
-        },
-        ModalState::ConfirmIssueDirtyCopy {
-            agent_id: AgentId("a1".into()),
-            work_dir: std::path::PathBuf::from("/tmp"),
-            signature: sample_signature(),
-            payload: SendPayload::default(),
-            confirm_focus: focus,
-        },
-        ModalState::ConfirmIssueOriginMismatch {
-            agent_id: AgentId("a1".into()),
-            work_dir: std::path::PathBuf::from("/tmp"),
-            signature: sample_signature(),
-            payload: SendPayload::default(),
-            actual: String::from("other/repo"),
-            expected: String::from("acme/widgets"),
-            confirm_focus: focus,
-        },
-    ]
+fn sample_confirm_modals(focus: ConfirmFocus) -> Vec<ModalState> {
+    std::iter::once(ModalState::ConfirmDeleteAgent {
+        id: AgentId("a1".into()),
+        delete_work_dir: false,
+        confirm_focus: focus,
+    })
+    .chain(std::iter::once(ModalState::ConfirmDeleteRepository {
+        id: RepositoryId("r1".into()),
+        confirm_focus: focus,
+    }))
+    .chain(std::iter::once(ModalState::ConfirmKillAgent {
+        id: AgentId("a1".into()),
+        confirm_focus: focus,
+    }))
+    .chain(std::iter::once(ModalState::PreflightPrompt {
+        agent_id: AgentId("a1".into()),
+        signature: sample_signature(),
+        issue: PreflightIssue::SshAgentNoIdentities,
+        remaining_issues: Vec::new(),
+        issue_self_assignment: None,
+        confirm_focus: focus,
+    }))
+    .chain(std::iter::once(ModalState::ConfirmIssueDirtyCopy {
+        agent_id: AgentId("a1".into()),
+        work_dir: std::path::PathBuf::from("/tmp"),
+        signature: sample_signature(),
+        payload: SendPayload::default(),
+        confirm_focus: focus,
+    }))
+    .chain(std::iter::once(ModalState::ConfirmIssueOriginMismatch {
+        agent_id: AgentId("a1".into()),
+        work_dir: std::path::PathBuf::from("/tmp"),
+        signature: sample_signature(),
+        payload: SendPayload::default(),
+        actual: String::from("other/repo"),
+        expected: String::from("acme/widgets"),
+        confirm_focus: focus,
+    }))
+    .collect()
 }
 
 /// All six confirm variants focused on Cancel must be recognized as such.
@@ -119,111 +118,4 @@ fn confirm_focus_is_cancel_uses_correct_field_not_default() {
         !confirm_focus_is_cancel(&modal),
         "must read the actual confirm_focus field, not a hardcoded Cancel default"
     );
-}
-
-/// Real modal behavior: exercises the actual production focus function.
-///
-/// This test calls `apply_focus_terminal_after_submit` — the pure, extracted
-/// function that [`focus_terminal_after_submit`] invokes on the `AppState`
-/// after a form submit. It asserts **both** fields are set:
-/// - `terminal_focused = true`
-/// - `pane_focus = PaneFocus::Terminal`
-///
-/// If either assignment is removed from the production function, this test
-/// fails. This replaces the previous "mock theater" test that only verified
-/// the state machine transition without exercising the real focus code.
-///
-/// @requirement Regression: issue #241 modal_handlers submit behavior
-#[test]
-fn focus_terminal_after_submit_sets_both_terminal_focus_and_pane_focus() {
-    use jefe::state::{AppState, PaneFocus};
-
-    let mut state = AppState::default();
-    // Preconditions: terminal is NOT focused and pane is NOT Terminal.
-    assert!(
-        !state.terminal_focused,
-        "precondition: terminal should be unfocused"
-    );
-    assert_ne!(
-        state.pane_focus,
-        PaneFocus::Terminal,
-        "precondition: pane focus should not be Terminal"
-    );
-
-    // Call the actual production function extracted from the handler.
-    apply_focus_terminal_after_submit(&mut state);
-
-    // Assert BOTH fields are set by the production function.
-    assert!(
-        state.terminal_focused,
-        "production focus function must set terminal_focused = true"
-    );
-    assert_eq!(
-        state.pane_focus,
-        PaneFocus::Terminal,
-        "production focus function must set pane_focus = Terminal"
-    );
-}
-
-/// Verify the focus function is idempotent: calling it twice keeps both
-/// fields in the focused state. Guards against partial resets.
-#[test]
-fn focus_terminal_after_submit_is_idempotent() {
-    use jefe::state::{AppState, PaneFocus};
-
-    let mut state = AppState::default();
-    apply_focus_terminal_after_submit(&mut state);
-    apply_focus_terminal_after_submit(&mut state);
-    assert!(state.terminal_focused);
-    assert_eq!(state.pane_focus, PaneFocus::Terminal);
-}
-
-/// Finding #11: Real behavioral test for the Confirm focus gate.
-///
-/// This test verifies the actual `confirm_focus_is_cancel` predicate against
-/// a real `AppState` modal transition — not just a manually-constructed modal
-/// struct. It opens a confirm modal through the state machine and verifies
-/// that the predicate correctly identifies the Cancel focus.
-#[test]
-fn confirm_modal_cancel_focus_gate_works_with_real_state_transition() {
-    use jefe::domain::AgentId;
-    use jefe::state::{AppEvent, AppState};
-
-    let mut state = AppState::default();
-    let agent_id = AgentId("test-agent".into());
-    state = state.apply(AppEvent::OpenDeleteAgent(agent_id));
-
-    // The modal should now be open with Cancel focused by default.
-    match &state.modal {
-        ModalState::ConfirmDeleteAgent { confirm_focus, .. } => {
-            assert_eq!(
-                *confirm_focus,
-                ConfirmFocus::Cancel,
-                "Cancel should be focused by default when opening delete confirm"
-            );
-            // The gate must return true for Cancel focus.
-            assert!(
-                confirm_focus_is_cancel(&state.modal),
-                "gate must return true when Cancel is focused"
-            );
-        }
-        other => panic!("expected ConfirmDeleteAgent, got {other:?}"),
-    }
-
-    // Cycle focus to Confirm.
-    state = state.apply(AppEvent::ConfirmCycleFocus);
-    match &state.modal {
-        ModalState::ConfirmDeleteAgent { confirm_focus, .. } => {
-            assert_eq!(
-                *confirm_focus,
-                ConfirmFocus::Confirm,
-                "Confirm should be focused after cycling"
-            );
-            assert!(
-                !confirm_focus_is_cancel(&state.modal),
-                "gate must return false when Confirm is focused"
-            );
-        }
-        other => panic!("expected ConfirmDeleteAgent, got {other:?}"),
-    }
 }

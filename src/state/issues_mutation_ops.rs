@@ -100,12 +100,14 @@ impl AppState {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
+                title,
                 body,
             } => self.with_matching_pending_detail(
                 mutation_id,
                 scope_repo_id,
                 issue_number,
                 |detail| {
+                    detail.title = title;
                     detail.body = body;
                     true
                 },

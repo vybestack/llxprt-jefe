@@ -14,6 +14,7 @@ use crate::domain::{ChecksFilter, PrFilter, PrFilterState, ReviewDecisionFilter}
 use crate::theme::ThemeColors;
 
 use super::filter_bar::{FilterBarProps, FilterFieldView};
+use super::filter_controls::shared_filter_action_hints;
 
 /// Row-1 prefix text before the first field (matches the pre-refactor
 /// `PrFilterControls` component exactly).
@@ -168,13 +169,7 @@ pub fn pr_filter_field_views(
 /// @requirement REQ-PR-008
 #[must_use]
 pub fn pr_filter_action_hints() -> &'static [&'static str] {
-    &[
-        "Tab next  ",
-        "Space cycle  ",
-        "Enter apply  ",
-        "Ctrl-c clear  ",
-        "Esc cancel",
-    ]
+    shared_filter_action_hints()
 }
 
 /// Build the full [`FilterBarProps`] for the PR filter bar.

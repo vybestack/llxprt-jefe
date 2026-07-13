@@ -117,9 +117,15 @@ pub fn issue_filter_fields(
 /// @requirement REQ-ISS-008
 #[must_use]
 pub fn issue_filter_action_hints() -> &'static [&'static str] {
+    shared_filter_action_hints()
+}
+
+/// Shared key hints for the common filter-control workflow.
+#[must_use]
+pub fn shared_filter_action_hints() -> &'static [&'static str] {
     &[
         "Tab next  ",
-        "←/→ choices  ",
+        "←/→ cycle  ",
         "Enter apply  ",
         "Delete field  ",
         "Ctrl-L clear all  ",
@@ -185,12 +191,7 @@ pub fn actions_filter_fields(
 /// scheme: Tab next field, Up/Down cycle value, Enter apply, Esc cancel).
 #[must_use]
 pub fn actions_filter_action_hints() -> &'static [&'static str] {
-    &[
-        "Tab next field  ",
-        "Up/Down cycle  ",
-        "Enter apply  ",
-        "Esc cancel",
-    ]
+    shared_filter_action_hints()
 }
 
 /// Build the full [`FilterBarProps`] for the Actions filter bar.

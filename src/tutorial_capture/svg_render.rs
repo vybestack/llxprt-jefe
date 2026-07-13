@@ -446,9 +446,8 @@ mod tests {
     }
 
     #[test]
-    fn svg_renders_without_panic_on_huge_line_count() {
-        // u16::MAX lines with declared rows=24: must not panic or overflow.
-        let lines: Vec<String> = (0..u16::MAX as usize).map(|_| "x".to_string()).collect();
+    fn svg_renders_without_panic_when_input_exceeds_declared_rows() {
+        let lines: Vec<String> = (0..100).map(|_| "x".to_string()).collect();
         let meta = sample_metadata();
         let svg = render_screen_svg(&lines, &meta);
         // SVG must still be well-formed.

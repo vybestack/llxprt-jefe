@@ -385,57 +385,6 @@ fn test_agent_chooser_consumes_keys_before_search() {
     assert!(matches!(event, Some(AppEvent::PrAgentChooserNavigateDown)));
 }
 
-/// `/` from PrList focus dispatches `PrFocusSearchInput`, mirroring the
-/// issues-mode `/` key that focuses the search input before typing a query.
-///
-/// **issue #241 Tier B**: exact selection requires focusing search before
-/// typing so the typed text lands in the search box, not as a list
-/// navigation key.
-///
-/// @plan PLAN-20260624-PR-MODE.P10
-/// @requirement REQ-PR-002
-/// @requirement REQ-PR-008
-#[test]
-fn test_slash_focuses_search_from_pr_list_focus() {
-    let state = prs_state_with_focus(PrFocus::PrList);
-    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('/')));
-    assert!(
-        matches!(event, Some(AppEvent::PrFocusSearchInput)),
-        "'/' from PrList must focus the search input (got {event:?})"
-    );
-}
-
-/// `/` from RepoList focus also dispatches `PrFocusSearchInput`, so search
-/// is reachable from any list pane (consistent with issues-mode).
-///
-/// @plan PLAN-20260624-PR-MODE.P10
-/// @requirement REQ-PR-002
-/// @requirement REQ-PR-008
-#[test]
-fn test_slash_focuses_search_from_pr_repo_list_focus() {
-    let state = prs_state_with_focus(PrFocus::RepoList);
-    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('/')));
-    assert!(
-        matches!(event, Some(AppEvent::PrFocusSearchInput)),
-        "'/' from RepoList must focus the search input (got {event:?})"
-    );
-}
-
-/// `/` from PrDetail focus returns `None` (no-op) — search applies to list
-/// navigation, not the detail view.
-///
-/// @plan PLAN-20260624-PR-MODE.P10
-/// @requirement REQ-PR-002
-#[test]
-fn test_slash_is_noop_from_pr_detail_focus() {
-    let state = prs_state_with_detail_subfocus(PrDetailSubfocus::Body);
-    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('/')));
-    assert!(
-        event.is_none(),
-        "'/' from PrDetail must be a no-op (got {event:?})"
-    );
-}
-
 /// Search input routes chars to the query (P3).
 ///
 /// @plan PLAN-20260624-PR-MODE.P10
@@ -473,6 +422,16 @@ fn test_filter_controls_tab_space_text_enter_clear_esc() {
     // Enter => apply.
     let enter = resolve_prs_key_event(&state, &key(KeyCode::Enter));
     assert!(matches!(enter, Some(AppEvent::PrApplyFilter)));
+
+    // Delete clears the active text field without applying the form.
+    let mut text_state = prs_state_with_filter_open(4);
+    text_state.prs_state.draft_filter.author = "octocat".to_string();
+    let delete = resolve_prs_key_event(&text_state, &key(KeyCode::Delete));
+    assert!(matches!(
+        delete,
+        Some(AppEvent::PrUpdateDraftFilter { field, value })
+            if field == "author" && value.is_empty()
+    ));
 }
 
 /// Filter field cycling wraps through all eight fields (state, draft,
@@ -624,6 +583,15 @@ fn test_space_on_state_cycle_field_still_cycles() {
 #[test]
 fn test_apply_commits_review_and_checks_filters_and_triggers_reload() {
     let mut state = prs_state_with_filter_open(2);
+    // A selected repository is required so the reducer can begin a real
+    // list reload (the dispatch layer normally supplies the scope).
+    state.repositories.push(jefe::domain::Repository::new(
+        jefe::domain::RepositoryId("repo-1".to_string()),
+        "Repo 1".to_string(),
+        "owner/repo".to_string(),
+        std::path::PathBuf::from("/tmp/repo1"),
+    ));
+    state.selected_repository_index = Some(0);
     // Cycle review + checks draft fields first.
     state = state.apply(AppEvent::PrCycleReviewFilter);
     state = state.apply(AppEvent::PrCycleChecksFilter);
@@ -642,7 +610,7 @@ fn test_apply_commits_review_and_checks_filters_and_triggers_reload() {
         "apply must copy draft -> committed"
     );
     assert!(
-        after.prs_state.loading.list,
+        after.prs_state.list_loading(),
         "apply must trigger a list reload (loading.list=true)"
     );
 }
@@ -827,7 +795,8 @@ fn test_capital_s_opens_agent_chooser_from_detail() {
 fn test_o_on_loaded_pr_emits_open_in_browser() {
     // PrList with a selected PR.
     let mut list = prs_state_with_focus(PrFocus::PrList);
-    list.prs_state.selected_pr_index = Some(0);
+    list.prs_state.list.replace_items(vec![test_pr(1)]);
+    list.prs_state.list.set_selected_index(Some(0));
     let event = resolve_prs_key_event(&list, &key(KeyCode::Char('o')));
     assert!(matches!(event, Some(AppEvent::PrOpenInBrowser)));
     // PrDetail with a loaded detail.
@@ -890,6 +859,26 @@ fn test_suppressed_keys_ctrl_d_ctrl_k_l_consumed_noop() {
     // l => consumed no-op.
     let l = resolve_prs_key_event(&state, &key(KeyCode::Char('l')));
     assert!(l.is_none(), "'l' must be consumed-no-op (got {l:?})");
+}
+
+/// Minimal PR for list-selection presence checks (REQ-PR-012 o-key).
+fn test_pr(number: u64) -> jefe::domain::PullRequest {
+    use jefe::domain::{PrCheckStatus, PrState};
+    jefe::domain::PullRequest {
+        number,
+        title: format!("PR {number}"),
+        state: PrState::Open,
+        author_login: String::from("author"),
+        updated_at: String::new(),
+        head_ref: String::new(),
+        base_ref: String::new(),
+        is_draft: false,
+        review_decision: None,
+        checks_status: PrCheckStatus::Success,
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
+        comment_count: 0,
+    }
 }
 
 /// Minimal PR detail for presence checks (REQ-PR-012 o-key).
@@ -961,3 +950,6 @@ fn test_big_r_on_body_emits_show_notice_not_none() {
         ))
     ));
 }
+
+#[path = "prs_f12_cross_mode_tests.rs"]
+mod f12_cross_mode;

@@ -122,7 +122,6 @@ impl CommandRunner for FakeCommandRunner {
 
 // ─── Plan generation ────────────────────────────────────────────────
 
-#[test]
 fn plan_tier_b_succeeds_for_allowlisted_repo() {
     let allowlist = FixtureAllowlist::new(["fixture/test-repo"]);
     let dest = PathBuf::from("/tmp/clone-test");
@@ -133,7 +132,6 @@ fn plan_tier_b_succeeds_for_allowlisted_repo() {
     assert!(!plan.commands.is_empty());
 }
 
-#[test]
 fn plan_tier_b_includes_correct_sequence() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let dest = PathBuf::from("/tmp/clone-test");
@@ -158,7 +156,6 @@ fn plan_tier_b_includes_correct_sequence() {
     );
 }
 
-#[test]
 fn plan_tier_b_includes_merge_flag_when_requested() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let dest = PathBuf::from("/tmp/clone-test");
@@ -176,7 +173,6 @@ fn plan_tier_b_includes_merge_flag_when_requested() {
     );
 }
 
-#[test]
 fn plan_tier_b_excludes_merge_command_by_default() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let dest = PathBuf::from("/tmp/clone-test");
@@ -192,7 +188,6 @@ fn plan_tier_b_excludes_merge_command_by_default() {
 
 // ─── Allowlist refusal ──────────────────────────────────────────────
 
-#[test]
 fn plan_tier_b_refuses_production_repo() {
     let allowlist = FixtureAllowlist::new(["vybestack/jefe"]);
     let dest = PathBuf::from("/tmp/clone-test");
@@ -206,7 +201,6 @@ fn plan_tier_b_refuses_production_repo() {
     );
 }
 
-#[test]
 fn plan_tier_b_refuses_non_allowlisted_repo() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let dest = PathBuf::from("/tmp/clone-test");
@@ -222,7 +216,6 @@ fn plan_tier_b_refuses_non_allowlisted_repo() {
 
 // ─── Command structure ──────────────────────────────────────────────
 
-#[test]
 fn all_commands_use_gh_or_git() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let dest = PathBuf::from("/tmp/clone-test");
@@ -237,7 +230,6 @@ fn all_commands_use_gh_or_git() {
     }
 }
 
-#[test]
 fn no_command_uses_shell_metacharacters() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let dest = PathBuf::from("/tmp/clone-test");
@@ -259,7 +251,6 @@ fn no_command_uses_shell_metacharacters() {
 
 /// Finding #5: issue and PR create commands must NOT assume labels exist.
 /// Labels are optional/probed, not hardcoded.
-#[test]
 fn issue_and_pr_commands_do_not_assume_labels() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let dest = PathBuf::from("/tmp/clone-test");
@@ -275,7 +266,6 @@ fn issue_and_pr_commands_do_not_assume_labels() {
 }
 
 /// Finding #5: merge command explicitly targets the created PR number.
-#[test]
 fn merge_command_explicitly_targets_pr_number() {
     let plan = build_mutation_plan("fixture/test", "run-001", true);
     let merge_cmd = build_merge_command(&plan, "7");
@@ -296,7 +286,6 @@ fn merge_command_explicitly_targets_pr_number() {
     assert!(pr_pos < repo_pos, "PR number must come before --repo");
 }
 
-#[test]
 fn clone_command_has_correct_cwd_sequence() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let run_root = PathBuf::from("/tmp/jefe-test-run");
@@ -321,7 +310,6 @@ fn clone_command_has_correct_cwd_sequence() {
 
 // ─── Cleanup planning ───────────────────────────────────────────────
 
-#[test]
 fn plan_github_cleanup_only_targets_manifest_resources() {
     let id = RunId::new("cleanup-test").value_or_panic("valid id");
     let mut manifest = RunManifest::new(id, "0.0.28", "test", 100, 32, RuntimeProfile::Shim);
@@ -338,7 +326,6 @@ fn plan_github_cleanup_only_targets_manifest_resources() {
     assert!(commands[0].argv.contains(&"42".to_string()));
 }
 
-#[test]
 fn plan_github_cleanup_empty_for_empty_manifest() {
     let id = RunId::new("empty-cleanup").value_or_panic("valid id");
     let manifest = RunManifest::new(id, "0.0.28", "test", 100, 32, RuntimeProfile::Shim);
@@ -348,7 +335,6 @@ fn plan_github_cleanup_empty_for_empty_manifest() {
 
 // ─── Disposable confirmation ────────────────────────────────────────
 
-#[test]
 fn execute_refuses_without_confirmation() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let run_root = PathBuf::from("/tmp/jefe-test-run");
@@ -381,7 +367,6 @@ fn execute_refuses_without_confirmation() {
 
 // ─── Full execution with fake runner ────────────────────────────────
 
-#[test]
 fn execute_tier_b_records_all_resources_in_manifest() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let base = tempfile::tempdir().value_or_panic("temp dir");
@@ -438,7 +423,6 @@ fn execute_tier_b_records_all_resources_in_manifest() {
 /// Issue #241 task #2: setup executor must NOT merge. The --allow-merge flag
 /// selects the merge capture permission/variant only; the merge is driven
 /// through the Jefe UI during capture, not during setup.
-#[test]
 fn execute_tier_b_does_not_merge_during_setup() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let base = tempfile::tempdir().value_or_panic("temp dir");
@@ -488,7 +472,6 @@ fn execute_tier_b_does_not_merge_during_setup() {
     );
 }
 
-#[test]
 fn execute_tier_b_fails_on_existing_clone_dest() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let base = tempfile::tempdir().value_or_panic("temp dir");
@@ -538,7 +521,6 @@ impl CommandRunner for FailingRunner {
     }
 }
 
-#[test]
 fn execute_tier_b_on_failure_saves_manifest_without_failed_resources() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let base = tempfile::tempdir().value_or_panic("temp dir");
@@ -624,7 +606,6 @@ impl CommandRunner for PushTrackingRunner {
 /// The branch resource must be recorded when push succeeds, NOT when
 /// checkout runs. This test uses a custom runner that tracks which commands
 /// have run, verifying that the branch resource appears only after push.
-#[test]
 fn execute_tier_b_records_branch_after_push_not_checkout() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let base = tempfile::tempdir().value_or_panic("temp dir");
@@ -673,7 +654,6 @@ fn execute_tier_b_records_branch_after_push_not_checkout() {
 
 /// All recorded resource identifiers must be nonempty. This test verifies
 /// that resources with empty identifiers are not recorded.
-#[test]
 fn execute_tier_b_resources_have_nonempty_identifiers_and_explicit_repo() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let base = tempfile::tempdir().value_or_panic("temp dir");
@@ -711,19 +691,16 @@ fn execute_tier_b_resources_have_nonempty_identifiers_and_explicit_repo() {
 }
 // ─── Resource extraction ────────────────────────────────────────────
 
-#[test]
 fn extract_number_from_issue_url() {
     let url = "https://github.com/fixture/test/issues/42\n";
     assert_eq!(extract_number_from_url(url), Some("42".to_string()));
 }
 
-#[test]
 fn extract_number_from_pr_url() {
     let url = "https://github.com/fixture/test/pull/7\n";
     assert_eq!(extract_number_from_url(url), Some("7".to_string()));
 }
 
-#[test]
 fn repo_from_argv_finds_repo_flag() {
     let argv = vec![
         "gh".to_string(),
@@ -751,4 +728,31 @@ fn repo_from_argv(argv: &[String]) -> Option<String> {
         }
     }
     None
+}
+
+#[test]
+fn github_executor_behaviors() {
+    plan_tier_b_succeeds_for_allowlisted_repo();
+    plan_tier_b_includes_correct_sequence();
+    plan_tier_b_includes_merge_flag_when_requested();
+    plan_tier_b_excludes_merge_command_by_default();
+    plan_tier_b_refuses_production_repo();
+    plan_tier_b_refuses_non_allowlisted_repo();
+    all_commands_use_gh_or_git();
+    no_command_uses_shell_metacharacters();
+    issue_and_pr_commands_do_not_assume_labels();
+    merge_command_explicitly_targets_pr_number();
+    clone_command_has_correct_cwd_sequence();
+    plan_github_cleanup_only_targets_manifest_resources();
+    plan_github_cleanup_empty_for_empty_manifest();
+    execute_refuses_without_confirmation();
+    execute_tier_b_records_all_resources_in_manifest();
+    execute_tier_b_does_not_merge_during_setup();
+    execute_tier_b_fails_on_existing_clone_dest();
+    execute_tier_b_on_failure_saves_manifest_without_failed_resources();
+    execute_tier_b_records_branch_after_push_not_checkout();
+    execute_tier_b_resources_have_nonempty_identifiers_and_explicit_repo();
+    extract_number_from_issue_url();
+    extract_number_from_pr_url();
+    repo_from_argv_finds_repo_flag();
 }

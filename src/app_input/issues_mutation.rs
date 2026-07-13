@@ -282,6 +282,17 @@ fn update_issue_body(
     mutation_id: u64,
     text: String,
 ) {
+    let (title, body) = split_issue_title_body(&text);
+    if title.is_empty() {
+        apply_mutation_failed(
+            app_state,
+            ctx,
+            mutation_failure_target(app_state),
+            Some(mutation_id),
+            "Issue title cannot be empty".to_string(),
+        );
+        return;
+    }
     let Some(target) = current_issue_target(app_state) else {
         let failure_target = mutation_failure_target(app_state);
         apply_mutation_failed(
@@ -300,14 +311,8 @@ fn update_issue_body(
         app_state,
         ctx,
         move |mut app_state, ctx| {
-            let event = update_issue_body_event(
-                &ctx,
-                &repo_target.owner,
-                &repo_target.repo,
-                &text,
-                &target,
-                mutation_id,
-            );
+            let event =
+                update_issue_body_event(&ctx, &repo_target, &title, &body, &target, mutation_id);
             match event {
                 Some(event) => apply_and_persist(&mut app_state, &ctx, event),
                 None => {
@@ -408,20 +413,23 @@ fn create_comment_event(
 
 fn update_issue_body_event(
     ctx: &SharedContext,
-    owner: &str,
-    repo: &str,
-    text: &str,
+    repo: &GhRepoTarget,
+    title: &str,
+    body: &str,
     target: &IssueMutationTarget,
     mutation_id: u64,
 ) -> Option<AppEvent> {
     github_client(ctx)
-        .map(|client| client.update_issue_body(owner, repo, target.issue_number, text))
+        .map(|client| {
+            client.update_issue(&repo.owner, &repo.repo, target.issue_number, title, body)
+        })
         .map(|result| match result {
             Ok(()) => AppEvent::IssueBodyUpdated {
                 scope_repo_id: target.scope_repo_id.clone(),
                 issue_number: target.issue_number,
                 mutation_id,
-                body: text.to_string(),
+                title: title.to_string(),
+                body: body.to_string(),
             },
             Err(error) => AppEvent::MutationFailed {
                 scope_repo_id: target.scope_repo_id.clone(),

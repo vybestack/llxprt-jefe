@@ -5,10 +5,13 @@ use crate::state::AppState;
 use crate::state::events::AppEvent;
 use crate::state::types::{ComposerTarget, InlineState, IssueFocus};
 
+use super::issues_test_fixtures::begin_issue_list_reload;
+
 /// Helper to create a test issue with the given number.
 fn make_test_issue(number: u64) -> Issue {
     Issue {
         number,
+        node_id: String::new(),
         title: format!("Test Issue #{number}"),
         state: IssueState::Open,
         author_login: "testuser".to_string(),
@@ -34,6 +37,7 @@ fn make_test_detail(comments: Vec<IssueComment>) -> IssueDetail {
     IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 42,
+        node_id: String::new(),
         title: "Test detail issue".to_string(),
         state: IssueState::Open,
         author_login: "octocat".to_string(),
@@ -80,16 +84,18 @@ fn state_with_repo(repo_id: &str) -> AppState {
 /// @requirement REQ-ISS-006
 #[test]
 fn test_issue_list_row_count() {
-    let state = state_with_repo("repo-1").apply(AppEvent::IssueListLoaded {
+    let mut state = state_with_repo("repo-1");
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
+    let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(IssueFilter::default()),
-        request_id: 0,
+        request_id,
         issues: (1u64..=5).map(make_test_issue).collect(),
         cursor: None,
         has_more: false,
     });
 
-    assert_eq!(state.issues_state.issues.len(), 5);
+    assert_eq!(state.issues_state.issues().len(), 5);
 }
 
 /// P13 Test 4: After loading issues and navigating down, selected_issue_index becomes Some(1).
@@ -98,10 +104,12 @@ fn test_issue_list_row_count() {
 /// @requirement REQ-ISS-006
 #[test]
 fn test_issue_list_selection_highlight() {
-    let state = state_with_repo("repo-1").apply(AppEvent::IssueListLoaded {
+    let mut state = state_with_repo("repo-1");
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
+    let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(IssueFilter::default()),
-        request_id: 0,
+        request_id,
         issues: (1u64..=5).map(make_test_issue).collect(),
         cursor: None,
         has_more: false,
@@ -110,7 +118,7 @@ fn test_issue_list_selection_highlight() {
     // After load, selection is at 0. Navigate down once.
     let state = state.apply(AppEvent::IssuesNavigateDown);
 
-    assert_eq!(state.issues_state.selected_issue_index, Some(1));
+    assert_eq!(state.issues_state.selected_issue_index(), Some(1));
 }
 
 /// P13 Test 5: Entering issues mode sets list_loading to true initially.
@@ -121,8 +129,9 @@ fn test_issue_list_selection_highlight() {
 fn test_issue_list_loading_state() {
     let state = AppState::default().apply(AppEvent::EnterIssuesMode);
 
-    // list_loading should be true right after EnterIssuesMode (before data arrives)
-    assert!(state.issues_state.loading.list);
+    // The state layer clears the list on EnterIssuesMode; the actual loading
+    // indicator is driven by the dispatch layer beginning a reload.
+    assert!(!state.issues_state.list_loading());
 }
 
 /// P13 Test 6: IssueListLoaded with empty vec leaves issues empty and selected_issue_index None.
@@ -131,17 +140,19 @@ fn test_issue_list_loading_state() {
 /// @requirement REQ-ISS-006, REQ-ISS-014
 #[test]
 fn test_issue_list_empty_state() {
-    let state = state_with_repo("repo-1").apply(AppEvent::IssueListLoaded {
+    let mut state = state_with_repo("repo-1");
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
+    let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(IssueFilter::default()),
-        request_id: 0,
+        request_id,
         issues: vec![],
         cursor: None,
         has_more: false,
     });
 
-    assert!(state.issues_state.issues.is_empty());
-    assert!(state.issues_state.selected_issue_index.is_none());
+    assert!(state.issues_state.issues().is_empty());
+    assert!(state.issues_state.selected_issue_index().is_none());
 }
 
 /// P13 Test 7: IssueDetailLoaded populates all fields in issues_state.issue_detail.
@@ -294,18 +305,20 @@ fn test_filter_controls_value_binding() {
 /// @requirement REQ-ISS-014
 #[test]
 fn test_empty_state_no_issues() {
-    let state = state_with_repo("repo-1").apply(AppEvent::IssueListLoaded {
+    let mut state = state_with_repo("repo-1");
+    let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
+    let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         filter: Box::new(IssueFilter::default()),
-        request_id: 0,
+        request_id,
         issues: vec![],
         cursor: None,
         has_more: false,
     });
 
     // The UI rendering component checks this condition to show the empty message
-    assert!(state.issues_state.issues.is_empty());
-    assert!(!state.issues_state.loading.list);
+    assert!(state.issues_state.issues().is_empty());
+    assert!(!state.issues_state.list_loading());
 }
 
 /// P13 Test 12: IssueDetailLoaded with no comments — detail.comments is empty.

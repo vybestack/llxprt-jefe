@@ -105,7 +105,6 @@ impl CommandRunner for FakeCommandRunner {
 }
 
 /// `parse_github_resource_url` must parse a canonical GitHub URL.
-#[test]
 fn parse_canonical_issue_url() {
     let parsed = parse_github_resource_url("https://github.com/fixture/test/issues/42")
         .value_or_panic("canonical issue URL must parse");
@@ -114,7 +113,6 @@ fn parse_canonical_issue_url() {
     assert_eq!(parsed.number, "42");
 }
 
-#[test]
 fn parse_canonical_pr_url() {
     let parsed = parse_github_resource_url("https://github.com/fixture/test/pull/7")
         .value_or_panic("canonical PR URL must parse");
@@ -123,30 +121,25 @@ fn parse_canonical_pr_url() {
     assert_eq!(parsed.number, "7");
 }
 
-#[test]
 fn parse_url_rejects_non_numeric_id() {
     assert!(parse_github_resource_url("https://github.com/fixture/test/issues/abc").is_none());
 }
 
-#[test]
 fn parse_url_rejects_non_github_url() {
     assert!(parse_github_resource_url("git@github.com:fixture/test.git").is_none());
     assert!(parse_github_resource_url("https://gitlab.com/fixture/test/issues/42").is_none());
 }
 
-#[test]
 fn parse_url_rejects_empty_output() {
     assert!(parse_github_resource_url("").is_none());
     assert!(parse_github_resource_url("   \n").is_none());
 }
 
-#[test]
 fn parse_url_rejects_extra_path_segments() {
     assert!(parse_github_resource_url("https://github.com/fixture/test/issues/42/files").is_none());
 }
 
 /// Recorded issue resource has the exact title from the mutation plan.
-#[test]
 fn recorded_issue_resource_has_exact_title() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let base = tempfile::tempdir().value_or_panic("temp dir");
@@ -187,7 +180,6 @@ fn recorded_issue_resource_has_exact_title() {
 }
 
 /// Recorded PR resource has the exact title from the mutation plan.
-#[test]
 fn recorded_pr_resource_has_exact_title() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let base = tempfile::tempdir().value_or_panic("temp dir");
@@ -228,7 +220,6 @@ fn recorded_pr_resource_has_exact_title() {
 }
 
 /// Branch resource has the exact `tutorial-capture/<run-id>` identifier.
-#[test]
 fn recorded_branch_resource_has_exact_convention() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let base = tempfile::tempdir().value_or_panic("temp dir");
@@ -267,7 +258,6 @@ fn recorded_branch_resource_has_exact_convention() {
 }
 
 /// Issue/PR URL must match the plan repository and resource kind.
-#[test]
 fn recorded_resource_urls_match_repo_and_kind() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let base = tempfile::tempdir().value_or_panic("temp dir");
@@ -304,7 +294,6 @@ fn recorded_resource_urls_match_repo_and_kind() {
 }
 
 /// Exactly one each of issue, branch, PR — no duplicates.
-#[test]
 fn execute_produces_exactly_one_each_no_duplicates() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let base = tempfile::tempdir().value_or_panic("temp dir");
@@ -374,7 +363,6 @@ impl CommandRunner for NonUrlRunner {
 }
 
 /// A non-URL gh output (e.g. just a number) is rejected, and execution fails.
-#[test]
 fn execute_fails_when_issue_output_is_not_url() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let base = tempfile::tempdir().value_or_panic("temp dir");
@@ -409,7 +397,6 @@ fn execute_fails_when_issue_output_is_not_url() {
 }
 
 /// GitHubResource title field roundtrips through JSON serialization.
-#[test]
 fn github_resource_title_round_trips_through_json() {
     let resource = GitHubResource {
         kind: GitHubResourceKind::Issue,
@@ -424,10 +411,27 @@ fn github_resource_title_round_trips_through_json() {
 }
 
 /// Old JSON without title field deserializes with empty default (backcompat).
-#[test]
 fn github_resource_title_defaults_empty_for_backcompat() {
     let old_json = r#"{"kind":"issue","repository":"fixture/test","identifier":"42","url":"https://github.com/fixture/test/issues/42"}"#;
     let resource: GitHubResource =
         serde_json::from_str(old_json).value_or_panic("deserialize old JSON");
     assert_eq!(resource.title, "", "missing title should default to empty");
+}
+
+#[test]
+fn github_executor_exact_behaviors() {
+    parse_canonical_issue_url();
+    parse_canonical_pr_url();
+    parse_url_rejects_non_numeric_id();
+    parse_url_rejects_non_github_url();
+    parse_url_rejects_empty_output();
+    parse_url_rejects_extra_path_segments();
+    recorded_issue_resource_has_exact_title();
+    recorded_pr_resource_has_exact_title();
+    recorded_branch_resource_has_exact_convention();
+    recorded_resource_urls_match_repo_and_kind();
+    execute_produces_exactly_one_each_no_duplicates();
+    execute_fails_when_issue_output_is_not_url();
+    github_resource_title_round_trips_through_json();
+    github_resource_title_defaults_empty_for_backcompat();
 }

@@ -170,14 +170,14 @@ impl AppState {
         {
             detail.state = PrState::Merged;
         }
-        if let Some(pr) = self
-            .prs_state
-            .pull_requests
-            .iter_mut()
-            .find(|p| p.number == pr_number)
-        {
-            pr.state = PrState::Merged;
+        // Update the PR's state in the list (if present).
+        let mut prs = self.prs_state.list.items().to_vec();
+        for pr in &mut prs {
+            if pr.number == pr_number {
+                pr.state = PrState::Merged;
+            }
         }
+        self.prs_state.list.replace_items(prs);
         self.prs_state.draft_notice = Some(format!("Merged PR #{pr_number}"));
         true
     }

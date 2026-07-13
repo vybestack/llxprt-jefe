@@ -18,8 +18,18 @@ mod quick_resume;
 pub use actions::*;
 pub use quick_resume::QuickResume;
 
+/// Pagination contracts (PageToken, ListRequestId) shared across list state
+/// and boundary messages. Pure value types, no project-internal deps.
+mod pagination;
+pub use pagination::*;
+
+// Issues Mode domain entities extracted to keep this file under the
+// source-file-size limit.
+mod issues;
+pub use issues::*;
+
 /// Stable identifier for a repository.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RepositoryId(pub String);
 
 /// Stable identifier for an agent.
@@ -281,141 +291,6 @@ pub struct Repository {
     pub default_agent_kind: AgentKind,
     pub agent_ids: Vec<AgentId>,
 }
-/// @requirement REQ-ISS-006
-/// @pseudocode component-001 lines 83-96
-/// Issue state for list display.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum IssueState {
-    Open,
-    Closed,
-}
-
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-006
-/// Issue list representation.
-#[derive(Debug, Clone)]
-pub struct Issue {
-    pub number: u64,
-    pub title: String,
-    pub state: IssueState,
-    pub author_login: String,
-    pub updated_at: String,
-    pub assignee_summary: String,
-    pub labels_summary: String,
-    pub assignees: Vec<String>,
-    pub labels: Vec<String>,
-    pub issue_type: String,
-    pub milestone: String,
-    pub module: String,
-    pub comment_count: u64,
-    /// Optional lightweight preview body; list/search fetches may leave this empty
-    /// so full body content is loaded through `IssueDetail` instead.
-    pub body: String,
-}
-
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-009
-/// Full issue detail with comments.
-#[derive(Debug, Clone)]
-pub struct IssueDetail {
-    pub repo_owner_name: String,
-    pub number: u64,
-    pub title: String,
-    pub state: IssueState,
-    pub author_login: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub labels: Vec<String>,
-    pub assignees: Vec<String>,
-    pub milestone: Option<String>,
-    pub body: String,
-    pub external_url: String,
-    pub comments: Vec<IssueComment>,
-    pub has_more_comments: bool,
-    pub comments_cursor: Option<String>,
-}
-
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-009
-/// Single issue comment.
-#[derive(Debug, Clone)]
-pub struct IssueComment {
-    pub comment_id: u64,
-    pub author_login: String,
-    pub created_at: String,
-    pub edited_at: Option<String>,
-    pub body: String,
-}
-
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-008
-/// Filter state options.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum IssueFilterState {
-    #[default]
-    Open,
-    Closed,
-    All,
-}
-
-pub const FILTER_CHOICE_ANY: &str = "any";
-pub const FILTER_CHOICE_NONE: &str = "none";
-
-/// @plan PLAN-20260329-ISSUES-MODE.P03
-/// @requirement REQ-ISS-008
-/// Issue list filter criteria.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IssueFilter {
-    #[serde(default)]
-    pub query_text: String,
-    #[serde(default)]
-    pub state: Option<IssueFilterState>,
-    #[serde(default)]
-    pub author: String,
-    #[serde(default)]
-    pub assignee: String,
-    #[serde(default)]
-    pub labels: Vec<String>,
-    #[serde(default)]
-    pub issue_type: String,
-    #[serde(default)]
-    pub milestone: String,
-    #[serde(default)]
-    pub module: String,
-    #[serde(default)]
-    pub mentioned: String,
-    #[serde(default)]
-    pub updated_before: String,
-    #[serde(default)]
-    pub updated_after: String,
-}
-
-impl IssueFilter {
-    /// @plan PLAN-20260329-ISSUES-MODE.P03
-    /// @requirement REQ-ISS-008
-    /// @pseudocode component-011 lines 1-9
-    #[must_use]
-    pub fn has_active_non_default_filters(&self) -> bool {
-        matches!(
-            self.state,
-            Some(IssueFilterState::Closed | IssueFilterState::All)
-        ) || !self.query_text.trim().is_empty()
-            || sentinel_filter_is_active(&self.author)
-            || sentinel_filter_is_active(&self.assignee)
-            || !self.labels.is_empty()
-            || sentinel_filter_is_active(&self.issue_type)
-            || sentinel_filter_is_active(&self.milestone)
-            || sentinel_filter_is_active(&self.module)
-            || sentinel_filter_is_active(&self.mentioned)
-            || sentinel_filter_is_active(&self.updated_before)
-            || sentinel_filter_is_active(&self.updated_after)
-    }
-}
-
-fn sentinel_filter_is_active(value: &str) -> bool {
-    let trimmed = value.trim();
-    !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case(FILTER_CHOICE_ANY)
-}
 
 // =============================================================================
 // Pull Requests Mode domain entities
@@ -431,7 +306,6 @@ fn sentinel_filter_is_active(value: &str) -> bool {
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-006
 /// @requirement REQ-PR-009
-/// @pseudocode component-002 lines 74-101
 /// PR lifecycle state (derived from `gh pr` JSON `state` + `mergedAt`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PrState {
@@ -444,7 +318,6 @@ pub enum PrState {
 ///
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-009
-/// @pseudocode component-002 lines 74-101
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MergeMethod {
     /// Create a merge commit (`--merge`).
@@ -459,7 +332,6 @@ pub enum MergeMethod {
 ///
 /// @plan PLAN-20260624-PR-MODE.P03
 /// @requirement REQ-PR-009
-/// @pseudocode component-002 lines 74-101
 pub const MERGE_METHODS: [MergeMethod; 3] =
     [MergeMethod::Merge, MergeMethod::Squash, MergeMethod::Rebase];
 
@@ -468,7 +340,6 @@ impl MergeMethod {
     ///
     /// @plan PLAN-20260624-PR-MODE.P03
     /// @requirement REQ-PR-009
-    /// @pseudocode component-002 lines 74-101
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {

@@ -141,7 +141,7 @@ fn build_header_rows(
             line: 3,
         },
         DetailHeaderRow {
-            content: "─────────────────────────────────────────".to_string(),
+            content: super::SEPARATOR_LINE.to_string(),
             color: DetailHeaderColor::Dim,
             line: 4,
         },
@@ -310,7 +310,7 @@ mod tests {
     use crate::state::{ComposerTarget, InlineState};
 
     #[test]
-    fn build_new_issue_content_renders_prompt_and_cursor() {
+    fn build_new_issue_content_renders_static_prompt_only() {
         let inline = InlineState::Composer {
             target: ComposerTarget::NewIssue,
             text: "Issue title\nIssue body".to_string(),
@@ -322,10 +322,15 @@ mod tests {
         assert!(text.contains("New Issue"));
         assert!(text.contains("Title: first line | Body: remaining lines"));
         assert!(text.contains("Ctrl+Enter submit | Esc cancel"));
-        assert!(cursor.is_some());
-        if let Some((line, col)) = cursor {
-            assert!(line > 0, "cursor should be on a text line");
-            assert!(col > 0, "cursor column should be non-zero at end of text");
-        }
+        // The editor text is rendered by the embedded wrapping TextBox, so it
+        // must NOT be flattened into the read-only document (issue #212).
+        assert!(
+            !text.contains("Issue title"),
+            "editor text must not be flattened into the document: {text}"
+        );
+        assert!(
+            cursor.is_none(),
+            "the TextBox owns the caret; the document must carry no cursor"
+        );
     }
 }

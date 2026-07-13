@@ -15,6 +15,16 @@ use crate::domain::RepositoryId;
 
 use super::{AgentChooserState, ComposerTarget, InlineState, PriorAgentFocus};
 
+/// Identity for the PRs list — a result is stale unless both the scope repo
+/// and the committed filter match exactly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrListIdentity {
+    /// Repository scope the list was loaded for.
+    pub scope_repo_id: RepositoryId,
+    /// Committed filter snapshot when the load was started.
+    pub filter: crate::domain::PrFilter,
+}
+
 // =============================================================================
 // Pull Requests Mode state types
 //
@@ -80,6 +90,12 @@ pub enum ReadOnlyHintKind {
     PrNotMergeable,
     /// `R` pressed outside a review thread (resolve only valid on a review thread).
     ReadOnlyResolveOnThread,
+    /// `C` pressed on an already-closed issue (issue #182).
+    IssueAlreadyClosed,
+    /// `C`/`D` pressed with no issue focused (issue #182).
+    NoIssueFocused,
+    /// Duplicate close attempted with no duplicate target selected (issue #188).
+    NoDuplicateTarget,
 }
 
 /// @plan PLAN-20260624-PR-MODE.P03
@@ -89,15 +105,14 @@ pub enum ReadOnlyHintKind {
 #[derive(Debug, Clone, Default)]
 pub struct PullRequestsState {
     pub active: bool,
-    pub pull_requests: Vec<crate::domain::PullRequest>,
-    pub selected_pr_index: Option<usize>,
+    /// Unified list state: PRs, selection, pagination continuation, and
+    /// pending load correlation. List loading is derived from this container.
+    pub list: crate::state::pagination::PaginatedList<crate::domain::PullRequest, PrListIdentity>,
     pub pr_detail: Option<crate::domain::PullRequestDetail>,
     pub committed_filter: crate::domain::PrFilter,
     pub draft_filter: crate::domain::PrFilter,
     pub search_query: String,
     pub loading: PrLoadingState,
-    pub list_cursor: Option<String>,
-    pub has_more_prs: bool,
     pub error: Option<String>,
     pub pr_focus: PrFocus,
     pub detail_subfocus: PrDetailSubfocus,
@@ -121,9 +136,6 @@ pub struct PullRequestsState {
     pub draft_notice: Option<String>,
     pub mutation_pending: Option<PrMutationPending>,
     pub next_mutation_id: u64,
-    pub list_reload_pending: Option<PrListReloadPending>,
-    pub next_pr_list_request_id: u64,
-    pub list_page_pending: Option<PrListPagePending>,
     pub detail_pending: Option<PrDetailPending>,
     pub next_pr_detail_request_id: u64,
     pub comments_page_pending: Option<PrCommentsPagePending>,
@@ -134,27 +146,36 @@ pub struct PullRequestsState {
     pub next_thread_resolve_request_id: u64,
 }
 
-/// @plan PLAN-20260624-PR-MODE.P03
-/// @requirement REQ-PR-007
-/// @pseudocode component-001 lines 88-98
-/// Pending list-reload staleness guard.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PrListReloadPending {
-    pub scope_repo_id: RepositoryId,
-    pub filter: crate::domain::PrFilter,
-    pub request_id: u64,
-}
+impl PullRequestsState {
+    /// Read-only access to the loaded pull requests.
+    #[must_use]
+    pub fn pull_requests(&self) -> &[crate::domain::PullRequest] {
+        self.list.items()
+    }
 
-/// @plan PLAN-20260624-PR-MODE.P03
-/// @requirement REQ-PR-007
-/// @pseudocode component-001 lines 88-98
-/// Pending list-page staleness guard.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PrListPagePending {
-    pub scope_repo_id: RepositoryId,
-    pub filter: crate::domain::PrFilter,
-    pub cursor: Option<String>,
-    pub request_id: u64,
+    /// The currently selected PR index, if any.
+    #[must_use]
+    pub fn selected_pr_index(&self) -> Option<usize> {
+        self.list.selected_index()
+    }
+
+    /// Whether the list is visibly loading (reload-visible or page pending).
+    #[must_use]
+    pub fn list_loading(&self) -> bool {
+        self.list.is_loading()
+    }
+
+    /// Whether any list operation is pending (visible or silent).
+    #[must_use]
+    pub fn list_pending(&self) -> bool {
+        self.list.has_pending_request()
+    }
+
+    /// Whether more pages are available.
+    #[must_use]
+    pub fn has_more_prs(&self) -> bool {
+        self.list.has_more()
+    }
 }
 
 /// @plan PLAN-20260624-PR-MODE.P03
@@ -236,12 +257,13 @@ pub struct PrMergeMutationPending {
     pub method: crate::domain::MergeMethod,
 }
 
-/// @plan PLAN-20260624-PR-MODE.P03
-/// @requirement REQ-PR-006
-/// PR loading flags (mirrors `IssueLoadingState`).
+/// Loading/pending state for PR mode async operations.
+///
+/// List loading is now derived from `PullRequestsState::list` (the
+/// `PaginatedList::is_loading()` / `has_pending_request()` accessors). Only
+/// detail and comments loading remain as explicit flags here.
 #[derive(Debug, Clone, Default)]
 pub struct PrLoadingState {
-    pub list: bool,
     pub detail: bool,
     pub comments: bool,
 }

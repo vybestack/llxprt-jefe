@@ -54,7 +54,6 @@ fn sample_setup(base: &Path) -> RunSetup {
 
 // ── compute_directories ───────────────────────────────────────────────
 
-#[test]
 fn compute_directories_layout() {
     let dirs = compute_directories(
         Path::new("/tmp/base"),
@@ -73,7 +72,6 @@ fn compute_directories_layout() {
     );
 }
 
-#[test]
 fn manifest_path_is_in_root() {
     let dirs = compute_directories(
         Path::new("/tmp/base"),
@@ -85,7 +83,6 @@ fn manifest_path_is_in_root() {
     );
 }
 
-#[test]
 fn report_path_is_in_artifacts() {
     let dirs = compute_directories(
         Path::new("/tmp/base"),
@@ -99,7 +96,6 @@ fn report_path_is_in_artifacts() {
 
 // ── prepare_run ───────────────────────────────────────────────────────
 
-#[test]
 fn prepare_run_creates_directory_tree() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -111,7 +107,6 @@ fn prepare_run_creates_directory_tree() {
     assert!(dirs.fixture_repo.exists());
 }
 
-#[test]
 fn prepare_run_writes_shim_scripts_for_shim_profile() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -121,7 +116,6 @@ fn prepare_run_writes_shim_scripts_for_shim_profile() {
     assert!(dirs.shim_dir.join("code-puppy").exists());
 }
 
-#[test]
 fn prepare_run_provisions_git_repo_with_commit() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -131,7 +125,6 @@ fn prepare_run_provisions_git_repo_with_commit() {
     assert!(dirs.fixture_repo.join("README.md").exists());
 }
 
-#[test]
 fn prepare_run_returns_manifest_with_owned_paths() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -141,7 +134,6 @@ fn prepare_run_returns_manifest_with_owned_paths() {
     assert_eq!(manifest.jefe_version, "0.0.28");
 }
 
-#[test]
 fn prepare_run_records_fixture_repo_in_manifest() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -150,7 +142,6 @@ fn prepare_run_records_fixture_repo_in_manifest() {
     assert!(manifest.fixture_repo_path.is_some());
 }
 
-#[test]
 fn prepare_run_persists_atomic_manifest() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -163,7 +154,6 @@ fn prepare_run_persists_atomic_manifest() {
 }
 
 /// Finding: shim_availability LlxprtOnly installs only the llxprt shim.
-#[test]
 fn prepare_run_with_llxprt_only_installs_only_llxprt_shim() {
     let base = temp_base();
     let mut setup = sample_setup(base.path());
@@ -181,7 +171,6 @@ fn prepare_run_with_llxprt_only_installs_only_llxprt_shim() {
 }
 
 /// Finding: shim_availability CodePuppyOnly installs only the code-puppy shim.
-#[test]
 fn prepare_run_with_code_puppy_only_installs_only_code_puppy_shim() {
     let base = temp_base();
     let mut setup = sample_setup(base.path());
@@ -198,7 +187,6 @@ fn prepare_run_with_code_puppy_only_installs_only_code_puppy_shim() {
     );
 }
 
-#[test]
 fn prepare_run_fails_on_collision() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -217,7 +205,6 @@ fn prepare_run_fails_on_collision() {
     );
 }
 
-#[test]
 fn shim_scripts_are_executable_on_unix() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -236,7 +223,6 @@ fn shim_scripts_are_executable_on_unix() {
 
 // ── save/load manifest ────────────────────────────────────────────────
 
-#[test]
 fn save_and_load_manifest_roundtrip() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -251,13 +237,11 @@ fn save_and_load_manifest_roundtrip() {
 
 // ── check_fixture_repo ────────────────────────────────────────────────
 
-#[test]
 fn check_fixture_repo_allows_allowlisted() {
     let allowlist = FixtureAllowlist::new(["fixture/test-repo"]);
     check_fixture_repo(&allowlist, "fixture/test-repo").value_or_panic("should allow");
 }
 
-#[test]
 fn check_fixture_repo_refuses_production() {
     let allowlist = FixtureAllowlist::new(["vybestack/jefe"]);
     let err = error_or_panic(
@@ -267,7 +251,6 @@ fn check_fixture_repo_refuses_production() {
     assert!(matches!(err, OrchestrationError::FixtureRefused { .. }));
 }
 
-#[test]
 fn check_fixture_repo_refuses_unlisted() {
     let allowlist = FixtureAllowlist::new(["fixture/test"]);
     let err = error_or_panic(
@@ -279,7 +262,6 @@ fn check_fixture_repo_refuses_unlisted() {
 
 // ── cleanup ───────────────────────────────────────────────────────────
 
-#[test]
 fn cleanup_removes_owned_paths() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -294,7 +276,6 @@ fn cleanup_removes_owned_paths() {
     assert!(!records.is_empty());
 }
 
-#[test]
 fn cleanup_marks_manifest_completed() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -304,7 +285,6 @@ fn cleanup_marks_manifest_completed() {
     assert!(manifest.cleanup_completed);
 }
 
-#[test]
 fn cleanup_skips_nonexistent_paths() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -317,7 +297,6 @@ fn cleanup_skips_nonexistent_paths() {
 
 // ── controlled_path ──────────────────────────────────────────────────
 
-#[test]
 fn controlled_path_prepends_shim_dir() {
     let path = controlled_path_for(Path::new("/tmp/shims"));
     assert!(path.starts_with("/tmp/shims:"));
@@ -328,7 +307,6 @@ fn controlled_path_prepends_shim_dir() {
 /// The curated PATH must be ONLY the shim directory — no inherited host PATH
 /// entries — so the launched process cannot detect opposite-runtime binaries
 /// from the host.
-#[test]
 fn detection_path_for_returns_only_curated_bin() {
     let path = detection_path_for(Path::new("/tmp/run/shims"), RuntimeProfile::Shim);
     assert_eq!(
@@ -337,7 +315,6 @@ fn detection_path_for_returns_only_curated_bin() {
     );
 }
 
-#[test]
 fn detection_path_for_real_llxprt_returns_only_curated_bin() {
     let path = detection_path_for(Path::new("/tmp/run/shims"), RuntimeProfile::RealLlxprt);
     assert_eq!(path, "/tmp/run/shims");
@@ -351,7 +328,6 @@ fn detection_path_for_real_llxprt_returns_only_curated_bin() {
 
 /// Shim profile + LlxprtOnly: curated bin contains llxprt shim, system tools,
 /// and does NOT contain code-puppy shim.
-#[test]
 fn curated_bin_shim_llxprt_only_has_llxprt_not_code_puppy() {
     let base = temp_base();
     let setup = RunSetup {
@@ -389,7 +365,6 @@ fn curated_bin_shim_llxprt_only_has_llxprt_not_code_puppy() {
 
 /// Shim profile + CodePuppyOnly: curated bin contains code-puppy shim, system
 /// tools, and does NOT contain llxprt shim.
-#[test]
 fn curated_bin_shim_code_puppy_only_has_code_puppy_not_llxprt() {
     let base = temp_base();
     let setup = RunSetup {
@@ -423,7 +398,6 @@ fn curated_bin_shim_code_puppy_only_has_code_puppy_not_llxprt() {
 }
 
 /// Shim profile + Both: curated bin contains both shims and system tools.
-#[test]
 fn curated_bin_shim_both_has_both_runtimes() {
     let base = temp_base();
     let setup = RunSetup {
@@ -454,7 +428,6 @@ fn curated_bin_shim_both_has_both_runtimes() {
 
 /// The curated bin must contain all required system tool symlinks so the
 /// launched Jefe process can find git, tmux, sh, gh without the host PATH.
-#[test]
 fn curated_bin_contains_required_system_tool_symlinks() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -480,7 +453,6 @@ fn curated_bin_contains_required_system_tool_symlinks() {
 
 // ── save_report ───────────────────────────────────────────────────────
 
-#[test]
 fn save_report_writes_markdown() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -495,7 +467,6 @@ fn save_report_writes_markdown() {
 
 // ── git commit recording ─────────────────────────────────────────────
 
-#[test]
 fn prepare_run_records_git_commit_when_available() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -508,7 +479,6 @@ fn prepare_run_records_git_commit_when_available() {
 
 // ── redact_artifacts ─────────────────────────────────────────────────
 
-#[test]
 fn redact_artifacts_scrubs_full_token_values() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -541,7 +511,6 @@ fn redact_artifacts_scrubs_full_token_values() {
     );
 }
 
-#[test]
 fn redact_artifacts_preserves_clean_files() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -558,7 +527,6 @@ fn redact_artifacts_preserves_clean_files() {
     assert_eq!(content, original);
 }
 
-#[test]
 fn redact_artifacts_recursively_scrubs_subdirectories() {
     let base = temp_base();
     let setup = sample_setup(base.path());
@@ -587,7 +555,6 @@ fn redact_artifacts_recursively_scrubs_subdirectories() {
 /// A symlinked file could point outside the artifact directory, bypassing
 /// the containment boundary.
 #[cfg(unix)]
-#[test]
 fn redact_artifacts_rejects_symlink_in_artifact_dir() {
     use std::os::unix::fs::symlink;
     let base = temp_base();
@@ -613,7 +580,6 @@ fn redact_artifacts_rejects_symlink_in_artifact_dir() {
 
 /// Redaction must reject symlinked subdirectories recursively.
 #[cfg(unix)]
-#[test]
 fn redact_artifacts_rejects_symlinked_subdirectory() {
     use std::os::unix::fs::symlink;
     let base = temp_base();
@@ -646,7 +612,6 @@ fn redact_artifacts_rejects_symlinked_subdirectory() {
 /// Finding #6: `save_report` must produce a report that does NOT contain
 /// the actual user's home path, username, or private fixture repo names.
 /// This verifies the report is redacted *before* it is written to disk.
-#[test]
 fn save_report_redacts_private_data_and_paths() {
     let base = tempfile::tempdir().value_or_panic("temp dir");
     let dirs = prepare_test_run(base.path(), RuntimeProfile::Shim);
@@ -681,7 +646,6 @@ fn save_report_redacts_private_data_and_paths() {
 /// Finding #6: `save_report` must not leak absolute home paths into the
 /// published report. The report's owned_paths section contains paths that
 /// include the home directory — these must be redacted to `~`.
-#[test]
 fn save_report_no_absolute_home_path_in_published_report() {
     let base = tempfile::tempdir().value_or_panic("temp dir");
     let dirs = prepare_test_run(base.path(), RuntimeProfile::Shim);
@@ -742,4 +706,44 @@ fn sample_manifest_for_redaction(dirs: &crate::tutorial_capture::RunDirectories)
     manifest.add_observed_action("S", "send to agent", Some("sent-checkpoint".to_string()));
     manifest.add_discrepancy("test discrepancy with /Users/private-user path");
     manifest
+}
+
+#[test]
+fn orchestration_behaviors() {
+    compute_directories_layout();
+    manifest_path_is_in_root();
+    report_path_is_in_artifacts();
+    prepare_run_creates_directory_tree();
+    prepare_run_writes_shim_scripts_for_shim_profile();
+    prepare_run_provisions_git_repo_with_commit();
+    prepare_run_returns_manifest_with_owned_paths();
+    prepare_run_records_fixture_repo_in_manifest();
+    prepare_run_persists_atomic_manifest();
+    prepare_run_with_llxprt_only_installs_only_llxprt_shim();
+    prepare_run_with_code_puppy_only_installs_only_code_puppy_shim();
+    prepare_run_fails_on_collision();
+    shim_scripts_are_executable_on_unix();
+    save_and_load_manifest_roundtrip();
+    check_fixture_repo_allows_allowlisted();
+    check_fixture_repo_refuses_production();
+    check_fixture_repo_refuses_unlisted();
+    cleanup_removes_owned_paths();
+    cleanup_marks_manifest_completed();
+    cleanup_skips_nonexistent_paths();
+    controlled_path_prepends_shim_dir();
+    detection_path_for_returns_only_curated_bin();
+    detection_path_for_real_llxprt_returns_only_curated_bin();
+    curated_bin_shim_llxprt_only_has_llxprt_not_code_puppy();
+    curated_bin_shim_code_puppy_only_has_code_puppy_not_llxprt();
+    curated_bin_shim_both_has_both_runtimes();
+    curated_bin_contains_required_system_tool_symlinks();
+    save_report_writes_markdown();
+    prepare_run_records_git_commit_when_available();
+    redact_artifacts_scrubs_full_token_values();
+    redact_artifacts_preserves_clean_files();
+    redact_artifacts_recursively_scrubs_subdirectories();
+    redact_artifacts_rejects_symlink_in_artifact_dir();
+    redact_artifacts_rejects_symlinked_subdirectory();
+    save_report_redacts_private_data_and_paths();
+    save_report_no_absolute_home_path_in_published_report();
 }

@@ -7,6 +7,8 @@ use std::collections::BTreeSet;
 use jefe::domain::{FILTER_CHOICE_ANY, FILTER_CHOICE_NONE};
 use jefe::state::{AppEvent, AppState, ISSUE_FILTER_FIELD_COUNT};
 
+use super::filter_controls::{FilterControlCommand, FilterEditorKind, resolve_filter_control_key};
+
 /// Filter field names indexed by `filter_field_index`.
 /// 0=state (cycle-only), 1..7 are text/choice fields.
 const FILTER_FIELD_NAMES: [&str; ISSUE_FILTER_FIELD_COUNT] = [
@@ -25,48 +27,39 @@ const FILTER_FIELD_NAMES: [&str; ISSUE_FILTER_FIELD_COUNT] = [
 pub(super) fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     let field_idx = state.issues_state.filter_ui.field_index;
 
-    match key_event.code {
-        KeyCode::Enter => Some(AppEvent::ApplyFilter),
-        KeyCode::Esc => Some(AppEvent::CloseFilterControls),
-        KeyCode::Tab => Some(AppEvent::FilterNavigateNext),
-        KeyCode::BackTab => Some(AppEvent::FilterNavigatePrev),
-        KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(AppEvent::ExitIssuesMode)
-        }
-        KeyCode::Char('l') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(AppEvent::ClearDraftFilter)
-        }
-        KeyCode::Delete => active_field_clear_event(field_idx),
-        // Field-specific input
-        KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') if field_idx == 0 => {
-            // State field: cycle through open/closed/all
+    if matches!(key_event.code, KeyCode::Char('c'))
+        && key_event.modifiers.contains(KeyModifiers::CONTROL)
+    {
+        return Some(AppEvent::ExitIssuesMode);
+    }
+    if matches!(key_event.code, KeyCode::Delete) && field_idx == 0 {
+        return active_field_clear_event(field_idx);
+    }
+    let editor = if field_idx == 0 {
+        FilterEditorKind::Cycle
+    } else if is_choice_field(field_idx) {
+        FilterEditorKind::Choice
+    } else {
+        FilterEditorKind::Text
+    };
+    match resolve_filter_control_key(editor, key_event)? {
+        FilterControlCommand::Apply => Some(AppEvent::ApplyFilter),
+        FilterControlCommand::Cancel => Some(AppEvent::CloseFilterControls),
+        FilterControlCommand::Next => Some(AppEvent::FilterNavigateNext),
+        FilterControlCommand::Previous => Some(AppEvent::FilterNavigatePrev),
+        FilterControlCommand::ClearAll => Some(AppEvent::ClearDraftFilter),
+        FilterControlCommand::ClearCurrent => active_field_clear_event(field_idx),
+        FilterControlCommand::CycleNext | FilterControlCommand::CyclePrevious if field_idx == 0 => {
             Some(AppEvent::CycleFilterState)
         }
-        KeyCode::Right if is_choice_field(field_idx) => {
+        FilterControlCommand::CycleNext => {
             choice_cycle_event(state, field_idx, ChoiceDirection::Next)
         }
-        KeyCode::Left if is_choice_field(field_idx) => {
+        FilterControlCommand::CyclePrevious => {
             choice_cycle_event(state, field_idx, ChoiceDirection::Previous)
         }
-        KeyCode::Char(c) if field_idx > 0 => {
-            let &field_name = FILTER_FIELD_NAMES.get(field_idx)?;
-            let mut value = current_filter_field_value(state, field_name);
-            value.push(c);
-            Some(AppEvent::UpdateDraftFilter {
-                field: field_name.to_string(),
-                value,
-            })
-        }
-        KeyCode::Backspace if field_idx > 0 => {
-            let &field_name = FILTER_FIELD_NAMES.get(field_idx)?;
-            let mut value = current_filter_field_value(state, field_name);
-            value.pop();
-            Some(AppEvent::UpdateDraftFilter {
-                field: field_name.to_string(),
-                value,
-            })
-        }
-        _ => None, // consumed, no leak
+        FilterControlCommand::Append(c) => update_text_event(state, field_idx, Some(c)),
+        FilterControlCommand::Backspace => update_text_event(state, field_idx, None),
     }
 }
 
@@ -90,6 +83,24 @@ fn active_field_clear_event(field_idx: usize) -> Option<AppEvent> {
     Some(AppEvent::UpdateDraftFilter {
         field: field_name.to_string(),
         value: String::new(),
+    })
+}
+
+fn update_text_event(
+    state: &AppState,
+    field_idx: usize,
+    character: Option<char>,
+) -> Option<AppEvent> {
+    let &field_name = FILTER_FIELD_NAMES.get(field_idx)?;
+    let mut value = current_filter_field_value(state, field_name);
+    if let Some(character) = character {
+        value.push(character);
+    } else {
+        value.pop();
+    }
+    Some(AppEvent::UpdateDraftFilter {
+        field: field_name.to_string(),
+        value,
     })
 }
 
@@ -122,7 +133,7 @@ fn choice_cycle_event(
 /// @pseudocode component-003 lines 120-127
 fn issue_filter_choices(state: &AppState, field_name: &str) -> Vec<String> {
     let mut choices = BTreeSet::new();
-    for issue in &state.issues_state.issues {
+    for issue in state.issues_state.issues() {
         match field_name {
             "author" => {
                 choices.insert(issue.author_login.clone());
@@ -288,6 +299,7 @@ mod tests {
     fn issue(number: u64, assignees: &str, labels: &str) -> Issue {
         Issue {
             number,
+            node_id: String::new(),
             title: format!("Issue {number}"),
             state: IssueState::Open,
             author_login: "octocat".to_string(),
@@ -449,11 +461,10 @@ mod tests {
     fn test_filter_right_cycles_author_choices_from_loaded_issues() {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 1;
-        state.issues_state.issues = vec![
+        state.issues_state.list.replace_items(vec![
             issue_with_author(1, "zara", "zara", "bug"),
             issue_with_author(2, "alice", "alice", "ui"),
-        ];
-
+        ]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Right));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
@@ -468,8 +479,10 @@ mod tests {
     fn test_filter_right_cycles_assignee_choices_from_loaded_issues() {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 2;
-        state.issues_state.issues = vec![issue(1, "zara", "bug"), issue(2, "alice", "ui")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue(1, "zara", "bug"), issue(2, "alice", "ui")]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Right));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
@@ -485,8 +498,10 @@ mod tests {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 3;
         state.issues_state.filter_ui.draft_labels_text = "bug".to_string();
-        state.issues_state.issues = vec![issue(1, "zara", "bug, ui"), issue(2, "alice", "docs")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue(1, "zara", "bug, ui"), issue(2, "alice", "docs")]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Right));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
@@ -502,8 +517,10 @@ mod tests {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 3;
         state.issues_state.filter_ui.draft_labels_text = "good".to_string();
-        state.issues_state.issues = vec![issue(1, "zara", "good first issue")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue(1, "zara", "good first issue")]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Char(' ')));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
@@ -519,8 +536,10 @@ mod tests {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 3;
         state.issues_state.filter_ui.draft_labels_text = "docs".to_string();
-        state.issues_state.issues = vec![issue(1, "zara", "bug, ui"), issue(2, "alice", "docs")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue(1, "zara", "bug, ui"), issue(2, "alice", "docs")]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Left));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
@@ -536,8 +555,10 @@ mod tests {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 3;
         state.issues_state.filter_ui.draft_labels_text = "bug, docs".to_string();
-        state.issues_state.issues = vec![issue(1, "zara", "bug, ui"), issue(2, "alice", "docs")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue(1, "zara", "bug, ui"), issue(2, "alice", "docs")]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Right));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
@@ -553,8 +574,10 @@ mod tests {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 2;
         state.issues_state.draft_filter.assignee = "custom-user".to_string();
-        state.issues_state.issues = vec![issue(1, "zara", "bug")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue(1, "zara", "bug")]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Right));
         assert!(evt.is_none());
     }
@@ -564,8 +587,10 @@ mod tests {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 3;
         state.issues_state.filter_ui.draft_labels_text = "bug, custom".to_string();
-        state.issues_state.issues = vec![issue(1, "zara", "bug, ui")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue(1, "zara", "bug, ui")]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Right));
         assert!(evt.is_none());
     }
@@ -575,8 +600,10 @@ mod tests {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 3;
         state.issues_state.filter_ui.draft_labels_text = "bug,".to_string();
-        state.issues_state.issues = vec![issue(1, "zara", "bug, ui")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue(1, "zara", "bug, ui")]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Right));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
@@ -609,8 +636,10 @@ mod tests {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 2;
         state.issues_state.draft_filter.assignee = "zara".to_string();
-        state.issues_state.issues = vec![issue(1, "zara", "bug")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue(1, "zara", "bug")]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Right));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
@@ -624,11 +653,10 @@ mod tests {
     #[test]
     fn test_filter_right_cycles_type_milestone_module_choices() {
         let mut state = filter_state();
-        state.issues_state.issues = vec![
+        state.issues_state.list.replace_items(vec![
             issue_with_extended(1, "alice", "ui", "bug", "v1", "app"),
             issue_with_extended(2, "bob", "runtime", "feature", "v2", "cli"),
-        ];
-
+        ]);
         assert_choice_update(&mut state, 4, "issue_type", "bug");
         assert_choice_update(&mut state, 5, "milestone", "v1");
         assert_choice_update(&mut state, 6, "module", "app");
@@ -638,8 +666,10 @@ mod tests {
     fn test_filter_left_from_assignee_any_cycles_to_none() {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 2;
-        state.issues_state.issues = vec![issue(1, "zara", "bug")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue(1, "zara", "bug")]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Left));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
@@ -655,8 +685,12 @@ mod tests {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 5;
         state.issues_state.draft_filter.milestone = "v1".to_string();
-        state.issues_state.issues = vec![issue_with_extended(1, "alice", "ui", "bug", "v1", "app")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue_with_extended(
+                1, "alice", "ui", "bug", "v1", "app",
+            )]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Right));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
@@ -672,8 +706,10 @@ mod tests {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 2;
         state.issues_state.draft_filter.assignee = "ANY".to_string();
-        state.issues_state.issues = vec![issue(1, "zara", "bug")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue(1, "zara", "bug")]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Right));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
@@ -689,8 +725,12 @@ mod tests {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 5;
         state.issues_state.draft_filter.milestone = "any".to_string();
-        state.issues_state.issues = vec![issue_with_extended(1, "alice", "ui", "bug", "v1", "app")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue_with_extended(
+                1, "alice", "ui", "bug", "v1", "app",
+            )]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Left));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
@@ -706,8 +746,12 @@ mod tests {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 4;
         state.issues_state.draft_filter.issue_type = "ANY".to_string();
-        state.issues_state.issues = vec![issue_with_extended(1, "alice", "ui", "bug", "v1", "app")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue_with_extended(
+                1, "alice", "ui", "bug", "v1", "app",
+            )]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Right));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {
@@ -723,8 +767,12 @@ mod tests {
         let mut state = filter_state();
         state.issues_state.filter_ui.field_index = 6;
         state.issues_state.draft_filter.module = "any".to_string();
-        state.issues_state.issues = vec![issue_with_extended(1, "alice", "ui", "bug", "v1", "app")];
-
+        state
+            .issues_state
+            .list
+            .replace_items(vec![issue_with_extended(
+                1, "alice", "ui", "bug", "v1", "app",
+            )]);
         let evt = resolve_filter_key_event(&state, &key(KeyCode::Right));
         match evt {
             Some(AppEvent::UpdateDraftFilter { field, value }) => {

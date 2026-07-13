@@ -42,7 +42,6 @@ use super::{
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-001
-/// @pseudocode component-003 lines 01-133
 pub(super) fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(KeyEventKind::Press, code)
 }
@@ -50,7 +49,6 @@ pub(super) fn key(code: KeyCode) -> KeyEvent {
 /// Minimal PR list-row fixture.
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-006
-/// @pseudocode component-002 lines 22-34
 pub(super) fn make_test_pr(number: u64) -> PullRequest {
     PullRequest {
         number,
@@ -73,7 +71,6 @@ pub(super) fn make_test_pr(number: u64) -> PullRequest {
 /// slug, and the first selected.
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-001
-/// @pseudocode component-001 lines 66-76
 pub(super) fn dashboard_prs_state() -> AppState {
     let mut state = AppState::default();
     for (idx, slug) in ["repo-1", "repo-2"].into_iter().enumerate() {
@@ -93,7 +90,6 @@ pub(super) fn dashboard_prs_state() -> AppState {
 /// PR-mode active state derived from `dashboard_prs_state` after entering PR mode.
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-001
-/// @pseudocode component-001 lines 66-76
 pub(super) fn active_prs_state() -> AppState {
     let mut state = dashboard_prs_state();
     state.apply_in_place(AppEvent::EnterPrsMode);
@@ -150,9 +146,19 @@ fn it_enter_prs_mode_from_dashboard_loads_list() {
     let mut state = dashboard.apply(AppEvent::EnterPrsMode);
     assert!(state.prs_state.active);
     assert_eq!(state.prs_state.pr_focus, PrFocus::PrList);
+    // Simulate the dispatch layer marking the list reload as loading.
+    let scope_for_reload = state
+        .selected_repository_index
+        .and_then(|idx| state.repositories.get(idx).map(|r| r.id.clone()))
+        .unwrap_or_else(|| panic!("a repository must be selected"));
+    state.mark_pr_list_reload_loading(
+        scope_for_reload,
+        state.prs_state.committed_filter.clone(),
+        0,
+    );
     assert!(
-        state.prs_state.loading.list,
-        "EnterPrsMode must set loading.list=true (reload spawned)"
+        state.prs_state.list_loading(),
+        "EnterPrsMode + dispatch must set loading.list=true (reload spawned)"
     );
 
     // Simulate async completion: deliver PrListLoaded for the current scope.
@@ -170,16 +176,16 @@ fn it_enter_prs_mode_from_dashboard_loads_list() {
     });
 
     assert_eq!(
-        state.prs_state.pull_requests.len(),
+        state.prs_state.pull_requests().len(),
         2,
         "PrListLoaded must render both rows"
     );
     assert!(
-        !state.prs_state.loading.list,
+        !state.prs_state.list_loading(),
         "PrListLoaded must clear loading.list"
     );
     assert_eq!(
-        state.prs_state.selected_pr_index,
+        state.prs_state.selected_pr_index(),
         Some(0),
         "first row selected after load"
     );
@@ -207,9 +213,11 @@ fn it_repo_nav_switches_scope_and_reloads() {
     state.prs_state.pr_focus = PrFocus::RepoList;
 
     // Seed loaded PR data so we can assert it is cleared on scope change.
-    state.prs_state.pull_requests = vec![make_test_pr(10), make_test_pr(20)];
-    state.prs_state.selected_pr_index = Some(1);
-    state.prs_state.loading.list = false;
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(10), make_test_pr(20)]);
+    state.prs_state.list.set_selected_index(Some(1));
 
     // Drive the REAL key handler for Down in RepoList focus.
     let event = prs::resolve_prs_key_event(&state, &key(KeyCode::Down));
@@ -227,15 +235,15 @@ fn it_repo_nav_switches_scope_and_reloads() {
         "repo nav must move to index 1"
     );
     assert!(
-        state.prs_state.pull_requests.is_empty(),
+        state.prs_state.pull_requests().is_empty(),
         "scope change must clear the PR list"
     );
     assert!(
-        state.prs_state.selected_pr_index.is_none(),
+        state.prs_state.selected_pr_index().is_none(),
         "scope change must clear selected_pr_index"
     );
     assert!(
-        state.prs_state.loading.list,
+        state.prs_state.list_pending(),
         "scope change must flag a list reload"
     );
 }
@@ -247,12 +255,9 @@ fn it_repo_nav_switches_scope_and_reloads() {
 /// applying the filter copies the draft to `committed_filter` and flags a list
 /// reload (`loading.list = true`) — the interactive filter path (#38/#40).
 ///
-/// Drives the REAL key handlers for the filter-controls sub-focus: `f` (open
-/// controls) via `resolve_prs_key_event` in the filter tier is not a direct
-/// key — instead we open via `PrOpenFilterControls`, then cycle a draft field
-/// via the REAL filter-controls key handler, and apply via the Enter key
-/// handler. Then delivers a `PrListLoaded` for the new filter and asserts the
-/// list updates.
+/// Drives the REAL key handlers for the complete filter path: `f` opens the
+/// controls, Space cycles a draft field, and Enter applies it. Then delivers a
+/// `PrListLoaded` for the new filter and asserts the list updates.
 ///
 /// @plan PLAN-20260624-PR-MODE.P15
 /// @requirement REQ-PR-008
@@ -263,8 +268,13 @@ fn it_filter_apply_reloads_and_updates_list() {
     let mut state = active_prs_state();
     state.prs_state.pr_focus = PrFocus::PrList;
 
-    // Open filter controls (the dispatch arm runs this reducer transition).
-    state.apply_in_place(AppEvent::PrOpenFilterControls);
+    // Open filter controls through the same key router users exercise.
+    let event = prs::resolve_prs_key_event(&state, &key(KeyCode::Char('f')));
+    let event = match event {
+        Some(event @ AppEvent::PrOpenFilterControls) => event,
+        other => panic!("f must emit PrOpenFilterControls (got {other:?})"),
+    };
+    state.apply_in_place(event);
     assert!(state.prs_state.filter_ui.controls_open);
 
     // Cycle the review-decision draft filter via the REAL filter-controls handler.
@@ -291,10 +301,6 @@ fn it_filter_apply_reloads_and_updates_list() {
         !state.prs_state.filter_ui.controls_open,
         "apply must close filter controls"
     );
-    assert!(
-        state.prs_state.loading.list,
-        "apply must flag a list reload"
-    );
     // The draft and committed review decisions now match (draft was copied).
     assert_eq!(
         state.prs_state.committed_filter.review_decision,
@@ -302,11 +308,18 @@ fn it_filter_apply_reloads_and_updates_list() {
         "apply must copy draft → committed"
     );
 
-    // Simulate async completion with the new filter: rows update.
+    // Simulate the dispatch layer marking the list reload as loading.
     let scope = state
         .selected_repository_index
         .and_then(|idx| state.repositories.get(idx).map(|r| r.id.clone()))
         .unwrap_or_else(|| panic!("a repository must be selected"));
+    state.mark_pr_list_reload_loading(scope.clone(), state.prs_state.committed_filter.clone(), 0);
+    assert!(
+        state.prs_state.list_pending(),
+        "apply must flag a list reload"
+    );
+
+    // Simulate async completion with the new filter: rows update.
     state.apply_in_place(AppEvent::PrListLoaded {
         scope_repo_id: scope,
         filter: std::boxed::Box::new(state.prs_state.committed_filter.clone()),
@@ -316,7 +329,7 @@ fn it_filter_apply_reloads_and_updates_list() {
         has_more: false,
     });
     assert_eq!(
-        state.prs_state.pull_requests.len(),
+        state.prs_state.pull_requests().len(),
         1,
         "filtered list must show the reloaded rows"
     );
@@ -378,8 +391,15 @@ fn it_search_commit_reloads_with_query() {
         !state.prs_state.search_input_focused,
         "apply search must blur the input"
     );
+    // After PrApplySearch, the reducer clears the list (no pending reload).
+    // The dispatch layer would mark a reload — simulate that here.
+    let scope = state
+        .selected_repository_index
+        .and_then(|idx| state.repositories.get(idx).map(|r| r.id.clone()))
+        .unwrap_or_else(|| panic!("a repository must be selected"));
+    state.mark_pr_list_reload_loading(scope, state.prs_state.committed_filter.clone(), 0);
     assert!(
-        state.prs_state.loading.list,
+        state.prs_state.list_pending(),
         "apply search must flag a list reload"
     );
 }
@@ -462,8 +482,8 @@ fn state_for_send_to_agent(agent_id: &AgentId, work_dir: &std::path::Path) -> Ap
     let mut state = active_prs_state();
     state.installed_agent_kinds = vec![jefe::domain::AgentKind::Llxprt];
     state.prs_state.pr_focus = PrFocus::PrDetail;
-    state.prs_state.pull_requests = vec![make_test_pr(42)];
-    state.prs_state.selected_pr_index = Some(0);
+    state.prs_state.list.replace_items(vec![make_test_pr(42)]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.pr_detail = Some(make_test_pr_detail(42));
     state.agents.push(agent);
     state
@@ -577,7 +597,7 @@ fn it_send_to_agent_writes_prompt_file_for_launch() {
 fn assert_o_no_selection_emits_notice() {
     let mut state_no_sel = active_prs_state();
     state_no_sel.prs_state.pr_focus = PrFocus::PrList;
-    state_no_sel.prs_state.selected_pr_index = None;
+    state_no_sel.prs_state.list.set_selected_index(None);
     let event = prs::resolve_prs_key_event(&state_no_sel, &key(KeyCode::Char('o')));
     assert!(
         matches!(
@@ -652,8 +672,8 @@ fn it_open_in_browser_spawns_gh_pr_view_web() {
     // so owner/name are deterministic.
     let mut state = active_prs_state();
     state.prs_state.pr_focus = PrFocus::PrList;
-    state.prs_state.pull_requests = vec![make_test_pr(7)];
-    state.prs_state.selected_pr_index = Some(0);
+    state.prs_state.list.replace_items(vec![make_test_pr(7)]);
+    state.prs_state.list.set_selected_index(Some(0));
 
     // Drive the REAL `o` key handler → PrOpenInBrowser.
     let event = prs::resolve_prs_key_event(&state, &key(KeyCode::Char('o')));
@@ -731,11 +751,25 @@ fn it_missing_github_repo_shows_inline_config_error() {
         "empty github_repo must resolve to empty owner/name"
     );
 
-    // The dispatch arm builds the missing-repo error synchronously (no spawn).
+    // Begin a real reload so the missing-repo failure correlates (the
+    // request_id == 0 legacy special-case was removed).
     let scope = prs_dispatch::current_pr_scope_repo_id(&state);
+    let filter = state.prs_state.committed_filter.clone();
+    let request_id = state
+        .prs_state
+        .list
+        .next_request_id()
+        .map_or(0, jefe::domain::ListRequestId::get);
+    state.prs_state.list.begin_reload(
+        jefe::state::PrListIdentity {
+            scope_repo_id: scope.clone(),
+            filter,
+        },
+        jefe::domain::ListRequestId::from_raw(request_id),
+    );
     state.apply_in_place(AppEvent::PrListLoadFailed {
         scope_repo_id: scope,
-        request_id: 0,
+        request_id,
         error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
     });
 
@@ -754,7 +788,7 @@ fn it_missing_github_repo_shows_inline_config_error() {
         "error should mention GitHub repository config, got: {error}"
     );
     assert!(
-        !state.prs_state.loading.list,
+        !state.prs_state.list_loading(),
         "the missing-repo path must clear loading.list (no spawn)"
     );
 }
@@ -795,31 +829,27 @@ fn it_no_blocking_gh_call_on_ui_thread() {
     let mut state = active_prs_state();
     let scope = prs_dispatch::current_pr_scope_repo_id(&state);
     // Seed existing list data so we can prove the marker does NOT replace it.
-    state.prs_state.pull_requests = vec![make_test_pr(100), make_test_pr(200)];
-    let seeded_list_len = state.prs_state.pull_requests.len();
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(100), make_test_pr(200)]);
+    let seeded_list_len = state.prs_state.pull_requests().len();
 
     // mark_pr_list_reload_loading sets the pending marker + loading flag and
     // returns SYNCHRONOUSLY (no inline fetch, no PrListLoaded applied).
     state.mark_pr_list_reload_loading(scope.clone(), state.prs_state.committed_filter.clone(), 1);
     assert!(
-        state.prs_state.loading.list,
+        state.prs_state.list_loading(),
         "list loader must set loading.list (pre-spawn)"
     );
     assert!(
-        state.prs_state.list_reload_pending.is_some(),
+        state.prs_state.list_pending(),
         "list loader must set a staleness-guarded pending marker (pre-spawn)"
     );
-    let pending = state
-        .prs_state
-        .list_reload_pending
-        .as_ref()
-        .unwrap_or_else(|| panic!("list_reload_pending must be Some"));
-    assert_eq!(pending.scope_repo_id, scope);
-    assert_eq!(pending.request_id, 1);
     // The marker did NOT block to fetch data inline: the list is unchanged
     // (no PrListLoaded replaced pull_requests synchronously).
     assert_eq!(
-        state.prs_state.pull_requests.len(),
+        state.prs_state.pull_requests().len(),
         seeded_list_len,
         "list loader must NOT replace pull_requests synchronously (no blocking fetch)"
     );
@@ -870,8 +900,8 @@ fn test_pr_merged_clears_pending_and_marks_merged() {
 
     let mut state = active_prs_state();
     state.prs_state.pr_focus = PrFocus::PrDetail;
-    state.prs_state.pull_requests = vec![make_test_pr(7)];
-    state.prs_state.selected_pr_index = Some(0);
+    state.prs_state.list.replace_items(vec![make_test_pr(7)]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.pr_detail = Some(make_test_pr_detail(7));
     state.prs_state.merge_mutation_pending = Some(jefe::state::PrMergeMutationPending {
         scope_repo_id: RepositoryId("repo-1".to_string()),
@@ -902,7 +932,7 @@ fn test_pr_merged_clears_pending_and_marks_merged() {
     );
     let pr = state
         .prs_state
-        .pull_requests
+        .pull_requests()
         .first()
         .unwrap_or_else(|| panic!("list must still have the PR after PrMerged"));
     assert_eq!(
@@ -938,31 +968,27 @@ fn test_background_refresh_function_exists_and_checks_screen_mode() {
 fn test_background_refresh_skips_when_detail_load_in_flight() {
     use super::prs_orchestration::should_background_refresh;
     use jefe::state::ScreenMode;
-
+    let pr_view = ScreenMode::DashboardPullRequests;
     // No in-flight loads → should refresh.
     assert!(
-        should_background_refresh(ScreenMode::DashboardPullRequests, false, false, false),
+        should_background_refresh(pr_view, false, false, false),
         "should refresh when PR view is open and nothing is in flight"
     );
-
     // Detail load in flight → must NOT refresh (clobber guard).
     assert!(
-        !should_background_refresh(ScreenMode::DashboardPullRequests, false, false, true),
+        !should_background_refresh(pr_view, false, false, true),
         "must NOT refresh when a detail load is in flight"
     );
-
     // List reload pending → must NOT refresh.
     assert!(
-        !should_background_refresh(ScreenMode::DashboardPullRequests, true, false, false),
+        !should_background_refresh(pr_view, true, false, false),
         "must NOT refresh when a list reload is pending"
     );
-
     // List page pending → must NOT refresh.
     assert!(
-        !should_background_refresh(ScreenMode::DashboardPullRequests, false, true, false),
+        !should_background_refresh(pr_view, false, true, false),
         "must NOT refresh when a list page load is pending"
     );
-
     // Not on the PR view → must NOT refresh.
     assert!(
         !should_background_refresh(ScreenMode::Dashboard, false, false, false),

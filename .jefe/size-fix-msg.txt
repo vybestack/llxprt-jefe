@@ -1,0 +1,8 @@
+Extract detail-content-line-count tests to fix source-size gate
+
+The main merge pushed issues_tests_detail.rs to 1008 lines (max 1000)
+and issues_key_tests.rs to 1030. Extract the three detail-content-
+line-count tests into a new issues_tests_detail_content module (sharing
+helpers via pub(super)) and drop a duplicate issues_state_with_issue_list
+helper + shift_c test from issues_key_tests (already in
+issues_close_delete_key_tests). Verification: all gates green, 2464 tests.

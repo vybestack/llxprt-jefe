@@ -1,0 +1,37 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "Issues" },
+    { "waitFor": "#" },
+    { "capture": "issues-close-reason-entered" },
+    { "key": "C" },
+    { "waitFor": "Close Issue" },
+    { "waitFor": "Completed" },
+    { "waitFor": "Not planned" },
+    { "waitFor": "Duplicate" },
+    { "waitFor": "Invalid" },
+    { "capture": "issues-close-reason-chooser-open" },
+    { "key": "Down" },
+    { "key": "Down" },
+    { "waitFor": "Duplicate" },
+    { "key": "Enter" },
+    { "waitFor": "Duplicate of" },
+    { "capture": "issues-close-reason-duplicate-search" },
+    { "key": "Escape" },
+    { "waitForNot": "Duplicate of" },
+    { "capture": "issues-close-reason-duplicate-search-cancelled" },
+    { "key": "Escape" },
+    { "waitForNot": "Close Issue" },
+    { "capture": "issues-close-reason-chooser-cancelled" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

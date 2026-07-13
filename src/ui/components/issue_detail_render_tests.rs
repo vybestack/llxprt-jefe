@@ -13,6 +13,7 @@ fn issue_detail_with_comment() -> IssueDetail {
     IssueDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: 94,
+        node_id: String::new(),
         title: "Migrate issue composers".to_string(),
         state: IssueState::Open,
         author_login: "octocat".to_string(),
@@ -69,6 +70,27 @@ fn render_detail_canvas(p: RenderParams) -> iocraft::Canvas {
 
 fn render_detail(p: RenderParams) -> String {
     render_detail_canvas(p).to_string()
+}
+
+/// Strip ANSI SGR/cursor escape sequences so width assertions measure visible
+/// text, not escape bytes.
+fn strip_ansi(ansi: &str) -> String {
+    let mut out = String::with_capacity(ansi.len());
+    let mut chars = ansi.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' && chars.peek() == Some(&'[') {
+            // Consume the CSI sequence: ESC '[' ... letter.
+            chars.next();
+            for inner in chars.by_ref() {
+                if inner.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 fn background_sgr_count(p: RenderParams) -> usize {
@@ -280,4 +302,77 @@ fn active_issue_reply_renders_text_box_text_and_caret() {
         cols: 80,
     });
     assert!(with_caret > baseline);
+}
+
+/// Regression for issue #212: the new-issue composer must WRAP long text via
+/// the embedded TextBox (no ellipsis truncation, no off-screen overflow).
+#[test]
+fn new_issue_composer_wraps_long_text_via_text_box() {
+    let detail = issue_detail_with_comment();
+    let long_text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda".to_string();
+    let inline = InlineState::Composer {
+        target: ComposerTarget::NewIssue,
+        text: long_text.clone(),
+        cursor: long_text.len(),
+    };
+    let cols: u16 = 40;
+    let rendered = render_detail(RenderParams {
+        detail: &detail,
+        subfocus: DetailSubfocus::Body,
+        inline_state: &inline,
+        scroll_offset: 0,
+        pane_height: 24,
+        cols,
+    });
+    assert!(
+        !rendered.contains('\u{2026}'),
+        "new-issue editor must wrap, not truncate with ellipsis: {rendered}"
+    );
+    assert!(
+        rendered.contains("alpha"),
+        "the start of the new-issue editor text must be visible: {rendered}"
+    );
+    // No rendered line may exceed the terminal column width (measure visible
+    // text, stripping ANSI escape bytes).
+    let plain = strip_ansi(&rendered);
+    for (i, line) in plain.lines().enumerate() {
+        assert!(
+            line.chars().count() <= usize::from(cols),
+            "rendered line {i} overflows: {} ({} chars)",
+            line,
+            line.chars().count()
+        );
+    }
+}
+
+/// Regression for issue #212: the new-issue editor caret renders as a
+/// reverse-video cell via the embedded TextBox.
+#[test]
+fn new_issue_composer_renders_caret_via_text_box() {
+    let detail = issue_detail_with_comment();
+    let baseline = background_sgr_count(RenderParams {
+        detail: &detail,
+        subfocus: DetailSubfocus::Body,
+        inline_state: &InlineState::None,
+        scroll_offset: 0,
+        pane_height: 24,
+        cols: 80,
+    });
+    let inline = InlineState::Composer {
+        target: ComposerTarget::NewIssue,
+        text: "hello".to_string(),
+        cursor: 5,
+    };
+    let with_caret = background_sgr_count(RenderParams {
+        detail: &detail,
+        subfocus: DetailSubfocus::Body,
+        inline_state: &inline,
+        scroll_offset: 0,
+        pane_height: 24,
+        cols: 80,
+    });
+    assert!(
+        with_caret > baseline,
+        "new-issue TextBox caret must add background SGR ({with_caret}) beyond baseline ({baseline})"
+    );
 }

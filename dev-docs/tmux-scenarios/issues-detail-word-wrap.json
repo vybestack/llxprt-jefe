@@ -1,0 +1,24 @@
+{
+  "config": {
+    "cols": 80,
+    "rows": 40,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "Issues" },
+    { "waitFor": "#" },
+    { "key": "Enter" },
+    { "waitFor": "Body" },
+    { "key": "e" },
+    { "waitFor": "editing" },
+    { "keys": ["a", "l", "p", "h", "a", " ", "b", "r", "a", "v", "o", " ", "c", "h", "a", "r", "l", "i", "e", " ", "d", "e", "l", "t", "a", " ", "e", "c", "h", "o", " ", "f", "o", "x", "t", "r", "o", "t", " ", "g", "o", "l", "f", " ", "h", "o", "t", "e", "l", " ", "i", "n", "d", "i", "a", " ", "j", "u", "l", "i", "e", "t", "t"] },
+    { "waitFor": "juliett" },
+    { "key": "Escape" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

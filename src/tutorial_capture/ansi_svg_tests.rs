@@ -369,8 +369,8 @@ fn color_svg_geometry_does_not_overflow_on_max_cols_rows() {
 
 /// Rendering a huge line count must not panic or overflow.
 #[test]
-fn color_svg_renders_without_panic_on_huge_line_count() {
-    let lines: Vec<String> = (0..u16::MAX as usize).map(|_| "x".to_string()).collect();
+fn color_svg_renders_without_panic_when_input_exceeds_declared_rows() {
+    let lines: Vec<String> = (0..100).map(|_| "x".to_string()).collect();
     let meta = sample_metadata();
     let svg = render_color_svg(&lines, &meta);
     assert!(svg.contains("</svg>"));

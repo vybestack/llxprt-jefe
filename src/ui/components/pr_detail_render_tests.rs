@@ -54,6 +54,38 @@ fn detail_with_long_comment() -> PullRequestDetail {
     }
 }
 
+/// A minimal PR detail (single-char fields, no comments) so the composer sits
+/// near the top of the content and is visible without scrolling. Used by the
+/// composer-wrap render test.
+fn bare_pr_detail() -> PullRequestDetail {
+    PullRequestDetail {
+        repo_owner_name: "owner/repo".to_string(),
+        number: 20,
+        title: "T".to_string(),
+        state: PrState::Open,
+        is_draft: false,
+        author_login: "o".to_string(),
+        created_at: "d".to_string(),
+        updated_at: "d".to_string(),
+        head_ref: "f".to_string(),
+        base_ref: "m".to_string(),
+        labels: vec![],
+        assignees: vec![],
+        milestone: None,
+        body: String::new(),
+        external_url: "u".to_string(),
+        review_decision: None,
+        checks_status: PrCheckStatus::None,
+        reviews: vec![],
+        checks: vec![],
+        comments: vec![],
+        has_more_comments: false,
+        comments_cursor: None,
+        mergeable: None,
+        merge_state_status: None,
+    }
+}
+
 /// Bundle of render params to keep the render helpers under the argument
 /// limit (clippy::too_many_arguments).
 ///
@@ -143,16 +175,14 @@ fn rendered_lines_never_exceed_term_cols() {
     }
 }
 
-/// A long comment body must be TRUNCATED (clipped to the content width) rather
-/// than overflow the pane — mirroring Issues mode, where the reducer never wraps
-/// and the renderer (ScrollableText) truncates long lines via `max_line_width`.
-/// This confirms the component does NOT overflow when a line exceeds the width.
+/// A long comment body must WORD-WRAP across several rendered rows so its
+/// full text is visible (not truncated with an ellipsis). This is the render
+/// regression guard for the read-only comment display follow-up to #212.
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
-/// @pseudocode component-001 lines 1-12
 #[test]
-fn long_comment_truncated_to_content_width() {
+fn long_comment_wraps_across_rendered_rows() {
     let detail = detail_with_long_comment();
     let cols: u16 = 50;
     let content_width = usize::from(crate::layout::prs_detail_content_width(cols));
@@ -165,22 +195,25 @@ fn long_comment_truncated_to_content_width() {
         pane_height: 40,
         cols,
     });
-    // No rendered line may exceed the terminal column width (the ScrollableText
-    // truncation clips long lines so nothing overflows the pane).
+    // No rendered row may exceed the terminal column width.
     for (i, line) in rendered.lines().enumerate() {
         assert!(
             line.chars().count() <= usize::from(cols),
             "rendered line {i} exceeds term_cols {cols}: {} ({} chars) — \
-             long lines must be truncated, not overflow",
+             wrapped rows must never overflow the pane",
             line,
             line.chars().count()
         );
     }
-    // The long comment body is a single (unwrapped) line; the start of it must
-    // still be visible (truncated, not dropped entirely).
+    // Wrapping makes BOTH the start and the tail of the long comment visible
+    // (truncation would drop the tail).
     assert!(
         rendered.contains("this is a very"),
-        "the start of a long comment body must still be visible (truncated, not dropped)"
+        "the start of a long comment body must be visible: {rendered}"
+    );
+    assert!(
+        rendered.contains("narrow"),
+        "the TAIL of a long comment body must be visible (wrap, not truncate): {rendered}"
     );
 }
 
@@ -250,45 +283,19 @@ fn caret_renders_as_reverse_video_sgr() {
     );
 }
 
-/// A long composer line must be TRUNCATED (clipped to the content width) rather
-/// than overflow the pane — mirroring Issues mode, where the reducer never wraps
-/// and the renderer truncates long lines via `max_line_width`. The composer
-/// content stays on a SINGLE row (no wrapping, no continuation indent).
+/// A long composer line must WORD-WRAP across several rendered rows (rather
+/// than overflow the pane) via the embedded `TextBox`. The composer content
+/// folds at word boundaries so neither the start nor the tail is dropped.
 ///
 /// Uses a detail with NO comments/reviews/checks so the composer is near the
 /// top of the content (visible without scrolling).
 ///
 /// @plan PLAN-20260624-PR-MODE.P14
 /// @requirement REQ-PR-009
-/// @pseudocode component-001 lines 1-12
+/// @requirement REQ-TEXTBOX-WRAP
 #[test]
-fn rendered_long_composer_line_truncated_to_content_width() {
-    let detail = PullRequestDetail {
-        repo_owner_name: "owner/repo".to_string(),
-        number: 20,
-        title: "T".to_string(),
-        state: PrState::Open,
-        is_draft: false,
-        author_login: "o".to_string(),
-        created_at: "d".to_string(),
-        updated_at: "d".to_string(),
-        head_ref: "f".to_string(),
-        base_ref: "m".to_string(),
-        labels: vec![],
-        assignees: vec![],
-        milestone: None,
-        body: String::new(),
-        external_url: "u".to_string(),
-        review_decision: None,
-        checks_status: PrCheckStatus::None,
-        reviews: vec![],
-        checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
-        mergeable: None,
-        merge_state_status: None,
-    };
+fn rendered_long_composer_line_wraps_to_content_width() {
+    let detail = bare_pr_detail();
     let long_text =
         "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789".to_string();
     let inline = InlineState::Composer {
@@ -308,21 +315,26 @@ fn rendered_long_composer_line_truncated_to_content_width() {
         cols,
     });
     // No rendered line may exceed the terminal column width: a long composer
-    // line must be truncated (clipped), not wrapped or overflowed.
+    // line must word-wrap (fold onto following rows), not overflow.
     for (i, line) in rendered.lines().enumerate() {
         assert!(
             line.chars().count() <= usize::from(cols),
             "rendered line {i} exceeds term_cols {cols}: {} ({} chars) — \
-             a long composer line must be truncated, not overflow",
+             a long composer line must wrap, not overflow",
             line,
             line.chars().count()
         );
     }
-    // The composer line starts with the gutter "│ " then the (truncated) text;
-    // the start of the typed content must still be visible.
+    // The composer line starts with the gutter "│ " then the wrapped text;
+    // BOTH the start and the tail must be visible (truncation would drop the
+    // tail), proving the long composer line wraps rather than truncates.
     assert!(
         rendered.contains("│ abcdef"),
-        "the start of a long composer line must be visible (truncated, not dropped): {rendered}"
+        "the start of a long composer line must be visible (wrap, not truncate): {rendered}"
+    );
+    assert!(
+        rendered.contains("56789"),
+        "the TAIL of a long composer line must be visible (wrap, not truncate): {rendered}"
     );
 }
 

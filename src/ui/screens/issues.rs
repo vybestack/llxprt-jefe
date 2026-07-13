@@ -11,9 +11,10 @@ use crate::state::{AppState, IssueFocus, PaneFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
-    AgentChooser, IssueDetailProjectionInputs, IssueListLayout, IssueListWindow, KeybindBar,
-    Sidebar, StatusBar, detail_pane_element, filter_bar_element, issue_detail_props,
-    issue_filter_props, issue_list_props, issue_list_status_message, selectable_list_element,
+    AgentChooser, CloseReasonChooser, IssueDeleteConfirmOverlay, IssueDetailProjectionInputs,
+    IssueListLayout, IssueListWindow, KeybindBar, Sidebar, StatusBar, detail_pane_element,
+    filter_bar_element, issue_detail_props, issue_filter_props, issue_list_props,
+    issue_list_status_message, selectable_list_element,
 };
 
 /// Props for the issues mode screen.
@@ -67,9 +68,9 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
 
     // ── Issues state ────────────────────────────────────────────────────────
     let issue_focus = state.map_or(IssueFocus::IssueList, |s| s.issues_state.issue_focus);
-    let issues = state.map_or_else(Vec::new, |s| s.issues_state.issues.clone());
-    let selected_issue_idx = state.and_then(|s| s.issues_state.selected_issue_index);
-    let list_loading = state.is_some_and(|s| s.issues_state.loading.list);
+    let issues = state.map_or_else(Vec::new, |s| s.issues_state.issues().to_vec());
+    let selected_issue_idx = state.and_then(|s| s.issues_state.selected_issue_index());
+    let list_loading = state.is_some_and(|s| s.issues_state.list_loading());
     let filter_controls_open = state.is_some_and(|s| s.issues_state.filter_ui.controls_open);
     let filter_field_index = state.map_or(0, |s| s.issues_state.filter_ui.field_index);
     let draft_labels_text = state.map_or_else(String::new, |s| {
@@ -116,6 +117,38 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
         .as_ref()
         .map_or_else(Vec::new, |c| c.agents.clone());
     let chooser_selected = agent_chooser.as_ref().map_or(0, |c| c.selected_index);
+
+    // Delete confirm overlay (issue #182)
+    let delete_confirm = state.and_then(|s| s.issues_state.delete_confirm.clone());
+    let delete_visible = delete_confirm.is_some();
+    let delete_issue_number = delete_confirm.as_ref().map_or(0, |c| c.issue_number);
+    let delete_awaiting = delete_confirm
+        .as_ref()
+        .is_some_and(|c| c.awaiting_confirmation);
+
+    // Close reason chooser overlay (issue #188)
+    let close_reason_chooser = state.and_then(|s| s.issues_state.close_reason_chooser.clone());
+    let close_reason_visible = close_reason_chooser.is_some();
+    let cr_issue_number = close_reason_chooser.as_ref().map_or(0, |c| c.issue_number);
+    let cr_selected = close_reason_chooser
+        .as_ref()
+        .map_or(0, |c| c.selected_index);
+    let cr_awaiting = close_reason_chooser
+        .as_ref()
+        .is_some_and(|c| c.awaiting_confirmation);
+    let cr_dup_query = close_reason_chooser
+        .as_ref()
+        .and_then(|c| c.duplicate_search.as_ref())
+        .map(|s| s.query.clone());
+    let cr_dup_candidates = close_reason_chooser
+        .as_ref()
+        .and_then(|c| c.duplicate_search.as_ref())
+        .map(|s| s.candidates.clone())
+        .unwrap_or_default();
+    let cr_dup_selected = close_reason_chooser
+        .as_ref()
+        .and_then(|c| c.duplicate_search.as_ref())
+        .map_or(0, |s| s.selected_index);
 
     // Sidebar is highlighted when RepoList focus or PaneFocus::Repositories
     let sidebar_focused =
@@ -244,6 +277,51 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                                     visible: true,
                                     agents: chooser_agents.clone(),
                                     selected_index: chooser_selected,
+                                    colors: colors.clone(),
+                                    selection: selection,
+                                )
+                            }
+                        }]
+                    } else {
+                        vec![]
+                    })
+
+                    // Delete confirm overlay (issue #182)
+                    #(if delete_visible {
+                        vec![element! {
+                            Box(
+                                position: Position::Absolute,
+                                top: 2,
+                                left: 4,
+                            ) {
+                                IssueDeleteConfirmOverlay(
+                                    visible: true,
+                                    issue_number: delete_issue_number,
+                                    awaiting_confirmation: delete_awaiting,
+                                    colors: colors.clone(),
+                                )
+                            }
+                        }]
+                    } else {
+                        vec![]
+                    })
+
+                    // Close reason chooser overlay (issue #188)
+                    #(if close_reason_visible {
+                        vec![element! {
+                            Box(
+                                position: Position::Absolute,
+                                top: 2,
+                                left: 4,
+                            ) {
+                                CloseReasonChooser(
+                                    visible: true,
+                                    issue_number: cr_issue_number,
+                                    selected_index: cr_selected,
+                                    awaiting_confirmation: cr_awaiting,
+                                    duplicate_search_query: cr_dup_query.clone(),
+                                    duplicate_candidates: cr_dup_candidates.clone(),
+                                    duplicate_selected_index: cr_dup_selected,
                                     colors: colors.clone(),
                                     selection: selection,
                                 )

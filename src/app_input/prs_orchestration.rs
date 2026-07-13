@@ -157,8 +157,8 @@ pub fn request_pr_background_refresh(app_state: &mut AppStateHandle, ctx: &Share
         let state = app_state.read();
         should_background_refresh(
             state.screen_mode,
-            state.prs_state.list_reload_pending.is_some(),
-            state.prs_state.list_page_pending.is_some(),
+            state.prs_state.list.has_pending_request(),
+            false,
             state.prs_state.detail_pending.is_some(),
         )
     };
@@ -286,7 +286,7 @@ fn dispatch_prs_navigation(
         (
             state.prs_state.pr_focus,
             state.selected_repository_index,
-            state.prs_state.selected_pr_index,
+            state.prs_state.selected_pr_index(),
         )
     };
     apply_and_persist(app_state, ctx, AppEvent::from(message));
@@ -344,11 +344,8 @@ fn refresh_repo_scope_if_changed_prs(
 /// @pseudocode component-004 lines 123-125
 fn reset_pr_list_for_repo_change(app_state: &mut AppStateHandle) {
     let mut state = app_state.write();
-    state.prs_state.pull_requests.clear();
-    state.prs_state.selected_pr_index = None;
+    state.prs_state.list.clear();
     state.prs_state.pr_detail = None;
-    state.prs_state.list_cursor = None;
-    state.prs_state.has_more_prs = false;
     state.prs_state.error = None;
     if state.prs_state.inline_state != jefe::state::InlineState::None {
         state.prs_state.draft_notice = Some("Unsent draft discarded".to_string());
@@ -359,12 +356,9 @@ fn reset_pr_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.prs_state.loading.comments = false;
     state.prs_state.detail_pending = None;
     state.prs_state.comments_page_pending = None;
-    state.prs_state.list_reload_pending = None;
-    state.prs_state.list_page_pending = None;
     state.prs_state.agent_chooser = None;
     state.prs_state.merge_chooser = None;
     state.prs_state.merge_mutation_pending = None;
-    state.prs_state.loading.list = true;
 }
 
 /// Refresh the PR preview from list data when the selected PR changes.
@@ -373,7 +367,7 @@ fn reset_pr_list_for_repo_change(app_state: &mut AppStateHandle) {
 /// @requirement REQ-PR-003
 /// @pseudocode component-004 lines 119-126
 fn refresh_pr_preview_if_changed(app_state: &mut AppStateHandle, prev_pr_idx: Option<usize>) {
-    let new_pr_idx = app_state.read().prs_state.selected_pr_index;
+    let new_pr_idx = app_state.read().prs_state.selected_pr_index();
     if new_pr_idx != prev_pr_idx {
         prs_dispatch::preview_pr_from_list(app_state);
     }

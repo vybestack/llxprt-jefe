@@ -4,6 +4,7 @@
 //! @requirement REQ-TECH-004
 //! @pseudocode component-002 lines 01-06
 
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -13,9 +14,9 @@ use tracing::debug;
 use crate::domain::{AgentKind, LaunchSignature};
 
 use super::errors::RuntimeError;
+use super::multiplexer::{MultiplexerCapability, MultiplexerPlan};
 use super::nested_status::disable_nested_tmux_status_if_capture;
 use super::preflight::sandbox_ssh_agent_warning;
-use super::socket::jefe_tmux_socket_path;
 
 const REMOTE_SSH_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -47,38 +48,14 @@ fn tmux_scrub_env_args() -> Vec<String> {
     args
 }
 
-/// The fixed base arguments every jefe local tmux command starts with:
-/// `-f /dev/null` (skip user config) and `-S <jefe-socket>` (dedicated socket).
+/// Resolve the local platform multiplexer and construct its isolated command.
 ///
-/// Factored out so tests can inspect the base arg composition deterministically
-/// without spawning tmux.
-#[must_use]
-pub fn tmux_base_args() -> Vec<String> {
-    let socket = jefe_tmux_socket_path();
-    vec![
-        "-f".to_owned(),
-        "/dev/null".to_owned(),
-        "-S".to_owned(),
-        socket.to_string_lossy().into_owned(),
-    ]
-}
-
-/// Build a local tmux `Command` that skips user config (`-f /dev/null`) and
-/// targets jefe's *private* socket (`-S <jefe-socket>`).
-///
-/// Jefe sets all tmux options programmatically, so loading `~/.tmux.conf` is
-/// unnecessary and can cause errors (e.g., pane-scoped options in the user
-/// config fail with "no current pane" when the server starts headlessly).
-///
-/// The dedicated socket (`-S`) isolates jefe's sessions from any unrelated user
-/// tmux sessions that share the default socket. This prevents jefe from
-/// destroying unrelated sessions and means jefe is unaffected when the shared
-/// default server dies (e.g. an OS reboot of the default tmux server).
-pub fn tmux_command() -> Command {
-    let mut cmd = Command::new("tmux");
-    let base = tmux_base_args();
-    cmd.args(&base);
-    cmd
+/// Unix preserves upstream tmux's `/dev/null` configuration and private socket.
+/// Native Windows selects qualified psmux with `NUL` and a private namespace.
+pub fn tmux_command() -> Result<Command, RuntimeError> {
+    MultiplexerPlan::current()
+        .map(|plan| plan.command())
+        .map_err(RuntimeError::Multiplexer)
 }
 
 // Re-export the pane capture / introspection helpers that production callers
@@ -88,7 +65,7 @@ pub fn tmux_command() -> Command {
 pub use super::pane_capture::{capture_pane_history, capture_pane_lines, pane_pid};
 
 fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
-    let mut cmd = tmux_command();
+    let mut cmd = tmux_command().map_err(|error| error.to_string())?;
     cmd.args(args);
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
@@ -241,9 +218,10 @@ pub fn enforce_clipboard_passthrough(session_name: &str) {
         None,
     );
 
-    if let Ok(output) = tmux_command()
-        .args(["list-panes", "-t", session_name, "-F", PANE_FORMAT])
-        .output()
+    if let Ok(mut command) = tmux_command()
+        && let Ok(output) = command
+            .args(["list-panes", "-t", session_name, "-F", PANE_FORMAT])
+            .output()
         && output.status.success()
     {
         let panes = String::from_utf8_lossy(&output.stdout);
@@ -284,7 +262,10 @@ fn remote_effective_user(remote: &crate::domain::RemoteRepositorySettings) -> St
     }
 }
 
-fn run_command_capture(cmd: Command, error_context: &str) -> Result<Output, RuntimeError> {
+pub(super) fn run_command_capture(
+    cmd: Command,
+    error_context: &str,
+) -> Result<Output, RuntimeError> {
     run_command_capture_with_timeout(cmd, REMOTE_SSH_COMMAND_TIMEOUT, error_context)
 }
 
@@ -749,8 +730,13 @@ fn local_launch_plan(signature: &LaunchSignature) -> LocalLaunchPlan {
     }
 }
 
-fn local_launch_command(session_name: &str, work_dir: &Path, plan: &LocalLaunchPlan) -> Command {
-    let mut cmd = tmux_command();
+fn local_launch_command(
+    session_name: &str,
+    work_dir: &Path,
+    launch: &LocalLaunchPlan,
+) -> Result<Command, RuntimeError> {
+    let multiplexer = MultiplexerPlan::current().map_err(RuntimeError::Multiplexer)?;
+    let mut cmd = multiplexer.command();
     cmd.arg("new-session")
         .arg("-d")
         .arg("-s")
@@ -758,23 +744,29 @@ fn local_launch_command(session_name: &str, work_dir: &Path, plan: &LocalLaunchP
         .arg("-c")
         .arg(work_dir);
 
-    // Wrap the pane command in `env -u TMUX -u TMUX_PANE -u TMUX_TMPDIR …` so
-    // the llxprt child (and any tool it spawns) cannot reach jefe's private
-    // tmux server via a bare `tmux` (#171). tmux's server populates the pane
-    // env, so the scrub MUST live in the pane command rather than jefe's own
-    // process env. The argv is built by the pure [`local_pane_command_args`]
-    // helper so it is directly unit-testable.
-    for arg in local_pane_command_args(plan) {
+    let pane_args = launch.args.iter().map(OsString::from).collect::<Vec<_>>();
+    let environment = launch
+        .env
+        .iter()
+        .map(|(key, value)| (OsString::from(key), OsString::from(value)))
+        .collect::<Vec<_>>();
+    for arg in multiplexer
+        .pane_command_args(
+            OsStr::new(launch.agent_kind.binary_name()),
+            &pane_args,
+            &environment,
+        )
+        .map_err(RuntimeError::Multiplexer)?
+    {
         cmd.arg(arg);
     }
-    cmd
+    Ok(cmd)
 }
 
-/// Build the pane-command argv for a local agent session: the `env -u` scrub
-/// prefix, any `KEY=VALUE` env assignments, then `llxprt` and its launch args.
-///
-/// Factored out of [`local_launch_command`] so the scrub is unit-testable
-/// without spawning tmux or introspecting a `Command` (#171).
+/// Build the Unix pane-command argv for remote shell construction and
+/// regression tests. Local runtime launch uses `MultiplexerPlan::pane_command_args`
+/// so native Windows never receives this Unix `env -u` prefix.
+#[cfg(test)]
 fn local_pane_command_args(plan: &LocalLaunchPlan) -> Vec<String> {
     let mut args = tmux_scrub_env_args();
     for (key, value) in &plan.env {
@@ -814,23 +806,33 @@ fn finalize_local_session(session_name: &str, warning: Option<String>) {
     }
 }
 
+enum LocalCreateFailure {
+    Runtime(RuntimeError),
+    Command(String),
+}
+
 fn try_local_create_session(
     session_name: &str,
     work_dir: &Path,
     signature: &LaunchSignature,
     attempt: u8,
-) -> Result<(), String> {
+) -> Result<(), LocalCreateFailure> {
     let plan = local_launch_plan(signature);
-    let mut cmd = local_launch_command(session_name, work_dir, &plan);
-    debug!(session_name = %session_name, attempt, "create_session invoking tmux new-session");
+    let mut cmd =
+        local_launch_command(session_name, work_dir, &plan).map_err(LocalCreateFailure::Runtime)?;
+    debug!(session_name = %session_name, attempt, "create_session invoking local multiplexer new-session");
 
-    let output = cmd.output().map_err(|e| format!("tmux new-session: {e}"))?;
+    let output = cmd
+        .output()
+        .map_err(|error| LocalCreateFailure::Command(error.to_string()))?;
     if output.status.success() {
-        debug!(session_name = %session_name, attempt, "create_session tmux new-session succeeded");
+        debug!(session_name = %session_name, attempt, "create_session local multiplexer new-session succeeded");
         finalize_local_session(session_name, plan.warning);
         Ok(())
     } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
+        Err(LocalCreateFailure::Command(
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        ))
     }
 }
 
@@ -870,38 +872,45 @@ pub fn create_session(
         return create_remote_session(session_name, work_dir, signature);
     }
 
+    MultiplexerPlan::current()
+        .and_then(|plan| {
+            plan.preflight(&[
+                MultiplexerCapability::AttachSession,
+                MultiplexerCapability::PaneCapture,
+            ])
+        })
+        .map_err(RuntimeError::Multiplexer)?;
+
     let _ = kill_session(session_name);
     match try_local_create_session(session_name, work_dir, signature, 0) {
         Ok(()) => return Ok(()),
-        Err(stderr) if is_tmux_fork_broken(&stderr) => {
-            debug!(session_name = %session_name, attempt = 0, stderr = %stderr, "create_session retrying after tmux fork failure");
-            // Scoped recovery: kill only this one target session on the
-            // jefe-private socket, then retry. We must NOT call `tmux
-            // kill-server` here — that would nuke every jefe session (and,
-            // before the dedicated socket, every unrelated user session too)
-            // over a transient per-session fork error.
+        Err(LocalCreateFailure::Runtime(error)) => return Err(error),
+        Err(LocalCreateFailure::Command(stderr)) if is_tmux_fork_broken(&stderr) => {
+            debug!(session_name = %session_name, attempt = 0, stderr = %stderr, "create_session retrying after multiplexer fork failure");
+            // Scoped recovery: kill only this one target session in Jefe's
+            // private isolation handle. Never terminate the whole server.
             let _ = kill_session(session_name);
         }
-        Err(stderr) => return Err(local_spawn_error(session_name, 0, stderr)),
+        Err(LocalCreateFailure::Command(stderr)) => {
+            return Err(local_spawn_error(session_name, 0, stderr));
+        }
     }
 
     match try_local_create_session(session_name, work_dir, signature, 1) {
         Ok(()) => Ok(()),
-        Err(stderr) => Err(local_spawn_error(session_name, 1, stderr)),
+        Err(LocalCreateFailure::Runtime(error)) => Err(error),
+        Err(LocalCreateFailure::Command(stderr)) => Err(local_spawn_error(session_name, 1, stderr)),
     }
 }
 
 /// Check if a tmux session exists.
 #[allow(dead_code)]
-pub fn session_exists(session_name: &str) -> bool {
-    let output = tmux_command()
+pub fn session_exists(session_name: &str) -> Result<bool, RuntimeError> {
+    let output = tmux_command()?
         .args(["has-session", "-t", session_name])
-        .output();
-
-    match output {
-        Ok(out) => out.status.success(),
-        Err(_) => false,
-    }
+        .output()
+        .map_err(|error| RuntimeError::CapabilityProbeFailed(error.to_string()))?;
+    Ok(output.status.success())
 }
 
 pub fn remote_session_exists(
@@ -917,7 +926,7 @@ pub fn remote_session_exists(
 ///
 /// @pseudocode component-002 lines 24-25
 pub fn kill_session(session_name: &str) -> Result<(), RuntimeError> {
-    let output = tmux_command()
+    let output = tmux_command()?
         .args(["kill-session", "-t", session_name])
         .output()
         .map_err(|e| RuntimeError::KillFailed(format!("tmux kill-session: {e}")))?;
@@ -945,7 +954,7 @@ pub fn kill_remote_session(
 /// Send keys to a tmux session (for testing/automation).
 #[allow(dead_code)]
 pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
-    let output = tmux_command()
+    let output = tmux_command()?
         .args(["send-keys", "-t", session_name, keys, "Enter"])
         .output()
         .map_err(|e| RuntimeError::WriteFailed(format!("tmux send-keys: {e}")))?;
@@ -964,6 +973,6 @@ pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
 #[path = "commands_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "prefix_passthrough_tests.rs"]
 mod prefix_passthrough_tests;

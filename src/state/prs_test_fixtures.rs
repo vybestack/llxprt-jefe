@@ -9,10 +9,10 @@
 //! @requirement REQ-PR-010
 
 use crate::domain::{
-    PrCheckStatus, PrState, PullRequest, PullRequestDetail, Repository, RepositoryId,
+    PrCheckStatus, PrFilter, PrState, PullRequest, PullRequestDetail, Repository, RepositoryId,
 };
 use crate::state::AppState;
-use crate::state::types::{InlineState, PrFocus, ScreenMode};
+use crate::state::types::{InlineState, PrFocus, PrListIdentity, ScreenMode};
 
 /// PR-mode state with a single selected PR and a loaded detail (non-empty body).
 ///
@@ -33,7 +33,7 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
     state.selected_repository_index = Some(0);
     state.prs_state.active = true;
     state.prs_state.pr_focus = PrFocus::PrDetail;
-    state.prs_state.pull_requests = vec![PullRequest {
+    state.prs_state.list.replace_items(vec![PullRequest {
         number: pr_number,
         title: format!("PR #{pr_number}"),
         state: PrState::Open,
@@ -47,8 +47,8 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
         assignee_summary: String::new(),
         labels_summary: String::new(),
         comment_count: 0,
-    }];
-    state.prs_state.selected_pr_index = Some(0);
+    }]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.pr_detail = Some(PullRequestDetail {
         repo_owner_name: "owner/repo".to_string(),
         number: pr_number,
@@ -77,4 +77,29 @@ pub fn prs_state_with_detail(repo_id: &str, pr_number: u64) -> AppState {
     });
     state.prs_state.inline_state = InlineState::None;
     state
+}
+
+/// Begin a fresh visible PR-list reload for the given scope/filter and return
+/// the allocated request id, so tests can correlate the result event.
+///
+/// Mirrors what the dispatch layer does (`next_request_id` + `begin_reload`)
+/// so a subsequent `PrListLoaded`/`PrListLoadFailed` with the returned id is
+/// accepted rather than treated as stale.
+pub(super) fn begin_pr_list_reload(
+    state: &mut AppState,
+    scope_repo_id: &str,
+    filter: PrFilter,
+) -> u64 {
+    let Ok(request_id) = state.prs_state.list.next_request_id() else {
+        panic!("request id allocation must succeed in test setup");
+    };
+    let id = request_id.get();
+    state.prs_state.list.begin_reload(
+        PrListIdentity {
+            scope_repo_id: RepositoryId(scope_repo_id.to_string()),
+            filter,
+        },
+        request_id,
+    );
+    id
 }

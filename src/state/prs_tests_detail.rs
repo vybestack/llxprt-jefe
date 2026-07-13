@@ -87,15 +87,15 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
 #[test]
 fn test_detail_loaded_sets_subfocus_body_and_clears_loading() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1)];
-    state.prs_state.selected_pr_index = Some(0);
-    state.prs_state.loading.detail = true;
+    state.prs_state.list.replace_items(vec![make_test_pr(1)]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.detail_subfocus = PrDetailSubfocus::Review(0);
+    state.mark_pr_detail_loading(RepositoryId("repo-1".to_string()), 1, 1);
 
     let new_state = state.apply(AppEvent::PrDetailLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         pr_number: 1,
-        request_id: 0,
+        request_id: 1,
         detail: Box::new(make_test_pr_detail(1)),
     });
 
@@ -121,8 +121,11 @@ fn test_detail_loaded_sets_subfocus_body_and_clears_loading() {
 #[test]
 fn test_detail_loaded_discards_stale_pr_number_or_request_id() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1), make_test_pr(2)];
-    state.prs_state.selected_pr_index = Some(1); // selected PR is #2
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(1), make_test_pr(2)]);
+    state.prs_state.list.set_selected_index(Some(1)); // selected PR is #2
     state.prs_state.loading.detail = true;
     let current = make_test_pr_detail(2);
     state.prs_state.pr_detail = Some(current);
@@ -158,8 +161,11 @@ fn test_detail_loaded_discards_stale_pr_number_or_request_id() {
 #[test]
 fn test_detail_loaded_discards_mismatched_request_id() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1), make_test_pr(2)];
-    state.prs_state.selected_pr_index = Some(1); // selected PR is #2
+    state
+        .prs_state
+        .list
+        .replace_items(vec![make_test_pr(1), make_test_pr(2)]);
+    state.prs_state.list.set_selected_index(Some(1)); // selected PR is #2
     state.prs_state.loading.detail = true;
     let current = make_test_pr_detail(2);
     state.prs_state.pr_detail = Some(current);
@@ -207,8 +213,8 @@ fn test_detail_loaded_discards_mismatched_request_id() {
 #[test]
 fn test_detail_loaded_discards_stale_scope() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pull_requests = vec![make_test_pr(1)];
-    state.prs_state.selected_pr_index = Some(0);
+    state.prs_state.list.replace_items(vec![make_test_pr(1)]);
+    state.prs_state.list.set_selected_index(Some(0));
     state.prs_state.loading.detail = true;
 
     let new_state = state.apply(AppEvent::PrDetailLoaded {
@@ -324,7 +330,7 @@ fn test_pr_subfocus_next_scrolls_to_offscreen_thread() {
         state: PrReviewState::Approved,
         submitted_at: "2024-01-01".to_string(),
         body: Some("Review with a body".to_string()),
-        review_threads: vec![thread; 8],
+        review_threads: std::iter::repeat_n(thread, 8).collect(),
     }];
     state.prs_state.pr_detail = Some(detail);
     state.prs_state.detail_subfocus = PrDetailSubfocus::Body;
