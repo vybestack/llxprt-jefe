@@ -504,6 +504,9 @@ impl AppState {
             }
             ReadOnlyHintKind::IssueAlreadyClosed => "Issue is already closed".to_string(),
             ReadOnlyHintKind::NoIssueFocused => "No issue selected".to_string(),
+            ReadOnlyHintKind::NoDuplicateTarget => {
+                "Select an issue to mark as duplicate".to_string()
+            }
         };
         self.prs_state.draft_notice = Some(text);
     }

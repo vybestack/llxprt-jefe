@@ -107,6 +107,7 @@ pub fn pane_content_lines(
         SelectablePane::RepositoryForm => repository_form_lines(state),
         SelectablePane::AgentChooser => overlay_content::agent_chooser_lines(state),
         SelectablePane::MergeChooser => overlay_content::merge_chooser_lines(state),
+        SelectablePane::CloseReasonChooser => overlay_content::close_reason_chooser_lines(state),
         SelectablePane::ConfirmModal => overlay_content::confirm_modal_lines(state),
     }
 }
