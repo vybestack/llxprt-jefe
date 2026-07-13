@@ -100,6 +100,7 @@ fn version_parser_accepts_final_release_letter_suffix() {
         "tmux 3.7a.6",
         "tmux 3.7.b",
         "tmux 3.7ab",
+        "tmux 3.7B",
         "tmux 3.7-rc1",
         "tmux 3.7.6.1",
     ] {

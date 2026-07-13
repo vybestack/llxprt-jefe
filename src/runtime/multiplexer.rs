@@ -746,7 +746,7 @@ fn parse_final_version_part(part: &str, source: &str) -> Result<u32, Multiplexer
             && suffix
                 .bytes()
                 .next()
-                .is_some_and(|byte| byte.is_ascii_alphabetic()));
+                .is_some_and(|byte| byte.is_ascii_lowercase()));
     if digits.is_empty() || !valid_suffix {
         return Err(malformed_version(source));
     }
