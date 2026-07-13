@@ -164,9 +164,9 @@ fn issues_banner_text_none_when_both_absent() {
 /// because the `error_visible` sizing parameter is derived from the SAME
 /// `issues_banner_text` projection used for rendering (issue #265).
 ///
-/// Asserts the concrete projection outputs and the one-row sizing contract:
-/// error precedence, notice fallback, `None` when both absent, and that a
-/// present banner reserves exactly one row versus no banner.
+/// The preceding tests assert concrete projection values; this verifies that
+/// the same error, notice, and absent projections drive the one-row sizing
+/// contract.
 #[test]
 fn issues_pane_rows_banner_projection_drives_sizing() {
     let error_banner = issues_banner_text(Some("load failed"), Some("No agents available"));

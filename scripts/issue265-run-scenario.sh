@@ -61,9 +61,18 @@ command -v tmux >/dev/null 2>&1 || {
 
 # Optional extra args passed to the harness binary (array, properly quoted).
 HARNESS_ARGS=()
+KEEP_SESSION=false
 if [[ "${1:-}" == "--keep-session" ]]; then
     HARNESS_ARGS+=("--keep-session")
+    KEEP_SESSION=true
 fi
+SESSION_NAME="jefe-issue265-$$"
+
+cleanup_failed_session() {
+    if [[ "$KEEP_SESSION" == false ]]; then
+        tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
+    fi
+}
 
 echo "== Issue #265 real tmux scenario =="
 
@@ -160,14 +169,15 @@ timeout 180s env \
     --jefe-bin "$JEFE_BIN" \
     --config "$CONFIG_DIR" \
     --out-dir "$ARTIFACT_DIR" \
-    --session "jefe-issue265" \
+    --session "$SESSION_NAME" \
     "${HARNESS_ARGS[@]}" || harness_status=$?
 if [[ $harness_status -eq 124 ]]; then
     echo "FAIL: harness timed out after 180 seconds" >&2
-    tmux kill-session -t jefe-issue265 2>/dev/null || true
+    cleanup_failed_session
     exit 1
 fi
 if [[ $harness_status -ne 0 ]]; then
+    cleanup_failed_session
     exit "$harness_status"
 fi
 
@@ -191,17 +201,17 @@ cat "$AUDIT_FILE"
 # A REJECTED record means the shim saw an unexpected command — a fail-closed
 # violation. Any mutation keyword means a write slipped through (should be
 # impossible given exact matching, but belt-and-suspenders).
-if grep -qiE 'REJECTED' "$AUDIT_FILE"; then
+if grep -qiE 'REJECTED' -- "$AUDIT_FILE"; then
     echo ""
     echo "FAIL: rejected command detected in audit:"
-    grep -i 'REJECTED' "$AUDIT_FILE"
+    grep -i 'REJECTED' -- "$AUDIT_FILE"
     exit 1
 fi
 
-if grep -qiE 'mutation|POST|PATCH|DELETE|createIssue|addComment|closeIssue|deleteIssue|issue create|issue close|issue delete|issue comment|issue edit' "$AUDIT_FILE"; then
+if grep -qiE 'mutation|POST|PATCH|DELETE|createIssue|addComment|closeIssue|deleteIssue|issue create|issue close|issue delete|issue comment|issue edit' -- "$AUDIT_FILE"; then
     echo ""
     echo "FAIL: gh mutation command detected in audit:"
-    grep -iE 'mutation|POST|PATCH|DELETE|createIssue|addComment|closeIssue|deleteIssue|issue create|issue close|issue delete|issue comment|issue edit' "$AUDIT_FILE"
+    grep -iE 'mutation|POST|PATCH|DELETE|createIssue|addComment|closeIssue|deleteIssue|issue create|issue close|issue delete|issue comment|issue edit' -- "$AUDIT_FILE"
     exit 1
 fi
 
@@ -225,7 +235,7 @@ fi
 # exist (no issue-read operations). Under `set -o pipefail` that would abort
 # the script before reaching the explicit `FAIL:` branch below, so `|| true`
 # lets an empty result flow through to the no-operations check.
-accepted_seq=$(grep -oE 'ACCEPTED [A-Za-z0-9_-]+' "$AUDIT_FILE" \
+accepted_seq=$(grep -oE 'ACCEPTED [A-Za-z0-9_-]+' -- "$AUDIT_FILE" \
     | sed 's/ACCEPTED //' \
     | grep -v '^auth-status$' || true)
 
@@ -258,7 +268,7 @@ if [[ "$accepted_seq" != "$expected_seq" ]]; then
 fi
 
 # Report any auth-status calls separately for transparency.
-auth_count=$(grep -c 'ACCEPTED auth-status' "$AUDIT_FILE" || true)
+auth_count=$(grep -c 'ACCEPTED auth-status' -- "$AUDIT_FILE" || true)
 if [[ "$auth_count" -gt 0 ]]; then
     echo "(auth-status calls: $auth_count — excluded from four-operation check)"
 fi

@@ -40,7 +40,14 @@ fi
 # shellcheck source=issue265-gh-shim-fixtures.sh
 . "$FIXTURES"
 
-AUDIT_FILE="${GH_SHIM_AUDIT:-/tmp/jefe-issue265-gh-audit.log}"
+if [[ -n "${GH_SHIM_AUDIT:-}" ]]; then
+    AUDIT_FILE="$GH_SHIM_AUDIT"
+else
+    AUDIT_FILE=$(mktemp "${TMPDIR:-/tmp}/jefe-issue265-gh-audit.XXXXXX.log") || {
+        echo "gh shim: failed to create a private audit file" >&2
+        exit 2
+    }
+fi
 if ! : 2>/dev/null >> "$AUDIT_FILE"; then
     echo "gh shim: audit file is not writable: $AUDIT_FILE" >&2
     exit 2
@@ -88,7 +95,7 @@ audit_write() {
         exec {audit_fd}>&-
         return 2
     fi
-    flock -u "$audit_fd"
+    flock -u "$audit_fd" || true
     exec {audit_fd}>&-
 }
 
