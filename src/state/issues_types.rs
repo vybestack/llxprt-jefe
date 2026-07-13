@@ -13,7 +13,7 @@
 //! `InlineState`, `ComposerTarget`, `EditorTarget`, `AgentChooserState`,
 //! `PriorAgentFocus`) remain in `types.rs` and are imported via `super::`.
 
-use crate::domain::{CloseReason, RepositoryId};
+use crate::domain::{CloseReason, ListRequestId, RepositoryId};
 
 use super::{
     AgentChooserState, ComposerTarget, DetailSubfocus, InlineState, IssueFocus, PriorAgentFocus,
@@ -56,6 +56,8 @@ pub struct IssuesState {
     pub delete_mutation_pending: Option<IssueLifecycleMutationPending>,
     pub detail_pending: Option<IssueDetailPending>,
     pub next_issue_detail_request_id: u64,
+    /// High-water mark retained across replaceable issue-detail snapshots.
+    pub last_comments_page_request_id: ListRequestId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -386,6 +386,8 @@ fn test_issue_list_loaded_empty() {
         PathBuf::from("/tmp/repo1"),
     ));
     state.selected_repository_index = Some(0);
+    state.issues_state.issue_detail = Some(make_test_detail(vec![]));
+    state.issues_state.loading.comments = true;
     let request_id = begin_issue_list_reload(&mut state, "repo-1", IssueFilter::default());
 
     let new_state = state.apply(AppEvent::IssueListLoaded {
@@ -399,6 +401,7 @@ fn test_issue_list_loaded_empty() {
 
     assert_eq!(new_state.issues_state.selected_issue_index(), None);
     assert!(new_state.issues_state.issue_detail.is_none());
+    assert!(!new_state.issues_state.loading.comments);
 }
 
 /// Test 13: IssueListLoaded with stale scope is discarded.
@@ -752,7 +755,7 @@ fn test_detail_subfocus_tab_with_comments() {
                     body: "Second comment".to_string(),
                 },
             ],
-            crate::domain::PageToken::from_cursor(None, false),
+            crate::domain::PageToken::Done,
         ),
     });
 
@@ -814,7 +817,7 @@ fn test_detail_subfocus_tab_no_comments() {
                 number: 1,
             },
             vec![],
-            crate::domain::PageToken::from_cursor(None, false),
+            crate::domain::PageToken::Done,
         ),
     });
 

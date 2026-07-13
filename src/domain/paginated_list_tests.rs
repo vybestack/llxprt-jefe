@@ -48,6 +48,18 @@ fn request_id_exhaustion_returns_error() {
 
 // ── Snapshot replacement ──────────────────────────────────────────────────
 
+struct IdentityWithoutBounds;
+
+#[test]
+fn common_list_api_does_not_require_identity_trait_bounds() {
+    let mut list = PaginatedList::from_loaded(IdentityWithoutBounds, vec![10, 20], PageToken::Done);
+
+    assert_eq!(list.len(), 2);
+    assert!(list.identity().is_some());
+    list.replace_items(vec![30]);
+    assert_eq!(list.items(), &[30]);
+}
+
 #[test]
 fn unbound_boundary_list_requires_stable_identity_before_paging() {
     let mut list: PaginatedList<u32, TestIdentity> =

@@ -11,7 +11,7 @@
 //! @requirement REQ-PR-012
 //! @requirement REQ-PR-013
 
-use crate::domain::RepositoryId;
+use crate::domain::{ListRequestId, RepositoryId};
 
 use super::{AgentChooserState, ComposerTarget, InlineState, PriorAgentFocus};
 
@@ -138,6 +138,8 @@ pub struct PullRequestsState {
     pub next_mutation_id: u64,
     pub detail_pending: Option<PrDetailPending>,
     pub next_pr_detail_request_id: u64,
+    /// High-water mark retained across replaceable PR-detail snapshots.
+    pub last_comments_page_request_id: ListRequestId,
     /// Pending review-thread resolve/unresolve mutation (issue #119).
     pub thread_resolve_pending: Option<PrThreadResolvePending>,
     /// Monotonic request id for thread-resolve mutations (issue #119).

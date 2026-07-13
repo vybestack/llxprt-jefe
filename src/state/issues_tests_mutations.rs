@@ -82,7 +82,7 @@ fn test_stale_mutation_events_same_repo_different_issue_do_not_mutate_or_clear_i
 }
 
 #[test]
-fn test_comment_update_matches_by_comment_id_when_index_shifted() {
+fn test_comment_update_uses_comment_id_after_submitted_index_shifts() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut detail = p15_detail(42);
     detail.comments.replace_items(vec![
@@ -98,30 +98,38 @@ fn test_comment_update_matches_by_comment_id_when_index_shifted() {
         detail: Box::new(detail),
     });
 
-    let state = state
-        .apply(AppEvent::MutationSubmitted {
-            scope_repo_id: repo_id.clone(),
-            mutation_id: 1,
-            target: InlineState::Editor {
-                target: EditorTarget::Comment { comment_index: 0 },
-                text: "updated by id".to_string(),
-                cursor: 13,
-            },
-        })
-        .apply(AppEvent::CommentUpdated {
-            scope_repo_id: repo_id,
-            issue_number: 42,
-            mutation_id: 1,
-            comment_id: 2,
-            comment_index: 0,
-            body: "updated by id".to_string(),
-        });
+    let mut state = state.apply(AppEvent::MutationSubmitted {
+        scope_repo_id: repo_id.clone(),
+        mutation_id: 1,
+        target: InlineState::Editor {
+            target: EditorTarget::Comment { comment_index: 1 },
+            text: "updated by id".to_string(),
+            cursor: 13,
+        },
+    });
+    let Some(detail) = state.issues_state.issue_detail.as_mut() else {
+        panic!("expected detail");
+    };
+    detail.comments.items_mut().insert(
+        0,
+        p15_comment(3, "carol", "2024-01-03T00:00:00Z", "inserted"),
+    );
+
+    let state = state.apply(AppEvent::CommentUpdated {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        mutation_id: 1,
+        comment_id: 2,
+        comment_index: 1,
+        body: "updated by id".to_string(),
+    });
 
     let Some(detail) = state.issues_state.issue_detail.as_ref() else {
         panic!("expected detail");
     };
-    assert_eq!(detail.comments[0].body, "first");
-    assert_eq!(detail.comments[1].body, "updated by id");
+    assert_eq!(detail.comments[0].body, "inserted");
+    assert_eq!(detail.comments[1].body, "first");
+    assert_eq!(detail.comments[2].body, "updated by id");
 }
 
 /// Stale failures for another issue preserve the active draft and current error.

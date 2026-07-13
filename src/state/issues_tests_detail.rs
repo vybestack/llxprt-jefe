@@ -78,6 +78,14 @@ fn test_issue_editor_includes_title_and_body() {
     ));
 }
 
+fn issue_comments_pending(state: &AppState) -> bool {
+    state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .is_some_and(|detail| detail.comments.has_pending_request())
+}
+
 /// Helper: create a state already in issues mode with a selected repository.
 pub(super) fn issues_mode_state_with_repo(repo_id: &str) -> AppState {
     let mut state = AppState::default();
@@ -832,16 +840,21 @@ fn test_issue_navigation_away_and_back_invalidates_pending_comment_page() {
     let state = state
         .apply(AppEvent::IssuesNavigateDown)
         .apply(AppEvent::IssuesNavigateUp);
+    let mut state = state;
+    let mut replacement = p15_detail(42);
+    replacement.comments =
+        issue_comments_with_cursor(&repo_id, 42, "cursor-1".to_string(), Vec::new());
+    state.issues_state.issue_detail = Some(replacement);
+    let Some(current_request_id) =
+        state.begin_issue_comment_page(&repo_id, 42, Some("cursor-1".to_string()))
+    else {
+        panic!("replacement comment page should start");
+    };
 
+    assert_ne!(request_id, current_request_id);
     assert_eq!(state.issues_state.selected_issue_index(), Some(0));
-    assert!(!state.issues_state.loading.comments);
-    assert!(
-        !state
-            .issues_state
-            .issue_detail
-            .as_ref()
-            .is_some_and(|detail| detail.comments.has_pending_request())
-    );
+    assert!(state.issues_state.loading.comments);
+    assert!(issue_comments_pending(&state));
 
     let state = state.apply(AppEvent::IssueCommentsPageLoaded {
         scope_repo_id: repo_id.clone(),
@@ -863,13 +876,13 @@ fn test_issue_navigation_away_and_back_invalidates_pending_comment_page() {
     let state = state.apply(AppEvent::IssueCommentsPageFailed {
         scope_repo_id: repo_id,
         issue_number: 42,
-        request_id: 0,
+        request_id,
         request_cursor: Some("cursor-1".to_string()),
         error: "stale failure".to_string(),
     });
 
     assert!(state.issues_state.error.is_none());
-    assert!(!state.issues_state.loading.comments);
+    assert!(state.issues_state.loading.comments);
 }
 #[test]
 fn test_issue_navigate_end_invalidates_pending_detail_responses() {

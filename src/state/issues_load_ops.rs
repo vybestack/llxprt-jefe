@@ -64,7 +64,11 @@ impl AppState {
             // stale detail never lands on the freshly-replaced list.
             self.issues_state.detail_pending = None;
             if self.issues_state.list.items().is_empty() {
+                if let Some(detail) = &mut self.issues_state.issue_detail {
+                    detail.comments.cancel_pending();
+                }
                 self.issues_state.issue_detail = None;
+                self.issues_state.loading.comments = false;
             }
         }
     }
@@ -167,11 +171,15 @@ impl AppState {
             scope_repo_id: scope_repo_id.clone(),
             number: issue_number,
         });
+        detail
+            .comments
+            .preserve_request_history(self.issues_state.last_comments_page_request_id);
         let request_id = detail.comments.next_request_id().ok()?;
         let outcome = detail
             .comments
             .begin_page(issue_page_token(cursor), request_id);
         if matches!(outcome, crate::state::pagination::BeginOutcome::Started) {
+            self.issues_state.last_comments_page_request_id = request_id;
             self.issues_state.loading.comments = true;
             Some(request_id.get())
         } else {

@@ -341,6 +341,15 @@ impl<T, I> PaginatedList<T, I> {
         }
     }
 
+    /// Preserve a request-id high-water mark from a replaced container.
+    ///
+    /// Detail comment lists are replaceable snapshots. State adapters use this
+    /// before allocating so callbacks from a retired snapshot cannot collide
+    /// with a request started by its replacement.
+    pub fn preserve_request_history(&mut self, last_request_id: ListRequestId) {
+        self.last_request_id = self.last_request_id.max(last_request_id);
+    }
+
     /// Returns the last-allocated request id (for diagnostics).
     #[must_use]
     pub const fn last_request_id(&self) -> ListRequestId {

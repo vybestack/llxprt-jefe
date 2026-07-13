@@ -90,6 +90,9 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
 
     if let Some(detail) = preview {
         let mut state = app_state.write();
+        if let Some(previous_detail) = &mut state.issues_state.issue_detail {
+            previous_detail.comments.cancel_pending();
+        }
         state.issues_state.issue_detail = Some(detail);
         state.issues_state.loading.detail = false;
         state.issues_state.loading.comments = false;
@@ -308,14 +311,18 @@ fn mark_comment_failure_pending(
     })
 }
 
-fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
-    fn comment_cursor(token: &PageToken) -> Option<String> {
-        match token {
-            PageToken::Cursor(cursor) => Some(cursor.clone()),
-            PageToken::PageNumber(_) | PageToken::Done => None,
-        }
+/// Return the GraphQL cursor for issue comments.
+///
+/// Comment pagination is cursor-only. `PageNumber` is a REST-list token and is
+/// intentionally rejected here rather than translated into unrelated behavior.
+fn issue_comment_cursor(token: &PageToken) -> Option<String> {
+    match token {
+        PageToken::Cursor(cursor) => Some(cursor.clone()),
+        PageToken::PageNumber(_) | PageToken::Done => None,
     }
+}
 
+fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
     let state = app_state.read();
     let Some(detail) = state.issues_state.issue_detail.as_ref() else {
         return CommentPageRequest::Skip;
@@ -334,7 +341,7 @@ fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
             scope_repo_id,
             issue_number,
             request_id: 0,
-            request_cursor: comment_cursor(detail.comments.next_page()),
+            request_cursor: issue_comment_cursor(detail.comments.next_page()),
             error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
         });
     }
@@ -343,7 +350,7 @@ fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
         issue_number,
         owner,
         repo,
-        cursor: comment_cursor(detail.comments.next_page()),
+        cursor: issue_comment_cursor(detail.comments.next_page()),
         page_size: 30,
         request_id: 0,
     };
@@ -515,7 +522,21 @@ pub(super) fn dispatch_issues_message(
 
 #[cfg(test)]
 mod tests {
-    use super::preview_body_from_list;
+    use super::{issue_comment_cursor, preview_body_from_list};
+    use jefe::domain::PageToken;
+
+    #[test]
+    fn issue_comment_cursor_rejects_rest_page_tokens() {
+        assert_eq!(issue_comment_cursor(&PageToken::PageNumber(2)), None);
+    }
+
+    #[test]
+    fn issue_comment_cursor_extracts_graphql_cursor() {
+        assert_eq!(
+            issue_comment_cursor(&PageToken::Cursor("next".to_string())),
+            Some("next".to_string())
+        );
+    }
 
     #[test]
     fn empty_list_preview_body_prompts_for_detail_load() {

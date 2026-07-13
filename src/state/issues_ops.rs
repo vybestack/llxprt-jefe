@@ -51,12 +51,12 @@ impl AppState {
         self.issues_state.active = true;
         self.issues_state.issue_focus = IssueFocus::IssueList;
         self.issues_state.list.clear();
-        self.issues_state.issue_detail = None;
-        self.issues_state.error = None;
-        self.issues_state.loading.comments = false;
         if let Some(detail) = &mut self.issues_state.issue_detail {
             detail.comments.cancel_pending();
         }
+        self.issues_state.issue_detail = None;
+        self.issues_state.error = None;
+        self.issues_state.loading.comments = false;
         self.issues_state.detail_pending = None;
         self.issues_state.inline_state = InlineState::None;
         self.issues_state.agent_chooser = None;
@@ -245,14 +245,14 @@ impl AppState {
             self.issues_state.inline_state = InlineState::None;
         }
         self.issues_state.list.clear();
+        if let Some(detail) = &mut self.issues_state.issue_detail {
+            detail.comments.cancel_pending();
+        }
         self.issues_state.issue_detail = None;
         self.issues_state.error = None;
         self.issues_state.loading.detail = false;
         self.issues_state.loading.comments = false;
         self.issues_state.detail_pending = None;
-        if let Some(detail) = &mut self.issues_state.issue_detail {
-            detail.comments.cancel_pending();
-        }
         self.issues_state.delete_confirm = None;
         self.issues_state.close_mutation_pending = None;
         self.issues_state.delete_mutation_pending = None;
@@ -409,14 +409,14 @@ impl AppState {
                     self.issues_state.search_query.trim().to_string();
                 self.issues_state.search_input_focused = false;
                 self.issues_state.list.clear();
+                if let Some(detail) = &mut self.issues_state.issue_detail {
+                    detail.comments.cancel_pending();
+                }
                 self.issues_state.issue_detail = None;
                 self.issues_state.error = None;
                 self.issues_state.loading.detail = false;
                 self.issues_state.loading.comments = false;
                 self.issues_state.detail_pending = None;
-                if let Some(detail) = &mut self.issues_state.issue_detail {
-                    detail.comments.cancel_pending();
-                }
                 self.issues_state.mutation_pending = None;
                 self.issues_state.inline_state = InlineState::None;
                 self.remember_issue_preferences();
@@ -456,13 +456,13 @@ impl AppState {
 
     fn reload_issue_list_for_filter_change(&mut self) {
         self.issues_state.list.clear();
+        if let Some(detail) = &mut self.issues_state.issue_detail {
+            detail.comments.cancel_pending();
+        }
         self.issues_state.issue_detail = None;
         self.issues_state.loading.detail = false;
         self.issues_state.loading.comments = false;
         self.issues_state.detail_pending = None;
-        if let Some(detail) = &mut self.issues_state.issue_detail {
-            detail.comments.cancel_pending();
-        }
         // A filter change reloads the list; dismiss the transient delete-confirm
         // overlay (it targets a specific list row that may no longer be present).
         // In-flight close/delete mutations are intentionally KEPT — their result

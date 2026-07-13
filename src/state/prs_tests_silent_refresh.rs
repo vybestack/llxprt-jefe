@@ -61,7 +61,11 @@ fn make_test_pr(number: u64) -> PullRequest {
 }
 
 /// Build a minimal test `PullRequestDetail` with the given comments list.
-fn make_test_pr_detail(number: u64, comments: Vec<IssueComment>) -> PullRequestDetail {
+fn make_test_pr_detail(
+    scope_repo_id: &str,
+    number: u64,
+    comments: Vec<IssueComment>,
+) -> PullRequestDetail {
     PullRequestDetail {
         repo_owner_name: "owner/repo".to_string(),
         number,
@@ -84,7 +88,7 @@ fn make_test_pr_detail(number: u64, comments: Vec<IssueComment>) -> PullRequestD
         checks: vec![],
         comments: crate::domain::PaginatedList::from_loaded(
             crate::domain::CommentDetailIdentity {
-                scope_repo_id: RepositoryId::default(),
+                scope_repo_id: RepositoryId(scope_repo_id.to_string()),
                 number,
             },
             comments,
@@ -164,7 +168,7 @@ fn test_silent_refresh_preserves_selection_and_scroll() {
         .replace_items((1u64..=5).map(make_test_pr).collect());
     state.prs_state.list.set_selected_index(Some(2));
     state.prs_state.list_scroll_offset = 2;
-    state.prs_state.pr_detail = Some(make_test_pr_detail(3, vec![]));
+    state.prs_state.pr_detail = Some(make_test_pr_detail("repo-1", 3, vec![]));
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
     let new_state = state.apply(AppEvent::PrListSilentRefreshed {
@@ -425,7 +429,7 @@ fn test_silent_refresh_failed_discards_stale_request_id() {
 #[test]
 fn test_silent_refresh_does_not_clear_pr_detail() {
     let mut state = prs_mode_state("repo-1");
-    let detail = make_test_pr_detail(2, vec![]);
+    let detail = make_test_pr_detail("repo-1", 2, vec![]);
     state.prs_state.pr_detail = Some(detail);
     state
         .prs_state
@@ -462,7 +466,7 @@ fn test_silent_refresh_does_not_clear_pr_detail() {
 #[test]
 fn test_silent_refresh_empty_list_preserves_pr_detail() {
     let mut state = prs_mode_state("repo-1");
-    state.prs_state.pr_detail = Some(make_test_pr_detail(2, vec![]));
+    state.prs_state.pr_detail = Some(make_test_pr_detail("repo-1", 2, vec![]));
     state
         .prs_state
         .list
@@ -548,7 +552,7 @@ fn test_silent_detail_refresh_preserves_subfocus_and_scroll() {
     let mut state = prs_mode_state("repo-1");
     state.prs_state.list.replace_items(vec![make_test_pr(5)]);
     state.prs_state.list.set_selected_index(Some(0));
-    state.prs_state.pr_detail = Some(make_test_pr_detail(5, vec![]));
+    state.prs_state.pr_detail = Some(make_test_pr_detail("repo-1", 5, vec![]));
     state.prs_state.detail_subfocus = crate::state::types::PrDetailSubfocus::Comment(1);
     state.prs_state.detail_scroll_offset = 5;
     state.prs_state.detail_pending = Some(crate::state::types::PrDetailPending {
@@ -561,7 +565,7 @@ fn test_silent_detail_refresh_preserves_subfocus_and_scroll() {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         pr_number: 5,
         request_id: 42,
-        detail: std::boxed::Box::new(make_test_pr_detail(5, vec![])),
+        detail: std::boxed::Box::new(make_test_pr_detail("repo-1", 5, vec![])),
     });
 
     assert_eq!(

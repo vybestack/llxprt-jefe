@@ -84,13 +84,12 @@ impl AppState {
             // detail staleness guard (pr_detail_pending_matches) already
             // discards stale results when the scope or selected PR number
             // changes (issue #128).
-            if self.prs_state.list.items().is_empty() {
-                self.prs_state.pr_detail = None;
-            } else {
-                // The previous pr_detail is STALE (it is for a PR from the
-                // prior list). Clear it so the detail pane does not show old
-                // content until the fresh detail/preview load repopulates it.
-                self.prs_state.pr_detail = None;
+            if let Some(detail) = &mut self.prs_state.pr_detail {
+                detail.comments.cancel_pending();
+            }
+            self.prs_state.pr_detail = None;
+            self.prs_state.loading.comments = false;
+            if !self.prs_state.list.items().is_empty() {
                 self.prs_state.detail_subfocus = PrDetailSubfocus::Body;
                 self.prs_state.detail_scroll_offset = 0;
             }
@@ -582,11 +581,15 @@ impl AppState {
             scope_repo_id: scope_repo_id.clone(),
             number: pr_number,
         });
+        detail
+            .comments
+            .preserve_request_history(self.prs_state.last_comments_page_request_id);
         let request_id = detail.comments.next_request_id().ok()?;
         let outcome = detail
             .comments
             .begin_page(pr_page_token(cursor), request_id);
         if matches!(outcome, crate::state::pagination::BeginOutcome::Started) {
+            self.prs_state.last_comments_page_request_id = request_id;
             self.prs_state.loading.comments = true;
             // Clear any stale error from a prior failed page so the UI does
             // not show both an error and the loading spinner at once.

@@ -357,13 +357,13 @@ pub(super) fn preview_pr_from_list(app_state: &mut AppStateHandle) {
         if !selected_pr_still_matches(&state, &preview_scope_repo_id, preview_pr_number) {
             return;
         }
+        if let Some(previous_detail) = &mut state.prs_state.pr_detail {
+            previous_detail.comments.cancel_pending();
+        }
         state.prs_state.pr_detail = Some(detail);
         state.prs_state.loading.detail = false;
         state.prs_state.loading.comments = false;
         state.prs_state.detail_pending = None;
-        if let Some(detail) = &mut state.prs_state.pr_detail {
-            detail.comments.cancel_pending();
-        }
         state.prs_state.detail_subfocus = jefe::state::PrDetailSubfocus::Body;
         state.prs_state.detail_scroll_offset = 0;
     }

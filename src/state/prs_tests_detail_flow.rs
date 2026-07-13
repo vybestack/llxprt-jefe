@@ -358,14 +358,17 @@ fn test_comments_page_loaded_appends_older_stable_order() {
     assert_eq!(loaded.comments[1].comment_id, 60, "new comment appended");
 }
 
-/// A comments result cannot be applied after its detail container is removed.
+/// A comments result without its detail container is stale and cannot clear
+/// loading state that may belong to another transition.
 ///
 /// @plan PLAN-20260624-PR-MODE.P05
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 236-241
 #[test]
-fn test_comments_page_loaded_clears_loading_when_detail_is_none() {
-    let state = prs_mode_state("repo-1");
+fn test_comments_page_loaded_without_detail_preserves_unrelated_state() {
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.loading.comments = true;
+    state.prs_state.error = Some("current transition".to_string());
 
     let new_state = state.apply(AppEvent::PrCommentsPageLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
@@ -382,7 +385,11 @@ fn test_comments_page_loaded_clears_loading_when_detail_is_none() {
         has_more: false,
     });
 
-    assert!(!new_state.prs_state.loading.comments);
+    assert!(new_state.prs_state.loading.comments);
+    assert_eq!(
+        new_state.prs_state.error.as_deref(),
+        Some("current transition")
+    );
     assert!(
         new_state.prs_state.pr_detail.is_none(),
         "no detail to mutate — pr_detail stays None"
@@ -444,7 +451,7 @@ fn test_comments_page_loaded_appends_and_clears_when_detail_matches() {
 }
 
 #[test]
-fn test_stale_comments_page_failure_does_not_override_newer_pending_request() {
+fn test_stale_comments_page_failure_after_detail_reassignment_does_not_override_newer_request() {
     let repo_id = RepositoryId("repo-1".to_string());
     let mut state = prs_mode_state("repo-1");
     state.prs_state.pr_detail = Some(make_test_pr_detail(1, Vec::new()));
@@ -454,10 +461,7 @@ fn test_stale_comments_page_failure_does_not_override_newer_pending_request() {
     else {
         panic!("first comment page should start");
     };
-    let Some(detail) = state.prs_state.pr_detail.as_mut() else {
-        panic!("expected PR detail");
-    };
-    detail.comments.cancel_pending();
+    state.prs_state.pr_detail = Some(make_test_pr_detail(1, Vec::new()));
     state.prs_state.loading.comments = false;
     let Some(current_request_id) =
         state.begin_pr_comment_page(&repo_id, 1, Some("cursor-1".to_string()))
@@ -578,6 +582,7 @@ fn test_list_loaded_non_empty_clears_stale_pr_detail() {
     let mut state = prs_mode_state("repo-1");
     // Seed a STALE detail for PR #99 (not in the incoming list).
     state.prs_state.pr_detail = Some(make_test_pr_detail(99, vec![]));
+    state.prs_state.loading.comments = true;
     state.prs_state.detail_scroll_offset = 5;
     state.prs_state.detail_subfocus = crate::state::types::PrDetailSubfocus::Comment(0);
     let request_id = begin_pr_list_reload(&mut state, "repo-1", PrFilter::default());
@@ -600,6 +605,7 @@ fn test_list_loaded_non_empty_clears_stale_pr_detail() {
         new_state.prs_state.pr_detail.is_none(),
         "stale pr_detail MUST be cleared when a new non-empty list arrives"
     );
+    assert!(!new_state.prs_state.loading.comments);
     assert_eq!(
         new_state.prs_state.selected_pr_index(),
         Some(0),

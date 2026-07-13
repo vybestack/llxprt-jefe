@@ -271,7 +271,11 @@ impl AppState {
             .as_ref()
             .is_some_and(|detail| detail.number == issue_number)
         {
+            if let Some(detail) = &mut self.issues_state.issue_detail {
+                detail.comments.cancel_pending();
+            }
             self.issues_state.issue_detail = None;
+            self.issues_state.loading.comments = false;
             self.issues_state.issue_focus = super::IssueFocus::IssueList;
         }
         self.fix_issue_selection_after_delete(deleted_index, selected_index);
