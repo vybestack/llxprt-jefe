@@ -214,12 +214,7 @@ pub fn run_tmux_scenario(
     let session = match tmux.start_session(&effective_request) {
         Ok(session) => session,
         Err(error) => {
-            if let Some(directory) = &effective_artifact_dir {
-                let _ = write_text(
-                    directory.join("error.txt"),
-                    &format!("startup error: {error}"),
-                );
-            }
+            write_startup_failure_artifact(effective_artifact_dir.as_ref(), &error);
             return Err(RunnerError::Driver(error.to_string()));
         }
     };
@@ -565,6 +560,18 @@ fn write_text(path: PathBuf, text: &str) -> Result<(), RunnerError> {
         path,
         reason: err.to_string(),
     })
+}
+
+fn write_startup_failure_artifact(directory: Option<&PathBuf>, error: &TmuxDriverError) {
+    if let Some(directory) = directory {
+        let artifact = write_text(
+            directory.join("error.txt"),
+            &format!("startup error: {error}"),
+        );
+        if let Err(artifact_error) = artifact {
+            warn!(%artifact_error, "failed to write harness startup failure artifact");
+        }
+    }
 }
 
 fn driver_call<E: std::fmt::Display>(result: Result<(), E>) -> Result<(), RunnerError> {
