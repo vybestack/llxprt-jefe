@@ -343,6 +343,8 @@ pub enum MultiplexerError {
     InvalidNamespace { namespace: String },
     /// A Windows shell command argument cannot be represented as Unicode.
     NonUnicodeArgument { value: OsString },
+    /// An environment variable name cannot be represented safely in PowerShell.
+    InvalidEnvironmentVariable { name: OsString },
 }
 
 impl std::fmt::Display for MultiplexerError {
@@ -399,6 +401,11 @@ impl std::fmt::Display for MultiplexerError {
                 formatter,
                 "Windows psmux shell argument is not valid Unicode: {}",
                 Path::new(value).display()
+            ),
+            Self::InvalidEnvironmentVariable { name } => write!(
+                formatter,
+                "invalid Windows environment variable name: {}",
+                Path::new(name).display()
             ),
         }
     }
@@ -479,7 +486,7 @@ fn windows_pane_command_args(
     for (key, value) in environment {
         commands.push(format!(
             "$env:{}={}",
-            unicode_argument(key)?,
+            environment_variable_name(key)?,
             powershell_quote(unicode_argument(value)?)
         ));
     }
@@ -500,6 +507,21 @@ fn unicode_argument(value: &OsStr) -> Result<&str, MultiplexerError> {
         })
 }
 
+fn environment_variable_name(value: &OsStr) -> Result<&str, MultiplexerError> {
+    let name = unicode_argument(value)?;
+    let mut bytes = name.bytes();
+    let valid = bytes
+        .next()
+        .is_some_and(|byte| byte == b'_' || byte.is_ascii_alphabetic())
+        && bytes.all(|byte| byte == b'_' || byte.is_ascii_alphanumeric());
+    if valid {
+        Ok(name)
+    } else {
+        Err(MultiplexerError::InvalidEnvironmentVariable {
+            name: value.to_owned(),
+        })
+    }
+}
 fn powershell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }

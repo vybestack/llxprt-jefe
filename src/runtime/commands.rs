@@ -901,16 +901,12 @@ pub fn create_session(
 
 /// Check if a tmux session exists.
 #[allow(dead_code)]
-pub fn session_exists(session_name: &str) -> bool {
-    let Ok(mut command) = tmux_command() else {
-        return false;
-    };
-    let output = command.args(["has-session", "-t", session_name]).output();
-
-    match output {
-        Ok(out) => out.status.success(),
-        Err(_) => false,
-    }
+pub fn session_exists(session_name: &str) -> Result<bool, RuntimeError> {
+    let output = tmux_command()?
+        .args(["has-session", "-t", session_name])
+        .output()
+        .map_err(|error| RuntimeError::CapabilityProbeFailed(error.to_string()))?;
+    Ok(output.status.success())
 }
 
 pub fn remote_session_exists(

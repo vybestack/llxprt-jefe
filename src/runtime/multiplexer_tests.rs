@@ -161,6 +161,19 @@ fn windows_pane_command_uses_powershell_without_unix_env_wrapper() {
     assert!(line.contains("& 'C:\\Program Files\\LLxprt Ω\\llxprt.exe'"));
     assert!(line.contains("'O''Brien'"));
     assert!(!line.contains("env -u"));
+
+    let malicious = plan.pane_command_args(
+        OsStr::new("llxprt.exe"),
+        &[],
+        &[(
+            OsString::from("SAFE; Write-Error owned"),
+            OsString::from("value"),
+        )],
+    );
+    assert!(matches!(
+        malicious,
+        Err(MultiplexerError::InvalidEnvironmentVariable { .. })
+    ));
 }
 
 #[test]
