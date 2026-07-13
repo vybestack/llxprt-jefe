@@ -173,7 +173,7 @@ impl MultiplexerPlan {
         environment: &[(OsString, OsString)],
     ) -> Result<Vec<OsString>, MultiplexerError> {
         match self.platform {
-            LocalPlatform::Unix => Ok(unix_pane_command_args(program, args, environment)),
+            LocalPlatform::Unix => unix_pane_command_args(program, args, environment),
             LocalPlatform::Windows => {
                 windows_pane_command_args(program, args, environment).map(|line| vec![line])
             }
@@ -458,13 +458,14 @@ fn unix_pane_command_args(
     program: &OsStr,
     args: &[OsString],
     environment: &[(OsString, OsString)],
-) -> Vec<OsString> {
+) -> Result<Vec<OsString>, MultiplexerError> {
     let mut command = vec![OsString::from("env")];
     for variable in ["TMUX", "TMUX_PANE", "TMUX_TMPDIR"] {
         command.push(OsString::from("-u"));
         command.push(OsString::from(variable));
     }
     for (key, value) in environment {
+        environment_variable_name(key)?;
         let mut assignment = key.clone();
         assignment.push("=");
         assignment.push(value);
@@ -472,7 +473,7 @@ fn unix_pane_command_args(
     }
     command.push(program.to_owned());
     command.extend(args.iter().cloned());
-    command
+    Ok(command)
 }
 
 fn windows_pane_command_args(

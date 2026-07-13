@@ -174,6 +174,21 @@ fn windows_pane_command_uses_powershell_without_unix_env_wrapper() {
         malicious,
         Err(MultiplexerError::InvalidEnvironmentVariable { .. })
     ));
+
+    let unix = MultiplexerPlan::for_platform(
+        LocalPlatform::Unix,
+        PathBuf::from("/usr/bin/tmux"),
+        MultiplexerIsolation::Socket(PathBuf::from("/tmp/jefe.sock")),
+    )
+    .unwrap_or_else(|error| panic!("Unix plan should be valid: {error}"));
+    assert!(matches!(
+        unix.pane_command_args(
+            OsStr::new("llxprt"),
+            &[],
+            &[(OsString::from("SAFE; owned"), OsString::from("value"))],
+        ),
+        Err(MultiplexerError::InvalidEnvironmentVariable { .. })
+    ));
 }
 
 #[test]
