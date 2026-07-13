@@ -84,7 +84,31 @@ fn write_startup_error(error: &jefe::persistence::PersistenceError) {
     );
 }
 
+fn run_internal_agent_launch_if_requested() -> bool {
+    let mut args = std::env::args();
+    let _program = args.next();
+    if args.next().as_deref() != Some(jefe::runtime::INTERNAL_LAUNCH_ARGUMENT) {
+        return false;
+    }
+    let Some(plan_path) = args.next() else {
+        std::process::exit(2);
+    };
+    if args.next().is_some() {
+        std::process::exit(2);
+    }
+    match jefe::runtime::run_launch_plan(std::path::Path::new(&plan_path)) {
+        Ok(status) => {
+            let code = status.code().map_or(1, |value| value);
+            std::process::exit(code);
+        }
+        Err(_) => std::process::exit(1),
+    }
+}
+
 fn main() {
+    if run_internal_agent_launch_if_requested() {
+        return;
+    }
     let Some(cli_args) = parse_cli_or_exit() else {
         return;
     };

@@ -4,7 +4,7 @@
 //! @requirement REQ-TECH-004
 //! @pseudocode component-002 lines 01-06
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -13,6 +13,7 @@ use tracing::debug;
 
 use crate::domain::{AgentKind, LaunchSignature};
 
+use super::agent_executable::AgentExecutableResolver;
 use super::errors::RuntimeError;
 use super::multiplexer::{MultiplexerCapability, MultiplexerPlan};
 use super::preflight::sandbox_ssh_agent_warning;
@@ -743,6 +744,9 @@ fn local_launch_command(
         .arg("-c")
         .arg(work_dir);
 
+    let executable = AgentExecutableResolver::current()
+        .resolve(launch.agent_kind)
+        .map_err(RuntimeError::AgentExecutable)?;
     let pane_args = launch.args.iter().map(OsString::from).collect::<Vec<_>>();
     let environment = launch
         .env
@@ -750,11 +754,7 @@ fn local_launch_command(
         .map(|(key, value)| (OsString::from(key), OsString::from(value)))
         .collect::<Vec<_>>();
     for arg in multiplexer
-        .pane_command_args(
-            OsStr::new(launch.agent_kind.binary_name()),
-            &pane_args,
-            &environment,
-        )
+        .agent_pane_command_args(&executable, &pane_args, &environment)
         .map_err(RuntimeError::Multiplexer)?
     {
         cmd.arg(arg);

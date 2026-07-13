@@ -7,6 +7,8 @@
 //!
 //! Pseudocode reference: component-002 lines 01-35
 
+mod agent_executable;
+mod agent_launcher;
 mod attach;
 mod attach_scheduler;
 mod capabilities;
@@ -23,6 +25,11 @@ mod session;
 mod socket;
 mod stub_manager;
 
+pub use agent_executable::{
+    AgentExecutableError, AgentExecutablePlatform, AgentExecutableResolver, AgentWrapperKind,
+    ResolvedAgentExecutable,
+};
+pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use capabilities::{
     AgentRuntimeCapabilities, ModelDiscovery, code_puppy_help_supports_yolo, static_capabilities,
@@ -43,6 +50,10 @@ pub use preflight::{
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 pub use socket::jefe_tmux_socket_path;
 pub use stub_manager::StubRuntimeManager;
+
+#[cfg(test)]
+#[path = "agent_executable_tests.rs"]
+mod agent_executable_tests;
 
 #[cfg(test)]
 #[path = "multiplexer_tests.rs"]

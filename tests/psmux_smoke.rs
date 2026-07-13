@@ -9,10 +9,18 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use jefe::domain::AgentKind;
+use jefe::runtime::{
+    AgentExecutablePlatform, AgentExecutableResolver, LocalPlatform, MultiplexerIsolation,
+    MultiplexerPlan,
+};
+use serde::Deserialize;
+
 const MINIMUM_PSMUX_VERSION: PsmuxVersion = PsmuxVersion::new(3, 3, 6);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const POLL_TIMEOUT: Duration = Duration::from_secs(5);
 const FIXTURE: &str = env!("CARGO_BIN_EXE_jefe-psmux-smoke-fixture");
+const JEFE: &str = env!("CARGO_BIN_EXE_jefe");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct PsmuxVersion {
@@ -263,6 +271,101 @@ fn psmux_minimum_version_parser_accepts_qualified_release() {
     assert!(PsmuxVersion::parse("psmux unknown").is_err());
 }
 
+#[derive(Debug, Deserialize)]
+struct LaunchObservation {
+    args: Vec<String>,
+    cwd: String,
+    selected_environment: Option<String>,
+    tmux: Option<String>,
+    tmux_pane: Option<String>,
+    tmux_tmpdir: Option<String>,
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn psmux_agent_launch_preserves_arguments_working_directory_and_environment_policy() {
+    let Some((executable, version_text)) = qualified_psmux() else {
+        return;
+    };
+    let mut namespace = namespace_or_panic(executable.clone(), "agent-launch", &version_text);
+    let work_dir = tempfile::Builder::new()
+        .prefix("jefe launch Ω ")
+        .tempdir()
+        .unwrap_or_else(|error| panic!("create launch directory: {error}"));
+    let fixture_dir = work_dir.path().join("runtime space 犬");
+    fs::create_dir_all(&fixture_dir)
+        .unwrap_or_else(|error| panic!("create fixture directory: {error}"));
+    let fixture_path = fixture_dir.join("code-puppy.exe");
+    fs::copy(FIXTURE, &fixture_path)
+        .unwrap_or_else(|error| panic!("copy fixture executable: {error}"));
+    let policy = AgentExecutableResolver::for_platform(
+        AgentExecutablePlatform::Windows,
+        vec![fixture_dir],
+        Some(OsString::from(".EXE;.CMD;.BAT")),
+    );
+    let agent_executable = policy
+        .resolve(AgentKind::CodePuppy)
+        .unwrap_or_else(|error| panic!("resolve fixture executable: {error}"));
+    let plan = MultiplexerPlan::for_platform(
+        LocalPlatform::Windows,
+        executable,
+        MultiplexerIsolation::Namespace(namespace.name.clone()),
+    )
+    .unwrap_or_else(|error| panic!("construct psmux plan: {error}"));
+    let record = work_dir.path().join("launch observation.json");
+    let expected = [
+        "space value",
+        "quote\"value",
+        "amp&value",
+        "paren(value)",
+        "percent%value",
+        "",
+        "trailing\\",
+        "Ω犬",
+    ];
+    let mut launch_args = vec![OsString::from("--record"), record.as_os_str().to_owned()];
+    launch_args.extend(expected.iter().map(OsString::from));
+    let pane = plan
+        .agent_pane_command_args_with_launcher(
+            &agent_executable,
+            &launch_args,
+            &[(
+                OsString::from("JEFE_FIXTURE_VALUE"),
+                OsString::from("environment & (Ω) %value%"),
+            )],
+            Path::new(JEFE),
+        )
+        .unwrap_or_else(|error| panic!("build production pane command: {error}"));
+    let mut command = vec![
+        OsString::from("new-session"),
+        OsString::from("-d"),
+        OsString::from("-s"),
+        OsString::from("agent-launch"),
+        OsString::from("-c"),
+        work_dir.path().as_os_str().to_owned(),
+    ];
+    command.extend(pane);
+    namespace
+        .run_os(&command)
+        .unwrap_or_else(|error| panic!("launch recording fixture through psmux: {error}"));
+    let deadline = Instant::now() + POLL_TIMEOUT;
+    while !record.is_file() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(50));
+    }
+    let bytes =
+        fs::read(&record).unwrap_or_else(|error| panic!("read fixture observation: {error}"));
+    let observation: LaunchObservation = serde_json::from_slice(&bytes)
+        .unwrap_or_else(|error| panic!("decode fixture observation: {error}"));
+    assert_eq!(observation.args, expected);
+    assert_eq!(Path::new(&observation.cwd), work_dir.path());
+    assert_eq!(
+        observation.selected_environment.as_deref(),
+        Some("environment & (Ω) %value%")
+    );
+    assert_eq!(observation.tmux, None);
+    assert_eq!(observation.tmux_pane, None);
+    assert_eq!(observation.tmux_tmpdir, None);
+}
 #[test]
 fn psmux_command_contract_rejects_invalid_command_with_diagnostics() {
     let Some((executable, version_text)) = qualified_psmux() else {
