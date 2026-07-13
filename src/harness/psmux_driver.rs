@@ -184,8 +184,9 @@ impl TmuxDriver {
         if session.keep_session {
             return Ok(());
         }
-        let session_cleanup = self.run(&["kill-session", "-t", &session.name]);
-        let namespace_cleanup = self.kill_owned_namespace();
+        let session_cleanup =
+            ignore_absent_cleanup(self.run(&["kill-session", "-t", &session.name]));
+        let namespace_cleanup = ignore_absent_cleanup(self.kill_owned_namespace());
         match (session_cleanup, namespace_cleanup) {
             (Ok(()), Ok(())) => Ok(()),
             (Err(session), Ok(())) => Err(session),
@@ -465,6 +466,19 @@ impl std::fmt::Display for PsmuxVersion {
 
 fn invalid_request(reason: &str) -> TmuxDriverError {
     TmuxDriverError::InvalidRequest(reason.to_string())
+}
+
+fn ignore_absent_cleanup(result: Result<(), TmuxDriverError>) -> Result<(), TmuxDriverError> {
+    match result {
+        Err(TmuxDriverError::Failed { stderr, .. })
+            if stderr.to_ascii_lowercase().contains("no server running")
+                || stderr.to_ascii_lowercase().contains("no sessions")
+                || stderr.to_ascii_lowercase().contains("can't find session") =>
+        {
+            Ok(())
+        }
+        other => other,
+    }
 }
 
 fn parse_version_part(part: Option<&str>, name: &str, source: &str) -> Result<u32, String> {
