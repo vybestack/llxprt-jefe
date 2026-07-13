@@ -547,7 +547,7 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
         RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
     };
-    use crate::persistence::State;
+    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
 
     let mut agent = Agent::new(
         AgentId("stickyagent".into()),
@@ -797,7 +797,7 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
         RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
     };
-    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
+    use crate::persistence::State;
     // `RuntimeSession::session_name_for(agent_id)` reproduces `agent_session`
     // exactly. This keeps the pre-created (sleep) session name coherent with
     // the name jefe computes for the agent, so restart targets the SAME session
