@@ -268,6 +268,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
             KeybindBar(
                 screen_mode: state.map_or(ScreenMode::Dashboard, |s| s.screen_mode),
                 terminal_focused: terminal_focused,
+                actions_focus: None,
                 colors: colors,
             )
         }

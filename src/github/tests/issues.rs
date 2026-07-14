@@ -612,6 +612,7 @@ fn test_build_send_payload_with_comment() {
             vec![],
             crate::domain::PageToken::from_cursor(None, false),
         ),
+        issue_type_name: None,
     };
 
     let focused_comment = IssueComment {
@@ -667,6 +668,7 @@ fn test_build_send_payload_without_comment() {
             vec![],
             crate::domain::PageToken::from_cursor(None, false),
         ),
+        issue_type_name: None,
     };
 
     let payload = GhClient::build_send_payload("owner/repo", &detail, None, "Base prompt here");

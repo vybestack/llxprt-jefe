@@ -60,6 +60,8 @@ A scenario is a JSON object with `config`, optional `macros`, and `steps`.
   rendering.
 - `history_limit`: retained scrollback lines.
 - `initial_wait_ms`: optional startup pause before the first step.
+- `wait_timeout_ms`: optional timeout for `waitFor` and `waitForNot`; zero or
+  omission uses the platform default.
 - `out_dir`: optional default artifact directory. The CLI `--out-dir` overrides
   it.
 - `keep_session`: keep tmux alive after completion for manual debugging.
@@ -178,13 +180,19 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
   dashboard keybind bar, captures the screen, quits, and waits for exit.
 - [`help-modal.json`](../tmux-scenarios/help-modal.json): opens the help modal,
   verifies its stable title, captures it, closes it, then quits.
+- [`fork-issue-pr-repository.json`](../tmux-scenarios/fork-issue-pr-repository.json):
+  opens New Repository and verifies the optional Issues / PRs Repo override and
+  its blank-fallback guidance for fork configurations.
 - [`scratch-pr-mode.json`](../tmux-scenarios/scratch-pr-mode.json): manual
   scratch scenario for PR-mode screen validation. It is intentionally not a CI
   gate because repository/GitHub configuration can vary by developer machine.
-- [`actions-mode.json`](../tmux-scenarios/actions-mode.json): launches the app,
-  enters Actions mode (`g`), verifies the runs-list pane renders, navigates
-  down, then exits and quits. Intentionally not a CI gate — it requires a
-  configured repository and may vary by developer machine.
+- [`actions-mode.json`](../tmux-scenarios/actions-mode.json): uses the fail-closed
+  `scripts/issue194-gh-shim.sh` fixture to load a real run, enters job detail,
+  verifies jobs are collapsed by default, expands success and failure steps
+  with their status glyphs, collapses with `Esc`, navigates job focus, and backs
+  out to the run list. Run it end to end with
+  `scripts/issue194-run-scenario.sh`; the runner seeds isolated state and audits
+  that production performs only the expected read-only `gh` operations.
 - [`code-puppy-chord-passthrough.json`](../tmux-scenarios/code-puppy-chord-passthrough.json):
   manual scenario that focuses an agent terminal and sends the Code Puppy
   shell-control chords (`Ctrl-X Ctrl-B`, `Ctrl-X Ctrl-X`, `Ctrl-C`) through

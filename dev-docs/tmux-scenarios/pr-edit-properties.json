@@ -1,0 +1,38 @@
+{
+  "config": {
+    "cols": 200,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "p" },
+    { "waitFor": "Pull Requests" },
+    { "expect": "L labels" },
+    { "capture": "pr-edit-properties-keybind-bar" },
+    { "key": "Enter" },
+    { "wait": 200 },
+    { "key": "L" },
+    { "wait": 200 },
+    { "capture": "pr-edit-properties-editor-open" },
+    { "key": "Down" },
+    { "wait": 100 },
+    { "key": "Space" },
+    { "wait": 100 },
+    { "capture": "pr-edit-properties-editor-after-toggle" },
+    { "key": "Esc" },
+    { "wait": 200 },
+    { "capture": "pr-edit-properties-editor-after-cancel" },
+    { "key": "T" },
+    { "wait": 200 },
+    { "capture": "pr-edit-properties-title-editor" },
+    { "key": "Esc" },
+    { "wait": 200 },
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

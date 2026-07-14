@@ -221,6 +221,7 @@ mod tests {
             GitRepoInfo {
                 origin_shortform: Some(String::from("acme/widgets")),
                 branch: None,
+                dirty: None,
             };
             agents.len()
         ];

@@ -155,6 +155,57 @@ fn issues_pane_rows_account_for_dynamic_bands() {
     assert_eq!(issues_pane_rows(40, true, true), (9, 23));
 }
 
+// ─── Banner projection (issue #265) ───────────────────────────────────────
+
+/// The issues banner text must return the error when both error and notice
+/// are present (error precedence).
+#[test]
+fn issues_banner_text_error_precedence_over_notice() {
+    let banner = issues_banner_text(Some("load failed"), Some("No agents available"));
+    assert_eq!(banner, Some("load failed"));
+}
+
+/// The issues banner text must fall back to the draft_notice when no error
+/// is present.
+#[test]
+fn issues_banner_text_notice_fallback() {
+    let banner = issues_banner_text(None, Some("No agents available"));
+    assert_eq!(banner, Some("No agents available"));
+}
+
+/// The issues banner text must be None when neither error nor notice exists.
+#[test]
+fn issues_banner_text_none_when_both_absent() {
+    let banner = issues_banner_text(None::<&str>, None::<&str>);
+    assert!(banner.is_none());
+}
+
+/// A notice-only banner must drive the same pane sizing as an error banner
+/// because the `error_visible` sizing parameter is derived from the SAME
+/// `issues_banner_text` projection used for rendering (issue #265).
+///
+/// The preceding tests assert concrete projection values; this verifies that
+/// the same error, notice, and absent projections drive the one-row sizing
+/// contract.
+#[test]
+fn issues_pane_rows_banner_projection_drives_sizing() {
+    let error_banner = issues_banner_text(Some("load failed"), Some("No agents available"));
+    let notice_banner = issues_banner_text(None, Some("No agents available"));
+    let no_banner = issues_banner_text(None::<&str>, None::<&str>);
+
+    // Feed those projections into sizing: error and notice banners each
+    // reduce the available detail row count by exactly one.
+    let error_rows = issues_pane_rows(40, error_banner.is_some(), false);
+    let notice_rows = issues_pane_rows(40, notice_banner.is_some(), false);
+    let no_banner_rows = issues_pane_rows(40, no_banner.is_some(), false);
+    assert_eq!(error_rows, notice_rows);
+    assert_eq!(
+        notice_rows.1 + 1,
+        no_banner_rows.1,
+        "a present banner must reduce the detail row count by exactly one"
+    );
+}
+
 #[test]
 fn issues_detail_pane_rows_match_shared_pane_allocation() {
     for (rows, error_visible, filter_open) in [

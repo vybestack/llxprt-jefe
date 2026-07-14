@@ -10,6 +10,24 @@ use super::{
     persist_state, to_persisted_state,
 };
 
+pub(super) fn actions_repository_target(
+    repo: &jefe::domain::Repository,
+) -> Result<(&str, &str), jefe::github::GhError> {
+    let Some((owner, name)) = repo.github_repo.split_once('/') else {
+        return Err(jefe::github::GhError::ApiError(format!(
+            "malformed repository slug: {}",
+            repo.github_repo
+        )));
+    };
+    if owner.is_empty() || name.is_empty() || name.contains('/') {
+        return Err(jefe::github::GhError::ApiError(format!(
+            "malformed repository slug: {}",
+            repo.github_repo
+        )));
+    }
+    Ok((owner, name))
+}
+
 /// Resolve the GitHub client and parse a `owner/repo` slug into its parts.
 fn gh_client_and_slug<'a>(
     ctx: &SharedContext,
@@ -17,14 +35,8 @@ fn gh_client_and_slug<'a>(
 ) -> Result<(jefe::github::GhClient, &'a str, &'a str), jefe::github::GhError> {
     let client = github_client(ctx)
         .ok_or_else(|| jefe::github::GhError::ApiError("gh client unavailable".to_string()))?;
-    let owner_repo: Vec<&str> = repo.github_repo.split('/').collect();
-    if owner_repo.len() != 2 {
-        return Err(jefe::github::GhError::ApiError(format!(
-            "malformed repository slug: {}",
-            repo.github_repo
-        )));
-    }
-    Ok((client, owner_repo[0], owner_repo[1]))
+    let (owner, name) = actions_repository_target(repo)?;
+    Ok((client, owner, name))
 }
 
 fn dispatch_actions_navigation(
@@ -54,14 +66,53 @@ fn dispatch_actions_navigation(
     }
 }
 
+/// Synchronize transient Actions geometry through the typed reducer pipeline.
+pub fn synchronize_actions_geometry(
+    app_state: &mut AppStateHandle,
+    term_cols: u16,
+    term_rows: u16,
+) {
+    let (error_visible, filter_open, current) = {
+        let state = app_state.read();
+        (
+            state.actions_state.error.is_some(),
+            state.actions_state.ui.filter_ui_open,
+            (
+                state.actions_state.detail_viewport_rows,
+                state.actions_state.detail_content_width,
+            ),
+        )
+    };
+    let geometry =
+        jefe::layout::actions_detail_geometry(term_cols, term_rows, error_visible, filter_open);
+    if current == (geometry.viewport_rows, geometry.content_width) {
+        return;
+    }
+    let event = AppEvent::ActionsSetDetailGeometry {
+        viewport_rows: geometry.viewport_rows,
+        content_width: geometry.content_width,
+    };
+    let mut state = app_state.write();
+    *state = std::mem::take(&mut *state).apply(event);
+}
+
+fn synchronize_current_actions_geometry(app_state: &mut AppStateHandle) {
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    synchronize_actions_geometry(app_state, term_cols, term_rows);
+}
+
 /// Route an `ActionsMessage` to the appropriate dispatcher.
 pub(super) fn dispatch_actions_message(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     message: ActionsMessage,
 ) {
+    if !matches!(message, ActionsMessage::SetDetailGeometry { .. }) {
+        synchronize_current_actions_geometry(app_state);
+    }
     match message {
         m @ (ActionsMessage::EnterMode
+        | ActionsMessage::EnterModeWithPrFilter { .. }
         | ActionsMessage::Reload
         | ActionsMessage::RefocusList
         | ActionsMessage::ApplyFilter
@@ -559,16 +610,15 @@ fn dispatch_run_detail_reload(app_state: &mut AppStateHandle, ctx: &SharedContex
         (repo_clone, run_id, request_id)
     };
 
-    {
-        let mut state = app_state.write();
-        state.actions_state.next_detail_request_id = request_id;
-        state.actions_state.detail_pending = Some(jefe::state::ActionsDetailPending {
+    apply_and_persist(
+        app_state,
+        ctx,
+        AppEvent::ActionsBeginDetailReload {
             scope_repo_id: repo.id.clone(),
             run_id,
             request_id,
-        });
-        state.actions_state.loading.detail = true;
-    }
+        },
+    );
 
     let (repo_id, repo_id_panic) = (repo.id.clone(), repo.id.clone());
     gh_async::spawn_gh_task_with_panic(

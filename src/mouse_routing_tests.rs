@@ -1,8 +1,6 @@
 //! Tests for mouse_routing.rs (issue #197).
 //!
-//! Extracted from mouse_routing.rs to keep that file under the 1000-line limit.
-//! These tests exercise the pure helper functions and the gesture-state-machine
-//! wiring without requiring iocraft or a live runtime.
+//! Exercises pure helpers and gesture-state-machine wiring without a live runtime.
 
 use super::{
     WheelDirection, active_overlay_for, gesture_event_kind, is_blocking_modal_open,
@@ -18,6 +16,9 @@ use jefe::selection::{
 };
 use jefe::state::{AppState, ModalState, PaneFocus, ScreenMode};
 use std::path::PathBuf;
+
+#[path = "mouse_routing_banner_tests.rs"]
+mod mouse_routing_banner_tests;
 
 // ── next_wheel_scroll_offset (clamping + stale recovery) ─────────────────────
 
@@ -656,6 +657,16 @@ fn active_overlay_agent_chooser() {
     assert_eq!(active_overlay_for(&state), OverlayPane::AgentChooser);
 }
 
+#[test]
+fn active_overlay_issue_delete_confirm() {
+    let mut state = AppState::default();
+    state.issues_state.delete_confirm = Some(jefe::state::IssueDeleteConfirmState {
+        issue_number: 42,
+        awaiting_confirmation: false,
+    });
+    assert_eq!(active_overlay_for(&state), OverlayPane::IssueDeleteConfirm);
+}
+
 // ── Issue #198: wheel→scrollback helpers ─────────────────────────────────
 
 fn fullscreen_event(kind: MouseEventKind) -> iocraft::FullscreenMouseEvent {
@@ -761,12 +772,11 @@ fn state_with_issue_body(body: &str) -> AppState {
             Vec::new(),
             jefe::domain::PageToken::from_cursor(None, false),
         ),
+        issue_type_name: None,
     });
     state
 }
 
-/// PaneGeometry whose content origin is (0,0) so row N maps to content row N
-/// directly — keeping the math in the test legible.
 fn origin_geometry() -> PaneGeometry {
     PaneGeometry {
         origin_col: 0,
@@ -900,8 +910,6 @@ fn wrapped_body_row_column_advances_with_screen_col() {
         .find(|r| r.line == body_line && r.line_char_start > 0)
         .unwrap_or_else(|| panic!("expected a wrapped second row; rows={rows:?}"));
     let char_start = second.line_char_start;
-    // The screen vp row for `second` = header rows + the count of wrapped rows
-    // rendered before it.
     let rows_before = rows
         .iter()
         .take_while(|r| {
@@ -947,7 +955,6 @@ fn header_row_uses_naive_mapping() {
             geometry: &geo,
         },
     );
-    // Header row maps to its own index regardless of scroll offset.
     assert_eq!(line, usize::from(header_row));
 }
 
@@ -983,7 +990,6 @@ fn finite_pane_blank_space_clamps_to_last_projected_line_end() {
     );
 }
 
-/// Non-detail panes have no wrap projection and fall back to the naive map.
 #[test]
 fn non_detail_pane_has_no_wrap_projection() {
     let state = AppState::default();

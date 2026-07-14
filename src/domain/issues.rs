@@ -61,6 +61,8 @@ pub struct IssueDetail {
     pub body: String,
     pub external_url: String,
     pub comments: PaginatedList<IssueComment, CommentDetailIdentity>,
+    /// The issue's type name (GitHub issue types), if any (issue #175).
+    pub issue_type_name: Option<String>,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

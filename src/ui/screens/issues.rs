@@ -12,9 +12,9 @@ use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
     AgentChooser, CloseReasonChooser, IssueDeleteConfirmOverlay, IssueDetailProjectionInputs,
-    IssueListLayout, IssueListWindow, KeybindBar, Sidebar, StatusBar, detail_pane_element,
-    filter_bar_element, issue_detail_props, issue_filter_props, issue_list_props,
-    issue_list_status_message, selectable_list_element,
+    IssueListLayout, IssueListWindow, KeybindBar, PropertyEditor, Sidebar, StatusBar,
+    detail_pane_element, filter_bar_element, issue_detail_props, issue_filter_props,
+    issue_list_props, issue_list_status_message, selectable_list_element,
 };
 
 /// Props for the issues mode screen.
@@ -93,6 +93,29 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
 
     // Error message
     let error_message = state.and_then(|s| s.issues_state.error.clone());
+    // Draft notice (e.g. "No agents available") — used as the banner
+    // fallback when no error is present (issue #265).
+    let draft_notice = state.and_then(|s| s.issues_state.draft_notice.clone());
+
+    // Single banner projection: error takes precedence over draft_notice.
+    // This same value drives both the visible banner and the pane row sizing
+    // so they can never disagree (issue #265).
+    let banner_text =
+        crate::layout::issues_banner_text(error_message.as_deref(), draft_notice.as_deref());
+    let banner_is_error = error_message.is_some();
+    let banner_content = banner_text.map(|b| {
+        if banner_is_error {
+            format!("Error: {b}")
+        } else {
+            b.to_string()
+        }
+    });
+    let banner_color = if banner_is_error { rc.bright } else { rc.dim };
+    let banner_weight = if banner_is_error {
+        Weight::Bold
+    } else {
+        Weight::Normal
+    };
 
     // Compute the actual rows/columns available to issue panes so child
     // components do not have to infer from raw terminal size.
@@ -100,7 +123,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
     let (render_cols, render_rows) = crate::layout::effective_render_size(term_cols, term_rows);
     let (list_pane_rows, detail_pane_height) = crate::layout::issues_pane_rows(
         usize::from(render_rows),
-        error_message.is_some(),
+        banner_text.is_some(),
         filter_controls_open,
     );
     let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
@@ -118,6 +141,43 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
         .as_ref()
         .map_or_else(Vec::new, |c| c.agents.clone());
     let chooser_selected = agent_chooser.as_ref().map_or(0, |c| c.selected_index);
+
+    // Property editor overlay (issue #175)
+    let prop_editor = state.and_then(|s| s.issues_state.property_editor.clone());
+    let prop_visible = prop_editor.is_some();
+    let prop_header = prop_editor.as_ref().map_or_else(String::new, |e| {
+        let kind_label = match e.kind {
+            crate::state::IssuePropertyKind::Labels => "Labels",
+            crate::state::IssuePropertyKind::Assignees => "Assignees",
+            crate::state::IssuePropertyKind::Milestone => "Milestone",
+            crate::state::IssuePropertyKind::Title => "Title",
+            crate::state::IssuePropertyKind::Type => "Type",
+            crate::state::IssuePropertyKind::State => "State",
+        };
+        let num = issue_detail.as_ref().map_or(0, |d| d.number);
+        format!("Edit {kind_label} - Issue #{num}")
+    });
+    let prop_options: Vec<(String, bool)> = prop_editor.as_ref().map_or_else(Vec::new, |e| {
+        e.options
+            .iter()
+            .map(|o| (o.label.clone(), o.selected))
+            .collect()
+    });
+    let prop_selected = prop_editor.as_ref().map_or(0, |e| e.selected_index);
+    let prop_multi = prop_editor.as_ref().is_some_and(|e| {
+        matches!(
+            e.kind,
+            crate::state::IssuePropertyKind::Labels | crate::state::IssuePropertyKind::Assignees
+        )
+    });
+    let prop_is_title = prop_editor
+        .as_ref()
+        .is_some_and(|e| matches!(e.kind, crate::state::IssuePropertyKind::Title));
+    let prop_title_text = prop_editor
+        .as_ref()
+        .map_or_else(String::new, |e| e.title_text.clone());
+    let prop_title_cursor = prop_editor.as_ref().map_or(0, |e| e.title_cursor);
+    let prop_error = prop_editor.as_ref().and_then(|e| e.error.clone());
 
     // Delete confirm overlay (issue #182)
     let delete_confirm = state.and_then(|s| s.issues_state.delete_confirm.clone());
@@ -203,14 +263,14 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                     flex_grow: 1.0_f32,
                     height: 100pct,
                 ) {
-                    // Error banner (when present)
-                    #(if let Some(ref err) = error_message {
+                    // Banner (error with precedence over draft_notice — issue #265)
+                    #(if let Some(content) = banner_content {
                         vec![element! {
                             Box(height: 1u32, width: 100pct, padding_left: 1u32) {
                                 Text(
-                                    content: format!("Error: {}", err),
-                                    color: rc.bright,
-                                    weight: Weight::Bold,
+                                    content: content,
+                                    color: banner_color,
+                                    weight: banner_weight,
                                 )
                             }
                         }]
@@ -290,6 +350,35 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                         vec![]
                     })
 
+                    // Property editor overlay (issue #175)
+                    #(if prop_visible {
+                        vec![element! {
+                            Box(
+                                position: Position::Absolute,
+                                top: 2,
+                                left: 4,
+                            ) {
+                                PropertyEditor(
+                                    visible: true,
+                                    header: prop_header.clone(),
+                                    options: prop_options.clone(),
+                                    selected_index: prop_selected,
+                                    multi_select: prop_multi,
+                                    title_text: prop_title_text.clone(),
+                                    title_cursor: prop_title_cursor,
+                                    is_title: prop_is_title,
+                                    error: prop_error.clone(),
+                                    terminal_cols: term_cols,
+                                    terminal_rows: term_rows,
+                                    colors: colors.clone(),
+                                    selection: selection,
+                                )
+                            }
+                        }]
+                    } else {
+                        vec![]
+                    })
+
                     // Delete confirm overlay (issue #182)
                     #(if delete_visible {
                         vec![element! {
@@ -341,6 +430,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
             KeybindBar(
                 screen_mode: state.map_or(ScreenMode::DashboardIssues, |s| s.screen_mode),
                 terminal_focused: false,
+                actions_focus: None,
                 colors: colors.clone(),
             )
         }

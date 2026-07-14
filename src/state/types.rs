@@ -512,10 +512,14 @@ pub enum EditorTarget {
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-011
 /// State for send-to-agent chooser overlay.
+///
+/// The `agents` vector carries typed [`AgentChooserEntry`] snapshots built at
+/// the `app_input` boundary (where git probing is permitted). Reducers only
+/// validate non-emptiness and open/close/navigate — they never execute git.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentChooserState {
     pub selected_index: usize,
-    pub agents: Vec<(crate::domain::AgentId, String)>,
+    pub agents: Vec<crate::domain::AgentChooserEntry>,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -542,6 +546,7 @@ pub enum ActionsFocus {
 pub enum ActionsFilterField {
     Workflow,
     Status,
+    Pr,
 }
 
 /// Identity for the Actions runs list — a result is stale unless both the
@@ -576,7 +581,7 @@ pub struct ActionsDispatchPending {
 pub struct ActionsUiState {
     pub filter_ui_open: bool,
     pub search_input_focused: bool,
-    /// Active field index in the filter bar (0 = workflow, 1 = status).
+    /// Active field index in the filter bar (0 = workflow, 1 = status, 2 = pr).
     /// Mirrors `issues_state.filter_ui.field_index` so the Actions filter bar
     /// renders field-active highlighting through the generic `FilterBar`.
     pub filter_field_index: usize,
@@ -597,7 +602,10 @@ pub struct ActionsState {
     pub error: Option<String>,
     pub focus: ActionsFocus,
     pub detail_scroll_offset: usize,
+    /// Last synchronized wrapped display-row viewport height.
     pub detail_viewport_rows: usize,
+    /// Last synchronized content width used by the Actions wrap projection.
+    pub detail_content_width: usize,
     /// Job ids that are expanded (showing their steps). Jobs not in this set
     /// are collapsed (JobRow only). Defaults to empty (all collapsed).
     pub expanded_jobs: std::collections::HashSet<u64>,
@@ -635,6 +643,13 @@ impl ActionsState {
         self.list.selected_index()
     }
 
+    /// The selected run when the stored index still names a loaded item.
+    #[must_use]
+    pub fn selected_run(&self) -> Option<&crate::domain::WorkflowRun> {
+        self.selected_run_index()
+            .and_then(|index| self.runs().get(index))
+    }
+
     /// Whether the list is visibly loading (reload-visible or page pending).
     #[must_use]
     pub fn list_loading(&self) -> bool {
@@ -665,4 +680,88 @@ pub struct ActionsDetailPending {
 pub struct WorkflowsPending {
     pub scope_repo_id: RepositoryId,
     pub request_id: u64,
+}
+
+/// Which property of an issue the user is editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IssuePropertyKind {
+    Labels,
+    Assignees,
+    Milestone,
+    Title,
+    Type,
+    State,
+}
+
+/// Which property of a PR the user is editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrPropertyKind {
+    Labels,
+    Assignees,
+    Milestone,
+    Title,
+    State,
+}
+
+/// A selectable option in the property editor list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyOption {
+    pub label: String,
+    pub selected: bool,
+    /// Opaque node ID for issue types (None for other kinds). Display uses
+    /// `label`; the mutation submits `id` (H2 fix).
+    pub id: Option<String>,
+}
+
+/// Pending property mutation staleness guard (issue #175, H4 fix).
+///
+/// Mirrors `IssueMutationPending` / `PrMergeMutationPending`. Prevents
+/// duplicate confirmations and ensures stale completions are ignored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyMutationPending {
+    pub scope_repo_id: crate::domain::RepositoryId,
+    pub request_id: u64,
+    pub number: u64,
+}
+
+/// Property editor overlay state for issues (mirrors `PrMergeChooserState`).
+#[derive(Debug, Clone)]
+pub struct IssuePropertyEditorState {
+    pub kind: IssuePropertyKind,
+    pub options: Vec<PropertyOption>,
+    pub selected_index: usize,
+    pub title_text: String,
+    pub title_cursor: usize,
+    pub error: Option<String>,
+    /// Baseline labels/assignees currently applied (for diff computation, M8).
+    pub baseline: Vec<String>,
+    /// Whether the background options fetch failed (H5). When true, confirm is
+    /// disabled to prevent destructive writes from missing data.
+    pub loading_failed: bool,
+    /// Whether options are still loading (M6). Set true on open, false on
+    /// load-success/load-failure. Confirm is blocked while true.
+    pub options_loading: bool,
+    /// Request ID for the in-flight options load (M6 correlation).
+    pub load_request_id: u64,
+}
+
+/// Property editor overlay state for PRs.
+#[derive(Debug, Clone)]
+pub struct PrPropertyEditorState {
+    pub kind: PrPropertyKind,
+    pub options: Vec<PropertyOption>,
+    pub selected_index: usize,
+    pub title_text: String,
+    pub title_cursor: usize,
+    pub error: Option<String>,
+    /// Baseline labels/assignees currently applied (for diff computation, M8).
+    pub baseline: Vec<String>,
+    /// Whether the background options fetch failed (H5). When true, confirm is
+    /// disabled to prevent destructive writes from missing data.
+    pub loading_failed: bool,
+    /// Whether options are still loading (M6). Set true on open, false on
+    /// load-success/load-failure. Confirm is blocked while true.
+    pub options_loading: bool,
+    /// Request ID for the in-flight options load (M6 correlation).
+    pub load_request_id: u64,
 }

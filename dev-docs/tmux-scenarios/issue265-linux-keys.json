@@ -1,0 +1,36 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 40,
+    "history_limit": 2000,
+    "initial_wait_ms": 1500,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "#265" },
+    { "capture": "issues-list" },
+    { "key": "Enter" },
+    { "waitFor": "Linux keyboard behavior" },
+    { "capture": "issue-detail" },
+    { "key": "S" },
+    { "waitFor": "No agents available" },
+    { "capture": "send-no-agents" },
+    { "key": "Escape" },
+    { "waitFor": "#265" },
+    { "waitForNot": "No agents available" },
+    { "key": "n" },
+    { "waitFor": "Alt+Enter submit" },
+    { "capture": "new-issue-composer" },
+    { "key": "M-Enter" },
+    { "waitFor": "cannot be empty" },
+    { "capture": "empty-submit-notice" },
+    { "key": "Escape" },
+    { "key": "a" },
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

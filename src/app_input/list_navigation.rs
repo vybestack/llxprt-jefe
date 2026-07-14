@@ -129,7 +129,7 @@ mod tests {
             .page_item_count(PaneRows::new(usize::from(layout.sidebar_rows)));
 
         assert_eq!(layout.sidebar_rows, 0);
-        assert_eq!(expected, PageItemCount::new(1));
+        assert_eq!(expected, PageItemCount::new(0));
         assert_eq!(
             dashboard_page_item_count(&state, ScreenMode::Split, 2, 6),
             expected

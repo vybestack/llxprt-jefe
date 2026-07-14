@@ -6,7 +6,9 @@
 
 use super::*;
 use iocraft::prelude::{KeyCode, KeyEventKind, KeyModifiers};
-use jefe::domain::{Agent, AgentId, RepositoryId};
+use jefe::domain::{
+    Agent, AgentChooserEntry, AgentId, AgentKind, ChooserRuntimeConfig, RepositoryId,
+};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::state::{
     AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget,
@@ -73,7 +75,12 @@ fn issues_state_with_chooser() -> AppState {
             issue_focus: IssueFocus::IssueList,
             agent_chooser: Some(AgentChooserState {
                 selected_index: 0,
-                agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+                agents: vec![AgentChooserEntry::new(
+                    AgentId(String::from("a1")),
+                    String::from("Agent 1"),
+                    AgentKind::Llxprt,
+                    ChooserRuntimeConfig::default(),
+                )],
             }),
             ..IssuesState::default()
         },
@@ -563,7 +570,8 @@ fn test_r_noop_when_not_on_comment() {
     assert!(event.is_none());
 }
 
-/// Ctrl+Enter when inline active dispatches InlineSubmit.
+/// Ctrl+Enter when inline active dispatches InlineSubmit (compatibility
+/// retained; Alt+Enter is the advertised primary key).
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P10
 /// @plan PLAN-20260329-ISSUES-MODE.P11
@@ -613,9 +621,6 @@ fn test_esc_cancels_inline_editor() {
     let event = resolve_issues_key_event(&state, &key(KeyCode::Esc));
     assert!(matches!(event, Some(AppEvent::InlineCancelOrEsc)));
 }
-
-// ═══════════════════════════════════════════════════════════════════════
-// Agent Chooser (3 tests)
 // ═══════════════════════════════════════════════════════════════════════
 
 /// `S` from IssueDetail focus dispatches OpenAgentChooser when agents exist.
@@ -629,7 +634,10 @@ fn test_s_opens_agent_chooser() {
     let mut state = issues_state_with_focus(IssueFocus::IssueDetail);
     add_agent(&mut state);
     let event = resolve_issues_key_event(&state, &key(KeyCode::Char('S')));
-    assert!(matches!(event, Some(AppEvent::OpenAgentChooser)));
+    assert!(
+        matches!(event, Some(AppEvent::OpenAgentChooser { .. })),
+        "Shift+S must dispatch OpenAgentChooser, got {event:?}"
+    );
 }
 
 /// `S` with inline active is consumed by inline handler, NOT agent chooser.
@@ -651,21 +659,6 @@ fn test_s_noop_when_inline_active() {
         matches!(event, Some(AppEvent::InlineChar('S'))),
         "Expected InlineChar('S'), got {event:?}"
     );
-}
-
-/// `S` with no agents returns None (shows message instead of opening chooser).
-///
-/// GREEN — stub returns None for all unimplemented keys regardless of agent count.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P10
-/// @requirement REQ-ISS-011
-/// @pseudocode component-003 lines 102-111
-#[test]
-fn test_s_shows_message_when_no_agents() {
-    let state = issues_state_with_focus(IssueFocus::IssueDetail);
-    // No agents in state
-    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('S')));
-    assert!(event.is_none());
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -994,3 +987,6 @@ fn p_in_inline_composer_types_char() {
 
 #[path = "issues_close_delete_key_tests.rs"]
 mod close_delete;
+
+#[path = "issues_key_265_tests.rs"]
+mod issue265;

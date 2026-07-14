@@ -1,0 +1,25 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 32,
+    "history_limit": 2000,
+    "initial_wait_ms": 100,
+    "assert_mode": "soft"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "Down" },
+    { "wait": 200 },
+    { "key": "Down" },
+    { "wait": 200 },
+    { "key": "F12" },
+    { "wait": 200 },
+    { "key": "F12" },
+    { "wait": 200 },
+    { "capture": "after-navigation" },
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

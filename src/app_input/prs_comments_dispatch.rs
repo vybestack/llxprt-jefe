@@ -11,7 +11,7 @@
 use jefe::domain::{PageToken, RepositoryId};
 use jefe::state::{AppEvent, ComposerTarget, InlineState};
 
-use super::prs_dispatch::{current_pr_scope_repo_id, resolve_pr_gh_repo};
+use super::prs_dispatch::{current_pr_scope_repo_id, resolve_pr_gh_repo_or_error};
 use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client};
 
 // ── PR comments page loading ──────────────────────────────────────────────
@@ -163,12 +163,16 @@ fn pr_comment_page_request(state: &jefe::state::AppState) -> PrCommentPageReques
     }
     let scope_repo_id = current_pr_scope_repo_id(state);
     let pr_number = detail.number;
-    let (owner, repo) = resolve_pr_gh_repo(state);
+    let (owner, repo, malformed_message) = match resolve_pr_gh_repo_or_error(state) {
+        Ok((owner, repo)) => (owner, repo, None),
+        Err(error) => (String::new(), String::new(), Some(error.message)),
+    };
     if owner.is_empty() || repo.is_empty() {
+        let error = malformed_message.unwrap_or_else(|| "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string());
         return PrCommentPageRequest::Fail(AppEvent::PrCommentsPageDispatchFailed {
             scope_repo_id,
             pr_number,
-            error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
+            error,
         });
     }
     PrCommentPageRequest::Ready(PrCommentPageParams {
@@ -250,6 +254,7 @@ mod tests {
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-02T00:00:00Z".to_string(),
             head_ref: "feature".to_string(),
+            head_sha: "sha123".to_string(),
             base_ref: "main".to_string(),
             labels: vec![],
             assignees: vec![],

@@ -6,6 +6,7 @@
 
 /// Shared finite-width Actions detail body projection.
 pub mod actions_detail_projection;
+pub mod actions_detail_view;
 pub mod actions_view;
 pub mod agent_detection;
 pub mod cli;
@@ -19,6 +20,8 @@ pub mod issue_detail_content;
 pub mod layout;
 /// Pure geometry, windowing, navigation, and row-width primitives for selectable lists.
 pub mod list_viewport;
+/// Explicit local Git and GitHub CLI executable resolution.
+pub mod local_command;
 pub mod logging;
 /// Single-pass HTML-to-text stripping for untrusted markdown (issue #155).
 pub(crate) mod markdown_html_strip;
@@ -35,6 +38,8 @@ pub mod runtime;
 /// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).
 pub mod selection;
 pub mod services;
+/// Native-host OpenSSH planning and typed failure classification.
+pub mod ssh;
 pub mod startup;
 pub mod state;
 /// Pure multiline text-box viewport projection (iocraft-free).

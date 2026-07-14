@@ -119,6 +119,7 @@ pub(super) fn p15_detail(number: u64) -> IssueDetail {
             crate::domain::RepositoryId("owner/repo".to_string()),
             number,
         ),
+        issue_type_name: None,
     }
 }
 

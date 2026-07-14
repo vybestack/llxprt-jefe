@@ -11,7 +11,7 @@ use crate::ui::components::keybind_bar::keybind_hints_for;
 
 #[test]
 fn issues_keybind_hint_includes_close_and_delete() {
-    let hints = keybind_hints_for(ScreenMode::DashboardIssues, false);
+    let hints = keybind_hints_for(ScreenMode::DashboardIssues, false, None);
     assert!(
         hints.contains("close"),
         "issues keybind hint should include close, got: {hints}"
@@ -24,7 +24,7 @@ fn issues_keybind_hint_includes_close_and_delete() {
 
 #[test]
 fn issues_keybind_hint_includes_capital_c_and_d() {
-    let hints = keybind_hints_for(ScreenMode::DashboardIssues, false);
+    let hints = keybind_hints_for(ScreenMode::DashboardIssues, false, None);
     assert!(
         hints.contains("C close"),
         "issues keybind hint should show 'C close', got: {hints}"

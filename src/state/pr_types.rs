@@ -132,6 +132,14 @@ pub struct PullRequestsState {
     pub draft_notice: Option<String>,
     pub mutation_pending: Option<PrMutationPending>,
     pub next_mutation_id: u64,
+    /// Property editor overlay state (issue #175).
+    pub property_editor: Option<super::PrPropertyEditorState>,
+    /// Pending property mutation staleness guard (issue #175).
+    pub property_mutation_pending: Option<super::PropertyMutationPending>,
+    /// Coalesced silent refresh requested by a successful property mutation.
+    pub post_mutation_refresh: crate::state::post_mutation_refresh::PostMutationRefresh,
+    /// Monotonic request id for property option loads / mutations (issue #175).
+    pub next_property_request_id: u64,
     pub detail_pending: Option<PrDetailPending>,
     pub next_pr_detail_request_id: u64,
     /// High-water mark retained across replaceable PR-detail snapshots.

@@ -66,6 +66,7 @@ fn pr(n: u64) -> PullRequest {
         author_login: "octocat".to_string(),
         updated_at: "2026-01-01".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: String::new(),
         base_ref: "main".to_string(),
         is_draft: false,
         review_decision: None,
@@ -321,6 +322,7 @@ fn agent_list_props_with_git_info_adds_suffix_span() {
     let git_infos = vec![GitRepoInfo {
         origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
         branch: Some("main".to_owned()),
+        dirty: None,
     }];
     let props = agent_list_props(
         &agents,
@@ -386,6 +388,7 @@ fn agent_list_props_git_infos_shorter_than_agents() {
     let git_infos = vec![GitRepoInfo {
         origin_shortform: Some("acme/widgets".to_owned()),
         branch: Some("dev".to_owned()),
+        dirty: None,
     }];
     let props = agent_list_props(
         &agents,
@@ -412,6 +415,7 @@ fn agent_list_git_info_suffix_renders() {
     let git_infos = vec![GitRepoInfo {
         origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
         branch: Some("main".to_owned()),
+        dirty: None,
     }];
     let props = agent_list_props(
         &agents,

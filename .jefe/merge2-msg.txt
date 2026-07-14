@@ -1,8 +1,0 @@
-Merge origin/main: resolve issues_key_tests + close_delete_key_tests conflicts
-
-main landed #243 (F12 defocus + cross-mode nav) and #246 (edit issue
-titles) which added F12 tests adjacent to the issues_state_with_issue_list
-helper and a duplicate helper in issues_close_delete_key_tests. Resolve:
-keep main's f12_in_issue_list_is_noop body (terminal_focused=false) and
-migrate both helper sites to the PaginatedList list-container API.
-Verification: fmt, both clippy gates, 2465 tests pass.

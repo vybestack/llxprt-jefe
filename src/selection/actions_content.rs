@@ -42,7 +42,7 @@ pub fn actions_list_lines(state: &AppState, render_cols: u16, render_rows: u16) 
 }
 
 #[must_use]
-pub fn actions_detail_lines(state: &AppState, render_cols: u16, _render_rows: u16) -> PaneContent {
+pub fn actions_detail_lines(state: &AppState, render_cols: u16, render_rows: u16) -> PaneContent {
     let Some(detail) = state.actions_state.run_detail.as_ref() else {
         return PaneContent::new(
             SelectablePane::ActionsDetail,
@@ -56,15 +56,21 @@ pub fn actions_detail_lines(state: &AppState, render_cols: u16, _render_rows: u1
             ],
         );
     };
-    let content_width = usize::from(crate::layout::prs_detail_content_width(render_cols));
+    let geometry = crate::layout::actions_detail_geometry(
+        render_cols,
+        render_rows,
+        state.actions_state.error.is_some(),
+        state.actions_state.ui.filter_ui_open,
+    );
     let mut lines = actions_header_rows(detail)
         .into_iter()
-        .map(|row| crate::list_viewport::fit_text_to_width(&row.content, content_width))
+        .map(|row| crate::list_viewport::fit_text_to_width(&row.content, geometry.content_width))
         .collect::<Vec<_>>();
     lines.extend(crate::actions_detail_projection::actions_detail_body_lines(
         detail,
         &state.actions_state.expanded_jobs,
-        content_width,
+        state.actions_state.focused_job_index,
+        geometry,
     ));
     PaneContent::new(SelectablePane::ActionsDetail, lines)
 }

@@ -1,6 +1,6 @@
 use crate::domain::{
-    Agent, AgentId, Issue, IssueComment, IssueDetail, IssueFilter, IssueState, Repository,
-    RepositoryId,
+    Agent, AgentChooserEntry, AgentChooserGitMetadata, AgentId, Issue, IssueComment, IssueDetail,
+    IssueFilter, IssueState, Repository, RepositoryId,
 };
 use crate::state::AppState;
 use crate::state::events::AppEvent;
@@ -76,6 +76,7 @@ fn p15_detail(number: u64) -> IssueDetail {
             vec![],
             crate::domain::PageToken::from_cursor(None, false),
         ),
+        issue_type_name: None,
     }
 }
 
@@ -147,6 +148,7 @@ fn send_payload_detail() -> IssueDetail {
             ],
             crate::domain::PageToken::from_cursor(None, false),
         ),
+        issue_type_name: None,
     }
 }
 
@@ -597,14 +599,17 @@ fn test_send_to_agent_payload_complete() {
         DetailSubfocus::Comment(1)
     );
 
-    let state = state.apply(AppEvent::OpenAgentChooser);
+    let metadata = vec![AgentChooserGitMetadata::for_agent(AgentId(
+        "agent-1".to_string(),
+    ))];
+    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
     let chooser = state
         .issues_state
         .agent_chooser
         .as_ref()
         .unwrap_or_else(|| panic!("chooser should be open"));
     assert_eq!(chooser.agents.len(), 1);
-    assert_eq!(chooser.agents[0].1, "My Agent");
+    assert_eq!(chooser.agents[0].name, "My Agent");
 
     let detail = state
         .issues_state
@@ -626,7 +631,7 @@ fn test_send_to_agent_payload_complete() {
     );
 }
 
-/// P15 Test 17: OpenAgentChooser with no agents — chooser not opened.
+/// P15 Test 17: OpenAgentChooser with no agents — chooser not opened, notice set.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
 /// @requirement REQ-ISS-011
@@ -635,9 +640,14 @@ fn test_send_to_agent_no_agents() {
     let state = issues_mode_state_with_repo("repo-1");
     assert!(state.agents.is_empty());
 
-    let state = state.apply(AppEvent::OpenAgentChooser);
+    let state = state.apply(AppEvent::OpenAgentChooser { metadata: vec![] });
 
     assert!(state.issues_state.agent_chooser.is_none());
+    assert_eq!(
+        state.issues_state.draft_notice.as_deref(),
+        Some("No agents available"),
+        "no eligible agents must set the No agents available notice"
+    );
 }
 
 /// P15 Test 18: Build payload with issue_base_prompt — field present in repository.
@@ -701,7 +711,7 @@ fn test_esc_chain_all_six_levels_integrated() {
     let mut state = state;
     state.issues_state.agent_chooser = Some(AgentChooserState {
         selected_index: 0,
-        agents: vec![(AgentId("a1".to_string()), "Agent 1".to_string())],
+        agents: vec![AgentChooserEntry::simple("a1", "Agent 1")],
     });
     let state = state.apply(AppEvent::AgentChooserCancel);
     assert!(state.issues_state.agent_chooser.is_none());

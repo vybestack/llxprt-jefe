@@ -58,6 +58,7 @@ pub(super) fn make_test_pr(number: u64) -> PullRequest {
         author_login: "testuser".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         is_draft: false,
         review_decision: None,
@@ -508,7 +509,7 @@ fn it_send_to_agent_writes_prompt_file_for_launch() {
     // Drive the REAL `S` key handler → PrOpenAgentChooser.
     let event = prs::resolve_prs_key_event(&state, &key(KeyCode::Char('S')));
     assert!(
-        matches!(event, Some(AppEvent::PrOpenAgentChooser)),
+        matches!(event, Some(AppEvent::PrOpenAgentChooser { .. })),
         "'S' must emit PrOpenAgentChooser (got {event:?})"
     );
     state.apply_in_place(event.unwrap_or_else(|| panic!("S must emit an event")));

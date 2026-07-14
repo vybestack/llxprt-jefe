@@ -211,6 +211,39 @@ pub enum AppEvent {
         request_cursor: Option<String>,
         error: String,
     },
+    /// Silent background list refresh succeeded (issue #175). Mirrors
+    /// `PrListSilentRefreshed`: preserves selection/scroll/filter and does NOT
+    /// flash the loading spinner.
+    IssueListSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        filter: Box<crate::domain::IssueFilter>,
+        request_id: u64,
+        issues: Vec<crate::domain::Issue>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    /// Silent background list refresh failed (issue #175). Clears the pending
+    /// marker WITHOUT surfacing a visible error.
+    IssueListSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+    },
+    /// Silent background detail refresh succeeded (issue #175). Mirrors
+    /// `PrDetailSilentRefreshed`: updates detail in place WITHOUT setting
+    /// `loading.detail` and preserves `detail_scroll_offset`.
+    IssueDetailSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+        detail: Box<crate::domain::IssueDetail>,
+    },
+    /// Silent background detail refresh failed (issue #175). Clears
+    /// `detail_pending` silently WITHOUT setting an error.
+    IssueDetailSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+    },
     OpenFilterControls,
     CloseFilterControls,
     ApplyFilter,
@@ -336,7 +369,9 @@ pub enum AppEvent {
     /// Esc: close the chooser without closing the issue.
     CloseReasonCancel,
 
-    OpenAgentChooser,
+    OpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     AgentChooserNavigateUp,
     AgentChooserNavigateDown,
     AgentChooserConfirm,
@@ -532,7 +567,14 @@ pub enum AppEvent {
         pr_number: u64,
         allowed_methods: Vec<crate::domain::MergeMethod>,
     },
-    PrOpenAgentChooser,
+    PrMergeMethodsLoadFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        error: String,
+    },
+    PrOpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     PrAgentChooserNavigateUp,
     PrAgentChooserNavigateDown,
     PrAgentChooserConfirm,
@@ -544,6 +586,11 @@ pub enum AppEvent {
 
     // Actions Mode events
     EnterActionsMode,
+    /// Enter Actions mode with a PR filter pre-set (cross-mode action from PR mode).
+    EnterActionsModeWithPrFilter {
+        pr_number: u64,
+        head_sha: String,
+    },
     ExitActionsMode,
     RefocusActionsList,
     ActionsReload,
@@ -556,12 +603,22 @@ pub enum AppEvent {
     ActionsEnter,
     ActionsCycleFocus,
     ActionsCycleFocusReverse,
+    ActionsSetDetailGeometry {
+        viewport_rows: usize,
+        content_width: usize,
+    },
     ActionsScrollDetailUp,
     ActionsScrollDetailDown,
-    ActionsToggleJobExpand,
+    ActionsExpandJob,
     ActionsCollapseJob,
+    ActionsDetailEscape,
     ActionsNavigateJobUp,
     ActionsNavigateJobDown,
+    ActionsBeginDetailReload {
+        scope_repo_id: RepositoryId,
+        run_id: u64,
+        request_id: u64,
+    },
     ActionsRunsLoaded {
         scope_repo_id: RepositoryId,
         filter: Box<crate::domain::ActionsFilter>,
@@ -674,6 +731,108 @@ pub enum AppEvent {
         scope_repo_id: RepositoryId,
         thread_index: usize,
         request_id: u64,
+        error: String,
+    },
+
+    // Property editing (issue #175) — Issues
+    IssueOpenPropertyEditor {
+        kind: super::IssuePropertyKind,
+    },
+    IssuePropertyEditorNavigateUp,
+    IssuePropertyEditorNavigateDown,
+    IssuePropertyEditorToggle,
+    IssuePropertyEditorConfirm,
+    IssuePropertyEditorCancel,
+    IssuePropertyEditorTitleChar(char),
+    IssuePropertyEditorTitleBackspace,
+    IssuePropertyEditorTitleDelete,
+    IssuePropertyEditorTitleCursorLeft,
+    IssuePropertyEditorTitleCursorRight,
+    IssuePropertyEditorOptionsLoaded {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        kind: super::IssuePropertyKind,
+        request_id: u64,
+        options: Vec<(Option<String>, String, bool)>,
+    },
+    IssuePropertyEditorOptionsFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        kind: super::IssuePropertyKind,
+        request_id: u64,
+        error: String,
+    },
+    IssuePropertyEditSucceeded {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        kind: super::IssuePropertyKind,
+        request_id: u64,
+    },
+    /// Consume a queued issue refresh immediately before orchestration starts it.
+    IssuePostMutationRefreshStarted,
+    IssuePropertyEditFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        kind: super::IssuePropertyKind,
+        request_id: u64,
+        error: String,
+    },
+    /// Synchronous validation error (e.g. empty title, missing repo) that
+    /// should set the open editor's error WITHOUT mutation correlation
+    /// (issue #175). Applied directly to the active editor if its kind matches.
+    IssuePropertyEditorValidationError {
+        kind: super::IssuePropertyKind,
+        error: String,
+    },
+
+    // Property editing (issue #175) — PRs
+    PrOpenPropertyEditor {
+        kind: super::PrPropertyKind,
+    },
+    PrPropertyEditorNavigateUp,
+    PrPropertyEditorNavigateDown,
+    PrPropertyEditorToggle,
+    PrPropertyEditorConfirm,
+    PrPropertyEditorCancel,
+    PrPropertyEditorTitleChar(char),
+    PrPropertyEditorTitleBackspace,
+    PrPropertyEditorTitleDelete,
+    PrPropertyEditorTitleCursorLeft,
+    PrPropertyEditorTitleCursorRight,
+    PrPropertyEditorOptionsLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        kind: super::PrPropertyKind,
+        request_id: u64,
+        options: Vec<(Option<String>, String, bool)>,
+    },
+    PrPropertyEditorOptionsFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        kind: super::PrPropertyKind,
+        request_id: u64,
+        error: String,
+    },
+    PrPropertyEditSucceeded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        kind: super::PrPropertyKind,
+        request_id: u64,
+    },
+    /// Consume a queued PR refresh immediately before orchestration starts it.
+    PrPostMutationRefreshStarted,
+    PrPropertyEditFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        kind: super::PrPropertyKind,
+        request_id: u64,
+        error: String,
+    },
+    /// Synchronous validation error (e.g. empty title, missing repo) that
+    /// should set the open PR editor's error WITHOUT mutation correlation
+    /// (issue #175). Applied directly to the active editor if its kind matches.
+    PrPropertyEditorValidationError {
+        kind: super::PrPropertyKind,
         error: String,
     },
 }

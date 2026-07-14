@@ -37,6 +37,16 @@ pub use auth_device::{
 mod viewer;
 pub use viewer::{build_assign_issue_args, build_viewer_login_args, parse_viewer_login};
 
+mod edit_properties;
+pub use edit_properties::{
+    IssueNodeInfo, PropertyEditTarget, build_assignees_query_args, build_clear_milestone_args,
+    build_close_args, build_edit_assignees_args, build_edit_labels_args,
+    build_issue_node_id_query_args, build_issue_types_query_args, build_labels_query_args,
+    build_milestones_query_args, build_reopen_args, build_set_milestone_args, build_set_title_args,
+    build_update_issue_type_args, compute_assignee_diff, compute_label_diff, parse_assignee_logins,
+    parse_issue_node_info, parse_issue_types, parse_label_names, parse_milestone_titles,
+};
+
 mod actions;
 pub use actions::{
     WorkflowRunListResponse, build_runs_api_path, parse_api_runs_json, parse_jobs_json,
@@ -60,6 +70,17 @@ pub use parse_pr::{
     parse_pull_request_detail_json, parse_pull_requests_json, parse_review_decision,
     parse_thread_reply_json, rollup_nodes, sort_pull_requests,
 };
+
+fn gh_command() -> Result<Command, GhError> {
+    crate::local_command::command(crate::local_command::LocalTool::Gh).map_err(
+        |error| match error {
+            crate::local_command::LocalToolError::NotFound { .. } => GhError::NotInstalled,
+            error @ crate::local_command::LocalToolError::InvalidOverride { .. } => {
+                GhError::ToolResolution(error.to_string())
+            }
+        },
+    )
+}
 
 /// Response from listing issues.
 pub struct IssueListResponse {
@@ -159,7 +180,7 @@ impl GhClient {
     /// @requirement REQ-ISS-013
     /// @pseudocode component-002 lines 04-08
     pub fn check_auth(&self) -> Result<(), GhError> {
-        let output = Command::new("gh")
+        let output = gh_command()?
             .args(["auth", "status"])
             .output()
             .map_err(|e| {
@@ -205,7 +226,7 @@ impl GhClient {
         repo: &str,
         number: u64,
     ) -> Result<IssueDetail, GhError> {
-        let output = Command::new("gh")
+        let output = gh_command()?
             .args([
                 "issue",
                 "view",
@@ -278,7 +299,7 @@ impl GhClient {
             args.push(format!("after={c}"));
         }
 
-        let output = Command::new("gh").args(&args).output().map_err(|e| {
+        let output = gh_command()?.args(&args).output().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 GhError::NotInstalled
             } else {
@@ -312,7 +333,7 @@ impl GhClient {
         title: &str,
         body: &str,
     ) -> Result<CreatedIssue, GhError> {
-        let output = Command::new("gh")
+        let output = gh_command()?
             .args([
                 "api",
                 "--method",
@@ -376,7 +397,7 @@ impl GhClient {
         number: u64,
         body: &str,
     ) -> Result<IssueComment, GhError> {
-        let output = Command::new("gh")
+        let output = gh_command()?
             .args([
                 "api",
                 "--method",
@@ -415,7 +436,7 @@ impl GhClient {
         comment_id: u64,
         body: &str,
     ) -> Result<(), GhError> {
-        let output = Command::new("gh")
+        let output = gh_command()?
             .args([
                 "api",
                 "--method",
@@ -454,7 +475,7 @@ impl GhClient {
         title: &str,
         body: &str,
     ) -> Result<(), GhError> {
-        let output = Command::new("gh")
+        let output = gh_command()?
             .args([
                 "issue",
                 "edit",
@@ -561,7 +582,7 @@ impl GhClient {
             "--repo".to_string(),
             format!("{owner}/{name}"),
             "--json".to_string(),
-            "number,title,state,mergedAt,author,createdAt,updatedAt,headRefName,baseRefName,isDraft,labels,assignees,milestone,body,url,reviewDecision,statusCheckRollup,reviews,mergeable,mergeStateStatus".to_string(),
+            "number,title,state,mergedAt,author,createdAt,updatedAt,headRefName,headRefOid,baseRefName,isDraft,labels,assignees,milestone,body,url,reviewDecision,statusCheckRollup,reviews,mergeable,mergeStateStatus".to_string(),
         ];
         let repo = format!("{owner}/{name}");
 
@@ -777,7 +798,7 @@ impl GhClient {
     /// the established error idiom: `NotFound→NotInstalled` else
     /// `NetworkError`; non-zero exit → `categorize_error`.
     pub(super) fn run_gh(args: &[String]) -> Result<String, GhError> {
-        let output = Command::new("gh").args(args).output().map_err(|e| {
+        let output = gh_command()?.args(args).output().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 GhError::NotInstalled
             } else {
@@ -801,15 +822,8 @@ impl Default for GhClient {
 /// Distribute fetched review threads onto the review structs.
 ///
 /// GitHub's `reviewThreads` connection is on `PullRequest`, not on each
-/// `Review`. Each thread carries the id of the review that opened it (from
-/// its first comment's `pullRequestReview`), so threads are attached to THEIR
-/// parent review — mirroring the github.com grouping where each review card
-/// shows its own batch of inline comments. Threads whose parent review id is
-/// missing or matches no fetched review fall back to the first review so
-/// nothing is dropped. When there are no reviews at all, threads are dropped
-/// (there is no review slot to hold them). The renderer flattens
-/// `reviews.iter().flat_map(|r| &r.review_threads)` so this preserves all
-/// threads for display, in per-review chronological order.
+/// `Review`. Each thread carries the id of its parent review, so threads are
+/// attached to their parent review (or the first review as fallback).
 pub(crate) fn assign_threads_to_reviews(reviews: &mut [PrReview], threads: Vec<PrReviewThread>) {
     if threads.is_empty() || reviews.is_empty() {
         return;
@@ -953,7 +967,7 @@ fn fetch_issue_search_raw_page(
 ) -> Result<IssueListResponse, GhError> {
     let args = build_issue_search_args(owner, repo, filter, cursor, page_size);
 
-    let output = Command::new("gh").args(&args).output().map_err(|e| {
+    let output = gh_command()?.args(&args).output().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             GhError::NotInstalled
         } else {

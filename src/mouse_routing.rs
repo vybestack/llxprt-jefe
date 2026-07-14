@@ -1,4 +1,7 @@
 use crate::app_shell::{CtxArc, HookState, capture_terminal_snapshot};
+
+#[path = "mouse_routing_detail.rs"]
+mod mouse_routing_detail;
 use crate::pty_encoding::mouse_event_to_bytes;
 use jefe::clipboard;
 use jefe::layout::compute_pty_layout;
@@ -10,6 +13,7 @@ use jefe::selection::{
     selection_text, terminal_selection_text,
 };
 use jefe::state::{AppState, PaneFocus, ScreenMode};
+use mouse_routing_detail::refresh_detail_viewport_rows;
 
 pub type ClipboardWriter = fn(&str) -> Result<(), std::io::Error>;
 
@@ -738,7 +742,10 @@ fn resolve_app_selection_point(
 fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
     let (mode_error, filter_open) = match state.screen_mode {
         ScreenMode::DashboardIssues => (
-            state.issues_state.error.is_some(),
+            jefe::layout::issues_banner_visible(
+                state.issues_state.error.as_deref(),
+                state.issues_state.draft_notice.as_deref(),
+            ),
             state.issues_state.filter_ui.controls_open,
         ),
         ScreenMode::DashboardPullRequests => (
@@ -749,12 +756,11 @@ fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
             state.actions_state.error.is_some(),
             state.actions_state.ui.filter_ui_open,
         ),
-        _ => (false, false),
+        ScreenMode::Dashboard | ScreenMode::Split => (false, false),
     };
     let error_visible = state.error_message.is_some() || mode_error;
-    let overlay = active_overlay_for(state);
     ScreenLayout::new(cols, rows, state.screen_mode, error_visible, filter_open)
-        .with_overlay(overlay)
+        .with_overlay(active_overlay_for(state))
 }
 
 /// Whether a blocking modal is open (Finding G).
@@ -803,8 +809,6 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
         | jefe::state::ModalState::Auth { .. } => {
             return OverlayPane::ConfirmModal;
         }
-        // Explicit match (not wildcard) so new ModalState variants force a
-        // conscious overlay-routing decision here (issue #178 z-order).
         jefe::state::ModalState::None
         | jefe::state::ModalState::Search { .. }
         | jefe::state::ModalState::ThemePicker { .. }
@@ -816,8 +820,14 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
     if state.prs_state.merge_chooser.is_some() {
         return OverlayPane::MergeChooser;
     }
+    if state.issues_state.property_editor.is_some() || state.prs_state.property_editor.is_some() {
+        return OverlayPane::PropertyEditor;
+    }
     if state.issues_state.close_reason_chooser.is_some() {
         return OverlayPane::CloseReasonChooser;
+    }
+    if state.issues_state.delete_confirm.is_some() {
+        return OverlayPane::IssueDeleteConfirm;
     }
     OverlayPane::None
 }
@@ -888,40 +898,6 @@ fn scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
             state.terminal_viewport_rows,
         ),
         _ => 0,
-    }
-}
-
-fn refresh_detail_viewport_rows(
-    state: &mut AppState,
-    pane: SelectablePane,
-    term_cols: u16,
-    term_rows: u16,
-) {
-    let (_, render_rows) = jefe::layout::effective_render_size(term_cols, term_rows);
-    let term_rows = usize::from(render_rows);
-    match pane {
-        SelectablePane::IssueDetail => {
-            state.issues_state.detail_viewport_rows = jefe::layout::issues_detail_viewport_rows(
-                term_rows,
-                state.issues_state.error.is_some(),
-                state.issues_state.filter_ui.controls_open,
-            );
-        }
-        SelectablePane::PrDetail => {
-            state.prs_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
-                term_rows,
-                state.prs_state.error.is_some(),
-                state.prs_state.filter_ui.controls_open,
-            );
-        }
-        SelectablePane::ActionsDetail => {
-            state.actions_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
-                term_rows,
-                state.actions_state.error.is_some(),
-                state.actions_state.ui.filter_ui_open,
-            );
-        }
-        _ => {}
     }
 }
 

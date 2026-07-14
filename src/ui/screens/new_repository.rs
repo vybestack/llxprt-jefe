@@ -200,6 +200,34 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         sel,
     ));
 
+    let issue_pr_focused = focus == RepositoryFormFocus::IssuePrRepo;
+    let issue_pr_value = if issue_pr_focused {
+        text_with_caret(&fields.github_issue_pr_repo, cursor.github_issue_pr_repo)
+    } else {
+        fields.github_issue_pr_repo.clone()
+    };
+    let issue_pr_hint = if fields.github_issue_pr_repo.trim().is_empty() {
+        "blank uses GitHub Repo"
+    } else {
+        "override issue/PR tracker"
+    };
+    let issue_pr_line = format!(
+        "  {:<16} [{issue_pr_value}]  ({issue_pr_hint})",
+        "Issues / PRs Repo"
+    );
+    all_lines.push(selectable_line(
+        &issue_pr_line,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        if issue_pr_focused { rc.bright } else { rc.fg },
+        sel,
+    ));
+
     // Content line 6: Remote Repository checkbox.
     let remote_focused = focus == RepositoryFormFocus::RemoteEnabled;
     let remote_mark = if fields.remote_enabled { "x" } else { " " };
@@ -222,14 +250,38 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
     ));
 
     // Content lines 7-9: remote fields.
-    let remote_labels = ["Login User", "Host / IP", "Run As User"];
-    let remote_values = [&fields.login_user, &fields.host, &fields.run_as_user];
+    let remote_labels = [
+        "Login User",
+        "Host / IP",
+        "SSH Port",
+        "Identity File",
+        "SSH Options (space-separated)",
+        "Run As User",
+    ];
+    let remote_values = [
+        &fields.login_user,
+        &fields.host,
+        &fields.ssh_port,
+        &fields.identity_file,
+        &fields.ssh_options,
+        &fields.run_as_user,
+    ];
     let remote_focuses = [
         RepositoryFormFocus::LoginUser,
         RepositoryFormFocus::Host,
+        RepositoryFormFocus::SshPort,
+        RepositoryFormFocus::IdentityFile,
+        RepositoryFormFocus::SshOptions,
         RepositoryFormFocus::RunAsUser,
     ];
-    let remote_cursors = [cursor.login_user, cursor.host, cursor.run_as_user];
+    let remote_cursors = [
+        cursor.login_user,
+        cursor.host,
+        cursor.ssh_port,
+        cursor.identity_file,
+        cursor.ssh_options,
+        cursor.run_as_user,
+    ];
     for (((label, value), field_focus), field_cursor) in remote_labels
         .iter()
         .zip(remote_values.iter())
@@ -300,6 +352,24 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         rc.fg,
         sel,
     ));
+    if let Some(error) = props
+        .state
+        .as_ref()
+        .and_then(|state| state.error_message.as_deref())
+    {
+        all_lines.push(selectable_line(
+            &format!("  Error: {error}"),
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            rc.bright,
+            sel,
+        ));
+    }
     all_lines.push(selectable_line(
         "  Tab/Down next  Shift+Tab/Up prev  Left/Right move cursor  Space toggles remote options  Enter submit  Esc cancel",
         line_idx,

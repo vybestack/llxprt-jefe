@@ -17,6 +17,7 @@ use crate::domain::{
 pub(crate) use normalize::{
     expand_tilde, normalize_llxprt_debug, normalize_profile, normalize_sandbox_flags,
 };
+pub use normalize::{local_paths_equivalent, validate_local_path};
 
 /// Generate a stable, time-based identifier with the given prefix.
 pub(crate) fn generate_id(prefix: &str) -> String {

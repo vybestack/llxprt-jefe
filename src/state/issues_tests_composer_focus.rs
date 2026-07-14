@@ -47,6 +47,7 @@ fn p15_detail(number: u64) -> IssueDetail {
             vec![],
             crate::domain::PageToken::from_cursor(None, false),
         ),
+        issue_type_name: None,
     }
 }
 

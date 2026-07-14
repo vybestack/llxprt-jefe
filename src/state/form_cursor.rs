@@ -32,11 +32,28 @@ pub(super) fn handle_repository_field_char(
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = insert_char_at(&mut fields.github_repo, cursor.github_repo, c);
         }
+        RepositoryFormFocus::IssuePrRepo => {
+            cursor.github_issue_pr_repo = insert_char_at(
+                &mut fields.github_issue_pr_repo,
+                cursor.github_issue_pr_repo,
+                c,
+            );
+        }
         RepositoryFormFocus::LoginUser => {
             cursor.login_user = insert_char_at(&mut fields.login_user, cursor.login_user, c);
         }
         RepositoryFormFocus::Host => {
             cursor.host = insert_char_at(&mut fields.host, cursor.host, c);
+        }
+        RepositoryFormFocus::SshPort => {
+            cursor.ssh_port = insert_char_at(&mut fields.ssh_port, cursor.ssh_port, c);
+        }
+        RepositoryFormFocus::IdentityFile => {
+            cursor.identity_file =
+                insert_char_at(&mut fields.identity_file, cursor.identity_file, c);
+        }
+        RepositoryFormFocus::SshOptions => {
+            cursor.ssh_options = insert_char_at(&mut fields.ssh_options, cursor.ssh_options, c);
         }
         RepositoryFormFocus::RunAsUser => {
             cursor.run_as_user = insert_char_at(&mut fields.run_as_user, cursor.run_as_user, c);
@@ -76,10 +93,23 @@ pub(super) fn move_repository_field_cursor_right(
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = move_cursor_right(&fields.github_repo, cursor.github_repo);
         }
+        RepositoryFormFocus::IssuePrRepo => {
+            cursor.github_issue_pr_repo =
+                move_cursor_right(&fields.github_issue_pr_repo, cursor.github_issue_pr_repo);
+        }
         RepositoryFormFocus::LoginUser => {
             cursor.login_user = move_cursor_right(&fields.login_user, cursor.login_user);
         }
         RepositoryFormFocus::Host => cursor.host = move_cursor_right(&fields.host, cursor.host),
+        RepositoryFormFocus::SshPort => {
+            cursor.ssh_port = move_cursor_right(&fields.ssh_port, cursor.ssh_port);
+        }
+        RepositoryFormFocus::IdentityFile => {
+            cursor.identity_file = move_cursor_right(&fields.identity_file, cursor.identity_file);
+        }
+        RepositoryFormFocus::SshOptions => {
+            cursor.ssh_options = move_cursor_right(&fields.ssh_options, cursor.ssh_options);
+        }
         RepositoryFormFocus::RunAsUser => {
             cursor.run_as_user = move_cursor_right(&fields.run_as_user, cursor.run_as_user);
         }
@@ -158,8 +188,18 @@ pub(super) fn move_repository_field_cursor_left(
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = move_cursor_left(cursor.github_repo);
         }
+        RepositoryFormFocus::IssuePrRepo => {
+            cursor.github_issue_pr_repo = move_cursor_left(cursor.github_issue_pr_repo);
+        }
         RepositoryFormFocus::LoginUser => cursor.login_user = move_cursor_left(cursor.login_user),
         RepositoryFormFocus::Host => cursor.host = move_cursor_left(cursor.host),
+        RepositoryFormFocus::SshPort => cursor.ssh_port = move_cursor_left(cursor.ssh_port),
+        RepositoryFormFocus::IdentityFile => {
+            cursor.identity_file = move_cursor_left(cursor.identity_file);
+        }
+        RepositoryFormFocus::SshOptions => {
+            cursor.ssh_options = move_cursor_left(cursor.ssh_options);
+        }
         RepositoryFormFocus::RunAsUser => cursor.run_as_user = move_cursor_left(cursor.run_as_user),
     }
 }

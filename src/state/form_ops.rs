@@ -243,11 +243,28 @@ impl AppState {
                 cursor.github_repo =
                     delete_char_before(&mut fields.github_repo, cursor.github_repo);
             }
+            RepositoryFormFocus::IssuePrRepo => {
+                cursor.github_issue_pr_repo = delete_char_before(
+                    &mut fields.github_issue_pr_repo,
+                    cursor.github_issue_pr_repo,
+                );
+            }
             RepositoryFormFocus::LoginUser => {
                 cursor.login_user = delete_char_before(&mut fields.login_user, cursor.login_user);
             }
             RepositoryFormFocus::Host => {
                 cursor.host = delete_char_before(&mut fields.host, cursor.host);
+            }
+            RepositoryFormFocus::SshPort => {
+                cursor.ssh_port = delete_char_before(&mut fields.ssh_port, cursor.ssh_port);
+            }
+            RepositoryFormFocus::IdentityFile => {
+                cursor.identity_file =
+                    delete_char_before(&mut fields.identity_file, cursor.identity_file);
+            }
+            RepositoryFormFocus::SshOptions => {
+                cursor.ssh_options =
+                    delete_char_before(&mut fields.ssh_options, cursor.ssh_options);
             }
             RepositoryFormFocus::RunAsUser => {
                 cursor.run_as_user =
@@ -283,11 +300,26 @@ impl AppState {
             RepositoryFormFocus::GitHubRepo => {
                 delete_char_at(&mut fields.github_repo, cursor.github_repo);
             }
+            RepositoryFormFocus::IssuePrRepo => {
+                delete_char_at(
+                    &mut fields.github_issue_pr_repo,
+                    cursor.github_issue_pr_repo,
+                );
+            }
             RepositoryFormFocus::LoginUser => {
                 delete_char_at(&mut fields.login_user, cursor.login_user);
             }
             RepositoryFormFocus::Host => {
                 delete_char_at(&mut fields.host, cursor.host);
+            }
+            RepositoryFormFocus::SshPort => {
+                delete_char_at(&mut fields.ssh_port, cursor.ssh_port);
+            }
+            RepositoryFormFocus::IdentityFile => {
+                delete_char_at(&mut fields.identity_file, cursor.identity_file);
+            }
+            RepositoryFormFocus::SshOptions => {
+                delete_char_at(&mut fields.ssh_options, cursor.ssh_options);
             }
             RepositoryFormFocus::RunAsUser => {
                 delete_char_at(&mut fields.run_as_user, cursor.run_as_user);
@@ -695,22 +727,44 @@ impl AppState {
             if *work_dir_manual {
                 return;
             }
-            let base_dir = self
+            fields.work_dir = self
                 .repositories
                 .iter()
                 .find(|r| r.id == *repository_id)
                 .map_or_else(
-                    || "/tmp".to_owned(),
-                    |r| r.base_dir.to_string_lossy().into_owned(),
+                    || {
+                        super::form_runtime::derive_local_work_dir_from_name(
+                            &fields.name,
+                            std::path::Path::new("/tmp"),
+                        )
+                    },
+                    |repository| {
+                        if repository.remote.enabled {
+                            super::form_runtime::derive_remote_work_dir_from_name(
+                                &fields.name,
+                                &repository.base_dir.to_string_lossy(),
+                            )
+                        } else {
+                            super::form_runtime::derive_local_work_dir_from_name(
+                                &fields.name,
+                                &repository.base_dir,
+                            )
+                        }
+                    },
                 );
-            fields.work_dir =
-                super::form_runtime::derive_work_dir_from_name(&fields.name, &base_dir);
         }
     }
 
     pub(super) fn handle_submit_form(&mut self) {
         match self.modal.clone() {
             ModalState::NewRepository { fields, .. } => {
+                if let Err(error) =
+                    crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo)
+                {
+                    self.error_message = Some(error.to_string());
+                    return;
+                }
+                self.error_message = None;
                 if let Some(repo) = Self::create_repository_from_fields(&fields) {
                     self.repositories.push(repo);
                     self.selected_repository_index = Some(self.repositories.len() - 1);
@@ -718,6 +772,13 @@ impl AppState {
                 }
             }
             ModalState::EditRepository { id, fields, .. } => {
+                if let Err(error) =
+                    crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo)
+                {
+                    self.error_message = Some(error.to_string());
+                    return;
+                }
+                self.error_message = None;
                 let Some(repo) = self.repositories.iter_mut().find(|r| r.id == id) else {
                     return;
                 };
@@ -798,6 +859,10 @@ impl AppState {
         crate::state::form_workflow_dispatch::parse_inputs(inputs)
     }
 }
+
+#[cfg(test)]
+#[path = "form_ops_remote_work_dir_tests.rs"]
+mod remote_work_dir_tests;
 
 #[cfg(test)]
 #[path = "form_ops_tests.rs"]

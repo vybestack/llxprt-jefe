@@ -73,6 +73,11 @@ pub(crate) mod pr_filter_controls;
 /// @requirement REQ-PR-006
 pub(crate) mod pr_list;
 mod preview;
+/// Property editor overlay component (issue #175).
+///
+/// @requirement REQ-ISS-010
+mod property_editor;
+pub(crate) mod property_editor_view;
 mod scrollable_text;
 mod selectable_line;
 /// Generic bordered, scrollable, selectable list used by the Issue, PR, and
@@ -97,7 +102,6 @@ mod text_box;
 
 pub use actions_detail::{
     ActionsDetailProjectionInputs, actions_detail_props, build_header_rows as actions_header_rows,
-    line_text as actions_detail_line_text,
 };
 pub use actions_list::{
     ActionsListLayout, ActionsListWindow, actions_list_props, actions_list_status_message,
@@ -117,7 +121,9 @@ pub use filter_controls::{
     actions_filter_action_hints, actions_filter_fields, actions_filter_props,
     issue_filter_action_hints, issue_filter_fields, issue_filter_props,
 };
-pub use issue_delete_confirm::{IssueDeleteConfirmOverlay, IssueDeleteConfirmProps};
+pub use issue_delete_confirm::{
+    IssueDeleteConfirmOverlay, IssueDeleteConfirmProps, delete_confirm_header, delete_confirm_hint,
+};
 pub use issue_detail::{IssueDetailProjectionInputs, issue_detail_props};
 pub use issue_list::{
     IssueListLayout, IssueListWindow, issue_list_props, issue_list_status_message,
@@ -137,6 +143,10 @@ pub use pr_list::{
     PrListLayout, PrListWindow, pr_list_props, pr_list_status_message, pr_list_visible_rows,
 };
 pub use preview::{Preview, PreviewProps, preview_content_lines};
+/// Property editor overlay component (issue #175).
+///
+/// @requirement REQ-ISS-010
+pub use property_editor::{PropertyEditor, PropertyEditorProps};
 pub use scrollable_text::{ScrollableText, ScrollableTextProps};
 pub use selectable_line::selectable_line;
 pub use selectable_list::{

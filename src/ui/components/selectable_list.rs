@@ -609,5 +609,8 @@ pub fn selectable_list_element(props: SelectableListProps) -> AnyElement<'static
 }
 
 #[cfg(test)]
+#[path = "selectable_list_main_tests.rs"]
+mod main_tests;
+#[cfg(test)]
 #[path = "selectable_list_tests.rs"]
 mod tests;

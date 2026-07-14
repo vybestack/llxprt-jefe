@@ -214,9 +214,13 @@ impl AppState {
                     | AppEvent::OpenInlineEditor { .. }
             );
         }
-        match event {
+        // The match returns (handled, opened): `handled` means the event was
+        // recognized and consumed; `opened` means a composer/editor actually
+        // transitioned into an active state.
+        let (handled, opened) = match event {
             AppEvent::OpenNewIssueComposer => {
-                if self.issues_state.inline_state == InlineState::None {
+                let opened = self.issues_state.inline_state == InlineState::None;
+                if opened {
                     self.issues_state.issue_focus = IssueFocus::IssueList;
                     self.issues_state.inline_state = InlineState::Composer {
                         target: ComposerTarget::NewIssue,
@@ -224,9 +228,11 @@ impl AppState {
                         cursor: 0,
                     };
                 }
+                (true, opened)
             }
             AppEvent::OpenNewCommentComposer => {
-                if self.issues_state.inline_state == InlineState::None {
+                let opened = self.issues_state.inline_state == InlineState::None;
+                if opened {
                     self.issues_state.inline_state = InlineState::Composer {
                         target: ComposerTarget::NewComment,
                         text: String::new(),
@@ -235,15 +241,31 @@ impl AppState {
                     self.issues_state.detail_subfocus = DetailSubfocus::NewComment;
                     self.scroll_detail_to_bottom();
                 }
+                (true, opened)
             }
             AppEvent::OpenReplyComposer { comment_index } => {
-                if self.open_reply_composer(comment_index) {
+                let opened = self.open_reply_composer(comment_index);
+                if opened {
                     self.scroll_issue_detail_to_reply_anchor();
                 }
+                (true, opened)
             }
-            AppEvent::OpenInlineEditor { target } => self.open_inline_editor(target),
-            _ => return false,
+            AppEvent::OpenInlineEditor { target } => {
+                let opened = self.issues_state.inline_state == InlineState::None;
+                if opened {
+                    self.open_inline_editor(target);
+                }
+                (true, opened)
+            }
+            _ => (false, false),
+        };
+        // Issue #265: clear a stale non-blocking notice (e.g. "No agents
+        // available") ONLY when a composer/editor actually opens. A blocked
+        // attempt (already-active inline state) must preserve the notice.
+        // This does NOT touch the real `error`.
+        if opened {
+            self.issues_state.draft_notice = None;
         }
-        true
+        handled
     }
 }

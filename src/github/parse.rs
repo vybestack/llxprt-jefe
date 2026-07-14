@@ -319,6 +319,7 @@ pub fn parse_issue_detail_json(json_str: &str) -> Result<IssueDetail, GhError> {
         body,
         external_url,
         comments,
+        issue_type_name: None,
     })
 }
 

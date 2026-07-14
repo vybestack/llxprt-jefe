@@ -17,10 +17,12 @@ use std::time::{Duration, Instant};
 /// Cached git probe result for a single work directory.
 ///
 /// Each field has its own timestamp so that branch (short TTL) and origin
-/// (long TTL) probes are refreshed independently.
+/// (long TTL) probes are refreshed independently. Dirty status shares the
+/// branch TTL since it is probed alongside the branch.
 struct CacheEntry {
     branch: Option<String>,
     origin: Option<String>,
+    dirty: Option<bool>,
     branch_probed_at: Instant,
     origin_probed_at: Instant,
 }
@@ -33,6 +35,11 @@ struct CacheEntry {
 /// prevent unbounded growth.
 static GIT_CACHE: Mutex<Option<HashMap<PathBuf, CacheEntry>>> = Mutex::new(None);
 
+/// Maximum wall-clock time a single git subprocess probe may take before it
+/// is killed and treated as unknown. Prevents a stuck/slow worktree (e.g.
+/// NFS hang, giant repo) from blocking the chooser open.
+const GIT_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// How long a cached branch result remains fresh before re-probing.
 ///
 /// Agents don't switch branches frequently, but they can (`git checkout`),
@@ -43,7 +50,8 @@ const BRANCH_TTL: Duration = Duration::from_secs(5);
 ///
 /// The origin URL changes very rarely (essentially never during a session),
 /// so this is much longer than the branch TTL.
-const ORIGIN_TTL: Duration = Duration::from_secs(5 * 60);
+const ORIGIN_TTL_SECONDS: u64 = 5 * 60;
+const ORIGIN_TTL: Duration = Duration::from_secs(ORIGIN_TTL_SECONDS);
 
 /// Resolved git display info for an agent's work directory.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -54,6 +62,11 @@ pub struct GitRepoInfo {
     /// Current git branch name (e.g. `main`). `None` for non-git dirs,
     /// detached HEAD, or remote repos where probing was skipped.
     pub branch: Option<String>,
+    /// Dirty working-tree status. `Some(true)` when there are uncommitted or
+    /// untracked changes (excluding jefe/llxprt-owned paths). `Some(false)`
+    /// when the tree is clean. `None` when dirty status is unknown (remote
+    /// repos, non-git dirs, or probe failure).
+    pub dirty: Option<bool>,
 }
 
 impl GitRepoInfo {
@@ -65,6 +78,7 @@ impl GitRepoInfo {
         Self {
             origin_shortform,
             branch: None,
+            dirty: None,
         }
     }
 
@@ -73,10 +87,11 @@ impl GitRepoInfo {
     /// - `github_repo`: the configured `Repository.github_repo` field
     ///   (`owner/repo`). When non-empty, this is used directly as the origin
     ///   shortform (zero-cost, no git probing).
-    /// - `is_remote`: when `true`, branch probing is skipped (would require an
-    ///   SSH round-trip). Only the origin shortform is populated.
-    /// - `work_dir`: the agent's working directory, probed for the branch and
-    ///   for the origin shortform fallback.
+    /// - `is_remote`: when `true`, branch and dirty probing are skipped (would
+    ///   require an SSH round-trip). Only the origin shortform is populated.
+    ///   Dirty status is `None` (unknown) for remote repos.
+    /// - `work_dir`: the agent's working directory, probed for the branch,
+    ///   dirty status, and the origin shortform fallback.
     #[must_use]
     pub fn resolve(github_repo: &str, is_remote: bool, work_dir: &Path) -> Self {
         let origin_shortform = if github_repo.trim().is_empty() {
@@ -85,40 +100,62 @@ impl GitRepoInfo {
             Some(github_repo.trim().to_owned())
         };
 
-        let branch = if is_remote {
-            None
+        let (branch, dirty) = if is_remote {
+            (None, None)
         } else {
-            cached_branch(work_dir)
+            cached_branch_and_dirty(work_dir)
         };
 
         Self {
             origin_shortform,
             branch,
+            dirty,
         }
     }
 
     /// Format the info as a compact suffix for the agent list row.
     ///
-    /// Returns a string like `"vybestack/llxprt-jefe @ main"` when both parts
-    /// are present, or a partial form when only one is available. Returns an
-    /// empty string when neither is known.
+    /// Returns a string like `"vybestack/llxprt-jefe @ main *"` when both parts
+    /// are present and the working tree is dirty. The dirty marker (` *`) is
+    /// shown only when a branch is present and dirty is `Some(true)`. Returns
+    /// an empty string when neither origin nor branch is known.
     #[must_use]
     pub fn list_suffix(&self) -> String {
+        let dirty_marker = match (&self.branch, self.dirty) {
+            (Some(_), Some(true)) => " *",
+            _ => "",
+        };
         match (&self.origin_shortform, &self.branch) {
-            (Some(origin), Some(branch)) => format!("{origin} @ {branch}"),
+            (Some(origin), Some(branch)) => {
+                format!("{origin} @ {branch}{dirty_marker}")
+            }
             (Some(origin), None) => origin.clone(),
-            (None, Some(branch)) => format!("@ {branch}"),
+            (None, Some(branch)) => format!("@ {branch}{dirty_marker}"),
             (None, None) => String::new(),
         }
     }
 }
 
-/// Get the cached branch for a work directory, re-probing if stale.
+/// An `Instant` far enough in the past to be beyond any TTL, used as the
+/// "never probed" sentinel for cache entries created by a different probe
+/// type. This ensures `cached_branch_and_dirty` doesn't see a fresh
+/// `branch_probed_at` set by `cached_origin` (and vice versa).
+fn far_past() -> Instant {
+    // `Instant` subtraction panics if the result would be before the epoch.
+    // Use a conservative subtraction that is safely older than any TTL.
+    Instant::now()
+        .checked_sub(ORIGIN_TTL * 10)
+        .unwrap_or_else(Instant::now)
+}
+
+/// Get the cached branch and dirty status for a work directory, re-probing
+/// if stale.
 ///
-/// Uses the global process cache with [`BRANCH_TTL`]. If the git command
-/// fails (non-git dir, git not installed), the result is cached as `None`
-/// to avoid repeated failed probes.
-fn cached_branch(work_dir: &Path) -> Option<String> {
+/// Both are probed in a single pass and share the short [`BRANCH_TTL`] since
+/// dirty status changes alongside working-tree state. Uses the global process
+/// cache. If the git command fails (non-git dir, git not installed), the
+/// results are cached as `(None, None)` to avoid repeated failed probes.
+fn cached_branch_and_dirty(work_dir: &Path) -> (Option<String>, Option<bool>) {
     let now = Instant::now();
 
     // Fast path: check the cache under the lock.
@@ -127,29 +164,33 @@ fn cached_branch(work_dir: &Path) -> Option<String> {
         if let Some(entry) = cache.get(work_dir)
             && now.duration_since(entry.branch_probed_at) < BRANCH_TTL
         {
-            return entry.branch.clone();
+            return (entry.branch.clone(), entry.dirty);
         }
     }
 
     // Slow path: probe git (outside the lock to avoid blocking other threads).
-    let branch = probe_branch(work_dir);
+    let (branch, dirty) = probe_branch_and_dirty(work_dir);
 
     // Store the result back in the cache, preserving the existing origin if
     // it is still fresh.
     if let Ok(mut guard) = GIT_CACHE.lock() {
         let cache = guard.get_or_insert_with(HashMap::new);
-        let entry = cache.entry(work_dir.to_path_buf()).or_insert(CacheEntry {
-            branch: None,
-            origin: None,
-            branch_probed_at: now,
-            origin_probed_at: now,
-        });
+        let entry = cache
+            .entry(work_dir.to_path_buf())
+            .or_insert_with(|| CacheEntry {
+                branch: None,
+                origin: None,
+                dirty: None,
+                branch_probed_at: now,
+                origin_probed_at: far_past(),
+            });
         entry.branch.clone_from(&branch);
+        entry.dirty = dirty;
         entry.branch_probed_at = now;
         sweep_stale(cache, now);
     }
 
-    branch
+    (branch, dirty)
 }
 
 /// Get the cached origin shortform for a work directory, re-probing if stale.
@@ -176,11 +217,17 @@ fn cached_origin(work_dir: &Path) -> Option<String> {
     // Store the result back in the cache, preserving the existing branch.
     if let Ok(mut guard) = GIT_CACHE.lock() {
         let cache = guard.get_or_insert_with(HashMap::new);
-        let entry = cache.entry(work_dir.to_path_buf()).or_insert(CacheEntry {
-            branch: None,
-            origin: None,
-            branch_probed_at: now,
-            origin_probed_at: now,
+        let entry = cache.entry(work_dir.to_path_buf()).or_insert_with(|| {
+            // New entry: branch has never been probed, so set
+            // branch_probed_at far in the past so the next branch lookup
+            // will probe rather than returning the default None.
+            CacheEntry {
+                branch: None,
+                origin: None,
+                dirty: None,
+                branch_probed_at: far_past(),
+                origin_probed_at: now,
+            }
         });
         entry.origin.clone_from(&origin);
         entry.origin_probed_at = now;
@@ -206,18 +253,224 @@ fn sweep_stale(cache: &mut HashMap<PathBuf, CacheEntry>, now: Instant) {
     });
 }
 
+/// Resolve the git command, returning `None` if the Git executable cannot be
+/// found.
+fn git_command() -> Option<std::process::Command> {
+    match crate::local_command::command(crate::local_command::LocalTool::Git) {
+        Ok(command) => Some(command),
+        Err(error) => {
+            tracing::debug!(%error, "could not resolve Git while probing repository metadata");
+            None
+        }
+    }
+}
+
+/// Run a prepared git [`Command`] with a wall-clock timeout.
+///
+/// Spawns the child, polls for completion up to [`GIT_PROBE_TIMEOUT`], then
+/// kills and reaps the child if it has not exited. On timeout, logs a warn
+/// message and returns `None` so the caller treats the probe as unknown.
+///
+/// Cross-platform (no `unsafe`, FFI, or external dependencies): uses
+/// `Child::try_wait()` polling and `Child::kill()` for termination.
+fn run_git_with_timeout(command: &mut Command, work_dir: &Path) -> Option<std::process::Output> {
+    // Pipe stdout/stderr so we can read them after polling. Without this,
+    // spawn() inherits the parent's stdout/stderr and child.stdout is None.
+    command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let child = command.spawn().ok()?;
+    run_child_with_timeout(child, work_dir, git_probe_label(command))
+}
+
+/// Join a reader thread, returning its buffered bytes.
+///
+/// Returns an empty vec if the thread handle is missing (pipes were not
+/// piped) so the resulting [`Output`](std::process::Output) still has
+/// well-formed contents. A panicked reader thread is logged and yields an
+/// empty buffer so a single probe failure cannot panic the caller.
+fn join_reader(thread: Option<std::thread::JoinHandle<Vec<u8>>>) -> Vec<u8> {
+    match thread {
+        Some(handle) => {
+            if let Ok(buf) = handle.join() {
+                buf
+            } else {
+                tracing::debug!("git probe reader thread panicked; discarding its buffer");
+                Vec::new()
+            }
+        }
+        None => Vec::new(),
+    }
+}
+
+/// Poll a spawned [`std::process::Child`] for completion up to
+/// [`GIT_PROBE_TIMEOUT`], reading stdout/stderr into an [`Output`] on
+/// success. Kills and reaps the child on timeout, returning `None`.
+///
+/// Extracted from [`run_git_with_timeout`] so tests can exercise the timeout
+/// with an arbitrary child (e.g. `sleep`). The `work_dir` and `probe_label`
+/// are used only for the timeout warning message so diagnostics identify
+/// which git probe on which directory was slow.
+///
+/// # Pipe-buffer safety
+///
+/// stdout and stderr are consumed by dedicated reader threads for the entire
+/// lifetime of the poll. Without this, a child that writes more than the OS
+/// pipe capacity (commonly 64 KiB) before exiting would block on the full
+/// pipe and never terminate, causing a spurious timeout. The reader threads
+/// drain the pipes concurrently with polling, are joined on every exit path
+/// (normal exit, timeout, poll error), and own no resources beyond their
+/// join handle, so no reader thread is orphaned and no child is leaked.
+/// Spawn a draining reader thread for a piped child handle so the child can
+/// never block on a full pipe buffer. Returns `None` when the pipe was not
+/// piped.
+fn spawn_pipe_reader<R>(pipe: Option<R>) -> Option<std::thread::JoinHandle<Vec<u8>>>
+where
+    R: std::io::Read + Send + 'static,
+{
+    let mut pipe = pipe?;
+    Some(std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = pipe.read_to_end(&mut buf);
+        buf
+    }))
+}
+
+fn run_child_with_timeout(
+    mut child: std::process::Child,
+    work_dir: &Path,
+    probe_label: &str,
+) -> Option<std::process::Output> {
+    let deadline = Instant::now() + GIT_PROBE_TIMEOUT;
+
+    // Take the piped handles immediately and drain them on dedicated threads
+    // so a child producing more than the pipe buffer capacity cannot deadlock
+    // against an unread pipe.
+    let stdout_thread = spawn_pipe_reader(child.stdout.take());
+    let stderr_thread = spawn_pipe_reader(child.stderr.take());
+
+    let mut status = None;
+
+    // Poll every 50ms until the child exits or the deadline passes.
+    loop {
+        match child.try_wait() {
+            Ok(Some(exit_status)) => {
+                status = Some(exit_status);
+                break;
+            }
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => {
+                tracing::debug!(%error, "git probe try_wait failed");
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = join_reader(stdout_thread);
+                let _ = join_reader(stderr_thread);
+                return None;
+            }
+        }
+    }
+
+    if status.is_none() {
+        // Timed out — kill and reap.
+        tracing::warn!(
+            timeout = ?GIT_PROBE_TIMEOUT,
+            work_dir = %work_dir.display(),
+            probe = %probe_label,
+            "git probe timed out, killing child and returning unknown metadata"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = join_reader(stdout_thread);
+        let _ = join_reader(stderr_thread);
+        return None;
+    }
+
+    let stdout = join_reader(stdout_thread);
+    let stderr = join_reader(stderr_thread);
+
+    // status is guaranteed Some here because the None case returns early
+    // above (timeout path).
+    let exit_status = status?;
+
+    Some(std::process::Output {
+        status: exit_status,
+        stdout,
+        stderr,
+    })
+}
+
+/// Probe the current git branch and dirty status for a work directory.
+///
+/// Returns `(None, None)` for non-git directories or when git is not
+/// installed. Dirty status is `Some(bool)` only when the branch probe
+/// succeeds (the worktree is a valid git repo).
+fn probe_branch_and_dirty(work_dir: &Path) -> (Option<String>, Option<bool>) {
+    let Some(branch) = probe_branch(work_dir) else {
+        return (None, None);
+    };
+    let dirty = probe_dirty(work_dir);
+    (Some(branch), dirty)
+}
+
+/// Derive a concise, stable label for the git subcommand being run, for use
+/// in timeout warning diagnostics. Inspects the command's arguments to
+/// identify the probe type (e.g. `"status"`, `"rev-parse"`, `"remote"`).
+fn git_probe_label(command: &Command) -> &str {
+    command
+        .get_args()
+        .find_map(|arg| {
+            arg.to_str().filter(|s| {
+                matches!(
+                    *s,
+                    "status" | "rev-parse" | "remote" | "branch" | "symbolic-ref"
+                )
+            })
+        })
+        .unwrap_or("git")
+}
+
+/// Probe whether the working tree at `work_dir` has real (non-ignored)
+/// changes.
+///
+/// Returns `Some(true)` when dirty, `Some(false)` when clean, and `None` when
+/// the git command fails. Uses `git status --porcelain=v1 -z` (NUL-delimited
+/// output) so paths containing newlines or ` -> ` are handled correctly. The
+/// shared [`porcelain_is_dirty`] parser auto-detects the NUL-delimited format.
+fn probe_dirty(work_dir: &Path) -> Option<bool> {
+    let output = run_git_with_timeout(
+        git_command()?
+            .arg("-C")
+            .arg(work_dir)
+            .args(["status", "--porcelain=v1", "-z"]),
+        work_dir,
+    )?;
+    if !output.status.success() {
+        return None;
+    }
+    // NUL is valid UTF-8 (U+0000), so from_utf8_lossy preserves embedded NULs.
+    let porcelain = String::from_utf8_lossy(&output.stdout);
+    Some(porcelain_is_dirty(&porcelain))
+}
+
 /// Probe the current git branch for a work directory.
 ///
 /// Returns `None` for non-git directories, detached HEAD states, or when git
 /// is not installed. Uses `git rev-parse --abbrev-ref HEAD` which returns the
 /// branch name or `HEAD` for detached HEAD (filtered out).
 fn probe_branch(work_dir: &Path) -> Option<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(work_dir)
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .ok()?;
+    let mut command = git_command()?;
+    let output = run_git_with_timeout(
+        command
+            .arg("-C")
+            .arg(work_dir)
+            .args(["rev-parse", "--abbrev-ref", "HEAD"]),
+        work_dir,
+    )?;
     if !output.status.success() {
         return None;
     }
@@ -231,12 +484,13 @@ fn probe_branch(work_dir: &Path) -> Option<String> {
 
 /// Fall back to the short commit hash for detached HEAD states.
 fn probe_short_commit(work_dir: &Path) -> Option<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(work_dir)
-        .args(["rev-parse", "--short", "HEAD"])
-        .output()
-        .ok()?;
+    let output = run_git_with_timeout(
+        git_command()?
+            .arg("-C")
+            .arg(work_dir)
+            .args(["rev-parse", "--short", "HEAD"]),
+        work_dir,
+    )?;
     if !output.status.success() {
         return None;
     }
@@ -248,19 +502,235 @@ fn probe_short_commit(work_dir: &Path) -> Option<String> {
     }
 }
 
-/// Detect the `owner/repo` shortform from the git remote `origin` URL.
+// ── Porcelain dirty-status parser (issue #230) ──────────────────────────────
+//
+// This is the single source of truth for parsing `git status --porcelain=v1 -z`
+// output to determine whether a working tree is dirty. Both the cached
+// display probe ([`probe_dirty`]) and the issue-prep orchestration
+// (`issue_git_prep::is_workdir_dirty`) consume this parser so the
+// jefe/llxprt ignore semantics never drift between the two paths.
+//
+// Production always runs `git status --porcelain=v1 -z` (NUL-delimited).
+// The parser also accepts legacy newline-delimited output for backward
+// compatibility with synthetic tests that pass ` -> `-style rename strings.
+
+/// Paths that jefe/llxprt own and that must never count as "dirty" working
+/// copy state. Matched as path *prefixes* against the porcelain path column.
+const IGNORED_PREFIXES: [&str; 2] = [".jefe/", ".llxprt/"];
+
+/// NUL byte used by `git status --porcelain=v1 -z` to delimit records and
+/// rename/copy path pairs.
+const NUL: char = '\u{0000}';
+
+/// Pure helper: given raw `git status --porcelain=v1` output, return `true`
+/// when there is at least one non-ignored (i.e. real) change.
+///
+/// This is the shared parser consumed by both the cached display probe and
+/// the issue-prep orchestration. Jefe/llxprt-owned paths (`.jefe/`,
+/// `.llxprt/`) are excluded so jefe's own metadata does not mark the tree as
+/// dirty. For rename/copy records, both old and new paths are considered: a
+/// real→owned or owned→real rename is dirty; only when ALL affected paths are
+/// under ignored prefixes is the record ignored.
+///
+/// **Format detection:** Production runs `--porcelain=v1 -z`, which emits
+/// NUL-delimited records with rename/copy path order **destination THEN
+/// source** (e.g. `R  new.txt\0old.txt\0`). Legacy newline-delimited output
+/// uses `old -> new` order. This parser auto-detects the format by scanning
+/// for embedded NUL bytes.
+///
+/// **Fail-safe:** Malformed or truncated records (e.g. a rename status whose
+/// second path is missing) are treated as dirty, so unknown real changes are
+/// never silently reported as clean.
+#[must_use]
+pub fn porcelain_is_dirty(porcelain: &str) -> bool {
+    if porcelain.contains(NUL) {
+        porcelain_is_dirty_z(porcelain)
+    } else {
+        porcelain_is_dirty_newline(porcelain)
+    }
+}
+
+/// Parse NUL-delimited (`-z`) porcelain v1 output.
+///
+/// Each record begins with a 2-char status field and a space. Ordinary
+/// records consume exactly one path (terminated by NUL). Rename/copy records
+/// (status begins with `R` or `C`) consume TWO NUL-terminated paths: the
+/// **destination** first, then the **source**. A record is ignored only if
+/// ALL affected paths are under `.jefe/`/`.llxprt/`. Malformed/truncated
+/// records fail safe as dirty.
+fn porcelain_is_dirty_z(porcelain: &str) -> bool {
+    let bytes: &[u8] = porcelain.as_bytes();
+    let mut cursor = 0;
+    let len = bytes.len();
+    while cursor < len {
+        // A leading NUL (e.g. trailing terminator) just advances.
+        if bytes[cursor] == 0 {
+            cursor += 1;
+            continue;
+        }
+        // Need at least 3 bytes for the status field + space.
+        if cursor + 3 > len || bytes[cursor + 2] != b' ' {
+            // Malformed record — fail safe as dirty.
+            return true;
+        }
+        let status_x = bytes[cursor];
+        let status_y = bytes[cursor + 1];
+        cursor += 3; // skip "XY "
+        // Rename/copy can appear in EITHER column: X (staged) or Y (worktree).
+        let is_rename =
+            status_x == b'R' || status_x == b'C' || status_y == b'R' || status_y == b'C';
+
+        // First path (ordinary: the path; rename/copy: the destination).
+        let Some(path1) = next_nul_field(bytes, &mut cursor) else {
+            return true; // truncated record — fail safe dirty
+        };
+        let path1_str = unquote(path1);
+
+        if is_rename {
+            // Second path (the source). Required for R/C records.
+            let Some(path2) = next_nul_field(bytes, &mut cursor) else {
+                return true; // truncated rename — fail safe dirty
+            };
+            let path2_str = unquote(path2);
+            if path1_str.is_empty() || path2_str.is_empty() {
+                return true; // malformed — fail safe dirty
+            }
+            if !is_all_ignored(&[path1_str, path2_str]) {
+                return true;
+            }
+        } else if !path1_str.is_empty() {
+            if !is_all_ignored(&[path1_str]) {
+                return true;
+            }
+        } else {
+            // Empty path in an ordinary record is malformed.
+            return true;
+        }
+    }
+    false
+}
+
+/// Return the bytes of the next NUL-terminated field, advancing `cursor`
+/// past the NUL. Returns `None` if no NUL follows (truncated stream).
+fn next_nul_field<'a>(bytes: &'a [u8], cursor: &mut usize) -> Option<&'a [u8]> {
+    let start = *cursor;
+    match bytes[*cursor..].iter().position(|&b| b == 0) {
+        Some(offset) => {
+            let field = &bytes[start..start + offset];
+            *cursor = start + offset + 1; // skip past the NUL
+            Some(field)
+        }
+        None => None,
+    }
+}
+
+/// Strip surrounding double-quotes from a porcelain path (newline format
+/// quotes paths with special chars; -z never quotes, but tolerate it).
+fn unquote(field: &[u8]) -> &str {
+    // Porcelain paths are UTF-8 (git stores paths as bytes but our transport
+    // is a Rust String, so they were already validated as UTF-8 upstream).
+    let s = std::str::from_utf8(field).unwrap_or("");
+    s.strip_prefix('"')
+        .and_then(|inner| inner.strip_suffix('"'))
+        .unwrap_or(s)
+}
+
+/// Parse legacy newline-delimited porcelain v1 output.
+///
+/// Rename/copy records use the `old -> new` form. A record is ignored only if
+/// ALL affected paths are under `.jefe/`/`.llxprt/`. Only split on ` -> ` for
+/// records whose status begins with `R` or `C`, so that `?? ".jefe/foo -> bar"`
+/// is treated as a single owned path (not a rename).
+///
+/// **Fail-safe:** A nonempty line that is not valid porcelain v1 (e.g. a
+/// truncated status field, a missing space, or a rename missing one side) is
+/// treated as dirty, matching the NUL parser. Only truly blank/whitespace-only
+/// lines are skipped (they are normal between records in newline format).
+fn porcelain_is_dirty_newline(porcelain: &str) -> bool {
+    for line in porcelain.lines() {
+        // Skip genuinely blank lines (normal separators in newline format).
+        if line.trim().is_empty() {
+            continue;
+        }
+        match newline_affected_paths(line) {
+            NewlineRecord::Paths(paths) => {
+                if !is_all_ignored(&paths) {
+                    return true;
+                }
+            }
+            // A nonempty but unparseable record fails safe as dirty: unknown
+            // real changes must never be silently reported as clean.
+            NewlineRecord::Malformed => return true,
+        }
+    }
+    false
+}
+
+/// Classification of a single newline-delimited porcelain v1 line.
+enum NewlineRecord<'a> {
+    /// The line parsed into one or more affected paths.
+    Paths(Vec<&'a str>),
+    /// The line is nonempty but not valid porcelain v1 — fail safe as dirty.
+    Malformed,
+}
+
+/// Extract all affected paths from a newline-delimited porcelain v1 line.
+///
+/// For a non-rename record (`XY <path>`), returns a single-element vec.
+/// For a rename/copy record (status begins `R`/`C`), splits on ` -> ` and
+/// returns BOTH old and new paths. Returns [`NewlineRecord::Malformed`] for
+/// nonempty lines that don't conform to the `XY <path>` shape or have empty
+/// path fields. Only R/C status records are split on ` -> `, so an untracked
+/// file named `foo -> bar` is treated as a single path.
+fn newline_affected_paths(line: &str) -> NewlineRecord<'_> {
+    let bytes = line.as_bytes();
+    // Porcelain v1 format: 2-char status + 1 space + path.
+    if bytes.len() < 3 || bytes[2] != b' ' {
+        return NewlineRecord::Malformed;
+    }
+    let trimmed = line.trim_end();
+    let Some(rest) = trimmed.get(3..) else {
+        return NewlineRecord::Malformed;
+    };
+    let is_rename = bytes[0] == b'R' || bytes[0] == b'C' || bytes[1] == b'R' || bytes[1] == b'C';
+    if is_rename && let Some((old, new)) = rest.split_once(" -> ") {
+        let old_unquoted = old.trim_matches('"');
+        let new_unquoted = new.trim_matches('"');
+        if old_unquoted.is_empty() || new_unquoted.is_empty() {
+            return NewlineRecord::Malformed;
+        }
+        return NewlineRecord::Paths(vec![old_unquoted, new_unquoted]);
+    }
+    // Non-rename (or R/C without a ` -> `): single path.
+    let unquoted = rest.trim_matches('"');
+    if unquoted.is_empty() {
+        return NewlineRecord::Malformed;
+    }
+    NewlineRecord::Paths(vec![unquoted])
+}
+
+/// True when ALL given paths are under an ignored (`.jefe/`/`.llxprt/`) prefix.
+fn is_all_ignored(paths: &[&str]) -> bool {
+    paths.iter().all(|path| {
+        IGNORED_PREFIXES
+            .iter()
+            .any(|prefix| path.starts_with(prefix))
+    })
+}
+
 ///
 /// Handles SSH (`git@github.com:owner/repo.git`), HTTPS
 /// (`https://github.com/owner/repo.git`), and bare (`owner/repo`) forms.
 /// Returns `None` when the origin remote is missing or the URL doesn't match
 /// a known pattern.
 fn detect_origin_shortform(work_dir: &Path) -> Option<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(work_dir)
-        .args(["remote", "get-url", "origin"])
-        .output()
-        .ok()?;
+    let output = run_git_with_timeout(
+        git_command()?
+            .arg("-C")
+            .arg(work_dir)
+            .args(["remote", "get-url", "origin"]),
+        work_dir,
+    )?;
     if !output.status.success() {
         return None;
     }
