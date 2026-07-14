@@ -167,7 +167,7 @@ impl AgentChooserEntry {
 
 /// The explicit text shown when a profile or model is empty, indicating the
 /// runtime's own default is in effect rather than a blank/unset value.
-const DEFAULT_PROFILE_LABEL: &str = "(default)";
+const DEFAULT_RUNTIME_CONFIG_LABEL: &str = "(default)";
 
 /// Build the display label for a chooser entry.
 ///
@@ -175,7 +175,7 @@ const DEFAULT_PROFILE_LABEL: &str = "(default)";
 ///
 /// - `kind_label`: `"LLxprt"` or `"Code Puppy"`.
 /// - `config_label`: `"profile: {value}"` for LLxprt, `"model: {value}"` for
-///   Code Puppy. When the value is empty, `{DEFAULT_PROFILE_LABEL}` is shown.
+///   Code Puppy. When the value is empty, `{DEFAULT_RUNTIME_CONFIG_LABEL}` is shown.
 /// - `branch_suffix`: `"  @ {branch}"` when a branch is known, with `" *"`
 ///   appended when the working tree is dirty. Clean trees omit `*`; unknown
 ///   branch (remote/non-git) omits the suffix entirely; detached HEAD uses
@@ -206,7 +206,7 @@ fn chooser_config_label(kind: AgentKind, config: &ChooserRuntimeConfig) -> Strin
         AgentKind::CodePuppy => ("model", config.value.as_str()),
     };
     let display_value = if config.is_default() {
-        DEFAULT_PROFILE_LABEL
+        DEFAULT_RUNTIME_CONFIG_LABEL
     } else {
         value.trim()
     };

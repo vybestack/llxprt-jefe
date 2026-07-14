@@ -23,7 +23,11 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 SCENARIO="$PROJECT_ROOT/dev-docs/tmux-scenarios/send-to-agent-details.json"
 SHIM="$PROJECT_ROOT/scripts/issue230-gh-shim.sh"
 FIXTURES="$PROJECT_ROOT/scripts/issue230-gh-shim-fixtures.sh"
-ARTIFACT_DIR="$PROJECT_ROOT/target/tmux-harness/issue230-$$"
+HARNESS_PARENT="$PROJECT_ROOT/target/tmux-harness"
+mkdir -p "$HARNESS_PARENT"
+# Use mktemp -d for race-free artifact directory uniqueness (avoids PID-only
+# collisions when concurrent or rapidly-restarted runs reuse the same PID).
+ARTIFACT_DIR="$(mktemp -d "$HARNESS_PARENT/issue230-XXXXXX")"
 CONFIG_DIR="$ARTIFACT_DIR/config"
 SHIM_DIR="$ARTIFACT_DIR/shim-bin"
 REPO_DIR="$ARTIFACT_DIR/repo"

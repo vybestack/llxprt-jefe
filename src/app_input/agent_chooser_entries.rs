@@ -14,7 +14,7 @@
 
 use std::path::Path;
 
-use jefe::domain::{AgentChooserGitMetadata, DirtyStatus};
+use jefe::domain::{AgentChooserGitMetadata, AgentId, DirtyStatus};
 use jefe::git_info::GitRepoInfo;
 use jefe::state::{AppState, ChooserAgentInfo};
 
@@ -45,27 +45,56 @@ pub fn build_chooser_metadata(state: &AppState) -> Vec<AgentChooserGitMetadata> 
     // Probe all eligible agents concurrently with scoped threads. Each
     // thread borrows its `ChooserAgentInfo` immutably and produces metadata.
     // Results are collected by index to preserve the deterministic selector
-    // ordering.
+    // ordering. A scoped-thread panic must NOT silently omit the eligible
+    // agent; [`join_probe_results`] substitutes an unknown-branch/dirty
+    // fallback entry for the panicked agent and logs a concise warning.
     let results: Vec<(usize, AgentChooserGitMetadata)> = std::thread::scope(|scope| {
-        // Spawn all threads first so they run concurrently, then join.
         let handles: Vec<_> = infos
             .iter()
             .enumerate()
             .map(|(idx, info)| scope.spawn(move || (idx, agent_info_to_metadata(info.clone()))))
             .collect::<Vec<_>>();
-        let mut joined = Vec::with_capacity(handles.len());
-        for handle in handles {
-            if let Ok(result) = handle.join() {
-                joined.push(result);
-            }
-        }
-        joined
+        join_probe_results(handles, &infos)
     });
 
     // Sort by original index to restore deterministic order.
     let mut sorted = results;
     sorted.sort_by_key(|(idx, _)| *idx);
     sorted.into_iter().map(|(_, md)| md).collect()
+}
+
+/// Join scoped probe threads, recovering from a panic without omitting the
+/// eligible agent.
+///
+/// Normal probe results are collected verbatim. When a thread panicked, the
+/// agent is NOT dropped: a fallback [`AgentChooserGitMetadata`] with unknown
+/// branch and dirty status is substituted for that exact [`AgentId`], and a
+/// concise warning is logged. This preserves the deterministic selector
+/// ordering and keeps the agent selectable while signaling that its git
+/// display info could not be resolved.
+///
+/// Normal probe errors (e.g. git subprocess failures) are handled inside
+/// [`agent_info_to_metadata`] and never reach this join as panics.
+fn join_probe_results(
+    handles: Vec<std::thread::ScopedJoinHandle<'_, (usize, AgentChooserGitMetadata)>>,
+    infos: &[ChooserAgentInfo],
+) -> Vec<(usize, AgentChooserGitMetadata)> {
+    let mut joined = Vec::with_capacity(handles.len());
+    for (slot, handle) in handles.into_iter().enumerate() {
+        if let Ok(result) = handle.join() {
+            joined.push(result);
+        } else {
+            let agent_id = infos
+                .get(slot)
+                .map_or_else(|| AgentId("<unknown>".to_string()), |i| i.agent_id.clone());
+            tracing::warn!(
+                agent_id = %agent_id.0,
+                "agent_chooser git probe panicked; using unknown branch/dirty fallback"
+            );
+            joined.push((slot, AgentChooserGitMetadata::for_agent(agent_id)));
+        }
+    }
+    joined
 }
 
 /// Convert a pure [`ChooserAgentInfo`] projection into Git display metadata
@@ -204,5 +233,62 @@ mod tests {
         assert_eq!(md[0].agent_id, AgentId("c3".to_string()));
         assert_eq!(md[1].agent_id, AgentId("a1".to_string()));
         assert_eq!(md[2].agent_id, AgentId("b2".to_string()));
+    }
+
+    // ── Regression: scoped-thread panic must not omit an eligible agent ──
+
+    fn remote_info(id: &str) -> ChooserAgentInfo {
+        ChooserAgentInfo {
+            agent_id: AgentId(id.to_string()),
+            name: id.to_string(),
+            kind: AgentKind::Llxprt,
+            runtime_config: String::new(),
+            is_remote: true,
+            github_repo: "o/r".to_string(),
+            work_dir: PathBuf::from("/tmp/".to_string()),
+        }
+    }
+
+    #[test]
+    fn join_probe_results_recovers_from_panic_without_dropping_agent() {
+        // Three agents: the middle thread panics. The join helper must still
+        // return three entries (no agent omitted), with the panicked agent's
+        // AgentId preserved and an unknown branch/dirty fallback.
+        let infos = vec![remote_info("a1"), remote_info("a2"), remote_info("a3")];
+        let results = std::thread::scope(|scope| {
+            let handles: Vec<_> = infos
+                .iter()
+                .enumerate()
+                .map(|(idx, _info)| {
+                    scope.spawn(move || {
+                        assert!(idx != 1, "simulated probe panic");
+                        (
+                            idx,
+                            AgentChooserGitMetadata {
+                                agent_id: AgentId(format!("a{}", idx + 1)),
+                                branch: Some("main".to_string()),
+                                dirty: DirtyStatus::clean(),
+                            },
+                        )
+                    })
+                })
+                .collect::<Vec<_>>();
+            join_probe_results(handles, &infos)
+        });
+
+        // No agent must be dropped; order must be preserved (deterministic).
+        assert_eq!(results.len(), 3, "panicked agent must not be omitted");
+        assert_eq!((results[0].0, results[1].0, results[2].0), (0, 1, 2));
+
+        // The panicked agent (index 1) gets its exact AgentId with an
+        // unknown branch/dirty fallback.
+        assert_eq!(results[1].1.agent_id, AgentId("a2".to_string()));
+        assert_eq!(results[1].1.branch, None);
+        assert_eq!(results[1].1.dirty, DirtyStatus::unknown());
+
+        // Non-panicked agents keep their probed metadata.
+        assert_eq!(results[0].1.agent_id, AgentId("a1".to_string()));
+        assert_eq!(results[0].1.branch.as_deref(), Some("main"));
+        assert_eq!(results[0].1.dirty, DirtyStatus::clean());
     }
 }

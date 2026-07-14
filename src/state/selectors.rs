@@ -147,7 +147,7 @@ impl AppState {
                     agent_id: a.id.clone(),
                     name: a.name.clone(),
                     kind: a.agent_kind,
-                    runtime_config: runtime_config_value(a, repo),
+                    runtime_config: runtime_config_value(a),
                     is_remote: repo.remote.enabled,
                     github_repo: repo.github_repo.clone(),
                     work_dir: a.work_dir.clone(),
@@ -229,7 +229,7 @@ pub fn build_chooser_entries_from_state(
 /// (`agent.profile` is used directly). The chooser shows what the agent is
 /// configured with, not what the effective launch value would be after
 /// repository-default resolution.
-fn runtime_config_value(agent: &Agent, _repo: &Repository) -> String {
+fn runtime_config_value(agent: &Agent) -> String {
     match agent.agent_kind {
         AgentKind::Llxprt => agent.profile.clone(),
         AgentKind::CodePuppy => agent.code_puppy_model.clone(),

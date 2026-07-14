@@ -425,8 +425,6 @@ fn metadata_running_agent_dropped_from_chooser() {
     );
 }
 
-/// Metadata for an agent whose kind is not installed (unavailable) must be
-/// dropped: the selector excludes agents whose runtime kind is not in the
 /// When metadata references ONLY ineligible agents (e.g. all running), the
 /// chooser stays closed and the `No agents available` notice is set — no
 /// eligible entries means no chooser, regardless of non-empty metadata.
@@ -460,6 +458,8 @@ fn metadata_only_ineligible_agents_keeps_chooser_closed() {
     );
 }
 
+/// Metadata for an agent whose kind is not installed (unavailable) must be
+/// dropped: the selector excludes agents whose runtime kind is not in the
 /// installed snapshot (unless the repo is remote-enabled).
 #[test]
 fn metadata_unavailable_kind_agent_dropped_from_chooser() {
