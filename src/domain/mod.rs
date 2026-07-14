@@ -18,6 +18,11 @@ mod quick_resume;
 pub use actions::*;
 pub use quick_resume::QuickResume;
 
+// Sandbox engine + platform capability types extracted to keep this file
+// under the source-file-size limit.
+mod sandbox;
+pub use sandbox::*;
+
 /// Pagination contracts (PageToken, ListRequestId) shared across list state
 /// and boundary messages. Pure value types, no project-internal deps.
 mod pagination;
@@ -27,6 +32,9 @@ pub use pagination::*;
 // source-file-size limit.
 mod issues;
 pub use issues::*;
+
+mod repo_ref;
+pub use repo_ref::{GitHubRepoRef, GitHubRepoRefError, GitHubRepoRefErrorReason};
 
 /// Pure validation/normalization for LLxprt version selectors (issue #269).
 pub mod version_selector;
@@ -87,32 +95,6 @@ impl AgentKind {
     }
 }
 
-/// Default sandbox resource flags passed to llxprt via SANDBOX_FLAGS.
-///
-/// Memory is expressed in MiB to avoid unitless podman/crun interpretation issues.
-pub const DEFAULT_SANDBOX_FLAGS: &str = "--cpus=2 --memory=12288m --pids-limit=256";
-
-/// Sandbox engine to use when launching llxprt sessions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum SandboxEngine {
-    #[default]
-    Podman,
-    Docker,
-    #[serde(alias = "sandbox-exec")]
-    Seatbelt,
-}
-
-/// All known engine variants in canonical order.
-const ALL_ENGINES: [SandboxEngine; 3] = [
-    SandboxEngine::Podman,
-    SandboxEngine::Docker,
-    SandboxEngine::Seatbelt,
-];
-
-/// Linux-supported engine variants in canonical order.
-const LINUX_ENGINES: [SandboxEngine; 2] = [SandboxEngine::Podman, SandboxEngine::Docker];
-
 /// Check whether a single GitHub owner/repo component contains only valid
 /// characters: ASCII alphanumerics, hyphens, underscores, and dots.
 ///
@@ -123,140 +105,6 @@ pub fn is_valid_github_component(component: &str) -> bool {
     component
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-}
-
-impl SandboxEngine {
-    /// Convert to llxprt CLI `--sandbox-engine` argument.
-    #[must_use]
-    pub const fn as_llxprt_arg(self) -> &'static str {
-        match self {
-            Self::Podman => "podman",
-            Self::Docker => "docker",
-            Self::Seatbelt => "sandbox-exec",
-        }
-    }
-
-    /// Parse from user-facing form value.
-    #[must_use]
-    pub fn from_form_value(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "podman" => Some(Self::Podman),
-            "docker" => Some(Self::Docker),
-            "seatbelt" | "sandbox-exec" => Some(Self::Seatbelt),
-            _ => None,
-        }
-    }
-
-    /// User-facing display label.
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Podman => "Podman",
-            Self::Docker => "Docker",
-            Self::Seatbelt => "Seatbelt",
-        }
-    }
-
-    /// Cycle to the next *supported* engine for form UX.
-    #[must_use]
-    pub fn next(self) -> Self {
-        self.next_for_capabilities(&PlatformCapabilities::current())
-    }
-
-    #[must_use]
-    fn next_for_capabilities(self, caps: &PlatformCapabilities) -> Self {
-        let supported = caps.supported_engines();
-        if supported.is_empty() {
-            return self;
-        }
-
-        let current_pos = supported.iter().position(|e| *e == self);
-        match current_pos {
-            Some(pos) => supported[(pos + 1) % supported.len()],
-            // Current engine not in supported list — reset to first supported.
-            None => supported[0],
-        }
-    }
-
-    /// Parse a form value and advance to the next supported engine.
-    #[must_use]
-    pub fn next_from_form_value(value: &str) -> Self {
-        Self::from_form_value(value).map_or_else(Self::default, Self::next)
-    }
-}
-
-/// Runtime platform capabilities — resolves which sandbox engines and features
-/// are available on the current OS.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlatformCapabilities {
-    pub os: &'static str,
-}
-
-impl PlatformCapabilities {
-    /// Detect capabilities for the running platform.
-    #[must_use]
-    pub fn current() -> Self {
-        Self {
-            os: std::env::consts::OS,
-        }
-    }
-
-    /// Build capabilities for a specific OS (for testing).
-    #[must_use]
-    pub fn for_os(os: &'static str) -> Self {
-        Self { os }
-    }
-
-    /// Engines supported on this platform in display/cycle order.
-    #[must_use]
-    pub fn supported_engines(&self) -> &'static [SandboxEngine] {
-        match self.os {
-            "macos" => &ALL_ENGINES,
-            "linux" => &LINUX_ENGINES,
-            _ => &[],
-        }
-    }
-
-    /// Whether a specific engine is supported on this platform.
-    #[must_use]
-    pub fn is_engine_supported(&self, engine: SandboxEngine) -> bool {
-        match self.os {
-            "macos" => true,
-            "linux" => !matches!(engine, SandboxEngine::Seatbelt),
-            _ => false,
-        }
-    }
-
-    /// If `engine` is unsupported, return the first supported fallback.
-    ///
-    /// Returns `None` when this platform supports no sandbox engines.
-    #[must_use]
-    pub fn normalize_engine(&self, engine: SandboxEngine) -> Option<SandboxEngine> {
-        if self.is_engine_supported(engine) {
-            return Some(engine);
-        }
-
-        self.supported_engines().first().copied()
-    }
-
-    /// Short human-readable platform description for diagnostics.
-    #[must_use]
-    pub fn platform_label(&self) -> &'static str {
-        match self.os {
-            "macos" => "macOS",
-            "linux" => "Linux",
-            "windows" => "Windows",
-            _ => "Unknown",
-        }
-    }
-}
-
-fn default_sandbox_engine() -> SandboxEngine {
-    SandboxEngine::default()
-}
-
-fn default_sandbox_flags() -> String {
-    DEFAULT_SANDBOX_FLAGS.to_owned()
 }
 
 /// Remote SSH execution settings owned by a repository.
@@ -296,6 +144,8 @@ pub struct Repository {
     /// When set, issues mode uses this instead of auto-detecting from git remotes.
     #[serde(default)]
     pub github_repo: String,
+    #[serde(default)]
+    pub github_issue_pr_repo: String,
     #[serde(default)]
     pub remote: RemoteRepositorySettings,
     #[serde(default)]
@@ -775,6 +625,24 @@ pub struct Agent {
     pub runtime_binding: Option<RuntimeBinding>,
 }
 
+/// Stable identity of one operating-system process instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessIdentity {
+    pub pid: u32,
+    #[serde(default)]
+    pub started_at: Option<u64>,
+}
+
+impl ProcessIdentity {
+    #[must_use]
+    pub const fn new(pid: u32, started_at: u64) -> Self {
+        Self {
+            pid,
+            started_at: Some(started_at),
+        }
+    }
+}
+
 /// Runtime session binding metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeBinding {
@@ -794,6 +662,8 @@ pub struct RuntimeBinding {
     /// files that predate this field.
     #[serde(default)]
     pub pid: Option<u32>,
+    #[serde(default)]
+    pub process_identity: Option<ProcessIdentity>,
 }
 
 /// Launch signature for recreating runtime sessions.
@@ -885,11 +755,20 @@ impl Repository {
             default_code_puppy_model: String::new(),
             default_llxprt_version: String::new(),
             github_repo: String::new(),
+            github_issue_pr_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
             default_agent_kind: AgentKind::default(),
             agent_ids: Vec::new(),
         }
+    }
+
+    pub fn effective_issue_pr_repo(&self) -> Result<Option<GitHubRepoRef>, GitHubRepoRefError> {
+        let override_trimmed = self.github_issue_pr_repo.trim();
+        if !override_trimmed.is_empty() {
+            return GitHubRepoRef::parse(override_trimmed);
+        }
+        GitHubRepoRef::parse(&self.github_repo)
     }
 }
 #[cfg(test)]

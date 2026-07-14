@@ -12,6 +12,7 @@
 use crate::selection::PaneContent;
 use crate::selection::SelectablePane;
 use crate::state::AppState;
+use crate::ui::components::property_editor_view::build_property_editor_view;
 
 /// Separator line rendered inside the chooser overlays, matching the
 /// components' `"─────…"` row.
@@ -110,6 +111,23 @@ pub fn close_reason_chooser_lines(state: &AppState) -> PaneContent {
     PaneContent::new(SelectablePane::CloseReasonChooser, lines)
 }
 
+/// Issue delete-confirm overlay lines (issue #182).
+#[must_use]
+pub fn issue_delete_confirm_lines(state: &AppState) -> PaneContent {
+    let Some(confirm) = state.issues_state.delete_confirm.as_ref() else {
+        return PaneContent::empty(SelectablePane::IssueDeleteConfirm);
+    };
+    PaneContent::new(
+        SelectablePane::IssueDeleteConfirm,
+        vec![
+            crate::ui::components::delete_confirm_header(confirm.issue_number),
+            "This action cannot be undone.".to_string(),
+            crate::ui::components::SEPARATOR_LINE.to_string(),
+            crate::ui::components::delete_confirm_hint(confirm.awaiting_confirmation).to_string(),
+        ],
+    )
+}
+
 /// Confirm modal lines: title + blank + message + optional checkbox + buttons + blank.
 ///
 /// The ConfirmModal renders inside a 50x10 bordered box with padding 1 (6
@@ -143,10 +161,150 @@ pub fn confirm_modal_lines(state: &AppState) -> PaneContent {
     PaneContent::new(SelectablePane::ConfirmModal, lines)
 }
 
+/// Property editor overlay lines: header + separator + options/title +
+/// separator + hints (issue #175).
+///
+/// Mirrors the `PropertyEditor` component's rendered rows so mouse selection
+/// coordinates map to the exact characters on screen.
+#[must_use]
+pub fn property_editor_lines(state: &AppState) -> PaneContent {
+    if let Some(editor) = state.issues_state.property_editor.as_ref() {
+        let number = state
+            .issues_state
+            .issue_detail
+            .as_ref()
+            .map_or(0, |d| d.number);
+        return build_issue_editor_lines(editor, number);
+    }
+    if let Some(editor) = state.prs_state.property_editor.as_ref() {
+        let number = state.prs_state.pr_detail.as_ref().map_or(0, |d| d.number);
+        return build_pr_editor_lines(editor, number);
+    }
+    PaneContent::empty(SelectablePane::PropertyEditor)
+}
+
+fn build_issue_editor_lines(
+    editor: &crate::state::IssuePropertyEditorState,
+    number: u64,
+) -> PaneContent {
+    use crate::state::IssuePropertyKind as K;
+    let kind_label = match editor.kind {
+        K::Labels => "Labels",
+        K::Assignees => "Assignees",
+        K::Milestone => "Milestone",
+        K::Title => "Title",
+        K::Type => "Type",
+        K::State => "State",
+    };
+    let is_title = matches!(editor.kind, K::Title);
+    let multi = matches!(editor.kind, K::Labels | K::Assignees);
+    build_editor_lines(EditorLineParams {
+        kind_label,
+        entity: "Issue",
+        number,
+        is_title,
+        multi,
+        title_text: &editor.title_text,
+        options: &editor.options,
+        selected_index: editor.selected_index,
+        error: editor.error.as_ref(),
+        viewport_rows: PROPERTY_EDITOR_DEFAULT_VIEWPORT,
+    })
+}
+
+fn build_pr_editor_lines(editor: &crate::state::PrPropertyEditorState, number: u64) -> PaneContent {
+    use crate::state::PrPropertyKind as K;
+    let kind_label = match editor.kind {
+        K::Labels => "Labels",
+        K::Assignees => "Assignees",
+        K::Milestone => "Milestone",
+        K::Title => "Title",
+        K::State => "State",
+    };
+    let is_title = matches!(editor.kind, K::Title);
+    let multi = matches!(editor.kind, K::Labels | K::Assignees);
+    build_editor_lines(EditorLineParams {
+        kind_label,
+        entity: "PR",
+        number,
+        is_title,
+        multi,
+        title_text: &editor.title_text,
+        options: &editor.options,
+        selected_index: editor.selected_index,
+        error: editor.error.as_ref(),
+        viewport_rows: PROPERTY_EDITOR_DEFAULT_VIEWPORT,
+    })
+}
+
+/// Aggregated parameters for [`build_editor_lines`] to stay under clippy's
+/// `too_many_arguments` threshold.
+struct EditorLineParams<'a> {
+    kind_label: &'a str,
+    entity: &'a str,
+    number: u64,
+    is_title: bool,
+    multi: bool,
+    title_text: &'a str,
+    options: &'a [crate::state::PropertyOption],
+    selected_index: usize,
+    error: Option<&'a String>,
+    /// Maximum option rows to render; older rows scroll out of view as the
+    /// cursor moves (issue #175 F4).
+    viewport_rows: usize,
+}
+
+/// Default viewport height for the property-editor option list (issue #175 F4).
+/// Keeps the overlay usable on small terminals when a repo has many labels or
+/// assignees. The cursor-following window is computed by the pure projection
+/// in `property_editor_view`.
+const PROPERTY_EDITOR_DEFAULT_VIEWPORT: usize = 12;
+
+fn build_editor_lines(p: EditorLineParams) -> PaneContent {
+    let mut lines = vec![
+        format!("Edit {} - {} #{}", p.kind_label, p.entity, p.number),
+        SEPARATOR_LINE.to_string(),
+    ];
+    if p.is_title {
+        lines.push(p.title_text.to_string());
+    } else {
+        // F4: window the options so the overlay stays within the terminal.
+        let view = build_property_editor_view(p.options.len(), p.selected_index, p.viewport_rows);
+        for full_index in view.iter_visible() {
+            let Some(opt) = p.options.get(full_index) else {
+                break;
+            };
+            let is_cursor = full_index == p.selected_index;
+            let label_text = if p.multi {
+                let marker = if opt.selected { "(x)" } else { "( )" };
+                format!("{marker} {}", opt.label)
+            } else {
+                let marker = if is_cursor { ">" } else { " " };
+                format!("{marker} {}", opt.label)
+            };
+            lines.push(label_text);
+        }
+    }
+    lines.push(SEPARATOR_LINE.to_string());
+    if let Some(err) = p.error {
+        lines.push(err.clone());
+    } else if p.is_title {
+        lines.push("type title  Ctrl+Enter apply  Esc cancel".to_string());
+    } else if p.multi {
+        lines.push("Up/Down move  Space toggle  Enter apply  Esc cancel".to_string());
+    } else {
+        lines.push("Up/Down move  Enter apply  Esc cancel".to_string());
+    }
+    PaneContent::new(SelectablePane::PropertyEditor, lines)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{Agent, AgentId, Repository, RepositoryId};
+    use crate::domain::{
+        Agent, AgentId, DEFAULT_SANDBOX_FLAGS, LaunchSignature, RemoteRepositorySettings,
+        Repository, RepositoryId, SandboxEngine,
+    };
     use crate::state::ModalState;
 
     #[test]
@@ -302,7 +460,6 @@ mod tests {
 
     #[test]
     fn confirm_modal_preflight_prompt_has_content() {
-        use crate::domain::{LaunchSignature, SandboxEngine};
         use crate::runtime::PreflightIssue;
         let signature = LaunchSignature {
             work_dir: std::path::PathBuf::from("/tmp"),
@@ -344,7 +501,6 @@ mod tests {
 
     #[test]
     fn confirm_modal_dirty_copy_has_content() {
-        use crate::domain::{LaunchSignature, SandboxEngine};
         use crate::github::SendPayload;
         let signature = LaunchSignature {
             work_dir: std::path::PathBuf::from("/tmp"),
@@ -385,7 +541,6 @@ mod tests {
 
     #[test]
     fn confirm_modal_origin_mismatch_renders_actual_expected() {
-        use crate::domain::{LaunchSignature, SandboxEngine};
         use crate::github::SendPayload;
         let signature = LaunchSignature {
             work_dir: std::path::PathBuf::from("/tmp"),
@@ -507,8 +662,10 @@ mod tests {
         }
     }
 
-    fn overlay_signature() -> crate::domain::LaunchSignature {
-        crate::domain::LaunchSignature {
+    /// Build one sample of every confirm modal variant for overlay rendering
+    /// tests (mirrors `all_confirm_modal_samples` in `confirm_focus_tests.rs`).
+    fn sample_signature() -> LaunchSignature {
+        LaunchSignature {
             work_dir: std::path::PathBuf::from("/tmp"),
             profile: String::new(),
             code_puppy_model: String::new(),
@@ -517,60 +674,228 @@ mod tests {
             code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
             llxprt_debug: String::new(),
-            pass_continue: false,
+            pass_continue: true,
             sandbox_enabled: false,
-            sandbox_engine: crate::domain::SandboxEngine::Podman,
-            sandbox_flags: String::new(),
-            remote: crate::domain::RemoteRepositorySettings::default(),
+            sandbox_engine: SandboxEngine::Podman,
+            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+            remote: RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
         }
     }
 
-    fn overlay_confirm_modal_samples() -> Vec<crate::state::ModalState> {
-        use crate::{
-            github::SendPayload,
-            runtime::PreflightIssue,
-            state::{ConfirmFocus, ModalState},
-        };
+    fn append_modal_sample(
+        samples: &mut Vec<crate::state::ModalState>,
+        sample: crate::state::ModalState,
+    ) {
+        samples.push(sample);
+    }
 
-        vec![
+    fn overlay_confirm_modal_samples() -> Vec<crate::state::ModalState> {
+        use crate::github::SendPayload;
+        use crate::runtime::PreflightIssue;
+        use crate::state::{ConfirmFocus, ModalState};
+
+        let mut samples = Vec::with_capacity(6);
+        append_modal_sample(
+            &mut samples,
             ModalState::ConfirmDeleteAgent {
                 id: AgentId("a".to_string()),
                 delete_work_dir: false,
                 confirm_focus: ConfirmFocus::Cancel,
             },
+        );
+        append_modal_sample(
+            &mut samples,
             ModalState::ConfirmDeleteRepository {
                 id: RepositoryId("r".to_string()),
                 confirm_focus: ConfirmFocus::Cancel,
             },
+        );
+        append_modal_sample(
+            &mut samples,
             ModalState::ConfirmKillAgent {
                 id: AgentId("a".to_string()),
                 confirm_focus: ConfirmFocus::Cancel,
             },
+        );
+        append_modal_sample(
+            &mut samples,
             ModalState::PreflightPrompt {
                 agent_id: AgentId("a".to_string()),
-                signature: overlay_signature(),
+                signature: sample_signature(),
                 issue: PreflightIssue::SshAgentNoIdentities,
                 remaining_issues: Vec::new(),
                 issue_self_assignment: None,
                 confirm_focus: ConfirmFocus::Cancel,
             },
+        );
+        append_modal_sample(
+            &mut samples,
             ModalState::ConfirmIssueDirtyCopy {
                 agent_id: AgentId("a".to_string()),
                 work_dir: std::path::PathBuf::from("/tmp"),
-                signature: overlay_signature(),
+                signature: sample_signature(),
                 payload: SendPayload::default(),
                 confirm_focus: ConfirmFocus::Cancel,
             },
+        );
+        append_modal_sample(
+            &mut samples,
             ModalState::ConfirmIssueOriginMismatch {
                 agent_id: AgentId("a".to_string()),
                 work_dir: std::path::PathBuf::from("/tmp"),
-                signature: overlay_signature(),
+                signature: sample_signature(),
                 payload: SendPayload::default(),
                 actual: String::new(),
                 expected: String::new(),
                 confirm_focus: ConfirmFocus::Cancel,
             },
-        ]
+        );
+        samples
+    }
+
+    #[test]
+    fn property_editor_lines_include_header_and_options() {
+        use crate::domain::{IssueDetail, IssueState};
+        use crate::state::{IssuePropertyEditorState, IssuePropertyKind, PropertyOption};
+        let mut state = AppState::default();
+        state.issues_state.issue_detail = Some(IssueDetail {
+            repo_owner_name: "o/r".to_string(),
+            number: 42,
+            node_id: String::new(),
+            title: "T".to_string(),
+            state: IssueState::Open,
+            author_login: "x".to_string(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            labels: vec!["bug".to_string()],
+            assignees: Vec::new(),
+            milestone: None,
+            body: String::new(),
+            external_url: String::new(),
+            comments: Vec::new(),
+            has_more_comments: false,
+            comments_cursor: None,
+            issue_type_name: None,
+        });
+        state.issues_state.property_editor = Some(IssuePropertyEditorState {
+            kind: IssuePropertyKind::Labels,
+            options: vec![PropertyOption {
+                label: "bug".to_string(),
+                selected: true,
+                id: None,
+            }],
+            selected_index: 0,
+            title_text: String::new(),
+            title_cursor: 0,
+            error: None,
+            baseline: Vec::new(),
+            loading_failed: false,
+            options_loading: false,
+            load_request_id: 0,
+        });
+        let content = property_editor_lines(&state);
+        assert!(
+            content
+                .lines
+                .iter()
+                .any(|l| l.contains("Edit Labels - Issue #42")),
+            "property editor must include header with kind and issue number"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("(x) bug")),
+            "property editor must list selected option"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("Space toggle")),
+            "property editor multi-select hint must mention Space toggle"
+        );
+    }
+
+    #[test]
+    fn property_editor_lines_empty_when_no_editor() {
+        let state = AppState::default();
+        let content = property_editor_lines(&state);
+        assert!(
+            content.lines.is_empty(),
+            "property editor with no editor should have no content"
+        );
+    }
+
+    #[test]
+    fn property_editor_lines_pr_state() {
+        use crate::state::{PrPropertyEditorState, PrPropertyKind, PropertyOption};
+        let mut state = AppState::default();
+        state.prs_state.pr_detail = Some(test_pr_detail_for_prop_editor(7));
+        state.prs_state.property_editor = Some(PrPropertyEditorState {
+            kind: PrPropertyKind::State,
+            options: vec![
+                PropertyOption {
+                    label: "Open".to_string(),
+                    selected: true,
+                    id: None,
+                },
+                PropertyOption {
+                    label: "Closed".to_string(),
+                    selected: false,
+                    id: None,
+                },
+            ],
+            selected_index: 0,
+            title_text: String::new(),
+            title_cursor: 0,
+            error: None,
+            baseline: Vec::new(),
+            loading_failed: false,
+            options_loading: false,
+            load_request_id: 0,
+        });
+        let content = property_editor_lines(&state);
+        assert!(
+            content
+                .lines
+                .iter()
+                .any(|l| l.contains("Edit State - PR #7")),
+            "PR property editor must include header with kind and PR number"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("> Open")),
+            "single-select property editor must use > cursor marker"
+        );
+        assert!(
+            content.lines.iter().any(|l| l.contains("Enter apply")),
+            "single-select property editor hint must mention Enter apply"
+        );
+    }
+
+    /// Minimal PR detail for property-editor overlay content tests.
+    fn test_pr_detail_for_prop_editor(number: u64) -> crate::domain::PullRequestDetail {
+        use crate::domain::{PrCheckStatus, PrState, PullRequestDetail};
+        PullRequestDetail {
+            repo_owner_name: "o/r".to_string(),
+            number,
+            title: "T".to_string(),
+            state: PrState::Open,
+            is_draft: false,
+            author_login: "x".to_string(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            head_ref: String::new(),
+            base_ref: String::new(),
+            labels: Vec::new(),
+            assignees: Vec::new(),
+            milestone: None,
+            body: String::new(),
+            external_url: String::new(),
+            review_decision: None,
+            checks_status: PrCheckStatus::None,
+            reviews: Vec::new(),
+            checks: Vec::new(),
+            comments: Vec::new(),
+            has_more_comments: false,
+            comments_cursor: None,
+            mergeable: None,
+            merge_state_status: None,
+        }
     }
 }

@@ -196,54 +196,68 @@ fn all_confirm_variants_recognized_by_focus_machinery() {
 
 /// Non-confirm modals must yield `None` from `current_confirm_focus` so that
 /// `ConfirmCycleFocus` is a no-op outside confirm dialogs (issue #228).
+fn assert_non_confirm_has_no_focus(modal: ModalState) {
+    let state = AppState {
+        modal: modal.clone(),
+        ..AppState::default()
+    };
+    assert_eq!(
+        state.current_confirm_focus(),
+        None,
+        "non-confirm variant must return None: {modal:?}"
+    );
+}
+
 #[test]
 fn non_confirm_modals_return_none_focus() {
-    let non_confirms: Vec<ModalState> = vec![
-        ModalState::None,
-        ModalState::Help,
-        ModalState::NewAgent {
-            repository_id: RepositoryId("r".into()),
-            fields: crate::state::AgentFormFields::default(),
-            focus: crate::state::AgentFormFocus::default(),
-            cursor: crate::state::AgentFormCursor::default(),
-            work_dir_manual: false,
-        },
-        ModalState::Search {
-            query: String::new(),
-        },
-    ];
-    for modal in non_confirms {
-        let state = AppState {
-            modal: modal.clone(),
-            ..AppState::default()
-        };
-        assert_eq!(
-            state.current_confirm_focus(),
-            None,
-            "non-confirm variant must return None: {modal:?}"
-        );
-    }
+    assert_non_confirm_has_no_focus(ModalState::None);
+    assert_non_confirm_has_no_focus(ModalState::Help);
+    assert_non_confirm_has_no_focus(ModalState::NewAgent {
+        repository_id: RepositoryId("r".into()),
+        fields: crate::state::AgentFormFields::default(),
+        focus: crate::state::AgentFormFocus::default(),
+        cursor: crate::state::AgentFormCursor::default(),
+        work_dir_manual: false,
+    });
+    assert_non_confirm_has_no_focus(ModalState::Search {
+        query: String::new(),
+    });
 }
 
 /// Build one sample of every confirm modal variant. If a new confirm variant
 /// is added to `ModalState`, it must be added here (and the tests using this
 /// list enforce coverage).
+fn append_modal_sample(samples: &mut Vec<ModalState>, sample: ModalState) {
+    samples.push(sample);
+}
+
 fn all_confirm_modal_samples() -> Vec<ModalState> {
     use crate::runtime::PreflightIssue;
-    vec![
+    let mut samples = Vec::with_capacity(6);
+    append_modal_sample(
+        &mut samples,
         ModalState::ConfirmDeleteAgent {
             id: AgentId("a".into()),
             delete_work_dir: false,
             confirm_focus: ConfirmFocus::Cancel,
         },
+    );
+    append_modal_sample(
+        &mut samples,
         ModalState::ConfirmDeleteRepository {
             id: RepositoryId("r".into()),
             confirm_focus: ConfirmFocus::Cancel,
         },
+    );
+    append_modal_sample(
+        &mut samples,
         ModalState::ConfirmKillAgent {
             id: AgentId("a".into()),
             confirm_focus: ConfirmFocus::Cancel,
         },
+    );
+    append_modal_sample(
+        &mut samples,
         ModalState::PreflightPrompt {
             agent_id: AgentId("a".into()),
             signature: sample_signature(),
@@ -252,6 +266,9 @@ fn all_confirm_modal_samples() -> Vec<ModalState> {
             issue_self_assignment: None,
             confirm_focus: ConfirmFocus::Cancel,
         },
+    );
+    append_modal_sample(
+        &mut samples,
         ModalState::ConfirmIssueDirtyCopy {
             agent_id: AgentId("a".into()),
             work_dir: std::path::PathBuf::from("/tmp"),
@@ -259,6 +276,9 @@ fn all_confirm_modal_samples() -> Vec<ModalState> {
             payload: SendPayload::default(),
             confirm_focus: ConfirmFocus::Cancel,
         },
+    );
+    append_modal_sample(
+        &mut samples,
         ModalState::ConfirmIssueOriginMismatch {
             agent_id: AgentId("a".into()),
             work_dir: std::path::PathBuf::from("/tmp"),
@@ -268,7 +288,8 @@ fn all_confirm_modal_samples() -> Vec<ModalState> {
             expected: String::new(),
             confirm_focus: ConfirmFocus::Cancel,
         },
-    ]
+    );
+    samples
 }
 
 /// Assert that a single confirm variant is recognized by the focus machinery

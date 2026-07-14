@@ -661,7 +661,7 @@ fn build_single_comment(
         builder.lines.push(PR_REPLY_ANCHOR.to_string());
         builder
             .lines
-            .push("    Ctrl+Enter save | Esc cancel".to_string());
+            .push("    Alt+Enter save | Esc cancel".to_string());
     }
 
     builder.lines.push(String::new());
@@ -700,7 +700,7 @@ fn build_new_comment_section(
             // the line count stays stable while typing.
             builder
                 .lines
-                .push("  Ctrl+Enter submit | Esc cancel".to_string());
+                .push("  Alt+Enter submit | Esc cancel".to_string());
         }
         _ => {
             builder.lines.push("  Press c to add a comment".to_string());

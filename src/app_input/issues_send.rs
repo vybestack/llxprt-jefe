@@ -34,7 +34,7 @@ use super::issues_dispatch;
 use super::{
     AppStateHandle, REMOTE_ATTACH_SETTLE_DELAY, SharedContext, apply_and_persist,
     close_modal_and_persist, gh_async, github_client, launch_signature_for_agent, persist_state,
-    pid_on_success, preflight_or_prompt, to_persisted_state,
+    preflight_or_prompt, process_on_success, to_persisted_state,
 };
 
 pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -106,7 +106,6 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
             work_dir: send_info.work_dir,
             launch_sig,
             payload: send_info.payload.clone(),
-            clone_identity: send_info.clone_identity.clone(),
         },
     );
 }
@@ -119,7 +118,6 @@ struct PrepOutcomeContext {
     work_dir: PathBuf,
     launch_sig: LaunchSignature,
     payload: jefe::github::SendPayload,
-    clone_identity: Option<CloneIdentity>,
 }
 
 /// Bundled origin-mismatch info (actual/expected shortforms) to stay under
@@ -132,6 +130,13 @@ struct OriginMismatchInfo {
 /// Handle the outcome of the initial (Stop-policy) prep for the agent chooser
 /// confirm path. Dispatches to launch, dirty-confirm, or origin-mismatch
 /// confirm depending on the result.
+fn issue_assignment_from_payload(payload: &jefe::github::SendPayload) -> IssueAssignment {
+    let tracker = jefe::domain::GitHubRepoRef::parse(&payload.repository)
+        .ok()
+        .flatten();
+    IssueAssignment::from_send_context(tracker.as_ref(), payload.issue_number)
+}
+
 fn handle_initial_prep_outcome(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -145,10 +150,7 @@ fn handle_initial_prep_outcome(
             &prep_ctx.agent_id,
             prep_ctx.work_dir,
             prep_ctx.launch_sig,
-            IssueAssignment::from_send_context(
-                prep_ctx.clone_identity.as_ref(),
-                prep_ctx.payload.issue_number,
-            ),
+            issue_assignment_from_payload(&prep_ctx.payload),
         ),
         Ok(PrepOutcome::Dirty) => prompt_dirty_copy_confirm(
             app_state,
@@ -342,7 +344,7 @@ pub(super) fn confirm_issue_dirty_copy_enter(
                 &agent_id,
                 work_dir,
                 launch_sig,
-                IssueAssignment::from_send_context(clone_identity.as_ref(), payload.issue_number),
+                issue_assignment_from_payload(&payload),
             );
         }
         // Discard policy cleans first, so Dirty should not occur — but treat
@@ -361,7 +363,6 @@ pub(super) fn confirm_issue_dirty_copy_enter(
                     work_dir,
                     launch_sig,
                     payload,
-                    clone_identity,
                 },
                 OriginMismatchInfo { actual, expected },
             );
@@ -412,7 +413,7 @@ pub(super) fn confirm_issue_origin_mismatch_enter(
                 &agent_id,
                 work_dir,
                 launch_sig,
-                IssueAssignment::from_send_context(Some(&clone_identity), payload.issue_number),
+                issue_assignment_from_payload(&payload),
             );
         }
         Ok(PrepOutcome::Dirty) => apply_send_to_agent_failed(
@@ -466,8 +467,10 @@ pub(super) fn issue_send_info_from_state(state: &AppState) -> Option<IssueSendIn
     let focused_comment = focused_issue_comment(state, detail);
     let work_dir = agent.work_dir.clone();
     let signature = launch_signature_for_agent(agent, repo);
+    // Detail carries the immutable source repository for the loaded issue.
+    // Worktree preparation still uses the configured fork's clone identity.
     let payload = jefe::github::GhClient::build_send_payload(
-        &repo.slug,
+        &detail.repo_owner_name,
         detail,
         focused_comment.as_ref(),
         &repo.issue_base_prompt,
@@ -521,10 +524,16 @@ fn launch_issue_agent(
     // Resolve the worker PID for the persisted binding's PID-liveness
     // fallback, before taking the app-state write lock (lock-ordering
     // constraint). Skipped on the failure path (no binding persisted).
-    let pid = pid_on_success(ctx, &agent_id, launched);
+    let (pid, process_identity) = process_on_success(ctx, &agent_id, launched);
     let mut state = app_state.write();
     if launched {
-        persist_issue_agent_launch_success(&mut state, &agent_id, launch_sig, pid);
+        persist_issue_agent_launch_success(
+            &mut state,
+            &agent_id,
+            launch_sig,
+            pid,
+            process_identity,
+        );
     } else {
         *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
             error: "Failed to launch agent".to_string(),
@@ -607,6 +616,7 @@ fn persist_issue_agent_launch_success(
     agent_id: &AgentId,
     launch_sig: LaunchSignature,
     pid: Option<u32>,
+    process_identity: Option<jefe::domain::ProcessIdentity>,
 ) {
     if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
         agent.status = jefe::domain::AgentStatus::Running;
@@ -616,6 +626,7 @@ fn persist_issue_agent_launch_success(
             launch_signature: launch_sig,
             attached: false,
             last_seen: None,
+            process_identity,
             pid,
         });
     }

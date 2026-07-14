@@ -18,6 +18,14 @@
 //! teardown delay, then executes the SAME prepared data. The app dispatch
 //! does NOT call `kill_runtime_agent`, does NOT sleep, and does NOT reprepare
 //! — eliminating the double-kill / double-probe hazard.
+//!
+//! Typed relaunch outcome (blocker A remediation): the app dispatch uses
+//! [`RelaunchOutcome`] — not a boolean — to distinguish a non-destructive
+//! kill/preparation failure (old session may still be alive; retain Running
+//! and binding) from a destructive spawn/attach failure (old session is gone;
+//! mark Dead and clear binding). The classification is driven by the
+//! [`RuntimeError`] variant returned by the runtime manager — no string
+//! parsing.
 
 use jefe::domain::{AgentId, LaunchSignature};
 use jefe::runtime::PreparedLaunch;
@@ -33,9 +41,55 @@ use super::agent_runtime::{
 };
 use super::{
     AppStateHandle, REMOTE_ATTACH_SETTLE_DELAY, SharedContext, agent_and_signature, availability,
-    persist_error_message, persist_state, pid_on_success, preflight_or_prompt, to_persisted_state,
+    persist_error_message, persist_state, preflight_or_prompt, process_on_success,
+    to_persisted_state,
 };
 use jefe::runtime::sandbox_ssh_agent_warning;
+
+/// Typed outcome of a relaunch/restart transaction.
+///
+/// Distinguishes destructive from non-destructive failures so the app state
+/// persists the correct binding/liveness state without boolean reduction or
+/// string parsing. The classification is driven by the [`RuntimeError`]
+/// variant returned by the runtime manager.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RelaunchOutcome {
+    /// The kill → spawn → attach transaction completed; the agent is Running.
+    Success,
+    /// A non-destructive failure (preflight, kill, or preparation) occurred
+    /// before the old session was destroyed. The agent retains its existing
+    /// Running status and runtime binding so the user can retry.
+    NonDestructiveFailure,
+    /// A destructive failure (spawn or attach) occurred after the old session
+    /// was killed. The agent is marked Dead and its binding cleared.
+    DestructiveFailure,
+}
+
+/// Classify a [`RuntimeError`] from the relaunch transaction into a
+/// [`RelaunchOutcome`].
+///
+/// The runtime manager's prepared replacement transaction returns
+/// [`RuntimeError::KillFailed`] when the kill phase fails (old session may
+/// still be alive) and [`RuntimeError::SpawnFailed`] when the spawn phase
+/// fails (old session is gone). Attach failures return
+/// [`RuntimeError::AttachFailed`]. Any other error after the kill phase is
+/// conservatively treated as destructive: the prepared transaction's kill
+/// phase propagates only `KillFailed`, so a different error means the kill
+/// succeeded but a later step failed.
+#[must_use]
+fn classify_relaunch_error(error: &RuntimeError) -> RelaunchOutcome {
+    match error {
+        RuntimeError::ReplacementFailed {
+            phase: jefe::runtime::ReplacementFailurePhase::Spawn,
+            ..
+        }
+        | RuntimeError::SpawnFailed(_)
+        | RuntimeError::AttachFailed(_) => RelaunchOutcome::DestructiveFailure,
+        // Errors outside the prepared replacement transaction do not prove
+        // that an existing session was destroyed.
+        _ => RelaunchOutcome::NonDestructiveFailure,
+    }
+}
 
 /// Restart an agent: validate preflight FIRST, prepare the launch, then
 /// delegate the single kill + teardown delay + spawn to the runtime manager
@@ -43,7 +97,7 @@ use jefe::runtime::sandbox_ssh_agent_warning;
 ///
 /// Preflight (selector validation, effective-target availability, and
 /// prepared-launch preflight including the remote npm probe) MUST run before
-/// the destructive kill so an invalid selector or unavailable target causes
+/// the destructive kill so an invalid selector or unavailable runtime causes
 /// no destruction. Surfaces the exact [`RuntimeError`] if any step fails.
 ///
 /// The runtime manager is the SOLE kill owner. The app dispatch does not kill
@@ -92,7 +146,7 @@ pub(super) fn dispatch_restart_agent(
     // does NOT sleep. The RelaunchAgent transition applied after success
     // supersedes the intermediate KillAgent transition (Running → Running or
     // Dead → Running), so no separate kill state transition is needed.
-    let relaunched = relaunch_prepared_runtime_session(
+    let outcome = relaunch_prepared_runtime_session(
         app_state,
         ctx,
         &agent_id,
@@ -100,7 +154,7 @@ pub(super) fn dispatch_restart_agent(
         &signature,
         &prepared,
     );
-    persist_relaunch_result(app_state, ctx, agent_id, relaunched);
+    persist_relaunch_result(app_state, ctx, agent_id, outcome);
 }
 
 pub(super) fn dispatch_relaunch_agent(
@@ -112,8 +166,8 @@ pub(super) fn dispatch_relaunch_agent(
         return;
     }
 
-    let relaunched = relaunch_runtime_session(app_state, ctx, &agent_id);
-    persist_relaunch_result(app_state, ctx, agent_id, relaunched);
+    let outcome = relaunch_runtime_session(app_state, ctx, &agent_id);
+    persist_relaunch_result(app_state, ctx, agent_id, outcome);
 }
 
 fn relaunch_preflight_passed(
@@ -150,30 +204,33 @@ fn relaunch_runtime_session(
     app_state: &AppStateHandle,
     ctx: &SharedContext,
     agent_id: &AgentId,
-) -> bool {
+) -> RelaunchOutcome {
     let Some(ctx_arc) = ctx else {
-        return false;
+        return RelaunchOutcome::NonDestructiveFailure;
     };
     let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return false;
+        return RelaunchOutcome::NonDestructiveFailure;
     };
 
     let state_ro = app_state.read();
     let Some((agent, signature)) = agent_and_signature(&state_ro, agent_id) else {
-        return false;
+        return RelaunchOutcome::NonDestructiveFailure;
     };
     drop(state_ro);
 
-    if !spawn_relaunch_session(
+    if let Err(error) = spawn_relaunch_session(
         &mut ctx_guard.runtime,
         agent_id,
         &agent.work_dir,
         &signature,
     ) {
-        return false;
+        return classify_relaunch_error(&error);
     }
     std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
-    attach_relaunched_session(&mut ctx_guard.runtime, agent_id)
+    match attach_relaunched_session(&mut ctx_guard.runtime, agent_id) {
+        Ok(()) => RelaunchOutcome::Success,
+        Err(()) => RelaunchOutcome::DestructiveFailure,
+    }
 }
 
 /// Relaunch using the SAME prepared data: call `spawn_prepared_session_fresh`
@@ -186,27 +243,30 @@ fn relaunch_prepared_runtime_session(
     work_dir: &std::path::Path,
     signature: &LaunchSignature,
     prepared: &PreparedLaunch,
-) -> bool {
+) -> RelaunchOutcome {
     let Some(ctx_arc) = ctx else {
-        return false;
+        return RelaunchOutcome::NonDestructiveFailure;
     };
     let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return false;
+        return RelaunchOutcome::NonDestructiveFailure;
     };
 
-    if !spawn_prepared_relaunch_session(
+    if let Err(error) = spawn_prepared_relaunch_session(
         &mut ctx_guard.runtime,
         agent_id,
         work_dir,
         signature,
         prepared,
     ) {
-        return false;
+        return classify_relaunch_error(&error);
     }
     // Avoid holding the app-state read lock across the sleep + attach.
     let _ = app_state; // app_state already borrowed read-only above; no-op
     std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
-    attach_relaunched_session(&mut ctx_guard.runtime, agent_id)
+    match attach_relaunched_session(&mut ctx_guard.runtime, agent_id) {
+        Ok(()) => RelaunchOutcome::Success,
+        Err(()) => RelaunchOutcome::DestructiveFailure,
+    }
 }
 
 fn spawn_relaunch_session(
@@ -214,17 +274,17 @@ fn spawn_relaunch_session(
     agent_id: &AgentId,
     work_dir: &std::path::Path,
     signature: &LaunchSignature,
-) -> bool {
+) -> Result<(), RuntimeError> {
     match runtime.spawn_session_fresh(agent_id, work_dir, signature) {
-        Ok(()) => true,
-        Err(RuntimeError::AlreadyRunning(_)) => runtime.relaunch(agent_id).is_ok(),
+        Ok(()) => Ok(()),
+        Err(RuntimeError::AlreadyRunning(_)) => runtime.relaunch(agent_id),
         Err(error) => {
             warn!(
                 agent_id = %agent_id.0,
                 error = %error,
                 "could not spawn fresh runtime session for relaunch"
             );
-            false
+            Err(error)
         }
     }
 }
@@ -238,31 +298,35 @@ fn spawn_prepared_relaunch_session(
     work_dir: &std::path::Path,
     signature: &LaunchSignature,
     prepared: &PreparedLaunch,
-) -> bool {
+) -> Result<(), RuntimeError> {
     match runtime.spawn_prepared_session_fresh(agent_id, work_dir, signature, prepared) {
-        Ok(()) => true,
-        Err(RuntimeError::AlreadyRunning(_)) => runtime.relaunch(agent_id).is_ok(),
+        Ok(()) => Ok(()),
+        Err(RuntimeError::AlreadyRunning(_)) => runtime.relaunch(agent_id),
         Err(error) => {
             warn!(
                 agent_id = %agent_id.0,
                 error = %error,
                 "could not spawn prepared fresh runtime session for relaunch"
             );
-            false
+            Err(error)
         }
     }
 }
 
+/// Attach to the relaunched session. An attach failure is destructive: the
+/// old session was killed and the new session was spawned, so the agent is
+/// marked Dead and the binding cleared by the caller via
+/// [`RelaunchOutcome::DestructiveFailure`].
 fn attach_relaunched_session(
     runtime: &mut jefe::runtime::TmuxRuntimeManager,
     agent_id: &AgentId,
-) -> bool {
+) -> Result<(), ()> {
     match runtime.attach(agent_id) {
-        Ok(()) => true,
+        Ok(()) => Ok(()),
         Err(error) => {
             warn!(agent_id = %agent_id.0, error = %error, "could not attach relaunched session");
             let _ = runtime.mark_session_dead(agent_id);
-            false
+            Err(())
         }
     }
 }
@@ -271,19 +335,29 @@ fn persist_relaunch_result(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: AgentId,
-    relaunched: bool,
+    outcome: RelaunchOutcome,
 ) {
     let relaunch_event = AppEvent::RelaunchAgent(agent_id.clone());
     // Query the PID BEFORE taking the app-state write lock: worker_pid_for
     // acquires the ctx mutex, so app_state-lock → ctx-lock would be a
-    // lock-ordering hazard. `pid_on_success` skips the query on the failure
-    // path (no binding is persisted).
-    let pid = pid_on_success(ctx, &agent_id, relaunched);
-    let mut state = app_state.write();
-    if relaunched {
-        persist_relaunch_success(&mut state, &agent_id, relaunch_event, pid);
+    // lock-ordering hazard. The PID/identity query is only meaningful on
+    // success — failure paths do not persist a new binding.
+    let (pid, process_identity) = if outcome == RelaunchOutcome::Success {
+        process_on_success(ctx, &agent_id, true)
     } else {
-        persist_relaunch_failure(&mut state, &agent_id, relaunch_event);
+        Default::default()
+    };
+    let mut state = app_state.write();
+    match outcome {
+        RelaunchOutcome::Success => {
+            persist_relaunch_success(&mut state, &agent_id, relaunch_event, pid, process_identity);
+        }
+        RelaunchOutcome::NonDestructiveFailure => {
+            persist_relaunch_non_destructive_failure(&mut state, &agent_id);
+        }
+        RelaunchOutcome::DestructiveFailure => {
+            persist_relaunch_destructive_failure(&mut state, &agent_id);
+        }
     }
     let persisted = to_persisted_state(&state);
     drop(state);
@@ -295,6 +369,7 @@ fn persist_relaunch_success(
     agent_id: &AgentId,
     relaunch_event: AppEvent,
     pid: Option<u32>,
+    process_identity: Option<jefe::domain::ProcessIdentity>,
 ) {
     // Capture agent_kind before `apply` consumes the state snapshot, so the
     // SSH-agent warning can be gated: only LLxprt uses the sandbox subsystem,
@@ -308,6 +383,7 @@ fn persist_relaunch_success(
             jefe::runtime::RuntimeSession::session_name_for(&agent.id),
             signature,
             pid,
+            process_identity,
         );
     }
     *state = std::mem::take(state).apply(relaunch_event);
@@ -324,8 +400,21 @@ fn persist_relaunch_success(
     }
 }
 
-fn persist_relaunch_failure(state: &mut AppState, agent_id: &AgentId, relaunch_event: AppEvent) {
-    *state = std::mem::take(state).apply(relaunch_event);
+/// Non-destructive failure (kill/preparation): the old session may still be
+/// alive. Retain the Running status and runtime binding so the user can retry
+/// the restart. Only clear the attachment and focus.
+fn persist_relaunch_non_destructive_failure(state: &mut AppState, _agent_id: &AgentId) {
+    state.terminal_focused = false;
+    state.pane_focus = PaneFocus::Agents;
+    clear_agent_runtime_attachment(state);
+}
+
+/// Destructive failure (spawn/attach): the old session was killed and the new
+/// session could not be established. Mark Dead and clear the binding so the
+/// stale mapping does not mislead liveness checks. The dead relaunch
+/// signature was already preserved in the runtime manager's
+/// `dead_signatures` LRU, so the agent is relaunchable.
+fn persist_relaunch_destructive_failure(state: &mut AppState, agent_id: &AgentId) {
     state.terminal_focused = false;
     state.pane_focus = PaneFocus::Agents;
     mark_runtime_session_dead_if_present(state, agent_id);
@@ -342,4 +431,50 @@ fn get_npm_executable(ctx: &SharedContext) -> Option<PathBuf> {
     let ctx_arc = ctx.as_ref()?;
     let ctx_guard = ctx_arc.lock().ok()?;
     ctx_guard.runtime.npm_executable_path()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jefe::runtime::RuntimeError;
+
+    #[test]
+    fn classify_kill_failed_is_non_destructive() {
+        assert_eq!(
+            classify_relaunch_error(&RuntimeError::KillFailed("boom".to_owned())),
+            RelaunchOutcome::NonDestructiveFailure
+        );
+        classify_remote_execution_failed_is_non_destructive();
+        classify_spawn_failed_is_destructive();
+        classify_attach_failed_is_destructive();
+        classify_other_error_is_non_destructive();
+    }
+
+    fn classify_remote_execution_failed_is_non_destructive() {
+        assert_eq!(
+            classify_relaunch_error(&RuntimeError::RemoteExecutionFailed("ssh".to_owned())),
+            RelaunchOutcome::NonDestructiveFailure
+        );
+    }
+
+    fn classify_spawn_failed_is_destructive() {
+        assert_eq!(
+            classify_relaunch_error(&RuntimeError::SpawnFailed("boom".to_owned())),
+            RelaunchOutcome::DestructiveFailure
+        );
+    }
+
+    fn classify_attach_failed_is_destructive() {
+        assert_eq!(
+            classify_relaunch_error(&RuntimeError::AttachFailed("gone".to_owned())),
+            RelaunchOutcome::DestructiveFailure
+        );
+    }
+
+    fn classify_other_error_is_non_destructive() {
+        assert_eq!(
+            classify_relaunch_error(&RuntimeError::NoAttachedViewer),
+            RelaunchOutcome::NonDestructiveFailure
+        );
+    }
 }

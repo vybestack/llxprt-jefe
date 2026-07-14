@@ -28,6 +28,7 @@ mod issues_inline_ops;
 mod issues_load_ops;
 mod issues_mutation_ops;
 mod issues_ops;
+mod issues_property_ops;
 mod modal_ops;
 /// Generic deterministic pagination state container (`PaginatedList<T, I>`).
 pub mod pagination;
@@ -36,13 +37,19 @@ mod auth_ops;
 // Per-repository user-preference snapshot/restore operations (issue #163).
 mod preferences_ops;
 // @plan PLAN-20260624-PR-MODE.P03
+/// Coalesced post-mutation refresh scheduling state.
+pub mod post_mutation_refresh;
+#[cfg(test)]
+mod post_mutation_refresh_tests;
 // @requirement REQ-PR-001
+mod property_edit;
 mod prs_inline_ops;
 mod prs_load_ops;
 mod prs_merge_ops;
 mod prs_mutation_ops;
 mod prs_nav_ops;
 mod prs_ops;
+mod prs_property_ops;
 mod prs_thread_ops;
 pub mod scrollback_ops;
 mod selectors;
@@ -53,20 +60,18 @@ mod util;
 
 pub use events::*;
 pub use issues_close_reason_ops::filter_duplicate_candidates;
+pub use property_edit::PROPERTY_CLEAR_LABEL;
 pub use scrollback_ops::{FollowIndicator, terminal_follow_indicator};
 pub use state_ops::{delete_selected_agent, delete_selected_repository};
 pub use types::*;
-
-#[deprecated(note = "use effective_agent_kinds_with_npm to model npm availability")]
-pub use form_projection::effective_agent_kinds;
 
 /// Default row jump for list and detail page navigation without a measured viewport.
 pub(super) const VIEWPORT_PAGE_JUMP: usize = 10;
 
 pub use form_projection::{
-    AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds_with_npm,
-    effective_kinds_hint, is_field_visible, kind_from_form_value, next_visible_focus,
-    prev_visible_focus,
+    AgentFormFieldVisibility, agent_form_visibility, effective_agent_kinds,
+    effective_agent_kinds_with_npm, effective_kinds_hint, is_field_visible, kind_from_form_value,
+    next_visible_focus, prev_visible_focus,
 };
 
 use tracing::{debug, trace};
@@ -888,6 +893,9 @@ mod issues_tests_filter;
 #[cfg(test)]
 #[path = "issues_tests_repo_nav.rs"]
 mod issues_tests_repo_nav;
+#[cfg(test)]
+#[path = "issues_tests_send_to_agent.rs"]
+mod issues_tests_send_to_agent;
 #[cfg(test)]
 #[path = "issues_tests_subfocus.rs"]
 mod issues_tests_subfocus;

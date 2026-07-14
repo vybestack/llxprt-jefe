@@ -118,6 +118,7 @@ fn set_agent_runtime_binding_sets_session_and_signature() {
         String::from("jefe-agent-1"),
         signature.clone(),
         None,
+        None,
     );
 
     let binding = state
@@ -148,6 +149,7 @@ fn set_agent_runtime_binding_persists_pid() {
         String::from("jefe-agent-pid"),
         signature.clone(),
         Some(12345),
+        Some(jefe::domain::ProcessIdentity::new(12345, 67890)),
     );
 
     let binding = state
@@ -176,6 +178,7 @@ fn mark_and_clear_runtime_attachment_flags() {
         launch_signature: sample_signature(),
         attached: false,
         last_seen: None,
+        process_identity: None,
         pid: None,
     });
 
@@ -185,6 +188,7 @@ fn mark_and_clear_runtime_attachment_flags() {
         launch_signature: sample_signature(),
         attached: true,
         last_seen: None,
+        process_identity: None,
         pid: None,
     });
 
@@ -219,6 +223,7 @@ fn mark_runtime_session_dead_sets_dead_and_detaches() {
         launch_signature: sample_signature(),
         attached: true,
         last_seen: None,
+        process_identity: None,
         pid: None,
     });
 
@@ -756,6 +761,7 @@ fn state_for_issue_agent_chooser_send(
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     };
 
     let issues_state = jefe::state::IssuesState {

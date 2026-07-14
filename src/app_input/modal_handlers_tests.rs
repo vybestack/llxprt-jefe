@@ -34,21 +34,36 @@ fn sample_signature() -> LaunchSignature {
 
 /// Build all six confirm-modal variants parameterized by `focus`, so that
 /// adding a new variant only requires updating one place (issue #228).
-fn sample_confirm_modals(focus: ConfirmFocus) -> [ModalState; 6] {
-    [
+fn append_modal_sample(samples: &mut Vec<ModalState>, sample: ModalState) {
+    samples.push(sample);
+}
+
+fn sample_confirm_modals(focus: ConfirmFocus) -> Vec<ModalState> {
+    let mut samples = Vec::with_capacity(6);
+    append_modal_sample(
+        &mut samples,
         ModalState::ConfirmDeleteAgent {
             id: AgentId("a1".into()),
             delete_work_dir: false,
             confirm_focus: focus,
         },
+    );
+    append_modal_sample(
+        &mut samples,
         ModalState::ConfirmDeleteRepository {
             id: RepositoryId("r1".into()),
             confirm_focus: focus,
         },
+    );
+    append_modal_sample(
+        &mut samples,
         ModalState::ConfirmKillAgent {
             id: AgentId("a1".into()),
             confirm_focus: focus,
         },
+    );
+    append_modal_sample(
+        &mut samples,
         ModalState::PreflightPrompt {
             agent_id: AgentId("a1".into()),
             signature: sample_signature(),
@@ -57,6 +72,9 @@ fn sample_confirm_modals(focus: ConfirmFocus) -> [ModalState; 6] {
             issue_self_assignment: None,
             confirm_focus: focus,
         },
+    );
+    append_modal_sample(
+        &mut samples,
         ModalState::ConfirmIssueDirtyCopy {
             agent_id: AgentId("a1".into()),
             work_dir: std::path::PathBuf::from("/tmp"),
@@ -64,6 +82,9 @@ fn sample_confirm_modals(focus: ConfirmFocus) -> [ModalState; 6] {
             payload: SendPayload::default(),
             confirm_focus: focus,
         },
+    );
+    append_modal_sample(
+        &mut samples,
         ModalState::ConfirmIssueOriginMismatch {
             agent_id: AgentId("a1".into()),
             work_dir: std::path::PathBuf::from("/tmp"),
@@ -73,7 +94,8 @@ fn sample_confirm_modals(focus: ConfirmFocus) -> [ModalState; 6] {
             expected: String::from("acme/widgets"),
             confirm_focus: focus,
         },
-    ]
+    );
+    samples
 }
 
 /// All six confirm variants focused on Cancel must be recognized as such.

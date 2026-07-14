@@ -178,8 +178,19 @@ pub(super) fn resolve_local_executable_with_resolver(
             // `.cmd`/`.bat` npm wrappers or fail with a typed error — never
             // silently routing npm through `cmd.exe` (issue #269).
             if let Some(cached) = npm_executable {
-                return ResolvedAgentExecutable::from_path(cached)
-                    .map_err(RuntimeError::AgentExecutable);
+                let classified = ResolvedAgentExecutable::from_path(cached)
+                    .map_err(RuntimeError::AgentExecutable)?;
+                // The cached path is authoritative: revalidate that it is
+                // still present and launchable BEFORE returning it for a
+                // prepared launch. This runs during non-destructive
+                // `PreparedLocalLaunch::prepare`, so a stale cached npm
+                // (uninstalled/moved/permission-changed since detection)
+                // produces a typed `CachedNotLaunchable` error before any
+                // kill — never silently falling back to a PATH lookup.
+                classified
+                    .validate_cached()
+                    .map_err(RuntimeError::AgentExecutable)?;
+                return Ok(classified);
             }
             resolver
                 .resolve_named("npm")

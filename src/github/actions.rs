@@ -4,7 +4,6 @@ use crate::domain::{
     WorkflowRunStatus, WorkflowRunStep,
 };
 use std::fmt::Write;
-use std::process::Command;
 
 /// Percent-encode a SINGLE URL path segment (RFC 3986). Keeps unreserved
 /// characters (`A-Za-z0-9-._~`) verbatim; encodes everything else, including
@@ -269,7 +268,7 @@ pub fn parse_jobs_json(json: &str) -> Result<Vec<WorkflowRunJob>, GhError> {
 }
 
 fn run_gh<S: AsRef<std::ffi::OsStr>>(args: &[S]) -> Result<String, GhError> {
-    let output = Command::new("gh").args(args).output().map_err(|e| {
+    let output = super::gh_command()?.args(args).output().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             GhError::NotInstalled
         } else {

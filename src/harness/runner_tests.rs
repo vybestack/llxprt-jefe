@@ -134,6 +134,17 @@ fn scenario(json_steps: &str) -> crate::harness::Scenario {
     .value_or_panic("scenario should parse")
 }
 
+/// Like [`scenario`] but raises the per-scenario `waitFor` budget. Real
+/// psmux-backed jefe startup is slower on Windows CI runners; a bounded
+/// extension keeps production scenario semantics (Linux default unchanged)
+/// while removing startup-render flakiness from guarded integration tests.
+fn scenario_with_wait_timeout(json_steps: &str, wait_timeout_ms: u32) -> crate::harness::Scenario {
+    parse_scenario(&format!(
+        r#"{{ "config": {{ "cols": 80, "rows": 24, "wait_timeout_ms": {wait_timeout_ms} }}, "steps": {json_steps} }}"#
+    ))
+    .value_or_panic("scenario should parse")
+}
+
 #[test]
 fn expect_passes_when_screen_contains_literal() {
     let scenario = scenario(r#"[ { "expect": "ready" } ]"#);
@@ -315,6 +326,26 @@ fn timeout_failure_uses_failing_step_context() {
     }
 }
 
+/// `effective_wait_timeout` resolves the per-scenario wait budget as a pure
+/// function: zero keeps the platform default, a non-zero value is an explicit
+/// override in milliseconds. This avoids wall-clock-fragile assertions while
+/// proving the resolution contract.
+#[test]
+fn effective_wait_timeout_resolves_zero_to_default_and_nonzero_to_override() {
+    // Zero is the "use platform default" sentinel.
+    assert_eq!(effective_wait_timeout(0), DEFAULT_WAIT_TIMEOUT);
+
+    // A non-zero value overrides the platform default with an explicit budget.
+    assert_eq!(
+        effective_wait_timeout(30_000),
+        std::time::Duration::from_secs(30)
+    );
+    assert_eq!(
+        effective_wait_timeout(1),
+        std::time::Duration::from_millis(1)
+    );
+}
+
 #[test]
 fn soft_assertion_mode_records_failure_and_continues() {
     let scenario = parse_scenario(
@@ -419,12 +450,13 @@ fn guarded_real_jefe_runner_scenario_starts_and_quits() {
         return;
     };
     let config_dir = tempfile::tempdir().value_or_panic("isolated config tempdir");
-    let scenario = scenario(
+    let scenario = scenario_with_wait_timeout(
         r#"[
             { "waitFor": "LLxprt Jefe" },
             { "key": "C-q" },
             { "waitForExit": 3000 }
         ]"#,
+        30_000,
     );
     let session_name = unique_session("runner-jefe");
     let request = TmuxStartRequest::jefe(
@@ -451,7 +483,7 @@ fn guarded_real_jefe_qqq_quits() {
         return;
     };
     let config_dir = tempfile::tempdir().value_or_panic("isolated config tempdir");
-    let scenario = scenario(
+    let scenario = scenario_with_wait_timeout(
         r#"[
             { "waitFor": "LLxprt Jefe" },
             { "key": "q" },
@@ -459,6 +491,7 @@ fn guarded_real_jefe_qqq_quits() {
             { "key": "q" },
             { "waitForExit": 3000 }
         ]"#,
+        30_000,
     );
     let session_name = unique_session("qqq-jefe");
     let request = TmuxStartRequest::jefe(
@@ -511,8 +544,8 @@ fn guarded_real_jefe_sticky_kill_scenario() {
         return;
     };
 
-    let unique = unique_session("stickyagent");
-    let agent_session = format!("jefe-stickyagent-{unique}");
+    let agent_id = crate::domain::AgentId(unique_session("stickyagent"));
+    let agent_session = crate::runtime::RuntimeSession::session_name_for(&agent_id);
 
     // Pre-create a tmux session running sleep on jefe's dedicated socket so
     // jefe's session-exists check (which now targets the private socket) finds
@@ -533,7 +566,7 @@ fn guarded_real_jefe_sticky_kill_scenario() {
     };
 
     let config_dir = tempfile::tempdir().value_or_panic("isolated config tempdir");
-    seed_sticky_agent_state(config_dir.path(), &agent_session);
+    seed_sticky_agent_state(config_dir.path(), agent_id, &agent_session);
 
     let summary = run_sticky_scenario(&jefe_binary, config_dir.path());
     assert_eq!(summary.steps_run, 13);
@@ -542,22 +575,8 @@ fn guarded_real_jefe_sticky_kill_scenario() {
 /// Seed a config directory with a state.json containing a single Running agent
 /// bound to the given tmux session name (issue #116 scenario fixture).
 #[cfg(unix)]
-fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
-    use crate::domain::{
-        Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
-        RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
-    };
-    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
-
-    let mut agent = Agent::new(
-        AgentId("stickyagent".into()),
-        RepositoryId("testrepo".into()),
-        "StickyAgent".into(),
-        std::path::PathBuf::from("/tmp"),
-    );
-    agent.status = AgentStatus::Running;
-    agent.shortcut_slot = Some(1);
-    let launch_signature = LaunchSignature {
+fn seeded_launch_signature() -> crate::domain::LaunchSignature {
+    crate::domain::LaunchSignature {
         work_dir: std::path::PathBuf::from("/tmp"),
         profile: String::new(),
         code_puppy_model: String::new(),
@@ -568,16 +587,36 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         llxprt_debug: String::new(),
         pass_continue: true,
         sandbox_enabled: false,
-        sandbox_engine: SandboxEngine::Podman,
-        sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-        remote: RemoteRepositorySettings::default(),
+        sandbox_engine: crate::domain::SandboxEngine::Podman,
+        sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
+        remote: crate::domain::RemoteRepositorySettings::default(),
         agent_kind: crate::domain::AgentKind::Llxprt,
-    };
+    }
+}
+
+#[cfg(unix)]
+fn seed_sticky_agent_state(
+    config_dir: &std::path::Path,
+    agent_id: crate::domain::AgentId,
+    agent_session: &str,
+) {
+    use crate::domain::{Agent, AgentStatus, Repository, RepositoryId, RuntimeBinding};
+    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
+
+    let mut agent = Agent::new(
+        agent_id,
+        RepositoryId("testrepo".into()),
+        "StickyAgent".into(),
+        std::path::PathBuf::from("/tmp"),
+    );
+    agent.status = AgentStatus::Running;
+    agent.shortcut_slot = Some(1);
     agent.runtime_binding = Some(RuntimeBinding {
         session_name: agent_session.to_string(),
-        launch_signature,
+        launch_signature: seeded_launch_signature(),
         attached: false,
         last_seen: None,
+        process_identity: None,
         pid: None,
     });
 
@@ -602,7 +641,8 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         settings_path: config_dir.join("settings.toml"),
         state_path: config_dir.join("state.json"),
     };
-    FilePersistenceManager::with_paths(paths)
+    let persistence = FilePersistenceManager::with_paths(paths);
+    persistence
         .save_state(&persisted_state)
         .unwrap_or_else(|e| panic!("save state: {e:?}"));
 }
@@ -793,12 +833,12 @@ fn guarded_real_jefe_restart_scenario() {
 /// bound to the given tmux session name (issue #117 scenario fixture).
 #[cfg(unix)]
 fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
-    use crate::domain::{
-        Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
-        RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
-    };
-    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
-
+    use crate::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId, RuntimeBinding};
+    use crate::persistence::State;
+    // `RuntimeSession::session_name_for(agent_id)` reproduces `agent_session`
+    // exactly. This keeps the pre-created (sleep) session name coherent with
+    // the name jefe computes for the agent, so restart targets the SAME session
+    // the scenario seeded.
     let agent_id_value = agent_session.strip_prefix("jefe-").unwrap_or(agent_session);
     let mut agent = Agent::new(
         AgentId(agent_id_value.to_owned()),
@@ -810,24 +850,10 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
     agent.shortcut_slot = Some(1);
     agent.runtime_binding = Some(RuntimeBinding {
         session_name: agent_session.to_string(),
-        launch_signature: LaunchSignature {
-            work_dir: std::path::PathBuf::from("/tmp"),
-            profile: String::new(),
-            code_puppy_model: String::new(),
-            llxprt_version: String::new(),
-            code_puppy_yolo: Some(false),
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-        },
+        launch_signature: seeded_launch_signature(),
         attached: false,
         last_seen: None,
+        process_identity: None,
         pid: None,
     });
 
@@ -848,13 +874,20 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         terminal_focused: false,
         user_preferences: crate::domain::UserPreferences::default(),
     };
+    save_seeded_state(config_dir, &persisted_state);
+}
+
+#[cfg(unix)]
+fn save_seeded_state(config_dir: &std::path::Path, state: &crate::persistence::State) {
+    use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths};
+
     let paths = PersistencePaths {
         settings_path: config_dir.join("settings.toml"),
         state_path: config_dir.join("state.json"),
     };
     FilePersistenceManager::with_paths(paths)
-        .save_state(&persisted_state)
-        .unwrap_or_else(|e| panic!("save state: {e:?}"));
+        .save_state(state)
+        .unwrap_or_else(|error| panic!("save state: {error:?}"));
 }
 
 /// Run the issue #117 restart TUI scenario against the real jefe binary.

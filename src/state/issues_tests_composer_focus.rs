@@ -42,6 +42,7 @@ fn p15_detail(number: u64) -> IssueDetail {
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     }
 }
 
@@ -195,11 +196,12 @@ fn test_arrowing_in_issue_composer_does_not_mutate_detail_scroll_offset() {
     let mut state = type_into_composer(state, typed);
 
     for event in [
-        AppEvent::InlineCursorLeft,
-        AppEvent::InlineCursorRight,
-        AppEvent::InlineCursorUp,
-        AppEvent::InlineCursorDown,
+        || AppEvent::InlineCursorLeft,
+        || AppEvent::InlineCursorRight,
+        || AppEvent::InlineCursorUp,
+        || AppEvent::InlineCursorDown,
     ] {
+        let event = event();
         for _ in 0..typed.chars().count() {
             state = state.apply(event.clone());
         }

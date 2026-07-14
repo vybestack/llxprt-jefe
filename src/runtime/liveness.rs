@@ -4,10 +4,21 @@
 //! @requirement REQ-TECH-004
 //! @pseudocode component-002 lines 33-35
 
-use crate::domain::RemoteRepositorySettings;
+use std::collections::HashSet;
+use std::hash::BuildHasher;
+use std::process::Stdio;
+use std::time::{Duration, Instant};
+
+use crate::domain::{AgentId, RemoteRepositorySettings};
 use crate::runtime::commands::{
     remote_tmux_command, run_remote_ssh, shell_escape_single, tmux_command,
 };
+use crate::runtime::manager::LivenessCheck;
+
+/// Timeout for local tmux subprocess invocations in the batch liveness path.
+/// Matches the `TMUX_TIMEOUT` used by the harness driver so a hung tmux server
+/// cannot stall the background liveness thread indefinitely (issue #287).
+const LOCAL_TMUX_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Check if a process with the given PID is alive.
 ///
@@ -16,10 +27,8 @@ use crate::runtime::commands::{
 /// `check_session_alive` reports false while `pid_alive` reports true — letting
 /// jefe recognize the worker is recoverable rather than marking the agent Dead.
 ///
-/// Uses `kill -0` on Unix and filtered `tasklist` output on Windows because the
-/// project forbids `unsafe` code and the `libc`/`nix`/`sysinfo` crates. A spawn
-/// failure is fail-open on both platforms to avoid marking a potentially live
-/// worker Dead. Local-only: remote agents stay on the tmux/SSH-only path.
+/// Uses `kill -0` on Unix and the native process-identity probe on Windows.
+/// Local-only: remote agents stay on the tmux/SSH-only path.
 #[must_use]
 pub fn pid_alive(pid: u32) -> bool {
     pid_alive_on_platform(pid)
@@ -45,21 +54,7 @@ fn pid_alive_on_platform(pid: u32) -> bool {
 
 #[cfg(windows)]
 fn pid_alive_on_platform(pid: u32) -> bool {
-    let filter = format!("PID eq {pid}");
-    match std::process::Command::new("tasklist")
-        .args(["/FI", &filter, "/FO", "CSV", "/NH"])
-        .output()
-    {
-        Ok(output) if output.status.success() => {
-            let expected = format!("\",\"{pid}\",");
-            String::from_utf8_lossy(&output.stdout).contains(&expected)
-        }
-        Ok(_) => false,
-        Err(e) => {
-            tracing::warn!(error = %e, pid, "failed to spawn tasklist; assuming worker alive");
-            true
-        }
-    }
+    super::process::capture_process_identity(pid).is_ok()
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -152,6 +147,306 @@ pub fn check_remote_session_alive(remote: &RemoteRepositorySettings, session_nam
     false
 }
 
+/// Parse raw `tmux list-sessions -F '#{session_name}'` output into a set of
+/// session names.
+///
+/// Each non-empty line is a session name. Lines that are empty or consist
+/// only of whitespace are skipped (tmux emits trailing newlines).
+///
+/// This is a pure function — it does not invoke tmux — so it can be unit-tested
+/// without a tmux server.
+#[must_use]
+pub fn parse_alive_sessions(raw_output: &str) -> HashSet<String> {
+    raw_output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+/// Parse raw `tmux list-panes -a -F '#{session_name}:#{pane_dead}'` output into
+/// a set of session names that have at least one non-dead pane.
+///
+/// Each line has the form `session_name:0` (alive pane) or `session_name:1`
+/// (dead pane). A session is alive if it has at least one non-dead pane.
+///
+/// This is a pure function — it does not invoke tmux — so it can be unit-tested
+/// without a tmux server.
+///
+/// `rsplit_once(':')` splits on the **last** colon, which correctly isolates
+/// the `pane_dead` suffix even when the session name itself contains colons
+/// (e.g., `my:session:0` -> `("my:session", "0")`). Jefe's session-name
+/// sanitizer also replaces colons with underscores as an extra guarantee,
+/// but the parser itself is robust regardless.
+#[must_use]
+pub fn parse_pane_alive(raw_output: &str) -> HashSet<String> {
+    let mut alive_sessions: HashSet<String> = HashSet::new();
+    for line in raw_output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some((session, pane_dead)) = line.rsplit_once(':') {
+            let session = session.trim();
+            if session.is_empty() {
+                continue;
+            }
+            // tmux #{pane_dead} outputs 0 (alive) or 1 (dead).
+            if pane_dead.trim() == "0" {
+                alive_sessions.insert(session.to_string());
+            }
+        }
+    }
+    alive_sessions
+}
+
+/// Reconcile which target agents are dead given a set of existing session names
+/// and a set of sessions that have at least one non-dead pane.
+///
+/// A session is alive if it exists in `existing_sessions` AND appears in
+/// `alive_pane_sessions`. A target is dead if its session_name is not alive.
+/// Remote targets are excluded (the caller should filter them before calling).
+///
+/// **Worker-PID fallback** (issue #116 / #269): the batch check matches tmux
+/// session names *exactly*, while the runtime manager may register a session
+/// under a computed name (`jefe-{agent_id}`) that differs from the actual
+/// tmux session name (e.g. a reattached orphan or a restored binding). When
+/// the exact-name check reports a session as dead, this function consults the
+/// worker process as a fallback before declaring the agent dead:
+///
+/// - **Identity-aware** (`process_identity` present): uses
+///   [`process_liveness`](super::process::process_liveness) which re-probes the
+///   OS process and compares identity — rejecting PID reuse. Only `Dead` and
+///   `ReusedPid` confirm death; `Alive` rescues; `Inaccessible` / `ProbeFailure`
+///   fail open (the worker is NOT confirmed dead).
+/// - **Legacy fallback** (no identity, but `pid` present): uses [`pid_alive`].
+/// - **No PID**: no fallback; the session-name check is authoritative.
+///
+/// This mirrors [`is_agent_dead`](crate::app_init::is_agent_dead) so startup
+/// reconciliation and the background poll agree on the dead-decision.
+///
+/// This is a pure function (modulo the `pid_alive` / process-probe side
+/// effects) — the tmux sets are caller-supplied — so the session-name logic is
+/// unit-testable without a tmux server.
+#[must_use]
+pub fn reconcile_dead_agents<S: BuildHasher>(
+    targets: &[LivenessCheck],
+    existing_sessions: &HashSet<String, S>,
+    alive_pane_sessions: &HashSet<String, S>,
+) -> Vec<AgentId> {
+    targets
+        .iter()
+        .filter(|t| {
+            if t.remote.is_some() {
+                return false;
+            }
+            let session_alive = existing_sessions.contains(&t.session_name)
+                && alive_pane_sessions.contains(&t.session_name);
+            if session_alive {
+                return false;
+            }
+            // Session not found by exact name — consult the worker process
+            // fallback before declaring dead.
+            !worker_alive(t)
+        })
+        .map(|t| t.agent_id.clone())
+        .collect()
+}
+
+/// Decide whether a target's worker process is still alive.
+///
+/// Identity-aware when `process_identity` is present (rejects PID reuse via
+/// `process_liveness`); falls back to bare `pid_alive` for legacy bindings
+/// that captured only a PID. Returns `false` when no PID is available.
+///
+/// **Fail-open policy**: only [`ProcessLiveness::Dead`] (exited) and
+/// [`ProcessLiveness::ReusedPid`] confirm death. [`ProcessLiveness::Alive`]
+/// rescues the agent (session is dead but worker lives). [`ProcessLiveness::Inaccessible`]
+/// and [`ProcessLiveness::ProbeFailure`] fail open — the worker is NOT
+/// confirmed dead, so the agent is NOT reported dead. This is defense-in-depth:
+/// the production fallback exists for real missing-session observations, not
+/// as a claim that a test fixture's invalid state represented production
+/// behavior.
+fn worker_alive(target: &LivenessCheck) -> bool {
+    if let Some(identity) = target.process_identity {
+        return !matches!(
+            super::process::process_liveness(Some(identity)),
+            super::process::ProcessLiveness::Dead | super::process::ProcessLiveness::ReusedPid
+        );
+    }
+    target.pid.is_some_and(pid_alive)
+}
+
+/// Query the tmux server once for all alive sessions, returning the set of
+/// session names that exist AND have at least one non-dead pane.
+///
+/// This uses exactly **two** tmux subprocess invocations regardless of the
+/// number of agents, replacing the previous approach of 2 subprocesses per
+/// running agent (issue #287).
+///
+/// Returns `None` if the tmux server is unavailable or the command fails, so
+/// callers can skip reconciliation instead of falsely marking all agents dead
+/// (issue #287 review: infrastructure failure must not masquerade as dead
+/// sessions).
+#[must_use]
+pub fn alive_session_set() -> Option<HashSet<String>> {
+    let existing = list_all_sessions()?;
+    let alive_panes = list_alive_pane_sessions()?;
+    Some(existing.intersection(&alive_panes).cloned().collect())
+}
+
+/// Batch liveness check: query the tmux server once (two subprocesses total)
+/// and reconcile against the given local targets, returning the agent IDs
+/// whose sessions are dead or missing.
+///
+/// Remote targets are excluded automatically. This is the single-call API
+/// for callers that want dead agent IDs without managing the intermediate sets.
+///
+/// Returns an empty vector (no dead agents) when the tmux server is
+/// unavailable — infrastructure failure must not cause all agents to be
+/// falsely marked dead (issue #287 review).
+#[must_use]
+pub fn batch_liveness_check(targets: &[LivenessCheck]) -> Vec<AgentId> {
+    let Some(existing) = list_all_sessions() else {
+        tracing::warn!("tmux list-sessions failed; skipping liveness cycle");
+        return Vec::new();
+    };
+    let Some(alive_panes) = list_alive_pane_sessions() else {
+        tracing::warn!("tmux list-panes failed; skipping liveness cycle");
+        return Vec::new();
+    };
+    reconcile_dead_agents(targets, &existing, &alive_panes)
+}
+
+/// Query the tmux server for all session names (one subprocess).
+///
+/// Returns `None` when the tmux server is unavailable or the command fails,
+/// so the caller can distinguish infrastructure failure from an empty session
+/// set (issue #287 review: silent empty-set returns caused all agents to be
+/// falsely reported dead when tmux was unavailable).
+#[must_use]
+fn list_all_sessions() -> Option<HashSet<String>> {
+    let mut command = match tmux_command() {
+        Ok(cmd) => cmd,
+        Err(e) => {
+            tracing::warn!(error = %e, "list_all_sessions: tmux_command failed");
+            return None;
+        }
+    };
+    let output = run_tmux_with_timeout(command.args(["list-sessions", "-F", "#{session_name}"]));
+    match output {
+        Ok(out) if out.status.success() => {
+            Some(parse_alive_sessions(&String::from_utf8_lossy(&out.stdout)))
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            tracing::warn!(
+                status = %out.status,
+                stderr = %stderr.trim(),
+                "list_all_sessions: tmux list-sessions failed"
+            );
+            None
+        }
+        Err(()) => {
+            tracing::warn!("list_all_sessions: tmux list-sessions timed out or spawn failed");
+            None
+        }
+    }
+}
+
+/// Query the tmux server for all sessions that have at least one non-dead pane
+/// (one subprocess).
+///
+/// Returns `None` on infrastructure failure, so the caller can skip
+/// reconciliation rather than falsely marking all agents dead (issue #287
+/// review).
+///
+/// Uses `tmux list-panes -a` (all sessions) with a format that includes the
+/// session name and pane-dead flag, so a single subprocess covers every
+/// session.
+#[must_use]
+fn list_alive_pane_sessions() -> Option<HashSet<String>> {
+    let mut command = match tmux_command() {
+        Ok(cmd) => cmd,
+        Err(e) => {
+            tracing::warn!(error = %e, "list_alive_pane_sessions: tmux_command failed");
+            return None;
+        }
+    };
+    let output = run_tmux_with_timeout(command.args([
+        "list-panes",
+        "-a",
+        "-F",
+        "#{session_name}:#{pane_dead}",
+    ]));
+    match output {
+        Ok(out) if out.status.success() => {
+            Some(parse_pane_alive(&String::from_utf8_lossy(&out.stdout)))
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            tracing::warn!(
+                status = %out.status,
+                stderr = %stderr.trim(),
+                "list_alive_pane_sessions: tmux list-panes failed"
+            );
+            None
+        }
+        Err(()) => {
+            tracing::warn!("list_alive_pane_sessions: tmux list-panes timed out or spawn failed");
+            None
+        }
+    }
+}
+
+/// Run a tmux subprocess with a bounded timeout, killing it if it exceeds the
+/// deadline. This prevents a hung tmux server from stalling the background
+/// liveness thread indefinitely (issue #287 review).
+fn run_tmux_with_timeout(command: &mut std::process::Command) -> Result<std::process::Output, ()> {
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+    let child = command.spawn().map_err(|_| ())?;
+    let deadline = Instant::now() + LOCAL_TMUX_COMMAND_TIMEOUT;
+    run_child_with_timeout(child, deadline)
+}
+
+/// Testable inner: run a child to completion with a bounded deadline, killing
+/// it on timeout. Separated from [`run_tmux_with_timeout`] so the timeout
+/// behavior can be unit-tested with a plain `sleep` subprocess instead of a
+/// real tmux invocation (issue #287 review: kill path must be verified).
+fn run_child_with_timeout(
+    mut child: std::process::Child,
+    deadline: Instant,
+) -> Result<std::process::Output, ()> {
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return child.wait_with_output().map_err(|_| ()),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    if let Err(e) = child.kill() {
+                        tracing::warn!(error = %e, "failed to kill child on timeout");
+                    }
+                    if let Err(e) = child.wait() {
+                        tracing::warn!(error = %e, "failed to reap child after kill");
+                    }
+                    return Err(());
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(e) => {
+                if let Err(kill_err) = child.kill() {
+                    tracing::warn!(error = %kill_err, wait_error = %e, "failed to kill child after try_wait error");
+                }
+                if let Err(wait_err) = child.wait() {
+                    tracing::warn!(error = %wait_err, wait_error = %e, "failed to reap child after try_wait error");
+                }
+                return Err(());
+            }
+        }
+    }
+}
+
 /// List all jefe-managed tmux sessions.
 #[allow(dead_code)]
 pub fn list_jefe_sessions() -> Vec<String> {
@@ -192,6 +487,308 @@ pub fn kill_session(session_name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::{AgentId, RemoteRepositorySettings};
+    use crate::runtime::manager::LivenessCheck;
+
+    fn make_liveness_check(agent_id: &str, session_name: &str, remote: bool) -> LivenessCheck {
+        LivenessCheck {
+            agent_id: AgentId(agent_id.to_string()),
+            session_name: session_name.to_string(),
+            remote: if remote {
+                Some(RemoteRepositorySettings::default())
+            } else {
+                None
+            },
+            pid: None,
+            process_identity: None,
+        }
+    }
+
+    // --- parse_alive_sessions (pure) ---
+
+    #[test]
+    fn parse_alive_sessions_basic() {
+        let raw = "jefe-agent1
+jefe-agent2
+jefe-agent3
+";
+        let set = parse_alive_sessions(raw);
+        assert_eq!(set.len(), 3);
+        assert!(set.contains("jefe-agent1"));
+        assert!(set.contains("jefe-agent2"));
+        assert!(set.contains("jefe-agent3"));
+    }
+
+    #[test]
+    fn parse_alive_sessions_trims_whitespace() {
+        let raw = "  jefe-a  \n jefe-b \n\n";
+        let set = parse_alive_sessions(raw);
+        assert_eq!(set.len(), 2);
+        assert!(set.contains("jefe-a"));
+        assert!(set.contains("jefe-b"));
+    }
+
+    #[test]
+    fn parse_alive_sessions_empty_output() {
+        let set = parse_alive_sessions("");
+        assert!(set.is_empty());
+    }
+
+    #[test]
+    fn parse_alive_sessions_skips_empty_lines() {
+        let raw = "jefe-a
+
+
+jefe-b
+";
+        let set = parse_alive_sessions(raw);
+        assert_eq!(set.len(), 2);
+    }
+
+    // --- parse_pane_alive (pure) ---
+
+    #[test]
+    fn parse_pane_alive_identifies_alive_panes() {
+        // session:0 = alive pane, session:1 = dead pane
+        let raw = "jefe-a:0
+jefe-b:1
+jefe-c:0
+";
+        let set = parse_pane_alive(raw);
+        assert_eq!(set.len(), 2);
+        assert!(set.contains("jefe-a"));
+        assert!(set.contains("jefe-c"));
+        assert!(!set.contains("jefe-b"));
+    }
+
+    #[test]
+    fn parse_pane_alive_only_numeric_flags() {
+        // tmux #{pane_dead} outputs only 0 (alive) or 1 (dead).
+        // Non-numeric strings like "false" must not match.
+        let raw = "jefe-a:0
+jefe-b:1
+jefe-c:false
+";
+        let set = parse_pane_alive(raw);
+        assert!(set.contains("jefe-a"));
+        assert!(!set.contains("jefe-b"));
+        assert!(!set.contains("jefe-c"), "non-numeric flags must not match");
+    }
+
+    #[test]
+    fn parse_pane_alive_empty_output() {
+        let set = parse_pane_alive("");
+        assert!(set.is_empty());
+    }
+
+    #[test]
+    fn parse_pane_alive_skips_malformed_lines() {
+        let raw = "jefe-a:0
+malformed
+jefe-b:0
+";
+        let set = parse_pane_alive(raw);
+        assert_eq!(set.len(), 2);
+        assert!(set.contains("jefe-a"));
+        assert!(set.contains("jefe-b"));
+    }
+
+    // --- reconcile_dead_agents (pure) ---
+
+    #[test]
+    fn reconcile_dead_agents_finds_missing_sessions() {
+        let targets = vec![
+            make_liveness_check("agent1", "jefe-agent1", false),
+            make_liveness_check("agent2", "jefe-agent2", false),
+        ];
+        let existing: HashSet<String> = std::iter::once("jefe-agent1".to_string()).collect();
+        let alive_panes: HashSet<String> = std::iter::once("jefe-agent1".to_string()).collect();
+
+        let dead = reconcile_dead_agents(&targets, &existing, &alive_panes);
+        assert_eq!(dead.len(), 1);
+        assert_eq!(dead[0].0, "agent2");
+    }
+
+    #[test]
+    fn reconcile_dead_agents_finds_dead_panes() {
+        let targets = vec![
+            make_liveness_check("agent1", "jefe-agent1", false),
+            make_liveness_check("agent2", "jefe-agent2", false),
+        ];
+        let existing: HashSet<String> = ["jefe-agent1".to_string(), "jefe-agent2".to_string()]
+            .into_iter()
+            .collect();
+        // agent1 has alive panes, agent2 has only dead panes
+        let alive_panes: HashSet<String> = std::iter::once("jefe-agent1".to_string()).collect();
+
+        let dead = reconcile_dead_agents(&targets, &existing, &alive_panes);
+        assert_eq!(dead.len(), 1);
+        assert_eq!(dead[0].0, "agent2");
+    }
+
+    #[test]
+    fn reconcile_dead_agents_all_alive() {
+        let targets = vec![
+            make_liveness_check("agent1", "jefe-agent1", false),
+            make_liveness_check("agent2", "jefe-agent2", false),
+        ];
+        let existing: HashSet<String> = ["jefe-agent1".to_string(), "jefe-agent2".to_string()]
+            .into_iter()
+            .collect();
+        let alive_panes: HashSet<String> = ["jefe-agent1".to_string(), "jefe-agent2".to_string()]
+            .into_iter()
+            .collect();
+
+        let dead = reconcile_dead_agents(&targets, &existing, &alive_panes);
+        assert!(dead.is_empty());
+    }
+
+    #[test]
+    fn reconcile_dead_agents_excludes_remote_targets() {
+        let targets = vec![
+            make_liveness_check("local-agent", "jefe-local", false),
+            make_liveness_check("remote-agent", "jefe-remote", true),
+        ];
+        // No sessions exist
+        let existing: HashSet<String> = HashSet::new();
+        let alive_panes: HashSet<String> = HashSet::new();
+
+        let dead = reconcile_dead_agents(&targets, &existing, &alive_panes);
+        // Only local-agent is dead; remote-agent is excluded
+        assert_eq!(dead.len(), 1);
+        assert_eq!(dead[0].0, "local-agent");
+    }
+
+    #[test]
+    fn reconcile_dead_agents_empty_targets() {
+        let dead = reconcile_dead_agents(&[], &HashSet::new(), &HashSet::new());
+        assert!(dead.is_empty());
+    }
+
+    #[test]
+    fn reconcile_dead_agents_marks_all_dead_when_no_sessions_exist() {
+        // When no tmux sessions exist, all local targets are dead.
+        // This tests the pure reconcile function with deterministic inputs
+        // (no tmux dependency).
+        let targets = vec![
+            make_liveness_check("agent1", "jefe-agent1", false),
+            make_liveness_check("agent2", "jefe-agent2", false),
+        ];
+
+        let existing: HashSet<String> = HashSet::new();
+        let alive_panes: HashSet<String> = HashSet::new();
+        let dead = reconcile_dead_agents(&targets, &existing, &alive_panes);
+        assert_eq!(dead.len(), 2, "empty tmux state means all targets are dead");
+        reconcile_dead_agents_worker_pid_prevents_false_dead();
+        reconcile_dead_agents_identity_prevents_false_dead();
+        reconcile_dead_agents_no_pid_no_fallback();
+        reconcile_dead_agents_dead_pid_does_not_prevent_dead();
+    }
+
+    // --- reconcile_dead_agents: worker-PID fallback (issue #116 / #269) ---
+
+    /// When the exact session-name match fails but the worker PID is alive,
+    /// the agent must NOT be reported dead. The production worker-PID fallback
+    /// is defense-in-depth for real missing-session observations: when the
+    /// batch check's exact-name match cannot find a session, the liveness poll
+    /// consults the worker process before declaring the agent dead. (The
+    /// sticky-kill test fixture that originally motivated this fallback used
+    /// an invalid session-name mismatch that did not represent production
+    /// behavior; the production fallback itself remains correct for genuine
+    /// missing-session cases.)
+    fn reconcile_dead_agents_worker_pid_prevents_false_dead() {
+        let me = std::process::id();
+        let mut target = make_liveness_check("sticky", "jefe-stickyagent", false);
+        target.pid = Some(me);
+
+        let existing: HashSet<String> = HashSet::new();
+        let alive_panes: HashSet<String> = HashSet::new();
+
+        let dead = reconcile_dead_agents(&[target], &existing, &alive_panes);
+        assert!(dead.is_empty(), "live worker PID must prevent false-dead");
+    }
+
+    /// Identity-aware liveness: when `process_identity` is present, the fallback
+    /// probes the OS process and compares identity. A live worker with matching
+    /// identity prevents false-dead even when the session name doesn't match.
+    /// `Inaccessible` / `ProbeFailure` fail open (prevent false-dead).
+    fn reconcile_dead_agents_identity_prevents_false_dead() {
+        let me = std::process::id();
+        let mut target = make_liveness_check("sticky", "jefe-stickyagent", false);
+        target.process_identity = Some(
+            crate::runtime::process::capture_process_identity(me)
+                .unwrap_or_else(|error| panic!("capture current process identity: {error}")),
+        );
+
+        let existing: HashSet<String> = HashSet::new();
+        let alive_panes: HashSet<String> = HashSet::new();
+
+        let dead = reconcile_dead_agents(&[target], &existing, &alive_panes);
+        assert!(
+            dead.is_empty(),
+            "live worker identity must prevent false-dead"
+        );
+    }
+
+    /// Legacy fallback: no identity, no PID → no fallback. The exact-name check
+    /// is authoritative and the agent is reported dead.
+    fn reconcile_dead_agents_no_pid_no_fallback() {
+        let target = make_liveness_check("sticky", "jefe-stickyagent", false);
+
+        let existing: HashSet<String> = HashSet::new();
+        let alive_panes: HashSet<String> = HashSet::new();
+
+        let dead = reconcile_dead_agents(&[target], &existing, &alive_panes);
+        assert_eq!(
+            dead.len(),
+            1,
+            "no PID fallback means session-name check is final"
+        );
+    }
+
+    /// A dead PID (nonexistent process) does not prevent false-dead. The
+    /// fallback only rescues agents whose worker is actually alive.
+    fn reconcile_dead_agents_dead_pid_does_not_prevent_dead() {
+        let mut target = make_liveness_check("sticky", "jefe-stickyagent", false);
+        target.pid = Some(2_000_000_000); // PID guaranteed not to exist
+
+        let existing: HashSet<String> = HashSet::new();
+        let alive_panes: HashSet<String> = HashSet::new();
+
+        let dead = reconcile_dead_agents(&[target], &existing, &alive_panes);
+        assert_eq!(
+            dead.len(),
+            1,
+            "dead PID must not prevent dead classification"
+        );
+    }
+
+    // --- alive_session_set (integration, needs tmux) ---
+
+    #[test]
+    fn alive_session_set_does_not_panic_without_tmux_server() {
+        // On a system without tmux or with no sessions, this returns None.
+        // This test validates graceful failure, not the presence of tmux.
+        let set = alive_session_set();
+        // We don't assert the value because a tmux server might have sessions
+        // from other processes. We just verify it doesn't panic.
+        let _ = set;
+    }
+
+    #[test]
+    fn batch_liveness_check_does_not_panic() {
+        // Smoke test: batch_liveness_check must not panic regardless of
+        // whether a tmux server is available. The fail-open contract (returns
+        // empty Vec when tmux is unavailable) is verified by the pure
+        // reconcile_dead_agents test above.
+        let targets = vec![
+            make_liveness_check("agent1", "jefe-agent1", false),
+            make_liveness_check("agent2", "jefe-agent2", false),
+        ];
+        let _ = batch_liveness_check(&targets);
+    }
+
+    // --- existing tests ---
 
     #[test]
     fn check_nonexistent_session_returns_false() {
@@ -215,5 +812,42 @@ mod tests {
         // (4_294_967_295) overflows pid_t parsing on macOS, which is
         // implementation-defined.
         assert!(!pid_alive(2_000_000_000));
+    }
+
+    // --- run_child_with_timeout (issue #287 review: kill path must be verified) ---
+
+    #[cfg(unix)]
+    #[test]
+    fn run_child_with_timeout_kills_long_running_subprocess() {
+        // Spawn a `sleep 30` and verify run_child_with_timeout kills it after
+        // a 1-second deadline rather than blocking indefinitely.
+        use std::process::Command;
+        let child = Command::new("sleep")
+            .arg("30")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|_| panic!("spawn sleep"));
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let result = run_child_with_timeout(child, deadline);
+        assert!(result.is_err(), "timeout must produce Err");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_child_with_timeout_returns_output_for_fast_subprocess() {
+        use std::process::Command;
+        let child = Command::new("echo")
+            .arg("ok")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|_| panic!("spawn echo"));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let result = run_child_with_timeout(child, deadline);
+        assert!(result.is_ok(), "fast subprocess must succeed");
+        let output = result.unwrap_or_else(|()| panic!("checked ok"));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("ok"), "output must contain echo result");
     }
 }

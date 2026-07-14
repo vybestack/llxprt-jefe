@@ -223,13 +223,21 @@ impl PreparedLaunch {
     ///
     /// This is the single entry point that `create_session` calls BEFORE any
     /// kill, and that `restart_dispatch` calls before the restart kill.
+    ///
+    /// The local/remote branch is driven by `signature.remote.enabled` — NOT
+    /// by [`is_valid_remote`] — so an enabled-but-invalid remote is validated
+    /// and rejected here rather than silently falling through to a local
+    /// launch. The enabled-remote validation (`validate_remote_identity`) runs
+    /// inside [`PreparedRemoteLaunch::prepare`] before any local resolution,
+    /// so a structurally invalid remote SSH identity yields a typed error with
+    /// no multiplexer probe, no executable lookup, and no kill.
     pub fn prepare(
         session_name: &str,
         work_dir: &Path,
         signature: &LaunchSignature,
         npm_executable: Option<&Path>,
     ) -> Result<Self, RuntimeError> {
-        if super::commands::remote_is_enabled(&signature.remote) {
+        if signature.remote.enabled {
             let prepared = PreparedRemoteLaunch::prepare(session_name, work_dir, signature)?;
             Ok(Self::Remote(prepared))
         } else {

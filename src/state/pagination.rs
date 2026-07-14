@@ -146,8 +146,8 @@ impl<T, I> PaginatedList<T, I> {
         &self.items
     }
 
-    /// Mutable access to loaded items without changing pagination metadata.
-    /// Callers that alter list length must apply their selection policy afterward.
+    /// Mutable access to the items vector (lib test-only).
+    #[cfg(test)]
     pub(crate) fn items_mut(&mut self) -> &mut Vec<T> {
         &mut self.items
     }
@@ -410,11 +410,12 @@ impl<T, I: PartialEq> PaginatedList<T, I> {
             return AcceptOutcome::Stale;
         }
 
+        let was_empty = items.is_empty();
         self.items.extend(items);
         self.next_page = next_page;
         self.pending = None;
 
-        if self.items.is_empty() {
+        if was_empty {
             AcceptOutcome::Empty
         } else {
             AcceptOutcome::Applied
@@ -800,7 +801,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_page_preserves_existing_items_and_returns_applied() {
+    fn empty_page_applies_continuation_and_returns_empty() {
         let mut list = setup_list_with_page_pending();
         let req2 = list.last_request_id();
         let outcome = list.accept_page(PageResult {
@@ -810,7 +811,7 @@ mod tests {
             items: Vec::new(),
             next_page: PageToken::Done,
         });
-        assert_eq!(outcome, AcceptOutcome::Applied);
+        assert_eq!(outcome, AcceptOutcome::Empty);
         assert_eq!(list.items(), &[10, 20], "existing items preserved");
         assert_eq!(list.next_page(), &PageToken::Done);
         assert!(!list.has_pending_request());

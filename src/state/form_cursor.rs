@@ -39,6 +39,13 @@ pub(super) fn handle_repository_field_char(
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = insert_char_at(&mut fields.github_repo, cursor.github_repo, c);
         }
+        RepositoryFormFocus::IssuePrRepo => {
+            cursor.github_issue_pr_repo = insert_char_at(
+                &mut fields.github_issue_pr_repo,
+                cursor.github_issue_pr_repo,
+                c,
+            );
+        }
         RepositoryFormFocus::LoginUser => {
             cursor.login_user = insert_char_at(&mut fields.login_user, cursor.login_user, c);
         }
@@ -88,6 +95,10 @@ pub(super) fn move_repository_field_cursor_right(
         }
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = move_cursor_right(&fields.github_repo, cursor.github_repo);
+        }
+        RepositoryFormFocus::IssuePrRepo => {
+            cursor.github_issue_pr_repo =
+                move_cursor_right(&fields.github_issue_pr_repo, cursor.github_issue_pr_repo);
         }
         RepositoryFormFocus::LoginUser => {
             cursor.login_user = move_cursor_right(&fields.login_user, cursor.login_user);
@@ -177,6 +188,9 @@ pub(super) fn move_repository_field_cursor_left(
         }
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = move_cursor_left(cursor.github_repo);
+        }
+        RepositoryFormFocus::IssuePrRepo => {
+            cursor.github_issue_pr_repo = move_cursor_left(cursor.github_issue_pr_repo);
         }
         RepositoryFormFocus::LoginUser => cursor.login_user = move_cursor_left(cursor.login_user),
         RepositoryFormFocus::Host => cursor.host = move_cursor_left(cursor.host),

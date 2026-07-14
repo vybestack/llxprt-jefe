@@ -13,7 +13,7 @@
 //! / `AuthFailed` events back to the state layer.
 
 use std::io::Read;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 
 use crate::github::{
@@ -26,7 +26,8 @@ use crate::github::{
 /// by design: it only bounds a hung subprocess (interactive-prompt leak,
 /// network stall, CLI bug) — `gh`'s own device-code flow expires server-side
 /// well before this and the user is authorizing in parallel (issue #244).
-const DEVICE_AUTH_WAIT_DEADLINE: Duration = Duration::from_secs(300);
+const DEVICE_AUTH_WAIT_SECONDS: u64 = 5 * 60;
+const DEVICE_AUTH_WAIT_DEADLINE: Duration = Duration::from_secs(DEVICE_AUTH_WAIT_SECONDS);
 
 /// The outcome of running the device-code auth flow.
 ///
@@ -55,7 +56,15 @@ pub struct AuthRunResult {
 /// an `Err` — it is reported via `AuthRunResult::exit_success` so the caller
 /// can surface a retryable failure in-dialog.
 pub fn run_device_auth() -> Result<AuthRunResult, GhError> {
-    let mut command = Command::new("gh");
+    let mut command =
+        crate::local_command::command(crate::local_command::LocalTool::Gh).map_err(|error| {
+            match error {
+                crate::local_command::LocalToolError::NotFound { .. } => GhError::NotInstalled,
+                crate::local_command::LocalToolError::InvalidOverride { .. } => {
+                    GhError::ToolResolution(error.to_string())
+                }
+            }
+        })?;
     command.args(build_auth_login_args(AUTH_SCOPES));
     for (key, value) in &build_auth_login_env() {
         command.env(key, value);

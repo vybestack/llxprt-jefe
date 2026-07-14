@@ -7,9 +7,11 @@
 //! All layers that need to know "is this remote?" or "is this remote config
 //! complete?" delegate here:
 //!
-//! - **Runtime layer** (`runtime::commands::remote_is_enabled`): the tmux
-//!   launch path uses [`is_valid_remote`] so a half-configured remote is
-//!   treated as local (never silently sent to SSH).
+//! - **Runtime layer** (`runtime::prepared_launch::PreparedLaunch::prepare`):
+//!   the tmux launch path branches on `remote.enabled` and validates an
+//!   enabled remote via [`validate_remote`] before any local resolution, so a
+//!   half-configured enabled remote is rejected — never silently treated as
+//!   local (issue #269).
 //! - **App-input layer** (`app_input::target_resolution`): the availability,
 //!   issue-prep, and PR-prep paths use [`resolve_target`] /
 //!   [`validate_remote_settings`] which *reject* an incomplete enabled remote

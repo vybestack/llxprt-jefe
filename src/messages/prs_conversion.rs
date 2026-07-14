@@ -449,44 +449,26 @@ impl PullRequestsMessage {
                 pr_number,
                 allowed_methods,
             },
+            AppEvent::PrOpenPropertyEditor { .. }
+            | AppEvent::PrPropertyEditorNavigateUp
+            | AppEvent::PrPropertyEditorNavigateDown
+            | AppEvent::PrPropertyEditorToggle
+            | AppEvent::PrPropertyEditorConfirm
+            | AppEvent::PrPropertyEditorCancel
+            | AppEvent::PrPropertyEditorTitleChar(_)
+            | AppEvent::PrPropertyEditorTitleBackspace
+            | AppEvent::PrPropertyEditorTitleDelete
+            | AppEvent::PrPropertyEditorTitleCursorLeft
+            | AppEvent::PrPropertyEditorTitleCursorRight
+            | AppEvent::PrPropertyEditorOptionsLoaded { .. }
+            | AppEvent::PrPropertyEditorOptionsFailed { .. }
+            | AppEvent::PrPropertyEditSucceeded { .. }
+            | AppEvent::PrPostMutationRefreshStarted
+            | AppEvent::PrPropertyEditFailed { .. }
+            | AppEvent::PrPropertyEditorValidationError { .. } => {
+                Self::from_app_event_property(event)
+            }
             _ => unreachable!("non-PR AppEvent routed to PR converter"),
-        }
-    }
-
-    /// Convert thread-related `AppEvent` variants into PR messages.
-    ///
-    /// @requirement REQ-PR-009
-    fn from_app_event_thread(event: &AppEvent) -> Option<Self> {
-        match event {
-            AppEvent::PrOpenThreadReplyComposer { thread_index } => Some(Self::OpenThreadReply {
-                thread_index: *thread_index,
-            }),
-            AppEvent::PrToggleThreadResolve { thread_index } => Some(Self::ToggleThreadResolve {
-                thread_index: *thread_index,
-            }),
-            AppEvent::PrThreadResolveSucceeded {
-                scope_repo_id,
-                thread_index,
-                is_resolved,
-                request_id,
-            } => Some(Self::ThreadResolveSucceeded {
-                scope_repo_id: scope_repo_id.clone(),
-                thread_index: *thread_index,
-                is_resolved: *is_resolved,
-                request_id: *request_id,
-            }),
-            AppEvent::PrThreadResolveFailed {
-                scope_repo_id,
-                thread_index,
-                request_id,
-                error,
-            } => Some(Self::ThreadResolveFailed {
-                scope_repo_id: scope_repo_id.clone(),
-                thread_index: *thread_index,
-                request_id: *request_id,
-                error: error.clone(),
-            }),
-            _ => None,
         }
     }
 
@@ -918,44 +900,24 @@ impl PullRequestsMessage {
                 pr_number,
                 allowed_methods,
             },
+            Self::OpenPropertyEditor { .. }
+            | Self::PropertyEditorNavigateUp
+            | Self::PropertyEditorNavigateDown
+            | Self::PropertyEditorToggle
+            | Self::PropertyEditorConfirm
+            | Self::PropertyEditorCancel
+            | Self::PropertyEditorTitleChar(_)
+            | Self::PropertyEditorTitleBackspace
+            | Self::PropertyEditorTitleDelete
+            | Self::PropertyEditorTitleCursorLeft
+            | Self::PropertyEditorTitleCursorRight
+            | Self::PropertyEditorOptionsLoaded { .. }
+            | Self::PropertyEditorOptionsFailed { .. }
+            | Self::PropertyEditSucceeded { .. }
+            | Self::PostMutationRefreshStarted
+            | Self::PropertyEditFailed { .. }
+            | Self::PropertyEditorValidationError { .. } => self.into_app_event_property(),
             _ => unreachable!("unrouted PullRequestsMessage variant reached merge converter"),
-        }
-    }
-
-    /// Convert thread-related PR messages back into `AppEvent`.
-    ///
-    /// @requirement REQ-PR-009
-    fn thread_to_app_event(&self) -> Option<AppEvent> {
-        match self {
-            Self::OpenThreadReply { thread_index } => Some(AppEvent::PrOpenThreadReplyComposer {
-                thread_index: *thread_index,
-            }),
-            Self::ToggleThreadResolve { thread_index } => Some(AppEvent::PrToggleThreadResolve {
-                thread_index: *thread_index,
-            }),
-            Self::ThreadResolveSucceeded {
-                scope_repo_id,
-                thread_index,
-                is_resolved,
-                request_id,
-            } => Some(AppEvent::PrThreadResolveSucceeded {
-                scope_repo_id: scope_repo_id.clone(),
-                thread_index: *thread_index,
-                is_resolved: *is_resolved,
-                request_id: *request_id,
-            }),
-            Self::ThreadResolveFailed {
-                scope_repo_id,
-                thread_index,
-                request_id,
-                error,
-            } => Some(AppEvent::PrThreadResolveFailed {
-                scope_repo_id: scope_repo_id.clone(),
-                thread_index: *thread_index,
-                request_id: *request_id,
-                error: error.clone(),
-            }),
-            _ => None,
         }
     }
 }

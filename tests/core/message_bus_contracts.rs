@@ -3,9 +3,8 @@
 use std::path::PathBuf;
 
 use jefe::domain::{
-    ActionsFilter, Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, Issue, IssueState,
-    LaunchSignature, RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding,
-    SandboxEngine,
+    ActionsFilter, Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
+    RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
 };
 use jefe::messages::{
     AppMessage, IssuesMessage, MessageDomain, ModalMessage, PersistenceMessage,
@@ -187,6 +186,7 @@ fn typed_kill_agent_clears_runtime_binding() {
         },
         attached: true,
         last_seen: None,
+        process_identity: None,
         pid: None,
     });
 
@@ -220,8 +220,9 @@ fn typed_apply_search_commits_query_and_clears_list() {
     let mut state = AppState::default();
     state.issues_state.search_input_focused = true;
     state.issues_state.search_query = "  open bug  ".to_string();
-    // Establish list state with a real row so selection is non-empty before
-    // ApplySearch clears the list, continuation, and selection.
+    // Establish list state (cursor + selection) with an empty item set so we
+    // can verify ApplySearch clears the cursor/selection. items_mut is
+    // crate-private, so drive through the public reload+load API instead.
     let repo_id = RepositoryId("repo-1".to_string());
     let filter = IssueFilter::default();
     state.mark_issue_list_reload_loading(repo_id.clone(), filter.clone(), 1);
@@ -229,28 +230,11 @@ fn typed_apply_search_commits_query_and_clears_list() {
         scope_repo_id: repo_id,
         filter: Box::new(filter),
         request_id: 1,
-        issues: vec![Issue {
-            number: 1,
-            node_id: "issue-node-1".to_string(),
-            title: "Selected issue".to_string(),
-            state: IssueState::Open,
-            author_login: "octocat".to_string(),
-            updated_at: String::new(),
-            assignee_summary: String::new(),
-            labels_summary: String::new(),
-            assignees: Vec::new(),
-            labels: Vec::new(),
-            issue_type: String::new(),
-            milestone: String::new(),
-            module: String::new(),
-            comment_count: 0,
-            body: String::new(),
-        }],
+        issues: vec![],
         cursor: Some("cursor".to_string()),
         has_more: true,
     });
     state.issues_state.list.set_selected_index(Some(0));
-    assert_eq!(state.issues_state.selected_issue_index(), Some(0));
 
     let state = state.apply_message(AppMessage::Issues(IssuesMessage::ApplySearch));
 

@@ -12,6 +12,7 @@ fn seed_repository() -> Repository {
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
+        github_issue_pr_repo: String::new(),
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),
@@ -220,6 +221,7 @@ fn remote_repository_creation_preserves_remote_base_dir_without_local_expansion(
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
+        github_issue_pr_repo: String::new(),
         github_repo: String::new(),
         remote_enabled: true,
         login_user: "ubuntu".to_owned(),
@@ -252,6 +254,7 @@ fn repository_name_that_normalizes_to_empty_slug_is_rejected() {
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
+        github_issue_pr_repo: String::new(),
         github_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
@@ -405,7 +408,8 @@ fn repository_checkbox_toggle_updates_remote_fields() {
     state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultLlxprtVersion
     state = state.apply(AppEvent::FormNextField); // DefaultLlxprtVersion → DefaultAgentKind
     state = state.apply(AppEvent::FormNextField); // DefaultAgentKind → GitHubRepo
-    state = state.apply(AppEvent::FormNextField); // GitHubRepo → RemoteEnabled
+    state = state.apply(AppEvent::FormNextField); // GitHubRepo → IssuePrRepo
+    state = state.apply(AppEvent::FormNextField); // IssuePrRepo → RemoteEnabled
     state = state.apply(AppEvent::FormToggleCheckbox); // toggle remote_enabled
     state = state.apply(AppEvent::FormNextField); // RemoteEnabled → LoginUser
     state = state.apply(AppEvent::FormChar('u'));
@@ -547,6 +551,7 @@ fn create_repository_rejects_invalid_github_repo_without_slash() {
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
+        github_issue_pr_repo: String::new(),
         github_repo: "foo".to_owned(),
         remote_enabled: false,
         login_user: String::new(),
@@ -566,6 +571,7 @@ fn create_repository_rejects_github_repo_with_extra_slash() {
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
+        github_issue_pr_repo: String::new(),
         github_repo: "owner/repo/extra".to_owned(),
         remote_enabled: false,
         login_user: String::new(),
@@ -585,6 +591,7 @@ fn create_repository_rejects_github_repo_missing_owner() {
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
+        github_issue_pr_repo: String::new(),
         github_repo: "/repo".to_owned(),
         remote_enabled: false,
         login_user: String::new(),
@@ -604,6 +611,7 @@ fn create_repository_rejects_github_repo_missing_repo_name() {
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
+        github_issue_pr_repo: String::new(),
         github_repo: "owner/".to_owned(),
         remote_enabled: false,
         login_user: String::new(),
@@ -623,6 +631,7 @@ fn create_repository_accepts_empty_github_repo() {
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
+        github_issue_pr_repo: String::new(),
         github_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
@@ -642,6 +651,7 @@ fn create_repository_accepts_well_formed_github_repo() {
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
+        github_issue_pr_repo: String::new(),
         github_repo: "owner/repo".to_owned(),
         remote_enabled: false,
         login_user: String::new(),
@@ -663,6 +673,7 @@ fn create_repository_rejects_github_repo_with_internal_whitespace_in_owner() {
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
+        github_issue_pr_repo: String::new(),
         github_repo: "own er/repo".to_owned(),
         remote_enabled: false,
         login_user: String::new(),
@@ -683,6 +694,7 @@ fn create_repository_rejects_github_repo_with_whitespace_around_slash() {
             default_code_puppy_model: String::new(),
             default_llxprt_version: String::new(),
             default_agent_kind: "LLxprt".to_owned(),
+            github_issue_pr_repo: String::new(),
             github_repo: value.to_owned(),
             remote_enabled: false,
             login_user: String::new(),
@@ -707,6 +719,7 @@ fn create_repository_rejects_github_repo_with_at_sign() {
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
+        github_issue_pr_repo: String::new(),
         github_repo: "acme@org/widgets".to_owned(),
         remote_enabled: false,
         login_user: String::new(),
@@ -726,6 +739,7 @@ fn create_repository_accepts_github_repo_with_surrounding_whitespace_and_trims_i
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
+        github_issue_pr_repo: String::new(),
         github_repo: "  owner/repo  ".to_owned(),
         remote_enabled: false,
         login_user: String::new(),
@@ -750,6 +764,7 @@ fn update_repository_rejects_invalid_github_repo_keeping_existing() {
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
+        github_issue_pr_repo: String::new(),
         github_repo: "no-slash".to_owned(),
         remote_enabled: false,
         login_user: String::new(),
@@ -773,6 +788,7 @@ fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
+        github_issue_pr_repo: String::new(),
         github_repo: "no-slash".to_owned(),
         remote_enabled: false,
         login_user: String::new(),
@@ -786,6 +802,7 @@ fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
     assert_eq!(repo.github_repo, "owner/existing");
 
     let valid = RepositoryFormFields {
+        github_issue_pr_repo: String::new(),
         github_repo: "owner/new".to_owned(),
         ..invalid
     };
@@ -797,6 +814,7 @@ fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
 fn submit_edit_repository_keeps_modal_open_when_github_repo_invalid() {
     let mut state = AppState {
         repositories: vec![Repository {
+            github_issue_pr_repo: String::new(),
             github_repo: "owner/existing".to_owned(),
             ..seed_repository()
         }],
@@ -822,6 +840,7 @@ fn submit_edit_repository_keeps_modal_open_when_github_repo_invalid() {
 fn submit_edit_repository_closes_modal_when_github_repo_valid() {
     let mut state = AppState {
         repositories: vec![Repository {
+            github_issue_pr_repo: String::new(),
             github_repo: "owner/existing".to_owned(),
             ..seed_repository()
         }],

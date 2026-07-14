@@ -58,26 +58,38 @@ impl AppState {
         }
     }
 
-    /// Resolve the focused issue number (list selection or detail).
+    /// Resolve the focused issue number from the pane that owns focus.
     pub(super) fn focused_issue_number(&self) -> Option<u64> {
-        if let Some(detail) = &self.issues_state.issue_detail {
-            return Some(detail.number);
+        match self.issues_state.issue_focus {
+            super::IssueFocus::IssueDetail => self
+                .issues_state
+                .issue_detail
+                .as_ref()
+                .map(|detail| detail.number),
+            super::IssueFocus::IssueList => self
+                .issues_state
+                .selected_issue_index()
+                .and_then(|idx| self.issues_state.issues().get(idx))
+                .map(|issue| issue.number),
+            super::IssueFocus::RepoList => None,
         }
-        self.issues_state
-            .selected_issue_index()
-            .and_then(|idx| self.issues_state.issues().get(idx))
-            .map(|issue| issue.number)
     }
 
-    /// Resolve the focused issue's state (list row or detail).
+    /// Resolve the focused issue's state from the pane that owns focus.
     pub(super) fn focused_issue_state(&self) -> Option<IssueState> {
-        if let Some(detail) = &self.issues_state.issue_detail {
-            return Some(detail.state);
+        match self.issues_state.issue_focus {
+            super::IssueFocus::IssueDetail => self
+                .issues_state
+                .issue_detail
+                .as_ref()
+                .map(|detail| detail.state),
+            super::IssueFocus::IssueList => self
+                .issues_state
+                .selected_issue_index()
+                .and_then(|idx| self.issues_state.issues().get(idx))
+                .map(|issue| issue.state),
+            super::IssueFocus::RepoList => None,
         }
-        self.issues_state
-            .selected_issue_index()
-            .and_then(|idx| self.issues_state.issues().get(idx))
-            .map(|issue| issue.state)
     }
 
     /// Whether any overlay or in-flight lifecycle mutation would block starting
@@ -86,6 +98,7 @@ impl AppState {
     pub(super) fn lifecycle_overlay_active(&self) -> bool {
         self.issues_state.inline_state != InlineState::None
             || self.issues_state.agent_chooser.is_some()
+            || self.issues_state.property_editor.is_some()
             || self.issues_state.delete_confirm.is_some()
             || self.issues_state.close_reason_chooser.is_some()
             || self.issues_state.close_mutation_pending.is_some()
@@ -217,15 +230,11 @@ impl AppState {
             return true;
         }
         self.issues_state.close_mutation_pending = None;
-        if let Some(issue) = self
-            .issues_state
-            .list
-            .items_mut()
-            .iter_mut()
-            .find(|issue| issue.number == issue_number)
-        {
+        let mut issues = self.issues_state.list.items().to_vec();
+        if let Some(issue) = issues.iter_mut().find(|i| i.number == issue_number) {
             issue.state = IssueState::Closed;
         }
+        self.issues_state.list.replace_items(issues);
         if let Some(detail) = &mut self.issues_state.issue_detail
             && detail.number == issue_number
         {
@@ -265,10 +274,9 @@ impl AppState {
             .issues()
             .iter()
             .position(|issue| issue.number == issue_number);
-        self.issues_state
-            .list
-            .items_mut()
-            .retain(|issue| issue.number != issue_number);
+        let mut issues = self.issues_state.list.items().to_vec();
+        issues.retain(|issue| issue.number != issue_number);
+        self.issues_state.list.replace_items(issues);
         if self
             .issues_state
             .issue_detail

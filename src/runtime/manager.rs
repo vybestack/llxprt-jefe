@@ -44,6 +44,8 @@ pub struct LivenessCheck {
     pub agent_id: AgentId,
     pub session_name: String,
     pub remote: Option<RemoteRepositorySettings>,
+    pub pid: Option<u32>,
+    pub process_identity: Option<crate::domain::ProcessIdentity>,
 }
 
 /// Runtime manager trait - owns attach/reattach, input forwarding, kill/relaunch.
@@ -334,7 +336,7 @@ impl TmuxRuntimeManager {
         // Only memoize on success, mirroring the remote path: a transient tmux
         // failure leaves the session un-remediated and un-memoized so the next
         // attach retries (#200 review).
-        match commands::disable_prefix_for_passthrough(session_name) {
+        match commands::configure_prefix_for_passthrough(session_name) {
             Ok(()) => {
                 self.prefix_enforced.insert(session_name.to_owned());
             }
@@ -409,6 +411,8 @@ impl TmuxRuntimeManager {
                 } else {
                     None
                 },
+                pid: session.pid,
+                process_identity: session.process_identity,
             })
             .collect()
     }
@@ -462,6 +466,16 @@ impl TmuxRuntimeManager {
     #[must_use]
     pub fn worker_pid(&self, agent_id: &AgentId) -> Option<u32> {
         self.sessions.get(agent_id).and_then(|s| s.pid)
+    }
+
+    #[must_use]
+    pub fn worker_process_identity(
+        &self,
+        agent_id: &AgentId,
+    ) -> Option<crate::domain::ProcessIdentity> {
+        self.sessions
+            .get(agent_id)
+            .and_then(|session| session.process_identity)
     }
 
     /// Return the session-cached npm executable path, if one was detected at
@@ -563,9 +577,10 @@ impl TmuxRuntimeManager {
         // Store/refresh session binding.
         let mut session = RuntimeSession::new(agent_id.clone(), session_name, signature.clone());
         session.pid = captured_pid;
+        session.process_identity =
+            captured_pid.and_then(|pid| super::process::capture_process_identity(pid).ok());
         self.sessions.insert(agent_id.clone(), session);
 
-        // Remove from dead signatures if present.
         let _ = self.dead_signatures.pop(agent_id);
 
         Ok(())
@@ -581,10 +596,9 @@ impl TmuxRuntimeManager {
     /// for the post-kill spawn — eliminating the double-kill / double-probe
     /// hazard of the old prepare → drop → kill → reprepare path.
     ///
-    /// Unlike `spawn_session_internal`, this method permits and replaces an
-    /// existing runtime mapping so restarting a running mapped agent does not
-    /// return `AlreadyRunning`. Once the old session is killed, its mapping is
-    /// not restored if replacement fails.
+    /// Unlike `spawn_session_internal`, this method replaces an existing map.
+    /// Kill failure preserves it; spawn failure removes it and saves the dead
+    /// signature; success installs the replacement.
     fn spawn_prepared_session_internal(
         &mut self,
         agent_id: &AgentId,
@@ -593,24 +607,10 @@ impl TmuxRuntimeManager {
     ) -> Result<(), RuntimeError> {
         let session_name = prepared.session_name().to_owned();
 
-        // Remove any existing mapping before replacement. The prepared path is
-        // the one caller allowed to replace a running mapped session. If spawn
-        // fails after the kill, retaining the old mapping would falsely report
-        // a dead session as running.
-        if let Some(old) = self.sessions.remove(agent_id) {
-            self.clipboard_enforced.remove(&old.session_name);
-            self.prefix_enforced.remove(&old.session_name);
-        }
-
         // Invalidate stale cache for the fresh spawn.
         self.history_cache.clear(agent_id);
 
-        // Execute the single kill → delay → spawn transaction. The kill is
-        // best-effort (logged inside run_prepared_transaction, never aborts
-        // the spawn). The delay gives the old session time to release the
-        // pane before the new session is created. This is the SINGLE kill —
-        // the app dispatch does NOT kill separately.
-        let spawn_result = super::prepared_spawn::run_prepared_transaction(
+        let transaction_result = super::prepared_spawn::run_prepared_transaction(
             || super::prepared_spawn::kill_session_for_prepared(prepared, &session_name),
             || {
                 std::thread::sleep(super::prepared_spawn::PREPARED_KILL_TEARDOWN_DELAY);
@@ -618,7 +618,40 @@ impl TmuxRuntimeManager {
             || super::prepared_spawn::execute_prepared_launch(prepared),
         );
 
-        spawn_result?;
+        match transaction_result {
+            Ok(_) => {}
+            Err((phase, error)) => {
+                if phase.removes_old_mapping()
+                    && let Some(old) = self.sessions.remove(agent_id)
+                {
+                    self.clipboard_enforced.remove(&old.session_name);
+                    self.prefix_enforced.remove(&old.session_name);
+                }
+                if phase.preserves_dead_signature() {
+                    let _ = self
+                        .dead_signatures
+                        .put(agent_id.clone(), signature.clone());
+                }
+                let phase = match phase {
+                    super::prepared_spawn::PreparedTransactionPhase::Kill => {
+                        super::ReplacementFailurePhase::Kill
+                    }
+                    super::prepared_spawn::PreparedTransactionPhase::Spawn
+                    | super::prepared_spawn::PreparedTransactionPhase::Success => {
+                        super::ReplacementFailurePhase::Spawn
+                    }
+                };
+                return Err(RuntimeError::ReplacementFailed {
+                    phase,
+                    source: Box::new(error),
+                });
+            }
+        }
+
+        if let Some(old) = self.sessions.remove(agent_id) {
+            self.clipboard_enforced.remove(&old.session_name);
+            self.prefix_enforced.remove(&old.session_name);
+        }
 
         // Enforce clipboard + prefix passthrough for a freshly created local
         // session (mirrors the create_session / force_fresh_spawn path).
@@ -637,6 +670,8 @@ impl TmuxRuntimeManager {
         // Store/refresh session binding.
         let mut session = RuntimeSession::new(agent_id.clone(), session_name, signature.clone());
         session.pid = captured_pid;
+        session.process_identity =
+            captured_pid.and_then(|pid| super::process::capture_process_identity(pid).ok());
         self.sessions.insert(agent_id.clone(), session);
 
         // Remove from dead signatures if present.

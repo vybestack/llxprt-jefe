@@ -191,7 +191,7 @@ fn new_comment_composer_not_flattened_into_document() {
     );
     // The anchor/help line must still be present so the section is visible.
     assert!(
-        content.text.contains("Ctrl+Enter submit | Esc cancel"),
+        content.text.contains("Alt+Enter submit | Esc cancel"),
         "NewComment composer anchor/help line must be present"
     );
     // The composer text must NOT be flattened into the document.
@@ -226,7 +226,7 @@ fn reply_composer_not_flattened_into_document() {
         "Reply composer cursor belongs to TextBox"
     );
     assert!(content.text.contains(PR_REPLY_ANCHOR));
-    assert!(content.text.contains("    Ctrl+Enter save | Esc cancel"));
+    assert!(content.text.contains("    Alt+Enter save | Esc cancel"));
     assert!(
         !content.text.contains("@pat hi"),
         "Reply composer text must NOT be flattened into the read-only document"
@@ -290,7 +290,7 @@ fn empty_new_comment_composer_emits_only_anchor_no_flattened_row() {
         "empty NewComment composer must NOT flatten a cursor into the document"
     );
     assert!(
-        content.text.contains("Ctrl+Enter submit | Esc cancel"),
+        content.text.contains("Alt+Enter submit | Esc cancel"),
         "NewComment composer anchor/help line must be present"
     );
     // The composer gutter prefix must NOT appear in the document (no flattened row).
@@ -324,7 +324,7 @@ fn empty_reply_composer_emits_only_anchor_no_flattened_row() {
         "Reply composer cursor belongs to TextBox"
     );
     assert!(content.text.contains(PR_REPLY_ANCHOR));
-    assert!(content.text.contains("    Ctrl+Enter save | Esc cancel"));
+    assert!(content.text.contains("    Alt+Enter save | Esc cancel"));
     assert!(
         !content.text.lines().any(|l| l == "    │ " || l == "    │"),
         "document must NOT contain a flattened reply composer prefix row"
@@ -865,7 +865,7 @@ fn pr_subfocus_line_range_new_comment_locates_label_and_hint() {
     // The hint line is the second line of the section.
     assert!(
         lines[range.1].contains("Press c to add a comment")
-            || lines[range.1].contains("Ctrl+Enter submit"),
+            || lines[range.1].contains("Alt+Enter submit"),
         "NewComment range must include the hint line"
     );
 }

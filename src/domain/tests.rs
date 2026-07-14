@@ -334,6 +334,7 @@ fn test_issue_base_prompt_serde_roundtrip() {
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
+        github_issue_pr_repo: String::new(),
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: "Prioritize diagnosis".to_string(),
@@ -422,6 +423,7 @@ fn runtime_binding_roundtrips_pid_when_present() {
         },
         attached: false,
         last_seen: None,
+        process_identity: None,
         pid: Some(42_000),
     };
 
@@ -470,6 +472,7 @@ fn repository_default_llxprt_version_roundtrips_nonblank() {
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
         default_llxprt_version: "0.10.0-nightly.260712.21cb698b6".to_string(),
+        github_issue_pr_repo: String::new(),
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),
@@ -590,6 +593,7 @@ fn launch_signature_llxprt_version_roundtrips_nonblank() {
         attached: false,
         last_seen: None,
         pid: None,
+        process_identity: None,
     };
     let json = serde_json::to_value(&binding).value_or_panic("should serialize");
     let binding2: RuntimeBinding =

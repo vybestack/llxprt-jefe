@@ -257,6 +257,7 @@ fn agent_with_valid_runtime_binding() -> crate::domain::Agent {
             attached: true,
             last_seen: None,
             pid: None,
+            process_identity: None,
         }),
     }
 }
@@ -274,6 +275,7 @@ fn state_with_all_valid_selectors() -> State {
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
         default_llxprt_version: "0.9.0".to_string(),
+        github_issue_pr_repo: String::new(),
         github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),

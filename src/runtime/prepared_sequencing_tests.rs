@@ -40,18 +40,29 @@ fn run_prepared_transaction_success_exact_kill_delay_spawn() {
         },
     );
 
-    assert!(result.is_ok(), "success must return Ok");
+    assert!(
+        result.is_ok(),
+        "success must return Ok(Success), got {result:?}"
+    );
+    assert_eq!(
+        result.unwrap_or_else(|(phase, _)| panic!("expected Ok(Success), got Err({phase:?})")),
+        prepared_spawn::PreparedTransactionPhase::Success,
+        "success must return the Success phase"
+    );
     assert_eq!(
         log.borrow().as_slice(),
         ["kill", "delay", "spawn"],
         "success must invoke kill → delay → spawn exactly"
     );
+    run_prepared_transaction_kill_failure_aborts_spawn();
 }
 
-/// Kill failure policy: a kill `Err` is logged but does NOT abort the spawn.
-/// The call log is still [kill, delay, spawn] — the kill error is tolerated.
-#[test]
-fn run_prepared_transaction_kill_failure_still_spawns() {
+/// Kill failure policy for the STRICT replacement transaction: a kill `Err`
+/// MUST abort the spawn and propagate the kill error. The call log is
+/// exactly [kill] — no delay, no spawn is invoked. This is the replacement /
+/// restart path where a half-dead old session must not race a new spawn
+/// (issue #269).
+fn run_prepared_transaction_kill_failure_aborts_spawn() {
     let log = Rc::new(RefCell::new(Vec::<String>::new()));
 
     let result = prepared_spawn::run_prepared_transaction(
@@ -66,14 +77,95 @@ fn run_prepared_transaction_kill_failure_still_spawns() {
         },
     );
 
+    let (phase, error) = match result {
+        Err((phase, error)) => (phase, error),
+        Ok(phase) => panic!("kill failure must return Err, got Ok({phase:?})"),
+    };
     assert!(
-        result.is_ok(),
-        "kill failure must not abort spawn; expected Ok, got {result:?}"
+        matches!(error, RuntimeError::KillFailed(_)),
+        "strict replacement kill failure must propagate and abort spawn, got {error:?}"
+    );
+    assert_eq!(
+        phase,
+        prepared_spawn::PreparedTransactionPhase::Kill,
+        "kill failure must report the Kill phase"
     );
     assert_eq!(
         log.borrow().as_slice(),
-        ["kill", "delay", "spawn"],
-        "kill failure must still reach delay + spawn"
+        ["kill"],
+        "strict replacement kill failure must NOT reach delay or spawn"
+    );
+    strict_vs_best_effort_kill_error_handling_diverge();
+}
+
+/// Distinction proof: the STRICT path (`run_prepared_transaction`) propagates
+/// kill errors, while the BEST-EFFORT path (`orchestrate_prepared`) tolerates
+/// them. Both observe the same kill-error scenario; the strict path returns
+/// `Err` and stops, the best-effort path returns `Ok` and continues to spawn.
+/// This is the single focused test that distinguishes both policies.
+fn strict_vs_best_effort_kill_error_handling_diverge() {
+    // ── Strict path: kill error aborts ──
+    let strict_log = Rc::new(RefCell::new(Vec::<String>::new()));
+    let strict_result = prepared_spawn::run_prepared_transaction(
+        || {
+            strict_log.borrow_mut().push("kill".to_owned());
+            Err(RuntimeError::KillFailed(
+                "replacement target dead".to_owned(),
+            ))
+        },
+        || strict_log.borrow_mut().push("delay".to_owned()),
+        || {
+            strict_log.borrow_mut().push("spawn".to_owned());
+            Ok(())
+        },
+    );
+    let (strict_phase, strict_error) = match strict_result {
+        Err((phase, error)) => (phase, error),
+        Ok(phase) => panic!("strict path must propagate kill error, got Ok({phase:?})"),
+    };
+    assert!(
+        matches!(strict_error, RuntimeError::KillFailed(_)),
+        "strict path must propagate kill error"
+    );
+    assert_eq!(
+        strict_phase,
+        prepared_spawn::PreparedTransactionPhase::Kill,
+        "strict path must report Kill phase"
+    );
+    assert_eq!(
+        strict_log.borrow().as_slice(),
+        &["kill"],
+        "strict path must not reach delay/spawn on kill failure"
+    );
+
+    // ── Best-effort path: kill error tolerated, spawn proceeds ──
+    let best_effort_log = Rc::new(RefCell::new(Vec::<String>::new()));
+    let log_kill = Rc::clone(&best_effort_log);
+    let log_delay = Rc::clone(&best_effort_log);
+    let log_spawn = Rc::clone(&best_effort_log);
+    let best_effort_result: Result<(), RuntimeError> = prepared_spawn::orchestrate_prepared(
+        || {
+            best_effort_log.borrow_mut().push("prepare".to_owned());
+            Ok("stub".to_owned())
+        },
+        |_prepared: &String| {
+            log_kill.borrow_mut().push("kill".to_owned());
+            Err(RuntimeError::KillFailed("stale session".to_owned()))
+        },
+        || log_delay.borrow_mut().push("delay".to_owned()),
+        |_prepared: &String| {
+            log_spawn.borrow_mut().push("spawn".to_owned());
+            Ok(())
+        },
+    );
+    assert!(
+        best_effort_result.is_ok(),
+        "best-effort path must tolerate kill failure, got {best_effort_result:?}"
+    );
+    assert_eq!(
+        best_effort_log.borrow().as_slice(),
+        &["prepare", "kill", "delay", "spawn"],
+        "best-effort path must still reach spawn on kill failure"
     );
 }
 
@@ -95,9 +187,18 @@ fn run_prepared_transaction_spawn_failure_exact_sequence() {
         },
     );
 
+    let (phase, error) = match result {
+        Err((phase, error)) => (phase, error),
+        Ok(phase) => panic!("spawn failure must return Err, got Ok({phase:?})"),
+    };
     assert!(
-        matches!(result, Err(RuntimeError::SpawnFailed(_))),
-        "spawn error must propagate, got {result:?}"
+        matches!(error, RuntimeError::SpawnFailed(_)),
+        "spawn error must propagate, got {error:?}"
+    );
+    assert_eq!(
+        phase,
+        prepared_spawn::PreparedTransactionPhase::Spawn,
+        "spawn failure must report the Spawn phase"
     );
     assert_eq!(
         log.borrow().as_slice(),
@@ -242,5 +343,48 @@ fn orchestrate_prepared_kill_failure_still_spawns() {
         log.borrow().as_slice(),
         ["prepare", "kill", "delay", "spawn"],
         "kill failure must still reach prepare → kill → delay → spawn"
+    );
+}
+// ── PreparedTransactionPhase policy helpers ──────────────────────────────
+
+/// The phase policy helpers enforce the runtime-map and dead-signature
+/// invariants the manager relies on for each transaction outcome.
+#[test]
+fn prepared_transaction_phase_removes_old_mapping_only_after_kill() {
+    use prepared_spawn::PreparedTransactionPhase as P;
+    // Kill failure: old session may be alive → preserve mapping.
+    assert!(
+        !P::Kill.removes_old_mapping(),
+        "kill failure must NOT remove the old mapping"
+    );
+    // Spawn failure: kill succeeded, old session gone → remove stale mapping.
+    assert!(
+        P::Spawn.removes_old_mapping(),
+        "spawn failure must remove the stale mapping"
+    );
+    // Success: old session replaced → remove old mapping.
+    assert!(
+        P::Success.removes_old_mapping(),
+        "success must remove the old mapping"
+    );
+}
+
+/// The dead relaunch signature is preserved ONLY on spawn failure (kill
+/// succeeded, new session could not be created → agent should be
+/// relaunchable from its stored signature).
+#[test]
+fn prepared_transaction_phase_preserves_dead_signature_only_on_spawn_failure() {
+    use prepared_spawn::PreparedTransactionPhase as P;
+    assert!(
+        !P::Kill.preserves_dead_signature(),
+        "kill failure must NOT preserve a dead signature (old session may be alive)"
+    );
+    assert!(
+        P::Spawn.preserves_dead_signature(),
+        "spawn failure must preserve the dead relaunch signature"
+    );
+    assert!(
+        !P::Success.preserves_dead_signature(),
+        "success must NOT preserve a dead signature (new session is live)"
     );
 }

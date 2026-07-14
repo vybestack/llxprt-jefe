@@ -257,6 +257,120 @@ impl ResolvedAgentExecutable {
             npm_direct,
         })
     }
+
+    /// Prove that a session-cached executable path is still present and
+    /// launchable on the current filesystem.
+    ///
+    /// [`ResolvedAgentExecutable::from_path`] classifies the wrapper strategy
+    /// (and derives `NpmDirectInvocation` on Windows) but does not verify the
+    /// file still exists or is executable. A long-lived tmux server can
+    /// outlive the npm installation detected at startup — the cached path
+    /// becomes stale (uninstalled, moved, permissions changed). This method
+    /// provides the production revalidation gate called during
+    /// [`PreparedLocalLaunch::prepare`] so a stale cached npm fails with an
+    /// actionable typed error **before** any destructive kill — never silently
+    /// falling back to a PATH lookup (the cached path is authoritative).
+    ///
+    /// # Platform behavior
+    ///
+    /// - **Unix:** the cached path must resolve to an existing regular file
+    ///   with at least one execute-permission bit set (same policy as
+    ///   [`AgentExecutableResolver`]'s `unix_launchable`).
+    /// - **Windows:** the cached wrapper/executable file must still exist,
+    ///   and when a [`NpmDirectInvocation`] is present, both its `node.exe`
+    ///   and CLI script prerequisites must still exist (re-validating the
+    ///   same layout proven during [`from_path`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AgentExecutableError::CachedNotLaunchable`] with the stale
+    /// path and a human-readable detail when the file is missing, not a
+    /// regular file, not executable (Unix), or a Windows npm-direct
+    /// prerequisite disappeared.
+    ///
+    /// [`PreparedLocalLaunch::prepare`]: super::prepared_launch::PreparedLocalLaunch::prepare
+    pub fn validate_cached(&self) -> Result<(), AgentExecutableError> {
+        validate_cached_platform(&self.path, self.npm_direct.as_ref())
+    }
+}
+
+/// Platform-dispatched cached-path validation.
+///
+/// Unix requires a regular file with execute permission; Windows requires the
+/// file to exist and re-validates any `NpmDirectInvocation` prerequisites.
+#[cfg(unix)]
+fn validate_cached_platform(
+    path: &Path,
+    _npm_direct: Option<&NpmDirectInvocation>,
+) -> Result<(), AgentExecutableError> {
+    validate_cached_unix(path)
+}
+
+#[cfg(not(unix))]
+fn validate_cached_platform(
+    path: &Path,
+    npm_direct: Option<&NpmDirectInvocation>,
+) -> Result<(), AgentExecutableError> {
+    validate_cached_windows(path, npm_direct)
+}
+
+#[cfg(unix)]
+fn validate_cached_unix(path: &Path) -> Result<(), AgentExecutableError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Follow the symlink chain to the target metadata. `symlink_metadata`
+    // inspects only the link itself, rejecting the normal npm installation
+    // layout where `/usr/local/bin/npm` is a symlink to
+    // `../lib/node_modules/npm/bin/npm-cli.js`. `metadata` follows the link
+    // and returns the target's metadata, so a valid symlink-to-executable
+    // passes while a dangling link, a directory target, or a non-executable
+    // target is rejected.
+    let metadata =
+        std::fs::metadata(path).map_err(|_| AgentExecutableError::CachedNotLaunchable {
+            path: path.to_path_buf(),
+            detail: "file no longer exists or symlink is dangling".to_owned(),
+        })?;
+    if !metadata.is_file() {
+        return Err(AgentExecutableError::CachedNotLaunchable {
+            path: path.to_path_buf(),
+            detail: "path is not a regular file".to_owned(),
+        });
+    }
+    if metadata.permissions().mode() & 0o111 == 0 {
+        return Err(AgentExecutableError::CachedNotLaunchable {
+            path: path.to_path_buf(),
+            detail: "file is not executable (no execute permission)".to_owned(),
+        });
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn validate_cached_windows(
+    path: &Path,
+    npm_direct: Option<&NpmDirectInvocation>,
+) -> Result<(), AgentExecutableError> {
+    if !path.is_file() {
+        return Err(AgentExecutableError::CachedNotLaunchable {
+            path: path.to_path_buf(),
+            detail: "cached wrapper/executable file no longer exists".to_owned(),
+        });
+    }
+    if let Some(direct) = npm_direct {
+        if !direct.node_executable().is_file() {
+            return Err(AgentExecutableError::CachedNotLaunchable {
+                path: direct.node_executable().to_path_buf(),
+                detail: "node.exe prerequisite for cached npm wrapper disappeared".to_owned(),
+            });
+        }
+        if !direct.cli_script().is_file() {
+            return Err(AgentExecutableError::CachedNotLaunchable {
+                path: direct.cli_script().to_path_buf(),
+                detail: "npm-cli.js prerequisite for cached npm wrapper disappeared".to_owned(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Pure resolver input, injectable for deterministic tests and startup detection.
@@ -416,6 +530,14 @@ pub enum AgentExecutableError {
     /// A Windows `.cmd`/`.bat` npm wrapper could not be resolved to a direct
     /// `node.exe` + `npm-cli.js` invocation (non-standard installation layout).
     NpmWrapperResolutionFailed(String),
+    /// A session-cached executable path is no longer present or launchable.
+    ///
+    /// Returned by [`ResolvedAgentExecutable::validate_cached`] when a cached
+    /// npm path (authoritative — never replaced by a PATH lookup) has gone
+    /// stale: the file was removed, is not a regular file, lost execute
+    /// permission (Unix), or a Windows npm-direct prerequisite
+    /// (`node.exe` / `npm-cli.js`) disappeared.
+    CachedNotLaunchable { path: PathBuf, detail: String },
 }
 
 impl std::fmt::Display for AgentExecutableError {
@@ -441,6 +563,12 @@ impl std::fmt::Display for AgentExecutableError {
                     "could not resolve npm wrapper to a direct node invocation: {detail}"
                 )
             }
+            Self::CachedNotLaunchable { path, detail } => write!(
+                formatter,
+                "cached agent executable '{}' is no longer launchable: {detail}; \
+                 re-run agent detection or reinstall the runtime",
+                path.display()
+            ),
         }
     }
 }

@@ -19,65 +19,41 @@ fn probe_command(argv: &[String]) -> &str {
 }
 
 #[test]
-fn probe_plan_versioned_llxprt_probes_npm_not_llxprt() {
-    let argv = plan_remote_probe(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        AgentKind::Llxprt,
-        "0.9.0",
-    );
-    let command = probe_command(&argv);
-    assert!(command.contains("npm"), "must check npm: {command}");
-    assert!(
-        !command.contains("llxprt"),
-        "must not check llxprt: {command}"
-    );
+fn versioned_llxprt_probe_requires_npm_not_llxprt_or_path_local_binary() {
+    for selector in ["0.9.0", "0.10.0-nightly.260712.21cb698b6"] {
+        let argv = plan_remote_probe(
+            &valid_remote(),
+            Path::new("/home/ubuntu/work"),
+            AgentKind::Llxprt,
+            selector,
+        );
+        let command = probe_command(&argv);
+        assert!(command.contains("npm"), "must check npm: {command}");
+        assert!(
+            !command.contains("llxprt") && !command.contains("node_modules"),
+            "must not check direct or path-local LLxprt: {command}"
+        );
+    }
 }
 
 #[test]
-fn probe_plan_versioned_llxprt_does_not_check_path_local_binary() {
-    let argv = plan_remote_probe(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        AgentKind::Llxprt,
-        "0.10.0-nightly.260712.21cb698b6",
-    );
-    let command = probe_command(&argv);
-    assert!(command.contains("npm"), "must check npm: {command}");
-    assert!(
-        !command.contains("node_modules"),
-        "must not check node_modules: {command}"
-    );
+fn blank_llxprt_probe_requires_direct_llxprt_not_npm() {
+    for selector in ["", "   "] {
+        let argv = plan_remote_probe(
+            &valid_remote(),
+            Path::new("/home/ubuntu/work"),
+            AgentKind::Llxprt,
+            selector,
+        );
+        let command = probe_command(&argv);
+        assert!(command.contains("llxprt"), "must check llxprt: {command}");
+        assert!(!command.contains("npm"), "must not check npm: {command}");
+    }
 }
 
 #[test]
-fn probe_plan_blank_llxprt_still_probes_llxprt_binary() {
-    let argv = plan_remote_probe(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        AgentKind::Llxprt,
-        "",
-    );
-    let command = probe_command(&argv);
-    assert!(command.contains("llxprt"), "must check llxprt: {command}");
-    assert!(!command.contains("npm"), "must not check npm: {command}");
-}
-
-#[test]
-fn probe_plan_whitespace_only_version_probes_llxprt_not_npm() {
-    let argv = plan_remote_probe(
-        &valid_remote(),
-        Path::new("/home/ubuntu/work"),
-        AgentKind::Llxprt,
-        "   ",
-    );
-    let command = probe_command(&argv);
-    assert!(command.contains("llxprt") && !command.contains("npm"));
-}
-
-#[test]
-fn require_runtime_versioned_llxprt_local_passes_with_npm_no_llxprt() {
-    let result = require_runtime_available(
+fn local_versioned_llxprt_availability_depends_on_npm() {
+    let available = require_runtime_available(
         &WorkTarget::Local,
         Path::new("/tmp/work"),
         AgentKind::Llxprt,
@@ -85,12 +61,9 @@ fn require_runtime_versioned_llxprt_local_passes_with_npm_no_llxprt() {
         "0.9.0",
         true,
     );
-    assert!(result.is_ok());
-}
+    assert!(available.is_ok());
 
-#[test]
-fn require_runtime_versioned_llxprt_local_fails_without_npm() {
-    let result = require_runtime_available(
+    let unavailable = require_runtime_available(
         &WorkTarget::Local,
         Path::new("/tmp/work"),
         AgentKind::Llxprt,
@@ -98,7 +71,7 @@ fn require_runtime_versioned_llxprt_local_fails_without_npm() {
         "0.9.0",
         false,
     );
-    let Err(error) = result else {
+    let Err(error) = unavailable else {
         panic!("versioned LLxprt without npm must fail");
     };
     assert!(error.contains("npm"), "error must reference npm: {error}");

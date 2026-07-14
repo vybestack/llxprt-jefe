@@ -4,6 +4,125 @@
 //! the app/domain boundary layer.
 
 use crate::domain::DEFAULT_SANDBOX_FLAGS;
+use std::path::Path;
+
+/// Platform policy used for local-path validation and comparison.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocalPathPlatform {
+    /// Native Windows path semantics.
+    Windows,
+    /// Unix path semantics.
+    Unix,
+}
+
+impl LocalPathPlatform {
+    /// Return the current host path policy.
+    #[must_use]
+    pub(crate) const fn current() -> Self {
+        if cfg!(windows) {
+            Self::Windows
+        } else {
+            Self::Unix
+        }
+    }
+}
+
+/// Compare local paths without changing either user-visible value.
+#[must_use]
+pub fn local_paths_equivalent(left: &Path, right: &Path) -> bool {
+    local_paths_equivalent_for_platform(
+        &left.to_string_lossy(),
+        &right.to_string_lossy(),
+        LocalPathPlatform::current(),
+    )
+}
+
+#[must_use]
+fn local_paths_equivalent_for_platform(
+    left: &str,
+    right: &str,
+    platform: LocalPathPlatform,
+) -> bool {
+    normalize_local_path(left, platform) == normalize_local_path(right, platform)
+}
+
+fn normalize_local_path(value: &str, platform: LocalPathPlatform) -> String {
+    let separated = match platform {
+        LocalPathPlatform::Windows => value.replace('\\', "/").to_lowercase(),
+        LocalPathPlatform::Unix => value.to_owned(),
+    };
+    let separated = strip_windows_device_prefix(&separated, platform);
+    let (prefix, rest) = windows_drive_prefix(separated, platform);
+    let rooted = rest.starts_with('/');
+    let mut parts = Vec::new();
+    for part in rest.split('/') {
+        match part {
+            ".." if parts.last().is_some_and(|last| *last != "..") => {
+                parts.pop();
+            }
+            ".." if !rooted => parts.push(part),
+            "" | "." | ".." => {}
+            _ => parts.push(part),
+        }
+    }
+    let normalized = parts.join("/");
+    if !prefix.is_empty() {
+        let separator = if rest.starts_with('/') { "/" } else { "" };
+        format!("{prefix}{separator}{normalized}")
+    } else if rooted {
+        format!("/{normalized}")
+    } else {
+        normalized
+    }
+}
+
+fn strip_windows_device_prefix(value: &str, platform: LocalPathPlatform) -> &str {
+    if platform == LocalPathPlatform::Windows
+        && (value.starts_with("//?/") || value.starts_with("//./"))
+    {
+        &value[4..]
+    } else {
+        value
+    }
+}
+
+fn windows_drive_prefix(value: &str, platform: LocalPathPlatform) -> (&str, &str) {
+    if platform == LocalPathPlatform::Windows
+        && value.as_bytes().get(1) == Some(&b':')
+        && value
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphabetic)
+    {
+        value.split_at(2)
+    } else {
+        ("", value)
+    }
+}
+
+/// Validate that a local work directory is supported on this host.
+pub fn validate_local_path(path: &Path) -> Result<(), String> {
+    validate_local_path_for_platform(path, LocalPathPlatform::current())
+}
+
+fn validate_local_path_for_platform(
+    path: &Path,
+    platform: LocalPathPlatform,
+) -> Result<(), String> {
+    if platform == LocalPathPlatform::Windows {
+        let value = path.to_string_lossy().replace('/', "\\");
+        let lower = value.to_lowercase();
+        let extended_local = lower.starts_with(r"\\?\") && !lower.starts_with(r"\\?\unc\");
+        let device_local = lower.starts_with(r"\\.\") && !lower.starts_with(r"\\.\unc\");
+        if value.starts_with(r"\\") && !extended_local && !device_local {
+            return Err(format!(
+                "UNC work directories are not supported yet: {}. Choose a path on a local drive.",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// Expand a leading `~` or `~/` to the user's home directory.
 pub fn expand_tilde(path: &str) -> String {
@@ -105,6 +224,127 @@ pub fn normalize_llxprt_debug(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn windows_path_comparison_handles_case_and_separator_variants() {
+        assert!(local_paths_equivalent_for_platform(
+            r"C:\Users\Acoli\Repo\",
+            r"c:/users/acoli/repo",
+            LocalPathPlatform::Windows,
+        ));
+        assert!(!local_paths_equivalent_for_platform(
+            r"C:\Users\Acoli\Repo",
+            r"C:\Users\Acoli\Repository",
+            LocalPathPlatform::Windows,
+        ));
+    }
+
+    #[test]
+    fn unix_path_comparison_preserves_case() {
+        assert!(!local_paths_equivalent_for_platform(
+            "/srv/Repo/",
+            "/srv/repo",
+            LocalPathPlatform::Unix,
+        ));
+        assert!(local_paths_equivalent_for_platform(
+            "/srv/repo/",
+            "/srv/repo",
+            LocalPathPlatform::Unix,
+        ));
+    }
+    #[test]
+    fn windows_path_comparison_handles_unicode_case_and_components() {
+        assert!(local_paths_equivalent_for_platform(
+            r"C:\MÜLLER\.\Repo\child\..",
+            r"c:/müller/repo",
+            LocalPathPlatform::Windows,
+        ));
+    }
+
+    #[test]
+    fn windows_drive_anchor_survives_parent_components() {
+        assert!(local_paths_equivalent_for_platform(
+            r"C:\..\foo",
+            r"c:\foo",
+            LocalPathPlatform::Windows,
+        ));
+        assert!(!local_paths_equivalent_for_platform(
+            r"C:\..\foo",
+            r"foo",
+            LocalPathPlatform::Windows,
+        ));
+    }
+
+    #[test]
+    fn windows_drive_relative_parent_is_not_collapsed_as_rooted() {
+        assert!(!local_paths_equivalent_for_platform(
+            r"C:..\foo",
+            r"C:foo",
+            LocalPathPlatform::Windows,
+        ));
+    }
+
+    #[test]
+    fn windows_extended_drive_path_matches_ordinary_drive_path() {
+        assert!(local_paths_equivalent_for_platform(
+            r"\\?\C:\workspace\repo",
+            r"C:\workspace\repo",
+            LocalPathPlatform::Windows,
+        ));
+    }
+
+    #[test]
+    fn windows_device_unc_path_is_rejected() {
+        let error = validate_local_path_for_platform(
+            std::path::Path::new(r"\\.\UNC\server\share\repo"),
+            LocalPathPlatform::Windows,
+        );
+        assert!(error.is_err_and(|message| message.contains("UNC")));
+    }
+
+    #[test]
+    fn root_is_not_equivalent_to_empty_path() {
+        assert!(!local_paths_equivalent_for_platform(
+            "/",
+            "",
+            LocalPathPlatform::Unix,
+        ));
+    }
+
+    #[test]
+    fn windows_unc_path_is_rejected_with_actionable_error() {
+        let error = validate_local_path_for_platform(
+            std::path::Path::new(r"\\server\share\repo"),
+            LocalPathPlatform::Windows,
+        );
+        assert!(
+            error.is_err_and(|message| message.contains("UNC") && message.contains("local drive")),
+            "UNC rejection must explain the supported alternative"
+        );
+    }
+
+    #[test]
+    fn windows_extended_local_path_is_accepted() {
+        assert_eq!(
+            validate_local_path_for_platform(
+                std::path::Path::new(r"\\?\C:\workspace\repo"),
+                LocalPathPlatform::Windows,
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn windows_long_local_path_is_preserved() {
+        let original = format!(r"C:\workspace\{}\repo", "long segment".repeat(30));
+        assert_eq!(
+            validate_local_path_for_platform(
+                std::path::Path::new(&original),
+                LocalPathPlatform::Windows,
+            ),
+            Ok(())
+        );
+    }
     use super::*;
 
     #[test]

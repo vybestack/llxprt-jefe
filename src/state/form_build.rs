@@ -136,6 +136,7 @@ impl AppState {
             default_code_puppy_model: fields.default_code_puppy_model.trim().to_owned(),
             default_llxprt_version: fields.default_llxprt_version.trim().to_owned(),
             github_repo: fields.github_repo.trim().to_owned(),
+            github_issue_pr_repo: fields.github_issue_pr_repo.trim().to_owned(),
             remote: remote_settings,
             issue_base_prompt: String::new(),
             default_agent_kind: AgentKind::from_form_value(&fields.default_agent_kind)

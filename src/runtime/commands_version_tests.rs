@@ -251,7 +251,8 @@ fn create_session_rejects_invalid_version_selector_before_kill() {
 /// must be returned verbatim, even when a different npm is discoverable on
 /// the live PATH. This proves the stale-tmux/PATH rationale: the
 /// session-cached detection snapshot is authoritative, not a fresh resolver
-/// lookup.
+/// lookup. The cached path must be a real executable so it passes cached
+/// revalidation (issue #269 pre-kill gate).
 #[cfg(unix)]
 #[test]
 fn cached_npm_path_wins_over_different_live_resolver_result() {
@@ -277,19 +278,31 @@ fn cached_npm_path_wins_over_different_live_resolver_result() {
         .resolve_named("npm")
         .unwrap_or_else(|error| panic!("live npm should resolve: {error:?}"));
 
-    let cached = std::path::Path::new("/opt/node/v18/bin/npm");
+    // Build a separate real executable to serve as the cached path so it
+    // passes cached revalidation yet differs from the live resolver result.
+    let cached_dir =
+        tempfile::tempdir().unwrap_or_else(|error| panic!("create cached temp dir: {error}"));
+    let cached = cached_dir.path().join("npm");
+    std::fs::write(
+        &cached,
+        b"#!/bin/sh
+",
+    )
+    .unwrap_or_else(|error| panic!("write cached npm: {error}"));
+    std::fs::set_permissions(&cached, std::fs::Permissions::from_mode(0o755))
+        .unwrap_or_else(|error| panic!("chmod cached npm: {error}"));
     assert_ne!(
         live.path(),
-        cached,
+        &cached,
         "test setup: cached path must differ from live result"
     );
 
     let executable =
-        resolve_local_executable_with_resolver(&plan_npm_exec(), Some(cached), &resolver)
+        resolve_local_executable_with_resolver(&plan_npm_exec(), Some(&cached), &resolver)
             .unwrap_or_else(|error| panic!("cached path should resolve: {error:?}"));
     assert_eq!(
         executable.path(),
-        cached,
+        &cached,
         "cached npm path must win over the live resolver result"
     );
     assert_eq!(
@@ -331,5 +344,285 @@ fn no_cache_falls_back_to_live_resolver() {
         executable.path(),
         &live_npm,
         "no-cache path must use the live resolver result"
+    );
+    cached_npm_revalidation_contracts();
+}
+
+// ── Issue #269: cached npm pre-kill revalidation ──────────────────────────
+//
+// The cached npm path is authoritative — it must never be silently replaced
+// by a PATH lookup. But `from_path` only classifies the wrapper strategy; it
+// does not prove the file still exists or is executable. A long-lived tmux
+// server can outlive the npm installation detected at startup. These tests
+// prove the production `validate_cached` gate inside
+// `resolve_local_executable_with_resolver` catches a stale/missing/
+// non-executable cached npm BEFORE any kill, returning a typed
+// `CachedNotLaunchable` error.
+
+/// A valid cached npm (real executable file) passes revalidation and is
+/// returned by `resolve_local_executable_with_resolver`.
+#[cfg(unix)]
+fn cached_npm_revalidation_accepts_valid_executable() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let cached_dir =
+        tempfile::tempdir().unwrap_or_else(|error| panic!("create cached temp dir: {error}"));
+    let cached = cached_dir.path().join("npm");
+    std::fs::write(
+        &cached,
+        b"#!/bin/sh
+",
+    )
+    .unwrap_or_else(|error| panic!("write cached npm: {error}"));
+    std::fs::set_permissions(&cached, std::fs::Permissions::from_mode(0o755))
+        .unwrap_or_else(|error| panic!("chmod cached npm: {error}"));
+
+    // Resolver with an empty PATH so a fallback lookup would never succeed —
+    // proving the cached path is the sole source.
+    let resolver = crate::runtime::AgentExecutableResolver::for_platform(
+        crate::runtime::AgentExecutablePlatform::Unix,
+        Vec::new(),
+        None,
+    );
+
+    let executable =
+        resolve_local_executable_with_resolver(&plan_npm_exec(), Some(&cached), &resolver)
+            .unwrap_or_else(|error| panic!("valid cached npm must resolve: {error:?}"));
+    assert_eq!(executable.path(), &cached);
+}
+
+/// A cached npm path pointing to a file that does not exist must fail with
+/// `CachedNotLaunchable` (stale cache scenario — npm uninstalled since
+/// detection).
+#[cfg(unix)]
+fn cached_npm_revalidation_rejects_missing_file() {
+    let cached_dir =
+        tempfile::tempdir().unwrap_or_else(|error| panic!("create cached temp dir: {error}"));
+    let cached = cached_dir.path().join("npm");
+    // Intentionally do NOT create the file.
+
+    let resolver = crate::runtime::AgentExecutableResolver::for_platform(
+        crate::runtime::AgentExecutablePlatform::Unix,
+        Vec::new(),
+        None,
+    );
+
+    let result = resolve_local_executable_with_resolver(&plan_npm_exec(), Some(&cached), &resolver);
+    let Err(RuntimeError::AgentExecutable(
+        crate::runtime::AgentExecutableError::CachedNotLaunchable { path, .. },
+    )) = result
+    else {
+        panic!("missing cached npm must return CachedNotLaunchable, got {result:?}");
+    };
+    assert_eq!(path, cached);
+}
+
+/// A cached npm path pointing to a regular file WITHOUT execute permission
+/// must fail with `CachedNotLaunchable` (permission-stripped scenario).
+#[cfg(unix)]
+fn cached_npm_revalidation_rejects_non_executable_file() {
+    let cached_dir =
+        tempfile::tempdir().unwrap_or_else(|error| panic!("create cached temp dir: {error}"));
+    let cached = cached_dir.path().join("npm");
+    std::fs::write(&cached, b"data").unwrap_or_else(|error| panic!("write cached npm: {error}"));
+    // Default permissions: no execute bit.
+
+    let resolver = crate::runtime::AgentExecutableResolver::for_platform(
+        crate::runtime::AgentExecutablePlatform::Unix,
+        Vec::new(),
+        None,
+    );
+
+    let result = resolve_local_executable_with_resolver(&plan_npm_exec(), Some(&cached), &resolver);
+    let Err(RuntimeError::AgentExecutable(
+        crate::runtime::AgentExecutableError::CachedNotLaunchable { detail, .. },
+    )) = result
+    else {
+        panic!("non-executable cached npm must return CachedNotLaunchable, got {result:?}");
+    };
+    assert!(
+        detail.contains("executable"),
+        "detail must mention execute permission: {detail}"
+    );
+}
+
+/// A cached npm path pointing to a directory (not a regular file) must fail
+/// with `CachedNotLaunchable`.
+#[cfg(unix)]
+fn cached_npm_revalidation_rejects_directory() {
+    let cached_dir =
+        tempfile::tempdir().unwrap_or_else(|error| panic!("create cached temp dir: {error}"));
+
+    let resolver = crate::runtime::AgentExecutableResolver::for_platform(
+        crate::runtime::AgentExecutablePlatform::Unix,
+        Vec::new(),
+        None,
+    );
+
+    let result = resolve_local_executable_with_resolver(
+        &plan_npm_exec(),
+        Some(cached_dir.path()),
+        &resolver,
+    );
+    let Err(RuntimeError::AgentExecutable(
+        crate::runtime::AgentExecutableError::CachedNotLaunchable { detail, .. },
+    )) = result
+    else {
+        panic!("directory cached npm must return CachedNotLaunchable, got {result:?}");
+    };
+    assert!(
+        detail.contains("regular file"),
+        "detail must mention regular file: {detail}"
+    );
+}
+
+/// Cross-platform: the `CachedNotLaunchable` error message is actionable —
+/// it names the path and includes a remediation hint. Uses the direct
+/// `validate_cached` API so the diagnostic is asserted on all platforms.
+fn cached_not_launchable_error_is_actionable() {
+    let stale_path = std::path::Path::new("/definitely/not/here/npm");
+    let resolved = crate::runtime::ResolvedAgentExecutable::from_path(stale_path)
+        .unwrap_or_else(|e| panic!("from_path should classify without I/O: {e}"));
+    let Err(error) = resolved.validate_cached() else {
+        panic!("non-existent path must fail validation");
+    };
+    let diagnostic = error.to_string();
+    assert!(
+        diagnostic.contains("/definitely/not/here/npm"),
+        "error must name the stale path: {diagnostic}"
+    );
+    assert!(
+        diagnostic.contains("re-run agent detection") || diagnostic.contains("reinstall"),
+        "error must include a remediation hint: {diagnostic}"
+    );
+}
+
+fn cached_npm_revalidation_contracts() {
+    #[cfg(unix)]
+    {
+        cached_npm_revalidation_accepts_valid_executable();
+        cached_npm_revalidation_rejects_missing_file();
+        cached_npm_revalidation_rejects_non_executable_file();
+        cached_npm_revalidation_rejects_directory();
+        cached_npm_revalidation_accepts_executable_symlink();
+        cached_npm_revalidation_rejects_dangling_symlink();
+        cached_npm_revalidation_rejects_symlink_to_directory();
+        cached_npm_revalidation_rejects_symlink_to_non_executable();
+    }
+    cached_not_launchable_error_is_actionable();
+}
+
+/// A cached npm path that is a symlink to a valid executable must pass
+/// revalidation. This is the standard npm layout: `/usr/local/bin/npm` is a
+/// symlink to `../lib/node_modules/npm/bin/npm-cli.js`. Using
+/// `symlink_metadata` (the old code) rejected this valid layout because it
+/// inspected the link itself rather than following to the target. `metadata`
+/// follows the chain so a valid symlink-to-executable succeeds.
+#[cfg(unix)]
+fn cached_npm_revalidation_accepts_executable_symlink() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir =
+        tempfile::tempdir().unwrap_or_else(|error| panic!("create symlink temp dir: {error}"));
+    let target = dir.path().join("real-npm");
+    std::fs::write(
+        &target,
+        b"#!/bin/sh
+",
+    )
+    .unwrap_or_else(|error| panic!("write target executable: {error}"));
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755))
+        .unwrap_or_else(|error| panic!("chmod target: {error}"));
+    let link = dir.path().join("npm");
+    std::os::unix::fs::symlink(&target, &link)
+        .unwrap_or_else(|error| panic!("create symlink: {error}"));
+
+    let resolved = crate::runtime::ResolvedAgentExecutable::from_path(&link)
+        .unwrap_or_else(|e| panic!("from_path should classify symlink: {e}"));
+    resolved
+        .validate_cached()
+        .unwrap_or_else(|e| panic!("valid executable symlink must pass revalidation: {e}"));
+}
+
+/// A cached npm path that is a dangling symlink (target removed) must fail
+/// with `CachedNotLaunchable` — `metadata` follows the chain and returns an
+/// error when the target does not exist.
+#[cfg(unix)]
+fn cached_npm_revalidation_rejects_dangling_symlink() {
+    let dir =
+        tempfile::tempdir().unwrap_or_else(|error| panic!("create symlink temp dir: {error}"));
+    let target = dir.path().join("gone");
+    let link = dir.path().join("npm");
+    std::os::unix::fs::symlink(&target, &link)
+        .unwrap_or_else(|error| panic!("create dangling symlink: {error}"));
+    // target is never created → dangling.
+
+    let resolved = crate::runtime::ResolvedAgentExecutable::from_path(&link)
+        .unwrap_or_else(|e| panic!("from_path should classify dangling symlink: {e}"));
+    let Err(error) = resolved.validate_cached() else {
+        panic!("dangling symlink must fail revalidation");
+    };
+    assert!(
+        matches!(
+            error,
+            crate::runtime::AgentExecutableError::CachedNotLaunchable { .. }
+        ),
+        "expected CachedNotLaunchable, got {error:?}"
+    );
+}
+
+/// A cached npm path that is a symlink to a directory must fail with
+/// `CachedNotLaunchable` — a directory is not a regular file.
+#[cfg(unix)]
+fn cached_npm_revalidation_rejects_symlink_to_directory() {
+    let dir =
+        tempfile::tempdir().unwrap_or_else(|error| panic!("create symlink temp dir: {error}"));
+    let target_dir = dir.path().join("not-a-file");
+    std::fs::create_dir_all(&target_dir)
+        .unwrap_or_else(|error| panic!("create target dir: {error}"));
+    let link = dir.path().join("npm");
+    std::os::unix::fs::symlink(&target_dir, &link)
+        .unwrap_or_else(|error| panic!("create symlink to dir: {error}"));
+
+    let resolved = crate::runtime::ResolvedAgentExecutable::from_path(&link)
+        .unwrap_or_else(|e| panic!("from_path should classify dir symlink: {e}"));
+    let Err(error) = resolved.validate_cached() else {
+        panic!("symlink to directory must fail revalidation");
+    };
+    let crate::runtime::AgentExecutableError::CachedNotLaunchable { detail, .. } = &error else {
+        panic!("expected CachedNotLaunchable, got {error:?}");
+    };
+    assert!(
+        detail.contains("regular file"),
+        "detail must mention regular file: {detail}"
+    );
+}
+
+/// A cached npm path that is a symlink to a non-executable regular file must
+/// fail with `CachedNotLaunchable` — following the symlink reveals the target
+/// lacks execute permission.
+#[cfg(unix)]
+fn cached_npm_revalidation_rejects_symlink_to_non_executable() {
+    let dir =
+        tempfile::tempdir().unwrap_or_else(|error| panic!("create symlink temp dir: {error}"));
+    let target = dir.path().join("data-file");
+    std::fs::write(&target, b"data")
+        .unwrap_or_else(|error| panic!("write non-executable target: {error}"));
+    // No execute permission on the target.
+    let link = dir.path().join("npm");
+    std::os::unix::fs::symlink(&target, &link)
+        .unwrap_or_else(|error| panic!("create symlink to non-exec: {error}"));
+
+    let resolved = crate::runtime::ResolvedAgentExecutable::from_path(&link)
+        .unwrap_or_else(|e| panic!("from_path should classify non-exec symlink: {e}"));
+    let Err(error) = resolved.validate_cached() else {
+        panic!("symlink to non-executable must fail revalidation");
+    };
+    let crate::runtime::AgentExecutableError::CachedNotLaunchable { detail, .. } = &error else {
+        panic!("expected CachedNotLaunchable, got {error:?}");
+    };
+    assert!(
+        detail.contains("executable"),
+        "detail must mention execute permission: {detail}"
     );
 }

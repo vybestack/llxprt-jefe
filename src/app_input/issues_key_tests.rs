@@ -562,7 +562,8 @@ fn test_r_noop_when_not_on_comment() {
     assert!(event.is_none());
 }
 
-/// Ctrl+Enter when inline active dispatches InlineSubmit.
+/// Ctrl+Enter when inline active dispatches InlineSubmit (compatibility
+/// retained; Alt+Enter is the advertised primary key).
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P10
 /// @plan PLAN-20260329-ISSUES-MODE.P11
@@ -612,9 +613,6 @@ fn test_esc_cancels_inline_editor() {
     let event = resolve_issues_key_event(&state, &key(KeyCode::Esc));
     assert!(matches!(event, Some(AppEvent::InlineCancelOrEsc)));
 }
-
-// ═══════════════════════════════════════════════════════════════════════
-// Agent Chooser (3 tests)
 // ═══════════════════════════════════════════════════════════════════════
 
 /// `S` from IssueDetail focus dispatches OpenAgentChooser when agents exist.
@@ -650,21 +648,6 @@ fn test_s_noop_when_inline_active() {
         matches!(event, Some(AppEvent::InlineChar('S'))),
         "Expected InlineChar('S'), got {event:?}"
     );
-}
-
-/// `S` with no agents returns None (shows message instead of opening chooser).
-///
-/// GREEN — stub returns None for all unimplemented keys regardless of agent count.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P10
-/// @requirement REQ-ISS-011
-/// @pseudocode component-003 lines 102-111
-#[test]
-fn test_s_shows_message_when_no_agents() {
-    let state = issues_state_with_focus(IssueFocus::IssueDetail);
-    // No agents in state
-    let event = resolve_issues_key_event(&state, &key(KeyCode::Char('S')));
-    assert!(event.is_none());
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -993,3 +976,6 @@ fn p_in_inline_composer_types_char() {
 
 #[path = "issues_close_delete_key_tests.rs"]
 mod close_delete;
+
+#[path = "issues_key_265_tests.rs"]
+mod issue265;

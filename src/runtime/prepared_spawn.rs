@@ -47,6 +47,12 @@ pub(super) fn kill_session_for_prepared(
 /// re-resolution occurs. This is the single post-kill execution path for the
 /// force-fresh `spawn_session_internal` branch, ensuring the pre-kill
 /// validation and post-kill spawn use the exact same prepared data.
+///
+/// The fork-broken retry re-attempts the spawn WITHOUT a second kill: the
+/// replacement transaction owns exactly one kill (`kill_session_for_prepared`
+/// called from `run_prepared_transaction`), and a fork-broken `new-session`
+/// that failed to create the session does not leave a live session needing
+/// another kill. A second kill here would violate the single-kill invariant.
 pub(super) fn execute_prepared_launch(prepared: &PreparedLaunch) -> Result<(), RuntimeError> {
     match prepared {
         PreparedLaunch::Remote(remote_prepared) => remote_prepared.execute(),
@@ -61,7 +67,6 @@ pub(super) fn execute_prepared_launch(prepared: &PreparedLaunch) -> Result<(), R
                     stderr = %stderr,
                     "prepared launch retrying after multiplexer fork failure"
                 );
-                let _ = commands::kill_session(local_prepared.session_name());
                 local_prepared
                     .try_execute()
                     .map_err(|failure| match failure {
@@ -78,9 +83,60 @@ pub(super) fn execute_prepared_launch(prepared: &PreparedLaunch) -> Result<(), R
     }
 }
 
+/// Phase of the kill → delay → spawn replacement transaction that failed.
+///
+/// The caller ([`spawn_prepared_session_internal`]) uses this to apply the
+/// correct runtime-map and app-state policy for each outcome:
+///
+/// - [`PreparedTransactionPhase::Kill`]: the kill failed; the old session may
+///   still be alive and its mapping must be preserved so the caller sees the
+///   agent as still running its old session.
+/// - [`PreparedTransactionPhase::Spawn`]: the kill succeeded but the spawn
+///   failed; the old session is gone and its stale mapping must be removed,
+///   but the dead relaunch signature is preserved so the agent can be
+///   relaunched from it.
+/// - [`PreparedTransactionPhase::Success`]: both kill and spawn succeeded;
+///   the new mapping replaces the old one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PreparedTransactionPhase {
+    Kill,
+    Spawn,
+    Success,
+}
+
+impl PreparedTransactionPhase {
+    /// Whether the old session mapping should be removed after this phase.
+    ///
+    /// `true` only when the kill has succeeded (Spawn failure or Success):
+    /// the old session is gone and a stale mapping would mislead the caller.
+    /// For Prepare and Kill failures the old session may still be alive, so
+    /// the mapping is preserved.
+    #[must_use]
+    pub(super) const fn removes_old_mapping(self) -> bool {
+        matches!(self, Self::Spawn | Self::Success)
+    }
+
+    /// Whether the dead relaunch signature should be preserved after this
+    /// phase.
+    ///
+    /// `true` only for Spawn failure: the kill succeeded (the old session is
+    /// gone) but the spawn could not create a new one. The dead signature
+    /// must be stashed so the agent can be relaunched later from its stored
+    /// launch signature — rather than losing the ability to restart.
+    #[must_use]
+    pub(super) const fn preserves_dead_signature(self) -> bool {
+        matches!(self, Self::Spawn)
+    }
+}
+
 /// Execute an ALREADY prepared replacement transaction in exact order:
-/// kill → delay → spawn. The kill is best-effort (logged on failure, does
-/// not abort the spawn). Returns the spawn result.
+/// kill → delay → spawn. The kill is propagated: if the kill returns a real
+/// error, the spawn is NOT attempted and the kill error is returned to the
+/// caller. This prevents a half-dead old session from racing the new spawn.
+///
+/// Returns `Ok(Success)` on full success, or `Err((phase, RuntimeError))`
+/// identifying which phase failed so the caller can apply the correct
+/// runtime-map policy. The phase is never `Success` in the `Err` variant.
 ///
 /// Generic over closures so production paths pass real tmux/sleep closures
 /// and tests pass observable call-log closures — exercising the SAME
@@ -89,19 +145,22 @@ pub(super) fn run_prepared_transaction<K, D, S>(
     kill: K,
     delay: D,
     spawn: S,
-) -> Result<(), RuntimeError>
+) -> Result<PreparedTransactionPhase, (PreparedTransactionPhase, RuntimeError)>
 where
     K: FnOnce() -> Result<(), RuntimeError>,
     D: FnOnce(),
     S: FnOnce() -> Result<(), RuntimeError>,
 {
-    // Best-effort kill: a stale/missing session is tolerated (scoped to one
-    // agent). Logged but never aborts the spawn.
+    // Propagate real kill errors: do not spawn after a failed kill, which
+    // would leave the old session in a half-dead state racing the new spawn.
     if let Err(error) = kill() {
-        debug!(error = %error, "prepared transaction: kill was not clean");
+        return Err((PreparedTransactionPhase::Kill, error));
     }
     delay();
-    spawn()
+    match spawn() {
+        Ok(()) => Ok(PreparedTransactionPhase::Success),
+        Err(error) => Err((PreparedTransactionPhase::Spawn, error)),
+    }
 }
 
 /// Orchestrate prepare → kill → delay → spawn. The prepare closure runs first
@@ -109,11 +168,17 @@ where
 /// provably empty call log. On prepare success the prepared data is passed to
 /// the kill and spawn closures.
 ///
+/// The kill is best-effort (logged on failure): the force-fresh spawn path
+/// uses this to clean up a possible stale session, but a missing/stale session
+/// must not prevent a fresh spawn. The strict replacement transaction
+/// (`spawn_prepared_session_internal`) calls `run_prepared_transaction`
+/// directly to propagate kill errors.
+///
 /// Generic over the prepared data type `T` so it can be tested with trivial
 /// stubs while production passes [`PreparedLaunch`].
 ///
-/// Used by [`force_fresh_spawn`] so the prepare-then-kill ordering is enforced
-/// by the same production function that tests observe, not a test-only
+/// Used by [`force_fresh_spawn`] so the prepare-then-kill ordering is
+/// enforced by the shared production sequencing function, not a test-only
 /// duplicate.
 pub(super) fn orchestrate_prepared<T, P, K, D, S>(
     prepare: P,
@@ -128,7 +193,14 @@ where
     S: FnOnce(&T) -> Result<(), RuntimeError>,
 {
     let prepared = prepare()?;
-    run_prepared_transaction(|| kill(&prepared), delay, || spawn(&prepared))
+    // Best-effort kill for the force-fresh path: a stale/missing session is
+    // tolerated. The strict kill propagation lives in run_prepared_transaction
+    // for the prepared restart replacement.
+    if let Err(error) = kill(&prepared) {
+        debug!(error = %error, "force-fresh spawn pre-kill was not clean");
+    }
+    delay();
+    spawn(&prepared)
 }
 
 /// Force-fresh spawn: prepare all non-destructive launch prerequisites, then

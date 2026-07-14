@@ -362,7 +362,7 @@ fn remote_disable_prefix_command_wraps_through_run_as_user() {
 }
 
 /// The shared `prefix_disable_tmux_subcommands` builder emits one
-/// `set-option` sub-command per option from `prefix_disable_option_names`,
+/// `set-option` sub-command per option from `prefix_options_for_passthrough`,
 /// separated by tmux's `\;`, with no leading `tmux` keyword. Locking this
 /// format guards both the remote reattach fragment and the remote creation
 /// script against drift (#200).
@@ -381,7 +381,7 @@ fn prefix_disable_tmux_subcommands_joins_all_options_with_separator() {
     // Every production option appears as its own `set-option -t 's' <name>`
     // sub-command exactly once (matched on the full " None" suffix so "prefix"
     // is not double-counted inside "prefix2").
-    for option in prefix_disable_option_names() {
+    for option in prefix_options_for_passthrough() {
         let needle = format!(" {option} None");
         assert_eq!(
             seq.matches(&needle).count(),

@@ -9,6 +9,15 @@ use crate::domain::VersionSelectorError;
 use super::agent_executable::AgentExecutableError;
 use super::multiplexer::MultiplexerError;
 
+/// Destructive phase reached by a prepared runtime replacement failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplacementFailurePhase {
+    /// The old session could not be killed and may still be running.
+    Kill,
+    /// The old session was killed, but its replacement could not be spawned.
+    Spawn,
+}
+
 /// Errors from runtime operations.
 #[derive(Debug, Clone)]
 pub enum RuntimeError {
@@ -30,6 +39,12 @@ pub enum RuntimeError {
     CapabilityCheckFailed(String),
     /// Failed to kill session.
     KillFailed(String),
+    /// A prepared replacement failed after preparation, with the destructive
+    /// phase retained explicitly for app-state reconciliation.
+    ReplacementFailed {
+        phase: ReplacementFailurePhase,
+        source: Box<Self>,
+    },
     /// Agent is already running.
     AlreadyRunning(AgentId),
     /// Agent is not running.
@@ -58,6 +73,9 @@ impl std::fmt::Display for RuntimeError {
             Self::CapabilityProbeFailed(msg) => write!(f, "capability probe failed: {msg}"),
             Self::CapabilityCheckFailed(msg) => write!(f, "capability check failed: {msg}"),
             Self::KillFailed(msg) => write!(f, "kill failed: {msg}"),
+            Self::ReplacementFailed { phase, source } => {
+                write!(f, "replacement {phase:?} phase failed: {source}")
+            }
             Self::AlreadyRunning(id) => write!(f, "agent already running: {}", id.0),
             Self::NotRunning(id) => write!(f, "agent not running: {}", id.0),
             Self::NoAttachedViewer => write!(f, "no attached viewer"),

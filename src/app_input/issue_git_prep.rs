@@ -15,8 +15,10 @@
 //! `git`.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
+#[path = "issue_cleanup.rs"]
+mod issue_cleanup;
 /// Safety guards for the destructive force-reclone path (issue #190).
 ///
 /// Re-exported here so callers can reference
@@ -24,6 +26,7 @@ use std::process::{Command, Stdio};
 /// module split.
 #[path = "reclone_safety.rs"]
 mod reclone_safety;
+pub(super) use issue_cleanup::discard_workdir_changes;
 pub(super) use reclone_safety::validate_reclone_target;
 
 /// Paths that jefe/llxprt own and that must never count as "dirty" working
@@ -524,72 +527,15 @@ pub(super) fn prepare_issue_workdir(work_dir: &Path) -> PrepResult {
     checkout_and_pull(work_dir, &branch)
 }
 
-/// Discard uncommitted/untracked changes in the working copy, preserving
-/// jefe/ and llxprt-owned paths and all `.gitignore`-ed files.
-///
-/// Runs `git clean -fd` first (remove untracked files, respecting
-/// `.gitignore`) then `git reset --hard` (discard tracked changes). Running
-/// `clean` first means if it fails, the user's tracked modifications are
-/// still intact — only untracked files would have been affected. Exclusions
-/// for `.jefe/` and `.llxprt/` are derived from [`IGNORED_PREFIXES`].
-///
-/// Does **not** use `-x`, so gitignored files like `.env`, `node_modules/`,
-/// and build artifacts are preserved.
-///
-/// # Non-atomicity
-///
-/// These two operations are not atomic. If `reset --hard` fails after
-/// `clean -fd` has already removed untracked files, those untracked files
-/// are gone. The user has explicitly confirmed this destructive operation
-/// via the `ConfirmIssueDirtyCopy` modal.
-///
-/// # Limitation: tracked `.jefe/` files
-///
-/// While `git clean -e` prevents removal of *untracked* `.jefe/` files,
-/// `git reset --hard` will revert any *tracked* `.jefe/` files (e.g.,
-/// committed metadata that was locally modified) to their committed state.
-/// In practice this is not an issue because the issue prompt file is
-/// written fresh after cleanup and is never tracked by git.
-pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
-    // Build clean exclusion args from IGNORED_PREFIXES so the porcelain
-    // dirty-check and the cleanup step can never drift. Each prefix is
-    // added twice: as the directory itself (`.jefe/`) and as a glob for
-    // nested contents (`.jefe/**`).
-    let mut clean_args: Vec<String> = vec!["clean".into(), "-fd".into()];
-    for prefix in IGNORED_PREFIXES {
-        clean_args.push("-e".into());
-        clean_args.push(prefix.into());
-        let glob = format!("{prefix}**");
-        clean_args.push("-e".into());
-        clean_args.push(glob);
-    }
-    let output = git_capture(work_dir, &clean_args)?;
-    // Check exit status before logging so we don't report a partial/failed
-    // clean as if it succeeded.
-    require_success(&output, "clean -fd")?;
-    // Log what was removed so the destructive operation is auditable.
-    let removed = String::from_utf8_lossy(&output.stdout);
-    if !removed.trim().is_empty() {
-        tracing::info!(
-            work_dir = %work_dir.display(),
-            removed = %removed.trim(),
-            "discard_workdir_changes: git clean removed paths"
-        );
-    }
-    // Now discard tracked modifications. Running after clean so if clean
-    // fails, tracked changes are still intact.
-    git_require_success(work_dir, ["reset", "--hard"])?;
-    Ok(())
-}
-
 /// Run `git` with the given args in `work_dir`, capturing output. Returns an
 /// error string on spawn failure (does not inspect exit status).
-fn git_capture<I, S>(work_dir: &Path, args: I) -> Result<std::process::Output, String>
+pub(super) fn git_capture<I, S>(work_dir: &Path, args: I) -> Result<std::process::Output, String>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    Command::new("git")
+    jefe::local_command::command(jefe::local_command::LocalTool::Git)
+        .map_err(|error| error.to_string())?
         .current_dir(work_dir)
         // Fail fast instead of hanging on an interactive credential prompt
         // for private repos over HTTPS (stdout/stderr are piped, not a TTY).
@@ -637,7 +583,7 @@ where
 
 /// Inspect a captured `git` output and return `Err` with stderr/stdout detail
 /// when the exit status was non-zero.
-fn require_success(output: &std::process::Output, context: &str) -> Result<(), String> {
+pub(super) fn require_success(output: &std::process::Output, context: &str) -> Result<(), String> {
     if output.status.success() {
         Ok(())
     } else {

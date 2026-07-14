@@ -108,6 +108,7 @@ pub(super) fn p15_detail(number: u64) -> IssueDetail {
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     }
 }
 
@@ -305,7 +306,7 @@ fn test_key_routing_suppression_comprehensive() {
     // affect issues_state focus or mode. Verify focus is stable across domains
     // when we apply IssuesCycleFocus (Tab) — the catch-all that falls through
     // after per-domain handlers.
-    let domains = [
+    let domains = vec![
         IssueFocus::RepoList,
         IssueFocus::IssueList,
         IssueFocus::IssueDetail,

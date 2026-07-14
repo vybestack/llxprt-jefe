@@ -60,6 +60,8 @@ A scenario is a JSON object with `config`, optional `macros`, and `steps`.
   rendering.
 - `history_limit`: retained scrollback lines.
 - `initial_wait_ms`: optional startup pause before the first step.
+- `wait_timeout_ms`: optional timeout for `waitFor` and `waitForNot`; zero or
+  omission uses the platform default.
 - `out_dir`: optional default artifact directory. The CLI `--out-dir` overrides
   it.
 - `keep_session`: keep tmux alive after completion for manual debugging.
@@ -193,6 +195,9 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
   dashboard keybind bar, captures the screen, quits, and waits for exit.
 - [`help-modal.json`](../tmux-scenarios/help-modal.json): opens the help modal,
   verifies its stable title, captures it, closes it, then quits.
+- [`fork-issue-pr-repository.json`](../tmux-scenarios/fork-issue-pr-repository.json):
+  opens New Repository and verifies the optional Issues / PRs Repo override and
+  its blank-fallback guidance for fork configurations.
 - [`scratch-pr-mode.json`](../tmux-scenarios/scratch-pr-mode.json): manual
   scratch scenario for PR-mode screen validation. It is intentionally not a CI
   gate because repository/GitHub configuration can vary by developer machine.

@@ -637,6 +637,7 @@ impl AttachedViewer {
     }
 
     /// Check if the viewer is still alive.
+    #[must_use]
     pub fn is_alive(&self) -> bool {
         self.alive.load(Ordering::Relaxed)
     }
@@ -717,12 +718,14 @@ impl AttachedViewer {
     }
 
     /// Get a snapshot of the terminal state.
+    #[must_use]
     pub fn snapshot(&self) -> Option<TerminalSnapshot> {
         let term = self.term.lock().ok()?;
         Some(snapshot_from_term(&term))
     }
 
     /// Whether the attached application has terminal mouse reporting enabled.
+    #[must_use]
     pub fn mouse_reporting_active(&self) -> bool {
         let Ok(term) = self.term.lock() else {
             return false;
@@ -735,6 +738,7 @@ impl AttachedViewer {
     }
 
     /// Whether the attached application has bracketed paste enabled.
+    #[must_use]
     pub fn bracketed_paste_active(&self) -> bool {
         let Ok(term) = self.term.lock() else {
             return false;

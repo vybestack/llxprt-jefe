@@ -270,10 +270,27 @@ fn test_open_in_browser_events_round_trip() {
 /// @plan PLAN-20260624-PR-MODE.P04
 /// @requirement REQ-PR-002
 /// @pseudocode component-004 round-trip invariant
+fn assert_app_event_round_trip(original: AppEvent) {
+    let message: AppMessage = original.clone().into();
+    let round_trip: AppEvent = message.into();
+    let orig_debug = format!("{original:?}");
+    let rt_debug = format!("{round_trip:?}");
+    assert!(
+        orig_debug == rt_debug,
+        "round-trip failed: expected {orig_debug}, got {rt_debug}"
+    );
+}
+
+macro_rules! assert_app_events_round_trip {
+    ($($event:expr),+ $(,)?) => {
+        $(assert_app_event_round_trip($event);)+
+    };
+}
+
 #[test]
 fn test_appevent_pullrequestsmessage_round_trip() {
     // Unit variants — round-trip must yield the same variant.
-    let unit_samples: Vec<AppEvent> = vec![
+    assert_app_events_round_trip!(
         AppEvent::EnterPrsMode,
         AppEvent::ExitPrsMode,
         AppEvent::RefocusPrList,
@@ -308,18 +325,7 @@ fn test_appevent_pullrequestsmessage_round_trip() {
         AppEvent::PrAgentChooserCancel,
         AppEvent::PrSendToAgentCompleted,
         AppEvent::PrOpenInBrowser,
-    ];
-
-    for original in &unit_samples {
-        let message: AppMessage = original.clone().into();
-        let round_trip: AppEvent = message.into();
-        let orig_debug = format!("{original:?}");
-        let rt_debug = format!("{round_trip:?}");
-        assert!(
-            orig_debug == rt_debug,
-            "round-trip failed: expected {orig_debug}, got {rt_debug}"
-        );
-    }
+    );
 
     // ShowNotice carries a kind — verify the kind survives the round-trip.
     let kind = ReadOnlyHintKind::ReadOnlyReplyOnComment;

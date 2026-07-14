@@ -34,6 +34,14 @@ From the dashboard, press `N` (capital N) to open **New Repository**.
   - Optional npm version or tag to prefill for new LLxprt agents, such as `0.9.0` or `0.10.0-nightly.260712.21cb698b6`.
   - The value is copied when a new agent is created. Changing the repository default does not modify existing agents.
   - Leave blank to launch the directly installed `llxprt` executable.
+- **GitHub Repo**
+  - The working repository in `owner/repo` format.
+  - Jefe uses this repository for cloning, origin checks, and GitHub Actions.
+
+- **Issues / PRs Repo**
+  - Optional `owner/repo` override for the repository whose issues and pull requests Jefe displays and updates.
+  - For a contribution fork such as `acoliver/llxprt-jefe`, set this to the upstream repository, for example `vybestack/llxprt-jefe`.
+  - Leave it blank to use **GitHub Repo**. This preserves the expected behavior for independent or long-lived forks that use their own issue tracker and pull requests.
 
 ### Submit / navigation
 

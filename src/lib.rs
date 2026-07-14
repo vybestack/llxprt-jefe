@@ -13,6 +13,8 @@ pub mod domain;
 pub mod input;
 pub mod issue_detail_content;
 pub mod layout;
+/// Explicit local Git and GitHub CLI executable resolution.
+pub mod local_command;
 pub mod logging;
 /// Single-pass HTML-to-text stripping for untrusted markdown (issue #155).
 pub(crate) mod markdown_html_strip;

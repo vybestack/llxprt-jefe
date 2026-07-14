@@ -121,6 +121,11 @@ pub struct RepositoryFormFields {
     pub default_agent_kind: String,
     /// GitHub repository slug in `"owner/repo"` format.
     pub github_repo: String,
+    /// Optional override for the GitHub repository that sources issues/PRs
+    /// (issue #266). When nonblank, all issue/PR reads/mutations route to
+    /// this `owner/repo` instead of `github_repo`. Blank preserves current
+    /// behavior.
+    pub github_issue_pr_repo: String,
     pub remote_enabled: bool,
     pub login_user: String,
     pub host: String,
@@ -137,6 +142,7 @@ pub struct RepositoryFormCursor {
     pub default_code_puppy_model: usize,
     pub default_llxprt_version: usize,
     pub github_repo: usize,
+    pub github_issue_pr_repo: usize,
     pub login_user: usize,
     pub host: usize,
     pub run_as_user: usize,
@@ -153,6 +159,7 @@ pub enum RepositoryFormFocus {
     DefaultLlxprtVersion,
     DefaultAgentKind,
     GitHubRepo,
+    IssuePrRepo,
     RemoteEnabled,
     LoginUser,
     Host,
@@ -171,7 +178,8 @@ impl RepositoryFormFocus {
             Self::DefaultCodePuppyModel => Self::DefaultLlxprtVersion,
             Self::DefaultLlxprtVersion => Self::DefaultAgentKind,
             Self::DefaultAgentKind => Self::GitHubRepo,
-            Self::GitHubRepo => Self::RemoteEnabled,
+            Self::GitHubRepo => Self::IssuePrRepo,
+            Self::IssuePrRepo => Self::RemoteEnabled,
             Self::RemoteEnabled => Self::LoginUser,
             Self::LoginUser => Self::Host,
             Self::Host => Self::RunAsUser,
@@ -191,7 +199,8 @@ impl RepositoryFormFocus {
             Self::DefaultLlxprtVersion => Self::DefaultCodePuppyModel,
             Self::DefaultAgentKind => Self::DefaultLlxprtVersion,
             Self::GitHubRepo => Self::DefaultAgentKind,
-            Self::RemoteEnabled => Self::GitHubRepo,
+            Self::IssuePrRepo => Self::GitHubRepo,
+            Self::RemoteEnabled => Self::IssuePrRepo,
             Self::LoginUser => Self::RemoteEnabled,
             Self::Host => Self::LoginUser,
             Self::RunAsUser => Self::Host,
