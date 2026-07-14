@@ -5,6 +5,7 @@
 //! transient-agent queue events.
 
 use crate::state::AppState;
+use crate::state::types::QueuedTransientSend;
 
 impl AppState {
     /// Set the transient-agent-queued draft notice on both issues and PRs
@@ -22,8 +23,29 @@ impl AppState {
 
     /// Clear the transient-agent draft notice on both issues and PRs
     /// (issue #213). Called when a transient agent is dequeued (launched).
-    pub(crate) fn clear_transient_notice(&mut self) {
+    pub fn clear_transient_notice(&mut self) {
         self.issues_state.draft_notice = None;
         self.prs_state.draft_notice = None;
+    }
+
+    /// Push a queued transient send onto the queue and return its 1-based
+    /// position (issue #213).
+    pub fn push_transient_queue_item(&mut self, item: QueuedTransientSend) -> usize {
+        self.transient_queue.pending.push(item);
+        self.transient_queue.pending.len()
+    }
+
+    /// Pop the oldest queued transient send for a given repository (issue #213).
+    /// Returns the item if one was found and removed.
+    pub fn pop_transient_queue_for_repo(
+        &mut self,
+        repo_id: &crate::domain::RepositoryId,
+    ) -> Option<QueuedTransientSend> {
+        let pos = self
+            .transient_queue
+            .pending
+            .iter()
+            .position(|q| &q.repository_id == repo_id)?;
+        Some(self.transient_queue.pending.remove(pos))
     }
 }

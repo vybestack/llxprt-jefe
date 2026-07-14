@@ -570,12 +570,12 @@ impl AppState {
     fn open_agent_chooser(&mut self) {
         let repo_id = self.selected_repository_id().cloned();
         let agents = self.chooser_agents_for_repository(repo_id.as_ref());
-        if agents.is_empty() {
+        let transient_available = self.is_transient_available_for_repo(repo_id.as_ref());
+        if agents.is_empty() && !transient_available {
             self.issues_state.agent_chooser = None;
             self.issues_state.draft_notice = Some("No agents available".to_string());
         } else {
             self.issues_state.draft_notice = None;
-            let transient_available = self.is_transient_available_for_repo(repo_id.as_ref());
             self.issues_state.agent_chooser = Some(AgentChooserState {
                 selected_index: 0,
                 agents,

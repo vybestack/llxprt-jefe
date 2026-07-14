@@ -52,14 +52,28 @@ pub(super) fn dispatch_transient_issue_send(app_state: &mut AppStateHandle, ctx:
     };
     let (payload, repo, repo_id) = payload_and_repo;
 
-    if let Some(queue_pos) =
+    if let Some(_queue_pos) =
         check_transient_queue_capacity(app_state, &repo_id, repo.transient_max_concurrent)
     {
+        let work_dir = generate_transient_work_dir(&repo);
+        let launch_sig = super::launch_signature_for_transient(&repo, &work_dir);
+        let _clone_identity = CloneIdentity::from_repository(&repo);
+        let queue_item = jefe::state::QueuedTransientSend {
+            repository_id: repo_id,
+            work_dir,
+            launch_signature: launch_sig,
+            payload: jefe::state::TransientPayload::Issue { payload },
+        };
+        let mut state = app_state.write();
+        let pos = state.push_transient_queue_item(queue_item);
+        let persisted = to_persisted_state(&state);
+        drop(state);
+        persist_state(ctx, &persisted);
         apply_and_persist(
             app_state,
             ctx,
             AppEvent::TransientAgentQueued {
-                queue_position: queue_pos,
+                queue_position: pos,
             },
         );
         return;
@@ -72,10 +86,13 @@ pub(super) fn dispatch_transient_issue_send(app_state: &mut AppStateHandle, ctx:
         work_dir.clone(),
         &repo,
     );
-    let launch_sig = super::launch_signature_for_agent(&agent, &repo);
+    let launch_sig = super::launch_signature_for_transient(&repo, &work_dir);
     let clone_identity = CloneIdentity::from_repository(&repo);
+    let agent_id = agent.id.clone();
 
-    push_transient_agent(app_state, ctx, agent.clone());
+    // Push agent to state as Queued — not Running — so it doesn't count
+    // against capacity or appear as running if prep/launch fails.
+    push_transient_agent_queued(app_state, ctx, agent);
 
     prepare_and_launch_transient_issue(
         app_state,
@@ -85,7 +102,7 @@ pub(super) fn dispatch_transient_issue_send(app_state: &mut AppStateHandle, ctx:
             launch_sig,
             clone_identity,
             payload,
-            agent_id: agent.id,
+            agent_id,
         },
     );
 }
@@ -100,26 +117,28 @@ struct TransientPrepContext {
     agent_id: AgentId,
 }
 
-/// Availability check, target resolution, prep, and launch for a transient
-/// issue send. Extracted to keep `dispatch_transient_issue_send` under the
-/// line limit.
-fn prepare_and_launch_transient_issue(
+/// Availability check and remote probe for a transient issue send (issue
+/// #213). Returns the resolved target on success, or `None` after surfacing
+/// the appropriate failure and cleaning up the transient agent.
+fn transient_issue_availability_and_target(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
-    prep: TransientPrepContext,
-) {
+    prep: &TransientPrepContext,
+) -> Option<super::target_resolution::WorkTarget> {
     if !super::availability::local_kind_available_or_error(
         app_state,
         prep.launch_sig.agent_kind,
         &prep.launch_sig.remote,
     ) {
-        return;
+        fail_transient_agent(app_state, ctx, &prep.agent_id);
+        return None;
     }
     let target = match super::target_resolution::resolve_target(&prep.launch_sig.remote) {
         Ok(target) => target,
         Err(error) => {
             apply_send_to_agent_failed(app_state, ctx, error);
-            return;
+            fail_transient_agent(app_state, ctx, &prep.agent_id);
+            return None;
         }
     };
     if !super::remote_probe::pre_side_effect_runtime_available_or_error(
@@ -128,21 +147,22 @@ fn prepare_and_launch_transient_issue(
         &prep.work_dir,
         prep.launch_sig.agent_kind,
     ) {
-        return;
+        fail_transient_agent(app_state, ctx, &prep.agent_id);
+        return None;
     }
+    Some(target)
+}
 
-    let prompt = issues_dispatch::format_issue_prompt(&prep.payload);
-    let outcome = prepare_issue_target(
-        &target,
-        &prep.work_dir,
-        prep.clone_identity.as_ref(),
-        DirtyPolicy::Stop,
-        &prompt,
-    );
-
+/// Handle a transient prep outcome: launch on Ready, fail on everything else.
+fn handle_transient_prep_outcome(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    prep: &TransientPrepContext,
+    outcome: Result<PrepOutcome, String>,
+) {
     match outcome {
         Ok(PrepOutcome::Ready) => {
-            let launch_sig = prepare_issue_launch_signature(prep.launch_sig);
+            let launch_sig = prepare_issue_launch_signature(prep.launch_sig.clone());
             launch_transient_issue_agent(
                 app_state,
                 ctx,
@@ -152,18 +172,50 @@ fn prepare_and_launch_transient_issue(
                 issue_assignment_from_payload(&prep.payload),
             );
         }
-        Ok(PrepOutcome::Dirty) => apply_send_to_agent_failed(
-            app_state,
-            ctx,
-            "Transient work directory is unexpectedly dirty".to_owned(),
-        ),
-        Ok(PrepOutcome::OriginMismatch { .. }) => apply_send_to_agent_failed(
-            app_state,
-            ctx,
-            "Transient work directory has unexpected origin after fresh clone".to_owned(),
-        ),
-        Err(error) => apply_send_to_agent_failed(app_state, ctx, error),
+        Ok(PrepOutcome::Dirty) => {
+            apply_send_to_agent_failed(
+                app_state,
+                ctx,
+                "Transient work directory is unexpectedly dirty".to_owned(),
+            );
+            fail_transient_agent(app_state, ctx, &prep.agent_id);
+        }
+        Ok(PrepOutcome::OriginMismatch { .. }) => {
+            apply_send_to_agent_failed(
+                app_state,
+                ctx,
+                "Transient work directory has unexpected origin after fresh clone".to_owned(),
+            );
+            fail_transient_agent(app_state, ctx, &prep.agent_id);
+        }
+        Err(error) => {
+            apply_send_to_agent_failed(app_state, ctx, error);
+            fail_transient_agent(app_state, ctx, &prep.agent_id);
+        }
     }
+}
+
+/// Availability check, target resolution, prep, and launch for a transient
+/// issue send. Extracted to keep `dispatch_transient_issue_send` under the
+/// line limit.
+fn prepare_and_launch_transient_issue(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    prep: TransientPrepContext,
+) {
+    let Some(target) = transient_issue_availability_and_target(app_state, ctx, &prep) else {
+        return;
+    };
+
+    let prompt = issues_dispatch::format_issue_prompt(&prep.payload);
+    let outcome = prepare_issue_target(
+        &target,
+        &prep.work_dir,
+        prep.clone_identity.as_ref(),
+        DirtyPolicy::Stop,
+        &prompt,
+    );
+    handle_transient_prep_outcome(app_state, ctx, &prep, outcome);
 }
 
 /// Resolve the issue payload and repository for a transient send.
@@ -253,9 +305,10 @@ pub(super) fn generate_transient_work_dir_pub(repo: &Repository) -> PathBuf {
     generate_transient_work_dir(repo)
 }
 
-/// Push a transient agent to `state.agents` (runtime-only, not added to any
-/// repo's `agent_ids`).
-fn push_transient_agent(
+/// Push a transient agent to `state.agents` in Queued status (runtime-only,
+/// not added to any repo's `agent_ids`). Used for the initial send path
+/// where prep/launch has not yet succeeded.
+fn push_transient_agent_queued(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent: jefe::domain::Agent,
@@ -267,13 +320,14 @@ fn push_transient_agent(
     persist_state(ctx, &persisted);
 }
 
-/// Public re-export for PRs orchestration (issue #213).
+/// Public re-export for PRs orchestration (issue #213). Pushes a transient
+/// agent in Queued status.
 pub(super) fn push_transient_agent_pub(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent: jefe::domain::Agent,
 ) {
-    push_transient_agent(app_state, ctx, agent);
+    push_transient_agent_queued(app_state, ctx, agent);
 }
 
 /// Launch a transient issue agent (mirrors `launch_issue_agent` but for the
@@ -298,6 +352,10 @@ fn launch_transient_issue_agent(
             process_identity,
         );
     } else {
+        // Mark the transient agent as errored instead of leaving it Running.
+        if let Some(agent) = state.agents.iter_mut().find(|a| a.id == agent_id) {
+            agent.status = jefe::domain::AgentStatus::Errored;
+        }
         *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
             error: "Failed to launch transient agent".to_string(),
         });
@@ -312,9 +370,51 @@ fn launch_transient_issue_agent(
     );
 }
 
+pub(super) struct TransientDequeuedIssue {
+    pub agent_id: AgentId,
+    pub work_dir: PathBuf,
+    pub launch_sig: LaunchSignature,
+    pub clone_identity: Option<CloneIdentity>,
+    pub payload: jefe::github::SendPayload,
+}
+
+/// Dispatch a dequeued transient issue send: availability check, target
+/// resolution, clone/checkout, and launch (issue #213). Called by
+/// `drain_transient_queue` when a transient agent completes and a queued
+/// issue send is next in line.
+pub(super) fn dispatch_transient_dequeued_issue(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    params: TransientDequeuedIssue,
+) {
+    let prep = TransientPrepContext {
+        work_dir: params.work_dir,
+        launch_sig: params.launch_sig,
+        clone_identity: params.clone_identity,
+        payload: params.payload,
+        agent_id: params.agent_id,
+    };
+    prepare_and_launch_transient_issue(app_state, ctx, prep);
+}
+
 fn issue_assignment_from_payload(payload: &jefe::github::SendPayload) -> IssueAssignment {
     let tracker = jefe::domain::GitHubRepoRef::parse(&payload.repository)
         .ok()
         .flatten();
     IssueAssignment::from_send_context(tracker.as_ref(), payload.issue_number)
+}
+
+/// Mark a transient agent as errored and remove it from state on a failure
+/// path (issue #213). This prevents phantom Running agents from consuming
+/// capacity indefinitely.
+pub(super) fn fail_transient_agent(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    agent_id: &AgentId,
+) {
+    let mut state = app_state.write();
+    state.agents.retain(|a| a.id != *agent_id);
+    let persisted = to_persisted_state(&state);
+    drop(state);
+    persist_state(ctx, &persisted);
 }

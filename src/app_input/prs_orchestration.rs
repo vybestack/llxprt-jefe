@@ -491,8 +491,8 @@ const PR_PROMPT_RELATIVE_PATH: &str = ".jefe/pr-prompt.md";
 /// @requirement REQ-PR-011
 /// @pseudocode component-003 lines 147-156
 fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    if is_transient_slot_selected_prs(app_state) {
-        dispatch_transient_pr_send(app_state, ctx);
+    if super::transient_pr_send::is_transient_slot_selected_prs(app_state) {
+        super::transient_pr_send::dispatch_transient_pr_send(app_state, ctx);
         return;
     }
 
@@ -665,7 +665,7 @@ pub(super) fn pr_send_info_from_state(state: &AppState) -> Option<PrSendInfo> {
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-011
 /// @pseudocode component-003 lines 164-175
-fn focused_pr_comment(
+pub(super) fn focused_pr_comment(
     state: &AppState,
     detail: &jefe::domain::PullRequestDetail,
 ) -> Option<jefe::domain::IssueComment> {
@@ -676,29 +676,12 @@ fn focused_pr_comment(
 }
 
 /// Resolve the base prompt for a PR send.
-///
-/// `Repository` does not yet carry a dedicated `pr_base_prompt` field; this
-/// reuses the issue base prompt as a stand-in.
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 164-175
-fn pr_base_prompt(repo: &Repository) -> &str {
+pub(super) fn pr_base_prompt(repo: &Repository) -> &str {
     &repo.issue_base_prompt
 }
 
 /// Launch the runtime agent for a PR send.
-///
-/// Mirrors `launch_issue_agent`: spawn + attach the agent session (same runtime
-/// path issues uses), then deliver success/failure. When `ctx` is `None`
-/// (tests), `spawn_and_attach_fresh_for_pr` returns `false` (the shared helper
-/// guards on `ctx` being present) so the failure event is delivered without a
-/// real spawn — replicating the issues guard exactly.
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 155-163
-fn launch_pr_agent(
+pub(super) fn launch_pr_agent(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: AgentId,
@@ -706,8 +689,6 @@ fn launch_pr_agent(
     launch_sig: LaunchSignature,
 ) {
     let launched = spawn_and_attach_fresh_for_pr(ctx, &agent_id, &work_dir, &launch_sig);
-    // Resolve the worker PID before taking the app-state write lock
-    // (lock-ordering constraint). Skipped on the failure path.
     let (pid, process_identity) = process_on_success(ctx, &agent_id, launched);
     let mut state = app_state.write();
     if launched {
@@ -723,14 +704,6 @@ fn launch_pr_agent(
 }
 
 /// Spawn a fresh runtime session and attach it for a PR send.
-///
-/// Mirrors `spawn_and_attach_fresh_for_issue`: when `ctx` is `None` (no runtime
-/// context, as in unit tests), returns `false` without spawning. Otherwise
-/// spawns a fresh session and attaches it.
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 147-175
 fn spawn_and_attach_fresh_for_pr(
     ctx: &SharedContext,
     agent_id: &AgentId,
@@ -767,13 +740,6 @@ fn spawn_and_attach_fresh_for_pr(
 
 /// Persist the PR agent launch success: set runtime binding, clear attachments,
 /// mark the launched agent attached.
-///
-/// Mirrors `persist_issue_agent_launch_success`, reusing the shared helpers
-/// (`clear_agent_runtime_attachment`, `mark_agent_runtime_attached`).
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 147-175
 fn persist_pr_agent_launch_success(
     state: &mut AppState,
     agent_id: &AgentId,
@@ -797,13 +763,8 @@ fn persist_pr_agent_launch_success(
     mark_agent_runtime_attached(state, agent_id, true);
 }
 
-/// Apply a `PrSendToAgentFailed` event + persist (mirrors
-/// `apply_send_to_agent_failed` for issues).
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-011
-/// @pseudocode component-003 lines 155-163
-fn apply_pr_send_to_agent_failed(
+/// Apply a `PrSendToAgentFailed` event + persist.
+pub(super) fn apply_pr_send_to_agent_failed(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     error: String,
@@ -813,170 +774,4 @@ fn apply_pr_send_to_agent_failed(
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
-}
-
-// =============================================================================
-// Transient Agent PR Send (issue #213)
-// =============================================================================
-
-/// Whether the PRs agent-chooser has the transient slot selected.
-fn is_transient_slot_selected_prs(app_state: &AppStateHandle) -> bool {
-    let state = app_state.read();
-    let selected = state
-        .prs_state
-        .agent_chooser
-        .as_ref()
-        .is_some_and(|c| c.transient_available && c.selected_index == c.agents.len());
-    drop(state);
-    selected
-}
-
-/// Dispatch a transient PR send: close chooser, check queue, create agent,
-/// clone + launch.
-fn dispatch_transient_pr_send(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    apply_and_persist(app_state, ctx, AppEvent::PrAgentChooserConfirm);
-
-    let Some(payload_and_repo) = transient_pr_payload_and_repo(app_state) else {
-        apply_pr_send_to_agent_failed(
-            app_state,
-            ctx,
-            "Could not resolve PR context for transient send".to_string(),
-        );
-        return;
-    };
-    let (payload, repo, repo_id) = payload_and_repo;
-
-    if let Some(queue_pos) = super::transient_issue_send::check_transient_queue_capacity_pub(
-        app_state,
-        &repo_id,
-        repo.transient_max_concurrent,
-    ) {
-        apply_and_persist(
-            app_state,
-            ctx,
-            AppEvent::TransientAgentQueued {
-                queue_position: queue_pos,
-            },
-        );
-        return;
-    }
-
-    let work_dir = super::transient_issue_send::generate_transient_work_dir_pub(&repo);
-    let agent = jefe::domain::Agent::new_transient(
-        jefe::domain::AgentId(jefe::services::generate_id("transient")),
-        repo_id.clone(),
-        work_dir.clone(),
-        &repo,
-    );
-    let agent_id = agent.id.clone();
-    let launch_sig = launch_signature_for_agent(&agent, &repo);
-    super::transient_issue_send::push_transient_agent_pub(app_state, ctx, agent);
-
-    prepare_and_launch_transient_pr(app_state, ctx, &work_dir, launch_sig, &payload, &agent_id);
-}
-
-/// Availability check, target resolution, prompt write, and launch for a
-/// transient PR send (extracted to keep `dispatch_transient_pr_send` under
-/// the line limit).
-fn prepare_and_launch_transient_pr(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    work_dir: &std::path::Path,
-    launch_sig: LaunchSignature,
-    payload: &jefe::github::PrSendPayload,
-    agent_id: &jefe::domain::AgentId,
-) {
-    let launch_sig = prepare_fresh_prompt_signature(
-        launch_sig,
-        FreshPromptKind::PullRequest,
-        PR_PROMPT_RELATIVE_PATH,
-    );
-
-    if !super::availability::local_kind_available_or_error(
-        app_state,
-        launch_sig.agent_kind,
-        &launch_sig.remote,
-    ) {
-        return;
-    }
-    let target = match super::target_resolution::resolve_target(&launch_sig.remote) {
-        Ok(target) => target,
-        Err(error) => {
-            apply_pr_send_to_agent_failed(app_state, ctx, error);
-            return;
-        }
-    };
-    if !super::remote_probe::pre_side_effect_runtime_available_or_error(
-        app_state,
-        &target,
-        work_dir,
-        launch_sig.agent_kind,
-    ) {
-        return;
-    }
-
-    let prompt_content = prs_dispatch::format_pr_prompt(payload);
-    let write_result = match &target {
-        super::issue_prep::WorkTarget::Local => super::issue_prep::write_prompt_to_target(
-            &target,
-            work_dir,
-            PR_PROMPT_RELATIVE_PATH,
-            &prompt_content,
-        ),
-        super::issue_prep::WorkTarget::Remote(remote) => super::remote_probe::write_remote_prompt(
-            remote,
-            work_dir,
-            PR_PROMPT_RELATIVE_PATH,
-            &prompt_content,
-        ),
-    };
-    if let Err(error) = write_result {
-        apply_pr_send_to_agent_failed(app_state, ctx, error);
-        return;
-    }
-
-    if preflight_or_prompt(app_state, ctx, agent_id, &launch_sig, None) {
-        launch_pr_agent(
-            app_state,
-            ctx,
-            agent_id.clone(),
-            work_dir.to_path_buf(),
-            launch_sig,
-        );
-    }
-}
-
-/// Resolve the PR payload and repository for a transient send.
-fn transient_pr_payload_and_repo(
-    app_state: &AppStateHandle,
-) -> Option<(
-    jefe::github::PrSendPayload,
-    Repository,
-    jefe::domain::RepositoryId,
-)> {
-    let state = app_state.read();
-    let result = transient_pr_payload_and_repo_from_state(&state);
-    drop(state);
-    result
-}
-
-/// Pure state-reading variant (testable without `AppStateHandle`).
-fn transient_pr_payload_and_repo_from_state(
-    state: &AppState,
-) -> Option<(
-    jefe::github::PrSendPayload,
-    Repository,
-    jefe::domain::RepositoryId,
-)> {
-    let detail = state.prs_state.pr_detail.as_ref()?;
-    let repo = state.selected_repository()?;
-    let repo_id = repo.id.clone();
-    let focused_comment = focused_pr_comment(state, detail);
-    let payload = jefe::github::GhClient::build_pr_send_payload(
-        &detail.repo_owner_name,
-        detail,
-        focused_comment.as_ref(),
-        pr_base_prompt(repo),
-    );
-    Some((payload, repo.clone(), repo_id))
 }

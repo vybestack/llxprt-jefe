@@ -800,7 +800,7 @@ impl Agent {
             sandbox_engine: SandboxEngine::Podman,
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
             agent_kind: repo.default_agent_kind,
-            status: AgentStatus::Running,
+            status: AgentStatus::Queued,
             runtime_binding: None,
             origin: AgentOrigin::Transient,
         }

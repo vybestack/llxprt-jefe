@@ -145,9 +145,12 @@ impl AppState {
         if repo.github_repo.trim().is_empty() {
             return false;
         }
-        // Remote-enabled repos can always run agents; local repos need at
-        // least one installed agent kind.
-        repo.remote.enabled || !self.installed_agent_kinds.is_empty()
+        // Remote-enabled repos can always run agents; local repos need the
+        // repository's default_agent_kind to be installed.
+        repo.remote.enabled
+            || self
+                .installed_agent_kinds
+                .contains(&repo.default_agent_kind)
     }
 
     /// Count running transient agents for a repository (issue #213).

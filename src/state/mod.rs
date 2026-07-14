@@ -53,7 +53,7 @@ pub mod scrollback_ops;
 mod selectors;
 pub mod state_ops;
 pub mod theme_picker_view;
-mod transient_ops;
+pub mod transient_ops;
 mod types;
 mod util;
 

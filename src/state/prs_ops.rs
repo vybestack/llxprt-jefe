@@ -459,11 +459,12 @@ impl AppState {
         }
         let repo_id = self.selected_repository_id().cloned();
         let agents = self.chooser_agents_for_repository(repo_id.as_ref());
-        if agents.is_empty() {
+        let transient_available = self.is_transient_available_for_repo(repo_id.as_ref());
+        if agents.is_empty() && !transient_available {
             self.prs_state.draft_notice = Some("No agents available".to_string());
             return;
         }
-        let transient_available = self.is_transient_available_for_repo(repo_id.as_ref());
+        self.prs_state.draft_notice = None;
         self.prs_state.agent_chooser = Some(AgentChooserState {
             selected_index: 0,
             agents,

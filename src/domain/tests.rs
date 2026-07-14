@@ -618,7 +618,7 @@ fn agent_new_transient_sets_is_transient_true_and_inherits_repo_defaults() {
     assert_eq!(agent.code_puppy_yolo, Some(true));
     assert_eq!(agent.agent_kind, AgentKind::CodePuppy);
     assert!(!agent.pass_continue, "transient agents are one-shot");
-    assert_eq!(agent.status, AgentStatus::Running);
+    assert_eq!(agent.status, AgentStatus::Queued);
     assert!(agent.name.contains("My Repo"));
 }
 

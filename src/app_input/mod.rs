@@ -58,6 +58,8 @@ mod target_resolution;
 mod tracker_resolver;
 pub mod transient_cleanup;
 mod transient_issue_send;
+mod transient_pr_send;
+mod transient_queue_ops;
 use agent_runtime::{
     clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, process_on_success, set_agent_runtime_binding,
@@ -182,21 +184,45 @@ fn github_client(ctx: &SharedContext) -> Option<jefe::github::GhClient> {
     Some(ctx_guard.gh_client)
 }
 pub fn to_persisted_state(state: &AppState) -> PersistedState {
+    // Transient agents are runtime-only — never persisted to state.json
+    // (issue #213). Filter them out and project selection metadata onto the
+    // remaining persistent-agent collection so no transient index/ID lingers.
+    let persistent_agents: Vec<_> = state
+        .agents
+        .iter()
+        .filter(|a| !a.is_transient())
+        .cloned()
+        .collect();
+
+    // Recompute selected_agent_index: if it pointed at a transient agent,
+    // clear it so restart does not select a different agent by stale index.
+    let selected_agent_index = state.selected_agent_index.and_then(|idx| {
+        if idx < persistent_agents.len() {
+            Some(idx)
+        } else {
+            None
+        }
+    });
+
+    // Filter last_selected_agent_by_repo: remove entries whose agent ID
+    // belonged to a transient agent (no longer in persistent_agents).
+    let persistent_agent_ids: std::collections::HashSet<_> =
+        persistent_agents.iter().map(|a| a.id.clone()).collect();
+    let last_selected_agent_by_repo: Vec<_> = state
+        .last_selected_agent_by_repo
+        .iter()
+        .filter(|(_, agent_id)| persistent_agent_ids.contains(agent_id))
+        .cloned()
+        .collect();
+
     PersistedState {
         schema_version: jefe::persistence::STATE_SCHEMA_VERSION,
         repositories: state.repositories.clone(),
-        // Transient agents are runtime-only — never persisted to state.json
-        // (issue #213).
-        agents: state
-            .agents
-            .iter()
-            .filter(|a| !a.is_transient())
-            .cloned()
-            .collect(),
+        agents: persistent_agents,
         selected_repository_index: state.selected_repository_index,
-        selected_agent_index: state.selected_agent_index,
+        selected_agent_index,
         hide_idle_repositories: state.hide_idle_repositories,
-        last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
+        last_selected_agent_by_repo,
         pane_focus: pane_focus_to_persisted(state.pane_focus),
         terminal_focused: state.terminal_focused,
         user_preferences: state.user_preferences.clone(),
@@ -227,6 +253,27 @@ fn launch_signature_for_agent(
         sandbox_flags: agent.sandbox_flags.clone(),
         remote: repository.remote.clone(),
         agent_kind: agent.agent_kind,
+    }
+}
+
+pub fn launch_signature_for_transient(
+    repository: &Repository,
+    work_dir: &std::path::Path,
+) -> LaunchSignature {
+    LaunchSignature {
+        work_dir: work_dir.to_path_buf(),
+        profile: repository.default_profile.clone(),
+        code_puppy_model: repository.default_code_puppy_model.trim().to_owned(),
+        code_puppy_yolo: repository.default_code_puppy_yolo,
+        code_puppy_quick_resume: false,
+        mode_flags: Vec::new(),
+        llxprt_debug: String::new(),
+        pass_continue: false,
+        sandbox_enabled: false,
+        sandbox_engine: jefe::domain::SandboxEngine::default(),
+        sandbox_flags: String::new(),
+        remote: repository.remote.clone(),
+        agent_kind: repository.default_agent_kind,
     }
 }
 
@@ -591,7 +638,7 @@ pub fn dispatch_app_message(
                 ctx,
                 AppEvent::AgentStatusChanged(agent_id, status),
             );
-            drain_transient_queue(app_state, ctx);
+            transient_queue_ops::drain_transient_queue(app_state, ctx);
         }
         AppMessage::Issues(message) => {
             issues_dispatch::dispatch_issues_message(app_state, ctx, message);
@@ -686,264 +733,8 @@ fn log_dispatch(message: &AppMessage) {
     );
 }
 
-/// Drain the transient agent queue when a transient agent completes
-/// (issue #213). If there are queued sends for a repo whose transient agent
-/// just finished, dequeue the oldest and emit `TransientAgentDequeued` so
-/// the UI clears the queue notice.
-fn drain_transient_queue(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let has_queued = {
-        let state = app_state.read();
-        !state.transient_queue.pending.is_empty()
-    };
-    if !has_queued {
-        return;
-    }
-    // Dequeue the oldest pending send and clear the notice.
-    let dequeued = {
-        let mut state = app_state.write();
-        let item = state.transient_queue.pending.first().cloned();
-        if item.is_some() {
-            state.transient_queue.pending.remove(0);
-        }
-        item
-    };
-    if dequeued.is_some() {
-        apply_and_persist(app_state, ctx, AppEvent::TransientAgentDequeued);
-    }
-}
-
-fn dispatch_kill_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {
-    if let Err(error) = kill_runtime_agent(ctx, &agent_id) {
-        warn!(agent_id = %agent_id.0, error = %error, "could not kill runtime session");
-        persist_error_message(app_state, ctx, error);
-        return;
-    }
-
-    let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(AppEvent::KillAgent(agent_id));
-    state.terminal_focused = false;
-    let persisted = to_persisted_state(&state);
-    drop(state);
-    persist_state(ctx, &persisted);
-}
-
-fn kill_runtime_agent(ctx: &SharedContext, agent_id: &AgentId) -> Result<(), String> {
-    let Some(ctx_arc) = ctx else {
-        return Ok(());
-    };
-    match ctx_arc.lock() {
-        Ok(mut ctx_guard) => ctx_guard.runtime.kill(agent_id).map_err(|e| e.to_string()),
-        Err(error) => Err(format!("application context lock poisoned: {error}")),
-    }
-}
-
-fn persist_error_message(app_state: &mut AppStateHandle, ctx: &SharedContext, error: String) {
-    let mut state = app_state.write();
-    state.error_message = Some(error);
-    let persisted = to_persisted_state(&state);
-    drop(state);
-    persist_state(ctx, &persisted);
-}
-
-/// Restart an agent: kill, wait for session teardown, then relaunch with fresh
-/// config/env (issue #117). Surfaces an error if any step fails.
-fn dispatch_restart_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {
-    // Only kill if the agent is currently running; dead agents skip straight
-    // to relaunch (tolerating Ctrl-r on already-dead agents).
-    let agent_is_running = app_state
-        .read()
-        .agents
-        .iter()
-        .find(|a| a.id == agent_id)
-        .is_some_and(jefe::domain::Agent::is_running);
-
-    if agent_is_running {
-        if let Err(error) = kill_runtime_agent(ctx, &agent_id) {
-            warn!(agent_id = %agent_id.0, error = %error, "restart: kill failed");
-            persist_error_message(app_state, ctx, error);
-            return;
-        }
-
-        // Apply kill state transition so the UI reflects the kill immediately.
-        {
-            let mut state = app_state.write();
-            *state = std::mem::take(&mut *state).apply(AppEvent::KillAgent(agent_id.clone()));
-            state.terminal_focused = false;
-            let persisted = to_persisted_state(&state);
-            drop(state);
-            persist_state(ctx, &persisted);
-        }
-
-        // Wait for session teardown before relaunching (issue says 1-2s).
-        std::thread::sleep(Duration::from_millis(1500));
-    }
-
-    // Relaunch with fresh config (reuses existing relaunch plumbing).
-    dispatch_relaunch_agent(app_state, ctx, agent_id);
-}
-
-fn dispatch_relaunch_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {
-    if !relaunch_preflight_passed(app_state, ctx, &agent_id) {
-        return;
-    }
-
-    let relaunched = relaunch_runtime_session(app_state, ctx, &agent_id);
-    persist_relaunch_result(app_state, ctx, agent_id, relaunched);
-}
-
-fn relaunch_preflight_passed(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    agent_id: &AgentId,
-) -> bool {
-    let state_ro = app_state.read();
-    let agent_sig = agent_and_signature(&state_ro, agent_id);
-    drop(state_ro);
-    let Some((_, signature)) = agent_sig else {
-        return true;
-    };
-    if !availability::local_kind_available_or_error(
-        app_state,
-        signature.agent_kind,
-        &signature.remote,
-    ) {
-        return false;
-    }
-    preflight_or_prompt(app_state, ctx, agent_id, &signature, None)
-}
-
-fn relaunch_runtime_session(
-    app_state: &AppStateHandle,
-    ctx: &SharedContext,
-    agent_id: &AgentId,
-) -> bool {
-    let Some(ctx_arc) = ctx else {
-        return false;
-    };
-    let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return false;
-    };
-
-    let state_ro = app_state.read();
-    let Some((agent, signature)) = agent_and_signature(&state_ro, agent_id) else {
-        return false;
-    };
-    drop(state_ro);
-
-    if !spawn_relaunch_session(
-        &mut ctx_guard.runtime,
-        agent_id,
-        &agent.work_dir,
-        &signature,
-    ) {
-        return false;
-    }
-    std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
-    attach_relaunched_session(&mut ctx_guard.runtime, agent_id)
-}
-
-fn spawn_relaunch_session(
-    runtime: &mut jefe::runtime::TmuxRuntimeManager,
-    agent_id: &AgentId,
-    work_dir: &std::path::Path,
-    signature: &LaunchSignature,
-) -> bool {
-    match runtime.spawn_session_fresh(agent_id, work_dir, signature) {
-        Ok(()) => true,
-        Err(RuntimeError::AlreadyRunning(_)) => runtime.relaunch(agent_id).is_ok(),
-        Err(error) => {
-            warn!(
-                agent_id = %agent_id.0,
-                error = %error,
-                "could not spawn fresh runtime session for relaunch"
-            );
-            false
-        }
-    }
-}
-
-fn attach_relaunched_session(
-    runtime: &mut jefe::runtime::TmuxRuntimeManager,
-    agent_id: &AgentId,
-) -> bool {
-    match runtime.attach(agent_id) {
-        Ok(()) => true,
-        Err(error) => {
-            warn!(agent_id = %agent_id.0, error = %error, "could not attach relaunched session");
-            let _ = runtime.mark_session_dead(agent_id);
-            false
-        }
-    }
-}
-
-fn persist_relaunch_result(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    agent_id: AgentId,
-    relaunched: bool,
-) {
-    let relaunch_event = AppEvent::RelaunchAgent(agent_id.clone());
-    // Query the PID BEFORE taking the app-state write lock: worker_process_for
-    // acquires the ctx mutex, so app_state-lock → ctx-lock would be a
-    // lock-ordering hazard. `process_on_success` skips the query on the failure
-    // path (no binding is persisted).
-    let (pid, process_identity) = process_on_success(ctx, &agent_id, relaunched);
-    let mut state = app_state.write();
-    if relaunched {
-        persist_relaunch_success(&mut state, &agent_id, relaunch_event, pid, process_identity);
-    } else {
-        persist_relaunch_failure(&mut state, &agent_id, relaunch_event);
-    }
-    let persisted = to_persisted_state(&state);
-    drop(state);
-    persist_state(ctx, &persisted);
-}
-
-fn persist_relaunch_success(
-    state: &mut AppState,
-    agent_id: &AgentId,
-    relaunch_event: AppEvent,
-    pid: Option<u32>,
-    process_identity: Option<jefe::domain::ProcessIdentity>,
-) {
-    // Capture agent_kind before `apply` consumes the state snapshot, so the
-    // SSH-agent warning can be gated: only LLxprt uses the sandbox subsystem,
-    // and CodePuppy must not trigger it from stale persisted sandbox flags.
-    let agent_sig = agent_and_signature(state, agent_id);
-    let relaunch_kind = agent_sig.as_ref().map(|(_, sig)| sig.agent_kind);
-    if let Some((agent, signature)) = agent_sig {
-        set_agent_runtime_binding(
-            state,
-            agent_id,
-            jefe::runtime::RuntimeSession::session_name_for(&agent.id),
-            signature,
-            pid,
-            process_identity,
-        );
-    }
-    *state = std::mem::take(state).apply(relaunch_event);
-    state.terminal_focused = false;
-    clear_agent_runtime_attachment(state);
-    mark_agent_runtime_attached(state, agent_id, true);
-    // Gate the SSH-agent warning to LLxprt only (see comment above).
-    if relaunch_kind == Some(jefe::domain::AgentKind::Llxprt) {
-        if let Some(warning) = sandbox_ssh_agent_warning() {
-            state.warning_message = Some(warning);
-        } else {
-            clear_runtime_warning(state);
-        }
-    }
-}
-
-fn persist_relaunch_failure(state: &mut AppState, agent_id: &AgentId, relaunch_event: AppEvent) {
-    *state = std::mem::take(state).apply(relaunch_event);
-    state.terminal_focused = false;
-    state.pane_focus = PaneFocus::Agents;
-    mark_runtime_session_dead_if_present(state, agent_id);
-    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
-        agent.runtime_binding = None;
-    }
-}
+mod agent_lifecycle_ops;
+use agent_lifecycle_ops::{dispatch_kill_agent, dispatch_relaunch_agent, dispatch_restart_agent};
 
 #[cfg(test)]
 #[path = "app_input_tests.rs"]
