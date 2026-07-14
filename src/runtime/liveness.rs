@@ -786,6 +786,19 @@ jefe-b:0
     }
 
     #[test]
+    fn reconcile_with_identity_existing_but_not_alive() {
+        // Session exists in `list-sessions` but has only dead panes in
+        // `list-panes -a` — it must be reported dead.
+        let targets = vec![make_liveness_check("agent1", "jefe-agent1", false)];
+        let existing: HashSet<String> = std::iter::once("jefe-agent1".to_string()).collect();
+        let alive_panes: HashSet<String> = HashSet::new();
+
+        let dead = reconcile_dead_agents_with_identity(&targets, &existing, &alive_panes);
+        assert_eq!(dead.len(), 1);
+        assert_eq!(dead[0].agent_id.0, "agent1");
+    }
+
+    #[test]
     fn batch_liveness_check_with_identity_does_not_panic() {
         let targets = vec![
             make_liveness_check("agent1", "jefe-agent1", false),

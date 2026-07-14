@@ -196,8 +196,9 @@ pub struct TmuxSession {
 /// session on drop (issue #301 Phase 6).
 ///
 /// Guarantees teardown on every exit path: success, assertion failure,
-/// timeout, panic, and launch failure. When `keep_session` is true on the
-/// session, the guard skips the kill (mirroring `cleanup_session`).
+/// timeout, panic, and launch failure. The `Drop` impl calls
+/// `cleanup_session`, which internally checks `keep_session` and skips
+/// the kill when it is true (mirroring the old `cleanup_session` contract).
 #[derive(Debug)]
 pub struct TmuxSessionGuard {
     driver: TmuxDriver,
@@ -207,7 +208,7 @@ pub struct TmuxSessionGuard {
 impl TmuxSessionGuard {
     /// Create a guard from a successfully started session.
     #[must_use]
-    pub const fn new(driver: TmuxDriver, session: TmuxSession) -> Self {
+    pub fn new(driver: TmuxDriver, session: TmuxSession) -> Self {
         Self {
             driver,
             session: Some(session),
@@ -236,6 +237,8 @@ impl TmuxSessionGuard {
 
 impl Drop for TmuxSessionGuard {
     fn drop(&mut self) {
+        // `cleanup_session` internally checks `keep_session` and skips
+        // the kill when true, so this call is safe to make unconditionally.
         if let Some(session) = self.session.take()
             && let Err(err) = self.driver.cleanup_session(&session)
         {

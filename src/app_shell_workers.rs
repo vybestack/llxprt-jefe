@@ -46,10 +46,14 @@ pub async fn run_persist_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
         // preserving any newer snapshot (issue #301 review feedback).
         handle.clear_pending_if(generation);
         let result = smol::unblock(move || persist_fn(&state)).await;
-        if let Err(e) = result {
-            warn!(error = %e, "background persist failed");
+        match result {
+            Ok(()) => {
+                let _ = handle.commit(generation);
+            }
+            Err(e) => {
+                warn!(error = %e, generation, "background persist failed; not committing generation");
+            }
         }
-        let _ = handle.commit(generation);
     }
 }
 
@@ -124,6 +128,7 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
         return Vec::new();
     };
     let Ok(ctx_guard) = ctx_arc.try_lock() else {
+        tracing::trace!("capture_history_from_cache: ctx try_lock contended; returning empty");
         return Vec::new();
     };
     let handle: &CaptureHandle = &ctx_guard.capture_handle;

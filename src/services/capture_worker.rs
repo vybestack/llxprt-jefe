@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn request_deduplicates_same_agent_and_generation() {
+    fn request_replaces_with_different_session_name() {
         let handle = CaptureHandle::new();
         handle.request(agent("a"), "session-a".to_string(), 5);
         handle.request(agent("a"), "session-a-different".to_string(), 5);

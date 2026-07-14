@@ -238,14 +238,15 @@ pub fn run_tmux_scenario(
     // guard.session() is guaranteed Some right after construction.
     let session_ref = guard
         .session()
-        .unwrap_or_else(|| panic!("guard just created with a live session"));
+        .unwrap_or_else(|| panic!("guard must be created with a live session"));
     let mut driver = TmuxHarnessDriver::new(tmux.clone(), session_ref.clone());
     let mut result = run_expanded_scenario(&expanded, &mut driver, artifact_dir);
     if let Ok(summary) = &mut result {
         summary.multiplexer_details = Some(tmux.diagnostics());
     }
-    // The guard's Drop kills the session. If keep_session is true, the guard
-    // skips the kill (mirroring the old `cleanup_session` contract).
+    // The guard's Drop kills the session (unless keep_session is true).
+    // Explicit drop is unnecessary but documents intent: the session must
+    // be torn down before returning the result.
     drop(guard);
     result
 }

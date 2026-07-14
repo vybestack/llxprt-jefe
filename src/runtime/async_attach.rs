@@ -113,7 +113,7 @@ impl TmuxRuntimeManager {
     ///
     /// This is the blocking work that runs on a background OS thread without
     /// holding the `AppContext` lock.
-    pub fn build_viewer(inputs: &AttachInputs) -> Result<AttachedViewer, RuntimeError> {
+    pub fn build_viewer(inputs: AttachInputs) -> Result<AttachedViewer, RuntimeError> {
         if let Some(remote) = &inputs.remote {
             let ssh_plan = commands::build_remote_attach_plan(remote, &inputs.session_name)?;
             AttachedViewer::spawn_remote(&inputs.session_name, inputs.rows, inputs.cols, &ssh_plan)

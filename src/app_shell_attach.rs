@@ -47,6 +47,7 @@ pub fn perform_async_attach(
 
     let inputs = {
         let Ok(ctx_guard) = ctx.lock() else {
+            warn!(agent_id = %agent_id.0, "background: ctx mutex poisoned during attach input snapshot");
             return AsyncAttachOutcome::Failed(agent_id);
         };
         ctx_guard.runtime.attach_inputs(&agent_id)
@@ -56,7 +57,7 @@ pub fn perform_async_attach(
         return AsyncAttachOutcome::Failed(agent_id);
     };
 
-    let viewer = match TmuxRuntimeManager::build_viewer(&inputs) {
+    let viewer = match TmuxRuntimeManager::build_viewer(inputs) {
         Ok(v) => v,
         Err(error) => {
             warn!(agent_id = %agent_id.0, error = %error, "background: build_viewer failed");
@@ -73,6 +74,10 @@ pub fn perform_async_attach(
     // Stale-attach guard: if the agent's session was removed (e.g. by a
     // kill or restart) while the viewer was being built, reject the
     // result and dispose of the viewer on a background thread.
+    // Note: `apply_attach_result` also validates session existence, but
+    // checking here avoids calling `apply_attach_result` at all when the
+    // session is already gone, keeping the rejection path explicit and
+    // the error message more specific.
     if ctx_guard.runtime.get_session(&agent_id).is_none() {
         debug!(agent_id = %agent_id.0, "background: agent session gone after viewer built; stale attach rejected");
         drop_viewer_in_background(viewer);

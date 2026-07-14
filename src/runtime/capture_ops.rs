@@ -7,9 +7,10 @@
 
 use super::commands;
 use super::manager::history_cache::strip_trailing_rows;
-use super::manager::{HISTORY_LINE_CAP, RuntimeManager, TmuxRuntimeManager};
+use super::manager::{HISTORY_LINE_CAP, TmuxRuntimeManager};
 use super::session::{TerminalCell, TerminalCellStyle, TerminalSnapshot};
 use crate::domain::AgentId;
+use crate::runtime::RuntimeManager;
 use tracing::debug;
 
 /// Capture pane output for a known session (used for dead-pane crash text).
@@ -44,10 +45,6 @@ pub fn capture_session_output(
     };
 
     let mut snapshot = TerminalSnapshot::blank(rows, cols, default_style);
-    // `capture_pane_lines` does not preserve soft-wrap metadata, so all
-    // rows are treated as hard line breaks (wraps stays all-false, which
-    // is the default from `blank` — issue #197).
-    snapshot.wraps = vec![false; rows];
     for (r, line) in lines.iter().enumerate() {
         for (c, ch) in line.chars().enumerate() {
             snapshot.cells[r][c] = TerminalCell {
@@ -70,17 +67,11 @@ pub fn capture_session_output(
 /// data) or the attached session changes.
 pub fn capture_history(mgr: &mut TmuxRuntimeManager) -> Option<Vec<String>> {
     let agent_id = mgr.attached_agent_id.clone()?;
-    let session_name = mgr
-        .sessions
-        .get(&agent_id)
-        .map(|s| s.session_name.clone())?;
+    let session = mgr.sessions.get(&agent_id)?;
+    let session_name = session.session_name.clone();
 
     // Remote sessions do not support local capture-pane history.
-    let is_remote = mgr
-        .sessions
-        .get(&agent_id)
-        .is_some_and(|s| s.launch_signature.remote.enabled);
-    if is_remote {
+    if session.launch_signature.remote.enabled {
         return None;
     }
 

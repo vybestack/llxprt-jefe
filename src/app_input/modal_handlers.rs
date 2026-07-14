@@ -27,6 +27,11 @@ pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     // attach future (Phase 3) driven by the AttachScheduler's desired target.
     // The render body sets desired from `selected_running_agent_id`, so F12
     // just flips the focus intent — no synchronous `runtime.attach()` call.
+    //
+    // If the background attach later fails (session gone, tmux error), the
+    // attach worker calls `apply_attach_failure`, which resets
+    // `terminal_focused` to false and `pane_focus` to Agents, restoring the
+    // pre-F12 dashboard view. The user can press F12 again to retry.
     prepare_f12_toggle(app_state);
     persist_current_state(app_state, ctx);
 }
