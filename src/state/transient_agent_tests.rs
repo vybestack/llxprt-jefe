@@ -5,6 +5,19 @@ use crate::state::{AgentChooserState, AppEvent, AppState};
 
 use std::path::PathBuf;
 
+trait PanicOption<T> {
+    fn or_panic(self, context: &str) -> T;
+}
+
+impl<T> PanicOption<T> for Option<T> {
+    fn or_panic(self, context: &str) -> T {
+        match self {
+            Some(value) => value,
+            None => panic!("{context}"),
+        }
+    }
+}
+
 fn make_repo_with_github(github_repo: &str) -> Repository {
     let mut repo = Repository::new(
         RepositoryId("repo-1".to_owned()),
@@ -38,6 +51,18 @@ fn is_transient_available_true_when_github_repo_set_and_kinds_installed() {
 }
 
 #[test]
+fn is_transient_available_false_when_installed_kinds_dont_match_default() {
+    let repo = make_repo_with_github("acme/widgets");
+    let mut state = AppState::default();
+    state.repositories.push(repo);
+    state.selected_repository_index = Some(0);
+    // repo.default_agent_kind is Llxprt (the default); installing only
+    // CodePuppy must NOT make the transient slot available.
+    state.installed_agent_kinds = vec![AgentKind::CodePuppy];
+    assert!(!state.is_transient_available_for_repo(state.selected_repository_id()));
+}
+
+#[test]
 fn is_transient_available_false_when_no_github_repo() {
     let repo = make_repo_with_github("");
     let mut state = AppState::default();
@@ -49,7 +74,8 @@ fn is_transient_available_false_when_no_github_repo() {
 
 #[test]
 fn is_transient_available_false_when_no_installed_kinds_and_not_remote() {
-    let repo = make_repo_with_github("acme/widgets");
+    let mut repo = make_repo_with_github("acme/widgets");
+    repo.remote.enabled = false;
     let mut state = AppState::default();
     state.repositories.push(repo);
     state.selected_repository_index = Some(0);
@@ -121,10 +147,26 @@ fn agent_chooser_navigation_bounds_include_transient_slot() {
         ],
         transient_available: true,
     };
-    // Max index should be agents.len() + transient_available = 3 entries
-    // (indices 0, 1, 2)
-    let max = chooser.agents.len() + usize::from(chooser.transient_available);
-    assert_eq!(max, 3);
+    // The entry count is agents.len() + transient_available = 3 entries
+    // (indices 0, 1, 2). Verify navigation clamps to this bound: navigate
+    // down past the last index should not exceed agents.len().
+    let max_index = chooser.agents.len() + usize::from(chooser.transient_available) - 1;
+    assert_eq!(max_index, 2);
+    // Navigate down within bounds
+    let mut state = AppState::default();
+    state.issues_state.agent_chooser = Some(chooser);
+    state = state.apply(AppEvent::AgentChooserNavigateDown); // 0 -> 1
+    state = state.apply(AppEvent::AgentChooserNavigateDown); // 1 -> 2
+    state = state.apply(AppEvent::AgentChooserNavigateDown); // 2 -> clamped at 2
+    let chooser = state
+        .issues_state
+        .agent_chooser
+        .as_ref()
+        .or_panic("chooser must still be open after navigation");
+    assert_eq!(
+        chooser.selected_index, 2,
+        "navigation must clamp at the transient slot"
+    );
 }
 
 #[test]

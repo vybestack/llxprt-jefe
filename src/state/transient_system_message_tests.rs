@@ -33,6 +33,10 @@ fn transient_agent_queued_sets_draft_notice_position_zero() {
         after.issues_state.draft_notice.as_deref(),
         Some("Transient agent queued — launching next…"),
     );
+    assert_eq!(
+        after.prs_state.draft_notice.as_deref(),
+        Some("Transient agent queued — launching next…"),
+    );
 }
 
 #[test]

@@ -229,7 +229,7 @@ fn remote_repository_creation_preserves_remote_base_dir_without_local_expansion(
         host: "170.9.234.179".to_owned(),
         run_as_user: "acoliver".to_owned(),
         setup_env_default: true,
-        transient_agent_dir: std::path::PathBuf::new().to_string_lossy().into_owned(),
+        transient_agent_dir: String::new(),
         transient_max_concurrent: String::new(),
     };
 
