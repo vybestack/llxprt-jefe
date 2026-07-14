@@ -196,13 +196,9 @@ pub fn to_persisted_state(state: &AppState) -> PersistedState {
 
     // Recompute selected_agent_index: if it pointed at a transient agent,
     // clear it so restart does not select a different agent by stale index.
-    let selected_agent_index = state.selected_agent_index.and_then(|idx| {
-        if idx < persistent_agents.len() {
-            Some(idx)
-        } else {
-            None
-        }
-    });
+    let selected_agent_index = state
+        .selected_agent_index
+        .filter(|&idx| idx < persistent_agents.len());
 
     // Filter last_selected_agent_by_repo: remove entries whose agent ID
     // belonged to a transient agent (no longer in persistent_agents).
