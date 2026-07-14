@@ -12,12 +12,10 @@ use crate::app_input::{
     handle_mode_auth_key, handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key,
     handle_mode_search_key, handle_mode_theme_picker_key, handle_normal_key_event, persist_state,
     request_pr_background_refresh, to_persisted_state, try_ctrl_c_interrupt_passthrough,
-    try_intercept_terminal_scrollback,
+    try_intercept_terminal_scrollback, try_suppress_synthetic_enter,
+    update_paste_enter_suppression,
 };
-use crate::pty_encoding::{
-    should_arm_paste_enter_suppression, should_disarm_paste_enter_suppression,
-    should_suppress_synthetic_enter,
-};
+use crate::pty_encoding::PasteEnterSuppression;
 
 use jefe::domain::{AgentId, AgentStatus};
 use jefe::input::{InputMode, input_mode_for_state};
@@ -32,6 +30,7 @@ use jefe::ui::orchestration::{
 };
 
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Props for the root app component.
 #[derive(Default, Props)]
@@ -52,9 +51,10 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // records the *desired* target here; a background future polls and
     // performs the actual attach off the render/input hot path.
     let mut attach_scheduler = hooks.use_state(|| AttachScheduler::new(DEFAULT_DEBOUNCE));
-    // Some terminals emit a synthetic Enter key before a Paste event for Cmd/Ctrl+V.
-    // Suppress just that one Enter to avoid accidental submits while pasting.
-    let mut suppress_next_enter = hooks.use_state(|| false);
+    // Some terminals emit a synthetic Enter key before/after a Paste event for
+    // Cmd/Ctrl+V. Suppress only the synthetic Enter (bounded by a short time
+    // window) to avoid swallowing a real submit Enter under load (issue #286).
+    let mut suppress_next_enter = hooks.use_state(PasteEnterSuppression::new);
 
     let ctx = props.context.clone();
 
@@ -456,7 +456,7 @@ fn handle_terminal_event(
     app_state: &mut HookState<AppState>,
     should_quit: &mut HookState<bool>,
     help_scroll: &mut HookState<u32>,
-    suppress_next_enter: &mut HookState<bool>,
+    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
 ) {
     match event {
         TerminalEvent::Resize(cols, rows) => {
@@ -503,7 +503,7 @@ fn handle_resize(ctx: Option<&CtxArc>, cols: u16, rows: u16) {
 fn handle_paste(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<bool>,
+    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
     pasted_text: String,
 ) {
     let input_mode = {
@@ -523,14 +523,14 @@ fn handle_paste(
             paste_to_issues_search(app_state, suppress_next_enter, pasted_text);
         }
         _ => {
-            suppress_next_enter.set(false);
+            suppress_next_enter.set(PasteEnterSuppression::new());
         }
     }
 }
 
 fn paste_to_terminal(
     ctx: Option<&CtxArc>,
-    suppress_next_enter: &mut HookState<bool>,
+    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
     pasted_text: String,
 ) {
     let Some(ctx_arc) = ctx else {
@@ -553,13 +553,13 @@ fn paste_to_terminal(
     if let Err(e) = ctx_guard.runtime.write_input(&bytes) {
         warn!(error = %e, "runtime.write_input failed for paste");
     }
-    suppress_next_enter.set(false);
+    suppress_next_enter.set(PasteEnterSuppression::new());
 }
 
 fn paste_to_form(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<bool>,
+    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
     pasted_text: String,
 ) {
     let mut state = app_state.write();
@@ -569,13 +569,13 @@ fn paste_to_form(
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(&ctx.cloned(), &persisted);
-    suppress_next_enter.set(false);
+    suppress_next_enter.set(PasteEnterSuppression::new());
 }
 
 fn paste_to_issues_inline(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<bool>,
+    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
     pasted_text: String,
 ) {
     let mut state = app_state.write();
@@ -589,12 +589,12 @@ fn paste_to_issues_inline(
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(&ctx.cloned(), &persisted);
-    suppress_next_enter.set(false);
+    suppress_next_enter.set(PasteEnterSuppression::new());
 }
 
 fn paste_to_issues_search(
     app_state: &mut HookState<AppState>,
-    suppress_next_enter: &mut HookState<bool>,
+    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
     pasted_text: String,
 ) {
     let mut state = app_state.write();
@@ -608,27 +608,7 @@ fn paste_to_issues_search(
         *state = std::mem::take(&mut *state).apply(AppEvent::SetSearchQuery { query });
     }
     drop(state);
-    suppress_next_enter.set(false);
-}
-
-/// Arm or clear the paste-Enter suppression flag based on the current key and
-/// input mode. `Ctrl-V` / `Cmd-V` in terminal-capture mode arms suppression so
-/// the synthetic Enter some terminals send after a paste is swallowed; any
-/// other key disarms it.
-fn update_paste_enter_suppression(
-    app_state: &HookState<AppState>,
-    suppress_next_enter: &mut HookState<bool>,
-    key_event: &KeyEvent,
-) {
-    let current_input_mode = {
-        let state = app_state.read();
-        input_mode_for_state(&state)
-    };
-    if should_arm_paste_enter_suppression(key_event, current_input_mode) {
-        suppress_next_enter.set(true);
-    } else if should_disarm_paste_enter_suppression(suppress_next_enter.get(), key_event) {
-        suppress_next_enter.set(false);
-    }
+    suppress_next_enter.set(PasteEnterSuppression::new());
 }
 
 fn handle_key_event(
@@ -636,11 +616,14 @@ fn handle_key_event(
     app_state: &mut HookState<AppState>,
     should_quit: &mut HookState<bool>,
     help_scroll: &mut HookState<u32>,
-    suppress_next_enter: &mut HookState<bool>,
+    suppress_next_enter: &mut HookState<PasteEnterSuppression>,
     key_event: KeyEvent,
 ) {
-    // Ignore release events if we've seen press/repeat.
-    if key_event.kind == KeyEventKind::Release {
+    // Ignore release and repeat events: only physical key *presses* are
+    // meaningful input. Repeat events fire under OS key-repeat and would
+    // duplicate input forwarded to the PTY (issue #286 — holding Enter under
+    // load can send duplicate submits).
+    if key_event.kind != KeyEventKind::Press {
         return;
     }
 
@@ -649,11 +632,13 @@ fn handle_key_event(
     let pane_focus = state_ro.pane_focus;
     let screen_mode = state_ro.screen_mode;
     let modal = state_ro.modal.clone();
+    let early_input_mode = input_mode_for_state(&state_ro);
     drop(state_ro);
 
     trace!(
         code = ?key_event.code,
         modifiers = ?key_event.modifiers,
+        kind = ?key_event.kind,
         term_focused,
         pane_focus = ?pane_focus,
         screen_mode = ?screen_mode,
@@ -661,13 +646,11 @@ fn handle_key_event(
         "key event received"
     );
 
-    if should_suppress_synthetic_enter(suppress_next_enter.get(), &key_event) {
-        debug!("suppressing synthetic Enter preceding paste");
-        suppress_next_enter.set(false);
+    let now = Instant::now();
+    if try_suppress_synthetic_enter(suppress_next_enter, &key_event, now) {
         return;
     }
-
-    update_paste_enter_suppression(app_state, suppress_next_enter, &key_event);
+    update_paste_enter_suppression(early_input_mode, suppress_next_enter, &key_event, now);
 
     // F12 toggles terminal focus in Dashboard/Split/Actions. In Issues/PR
     // mode F12 is mode-aware (defocus / return to list) and is handled by

@@ -41,6 +41,7 @@ fn issue_detail() -> IssueDetail {
         comments: Vec::new(),
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     }
 }
 
