@@ -274,6 +274,8 @@ where
             other => return Err(ParseError::message(format!("unknown argument: {other}"))),
         }
     }
+    allow_repos.sort_unstable();
+    allow_repos.dedup();
     Ok(PlanGithubOpts {
         fixture_repo: required_string(fixture_repo, "--fixture-repo")?,
         run_id: required_string(run_id, "--run-id")?,

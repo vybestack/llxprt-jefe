@@ -10,9 +10,8 @@ use super::cli::{CleanupOpts, write_stderr, write_stdout};
 
 use jefe_tutorial_capture::{
     GithubCleanupOutcome, GithubCleanupStatus, OrchestrationError, OwnedPathKind,
-    RealCommandRunner, RunManifest, TierBError, cleanup_manifest,
-    execute_github_cleanup_with_allowlist, load_manifest, plan_github_cleanup, save_manifest,
-    verify_sentinel_ownership,
+    RealCommandRunner, RunManifest, TierBError, execute_github_cleanup_with_allowlist,
+    load_manifest, plan_github_cleanup, save_manifest, verify_sentinel_ownership,
 };
 
 /// Label for an owned path kind in cleanup output.
@@ -70,7 +69,7 @@ pub fn run_cleanup(opts: &CleanupOpts) -> ExitCode {
     }
 
     let purge = opts.purge_evidence && !gh_cleanup_incomplete;
-    match cleanup_manifest(&mut manifest, purge) {
+    match jefe_tutorial_capture::cleanup_manifest_with_root(&mut manifest, run_root, purge) {
         Ok(records) => {
             write_stdout("cleanup complete\n");
             for record in &records {

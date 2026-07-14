@@ -159,11 +159,9 @@ pub fn render_single_artifact(
     let svg_relative = PathBuf::from("svg").join(&svg_name);
     // Finding #7: validate the SVG output path for safety.
     if let Err(err) = validate_artifact_path(&svg_relative) {
-        write_stderr(&format!("warning: unsafe SVG path: {err}\n"));
-        return Ok(RenderedSvgs {
-            mono_svg: None,
-            color_svg: color_svg_relative,
-        });
+        let svg_path = svg_dir.join(&svg_name);
+        write_stderr(&format!("error: unsafe SVG path: {err}\n"));
+        return Err(svg_path);
     }
     let svg_path = svg_dir.join(&svg_name);
     if let Err(err) = fs::write(&svg_path, &svg) {
