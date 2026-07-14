@@ -53,8 +53,7 @@ pub(super) fn create_run_root_with_sentinel(run_root: &Path, run_id: &str) {
     let sentinel = run_root.join(EXCLUSIVE_SENTINEL);
     let time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     let content = format!("pid={}\ntime={time}\nrun_id={run_id}\n", std::process::id());
     atomic_write(&sentinel, &content).value_or_panic("write sentinel");
 }
