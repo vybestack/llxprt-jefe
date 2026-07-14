@@ -141,6 +141,9 @@ fn classify_startup(
     if binding == BindingEvidence::Inconsistent {
         return StartupClassification::Inconsistent;
     }
+    if !remote && process == ProcessLiveness::ReusedPid {
+        return StartupClassification::Stale;
+    }
     match session {
         SessionEvidence::Alive => StartupClassification::Running,
         SessionEvidence::Unavailable => StartupClassification::Recoverable,
@@ -748,6 +751,15 @@ mod tests {
         assert_eq!(
             classify_startup(
                 SessionEvidence::Missing,
+                coherent,
+                false,
+                ProcessLiveness::ReusedPid
+            ),
+            StartupClassification::Stale
+        );
+        assert_eq!(
+            classify_startup(
+                SessionEvidence::Alive,
                 coherent,
                 false,
                 ProcessLiveness::ReusedPid

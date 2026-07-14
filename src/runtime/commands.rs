@@ -936,7 +936,17 @@ pub fn remote_session_exists(
 ) -> Result<bool, RuntimeError> {
     let command = remote_has_session_command(remote, session_name);
     let output = run_remote_ssh(remote, &command)?;
-    Ok(output.status.success())
+    if output.status.success() {
+        return Ok(true);
+    }
+    if output.status.code() == Some(1) {
+        return Ok(false);
+    }
+    Err(RuntimeError::CapabilityProbeFailed(format!(
+        "remote tmux session probe failed with status {}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr).trim()
+    )))
 }
 
 /// Kill a tmux session.
