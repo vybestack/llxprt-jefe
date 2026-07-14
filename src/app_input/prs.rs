@@ -122,23 +122,42 @@ fn resolve_pr_global_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEv
 /// detail's SHA is used; when a PR is selected in the list (but no detail),
 /// the list item's SHA is used; when neither, Actions mode is entered without
 /// a PR filter.
+///
+/// Prefer the list selection when it exists and differs from `pr_detail`:
+/// list navigation keeps the previous detail around while only clearing
+/// pending/loading state, so `pr_detail` can be stale after the cursor moves.
 fn pr_to_actions_event(state: &AppState) -> AppEvent {
+    let selected_pr = state
+        .prs_state
+        .selected_pr_index()
+        .and_then(|idx| state.prs_state.pull_requests().get(idx));
+
+    if let Some(pr) = selected_pr {
+        // Use pr_detail only when it matches the selected list PR (the detail
+        // may carry a fresher SHA from the full detail fetch). When the
+        // selection has moved away, the list item is authoritative.
+        let head_sha = state
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .filter(|d| d.number == pr.number)
+            .map_or_else(|| pr.head_sha.clone(), |d| d.head_sha.clone());
+        return AppEvent::EnterActionsModeWithPrFilter {
+            pr_number: pr.number,
+            head_sha,
+        };
+    }
+
+    // No list selection — use pr_detail if available (edge case: detail
+    // loaded but list not yet populated or selection cleared).
     if let Some(detail) = &state.prs_state.pr_detail {
-        AppEvent::EnterActionsModeWithPrFilter {
+        return AppEvent::EnterActionsModeWithPrFilter {
             pr_number: detail.number,
             head_sha: detail.head_sha.clone(),
-        }
-    } else if let Some(idx) = state.prs_state.selected_pr_index() {
-        if let Some(pr) = state.prs_state.pull_requests().get(idx) {
-            return AppEvent::EnterActionsModeWithPrFilter {
-                pr_number: pr.number,
-                head_sha: pr.head_sha.clone(),
-            };
-        }
-        AppEvent::EnterActionsMode
-    } else {
-        AppEvent::EnterActionsMode
+        };
     }
+
+    AppEvent::EnterActionsMode
 }
 
 /// F12 semantics in PR mode (issue #164): defocus the terminal if it is

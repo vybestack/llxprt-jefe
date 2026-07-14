@@ -255,3 +255,73 @@ fn g_does_not_fire_when_inline_composer_open() {
         "'g' with inline composer must yield PrInlineChar('g'), got {event:?}"
     );
 }
+
+/// Build a `PullRequest` with the given number and head SHA (all other
+/// fields are defaulted for test purposes).
+fn make_list_pr(number: u64, head_sha: &str) -> PullRequest {
+    PullRequest {
+        number,
+        title: format!("PR #{number}"),
+        state: PrState::Open,
+        author_login: "user".to_string(),
+        updated_at: "2024-01-01T00:00:00Z".to_string(),
+        head_ref: format!("feature{number}"),
+        head_sha: head_sha.to_string(),
+        base_ref: "main".to_string(),
+        is_draft: false,
+        review_decision: None,
+        checks_status: PrCheckStatus::None,
+        assignee_summary: String::new(),
+        labels_summary: String::new(),
+        comment_count: 0,
+    }
+}
+
+/// `g` uses the selected list PR when `pr_detail` is stale (CodeRabbit
+/// finding): list navigation keeps the previous detail around, so the
+/// selection may point to a different PR than `pr_detail`.
+#[test]
+fn g_prefers_selected_pr_over_stale_detail() {
+    let mut state = prs_base_state();
+    state.prs_state.pr_detail = Some(PullRequestDetail {
+        repo_owner_name: "owner/repo".to_string(),
+        number: 1,
+        title: "PR #1".to_string(),
+        state: PrState::Open,
+        is_draft: false,
+        author_login: "octocat".to_string(),
+        created_at: "2024-01-01T00:00:00Z".to_string(),
+        updated_at: "2024-01-02T00:00:00Z".to_string(),
+        head_ref: "feature1".to_string(),
+        head_sha: "detail_sha_1".to_string(),
+        base_ref: "main".to_string(),
+        labels: vec![],
+        assignees: vec![],
+        milestone: None,
+        body: String::new(),
+        external_url: "https://github.com/owner/repo/pull/1".to_string(),
+        review_decision: None,
+        checks_status: PrCheckStatus::None,
+        reviews: vec![],
+        checks: vec![],
+        comments: vec![],
+        has_more_comments: false,
+        comments_cursor: None,
+        mergeable: None,
+        merge_state_status: None,
+    });
+    state.prs_state.list.replace_items(vec![
+        make_list_pr(1, "list_sha_1"),
+        make_list_pr(2, "list_sha_2"),
+    ]);
+    state.prs_state.list.set_selected_index(Some(1));
+
+    let event = resolve_prs_key_event(&state, &key(KeyCode::Char('g')));
+    assert!(
+        matches!(
+            event,
+            Some(AppEvent::EnterActionsModeWithPrFilter { pr_number: 2, ref head_sha }) if head_sha == "list_sha_2"
+        ),
+        "'g' must use the selected list PR (#2) when pr_detail is stale (#1), got {event:?}"
+    );
+}
