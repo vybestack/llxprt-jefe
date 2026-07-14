@@ -6,6 +6,10 @@ use crate::state::ActionsFilterField;
 #[derive(Debug, Clone)]
 pub enum ActionsMessage {
     EnterMode,
+    EnterModeWithPrFilter {
+        pr_number: u64,
+        head_sha: String,
+    },
     ExitMode,
     RefocusList,
     Reload,
@@ -117,6 +121,7 @@ impl ActionsMessage {
     pub const fn name(&self) -> &'static str {
         match self {
             Self::EnterMode => "EnterActionsMode",
+            Self::EnterModeWithPrFilter { .. } => "EnterActionsModeWithPrFilter",
             Self::ExitMode => "ExitActionsMode",
             Self::RefocusList => "RefocusActionsList",
             Self::Reload => "ActionsReload",

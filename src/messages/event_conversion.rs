@@ -212,6 +212,7 @@ impl AppMessage {
         matches!(
             event,
             AppEvent::EnterActionsMode
+                | AppEvent::EnterActionsModeWithPrFilter { .. }
                 | AppEvent::ExitActionsMode
                 | AppEvent::RefocusActionsList
                 | AppEvent::ActionsReload

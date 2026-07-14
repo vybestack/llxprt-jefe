@@ -317,6 +317,7 @@ fn build_pr_preview_for_selection(
         created_at: String::new(),
         updated_at: pr.updated_at.clone(),
         head_ref: pr.head_ref.clone(),
+        head_sha: pr.head_sha.clone(),
         base_ref: pr.base_ref.clone(),
         labels: pr
             .labels_summary

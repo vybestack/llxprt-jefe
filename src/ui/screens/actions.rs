@@ -85,7 +85,10 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
 
     let has_filters = state.is_some_and(|s| {
         let f = &s.actions_state.committed_filter;
-        !f.workflow.is_empty() || !f.status.is_empty() || !f.search.is_empty()
+        !f.workflow.is_empty()
+            || !f.status.is_empty()
+            || !f.search.is_empty()
+            || f.pr_number.is_some()
     });
 
     // Compute the rows/columns available to panes using the SAME shared helpers

@@ -582,7 +582,7 @@ impl GhClient {
             "--repo".to_string(),
             format!("{owner}/{name}"),
             "--json".to_string(),
-            "number,title,state,mergedAt,author,createdAt,updatedAt,headRefName,baseRefName,isDraft,labels,assignees,milestone,body,url,reviewDecision,statusCheckRollup,reviews,mergeable,mergeStateStatus".to_string(),
+            "number,title,state,mergedAt,author,createdAt,updatedAt,headRefName,headRefOid,baseRefName,isDraft,labels,assignees,milestone,body,url,reviewDecision,statusCheckRollup,reviews,mergeable,mergeStateStatus".to_string(),
         ];
         let repo = format!("{owner}/{name}");
 

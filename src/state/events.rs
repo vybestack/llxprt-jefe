@@ -572,6 +572,11 @@ pub enum AppEvent {
 
     // Actions Mode events
     EnterActionsMode,
+    /// Enter Actions mode with a PR filter pre-set (cross-mode action from PR mode).
+    EnterActionsModeWithPrFilter {
+        pr_number: u64,
+        head_sha: String,
+    },
     ExitActionsMode,
     RefocusActionsList,
     ActionsReload,

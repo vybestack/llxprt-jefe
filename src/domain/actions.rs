@@ -132,4 +132,8 @@ pub struct ActionsFilter {
     pub status: String,
     /// Committed search query for client-side filtering of workflow runs.
     pub search: String,
+    /// PR number filter (None = no PR filter).
+    pub pr_number: Option<u64>,
+    /// Resolved head SHA for the PR filter (used for the GitHub API head_sha= param).
+    pub head_sha: Option<String>,
 }

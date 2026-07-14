@@ -74,6 +74,7 @@ pub(super) fn dispatch_actions_message(
 ) {
     match message {
         m @ (ActionsMessage::EnterMode
+        | ActionsMessage::EnterModeWithPrFilter { .. }
         | ActionsMessage::Reload
         | ActionsMessage::RefocusList
         | ActionsMessage::ApplyFilter

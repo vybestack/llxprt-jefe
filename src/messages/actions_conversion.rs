@@ -11,6 +11,7 @@ impl ActionsMessage {
     pub(super) fn from_app_event(event: AppEvent) -> Self {
         match event {
             AppEvent::EnterActionsMode => Self::EnterMode,
+            AppEvent::EnterActionsModeWithPrFilter { .. } => Self::from_enter_with_pr_filter(event),
             AppEvent::ExitActionsMode => Self::ExitMode,
             AppEvent::RefocusActionsList => Self::RefocusList,
             AppEvent::ActionsReload => Self::Reload,
@@ -72,6 +73,7 @@ impl ActionsMessage {
     pub fn into_app_event(self) -> AppEvent {
         match self {
             Self::EnterMode => AppEvent::EnterActionsMode,
+            Self::EnterModeWithPrFilter { .. } => Self::into_enter_with_pr_filter(self),
             Self::ExitMode => AppEvent::ExitActionsMode,
             Self::RefocusList => AppEvent::RefocusActionsList,
             Self::Reload => AppEvent::ActionsReload,
@@ -124,6 +126,32 @@ impl ActionsMessage {
                 request_id,
             },
             Self::WorkflowDispatchFailed { .. } => Self::into_dispatch_failed(self),
+        }
+    }
+
+    fn into_enter_with_pr_filter(self) -> AppEvent {
+        match self {
+            Self::EnterModeWithPrFilter {
+                pr_number,
+                head_sha,
+            } => AppEvent::EnterActionsModeWithPrFilter {
+                pr_number,
+                head_sha,
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn from_enter_with_pr_filter(event: AppEvent) -> Self {
+        match event {
+            AppEvent::EnterActionsModeWithPrFilter {
+                pr_number,
+                head_sha,
+            } => Self::EnterModeWithPrFilter {
+                pr_number,
+                head_sha,
+            },
+            _ => unreachable!(),
         }
     }
 

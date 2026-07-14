@@ -539,6 +539,7 @@ pub enum ActionsFocus {
 pub enum ActionsFilterField {
     Workflow,
     Status,
+    Pr,
 }
 
 /// Identity for the Actions runs list — a result is stale unless both the
@@ -573,7 +574,7 @@ pub struct ActionsDispatchPending {
 pub struct ActionsUiState {
     pub filter_ui_open: bool,
     pub search_input_focused: bool,
-    /// Active field index in the filter bar (0 = workflow, 1 = status).
+    /// Active field index in the filter bar (0 = workflow, 1 = status, 2 = pr).
     /// Mirrors `issues_state.filter_ui.field_index` so the Actions filter bar
     /// renders field-active highlighting through the generic `FilterBar`.
     pub filter_field_index: usize,

@@ -56,6 +56,7 @@ fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<Ap
             field: match state.actions_state.ui.filter_field_index {
                 0 => ActionsFilterField::Workflow,
                 1 => ActionsFilterField::Status,
+                2 => ActionsFilterField::Pr,
                 _ => return None,
             },
             value: String::new(),
@@ -161,7 +162,13 @@ mod tests {
         ));
 
         state.actions_state.ui.filter_field_index = 2;
-        assert!(resolve_actions_key_event(&state, &key(KeyCode::Delete)).is_none());
+        assert!(matches!(
+            resolve_actions_key_event(&state, &key(KeyCode::Delete)),
+            Some(AppEvent::ActionsUpdateDraftFilter {
+                field: ActionsFilterField::Pr,
+                value
+            }) if value.is_empty()
+        ));
 
         let mut clear_all = key(KeyCode::Char('l'));
         clear_all.modifiers = KeyModifiers::CONTROL;
