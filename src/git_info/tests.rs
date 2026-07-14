@@ -231,7 +231,7 @@ impl<T> TestResultExt<T> for Option<T> {
     }
 }
 
-/// Helper: create a temp git repo on a deterministicly-named branch with an
+/// Helper: create a temp git repo on a deterministically-named branch with an
 /// initial commit, returning its path. Uses a named branch (`test-main`) so
 /// tests can assert a concrete branch rather than guessing `master`/`main`.
 fn temp_git_repo() -> tempfile::TempDir {
@@ -875,7 +875,7 @@ fn timeout_kills_long_running_child() {
     let mut cmd = std::process::Command::new("sleep");
     cmd.arg("30");
     let child = cmd.spawn().value_or_panic("spawn sleep");
-    let result = super::run_child_with_timeout(child);
+    let result = super::run_child_with_timeout(child, Path::new("/test"), "sleep");
     assert!(result.is_none(), "timed-out child must return None");
 }
 
@@ -886,7 +886,7 @@ fn timeout_returns_output_for_fast_child() {
     // a successful exit status.
     let mut cmd = std::process::Command::new("true");
     let child = cmd.spawn().value_or_panic("spawn true");
-    let result = super::run_child_with_timeout(child);
+    let result = super::run_child_with_timeout(child, Path::new("/test"), "true");
     let output = result.value_or_panic("fast child must produce output");
     assert!(output.status.success(), "true must exit 0");
 }
@@ -898,7 +898,7 @@ fn timeout_captures_stdout() {
     let mut cmd = std::process::Command::new("echo");
     cmd.arg("hello").stdout(std::process::Stdio::piped());
     let child = cmd.spawn().value_or_panic("spawn echo");
-    let result = super::run_child_with_timeout(child);
+    let result = super::run_child_with_timeout(child, Path::new("/test"), "echo");
     let output = result.value_or_panic("echo must produce output");
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello");
 }

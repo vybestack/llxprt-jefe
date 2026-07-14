@@ -15,7 +15,11 @@
 # Usage:
 #   scripts/issue230-run-scenario.sh [--keep-session]
 #
-# Requirements: tmux 3.x, cargo, the jefe binary (built if missing), git.
+# Requirements: tmux >= 3.0, cargo, the jefe binary (built if missing), git.
+# This scenario is Linux/GNU-coreutils-specific: it uses GNU `timeout`
+# (exit 124 on timeout), `realpath -m` (canonicalize without requiring the
+# path to exist), and GNU `find`/`mktemp` semantics. It is NOT portable to
+# BSD/macOS without GNU coreutils.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -64,6 +68,28 @@ command -v tmux >/dev/null 2>&1 || {
     echo "FATAL: tmux is required for the Linux tmux scenario" >&2
     exit 1
 }
+# Require tmux >= 3.0. The harness relies on features (e.g. extended
+# capture-pane, popup) available since 3.0. tmux version output is typically
+# `tmux X.Y[a]` (e.g. `tmux 3.4` or `tmux 3.2a`); the helper below parses
+# the major.minor without brittle arithmetic.
+tmux_version_ok=0
+tmux_major_minor=$(tmux -V 2>/dev/null) || tmux_major_minor=""
+if [[ "$tmux_major_minor" =~ ^tmux[[:space:]]+([0-9]+)\.([0-9]+) ]]; then
+    tmux_major="${BASH_REMATCH[1]}"
+    tmux_minor="${BASH_REMATCH[2]}"
+    # Remove any leading zeros to avoid octal misinterpretation, then compare.
+    tmux_major="${tmux_major#"0"}"
+    tmux_minor="${tmux_minor#"0"}"
+    tmux_major="${tmux_major:-0}"
+    tmux_minor="${tmux_minor:-0}"
+    if (( tmux_major > 3 || (tmux_major == 3 && tmux_minor >= 0) )); then
+        tmux_version_ok=1
+    fi
+fi
+if [[ $tmux_version_ok -eq 0 ]]; then
+    echo "FATAL: tmux >= 3.0 is required (detected: ${tmux_major_minor:-unknown})" >&2
+    exit 1
+fi
 command -v git >/dev/null 2>&1 || {
     echo "FATAL: git is required for the Linux tmux scenario" >&2
     exit 1
@@ -88,7 +114,9 @@ if [[ "${1:-}" == "--keep-session" ]]; then
     HARNESS_ARGS+=("--keep-session")
     KEEP_SESSION=true
 fi
-SESSION_NAME="jefe-issue230-$$"
+# Derive a stable, unique session name from the mktemp artifact basename so
+# concurrent/restarted runs never collide on a PID-reused name.
+SESSION_NAME="jefe-issue230-$(basename "$ARTIFACT_DIR")"
 
 # Tracks the overall exit status: 0 = success, non-zero = failure.
 # On failure the artifact directory is preserved for debugging (unless
@@ -112,7 +140,16 @@ trap cleanup_session EXIT
 echo "== Issue #230 real tmux scenario =="
 
 echo "Building jefe and jefe-tmux-harness (incremental)..."
-(cd "$PROJECT_ROOT" && cargo build --bin jefe --bin jefe-tmux-harness 2>&1)
+build_status=0
+timeout 300s cargo build --bin jefe --bin jefe-tmux-harness 2>&1 || build_status=$?
+if [[ $build_status -eq 124 ]]; then
+    echo "FATAL: cargo build timed out after 300 seconds" >&2
+    exit 1
+fi
+if [[ $build_status -ne 0 ]]; then
+    echo "FATAL: cargo build failed (exit $build_status)" >&2
+    exit 1
+fi
 
 JEFE_BIN="$PROJECT_ROOT/target/debug/jefe"
 HARNESS_BIN="$PROJECT_ROOT/target/debug/jefe-tmux-harness"
@@ -323,9 +360,9 @@ exit 0
 EOF
 chmod +x "$SHIM_DIR/llxprt" "$SHIM_DIR/code-puppy"
 
-# Clean previous audit.
+# Clean previous audit. The harness receives GH_SHIM_AUDIT via the explicit
+# env pass below; no global export needed.
 rm -f "$AUDIT_FILE"
-export GH_SHIM_AUDIT="$AUDIT_FILE"
 
 echo "Running scenario..."
 cd "$PROJECT_ROOT"

@@ -261,14 +261,14 @@ fn git_command() -> Option<std::process::Command> {
 ///
 /// Cross-platform (no `unsafe`, FFI, or external dependencies): uses
 /// `Child::try_wait()` polling and `Child::kill()` for termination.
-fn run_git_with_timeout(command: &mut Command) -> Option<std::process::Output> {
+fn run_git_with_timeout(command: &mut Command, work_dir: &Path) -> Option<std::process::Output> {
     // Pipe stdout/stderr so we can read them after polling. Without this,
     // spawn() inherits the parent's stdout/stderr and child.stdout is None.
     command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     let child = command.spawn().ok()?;
-    run_child_with_timeout(child)
+    run_child_with_timeout(child, work_dir, git_probe_label(command))
 }
 
 /// Poll a spawned [`std::process::Child`] for completion up to
@@ -276,8 +276,14 @@ fn run_git_with_timeout(command: &mut Command) -> Option<std::process::Output> {
 /// success. Kills and reaps the child on timeout, returning `None`.
 ///
 /// Extracted from [`run_git_with_timeout`] so tests can exercise the timeout
-/// with an arbitrary child (e.g. `sleep`).
-fn run_child_with_timeout(mut child: std::process::Child) -> Option<std::process::Output> {
+/// with an arbitrary child (e.g. `sleep`). The `work_dir` and `probe_label`
+/// are used only for the timeout warning message so diagnostics identify
+/// which git probe on which directory was slow.
+fn run_child_with_timeout(
+    mut child: std::process::Child,
+    work_dir: &Path,
+    probe_label: &str,
+) -> Option<std::process::Output> {
     let deadline = Instant::now() + GIT_PROBE_TIMEOUT;
     let mut status = None;
 
@@ -307,6 +313,8 @@ fn run_child_with_timeout(mut child: std::process::Child) -> Option<std::process
         // Timed out — kill and reap.
         tracing::warn!(
             timeout = ?GIT_PROBE_TIMEOUT,
+            work_dir = %work_dir.display(),
+            probe = %probe_label,
             "git probe timed out, killing child and returning unknown metadata"
         );
         let _ = child.kill();
@@ -351,6 +359,23 @@ fn probe_branch_and_dirty(work_dir: &Path) -> (Option<String>, Option<bool>) {
     (Some(branch), dirty)
 }
 
+/// Derive a concise, stable label for the git subcommand being run, for use
+/// in timeout warning diagnostics. Inspects the command's arguments to
+/// identify the probe type (e.g. `"status"`, `"rev-parse"`, `"remote"`).
+fn git_probe_label(command: &Command) -> &str {
+    command
+        .get_args()
+        .find_map(|arg| {
+            arg.to_str().filter(|s| {
+                matches!(
+                    *s,
+                    "status" | "rev-parse" | "remote" | "branch" | "symbolic-ref"
+                )
+            })
+        })
+        .unwrap_or("git")
+}
+
 /// Probe whether the working tree at `work_dir` has real (non-ignored)
 /// changes.
 ///
@@ -359,11 +384,13 @@ fn probe_branch_and_dirty(work_dir: &Path) -> (Option<String>, Option<bool>) {
 /// output) so paths containing newlines or ` -> ` are handled correctly. The
 /// shared [`porcelain_is_dirty`] parser auto-detects the NUL-delimited format.
 fn probe_dirty(work_dir: &Path) -> Option<bool> {
-    let output = run_git_with_timeout(git_command()?.arg("-C").arg(work_dir).args([
-        "status",
-        "--porcelain=v1",
-        "-z",
-    ]))?;
+    let output = run_git_with_timeout(
+        git_command()?
+            .arg("-C")
+            .arg(work_dir)
+            .args(["status", "--porcelain=v1", "-z"]),
+        work_dir,
+    )?;
     if !output.status.success() {
         return None;
     }
@@ -379,11 +406,13 @@ fn probe_dirty(work_dir: &Path) -> Option<bool> {
 /// branch name or `HEAD` for detached HEAD (filtered out).
 fn probe_branch(work_dir: &Path) -> Option<String> {
     let mut command = git_command()?;
-    let output = run_git_with_timeout(command.arg("-C").arg(work_dir).args([
-        "rev-parse",
-        "--abbrev-ref",
-        "HEAD",
-    ]))?;
+    let output = run_git_with_timeout(
+        command
+            .arg("-C")
+            .arg(work_dir)
+            .args(["rev-parse", "--abbrev-ref", "HEAD"]),
+        work_dir,
+    )?;
     if !output.status.success() {
         return None;
     }
@@ -397,11 +426,13 @@ fn probe_branch(work_dir: &Path) -> Option<String> {
 
 /// Fall back to the short commit hash for detached HEAD states.
 fn probe_short_commit(work_dir: &Path) -> Option<String> {
-    let output = run_git_with_timeout(git_command()?.arg("-C").arg(work_dir).args([
-        "rev-parse",
-        "--short",
-        "HEAD",
-    ]))?;
+    let output = run_git_with_timeout(
+        git_command()?
+            .arg("-C")
+            .arg(work_dir)
+            .args(["rev-parse", "--short", "HEAD"]),
+        work_dir,
+    )?;
     if !output.status.success() {
         return None;
     }
@@ -615,6 +646,7 @@ fn detect_origin_shortform(work_dir: &Path) -> Option<String> {
             .arg("-C")
             .arg(work_dir)
             .args(["remote", "get-url", "origin"]),
+        work_dir,
     )?;
     if !output.status.success() {
         return None;

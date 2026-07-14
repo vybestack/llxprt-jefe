@@ -246,7 +246,7 @@ fn pr_metadata_branch_and_dirty_joined_for_eligible_agent() {
         .prs_state
         .agent_chooser
         .as_ref()
-        .unwrap_or_else(|| panic!("chooser must open"))
+        .unwrap_or_else(|| panic!("chooser must be open"))
         .agents[0];
     assert_eq!(entry.branch.as_deref(), Some("feature"));
     assert!(entry.dirty.is_dirty());
@@ -325,7 +325,7 @@ fn pr_metadata_cannot_override_identity() {
         .prs_state
         .agent_chooser
         .as_ref()
-        .unwrap_or_else(|| panic!("chooser must open"));
+        .unwrap_or_else(|| panic!("chooser must be open"));
     assert_eq!(chooser.agents[0].name, "Real Name");
     assert_eq!(chooser.agents[0].kind, crate::domain::AgentKind::Llxprt);
     assert_eq!(chooser.agents[0].runtime_config.value, "real-profile");
@@ -349,7 +349,7 @@ fn pr_no_metadata_gives_unknown_dirty_no_branch() {
         .prs_state
         .agent_chooser
         .as_ref()
-        .unwrap_or_else(|| panic!("chooser must open with default metadata"))
+        .unwrap_or_else(|| panic!("chooser must be open with default metadata"))
         .agents[0];
     assert!(entry.branch.is_none());
     assert_eq!(entry.dirty, crate::domain::DirtyStatus::unknown());
@@ -381,7 +381,7 @@ fn pr_empty_agent_value_kept_not_repo_default() {
         .prs_state
         .agent_chooser
         .as_ref()
-        .unwrap_or_else(|| panic!("chooser must open"))
+        .unwrap_or_else(|| panic!("chooser must be open"))
         .agents[0];
     assert!(
         entry.runtime_config.value.is_empty(),
@@ -415,7 +415,7 @@ fn pr_agent_config_preserved_not_repo_fallback() {
         .prs_state
         .agent_chooser
         .as_ref()
-        .unwrap_or_else(|| panic!("chooser must open"))
+        .unwrap_or_else(|| panic!("chooser must be open"))
         .agents[0];
     assert_eq!(entry.runtime_config.value, "agent-profile");
 }

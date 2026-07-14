@@ -127,10 +127,19 @@ expect_accept() {
 expect_reject() {
     local label="$1"; shift
     run_shim "$@"
-    if [[ $SHIM_EXIT -ne 0 && $SHIM_EXIT -ne 124 ]] \
+    if [[ $SHIM_EXIT -eq 124 ]]; then
+        FAIL=$((FAIL + 1))
+        printf 'FAIL (expected REJECT but shim TIMED OUT): %s\n' "$label"
+        printf '  exit: %s (timeout)\n' "$SHIM_EXIT"
+        printf '  stdout: %s\n' "$SHIM_STDOUT"
+        printf '  stderr: %s\n' "$SHIM_STDERR"
+        printf '  audit: %s\n' "$SHIM_AUDIT"
+        return
+    fi
+    if [[ $SHIM_EXIT -ne 0 ]] \
         && exact_one_nonempty_audit_record \
         && [[ "$SHIM_AUDIT" == *"] REJECTED "* ]] \
-        && [[ "$SHIM_AUDIT" == *" -- gh"* ]]; then
+        && [[ "$SHIM_STDERR" == *"REJECTED"* ]]; then
         PASS=$((PASS + 1))
     else
         record_failure "REJECT" "$label"
@@ -305,16 +314,36 @@ expect_reject "api POST mutation" \
     api --method POST "/repos/${ISSUE230_REPO_SLUG}/issues" -f "title=test"
 
 # ── NEGATIVE: missing args ───────────────────────────────────────────────
+#
+# The no-arguments case must be rejected with a non-zero, non-timeout exit
+# code, a REJECTED audit record, and a REJECTED message on stderr. We do NOT
+# assert on the exact empty-argv shell rendering (`-- gh ''`) because that is
+# a brittle internal detail of the shim's shell_quote implementation. The
+# security-critical contract is: reject + audit + stderr message.
+
+assert_rejected_audit_and_stderr() {
+    local label="$1"
+    if [[ $SHIM_EXIT -eq 124 ]]; then
+        FAIL=$((FAIL + 1))
+        printf 'FAIL (expected REJECT but shim TIMED OUT): %s\n' "$label"
+        printf '  exit: %s (timeout)\n' "$SHIM_EXIT"
+        printf '  stdout: %s\n' "$SHIM_STDOUT"
+        printf '  stderr: %s\n' "$SHIM_STDERR"
+        printf '  audit: %s\n' "$SHIM_AUDIT"
+        return
+    fi
+    if [[ $SHIM_EXIT -ne 0 ]] \
+        && exact_one_nonempty_audit_record \
+        && [[ "$SHIM_AUDIT" == *"] REJECTED "* ]] \
+        && [[ "$SHIM_STDERR" == *"REJECTED"* ]]; then
+        PASS=$((PASS + 1))
+    else
+        record_failure "REJECT" "$label"
+    fi
+}
 
 run_shim
-if [[ $SHIM_EXIT -ne 0 && $SHIM_EXIT -ne 124 ]] \
-    && exact_one_nonempty_audit_record \
-    && [[ "$SHIM_AUDIT" == *"] REJECTED "* ]] \
-    && [[ "$SHIM_AUDIT" == *" -- gh ''"* ]]; then
-    PASS=$((PASS + 1))
-else
-    record_failure "REJECT (no subcommand)" "no arguments"
-fi
+assert_rejected_audit_and_stderr "no arguments"
 
 expect_reject "search missing first var" \
     api graphql \
@@ -331,25 +360,38 @@ expect_reject "issue-view missing --json" \
 # When GH_SHIM_AUDIT is NOT supplied, the shim creates its own temp audit
 # file and must remove it on exit. When GH_SHIM_AUDIT IS supplied, the file
 # is persistent and must be preserved.
+#
+# Case 1 uses a DEDICATED temporary directory so the leftover-file assertion
+# is race-free: no concurrent process (shim, test, or other) can create
+# files in this isolated directory. The shim is run in a subshell with
+# GH_SHIM_AUDIT unset and TMPDIR set to the isolated directory, so any
+# script-owned audit file lands there. After the shim exits, we assert the
+# directory contains NO leftover audit file.
+
+CLEANUP_TEST_DIR=$(mktemp -d)
+trap 'rm -f "$TMPAUDIT" "$TMPSTDERR"; rm -rf "$DEPLOYED_SHIM_DIR" "$CLEANUP_TEST_DIR"' EXIT
 
 # Case 1: no GH_SHIM_AUDIT → temp file created and cleaned up.
-unset_audit_file=$(mktemp)
-: > "$unset_audit_file"
-# Invoke the shim without GH_SHIM_AUDIT in the environment so it creates its
-# own temp file internally. We verify cleanup by checking that no temp file
-# matching the shim prefix remains after the process exits.
-shim_no_env_output=$(env -u GH_SHIM_AUDIT timeout 10s "$SHIM" auth status 2>/dev/null) || true
-# After exit, no script-owned audit files should exist. We cannot know the
-# exact path, so this is a best-effort scan for leftover jefe-issue230 files.
-leftover_count=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'jefe-issue230-gh-audit.*' -type f 2>/dev/null | wc -l | tr -d ' ')
+# Run in a subshell with GH_SHIM_AUDIT explicitly unset (not `env -u`, which
+# is not portable to all shells/cores) and TMPDIR pointed at the isolated
+# directory. The shim creates its own audit file inside TMPDIR.
+(
+    unset GH_SHIM_AUDIT
+    export TMPDIR="$CLEANUP_TEST_DIR"
+    timeout 10s "$SHIM" auth status 2>/dev/null
+) || true
+
+# After exit, the isolated directory must contain no leftover owned audit
+# file (the only file that could exist is one the shim failed to clean up).
+leftover_count=$(find "$CLEANUP_TEST_DIR" -maxdepth 1 -name 'jefe-issue230-gh-audit.*' -type f 2>/dev/null | wc -l | tr -d ' ')
 if [[ "$leftover_count" -eq 0 ]]; then
     PASS=$((PASS + 1))
 else
     FAIL=$((FAIL + 1))
-    printf 'FAIL: script-owned audit file was not cleaned up (%d leftover)
-' "$leftover_count" >&2
+    printf 'FAIL: script-owned audit file was not cleaned up (%d leftover in %s)
+' \
+        "$leftover_count" "$CLEANUP_TEST_DIR" >&2
 fi
-rm -f "$unset_audit_file"
 
 # Case 2: GH_SHIM_AUDIT supplied → caller file preserved after exit.
 persistent_audit=$(mktemp)

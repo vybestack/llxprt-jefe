@@ -570,7 +570,7 @@ fn metadata_cannot_override_identity() {
         .issues_state
         .agent_chooser
         .as_ref()
-        .unwrap_or_else(|| panic!("chooser must open"));
+        .unwrap_or_else(|| panic!("chooser must be open"));
     // Identity must come from state, not metadata.
     assert_eq!(chooser.agents[0].name, "Real Name");
     assert_eq!(chooser.agents[0].kind, AgentKind::Llxprt);
@@ -609,7 +609,7 @@ fn metadata_duplicate_agent_id_first_wins() {
         .issues_state
         .agent_chooser
         .as_ref()
-        .unwrap_or_else(|| panic!("chooser must open"));
+        .unwrap_or_else(|| panic!("chooser must be open"));
     assert_eq!(chooser.agents.len(), 1);
     assert_eq!(
         chooser.agents[0].branch.as_deref(),
