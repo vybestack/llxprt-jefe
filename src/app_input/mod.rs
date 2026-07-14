@@ -512,18 +512,30 @@ pub fn try_intercept_terminal_scrollback(
 /// viewport rows from PTY layout and total lines from history + snapshot.
 /// When ctx is None or the lock is contended, preserves existing geometry
 /// instead of zeroing it (zeroing would clear the scroll offset).
+///
+/// Issue #301 Phase 2: reads from the `HistoryCache` via the public accessor
+/// instead of calling `capture_history()` (which shells out to tmux
+/// synchronously). The background capture worker fills the cache.
 pub fn refresh_terminal_scroll_geometry(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
     let pty_layout = jefe::layout::compute_pty_layout(term_cols, term_rows);
 
-    // Capture retained history + live snapshot rows under the ctx lock so the
-    // total reflects the currently attached session. try_lock keeps this
-    // non-blocking when a background attach holds the mutex (the geometry is
-    // simply not refreshed that frame, falling back to the stale cache).
+    // Read retained history + live snapshot rows from the cache (issue #301
+    // Phase 2: no synchronous tmux subprocess). try_lock keeps this
+    // non-blocking when a background attach holds the mutex.
     let (history_count, live_rows) = match ctx.as_ref() {
         Some(ctx_arc) => match ctx_arc.try_lock() {
-            Ok(mut guard) => {
-                let history_count = guard.runtime.capture_history().map_or(0, |v| v.len());
+            Ok(guard) => {
+                let history_count = match guard.runtime.attached_agent() {
+                    Some(agent_id) => {
+                        let generation = guard.runtime.output_generation();
+                        guard
+                            .runtime
+                            .history_cache_get(agent_id, generation)
+                            .map_or(0, Vec::len)
+                    }
+                    None => 0,
+                };
                 let live_rows = guard.runtime.snapshot().map_or(0, |s| s.rows);
                 (history_count, live_rows)
             }

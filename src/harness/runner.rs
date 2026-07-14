@@ -20,7 +20,9 @@ use super::expand_macros;
 use super::matchers::{MatchPattern, history_delta, screen_contains, screen_count};
 use super::scenario::Scenario;
 use super::step::Step;
-use super::tmux_driver::{TmuxDriver, TmuxDriverError, TmuxSession, TmuxStartRequest};
+use super::tmux_driver::{
+    TmuxDriver, TmuxDriverError, TmuxSession, TmuxSessionGuard, TmuxStartRequest,
+};
 use tracing::warn;
 
 #[cfg(not(windows))]
@@ -222,17 +224,25 @@ pub fn run_tmux_scenario(
             return Err(RunnerError::Driver(error.to_string()));
         }
     };
-    let mut driver = TmuxHarnessDriver::new(tmux.clone(), session.clone());
+    // Issue #301 Phase 6: RAII guard ensures the session is killed on every
+    // exit path (success, assertion failure, timeout, panic). Previously
+    // `cleanup_session` was called manually after the run, which leaked
+    // the session on early-return / panic paths.
+    let guard = TmuxSessionGuard::new(tmux.clone(), session);
+    let Some(session_ref) = guard.session() else {
+        return Err(RunnerError::Driver(
+            "guard just created with a live session but session() returned None".to_owned(),
+        ));
+    };
+    let mut driver = TmuxHarnessDriver::new(tmux.clone(), session_ref.clone());
     let mut result = run_expanded_scenario(&expanded, &mut driver, artifact_dir);
     if let Ok(summary) = &mut result {
         summary.multiplexer_details = Some(tmux.diagnostics());
     }
-    let cleanup = tmux.cleanup_session(&session);
-    match (result, cleanup) {
-        (Ok(summary), Ok(())) => Ok(summary),
-        (Err(err), _) => Err(err),
-        (Ok(_), Err(err)) => Err(RunnerError::Driver(err.to_string())),
-    }
+    // The guard's Drop kills the session. If keep_session is true, the guard
+    // skips the kill (mirroring the old `cleanup_session` contract).
+    drop(guard);
+    result
 }
 
 struct RunContext {

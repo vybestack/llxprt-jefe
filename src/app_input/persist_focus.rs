@@ -6,9 +6,7 @@
 //! module is restricted to `domain/` dependencies and cannot reference
 //! `state::PaneFocus`. See issue #160.
 
-use tracing::warn;
-
-use jefe::persistence::{PersistenceManager, State as PersistedState};
+use jefe::persistence::State as PersistedState;
 use jefe::state::PaneFocus;
 
 use super::SharedContext;
@@ -38,12 +36,21 @@ pub fn pane_focus_from_persisted(value: &str) -> PaneFocus {
 }
 
 /// Persist the current state to disk via the shared context's persistence
-/// manager. Failures are logged but never crash the app.
+/// manager.
+///
+/// When a coalescing [`PersistHandle`] is present in the context (issue #301),
+/// the snapshot is scheduled for asynchronous durable write instead of calling
+/// `save_state` synchronously. This keeps the input/render path from blocking
+/// on `fsync`. Failures are logged but never crash the app.
 pub fn persist_state(ctx: &SharedContext, persisted: &PersistedState) {
-    if let Some(ctx_arc) = ctx
-        && let Ok(ctx_guard) = ctx_arc.lock()
-        && let Err(e) = ctx_guard.persistence.save_state(persisted)
-    {
-        warn!(error = %e, "could not save state");
-    }
+    let Some(ctx_arc) = ctx else {
+        return;
+    };
+    let Ok(ctx_guard) = ctx_arc.lock() else {
+        return;
+    };
+    // Issue #301: schedule the snapshot for the coalescing background worker
+    // instead of performing a synchronous durable write. The worker drains
+    // the slot and writes asynchronously.
+    ctx_guard.persist_handle.schedule(persisted.clone());
 }

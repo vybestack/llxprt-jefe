@@ -192,6 +192,56 @@ pub struct TmuxSession {
     pub keep_session: bool,
 }
 
+/// RAII guard that owns a [`TmuxSession`] + [`TmuxDriver`] and kills the
+/// session on drop (issue #301 Phase 6).
+///
+/// Guarantees teardown on every exit path: success, assertion failure,
+/// timeout, panic, and launch failure. When `keep_session` is true on the
+/// session, the guard skips the kill (mirroring `cleanup_session`).
+pub struct TmuxSessionGuard {
+    driver: TmuxDriver,
+    session: Option<TmuxSession>,
+}
+
+impl TmuxSessionGuard {
+    /// Create a guard from a successfully started session.
+    #[must_use]
+    pub const fn new(driver: TmuxDriver, session: TmuxSession) -> Self {
+        Self {
+            driver,
+            session: Some(session),
+        }
+    }
+
+    /// Borrow the session, if still owned.
+    #[must_use]
+    pub fn session(&self) -> Option<&TmuxSession> {
+        self.session.as_ref()
+    }
+
+    /// Borrow the driver.
+    #[must_use]
+    pub const fn driver(&self) -> &TmuxDriver {
+        &self.driver
+    }
+
+    /// Manually release the session (stop tracking it without killing).
+    /// After calling this, `drop` will not kill the session.
+    pub fn release(&mut self) -> Option<TmuxSession> {
+        self.session.take()
+    }
+}
+
+impl Drop for TmuxSessionGuard {
+    fn drop(&mut self) {
+        if let Some(session) = self.session.take() {
+            if let Err(err) = self.driver.cleanup_session(&session) {
+                tracing::warn!(%err, session = %session.name, "guard cleanup failed on drop");
+            }
+        }
+    }
+}
+
 /// Tmux-backed harness driver.
 ///
 /// @plan PLAN-20260629-TMUX-HARNESS.P03

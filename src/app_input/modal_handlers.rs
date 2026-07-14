@@ -15,34 +15,30 @@ use jefe::state::{
 use jefe::theme::ThemeManager;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, auth_remediation,
-    clear_agent_runtime_attachment, close_modal_and_persist, execute_agent_launch,
-    launch_signature_for_agent, mark_agent_runtime_attached, persist_state, preflight_or_prompt,
+    AppStateHandle, SharedContext, apply_and_persist, auth_remediation, close_modal_and_persist,
+    execute_agent_launch, launch_signature_for_agent, persist_state, preflight_or_prompt,
     repository_focus_toggles_checkbox, to_persisted_state,
 };
 
 pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let (enabling_focus, selected_agent_id) = prepare_f12_toggle(app_state);
-
-    if enabling_focus {
-        let attached = selected_agent_id
-            .as_ref()
-            .is_some_and(|agent_id| attach_for_f12(ctx, agent_id));
-        update_f12_attachment_state(app_state, selected_agent_id.as_ref(), attached);
-    } else {
-        update_f12_attachment_state(app_state, None, false);
-    }
-
+    // Issue #301 Phase 5: F12 is now pure intent. It updates pane_focus /
+    // terminal_focused deterministically and persists the state change. The
+    // actual runtime attach is performed asynchronously by the background
+    // attach future (Phase 3) driven by the AttachScheduler's desired target.
+    // The render body sets desired from `selected_running_agent_id`, so F12
+    // just flips the focus intent — no synchronous `runtime.attach()` call.
+    let enabling_focus = prepare_f12_toggle(app_state);
+    let _ = enabling_focus; // focus state is already set; attach is async
     persist_current_state(app_state, ctx);
 }
 
-fn prepare_f12_toggle(app_state: &mut AppStateHandle) -> (bool, Option<AgentId>) {
+fn prepare_f12_toggle(app_state: &mut AppStateHandle) -> bool {
     let mut state = app_state.write();
 
-    let toggle_result = if state.terminal_focused {
+    if state.terminal_focused {
         state.pane_focus = PaneFocus::Agents;
         *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
-        (false, None)
+        false
     } else {
         let selected_running_agent_id = state
             .selected_agent()
@@ -52,56 +48,13 @@ fn prepare_f12_toggle(app_state: &mut AppStateHandle) -> (bool, Option<AgentId>)
         if selected_running_agent_id.is_some() {
             state.pane_focus = PaneFocus::Terminal;
             *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
-            (true, selected_running_agent_id)
+            true
         } else {
             state.pane_focus = PaneFocus::Agents;
             state.terminal_focused = false;
-            (false, None)
+            false
         }
-    };
-
-    drop(state);
-    toggle_result
-}
-
-fn attach_for_f12(ctx: &SharedContext, agent_id: &AgentId) -> bool {
-    if let Some(ctx_arc) = ctx
-        && let Ok(mut ctx_guard) = ctx_arc.lock()
-    {
-        match ctx_guard.runtime.attach(agent_id) {
-            Ok(()) => true,
-            Err(e) => {
-                warn!(
-                    agent_id = %agent_id.0,
-                    error = %e,
-                    "could not attach session on F12 focus"
-                );
-                false
-            }
-        }
-    } else {
-        false
     }
-}
-
-fn update_f12_attachment_state(
-    app_state: &mut AppStateHandle,
-    selected_agent_id: Option<&AgentId>,
-    attached: bool,
-) {
-    let mut state = app_state.write();
-    if !attached {
-        state.terminal_focused = false;
-        state.pane_focus = PaneFocus::Agents;
-        clear_agent_runtime_attachment(&mut state);
-        if let Some(agent_id) = selected_agent_id {
-            mark_agent_runtime_attached(&mut state, agent_id, false);
-        }
-    } else if let Some(agent_id) = selected_agent_id {
-        clear_agent_runtime_attachment(&mut state);
-        mark_agent_runtime_attached(&mut state, agent_id, true);
-    }
-    drop(state);
 }
 
 fn persist_current_state(app_state: &AppStateHandle, ctx: &SharedContext) {

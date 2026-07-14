@@ -1,11 +1,12 @@
 //! Application service layer — the app/domain boundary.
 //!
 //! This module owns app-side use-cases that coordinate domain entities with
-//! application policy. The first such use-case is canonical agent creation,
-//! which centralizes validation, normalization, and the initial-status policy
-//! that was previously spread across the UI/state layer and domain defaults.
+//! application policy. It also hosts boundary workers that move filesystem and
+//! tmux side effects off the input/render hot paths (issue #301).
 
+pub mod capture_worker;
 mod normalize;
+pub mod persist_worker;
 
 use std::path::PathBuf;
 

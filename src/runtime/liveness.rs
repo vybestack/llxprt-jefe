@@ -250,6 +250,44 @@ pub fn reconcile_dead_agents<S: BuildHasher>(
         .collect()
 }
 
+/// Liveness identity triple returned by [`reconcile_dead_agents_with_identity`].
+///
+/// Carries enough information for the caller to verify the result is not stale
+/// (issue #301 Phase 4): the agent id, the session name that was checked, and
+/// the lifecycle generation at snapshot time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LivenessIdentity {
+    pub agent_id: AgentId,
+    pub binding_session_name: Option<String>,
+    pub lifecycle_generation: u64,
+}
+
+/// Reconcile dead agents and return identity triples (issue #301 Phase 4).
+///
+/// Like [`reconcile_dead_agents`] but returns [`LivenessIdentity`] so the
+/// caller can verify the agent's current binding session name and lifecycle
+/// generation still match before marking the agent dead.
+#[must_use]
+pub fn reconcile_dead_agents_with_identity<S: BuildHasher>(
+    targets: &[LivenessCheck],
+    existing_sessions: &HashSet<String, S>,
+    alive_pane_sessions: &HashSet<String, S>,
+) -> Vec<LivenessIdentity> {
+    targets
+        .iter()
+        .filter(|t| {
+            t.remote.is_none()
+                && (!existing_sessions.contains(&t.session_name)
+                    || !alive_pane_sessions.contains(&t.session_name))
+        })
+        .map(|t| LivenessIdentity {
+            agent_id: t.agent_id.clone(),
+            binding_session_name: t.binding_session_name.clone(),
+            lifecycle_generation: t.lifecycle_generation,
+        })
+        .collect()
+}
+
 /// Query the tmux server once for all alive sessions, returning the set of
 /// session names that exist AND have at least one non-dead pane.
 ///
@@ -280,6 +318,19 @@ pub fn alive_session_set() -> Option<HashSet<String>> {
 /// falsely marked dead (issue #287 review).
 #[must_use]
 pub fn batch_liveness_check(targets: &[LivenessCheck]) -> Vec<AgentId> {
+    batch_liveness_check_with_identity(targets)
+        .into_iter()
+        .map(|id| id.agent_id)
+        .collect()
+}
+
+/// Batch liveness check returning identity triples (issue #301 Phase 4).
+///
+/// Like [`batch_liveness_check`] but returns [`LivenessIdentity`] so the
+/// caller can verify the agent's current binding session name and lifecycle
+/// generation still match before applying the dead status.
+#[must_use]
+pub fn batch_liveness_check_with_identity(targets: &[LivenessCheck]) -> Vec<LivenessIdentity> {
     let Some(existing) = list_all_sessions() else {
         tracing::warn!("tmux list-sessions failed; skipping liveness cycle");
         return Vec::new();
@@ -288,7 +339,7 @@ pub fn batch_liveness_check(targets: &[LivenessCheck]) -> Vec<AgentId> {
         tracing::warn!("tmux list-panes failed; skipping liveness cycle");
         return Vec::new();
     };
-    reconcile_dead_agents(targets, &existing, &alive_panes)
+    reconcile_dead_agents_with_identity(targets, &existing, &alive_panes)
 }
 
 /// Query the tmux server for all session names (one subprocess).
@@ -471,6 +522,8 @@ mod tests {
             } else {
                 None
             },
+            binding_session_name: Some(session_name.to_string()),
+            lifecycle_generation: 0,
         }
     }
 
@@ -688,6 +741,66 @@ jefe-b:0
             make_liveness_check("agent2", "jefe-agent2", false),
         ];
         let _ = batch_liveness_check(&targets);
+    }
+
+    // --- reconcile_dead_agents_with_identity (issue #301 Phase 4) ---
+
+    #[test]
+    fn reconcile_with_identity_returns_identity_triples() {
+        let targets = vec![
+            make_liveness_check("agent1", "jefe-agent1", false),
+            make_liveness_check("agent2", "jefe-agent2", false),
+        ];
+        let existing: HashSet<String> = std::iter::once("jefe-agent1".to_string()).collect();
+        let alive_panes: HashSet<String> = std::iter::once("jefe-agent1".to_string()).collect();
+
+        let dead = reconcile_dead_agents_with_identity(&targets, &existing, &alive_panes);
+        assert_eq!(dead.len(), 1);
+        assert_eq!(dead[0].agent_id.0, "agent2");
+        assert_eq!(dead[0].binding_session_name.as_deref(), Some("jefe-agent2"));
+        assert_eq!(dead[0].lifecycle_generation, 0);
+    }
+
+    #[test]
+    fn reconcile_with_identity_excludes_remote() {
+        let targets = vec![
+            make_liveness_check("local", "jefe-local", false),
+            make_liveness_check("remote", "jefe-remote", true),
+        ];
+        let existing: HashSet<String> = HashSet::new();
+        let alive_panes: HashSet<String> = HashSet::new();
+
+        let dead = reconcile_dead_agents_with_identity(&targets, &existing, &alive_panes);
+        assert_eq!(dead.len(), 1);
+        assert_eq!(dead[0].agent_id.0, "local");
+    }
+
+    #[test]
+    fn batch_liveness_check_with_identity_does_not_panic() {
+        let targets = vec![
+            make_liveness_check("agent1", "jefe-agent1", false),
+            make_liveness_check("agent2", "jefe-agent2", false),
+        ];
+        let _ = batch_liveness_check_with_identity(&targets);
+    }
+
+    #[test]
+    fn batch_command_count_constant_with_agent_count() {
+        // Issue #301 Phase 4: batch_liveness_check uses exactly two tmux
+        // subprocesses regardless of N. The pure reconcile function
+        // processes N targets without any additional subprocesses.
+        for n in 1..=5 {
+            let targets: Vec<_> = (0..n)
+                .map(|i| {
+                    make_liveness_check(&format!("agent{i}"), &format!("jefe-agent{i}"), false)
+                })
+                .collect();
+            let existing: HashSet<String> =
+                targets.iter().map(|t| t.session_name.clone()).collect();
+            let alive_panes: HashSet<String> = existing.clone();
+            let dead = reconcile_dead_agents_with_identity(&targets, &existing, &alive_panes);
+            assert!(dead.is_empty(), "all alive for n={n}");
+        }
     }
 
     // --- existing tests ---

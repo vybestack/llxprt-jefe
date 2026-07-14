@@ -21,8 +21,21 @@ use super::liveness;
 use super::session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 use crate::domain::{AgentId, LaunchSignature, RemoteRepositorySettings};
 
+/// Inputs needed to build an `AttachedViewer` without holding the runtime lock
+/// (issue #301 Phase 3).
+///
+/// Snapshotted under a short lock, then the viewer is built on a background
+/// thread, then `apply_attach_result` installs it.
+#[derive(Clone, Debug)]
+pub struct AttachInputs {
+    pub session_name: String,
+    pub remote: Option<RemoteRepositorySettings>,
+    pub rows: u16,
+    pub cols: u16,
+}
+
 #[path = "history_cache.rs"]
-mod history_cache;
+pub mod history_cache;
 use history_cache::{HistoryCache, strip_trailing_rows};
 
 /// Maximum number of dead-session launch signatures retained for relaunch.
@@ -37,21 +50,34 @@ const MAX_DEAD_SIGNATURES: NonZeroUsize = match NonZeroUsize::new(100) {
     None => NonZeroUsize::MIN,
 };
 
-/// Maximum number of scrollback history lines retained for an embedded
-/// terminal session (issue #198). Matches the `terminal-scrollback.json` test
-/// scenario's `history_limit` (2000), intentionally smaller than the harness
-/// default (10000) to bound render/capture cost.
-const HISTORY_LINE_CAP: usize = 2000;
+/// Maximum scrollback history lines for an embedded terminal session (#198).
+///
+/// Matches the `terminal-scrollback.json` scenario's `history_limit` (2000),
+/// intentionally smaller than the harness default (10000) to bound capture
+/// cost.
+pub const HISTORY_LINE_CAP: usize = 2000;
 
 /// Lightweight metadata for checking session liveness without holding the runtime lock.
 ///
 /// Callers collect these under the lock, drop it, then run the (potentially slow)
 /// liveness checks externally — avoiding mutex contention with input/render paths.
+///
+/// Issue #301 Phase 4: `binding_session_name` and `lifecycle_generation` carry the
+/// identity of the binding at snapshot time so stale liveness results (after
+/// rebind/restart) can be rejected.
 #[derive(Clone)]
 pub struct LivenessCheck {
     pub agent_id: AgentId,
     pub session_name: String,
     pub remote: Option<RemoteRepositorySettings>,
+    /// The session name the runtime binding referenced at snapshot time.
+    /// If the agent is rebound/restarted, this will differ from the current
+    /// binding's session name, and the liveness result is stale.
+    pub binding_session_name: Option<String>,
+    /// Per-agent lifecycle generation at snapshot time. Incremented on
+    /// spawn/relaunch/kill/rebind. A mismatch means the agent was
+    /// restarted/rebound after the liveness check was dispatched.
+    pub lifecycle_generation: u64,
 }
 
 /// Runtime manager trait - owns attach/reattach, input forwarding, kill/relaunch.
@@ -186,11 +212,11 @@ pub trait RuntimeManager: Send {
 /// @requirement REQ-FUNC-007
 pub struct TmuxRuntimeManager {
     /// Active sessions by agent ID.
-    sessions: HashMap<AgentId, RuntimeSession>,
+    pub(crate) sessions: HashMap<AgentId, RuntimeSession>,
     /// Currently attached viewer (single viewer model).
-    viewer: Option<AttachedViewer>,
+    pub(crate) viewer: Option<AttachedViewer>,
     /// Agent ID of the currently attached session.
-    attached_agent_id: Option<AgentId>,
+    pub(crate) attached_agent_id: Option<AgentId>,
     /// Dead sessions that can be relaunched (stores signatures).
     ///
     /// Bounded by [`MAX_DEAD_SIGNATURES`]: once full, the least-recently-used
@@ -209,27 +235,32 @@ pub struct TmuxRuntimeManager {
     /// do not re-shell out to tmux for a session already remediated (#200).
     prefix_enforced: HashSet<String>,
     /// Terminal dimensions.
-    rows: u16,
-    cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) cols: u16,
     /// Monotonically increasing PTY-output generation counter (issue #198).
     /// Incremented by `take_dirty()`. The history cache compares the stored
     /// generation to decide re-capture.
     output_generation: AtomicU64,
     /// Cached scrollback history (issue #198).
-    history_cache: HistoryCache,
+    pub(crate) history_cache: HistoryCache,
 }
 
-/// Move the current viewer (if any) out of the manager and drop it on a
-/// background OS thread.
+/// Drop the current viewer (if any) on a background OS thread.
 ///
 /// `AttachedViewer::drop` performs deterministic child teardown — killing the
 /// tmux child and waiting up to 300ms for it to exit. Running that inline
-/// blocks the caller (the input/render loop). Dropping on a detached thread
-/// keeps the executor responsive while still guaranteeing eventual cleanup.
+/// blocks the caller. Dropping on a detached thread keeps the executor
+/// responsive while still guaranteeing eventual cleanup.
 fn drop_viewer_in_background(viewer: &mut Option<AttachedViewer>) {
     if let Some(old_viewer) = viewer.take() {
         std::thread::spawn(move || drop(old_viewer));
     }
+}
+
+/// Public wrapper so sibling modules (e.g. `async_attach`) can reuse the
+/// same background-drop logic.
+pub(super) fn drop_viewer_in_background_pub(viewer: &mut Option<AttachedViewer>) {
+    drop_viewer_in_background(viewer);
 }
 
 impl TmuxRuntimeManager {
@@ -373,6 +404,8 @@ impl TmuxRuntimeManager {
                 } else {
                     None
                 },
+                binding_session_name: Some(session.session_name.clone()),
+                lifecycle_generation: 0,
             })
             .collect()
     }

@@ -160,13 +160,45 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
 
                 // Offload the batched tmux subprocess calls to a background OS
                 // thread so the smol executor can continue processing input.
-                let dead_agents =
-                    smol::unblock(move || jefe::runtime::batch_liveness_check(&targets)).await;
+                let dead_identities = smol::unblock(move || {
+                    jefe::runtime::batch_liveness_check_with_identity(&targets)
+                })
+                .await;
 
-                if !dead_agents.is_empty() {
-                    debug!(count = dead_agents.len(), "liveness poll found dead agents");
+                if !dead_identities.is_empty() {
+                    debug!(
+                        count = dead_identities.len(),
+                        "liveness poll found dead agents"
+                    );
+                    // Issue #301 Phase 4: stale-result protection. Before
+                    // marking an agent dead, verify the agent's current
+                    // binding session name and lifecycle generation still
+                    // match the liveness snapshot. A mismatch means the agent
+                    // was rebound/restarted after the check was dispatched;
+                    // skip it.
                     let mut state = app_state.write();
-                    for agent_id in &dead_agents {
+                    let mut to_apply: Vec<AgentId> = Vec::new();
+                    for identity in &dead_identities {
+                        let Some(agent) = state.agents.iter().find(|a| a.id == identity.agent_id)
+                        else {
+                            // Agent removed from state since the check — skip.
+                            continue;
+                        };
+                        let current_binding = agent.runtime_binding.as_ref();
+                        let current_session = current_binding.map(|b| b.session_name.clone());
+                        let matches = current_session == identity.binding_session_name;
+                        if matches {
+                            to_apply.push(identity.agent_id.clone());
+                        } else {
+                            debug!(
+                                agent_id = %identity.agent_id.0,
+                                checked_session = ?identity.binding_session_name,
+                                current_session = ?current_session,
+                                "liveness: stale result after rebind/restart; skipping"
+                            );
+                        }
+                    }
+                    for agent_id in &to_apply {
                         *state = std::mem::take(&mut *state).apply(AppEvent::AgentStatusChanged(
                             agent_id.clone(),
                             AgentStatus::Dead,
@@ -177,14 +209,35 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                             agent.runtime_binding = None;
                         }
                     }
-                    let persisted = to_persisted_state(&state);
-                    drop(state);
-                    persist_state(&ctx, &persisted);
+                    if to_apply.is_empty() {
+                        drop(state);
+                    } else {
+                        let persisted = to_persisted_state(&state);
+                        drop(state);
+                        persist_state(&ctx, &persisted);
+                    }
                 }
             }
         }
     });
 
+    // Issue #301: background persistence worker drain. The actual loop body
+    // lives in [`crate::app_shell_workers::run_persist_worker`].
+    hooks.use_future({
+        let ctx = ctx.clone();
+        async move {
+            crate::app_shell_workers::run_persist_worker(ctx).await;
+        }
+    });
+
+    // Issue #301 Phase 2: background capture worker drain. The actual loop
+    // body lives in [`crate::app_shell_workers::run_capture_worker`].
+    hooks.use_future({
+        let ctx = ctx.clone();
+        async move {
+            crate::app_shell_workers::run_capture_worker(ctx).await;
+        }
+    });
     // Background attach/detach future. Polls the AttachScheduler every 50ms
     // and performs the actual runtime.attach()/detach() on a background OS
     // thread (via smol::unblock) so the render/input path is never blocked.
@@ -211,24 +264,27 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                     continue;
                 };
                 let ctx_clone = std::sync::Arc::clone(ctx_arc);
-                let outcome = smol::unblock(move || perform_async_attach(ctx_clone, target)).await;
+                let outcome = smol::unblock(move || {
+                    crate::app_shell_attach::perform_async_attach(ctx_clone, target)
+                })
+                .await;
 
                 match outcome {
-                    AsyncAttachOutcome::Attached(agent_id) => {
+                    crate::app_shell_attach::AsyncAttachOutcome::Attached(agent_id) => {
                         {
                             let mut scheduler = attach_scheduler.write();
                             scheduler.mark_attached(Some(agent_id.clone()));
                         }
                         mark_agent_attached(&mut app_state, &agent_id);
                     }
-                    AsyncAttachOutcome::Detached => {
+                    crate::app_shell_attach::AsyncAttachOutcome::Detached => {
                         {
                             let mut scheduler = attach_scheduler.write();
                             scheduler.mark_attached(None);
                         }
                         clear_all_attachments(&mut app_state);
                     }
-                    AsyncAttachOutcome::Failed(agent_id) => {
+                    crate::app_shell_attach::AsyncAttachOutcome::Failed(agent_id) => {
                         {
                             let mut scheduler = attach_scheduler.write();
                             // Explicitly clear desired so the scheduler does not
@@ -290,11 +346,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
 
     // Handle quit.
     if should_quit.get() {
-        // Save state before exiting.
-        let state = app_state.read();
-        let persisted = to_persisted_state(&state);
-        drop(state);
-        persist_state(&ctx, &persisted);
+        // Issue #301: flush the coalescing persistence worker so the final
+        // state is durable before exit.
+        crate::app_shell_workers::shutdown_flush_persist(ctx.as_ref());
 
         hooks.use_context_mut::<SystemContext>().exit();
 
@@ -378,17 +432,14 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
     // Capture scrollback history lines for the terminal pane (issue #198).
     // Only Dashboard mode renders the embedded terminal, so gate the (cloning)
     // cache capture to that mode — other modes waste the clone every frame.
-    // Uses the runtime cache (non-consuming is_dirty() so it never steals the
-    // dirty flag from the render-decision path).
+    //
+    // Issue #301 Phase 2: the render path no longer calls `capture_history`
+    // (which shells out to `tmux capture-pane`) synchronously. Instead it
+    // requests a background capture via the `CaptureHandle` and reads the
+    // runtime's `HistoryCache` directly (non-blocking `get`). The background
+    // worker drains the request and stores the result in the cache.
     let history_lines: Vec<String> = if snapshot.screen_mode == ScreenMode::Dashboard {
-        ctx.as_ref()
-            .and_then(|ctx_arc| {
-                ctx_arc
-                    .try_lock()
-                    .ok()
-                    .and_then(|mut guard| guard.runtime.capture_history())
-            })
-            .unwrap_or_default()
+        crate::app_shell_workers::capture_history_from_cache(ctx.as_ref())
     } else {
         Vec::new()
     };
@@ -774,49 +825,6 @@ fn dispatch_mode_specific_key(
         | InputMode::ActionsNormal
         | InputMode::ActionsFilter
         | InputMode::ActionsSearch => false,
-    }
-}
-
-/// Outcome of a background attach/detach operation.
-enum AsyncAttachOutcome {
-    Attached(AgentId),
-    Detached,
-    Failed(AgentId),
-}
-
-/// Perform attach/detach on a background thread (via `smol::unblock`).
-///
-/// This locks the `AppContext` mutex and calls the runtime — but on a separate
-/// OS thread, so the executor's input/render path is not blocked.
-fn perform_async_attach(
-    ctx: Arc<std::sync::Mutex<AppContext>>,
-    target: Option<AgentId>,
-) -> AsyncAttachOutcome {
-    let Ok(mut ctx_guard) = ctx.lock() else {
-        return match target {
-            Some(id) => AsyncAttachOutcome::Failed(id),
-            None => AsyncAttachOutcome::Detached,
-        };
-    };
-
-    if let Some(agent_id) = target.as_ref() {
-        debug!(agent_id = %agent_id.0, "background: attaching to running selection");
-        match ctx_guard.runtime.attach(agent_id) {
-            Ok(()) => AsyncAttachOutcome::Attached(agent_id.clone()),
-            Err(error) => {
-                warn!(
-                    agent_id = %agent_id.0,
-                    error = %error,
-                    "background: attach failed for running selection"
-                );
-                let _ = ctx_guard.runtime.mark_session_dead(agent_id);
-                AsyncAttachOutcome::Failed(agent_id.clone())
-            }
-        }
-    } else {
-        debug!("background: detaching (no running agent selected)");
-        let _ = ctx_guard.runtime.detach();
-        AsyncAttachOutcome::Detached
     }
 }
 
