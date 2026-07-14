@@ -9,7 +9,9 @@
 //! @pseudocode component-001 lines 209-247
 
 use super::{AppEvent, AppState, PrDetailPending, PrDetailSubfocus, PrListIdentity};
-use crate::domain::{ListRequestId, PageToken, PrFilter, PullRequest, RepositoryId};
+use crate::domain::{
+    CommentDetailIdentity, ListRequestId, PageToken, PrFilter, PullRequest, RepositoryId,
+};
 use crate::state::pagination::{AcceptOutcome, LoadCorrelation, PageResult, ReloadResult};
 
 pub(super) struct PrListLoadedData {
@@ -82,17 +84,15 @@ impl AppState {
             // detail staleness guard (pr_detail_pending_matches) already
             // discards stale results when the scope or selected PR number
             // changes (issue #128).
-            if self.prs_state.list.items().is_empty() {
-                self.prs_state.pr_detail = None;
-            } else {
-                // The previous pr_detail is STALE (it is for a PR from the
-                // prior list). Clear it so the detail pane does not show old
-                // content until the fresh detail/preview load repopulates it.
-                self.prs_state.pr_detail = None;
+            if let Some(detail) = &mut self.prs_state.pr_detail {
+                detail.comments.cancel_pending();
+            }
+            self.prs_state.pr_detail = None;
+            self.prs_state.loading.comments = false;
+            if !self.prs_state.list.items().is_empty() {
                 self.prs_state.detail_subfocus = PrDetailSubfocus::Body;
                 self.prs_state.detail_scroll_offset = 0;
             }
-            self.prs_state.list_scroll_offset = 0;
         }
     }
 
@@ -148,11 +148,6 @@ impl AppState {
             })
             .unwrap_or(0);
         self.prs_state.list.set_selected_index(Some(new_index));
-        // Clamp the scroll offset so it never exceeds the new list bounds.
-        let max_scroll = self.prs_state.pull_requests().len().saturating_sub(1);
-        if self.prs_state.list_scroll_offset > max_scroll {
-            self.prs_state.list_scroll_offset = max_scroll;
-        }
     }
 
     /// Apply a silent background refresh failure (issue #128). Clears the
@@ -222,14 +217,19 @@ impl AppState {
         scope_repo_id: RepositoryId,
         pr_number: u64,
         request_id: u64,
-        detail: crate::domain::PullRequestDetail,
+        mut detail: crate::domain::PullRequestDetail,
     ) {
         if !self.pr_detail_pending_matches(&scope_repo_id, pr_number, request_id) {
             return;
         }
+        detail.comments.rebind_identity(CommentDetailIdentity {
+            scope_repo_id,
+            number: pr_number,
+        });
         self.prs_state.error = None;
         self.prs_state.pr_detail = Some(detail);
         self.prs_state.loading.detail = false;
+        self.prs_state.loading.comments = false;
         self.prs_state.detail_pending = None;
         self.prs_state.detail_subfocus = PrDetailSubfocus::Body;
         self.prs_state.detail_scroll_offset = 0;
@@ -246,14 +246,19 @@ impl AppState {
         scope_repo_id: RepositoryId,
         pr_number: u64,
         request_id: u64,
-        detail: crate::domain::PullRequestDetail,
+        mut detail: crate::domain::PullRequestDetail,
     ) {
         if !self.pr_detail_pending_matches(&scope_repo_id, pr_number, request_id) {
             return;
         }
+        detail.comments.rebind_identity(CommentDetailIdentity {
+            scope_repo_id,
+            number: pr_number,
+        });
         // Do NOT set loading.detail (silent), do NOT reset detail_subfocus or
         // detail_scroll_offset, do NOT set error.
         self.prs_state.pr_detail = Some(detail);
+        self.prs_state.loading.comments = false;
         self.prs_state.detail_pending = None;
     }
 
@@ -278,25 +283,23 @@ impl AppState {
     /// @requirement REQ-PR-010
     /// @pseudocode component-001 lines 236-241
     pub(super) fn apply_pr_comments_page_loaded(&mut self, page: PrCommentsPageLoadedData) {
-        if !self.pr_comments_page_pending_matches(
-            &page.scope_repo_id,
-            page.pr_number,
-            page.request_id,
-        ) {
+        let Some(detail) = &mut self.prs_state.pr_detail else {
             return;
-        }
-        // The staleness guard passed, so this response is for the current
-        // scope/pr. ALWAYS clear the loading flag and pending marker so the
-        // spinner never sticks.
-        self.prs_state.error = None;
-        self.prs_state.loading.comments = false;
-        self.prs_state.comments_page_pending = None;
-        if let Some(detail) = &mut self.prs_state.pr_detail
-            && detail.number == page.pr_number
-        {
-            detail.comments.extend(page.comments);
-            detail.comments_cursor = page.cursor;
-            detail.has_more_comments = page.has_more;
+        };
+        let result = PageResult {
+            identity: CommentDetailIdentity {
+                scope_repo_id: page.scope_repo_id,
+                number: page.pr_number,
+            },
+            request_id: ListRequestId::from_raw(page.request_id),
+            requested_token: detail.comments.next_page().clone(),
+            items: page.comments,
+            next_page: PageToken::from_cursor(page.cursor, page.has_more),
+        };
+        let outcome = detail.comments.accept_page(result);
+        if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
+            self.prs_state.error = None;
+            self.prs_state.loading.comments = false;
         }
     }
 
@@ -363,7 +366,10 @@ impl AppState {
         }
     }
 
-    /// Apply a PR comments page failure (scoped error, never silent).
+    /// Apply a correlated PR comments page failure.
+    ///
+    /// Only the currently pending request may clear loading and surface its
+    /// error. Late failures cannot overwrite a newer request's state.
     ///
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-NFR-002
@@ -375,11 +381,52 @@ impl AppState {
         request_id: u64,
         error: String,
     ) {
-        if self.pr_comments_page_pending_matches(scope_repo_id, pr_number, request_id) {
-            self.prs_state.loading.comments = false;
-            self.prs_state.comments_page_pending = None;
-            self.prs_state.error = Some(error);
+        if self.selected_repository_id() != Some(scope_repo_id) {
+            return;
         }
+        if let Some(detail) = &mut self.prs_state.pr_detail
+            && detail.number == pr_number
+        {
+            let correlation = LoadCorrelation::Page {
+                identity: CommentDetailIdentity {
+                    scope_repo_id: scope_repo_id.clone(),
+                    number: pr_number,
+                },
+                token: detail.comments.next_page().clone(),
+                request_id: ListRequestId::from_raw(request_id),
+            };
+            if matches!(
+                detail.comments.accept_failure(&correlation),
+                AcceptOutcome::Applied
+            ) {
+                self.prs_state.loading.comments = false;
+                self.prs_state.error = Some(error);
+            }
+        }
+    }
+
+    /// Surface a failure that prevented a PR comment-page request dispatch.
+    ///
+    /// There is no correlation id because no request started. The event is
+    /// ignored unless its repository and detail are still current, and it
+    /// never overwrites an actual pending request.
+    pub(super) fn apply_pr_comments_page_dispatch_failed(
+        &mut self,
+        scope_repo_id: &RepositoryId,
+        pr_number: u64,
+        error: String,
+    ) {
+        if self.selected_repository_id() != Some(scope_repo_id) {
+            return;
+        }
+        let Some(detail) = &self.prs_state.pr_detail else {
+            return;
+        };
+        if detail.number != pr_number || detail.comments.has_pending_request() {
+            return;
+        }
+        self.prs_state.loading.comments = false;
+        self.prs_state.error = Some(error);
     }
 
     /// Check if a pending detail request matches scope + pr_number + request_id.
@@ -413,29 +460,6 @@ impl AppState {
                     && pending.pr_number == pr_number
                     && pending.request_id == request_id
             })
-    }
-
-    /// Check if a pending comments-page matches scope + pr_number + request_id.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-010
-    /// @pseudocode component-001 lines 236-241
-    fn pr_comments_page_pending_matches(
-        &self,
-        scope_repo_id: &RepositoryId,
-        pr_number: u64,
-        request_id: u64,
-    ) -> bool {
-        self.selected_repository_id() == Some(scope_repo_id)
-            && self
-                .prs_state
-                .comments_page_pending
-                .as_ref()
-                .is_some_and(|pending| {
-                    pending.scope_repo_id == *scope_repo_id
-                        && pending.pr_number == pr_number
-                        && pending.request_id == request_id
-                })
     }
 
     /// Mark a PR list reload as loading (staleness tracking).
@@ -532,6 +556,42 @@ impl AppState {
             pr_number,
             request_id,
         });
+    }
+    /// Allocate and begin the next PR-comment page request.
+    pub fn begin_pr_comment_page(
+        &mut self,
+        scope_repo_id: &RepositoryId,
+        pr_number: u64,
+        cursor: Option<String>,
+    ) -> Option<u64> {
+        if self.selected_repository_id() != Some(scope_repo_id) {
+            return None;
+        }
+        let detail = self.prs_state.pr_detail.as_mut()?;
+        if detail.number != pr_number || detail.comments.has_pending_request() {
+            return None;
+        }
+        detail.comments.rebind_identity(CommentDetailIdentity {
+            scope_repo_id: scope_repo_id.clone(),
+            number: pr_number,
+        });
+        detail
+            .comments
+            .preserve_request_history(self.prs_state.last_comments_page_request_id);
+        let request_id = detail.comments.next_request_id().ok()?;
+        let outcome = detail
+            .comments
+            .begin_page(pr_page_token(cursor), request_id);
+        if matches!(outcome, crate::state::pagination::BeginOutcome::Started) {
+            self.prs_state.last_comments_page_request_id = request_id;
+            self.prs_state.loading.comments = true;
+            // Clear any stale error from a prior failed page so the UI does
+            // not show both an error and the loading spinner at once.
+            self.prs_state.error = None;
+            Some(request_id.get())
+        } else {
+            None
+        }
     }
 
     /// Mark a PR detail silent refresh as pending (issue #128). Sets
@@ -747,6 +807,11 @@ impl AppState {
                 request_id,
                 error,
             } => self.apply_pr_comments_page_failed(&scope_repo_id, pr_number, request_id, error),
+            AppEvent::PrCommentsPageDispatchFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            } => self.apply_pr_comments_page_dispatch_failed(&scope_repo_id, pr_number, error),
             _ => {}
         }
     }

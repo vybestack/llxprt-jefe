@@ -5,10 +5,13 @@
 //! [`crate::actions_detail_view`].
 
 use crate::domain::{WorkflowRun, WorkflowRunConclusion, WorkflowRunStatus};
+use crate::list_viewport::{ContentRows, ListViewport, RowsPerItem};
 
 /// A single run in the projected runs list view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectedRun {
+    /// Absolute workflow-run index represented by this visible row.
+    pub source_index: usize,
     pub id: u64,
     pub name: String,
     pub head_branch: String,
@@ -38,45 +41,41 @@ pub fn project_runs_list(
     selected_run_index: Option<usize>,
     list_viewport_height: usize,
 ) -> ActionsRunListView {
-    if runs.is_empty() {
-        return ActionsRunListView {
-            visible_runs: Vec::new(),
-            first_visible_run_index: 0,
-            total_runs_count: 0,
-        };
-    }
-    let selected_idx = selected_run_index.unwrap_or(0).min(runs.len() - 1);
-    let max_first_visible = runs.len().saturating_sub(list_viewport_height);
-    let first_visible_run = selected_idx
-        .saturating_sub(list_viewport_height / 2)
-        .min(max_first_visible);
-    let end = (first_visible_run + list_viewport_height).min(runs.len());
-    let visible_runs = runs[first_visible_run..end]
+    let viewport = ListViewport::uniform(
+        runs.len(),
+        selected_run_index,
+        ContentRows::new(list_viewport_height),
+        RowsPerItem::new(1),
+    );
+    let first_visible_run = viewport.first_visible_item();
+    let visible_slice = &runs[viewport.visible_range()];
+
+    let visible_runs = visible_slice
         .iter()
         .enumerate()
-        .map(|(offset, run)| projected_run(run, first_visible_run + offset, selected_run_index))
+        .map(|(i, r)| {
+            let actual_idx = first_visible_run + i;
+            ProjectedRun {
+                source_index: actual_idx,
+                id: r.id,
+                name: r.name.clone(),
+                head_branch: r.head_branch.clone(),
+                head_sha: r.head_sha.clone(),
+                run_number: r.run_number,
+                event: r.event.clone(),
+                workflow_name: r.workflow_name.clone(),
+                created_at: r.created_at.clone(),
+                updated_at: r.updated_at.clone(),
+                status: r.status,
+                conclusion: r.conclusion,
+                is_selected: selected_run_index == Some(actual_idx),
+            }
+        })
         .collect();
     ActionsRunListView {
         visible_runs,
         first_visible_run_index: first_visible_run,
         total_runs_count: runs.len(),
-    }
-}
-
-fn projected_run(run: &WorkflowRun, index: usize, selected: Option<usize>) -> ProjectedRun {
-    ProjectedRun {
-        id: run.id,
-        name: run.name.clone(),
-        head_branch: run.head_branch.clone(),
-        head_sha: run.head_sha.clone(),
-        run_number: run.run_number,
-        event: run.event.clone(),
-        workflow_name: run.workflow_name.clone(),
-        created_at: run.created_at.clone(),
-        updated_at: run.updated_at.clone(),
-        status: run.status,
-        conclusion: run.conclusion,
-        is_selected: selected == Some(index),
     }
 }
 
@@ -103,11 +102,14 @@ mod tests {
     #[test]
     fn selection_is_centered_when_possible() {
         let runs: Vec<_> = (0..10).map(run).collect();
-        let view = project_runs_list(&runs, Some(5), 3);
-
-        assert_eq!(view.first_visible_run_index, 4);
-        assert_eq!(view.visible_runs.len(), 3);
-        assert!(view.visible_runs[1].is_selected);
+        // Trailing-edge follow keeps the selected run at the bottom edge.
+        let projection = project_runs_list(&runs, Some(5), 3);
+        assert_eq!(projection.first_visible_run_index, 3);
+        assert_eq!(projection.visible_runs.len(), 3);
+        assert_eq!(projection.visible_runs[0].id, 3);
+        assert_eq!(projection.visible_runs[1].id, 4);
+        assert_eq!(projection.visible_runs[2].id, 5);
+        assert!(projection.visible_runs[2].is_selected);
     }
 
     #[test]

@@ -491,10 +491,7 @@ jefe-agent3
 
     #[test]
     fn parse_alive_sessions_trims_whitespace() {
-        let raw = "  jefe-a  
- jefe-b 
-
-";
+        let raw = "  jefe-a  \n jefe-b \n\n";
         let set = parse_alive_sessions(raw);
         assert_eq!(set.len(), 2);
         assert!(set.contains("jefe-a"));

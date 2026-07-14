@@ -72,9 +72,14 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number,
+            },
+            vec![],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: None,
         merge_state_status: None,
     }
@@ -104,12 +109,17 @@ fn test_detail_loaded_sets_subfocus_body_and_clears_loading() {
     assert!(!new_state.prs_state.loading.detail);
     assert_eq!(new_state.prs_state.detail_subfocus, PrDetailSubfocus::Body);
     assert_eq!(new_state.prs_state.detail_scroll_offset, 0);
-    let loaded = new_state
-        .prs_state
-        .pr_detail
-        .clone()
-        .unwrap_or_else(|| panic!("pr_detail should be Some"));
+    let Some(loaded) = new_state.prs_state.pr_detail.as_ref() else {
+        panic!("pr_detail should be Some");
+    };
     assert_eq!(loaded.number, 1);
+    assert_eq!(
+        loaded.comments.identity(),
+        Some(&crate::domain::CommentDetailIdentity {
+            scope_repo_id: RepositoryId("repo-1".to_string()),
+            number: 1,
+        })
+    );
 }
 
 /// PrDetailLoaded with a stale pr_number (does not match the selected PR)
@@ -395,15 +405,17 @@ fn test_pr_subfocus_prev_scrolls_to_offscreen_comment() {
     let mut state = prs_mode_state("repo-1");
     let mut detail = make_test_pr_detail(1);
     detail.body = "PR body".to_string();
-    detail.comments = (0u32..12)
-        .map(|i| IssueComment {
-            comment_id: u64::from(i),
-            author_login: format!("user{i}"),
-            created_at: "2024-01-01".to_string(),
-            edited_at: None,
-            body: format!("comment body {i}"),
-        })
-        .collect();
+    detail.comments.replace_items(
+        (0u32..12)
+            .map(|i| IssueComment {
+                comment_id: u64::from(i),
+                author_login: format!("user{i}"),
+                created_at: "2024-01-01".to_string(),
+                edited_at: None,
+                body: format!("comment body {i}"),
+            })
+            .collect(),
+    );
     state.prs_state.pr_detail = Some(detail);
     state.prs_state.detail_subfocus = PrDetailSubfocus::NewComment;
     state.prs_state.detail_viewport_rows = 4; // small viewport
@@ -618,7 +630,7 @@ fn make_full_section_detail() -> PullRequestDetail {
             url: None,
         },
     ];
-    detail.comments = vec![
+    detail.comments.replace_items(vec![
         IssueComment {
             comment_id: 1,
             author_login: "alice".to_string(),
@@ -633,7 +645,7 @@ fn make_full_section_detail() -> PullRequestDetail {
             edited_at: None,
             body: "second comment".to_string(),
         },
-    ];
+    ]);
     detail
 }
 

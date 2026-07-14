@@ -161,9 +161,7 @@ fn prs_state_with_pr_detail(number: u64, head_sha: &str) -> AppState {
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: jefe::domain::PaginatedList::default(),
         mergeable: None,
         merge_state_status: None,
     });
@@ -304,9 +302,7 @@ fn g_prefers_selected_pr_over_stale_detail() {
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: jefe::domain::PaginatedList::default(),
         mergeable: None,
         merge_state_status: None,
     });

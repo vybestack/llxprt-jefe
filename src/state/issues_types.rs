@@ -13,7 +13,7 @@
 //! `InlineState`, `ComposerTarget`, `EditorTarget`, `AgentChooserState`,
 //! `PriorAgentFocus`) remain in `types.rs` and are imported via `super::`.
 
-use crate::domain::{CloseReason, RepositoryId};
+use crate::domain::{CloseReason, ListRequestId, RepositoryId};
 
 use super::{
     AgentChooserState, ComposerTarget, DetailSubfocus, InlineState, IssueFocus, PriorAgentFocus,
@@ -64,8 +64,8 @@ pub struct IssuesState {
     pub delete_mutation_pending: Option<IssueLifecycleMutationPending>,
     pub detail_pending: Option<IssueDetailPending>,
     pub next_issue_detail_request_id: u64,
-    pub comments_page_pending: Option<IssueCommentsPagePending>,
-    pub next_comments_page_request_id: u64,
+    /// High-water mark retained across replaceable issue-detail snapshots.
+    pub last_comments_page_request_id: ListRequestId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,14 +78,6 @@ pub struct IssueListIdentity {
 pub struct IssueDetailPending {
     pub scope_repo_id: RepositoryId,
     pub issue_number: u64,
-    pub request_id: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IssueCommentsPagePending {
-    pub scope_repo_id: RepositoryId,
-    pub issue_number: u64,
-    pub cursor: Option<String>,
     pub request_id: u64,
 }
 

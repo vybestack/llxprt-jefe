@@ -21,9 +21,7 @@ fn make_state_with_detail() -> AppState {
         issue_type_name: None,
         body: "body".to_string(),
         external_url: "url".to_string(),
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::default(),
     };
     AppState {
         issues_state: IssuesState {

@@ -1,11 +1,9 @@
 //! Issues mode load/result state operations.
 
-use super::{
-    AppEvent, AppState, DetailSubfocus, IssueCommentsPagePending, IssueDetailPending,
-    IssueListIdentity,
-};
+use super::{AppEvent, AppState, DetailSubfocus, IssueDetailPending, IssueListIdentity};
 use crate::domain::{
-    Issue, IssueComment, IssueFilter, IssueFilterState, ListRequestId, PageToken, RepositoryId,
+    CommentDetailIdentity, Issue, IssueComment, IssueFilter, IssueFilterState, ListRequestId,
+    PageToken, RepositoryId,
 };
 use crate::state::pagination::{AcceptOutcome, LoadCorrelation, PageResult, ReloadResult};
 
@@ -77,7 +75,11 @@ impl AppState {
             // stale detail never lands on the freshly-replaced list.
             self.issues_state.detail_pending = None;
             if self.issues_state.list.items().is_empty() {
+                if let Some(detail) = &mut self.issues_state.issue_detail {
+                    detail.comments.cancel_pending();
+                }
                 self.issues_state.issue_detail = None;
+                self.issues_state.loading.comments = false;
             }
         }
     }
@@ -163,13 +165,16 @@ impl AppState {
         if current_repo_id.as_ref() == Some(&scope_repo_id)
             && self.detail_pending_matches(&scope_repo_id, issue_number, request_id)
         {
+            detail.comments.rebind_identity(CommentDetailIdentity {
+                scope_repo_id,
+                number: issue_number,
+            });
             self.hydrate_issue_type_name(&mut detail);
             self.issues_state.error = None;
             self.issues_state.issue_detail = Some(detail);
             self.issues_state.loading.detail = false;
             self.issues_state.loading.comments = false;
             self.issues_state.detail_pending = None;
-            self.issues_state.comments_page_pending = None;
             self.issues_state.detail_subfocus = DetailSubfocus::Body;
             self.issues_state.detail_scroll_offset = 0;
         }
@@ -243,20 +248,26 @@ impl AppState {
     }
 
     fn apply_issue_comments_page_loaded(&mut self, page: IssueCommentsPageLoadedData) {
-        if self.comments_page_pending_matches(
-            &page.scope_repo_id,
-            page.issue_number,
-            page.request_id,
-            page.request_cursor.as_deref(),
-        ) && let Some(detail) = &mut self.issues_state.issue_detail
-            && detail.number == page.issue_number
-        {
-            detail.comments.extend(page.comments);
-            detail.comments_cursor = page.cursor;
-            detail.has_more_comments = page.has_more;
+        if !self.current_detail_matches(&page.scope_repo_id, page.issue_number) {
+            return;
+        }
+        let result = PageResult {
+            identity: CommentDetailIdentity {
+                scope_repo_id: page.scope_repo_id,
+                number: page.issue_number,
+            },
+            request_id: ListRequestId::from_raw(page.request_id),
+            requested_token: issue_page_token(page.request_cursor),
+            items: page.comments,
+            next_page: PageToken::from_cursor(page.cursor, page.has_more),
+        };
+        let Some(detail) = &mut self.issues_state.issue_detail else {
+            return;
+        };
+        let outcome = detail.comments.accept_page(result);
+        if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
             self.issues_state.error = None;
             self.issues_state.loading.comments = false;
-            self.issues_state.comments_page_pending = None;
         }
     }
 
@@ -273,38 +284,57 @@ impl AppState {
                 .is_some_and(|detail| detail.number == issue_number)
     }
 
-    pub fn mark_comments_page_loading(
+    /// Allocate and begin the next issue-comment page request.
+    pub fn begin_issue_comment_page(
         &mut self,
-        scope_repo_id: crate::domain::RepositoryId,
+        scope_repo_id: &crate::domain::RepositoryId,
         issue_number: u64,
         cursor: Option<String>,
-    ) {
-        self.mark_comments_page_loading_with_request_id(scope_repo_id, issue_number, cursor, 0);
-    }
-
-    pub fn next_comments_page_request_id(&mut self) -> u64 {
-        let request_id = self
-            .issues_state
-            .next_comments_page_request_id
-            .saturating_add(1);
-        self.issues_state.next_comments_page_request_id = request_id;
-        request_id
-    }
-
-    pub fn mark_comments_page_loading_with_request_id(
-        &mut self,
-        scope_repo_id: crate::domain::RepositoryId,
-        issue_number: u64,
-        cursor: Option<String>,
-        request_id: u64,
-    ) {
-        self.issues_state.loading.comments = true;
-        self.issues_state.comments_page_pending = Some(IssueCommentsPagePending {
-            scope_repo_id,
-            issue_number,
-            cursor,
-            request_id,
+    ) -> Option<u64> {
+        if !self.current_detail_matches(scope_repo_id, issue_number) {
+            return None;
+        }
+        let detail = self.issues_state.issue_detail.as_mut()?;
+        if detail.comments.has_pending_request() {
+            return None;
+        }
+        detail.comments.rebind_identity(CommentDetailIdentity {
+            scope_repo_id: scope_repo_id.clone(),
+            number: issue_number,
         });
+        detail
+            .comments
+            .preserve_request_history(self.issues_state.last_comments_page_request_id);
+        let request_id = detail.comments.next_request_id().ok()?;
+        let outcome = detail
+            .comments
+            .begin_page(issue_page_token(cursor), request_id);
+        if matches!(outcome, crate::state::pagination::BeginOutcome::Started) {
+            self.issues_state.last_comments_page_request_id = request_id;
+            self.issues_state.loading.comments = true;
+            Some(request_id.get())
+        } else {
+            None
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn begin_issue_comment_page_for_test(
+        &mut self,
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        cursor: Option<String>,
+    ) -> Option<u64> {
+        let detail = self.issues_state.issue_detail.as_mut()?;
+        detail.comments = crate::domain::PaginatedList::from_loaded(
+            CommentDetailIdentity {
+                scope_repo_id: scope_repo_id.clone(),
+                number: issue_number,
+            },
+            detail.comments.items().to_vec(),
+            issue_page_token(cursor.clone()),
+        );
+        self.begin_issue_comment_page(&scope_repo_id, issue_number, cursor)
     }
 
     pub fn mark_issue_list_page_loading(
@@ -430,26 +460,6 @@ impl AppState {
                     && pending.issue_number == issue_number
                     && pending.request_id == request_id
             })
-    }
-
-    fn comments_page_pending_matches(
-        &self,
-        scope_repo_id: &crate::domain::RepositoryId,
-        issue_number: u64,
-        request_id: u64,
-        cursor: Option<&str>,
-    ) -> bool {
-        self.selected_repository_id() == Some(scope_repo_id)
-            && self
-                .issues_state
-                .comments_page_pending
-                .as_ref()
-                .is_some_and(|pending| {
-                    pending.scope_repo_id == *scope_repo_id
-                        && pending.issue_number == issue_number
-                        && pending.request_id == request_id
-                        && pending.cursor.as_deref() == cursor
-                })
     }
 
     fn update_draft_filter_field(&mut self, field: String, value: String) {
@@ -677,24 +687,47 @@ impl AppState {
                 request_id,
                 request_cursor,
                 error,
-            } if self.comments_page_pending_matches(
-                &scope_repo_id,
+            } => self.apply_issue_comments_page_failed(
+                scope_repo_id,
                 issue_number,
                 request_id,
-                request_cursor.as_deref(),
-            ) && self.current_detail_matches(&scope_repo_id, issue_number) =>
-            {
-                self.apply_issue_comments_page_failed(error);
-            }
+                request_cursor,
+                error,
+            ),
             _ => {}
         }
     }
 
-    /// Apply a loud comments-page failure (clears the pending marker + error).
-    fn apply_issue_comments_page_failed(&mut self, error: String) {
-        self.issues_state.loading.comments = false;
-        self.issues_state.comments_page_pending = None;
-        self.issues_state.error = Some(error);
+    /// Apply an issue-comment page failure via `PaginatedList::accept_failure`.
+    fn apply_issue_comments_page_failed(
+        &mut self,
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+        request_cursor: Option<String>,
+        error: String,
+    ) {
+        if !self.current_detail_matches(&scope_repo_id, issue_number) {
+            return;
+        }
+        let Some(detail) = &mut self.issues_state.issue_detail else {
+            return;
+        };
+        let correlation = LoadCorrelation::Page {
+            identity: CommentDetailIdentity {
+                scope_repo_id,
+                number: issue_number,
+            },
+            token: issue_page_token(request_cursor),
+            request_id: ListRequestId::from_raw(request_id),
+        };
+        if matches!(
+            detail.comments.accept_failure(&correlation),
+            AcceptOutcome::Applied
+        ) {
+            self.issues_state.loading.comments = false;
+            self.issues_state.error = Some(error);
+        }
     }
 
     /// Apply an issue-list load failure via `PaginatedList::accept_failure`.

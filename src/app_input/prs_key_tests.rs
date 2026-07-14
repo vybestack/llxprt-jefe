@@ -352,6 +352,22 @@ fn test_arrow_pane_cycle_matrix_per_pane() {
     ));
 }
 
+#[test]
+fn page_keys_carry_actual_pr_list_capacity() {
+    let state = prs_state_with_focus(PrFocus::PrList);
+    let up = resolve_prs_key_event_for_rows(&state, &key(KeyCode::PageUp), 22);
+    assert!(matches!(
+        up,
+        Some(AppEvent::PrNavigatePageUp(page)) if page.get() == 3
+    ));
+
+    let down = resolve_prs_key_event_for_rows(&state, &key(KeyCode::PageDown), 36);
+    assert!(matches!(
+        down,
+        Some(AppEvent::PrNavigatePageDown(page)) if page.get() == 7
+    ));
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Precedence: Inline / Chooser / Search (tests 11-13)
 // ═══════════════════════════════════════════════════════════════════════
@@ -916,9 +932,14 @@ fn test_pr_detail() -> jefe::domain::PullRequestDetail {
         checks_status: PrCheckStatus::Success,
         reviews: Vec::new(),
         checks: Vec::new(),
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: jefe::domain::PaginatedList::from_loaded(
+            jefe::domain::CommentDetailIdentity {
+                scope_repo_id: jefe::domain::RepositoryId::default(),
+                number: 1,
+            },
+            Vec::new(),
+            jefe::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: None,
         merge_state_status: None,
     }

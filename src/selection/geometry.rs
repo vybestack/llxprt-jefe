@@ -158,9 +158,10 @@ pub fn pane_at(
     }
 
     match layout.screen_mode {
-        crate::state::ScreenMode::Dashboard | crate::state::ScreenMode::Split => {
+        crate::state::ScreenMode::Dashboard => {
             dashboard_pane_at(col, row, render_cols, render_rows, terminal_input_enabled)
         }
+        crate::state::ScreenMode::Split => split_pane_at(col, row, render_cols, render_rows),
         crate::state::ScreenMode::DashboardIssues
         | crate::state::ScreenMode::DashboardPullRequests
         | crate::state::ScreenMode::DashboardActions => {
@@ -200,7 +201,28 @@ fn keybind_bar(render_cols: u16, render_rows: u16) -> (SelectablePane, PaneGeome
     )
 }
 
-/// Dashboard / split layout hit-test.
+/// Split layout hit-test for the full-width repository Sidebar.
+fn split_pane_at(
+    col: u16,
+    row: u16,
+    render_cols: u16,
+    render_rows: u16,
+) -> Option<(SelectablePane, PaneGeometry)> {
+    let layout = crate::layout::split_layout_for_render_size(render_cols, render_rows);
+    let geometry = PaneGeometry::with_chrome(
+        layout.sidebar_origin_col,
+        layout.sidebar_origin_row,
+        layout.sidebar_cols,
+        layout.sidebar_rows,
+        SIDEBAR_CHROME_COLS,
+        SIDEBAR_CHROME_ROWS,
+    );
+    geometry
+        .contains(col, row)
+        .then_some((SelectablePane::Sidebar, geometry))
+}
+
+/// Dashboard layout hit-test.
 fn dashboard_pane_at(
     col: u16,
     row: u16,

@@ -1,0 +1,20 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 25,
+    "history_limit": 2000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "Repository 24" },
+    { "expect": "Agent 24" },
+    { "expect": "Repository 7" },
+    { "capture": "dashboard-windowed-lists" },
+    { "key": "Tab" },
+    { "key": "Up" },
+    { "waitFor": "Agent 23" },
+    { "key": "C-q" },
+    { "waitForExit": 3000 }
+  ]
+}

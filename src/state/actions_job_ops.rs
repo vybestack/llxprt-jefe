@@ -150,8 +150,8 @@ impl AppState {
         self.actions_state.focused_job_index = Some(match dir {
             NavDir::Up => current.saturating_sub(1),
             NavDir::Down => current.saturating_add(1).min(last),
-            NavDir::PageUp
-            | NavDir::PageDown
+            NavDir::PageUp(_)
+            | NavDir::PageDown(_)
             | NavDir::Home
             | NavDir::End
             | NavDir::Next

@@ -32,8 +32,8 @@ impl PullRequestsMessage {
             | AppEvent::RefocusPrList
             | AppEvent::PrNavigateUp
             | AppEvent::PrNavigateDown
-            | AppEvent::PrNavigatePageUp
-            | AppEvent::PrNavigatePageDown
+            | AppEvent::PrNavigatePageUp(_)
+            | AppEvent::PrNavigatePageDown(_)
             | AppEvent::PrNavigateHome
             | AppEvent::PrNavigateEnd
             | AppEvent::PrListEnter
@@ -61,8 +61,8 @@ impl PullRequestsMessage {
             AppEvent::RefocusPrList => Self::RefocusList,
             AppEvent::PrNavigateUp => Self::Navigate(NavDir::Up),
             AppEvent::PrNavigateDown => Self::Navigate(NavDir::Down),
-            AppEvent::PrNavigatePageUp => Self::Navigate(NavDir::PageUp),
-            AppEvent::PrNavigatePageDown => Self::Navigate(NavDir::PageDown),
+            AppEvent::PrNavigatePageUp(page) => Self::Navigate(NavDir::PageUp(page)),
+            AppEvent::PrNavigatePageDown(page) => Self::Navigate(NavDir::PageDown(page)),
             AppEvent::PrNavigateHome => Self::Navigate(NavDir::Home),
             AppEvent::PrNavigateEnd => Self::Navigate(NavDir::End),
             AppEvent::PrListEnter => Self::Enter,
@@ -94,9 +94,9 @@ impl PullRequestsMessage {
             | AppEvent::PrDetailLoadFailed { .. }
             | AppEvent::PrDetailSilentRefreshed { .. }
             | AppEvent::PrDetailSilentRefreshFailed { .. } => Self::from_app_event_detail(event),
-            AppEvent::PrCommentsPageLoaded { .. } | AppEvent::PrCommentsPageFailed { .. } => {
-                Self::from_app_event_comments(event)
-            }
+            AppEvent::PrCommentsPageLoaded { .. }
+            | AppEvent::PrCommentsPageFailed { .. }
+            | AppEvent::PrCommentsPageDispatchFailed { .. } => Self::from_app_event_comments(event),
             other => Self::from_app_event_controls(other),
         }
     }
@@ -265,6 +265,15 @@ impl PullRequestsMessage {
                 scope_repo_id,
                 pr_number,
                 request_id,
+                error,
+            },
+            AppEvent::PrCommentsPageDispatchFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            } => Self::CommentsPageDispatchFailed {
+                scope_repo_id,
+                pr_number,
                 error,
             },
             _ => unreachable!("non-comments AppEvent routed to comments converter"),
@@ -512,8 +521,8 @@ impl PullRequestsMessage {
             // unrelated filter events.
             Self::Navigate(NavDir::Up | NavDir::Prev) => AppEvent::PrNavigateUp,
             Self::Navigate(NavDir::Down | NavDir::Next) => AppEvent::PrNavigateDown,
-            Self::Navigate(NavDir::PageUp) => AppEvent::PrNavigatePageUp,
-            Self::Navigate(NavDir::PageDown) => AppEvent::PrNavigatePageDown,
+            Self::Navigate(NavDir::PageUp(page)) => AppEvent::PrNavigatePageUp(page),
+            Self::Navigate(NavDir::PageDown(page)) => AppEvent::PrNavigatePageDown(page),
             Self::Navigate(NavDir::Home) => AppEvent::PrNavigateHome,
             Self::Navigate(NavDir::End) => AppEvent::PrNavigateEnd,
             Self::Enter => AppEvent::PrListEnter,
@@ -545,9 +554,9 @@ impl PullRequestsMessage {
             | Self::DetailLoadFailed { .. }
             | Self::DetailSilentRefreshed { .. }
             | Self::DetailSilentRefreshFailed { .. } => self.into_app_event_detail(),
-            Self::CommentsPageLoaded { .. } | Self::CommentsPageFailed { .. } => {
-                self.into_app_event_comments()
-            }
+            Self::CommentsPageLoaded { .. }
+            | Self::CommentsPageFailed { .. }
+            | Self::CommentsPageDispatchFailed { .. } => self.into_app_event_comments(),
             other => other.into_app_event_controls(),
         }
     }
@@ -716,6 +725,15 @@ impl PullRequestsMessage {
                 scope_repo_id,
                 pr_number,
                 request_id,
+                error,
+            },
+            Self::CommentsPageDispatchFailed {
+                scope_repo_id,
+                pr_number,
+                error,
+            } => AppEvent::PrCommentsPageDispatchFailed {
+                scope_repo_id,
+                pr_number,
                 error,
             },
             _ => unreachable!("non-comments PullRequestsMessage routed to comments"),

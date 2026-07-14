@@ -41,15 +41,20 @@ fn detail_with_long_comment() -> PullRequestDetail {
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments: vec![IssueComment {
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 20,
+            },
+            vec![IssueComment {
             comment_id: 1,
             author_login: "alice".to_string(),
             created_at: "2024-01-03T00:00:00Z".to_string(),
             edited_at: None,
             body: "this is a very long comment body that should wrap across multiple rendered rows when the detail content width is narrow".to_string(),
         }],
-        has_more_comments: false,
-        comments_cursor: None,
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: None,
         merge_state_status: None,
     }
@@ -80,9 +85,14 @@ fn bare_pr_detail() -> PullRequestDetail {
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 20,
+            },
+            vec![],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: None,
         merge_state_status: None,
     }

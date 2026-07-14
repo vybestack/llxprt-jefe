@@ -13,14 +13,12 @@
 use unicode_width::UnicodeWidthStr;
 
 use crate::domain::{Issue, IssueState};
+use crate::list_viewport::{ListGeometry, ListViewport, PaneRows, RowsPerItem};
 use crate::selection::{SelectablePane, TextSelection};
 use crate::theme::ThemeColors;
 use crate::ui::components::selectable_list::{
     ListBorder, SelectableListProps, SelectableRow, SelectableSpan, SelectionStyle, SpanColor,
 };
-
-/// Rows consumed by the bordered list container and title before item content.
-const LIST_CHROME_ROWS: u16 = 3;
 
 /// Issue list density variant.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -43,6 +41,8 @@ impl IssueListLayout {
 /// @requirement REQ-ISS-006
 /// @pseudocode component-001 lines 1-12
 pub struct IssueListRowView {
+    /// Absolute issue index represented by this visible row.
+    pub source_index: usize,
     /// Title line: prefix plus issue number and truncated title.
     pub title_line: String,
     /// Metadata line: state, author, updated timestamp, counts, assignees, labels.
@@ -106,21 +106,23 @@ pub fn issue_list_visible_rows(
     layout: IssueListLayout,
     available_width: Option<u16>,
 ) -> Vec<IssueListRowView> {
-    let rows_per_item = if layout.is_compact() { 1 } else { 2 };
-    let viewport =
-        (list_pane_rows.saturating_sub(LIST_CHROME_ROWS) / rows_per_item).max(1) as usize;
-    let first_visible = crate::layout::list_first_visible_index(
-        selected_index.unwrap_or(0),
+    let rows_per_item = RowsPerItem::new(if layout.is_compact() { 1 } else { 2 });
+    let geometry = ListGeometry::bordered(rows_per_item);
+    let viewport = ListViewport::uniform(
         issues.len(),
-        viewport,
+        selected_index,
+        geometry.content_rows(PaneRows::new(usize::from(list_pane_rows))),
+        rows_per_item,
     );
-    crate::layout::list_visible_window(issues, selected_index.unwrap_or(0), viewport)
+    let first_visible = viewport.first_visible_item();
+    issues[viewport.visible_range()]
         .iter()
         .enumerate()
         .map(|(window_i, issue)| {
             let is_selected = selected_index == Some(first_visible + window_i);
             let prefix = if is_selected { "> " } else { "  " };
             IssueListRowView {
+                source_index: first_visible + window_i,
                 title_line: build_title_line(issue, prefix, available_width),
                 meta_line: if layout.is_compact() {
                     String::new()
@@ -142,6 +144,7 @@ fn to_selectable_rows(views: Vec<IssueListRowView>) -> Vec<SelectableRow> {
     views
         .into_iter()
         .map(|v| SelectableRow {
+            source_index: v.source_index,
             spans: vec![SelectableSpan {
                 text: v.title_line,
                 color: SpanColor::Themed,
@@ -208,6 +211,9 @@ pub fn issue_list_props(
         border: ListBorder::DoubleOnFocus,
         content_padding: false,
         selection_style: SelectionStyle::BoldSelected,
+        content_width: window
+            .available_width
+            .map_or_else(|| usize::from(u16::MAX), usize::from),
     }
 }
 

@@ -130,7 +130,7 @@ fn pr_state_color(state: PrState) -> DetailHeaderColor {
 /// height. Mirrors the pre-refactor component's height-derived viewport math.
 fn detail_viewport_rows(available_height: Option<u16>) -> usize {
     if let Some(height) = available_height {
-        (height as usize).saturating_sub(HEADER_ROWS + 2)
+        crate::layout::detail_body_viewport_rows(usize::from(height))
     } else {
         crate::layout::prs_detail_viewport_rows(DEFAULT_PR_DETAIL_TERM_ROWS, false, false)
     }
