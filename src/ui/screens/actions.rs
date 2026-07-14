@@ -82,6 +82,7 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
     let expanded_jobs = state.map_or_else(std::collections::HashSet::new, |s| {
         s.actions_state.expanded_jobs.clone()
     });
+    let focused_job_index = state.and_then(|s| s.actions_state.focused_job_index);
 
     let has_filters = state.is_some_and(|s| {
         let f = &s.actions_state.committed_filter;
@@ -94,12 +95,16 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
     // Compute the rows/columns available to panes using the SAME shared helpers
     // the PRs screen uses — single source of truth for geometry.
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let (list_pane_rows, detail_pane_height) =
+    let (list_pane_rows, _) =
         crate::layout::prs_pane_rows(usize::from(term_rows), error_message.is_some(), filter_open);
     let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
-    let detail_pane_height = u16::try_from(detail_pane_height).unwrap_or(u16::MAX);
+    let detail_geometry = crate::layout::actions_detail_geometry(
+        term_cols,
+        term_rows,
+        error_message.is_some(),
+        filter_open,
+    );
     let list_width = crate::layout::pr_list_content_width(term_cols);
-    let detail_content_width = crate::layout::prs_detail_content_width(term_cols) as usize;
     let sidebar_width = u32::from(crate::layout::prs_main_columns(term_cols).sidebar_width);
 
     // In Actions mode the sidebar focus is driven solely by ActionsFocus
@@ -208,11 +213,11 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
                             ActionsDetailProjectionInputs {
                                 detail: detail.as_ref(),
                                 scroll_offset: detail_scroll_offset,
-                                viewport_rows: Some(detail_pane_height),
+                                geometry: detail_geometry,
                                 focused: detail_focused,
-                                content_width: detail_content_width,
                                 colors: colors.clone(),
                                 selection,
+                                focused_job_index,
                                 expanded_jobs: &expanded_jobs,
                             },
                         ))])
@@ -224,6 +229,7 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
             KeybindBar(
                 screen_mode: state.map_or(ScreenMode::DashboardActions, |s| s.screen_mode),
                 terminal_focused: false,
+                actions_focus: Some(actions_focus),
                 colors: colors.clone(),
             )
         }

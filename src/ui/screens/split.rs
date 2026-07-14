@@ -149,6 +149,7 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
             KeybindBar(
                 screen_mode: ScreenMode::Split,
                 terminal_focused: false,
+                actions_focus: None,
                 colors: colors,
             )
         }

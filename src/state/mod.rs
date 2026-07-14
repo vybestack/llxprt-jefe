@@ -6,6 +6,7 @@
 //!
 //! Pseudocode reference: component-001 lines 01-12
 
+mod actions_job_ops;
 mod actions_load_ops;
 #[cfg(test)]
 mod actions_load_tests;

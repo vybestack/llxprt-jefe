@@ -11,9 +11,9 @@ use crate::app_input::{
     dispatch_app_event, forward_key_to_pty, handle_f12_toggle, handle_global_shortcut_key,
     handle_mode_auth_key, handle_mode_confirm_key, handle_mode_form_key, handle_mode_help_key,
     handle_mode_search_key, handle_mode_theme_picker_key, handle_normal_key_event, persist_state,
-    request_pr_background_refresh, to_persisted_state, try_ctrl_c_interrupt_passthrough,
-    try_intercept_terminal_scrollback, try_suppress_synthetic_enter,
-    update_paste_enter_suppression,
+    request_pr_background_refresh, synchronize_actions_geometry, to_persisted_state,
+    try_ctrl_c_interrupt_passthrough, try_intercept_terminal_scrollback,
+    try_suppress_synthetic_enter, update_paste_enter_suppression,
 };
 use crate::pty_encoding::PasteEnterSuppression;
 
@@ -460,6 +460,7 @@ fn handle_terminal_event(
     match event {
         TerminalEvent::Resize(cols, rows) => {
             crate::mouse_routing::clear_selection(app_state);
+            synchronize_actions_geometry(app_state, cols, rows);
             handle_resize(ctx, cols, rows);
         }
         TerminalEvent::FullscreenMouse(mouse_event) => {

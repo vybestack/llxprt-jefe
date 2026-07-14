@@ -958,7 +958,7 @@ fn scroll_detail_pane(
     }
     {
         let mut state = app_state.write();
-        refresh_detail_viewport_rows(&mut state, pane, rows);
+        refresh_detail_viewport_rows(&mut state, pane, cols, rows);
     }
     let (current, max) = {
         let state = app_state.read();

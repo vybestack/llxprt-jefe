@@ -22,7 +22,7 @@ use crate::issue_detail_content::build_detail_content;
 use crate::pr_detail_content::build_pr_detail_content;
 use crate::runtime::TerminalSnapshot;
 use crate::selection::SelectablePane;
-use crate::state::AppState;
+use crate::state::{AppState, ScreenMode};
 use crate::ui::components::issue_detail::issue_detail_header_view;
 use crate::ui::components::issue_list::{IssueListLayout, issue_list_visible_rows};
 use crate::ui::components::pr_detail::pr_detail_header_view;
@@ -373,7 +373,13 @@ fn status_bar_lines(state: &AppState) -> PaneContent {
 /// Keybind bar line that matches the rendered hint text for the active screen
 /// mode, reusing the pure [`keybind_hints_for`] projection.
 fn keybind_bar_lines(state: &AppState) -> PaneContent {
-    let hints = crate::ui::components::keybind_bar::keybind_hints_for(state.screen_mode, false);
+    let actions_focus =
+        (state.screen_mode == ScreenMode::DashboardActions).then_some(state.actions_state.focus);
+    let hints = crate::ui::components::keybind_bar::keybind_hints_for(
+        state.screen_mode,
+        false,
+        actions_focus,
+    );
     PaneContent::new(SelectablePane::KeybindBar, vec![hints.to_string()])
 }
 

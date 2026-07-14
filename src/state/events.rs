@@ -589,12 +589,22 @@ pub enum AppEvent {
     ActionsEnter,
     ActionsCycleFocus,
     ActionsCycleFocusReverse,
+    ActionsSetDetailGeometry {
+        viewport_rows: usize,
+        content_width: usize,
+    },
     ActionsScrollDetailUp,
     ActionsScrollDetailDown,
-    ActionsToggleJobExpand,
+    ActionsExpandJob,
     ActionsCollapseJob,
+    ActionsDetailEscape,
     ActionsNavigateJobUp,
     ActionsNavigateJobDown,
+    ActionsBeginDetailReload {
+        scope_repo_id: RepositoryId,
+        run_id: u64,
+        request_id: u64,
+    },
     ActionsRunsLoaded {
         scope_repo_id: RepositoryId,
         filter: Box<crate::domain::ActionsFilter>,
