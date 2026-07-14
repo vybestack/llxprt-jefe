@@ -63,10 +63,11 @@ impl CaptureHandle {
             generation,
         };
         let mut pending = lock_or_panic(&self.inner.pending, "capture slot");
-        if let Some(existing) = &*pending {
-            if existing.agent_id == req.agent_id && existing.generation == req.generation {
-                return;
-            }
+        if let Some(existing) = &*pending
+            && existing.agent_id == req.agent_id
+            && existing.generation == req.generation
+        {
+            return;
         }
         *pending = Some(req);
     }

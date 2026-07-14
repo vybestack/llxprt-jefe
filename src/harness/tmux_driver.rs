@@ -234,10 +234,10 @@ impl TmuxSessionGuard {
 
 impl Drop for TmuxSessionGuard {
     fn drop(&mut self) {
-        if let Some(session) = self.session.take() {
-            if let Err(err) = self.driver.cleanup_session(&session) {
-                tracing::warn!(%err, session = %session.name, "guard cleanup failed on drop");
-            }
+        if let Some(session) = self.session.take()
+            && let Err(err) = self.driver.cleanup_session(&session)
+        {
+            tracing::warn!(%err, session = %session.name, "guard cleanup failed on drop");
         }
     }
 }

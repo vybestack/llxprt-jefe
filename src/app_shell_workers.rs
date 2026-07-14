@@ -84,14 +84,12 @@ pub async fn run_capture_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
         let current_agent = ctx_guard.runtime.attached_agent();
         let current_generation = ctx_guard.runtime.output_generation();
         let is_current = current_agent == Some(&agent_id) && current_generation == generation;
-        if is_current {
-            if let Some(raw_lines) = captured {
-                let live_rows = ctx_guard.runtime.snapshot().map_or(0, |s| s.rows);
-                let lines = strip_trailing_rows(raw_lines, live_rows);
-                ctx_guard
-                    .runtime
-                    .history_cache_store(&agent_id, generation, Some(lines));
-            }
+        if is_current && let Some(raw_lines) = captured {
+            let live_rows = ctx_guard.runtime.snapshot().map_or(0, |s| s.rows);
+            let lines = strip_trailing_rows(raw_lines, live_rows);
+            ctx_guard
+                .runtime
+                .history_cache_store(&agent_id, generation, Some(lines));
         }
     }
 }
