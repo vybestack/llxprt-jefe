@@ -200,14 +200,18 @@ fn sweep_stale(cache: &mut HashMap<PathBuf, CacheEntry>, now: Instant) {
 /// Returns `None` for non-git directories, detached HEAD states, or when git
 /// is not installed. Uses `git rev-parse --abbrev-ref HEAD` which returns the
 /// branch name or `HEAD` for detached HEAD (filtered out).
-fn probe_branch(work_dir: &Path) -> Option<String> {
-    let mut command = match crate::local_command::command(crate::local_command::LocalTool::Git) {
-        Ok(command) => command,
+fn git_command() -> Option<std::process::Command> {
+    match crate::local_command::command(crate::local_command::LocalTool::Git) {
+        Ok(command) => Some(command),
         Err(error) => {
-            tracing::debug!(%error, "could not resolve Git while probing branch");
-            return None;
+            tracing::debug!(%error, "could not resolve Git while probing repository metadata");
+            None
         }
-    };
+    }
+}
+
+fn probe_branch(work_dir: &Path) -> Option<String> {
+    let mut command = git_command()?;
     let output = command
         .arg("-C")
         .arg(work_dir)
@@ -227,8 +231,7 @@ fn probe_branch(work_dir: &Path) -> Option<String> {
 
 /// Fall back to the short commit hash for detached HEAD states.
 fn probe_short_commit(work_dir: &Path) -> Option<String> {
-    let output = crate::local_command::command(crate::local_command::LocalTool::Git)
-        .ok()?
+    let output = git_command()?
         .arg("-C")
         .arg(work_dir)
         .args(["rev-parse", "--short", "HEAD"])
@@ -252,8 +255,7 @@ fn probe_short_commit(work_dir: &Path) -> Option<String> {
 /// Returns `None` when the origin remote is missing or the URL doesn't match
 /// a known pattern.
 fn detect_origin_shortform(work_dir: &Path) -> Option<String> {
-    let output = crate::local_command::command(crate::local_command::LocalTool::Git)
-        .ok()?
+    let output = git_command()?
         .arg("-C")
         .arg(work_dir)
         .args(["remote", "get-url", "origin"])

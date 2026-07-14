@@ -51,9 +51,10 @@ fn normalize_local_path(value: &str, platform: LocalPathPlatform) -> String {
         LocalPathPlatform::Windows => value.replace('\\', "/").to_lowercase(),
         LocalPathPlatform::Unix => value.to_owned(),
     };
-    let rooted = separated.starts_with('/');
+    let (prefix, rest) = windows_drive_prefix(&separated, platform);
+    let rooted = !prefix.is_empty() || rest.starts_with('/');
     let mut parts = Vec::new();
-    for part in separated.split('/') {
+    for part in rest.split('/') {
         match part {
             ".." if parts.last().is_some_and(|last| *last != "..") => {
                 parts.pop();
@@ -64,10 +65,27 @@ fn normalize_local_path(value: &str, platform: LocalPathPlatform) -> String {
         }
     }
     let normalized = parts.join("/");
-    if rooted {
+    if !prefix.is_empty() {
+        let separator = if rest.starts_with('/') { "/" } else { "" };
+        format!("{prefix}{separator}{normalized}")
+    } else if rooted {
         format!("/{normalized}")
     } else {
         normalized
+    }
+}
+
+fn windows_drive_prefix(value: &str, platform: LocalPathPlatform) -> (&str, &str) {
+    if platform == LocalPathPlatform::Windows
+        && value.as_bytes().get(1) == Some(&b':')
+        && value
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphabetic)
+    {
+        value.split_at(2)
+    } else {
+        ("", value)
     }
 }
 
@@ -228,6 +246,20 @@ mod tests {
         assert!(local_paths_equivalent_for_platform(
             r"C:\MÜLLER\.\Repo\child\..",
             r"c:/müller/repo",
+            LocalPathPlatform::Windows,
+        ));
+    }
+
+    #[test]
+    fn windows_drive_anchor_survives_parent_components() {
+        assert!(local_paths_equivalent_for_platform(
+            r"C:\..\foo",
+            r"c:\foo",
+            LocalPathPlatform::Windows,
+        ));
+        assert!(!local_paths_equivalent_for_platform(
+            r"C:\..\foo",
+            r"foo",
             LocalPathPlatform::Windows,
         ));
     }

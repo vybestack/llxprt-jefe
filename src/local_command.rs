@@ -134,9 +134,9 @@ fn executable_names(name: &str, platform: ToolPlatform, pathext: Option<&OsStr>)
         return vec![OsString::from(name)];
     }
     let extensions = pathext
-        .and_then(OsStr::to_str)
+        .map(OsStr::to_string_lossy)
         .filter(|value| !value.is_empty())
-        .unwrap_or(WINDOWS_DEFAULT_PATHEXT);
+        .unwrap_or_else(|| WINDOWS_DEFAULT_PATHEXT.into());
     extensions
         .split(';')
         .filter(|extension| !extension.is_empty())

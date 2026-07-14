@@ -67,8 +67,8 @@ fn parse_changed_paths(stdout: &[u8]) -> Result<Vec<PathBuf>, String> {
 
 fn is_owned_path(path: &Path) -> bool {
     path.components().next().is_some_and(|component| {
-        let value = component.as_os_str();
-        value == ".jefe" || value == ".llxprt"
+        let value = component.as_os_str().to_string_lossy();
+        value.eq_ignore_ascii_case(".jefe") || value.eq_ignore_ascii_case(".llxprt")
     })
 }
 
@@ -147,4 +147,31 @@ fn remove_empty_untracked_parents(work_dir: &Path, paths: &[PathBuf]) -> Result<
 
 fn directory_has_entries(path: &Path) -> bool {
     std::fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_some())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn owned_metadata_names_are_ascii_case_insensitive() {
+        assert!(is_owned_path(Path::new(".JEFE/cache.json")));
+        assert!(is_owned_path(Path::new(".LlXpRt/LLXPRT.md")));
+        assert!(!is_owned_path(Path::new("nested/.JEFE/cache.json")));
+    }
+
+    #[test]
+    fn shared_parent_already_removed_is_successful() {
+        let root = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("create cleanup test directory: {error}"));
+        let shared = root.path().join("shared");
+        std::fs::create_dir(&shared)
+            .unwrap_or_else(|error| panic!("create shared directory: {error}"));
+        let paths = vec![PathBuf::from("shared/one"), PathBuf::from("shared/two")];
+
+        let result = remove_empty_untracked_parents(root.path(), &paths);
+
+        assert!(result.is_ok(), "shared-parent cleanup failed: {result:?}");
+        assert!(!shared.exists());
+    }
 }

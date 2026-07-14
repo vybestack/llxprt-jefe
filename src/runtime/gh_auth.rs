@@ -56,8 +56,15 @@ pub struct AuthRunResult {
 /// an `Err` — it is reported via `AuthRunResult::exit_success` so the caller
 /// can surface a retryable failure in-dialog.
 pub fn run_device_auth() -> Result<AuthRunResult, GhError> {
-    let mut command = crate::local_command::command(crate::local_command::LocalTool::Gh)
-        .map_err(|_| GhError::NotInstalled)?;
+    let mut command =
+        crate::local_command::command(crate::local_command::LocalTool::Gh).map_err(|error| {
+            match error {
+                crate::local_command::LocalToolError::NotFound { .. } => GhError::NotInstalled,
+                crate::local_command::LocalToolError::InvalidOverride { .. } => {
+                    GhError::ToolResolution(error.to_string())
+                }
+            }
+        })?;
     command.args(build_auth_login_args(AUTH_SCOPES));
     for (key, value) in &build_auth_login_env() {
         command.env(key, value);
