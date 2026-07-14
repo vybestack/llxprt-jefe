@@ -62,17 +62,21 @@ impl AppState {
     pub fn remote_settings_from_fields(
         fields: &RepositoryFormFields,
     ) -> Result<RemoteRepositorySettings, String> {
-        let port = match fields.ssh_port.trim() {
-            "" => None,
-            value => {
-                let port = value
-                    .parse::<u16>()
-                    .map_err(|_| "SSH port must be between 1 and 65535".to_owned())?;
-                if port == 0 {
-                    return Err("SSH port must be between 1 and 65535".to_owned());
+        let port = if fields.remote_enabled {
+            match fields.ssh_port.trim() {
+                "" => None,
+                value => {
+                    let port = value
+                        .parse::<u16>()
+                        .map_err(|_| "SSH port must be between 1 and 65535".to_owned())?;
+                    if port == 0 {
+                        return Err("SSH port must be between 1 and 65535".to_owned());
+                    }
+                    Some(port)
                 }
-                Some(port)
             }
+        } else {
+            None
         };
         let settings = RemoteRepositorySettings {
             enabled: fields.remote_enabled,

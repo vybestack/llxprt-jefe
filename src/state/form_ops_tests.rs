@@ -847,6 +847,20 @@ fn remote_repository_form_rejects_invalid_port_and_unsafe_option() {
     fields.ssh_options = "ProxyCommand=credential-helper".to_owned();
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
+
+#[test]
+fn local_repository_ignores_stale_invalid_ssh_port() {
+    let fields = RepositoryFormFields {
+        name: "Local Repository".to_owned(),
+        remote_enabled: false,
+        ssh_port: "not-a-port".to_owned(),
+        ..RepositoryFormFields::default()
+    };
+    let Some(repository) = AppState::create_repository_from_fields(&fields) else {
+        panic!("disabled remote settings must not block a local repository");
+    };
+    assert_eq!(repository.remote.port, None);
+}
 /// A blank `github_issue_pr_repo` is accepted (preserves existing behavior).
 #[test]
 fn create_repository_accepts_blank_issue_pr_repo() {
