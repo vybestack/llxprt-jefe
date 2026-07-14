@@ -148,7 +148,7 @@ fn confirm_text(snapshot: &AppState, kind: ConfirmKind) -> (String, String, bool
         ConfirmKind::IssueDirtyCopy => (
             String::from("Dirty Working Copy"),
             String::from(
-                "Working copy has uncommitted changes. Discard them (git reset --hard + git clean)?",
+                "Working copy has uncommitted changes. Discard non-owned tracked and untracked changes?",
             ),
             false,
         ),

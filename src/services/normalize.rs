@@ -4,6 +4,75 @@
 //! the app/domain boundary layer.
 
 use crate::domain::DEFAULT_SANDBOX_FLAGS;
+use std::path::Path;
+
+/// Platform policy used for local-path validation and comparison.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocalPathPlatform {
+    /// Native Windows path semantics.
+    Windows,
+    /// Unix path semantics.
+    Unix,
+}
+
+impl LocalPathPlatform {
+    /// Return the current host path policy.
+    #[must_use]
+    pub(crate) const fn current() -> Self {
+        if cfg!(windows) {
+            Self::Windows
+        } else {
+            Self::Unix
+        }
+    }
+}
+
+/// Compare local paths without changing either user-visible value.
+#[must_use]
+pub fn local_paths_equivalent(left: &Path, right: &Path) -> bool {
+    local_paths_equivalent_for_platform(
+        &left.to_string_lossy(),
+        &right.to_string_lossy(),
+        LocalPathPlatform::current(),
+    )
+}
+
+#[must_use]
+fn local_paths_equivalent_for_platform(
+    left: &str,
+    right: &str,
+    platform: LocalPathPlatform,
+) -> bool {
+    let normalize = |value: &str| match platform {
+        LocalPathPlatform::Windows => value
+            .replace('\\', "/")
+            .trim_end_matches('/')
+            .to_ascii_lowercase(),
+        LocalPathPlatform::Unix => value.trim_end_matches('/').to_owned(),
+    };
+    normalize(left) == normalize(right)
+}
+
+/// Validate that a local work directory is supported on this host.
+pub fn validate_local_path(path: &Path) -> Result<(), String> {
+    validate_local_path_for_platform(path, LocalPathPlatform::current())
+}
+
+fn validate_local_path_for_platform(
+    path: &Path,
+    platform: LocalPathPlatform,
+) -> Result<(), String> {
+    if platform == LocalPathPlatform::Windows {
+        let value = path.to_string_lossy();
+        if value.starts_with(r"\\") || value.starts_with("//") {
+            return Err(format!(
+                "UNC work directories are not supported yet: {}. Choose a path on a local drive.",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// Expand a leading `~` or `~/` to the user's home directory.
 pub fn expand_tilde(path: &str) -> String {
@@ -105,6 +174,58 @@ pub fn normalize_llxprt_debug(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn windows_path_comparison_handles_case_and_separator_variants() {
+        assert!(local_paths_equivalent_for_platform(
+            r"C:\Users\Acoli\Repo\",
+            r"c:/users/acoli/repo",
+            LocalPathPlatform::Windows,
+        ));
+        assert!(!local_paths_equivalent_for_platform(
+            r"C:\Users\Acoli\Repo",
+            r"C:\Users\Acoli\Repository",
+            LocalPathPlatform::Windows,
+        ));
+    }
+
+    #[test]
+    fn unix_path_comparison_preserves_case() {
+        assert!(!local_paths_equivalent_for_platform(
+            "/srv/Repo/",
+            "/srv/repo",
+            LocalPathPlatform::Unix,
+        ));
+        assert!(local_paths_equivalent_for_platform(
+            "/srv/repo/",
+            "/srv/repo",
+            LocalPathPlatform::Unix,
+        ));
+    }
+
+    #[test]
+    fn windows_unc_path_is_rejected_with_actionable_error() {
+        let error = validate_local_path_for_platform(
+            std::path::Path::new(r"\\server\share\repo"),
+            LocalPathPlatform::Windows,
+        );
+        assert!(
+            error.is_err_and(|message| message.contains("UNC") && message.contains("local drive")),
+            "UNC rejection must explain the supported alternative"
+        );
+    }
+
+    #[test]
+    fn windows_long_local_path_is_preserved() {
+        let original = format!(r"C:\workspace\{}\repo", "long segment".repeat(30));
+        assert_eq!(
+            validate_local_path_for_platform(
+                std::path::Path::new(&original),
+                LocalPathPlatform::Windows,
+            ),
+            Ok(())
+        );
+    }
     use super::*;
 
     #[test]

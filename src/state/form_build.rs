@@ -247,7 +247,10 @@ impl AppState {
 
         if let Some(new_dir) = Self::validated_agent_work_dir(repository, &fields.work_dir) {
             if !repository.remote.enabled
-                && new_dir != agent.work_dir.to_string_lossy()
+                && !crate::services::local_paths_equivalent(
+                    std::path::Path::new(&new_dir),
+                    &agent.work_dir,
+                )
                 && let Err(e) = std::fs::create_dir_all(&new_dir)
             {
                 warn!(

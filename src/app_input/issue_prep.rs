@@ -216,6 +216,7 @@ fn prepare_local(
     policy: DirtyPolicy,
     prompt: &str,
 ) -> Result<PrepOutcome, String> {
+    jefe::services::validate_local_path(work_dir)?;
     let owned_url = identity.map(CloneIdentity::clone_url);
     let expected = identity.map(CloneIdentity::expected_shortform);
     match ensure_workdir_with_origin(work_dir, owned_url.as_deref(), expected)? {

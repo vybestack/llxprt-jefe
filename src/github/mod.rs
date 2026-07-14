@@ -59,6 +59,11 @@ pub use parse_pr::{
     parse_thread_reply_json, rollup_nodes, sort_pull_requests,
 };
 
+fn gh_command() -> Result<Command, GhError> {
+    crate::local_command::command(crate::local_command::LocalTool::Gh)
+        .map_err(|_| GhError::NotInstalled)
+}
+
 /// Response from listing issues.
 pub struct IssueListResponse {
     pub issues: Vec<Issue>,
@@ -157,7 +162,7 @@ impl GhClient {
     /// @requirement REQ-ISS-013
     /// @pseudocode component-002 lines 04-08
     pub fn check_auth(&self) -> Result<(), GhError> {
-        let output = Command::new("gh")
+        let output = gh_command()?
             .args(["auth", "status"])
             .output()
             .map_err(|e| {
@@ -203,7 +208,7 @@ impl GhClient {
         repo: &str,
         number: u64,
     ) -> Result<IssueDetail, GhError> {
-        let output = Command::new("gh")
+        let output = gh_command()?
             .args([
                 "issue",
                 "view",
@@ -278,7 +283,7 @@ impl GhClient {
             args.push(format!("after={c}"));
         }
 
-        let output = Command::new("gh").args(&args).output().map_err(|e| {
+        let output = gh_command()?.args(&args).output().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 GhError::NotInstalled
             } else {
@@ -312,7 +317,7 @@ impl GhClient {
         title: &str,
         body: &str,
     ) -> Result<CreatedIssue, GhError> {
-        let output = Command::new("gh")
+        let output = gh_command()?
             .args([
                 "api",
                 "--method",
@@ -376,7 +381,7 @@ impl GhClient {
         number: u64,
         body: &str,
     ) -> Result<IssueComment, GhError> {
-        let output = Command::new("gh")
+        let output = gh_command()?
             .args([
                 "api",
                 "--method",
@@ -415,7 +420,7 @@ impl GhClient {
         comment_id: u64,
         body: &str,
     ) -> Result<(), GhError> {
-        let output = Command::new("gh")
+        let output = gh_command()?
             .args([
                 "api",
                 "--method",
@@ -454,7 +459,7 @@ impl GhClient {
         title: &str,
         body: &str,
     ) -> Result<(), GhError> {
-        let output = Command::new("gh")
+        let output = gh_command()?
             .args([
                 "issue",
                 "edit",
@@ -779,7 +784,7 @@ impl GhClient {
     /// the established error idiom: `NotFound→NotInstalled` else
     /// `NetworkError`; non-zero exit → `categorize_error`.
     pub(super) fn run_gh(args: &[String]) -> Result<String, GhError> {
-        let output = Command::new("gh").args(args).output().map_err(|e| {
+        let output = gh_command()?.args(args).output().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 GhError::NotInstalled
             } else {
@@ -955,7 +960,7 @@ fn fetch_issue_search_raw_page(
 ) -> Result<IssueListResponse, GhError> {
     let args = build_issue_search_args(owner, repo, filter, cursor, page_size);
 
-    let output = Command::new("gh").args(&args).output().map_err(|e| {
+    let output = gh_command()?.args(&args).output().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             GhError::NotInstalled
         } else {

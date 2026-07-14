@@ -341,8 +341,66 @@ fn local_dirty_discard_cleans_and_writes_prompt() {
 }
 
 #[test]
+fn local_dirty_discard_handles_spaces_unicode_and_argv_like_names_without_git_clean() {
+    let origin = bare_origin_with_commit("native-windows");
+    let root = std::env::temp_dir().join(format!("jefe issue261 Ω space {}", rand_label()));
+    std::fs::create_dir_all(&root).value_or_panic("create spaced root");
+    let work = root.join("work tree Ω");
+    run_git(
+        Path::new("."),
+        &["clone", &origin.to_string_lossy(), &work.to_string_lossy()],
+    );
+    run_git(&work, &["remote", "set-head", "origin", "-a"]);
+    let adversarial = "--not-an-option ; echo untouched Ω.txt";
+    std::fs::write(work.join(adversarial), "untracked").value_or_panic("write adversarial file");
+    std::fs::create_dir_all(work.join("nested Ω/space"))
+        .value_or_panic("create nested untracked directory");
+    std::fs::write(work.join("nested Ω/space/file.txt"), "untracked")
+        .value_or_panic("write nested untracked file");
+
+    let outcome = prepare_local(&work, None, DirtyPolicy::Discard, "prompt")
+        .value_or_panic("native local preparation");
+
+    assert_eq!(outcome, PrepOutcome::Ready);
+    assert!(!work.join(adversarial).exists());
+    assert!(!work.join("nested Ω").exists());
+    assert!(work.join(".jefe/issue-prompt.md").exists());
+    cleanup(origin.parent().unwrap_or(&origin));
+    cleanup(&root);
+}
+
+#[test]
+fn local_dirty_discard_preserves_tracked_jefe_owned_metadata() {
+    let origin = bare_origin_with_commit("tracked-owned");
+    let work = clone_origin(&origin, "tracked-owned");
+    std::fs::create_dir_all(work.join(".llxprt")).value_or_panic("create owned directory");
+    std::fs::write(work.join(".llxprt/LLXPRT.md"), "committed")
+        .value_or_panic("write committed owned file");
+    run_git(&work, &["add", ".llxprt/LLXPRT.md"]);
+    run_git(&work, &["commit", "-m", "add owned metadata"]);
+    std::fs::write(work.join(".llxprt/LLXPRT.md"), "local memory")
+        .value_or_panic("modify owned metadata");
+    std::fs::write(work.join("README.md"), "ordinary change")
+        .value_or_panic("modify ordinary tracked file");
+
+    issue_git_prep::discard_workdir_changes(&work).value_or_panic("discard ordinary changes");
+
+    assert_eq!(
+        std::fs::read_to_string(work.join(".llxprt/LLXPRT.md"))
+            .value_or_panic("read preserved owned metadata"),
+        "local memory"
+    );
+    let restored =
+        std::fs::read_to_string(work.join("README.md")).value_or_panic("read restored README");
+    assert_eq!(restored.replace("\r\n", "\n"), "# test\n");
+    cleanup(origin.parent().unwrap_or(&origin));
+    cleanup(&work);
+}
+
+#[test]
 fn local_owned_metadata_jefe_llxprt_ignored_as_dirty() {
     let origin = bare_origin_with_commit("ownedmeta");
+
     let work = clone_origin(&origin, "ownedmeta");
     // Only .jefe/ and .llxprt/ changes → must NOT be dirty.
     std::fs::create_dir_all(work.join(".jefe")).value_or_panic("create .jefe");
