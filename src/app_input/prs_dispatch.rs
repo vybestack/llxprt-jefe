@@ -73,9 +73,12 @@ pub(super) fn resolve_pr_gh_repo_or_error(
         }),
     }
 }
-/// User-visible error describing a malformed PR tracker repository.
+/// Typed malformed-tracker error for PR dispatch paths (issue #266).
+///
+/// Carries the user-visible parse-error message so PR detail, list, and
+/// preview operations can surface the specific malformed-configuration
+/// reason instead of a generic "missing GitHub Repo" message.
 pub(super) struct MalformedPrRepo {
-    /// Human-readable parser error including the invalid repository value.
     pub message: String,
 }
 
@@ -364,6 +367,8 @@ pub(super) fn preview_pr_from_list(app_state: &mut AppStateHandle) {
             state.prs_state.error = Some(error.message);
             state.prs_state.loading.detail = false;
             state.prs_state.loading.comments = false;
+            state.prs_state.pr_detail = None;
+            state.prs_state.detail_pending = None;
             drop(state);
             return;
         }

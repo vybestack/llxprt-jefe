@@ -72,6 +72,7 @@ pub(super) fn dispatch_pr_list_fetch(
         if params.silent && params.malformed_message.is_none() {
             // Silent refresh of a repo with no GitHub slug: silently no-op
             // (do NOT surface a visible error — issue #128).
+            // A malformed override is still surfaced even in silent mode (issue #266).
             return;
         }
         let error = params.malformed_message.as_deref().unwrap_or(
