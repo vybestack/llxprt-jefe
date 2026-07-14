@@ -69,7 +69,7 @@ pub(super) fn dispatch_pr_list_fetch(
     let mut params = pr_fetch_params(app_state, fresh_reload, silent);
 
     if params.owner.is_empty() || params.repo.is_empty() {
-        if params.silent {
+        if params.silent && params.malformed_message.is_none() {
             // Silent refresh of a repo with no GitHub slug: silently no-op
             // (do NOT surface a visible error — issue #128).
             return;

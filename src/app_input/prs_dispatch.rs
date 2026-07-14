@@ -69,11 +69,13 @@ pub(super) fn resolve_pr_gh_repo_or_error(
         }
         super::tracker_resolver::ResolvedTracker::Absent => Ok((String::new(), String::new())),
         super::tracker_resolver::ResolvedTracker::Malformed(error) => Err(MalformedPrRepo {
-            message: format!("{error}"),
+            message: error.to_string(),
         }),
     }
 }
+/// User-visible error describing a malformed PR tracker repository.
 pub(super) struct MalformedPrRepo {
+    /// Human-readable parser error including the invalid repository value.
     pub message: String,
 }
 
