@@ -77,6 +77,11 @@ fn restart_roundtrip_preserves_unicode_multi_runtime_bindings() {
         ],
         ..State::default_with_version()
     };
+    let expected_bindings = state
+        .agents
+        .iter()
+        .map(|agent| agent.runtime_binding.clone())
+        .collect::<Vec<_>>();
     let json = serde_json::to_vec(&state)
         .unwrap_or_else(|error| panic!("serialize runtime state: {error}"));
     let loaded: State = serde_json::from_slice(&json)
@@ -87,11 +92,14 @@ fn restart_roundtrip_preserves_unicode_multi_runtime_bindings() {
     assert_eq!(loaded.agents[1].agent_kind, AgentKind::CodePuppy);
     assert!(loaded.agents[0].pass_continue);
     assert!(loaded.agents[1].code_puppy_quick_resume);
-    assert_eq!(
-        loaded.agents[1]
-            .runtime_binding
-            .as_ref()
-            .and_then(|binding| binding.process_identity),
-        Some(ProcessIdentity::new(10_001, 90_001))
-    );
+    let loaded_bindings = loaded
+        .agents
+        .iter()
+        .map(|agent| agent.runtime_binding.as_ref())
+        .collect::<Vec<_>>();
+    let expected_json = serde_json::to_value(&expected_bindings)
+        .unwrap_or_else(|error| panic!("serialize expected bindings: {error}"));
+    let loaded_json = serde_json::to_value(&loaded_bindings)
+        .unwrap_or_else(|error| panic!("serialize loaded bindings: {error}"));
+    assert_eq!(loaded_json, expected_json);
 }

@@ -102,18 +102,30 @@ pub fn session_liveness(session_name: &str) -> SessionLiveness {
     if !output.status.success() {
         return SessionLiveness::Missing;
     }
-    if parse_dead_pane_flags(&String::from_utf8_lossy(&output.stdout)) {
-        SessionLiveness::Alive
-    } else {
-        SessionLiveness::Missing
-    }
+    parse_dead_pane_flags(&String::from_utf8_lossy(&output.stdout))
 }
 
-fn parse_dead_pane_flags(output: &str) -> bool {
-    output
+fn parse_dead_pane_flags(output: &str) -> SessionLiveness {
+    let mut saw_dead = false;
+    for flag in output
         .lines()
         .map(str::trim)
-        .any(|flag| !flag.is_empty() && (flag == "0" || flag.eq_ignore_ascii_case("false")))
+        .filter(|flag| !flag.is_empty())
+    {
+        if flag == "0" || flag.eq_ignore_ascii_case("false") {
+            return SessionLiveness::Alive;
+        }
+        if flag == "1" || flag.eq_ignore_ascii_case("true") {
+            saw_dead = true;
+        } else {
+            return SessionLiveness::Unavailable;
+        }
+    }
+    if saw_dead {
+        SessionLiveness::Missing
+    } else {
+        SessionLiveness::Unavailable
+    }
 }
 
 /// Check if a tmux session exists and has at least one non-dead pane.
@@ -504,6 +516,17 @@ jefe-b
 ";
         let set = parse_alive_sessions(raw);
         assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn dead_pane_parser_preserves_tri_state() {
+        assert_eq!(parse_dead_pane_flags("0\n1\n"), SessionLiveness::Alive);
+        assert_eq!(parse_dead_pane_flags("1\ntrue\n"), SessionLiveness::Missing);
+        assert_eq!(parse_dead_pane_flags(""), SessionLiveness::Unavailable);
+        assert_eq!(
+            parse_dead_pane_flags("unexpected\n"),
+            SessionLiveness::Unavailable
+        );
     }
 
     // --- parse_pane_alive (pure) ---

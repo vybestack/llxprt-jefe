@@ -28,6 +28,7 @@
     { "key": "Tab" },
     { "key": "Enter" },
     { "waitForNot": "Kill agent" },
+    { "waitForNot": "Puppy Four" },
     { "expect": "LLxprt Ω One" },
     { "expect": "Puppy Ω Two" },
     { "expect": "LLxprt Three" },
