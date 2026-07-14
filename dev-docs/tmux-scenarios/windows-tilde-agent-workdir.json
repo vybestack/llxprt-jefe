@@ -49,10 +49,14 @@
     { "key": "Space" },
     { "key": "1" },
     { "waitFor": "somedir\\branch-1" },
-    { "waitForNot": "~/somedir/branch-1" },
-    { "capture": "windows-tilde-agent-workdir" },
-    { "key": "Escape" },
-    { "line": "qqq" },
+    { "waitForNot": "~/somedir" },
+    { "waitForNot": "~\\somedir" },
+    { "capture": "windows-tilde-agent-workdir-preview" },
+    { "key": "Enter" },
+    { "waitForNot": "New Agent" },
+    { "waitFor": "somedir\\branch-1" },
+    { "capture": "windows-tilde-agent-workdir-persisted" },
+    { "key": "C-q" },
     { "waitForExit": 3000 }
   ]
 }

@@ -93,3 +93,16 @@ pub(super) fn next_installed_kind(installed: &[AgentKind], value: &str) -> Optio
             |index| installed.get((index + 1) % installed.len()).copied(),
         )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remote_work_dir_trims_trailing_separators_before_joining_slug() {
+        assert_eq!(
+            derive_remote_work_dir_from_name("Branch 1", "~/remote///"),
+            "~/remote/branch-1"
+        );
+    }
+}

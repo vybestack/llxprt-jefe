@@ -234,7 +234,10 @@ fn automatic_agent_work_dir_joins_normalized_windows_repository_once() {
     let ModalState::NewAgent { fields, .. } = &state.modal else {
         panic!("expected new-agent modal, got {:?}", state.modal);
     };
-    assert_eq!(fields.work_dir, r"C:\Users\Acoli Ω\somedir\branch-1");
+    assert_eq!(
+        std::path::Path::new(&fields.work_dir),
+        std::path::Path::new(r"C:\Users\Acoli Ω\somedir\branch-1")
+    );
     assert_eq!(fields.work_dir.matches("somedir").count(), 1);
 }
 

@@ -140,11 +140,12 @@ fn expand_tilde_for_platform(
     home: Option<&std::ffi::OsStr>,
     user_profile: Option<&std::ffi::OsStr>,
 ) -> String {
-    let suffix = path.strip_prefix("~/").or_else(|| {
-        (platform == LocalPathPlatform::Windows)
-            .then(|| path.strip_prefix(r"~\"))
-            .flatten()
-    });
+    let windows_suffix = if platform == LocalPathPlatform::Windows {
+        path.strip_prefix(r"~\")
+    } else {
+        None
+    };
+    let suffix = path.strip_prefix("~/").or(windows_suffix);
     if path != "~" && suffix.is_none() {
         return path.to_owned();
     }
