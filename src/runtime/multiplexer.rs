@@ -9,12 +9,33 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use super::agent_executable::ResolvedAgentExecutable;
-use super::agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, write_launch_plan};
+use super::agent_launcher::{
+    AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, PendingLaunchPlan, write_launch_plan,
+};
 const MINIMUM_PSMUX_VERSION: MultiplexerVersion = MultiplexerVersion::new(3, 3, 6);
 const WINDOWS_INSTALL_GUIDANCE: &str =
     "install psmux 3.3.6 or newer with `winget install marlocarlo.psmux`, then restart Jefe";
 const UNIX_INSTALL_GUIDANCE: &str =
     "install upstream tmux with your operating system package manager";
+
+#[derive(Debug)]
+pub struct AgentPaneCommand {
+    args: Vec<OsString>,
+    launch_plan: Option<PendingLaunchPlan>,
+}
+
+impl AgentPaneCommand {
+    #[must_use]
+    pub fn args(&self) -> &[OsString] {
+        &self.args
+    }
+
+    pub fn disarm_launch_plan(&mut self) {
+        if let Some(plan) = &mut self.launch_plan {
+            plan.disarm();
+        }
+    }
+}
 
 /// Local operating-system policy used to select a multiplexer implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -204,9 +225,14 @@ impl MultiplexerPlan {
         executable: &ResolvedAgentExecutable,
         args: &[OsString],
         environment: &[(OsString, OsString)],
-    ) -> Result<Vec<OsString>, MultiplexerError> {
+    ) -> Result<AgentPaneCommand, MultiplexerError> {
         if self.platform == LocalPlatform::Unix {
-            return self.pane_command_args(executable.path().as_os_str(), args, environment);
+            return self
+                .pane_command_args(executable.path().as_os_str(), args, environment)
+                .map(|args| AgentPaneCommand {
+                    args,
+                    launch_plan: None,
+                });
         }
 
         let launcher =
@@ -222,17 +248,21 @@ impl MultiplexerPlan {
         args: &[OsString],
         environment: &[(OsString, OsString)],
         launcher: &Path,
-    ) -> Result<Vec<OsString>, MultiplexerError> {
-        let plan_path = write_launch_plan(executable, args, environment)
+    ) -> Result<AgentPaneCommand, MultiplexerError> {
+        let launch_plan = write_launch_plan(executable, args, environment)
             .map_err(MultiplexerError::AgentLaunchPlan)?;
-        self.pane_command_args(
+        let args = self.pane_command_args(
             launcher.as_os_str(),
             &[
                 OsString::from(INTERNAL_LAUNCH_ARGUMENT),
-                plan_path.into_os_string(),
+                launch_plan.path().as_os_str().to_os_string(),
             ],
             &[],
-        )
+        )?;
+        Ok(AgentPaneCommand {
+            args,
+            launch_plan: Some(launch_plan),
+        })
     }
     #[must_use]
     pub const fn isolation(&self) -> &MultiplexerIsolation {

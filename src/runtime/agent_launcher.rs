@@ -42,12 +42,37 @@ impl From<AgentWrapperKind> for AgentWrapperKindPayload {
     }
 }
 
-/// Write a private launch plan and return only its non-secret transport path.
+/// Owns a private launch plan until the multiplexer successfully accepts it.
+#[derive(Debug)]
+pub struct PendingLaunchPlan {
+    path: Option<PathBuf>,
+}
+
+impl PendingLaunchPlan {
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        self.path.as_deref().unwrap_or_else(|| Path::new(""))
+    }
+
+    pub fn disarm(&mut self) {
+        self.path = None;
+    }
+}
+
+impl Drop for PendingLaunchPlan {
+    fn drop(&mut self) {
+        if let Some(path) = self.path.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+/// Write a private launch plan and return its cleanup owner.
 pub fn write_launch_plan(
     executable: &ResolvedAgentExecutable,
     args: &[OsString],
     environment: &[(OsString, OsString)],
-) -> Result<PathBuf, AgentLauncherError> {
+) -> Result<PendingLaunchPlan, AgentLauncherError> {
     let payload = AgentLaunchPayload {
         path: executable.path().to_path_buf(),
         wrapper: executable.wrapper_kind().into(),
@@ -74,7 +99,7 @@ pub fn write_launch_plan(
                         Err(_) => Err(AgentLauncherError::CleanupFailed),
                     };
                 }
-                return Ok(path);
+                return Ok(PendingLaunchPlan { path: Some(path) });
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(_) => return Err(AgentLauncherError::PlanCreateFailed),
@@ -161,6 +186,36 @@ fn command_for_payload(payload: &AgentLaunchPayload) -> Command {
                 .args(&payload.args);
             command
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pending_launch_plan_removes_file_unless_disarmed() {
+        let temp = tempfile::tempdir().unwrap_or_else(|error| panic!("tempdir: {error}"));
+        let removable = temp.path().join("removable.json");
+        std::fs::write(&removable, "payload")
+            .unwrap_or_else(|error| panic!("write removable plan: {error}"));
+        {
+            let _plan = PendingLaunchPlan {
+                path: Some(removable.clone()),
+            };
+        }
+        assert!(!removable.exists());
+
+        let retained = temp.path().join("retained.json");
+        std::fs::write(&retained, "payload")
+            .unwrap_or_else(|error| panic!("write retained plan: {error}"));
+        {
+            let mut plan = PendingLaunchPlan {
+                path: Some(retained.clone()),
+            };
+            plan.disarm();
+        }
+        assert!(retained.exists());
     }
 }
 

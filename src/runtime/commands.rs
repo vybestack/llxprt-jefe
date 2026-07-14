@@ -730,11 +730,16 @@ fn local_launch_plan(signature: &LaunchSignature) -> LocalLaunchPlan {
     }
 }
 
+struct LocalLaunchCommand {
+    command: Command,
+    pane_command: crate::runtime::multiplexer::AgentPaneCommand,
+}
+
 fn local_launch_command(
     session_name: &str,
     work_dir: &Path,
     launch: &LocalLaunchPlan,
-) -> Result<Command, RuntimeError> {
+) -> Result<LocalLaunchCommand, RuntimeError> {
     let multiplexer = MultiplexerPlan::current().map_err(RuntimeError::Multiplexer)?;
     let mut cmd = multiplexer.command();
     cmd.arg("new-session")
@@ -753,13 +758,14 @@ fn local_launch_command(
         .iter()
         .map(|(key, value)| (OsString::from(key), OsString::from(value)))
         .collect::<Vec<_>>();
-    for arg in multiplexer
+    let pane_command = multiplexer
         .agent_pane_command_args(&executable, &pane_args, &environment)
-        .map_err(RuntimeError::Multiplexer)?
-    {
-        cmd.arg(arg);
-    }
-    Ok(cmd)
+        .map_err(RuntimeError::Multiplexer)?;
+    cmd.args(pane_command.args());
+    Ok(LocalLaunchCommand {
+        command: cmd,
+        pane_command,
+    })
 }
 
 /// Build the Unix pane-command argv for remote shell construction and
@@ -814,14 +820,16 @@ fn try_local_create_session(
     attempt: u8,
 ) -> Result<(), LocalCreateFailure> {
     let plan = local_launch_plan(signature);
-    let mut cmd =
+    let mut launch =
         local_launch_command(session_name, work_dir, &plan).map_err(LocalCreateFailure::Runtime)?;
     debug!(session_name = %session_name, attempt, "create_session invoking local multiplexer new-session");
 
-    let output = cmd
+    let output = launch
+        .command
         .output()
         .map_err(|error| LocalCreateFailure::Command(error.to_string()))?;
     if output.status.success() {
+        launch.pane_command.disarm_launch_plan();
         debug!(session_name = %session_name, attempt, "create_session local multiplexer new-session succeeded");
         finalize_local_session(session_name, plan.warning);
         Ok(())
