@@ -851,11 +851,6 @@ impl Drop for TmuxSessionCleanup {
     }
 }
 
-/// Issue #117: Ctrl-r should restart (kill + relaunch) a running agent in one
-/// action. This scenario pre-creates a tmux session running `sleep 300`, seeds
-/// a state.json with a Running agent bound to that session, then drives the
-/// real jefe binary through the restart flow: active-only → Tab to Agents →
-/// Ctrl-r → expect agent still visible and running → quit.
 #[cfg(unix)]
 #[test]
 fn guarded_real_jefe_restart_scenario() {
@@ -891,17 +886,6 @@ fn guarded_real_jefe_restart_scenario() {
     let summary = run_restart_scenario(&jefe_binary, config_dir.path());
     assert_eq!(summary.steps_run, 8);
 
-    // Verify the restart actually killed the original `sleep 300` process.
-    // The seeded session name now matches jefe's session name, so restart
-    // targeted THIS session. Two valid success outcomes:
-    //  - The session was killed and recreated with the agent command (capture
-    //    succeeds; content must NOT contain "sleep 300"), or
-    //  - The session was killed and not (yet) recreated in this environment
-    //    (capture returns None — tmux kill-session killed the sleep process
-    //    along with the pane, so the sleep is dead).
-    // The only FAILURE is the session existing AND still running "sleep 300",
-    // i.e. restart did not kill the sleep process — which is the regression
-    // this test guards against.
     let sleep_survived_restart =
         capture_jefe_pane(&agent_session).is_some_and(|pane| pane.contains("sleep 300"));
     assert!(
