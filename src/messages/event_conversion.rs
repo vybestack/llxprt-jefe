@@ -351,7 +351,7 @@ impl AppMessage {
                 | AppEvent::CloseReasonDuplicateSearchNavigateDown
                 | AppEvent::CloseReasonConfirm
                 | AppEvent::CloseReasonCancel
-                | AppEvent::OpenAgentChooser
+                | AppEvent::OpenAgentChooser { .. }
                 | AppEvent::AgentChooserNavigateUp
                 | AppEvent::AgentChooserNavigateDown
                 | AppEvent::AgentChooserConfirm

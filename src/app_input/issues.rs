@@ -265,10 +265,12 @@ fn resolve_issue_detail_key_event(state: &AppState, key_event: &KeyEvent) -> Opt
         KeyCode::Char('e') => editor_event_for_subfocus(state.issues_state.detail_subfocus),
         KeyCode::Char('c') => Some(AppEvent::OpenNewCommentComposer),
         KeyCode::Char('r') => reply_event_for_subfocus(state.issues_state.detail_subfocus),
-        // S always expresses the Send-to-Agent intent; the reducer decides
-        // eligibility and surfaces "No agents available" when no eligible
-        // agent exists (issue #265).
-        KeyCode::Char('S') => Some(AppEvent::OpenAgentChooser),
+        // S always expresses the Send-to-Agent intent; the app_input layer
+        // builds typed chooser entries (including dirty status via
+        // GitRepoInfo::resolve), and the reducer validates/opens state.
+        KeyCode::Char('S') => Some(AppEvent::OpenAgentChooser {
+            metadata: super::build_chooser_metadata(state),
+        }),
         KeyCode::Char('C') => Some(AppEvent::OpenCloseReasonChooser),
         KeyCode::Char('D') => Some(AppEvent::OpenDeleteIssueConfirm),
         KeyCode::Tab | KeyCode::Char('j') => Some(AppEvent::IssueDetailSubfocusNext),

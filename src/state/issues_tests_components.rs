@@ -360,7 +360,7 @@ fn test_empty_state_no_agents_for_send() {
 
     // OpenAgentChooser with no agents must clear any stale chooser and set the
     // `No agents available` notice.
-    state = state.apply(AppEvent::OpenAgentChooser);
+    state = state.apply(AppEvent::OpenAgentChooser { metadata: vec![] });
 
     // When no eligible agents exist, agent_chooser is not opened.
     assert!(state.issues_state.agent_chooser.is_none());

@@ -543,7 +543,7 @@ fn it_send_to_agent_writes_prompt_file_for_launch() {
     // Drive the REAL `S` key handler → PrOpenAgentChooser.
     let event = prs::resolve_prs_key_event(&state, &key(KeyCode::Char('S')));
     assert!(
-        matches!(event, Some(AppEvent::PrOpenAgentChooser)),
+        matches!(event, Some(AppEvent::PrOpenAgentChooser { .. })),
         "'S' must emit PrOpenAgentChooser (got {event:?})"
     );
     state.apply_in_place(event.unwrap_or_else(|| panic!("S must emit an event")));

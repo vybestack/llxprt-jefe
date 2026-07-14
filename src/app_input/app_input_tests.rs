@@ -562,7 +562,12 @@ fn state_for_pr_agent_chooser_confirm(
         pr_detail: Some(test_pr_detail(42)),
         agent_chooser: Some(AgentChooserState {
             selected_index: 0,
-            agents: vec![(agent_id.clone(), String::from("PR Agent"))],
+            agents: vec![jefe::domain::AgentChooserEntry::new(
+                agent_id.clone(),
+                String::from("PR Agent"),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
+            )],
         }),
         ..jefe::state::PullRequestsState::default()
     };
@@ -770,7 +775,12 @@ fn state_for_issue_agent_chooser_send(
         issue_detail: Some(detail),
         agent_chooser: Some(AgentChooserState {
             selected_index: 0,
-            agents: vec![(agent_id.clone(), String::from("Agent One"))],
+            agents: vec![jefe::domain::AgentChooserEntry::new(
+                agent_id.clone(),
+                String::from("Agent One"),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
+            )],
         }),
         ..jefe::state::IssuesState::default()
     };

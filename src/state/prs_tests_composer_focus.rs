@@ -186,6 +186,50 @@ fn test_comment_created_scrolls_to_real_rendered_bottom_with_reviews_and_checks(
     );
 }
 
+/// Two-agent metadata used by the PR agent-chooser tests.
+fn pr_chooser_metadata() -> Vec<crate::domain::AgentChooserGitMetadata> {
+    vec![
+        crate::domain::AgentChooserGitMetadata::for_agent(crate::domain::AgentId(
+            "agent-1".to_string(),
+        )),
+        crate::domain::AgentChooserGitMetadata::for_agent(crate::domain::AgentId(
+            "agent-2".to_string(),
+        )),
+    ]
+}
+
+/// State in PR detail mode with two installed agents so the chooser can open.
+fn prs_state_with_two_chooser_agents(repo: &str) -> AppState {
+    let mut state = prs_state_with_detail(repo, 1);
+    state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
+    state.agents.push(crate::domain::Agent::new(
+        crate::domain::AgentId("agent-1".to_string()),
+        RepositoryId(repo.to_string()),
+        "Agent 1".to_string(),
+        std::path::PathBuf::from("/tmp/agent1"),
+    ));
+    state.agents.push(crate::domain::Agent::new(
+        crate::domain::AgentId("agent-2".to_string()),
+        RepositoryId(repo.to_string()),
+        "Agent 2".to_string(),
+        std::path::PathBuf::from("/tmp/agent2"),
+    ));
+    state
+}
+
+/// Borrow the open PR agent chooser, panicking with a clear diagnostic when
+/// the chooser is unexpectedly absent.
+fn prs_chooser(state: &AppState) -> &crate::state::types::AgentChooserState {
+    let Some(chooser) = state.prs_state.agent_chooser.as_ref() else {
+        panic!(
+            "expected prs agent_chooser to be open, but it was None; \
+             draft_notice: {:?}",
+            state.prs_state.draft_notice
+        );
+    };
+    chooser
+}
+
 /// PrOpenAgentChooser must open the chooser (when agents available).
 ///
 /// @plan PLAN-20260624-PR-MODE.P04
@@ -193,62 +237,42 @@ fn test_comment_created_scrolls_to_real_rendered_bottom_with_reviews_and_checks(
 /// @pseudocode component-001 lines 331-340
 #[test]
 fn test_agent_chooser_open_navigate_confirm_cancel() {
-    let mut state = prs_state_with_detail("repo-1", 1);
-    state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
-    // Provide agents so the chooser opens.
-    state.agents.push(crate::domain::Agent::new(
-        crate::domain::AgentId("agent-1".to_string()),
-        RepositoryId("repo-1".to_string()),
-        "Agent 1".to_string(),
-        std::path::PathBuf::from("/tmp/agent1"),
-    ));
-    state.agents.push(crate::domain::Agent::new(
-        crate::domain::AgentId("agent-2".to_string()),
-        RepositoryId("repo-1".to_string()),
-        "Agent 2".to_string(),
-        std::path::PathBuf::from("/tmp/agent2"),
-    ));
+    let state = prs_state_with_two_chooser_agents("repo-1");
 
-    // Open the chooser.
-    let state = state.apply(AppEvent::PrOpenAgentChooser);
+    let state = state.apply(AppEvent::PrOpenAgentChooser {
+        metadata: pr_chooser_metadata(),
+    });
     assert!(
         state.prs_state.agent_chooser.is_some(),
         "agent_chooser must open"
     );
 
-    // Navigate down.
-    let state = state.apply(AppEvent::PrAgentChooserNavigateDown);
-    let chooser = state
-        .prs_state
-        .agent_chooser
-        .clone()
-        .unwrap_or_else(|| panic!("chooser should remain open after navigate"));
-    assert_eq!(chooser.selected_index, 1);
+    let state = navigate_down_and_back(state);
 
-    // Navigate up.
-    let state = state.apply(AppEvent::PrAgentChooserNavigateUp);
-    let chooser = state
-        .prs_state
-        .agent_chooser
-        .clone()
-        .unwrap_or_else(|| panic!("chooser should remain open after navigate"));
-    assert_eq!(chooser.selected_index, 0);
-
-    // Confirm closes the chooser (and dispatches the send — not asserted here).
     let state = state.apply(AppEvent::PrAgentChooserConfirm);
     assert!(
         state.prs_state.agent_chooser.is_none(),
         "agent_chooser must close on confirm"
     );
 
-    // Re-open then cancel.
-    let state = state.apply(AppEvent::PrOpenAgentChooser);
+    let state = state.apply(AppEvent::PrOpenAgentChooser {
+        metadata: pr_chooser_metadata(),
+    });
     assert!(state.prs_state.agent_chooser.is_some());
     let state = state.apply(AppEvent::PrAgentChooserCancel);
     assert!(
         state.prs_state.agent_chooser.is_none(),
         "agent_chooser must close on cancel"
     );
+}
+
+/// Navigate down to index1, then back up to index0, asserting each step.
+fn navigate_down_and_back(state: AppState) -> AppState {
+    let state = state.apply(AppEvent::PrAgentChooserNavigateDown);
+    assert_eq!(prs_chooser(&state).selected_index, 1);
+    let state = state.apply(AppEvent::PrAgentChooserNavigateUp);
+    assert_eq!(prs_chooser(&state).selected_index, 0);
+    state
 }
 
 /// NavigateDown must be bounded by the chooser's filtered agent list, not the
@@ -286,7 +310,10 @@ fn test_agent_chooser_navigate_down_bounds_by_chooser_agents_not_state_agents() 
     ));
 
     // Open the chooser: should contain only the 1 idle agent.
-    let state = state.apply(AppEvent::PrOpenAgentChooser);
+    let metadata = vec![crate::domain::AgentChooserGitMetadata::for_agent(
+        crate::domain::AgentId("idle-agent".to_string()),
+    )];
+    let state = state.apply(AppEvent::PrOpenAgentChooser { metadata });
     let chooser = state
         .prs_state
         .agent_chooser

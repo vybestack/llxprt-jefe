@@ -723,6 +723,7 @@ mod tests {
         let git_infos = vec![GitRepoInfo {
             origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
             branch: Some("main".to_owned()),
+            dirty: None,
         }];
         let props = agent_list_props(
             &agents,
@@ -776,6 +777,7 @@ mod tests {
         let git_infos = vec![GitRepoInfo {
             origin_shortform: Some("acme/widgets".to_owned()),
             branch: Some("dev".to_owned()),
+            dirty: None,
         }];
         let props = agent_list_props(
             &agents,
@@ -796,6 +798,7 @@ mod tests {
         let git_infos = vec![GitRepoInfo {
             origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
             branch: Some("main".to_owned()),
+            dirty: None,
         }];
         let props = agent_list_props(
             &agents,
@@ -809,6 +812,99 @@ mod tests {
         assert!(
             ansi.contains("vybestack/llxprt-jefe @ main"),
             "git suffix text must appear in rendered output: {ansi}"
+        );
+    }
+
+    /// Agent list git-info suffix includes the dirty marker (` *`) when the
+    /// working tree is dirty (issue #230).
+    #[test]
+    fn agent_list_dirty_suffix_renders_marker() {
+        let agents = vec![agent("fix-login", AgentStatus::Running)];
+        let git_infos = vec![GitRepoInfo {
+            origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
+            branch: Some("main".to_owned()),
+            dirty: Some(true),
+        }];
+        let props = agent_list_props(
+            &agents,
+            &git_infos,
+            AgentListSelection::default(),
+            true,
+            ThemeColors::default(),
+            None,
+        );
+        // The suffix span text must include the dirty marker.
+        let suffix = find_git_suffix_span(&props.rows[0].spans);
+        assert_eq!(
+            suffix, "  vybestack/llxprt-jefe @ main *",
+            "dirty worktree must append ' *' to the git suffix span"
+        );
+        let ansi = render_ansi(props, 70, 8);
+        assert!(
+            ansi.contains("vybestack/llxprt-jefe @ main *"),
+            "dirty marker must appear in rendered output: {ansi}"
+        );
+    }
+
+    fn find_git_suffix_span(spans: &[SelectableSpan]) -> &str {
+        spans
+            .iter()
+            .rev()
+            .find(|s| s.text.starts_with("  "))
+            .map_or("", |s| s.text.as_str())
+    }
+
+    #[test]
+    fn agent_list_unknown_dirty_suffix_no_marker() {
+        let agents = vec![agent("fix-login", AgentStatus::Running)];
+        let git_infos = vec![GitRepoInfo {
+            origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
+            branch: Some("main".to_owned()),
+            dirty: None,
+        }];
+        let props = agent_list_props(
+            &agents,
+            &git_infos,
+            AgentListSelection::default(),
+            true,
+            ThemeColors::default(),
+            None,
+        );
+        let suffix = find_git_suffix_span(&props.rows[0].spans);
+        assert_eq!(
+            suffix, "  vybestack/llxprt-jefe @ main",
+            "unknown dirty status must not append a dirty marker"
+        );
+        let ansi = render_ansi(props, 70, 8);
+        assert!(
+            !ansi.contains("main *"),
+            "unknown dirty status must not show dirty marker in rendered output: {ansi}"
+        );
+    }
+    /// Clean worktree (dirty: Some(false)) renders the git suffix WITHOUT the
+    /// dirty marker — end-to-end render check symmetric to the dirty test.
+    #[test]
+    fn agent_list_clean_suffix_renders_no_marker() {
+        let props = agent_list_props(
+            &[agent("fix-login", AgentStatus::Running)],
+            &[GitRepoInfo {
+                origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
+                branch: Some("main".to_owned()),
+                dirty: Some(false),
+            }],
+            AgentListSelection::default(),
+            true,
+            ThemeColors::default(),
+            None,
+        );
+        let ansi = render_ansi(props, 70, 8);
+        assert!(
+            ansi.contains("vybestack/llxprt-jefe @ main"),
+            "rendered: {ansi}"
+        );
+        assert!(
+            !ansi.contains("main *"),
+            "clean must not show marker: {ansi}"
         );
     }
 

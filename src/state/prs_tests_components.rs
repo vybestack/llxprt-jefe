@@ -302,7 +302,11 @@ fn test_appevent_pullrequestsmessage_round_trip() {
         AppEvent::PrScrollDetailDown,
         AppEvent::PrDetailSubfocusNext,
         AppEvent::PrDetailSubfocusPrev,
-        AppEvent::PrOpenAgentChooser,
+        AppEvent::PrOpenAgentChooser {
+            metadata: vec![crate::domain::AgentChooserGitMetadata::for_agent(
+                crate::domain::AgentId("agent-1".to_string()),
+            )],
+        },
         AppEvent::PrAgentChooserNavigateUp,
         AppEvent::PrAgentChooserNavigateDown,
         AppEvent::PrAgentChooserConfirm,
