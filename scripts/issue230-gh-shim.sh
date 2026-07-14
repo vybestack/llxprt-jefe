@@ -43,6 +43,10 @@ fi
 # shellcheck source=issue230-gh-shim-fixtures.sh
 . "$FIXTURES"
 
+# Track whether this script created the audit file so the EXIT trap can
+# clean it up. When a caller supplies GH_SHIM_AUDIT, the file is persistent
+# and must NOT be removed.
+SHIM_OWNED_AUDIT=false
 if [[ -n "${GH_SHIM_AUDIT:-}" ]]; then
     AUDIT_FILE="$GH_SHIM_AUDIT"
 else
@@ -50,11 +54,25 @@ else
         echo "gh shim: failed to create a private audit file" >&2
         exit 2
     }
+    SHIM_OWNED_AUDIT=true
 fi
 if ! : 2>/dev/null >> "$AUDIT_FILE"; then
     echo "gh shim: audit file is not writable: $AUDIT_FILE" >&2
     exit 2
 fi
+
+# Remove the script-created audit file on exit. This trap is intentionally
+# registered AFTER the audit file is opened and only removes it when
+# SHIM_OWNED_AUDIT is true, so caller-supplied persistent files are never
+# touched. The trap runs only when the script process exits — the fixture
+# response is emitted by main() before any normal return, so cleanup cannot
+# disrupt it.
+cleanup_shim_audit() {
+    if [[ "$SHIM_OWNED_AUDIT" == true && -n "${AUDIT_FILE:-}" && -f "$AUDIT_FILE" ]]; then
+        rm -f "$AUDIT_FILE" 2>/dev/null || true
+    fi
+}
+trap cleanup_shim_audit EXIT
 
 audit_timestamp() {
     date -u +%Y%m%dT%H%M%SZ 2>/dev/null || echo "unknown"
@@ -142,6 +160,18 @@ argv_eq() {
 }
 
 # ─── Exact production argument vectors ───────────────────────────────────
+#
+# Each allowlisted vector below must match the exact argv produced by the
+# corresponding Rust producer. If a production call changes, update both the
+# Rust code and the matching vector here:
+#
+#   search       → build_issue_search_args()   in src/github/parse.rs
+#   issue-view   → GhClient::get_issue_detail() in src/github/mod.rs
+#                  (gh issue view --json ...)
+#   comments     → GhClient::list_comments()    in src/github/mod.rs
+#                  (gh api graphql with repository.issue.comments)
+#   auth-status  → GhClient::check_auth()       in src/github/mod.rs
+#                  (gh auth status)
 
 build_search_argv() {
     SEARCH_ARGV=(

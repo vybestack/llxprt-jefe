@@ -159,9 +159,24 @@ EOF
 # that the branch name is deterministic and the dirty state is independently
 # controllable.
 
+# Portable `git init` with an initial branch name. The `-b` flag requires
+# Git 2.28+; for older versions we fall back to `git init -q` followed by
+# `git checkout -b`. This preserves the branch name on all supported Git
+# versions.
+git_init_with_branch() {
+    local dir="$1"
+    local branch="$2"
+    if git -C "$dir" init -q -b "$branch" 2>/dev/null; then
+        return 0
+    fi
+    # Fallback for Git < 2.28: init on the default branch, then switch.
+    git -C "$dir" init -q
+    git -C "$dir" checkout -q -b "$branch" 2>/dev/null || true
+}
+
 # LLxprt agent repo: branch "main", will be made dirty.
 mkdir -p "$LLX_REPO_DIR"
-git -C "$LLX_REPO_DIR" init -q -b main
+git_init_with_branch "$LLX_REPO_DIR" main
 git -C "$LLX_REPO_DIR" config user.email "test@example.com"
 git -C "$LLX_REPO_DIR" config user.name "Test User"
 echo "# LLxprt repo" > "$LLX_REPO_DIR/README.md"
@@ -170,7 +185,7 @@ git -C "$LLX_REPO_DIR" commit -q -m "initial commit"
 
 # Code Puppy agent repo: branch "feature", will stay clean.
 mkdir -p "$PUP_REPO_DIR"
-git -C "$PUP_REPO_DIR" init -q -b feature
+git_init_with_branch "$PUP_REPO_DIR" feature
 git -C "$PUP_REPO_DIR" config user.email "test@example.com"
 git -C "$PUP_REPO_DIR" config user.name "Test User"
 echo "# Code Puppy repo" > "$PUP_REPO_DIR/README.md"
@@ -404,6 +419,7 @@ if [[ -z "$accepted_seq" ]]; then
     exit 1
 fi
 
+# tr -d ' ' strips potential leading spaces from BSD/macOS wc -l output.
 accepted_count=$(echo "$accepted_seq" | wc -l | tr -d ' ')
 
 echo ""

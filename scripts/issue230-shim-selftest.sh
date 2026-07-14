@@ -326,6 +326,44 @@ expect_reject "issue-view missing --json" \
     --repo "${ISSUE230_REPO_SLUG}" \
     "${ISSUE230_NUMBER}"
 
+# ── Audit cleanup: script-owned file removed on exit ─────────────────────
+#
+# When GH_SHIM_AUDIT is NOT supplied, the shim creates its own temp audit
+# file and must remove it on exit. When GH_SHIM_AUDIT IS supplied, the file
+# is persistent and must be preserved.
+
+# Case 1: no GH_SHIM_AUDIT → temp file created and cleaned up.
+unset_audit_file=$(mktemp)
+: > "$unset_audit_file"
+# Invoke the shim without GH_SHIM_AUDIT in the environment so it creates its
+# own temp file internally. We verify cleanup by checking that no temp file
+# matching the shim prefix remains after the process exits.
+shim_no_env_output=$(env -u GH_SHIM_AUDIT timeout 10s "$SHIM" auth status 2>/dev/null) || true
+# After exit, no script-owned audit files should exist. We cannot know the
+# exact path, so this is a best-effort scan for leftover jefe-issue230 files.
+leftover_count=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'jefe-issue230-gh-audit.*' -type f 2>/dev/null | wc -l | tr -d ' ')
+if [[ "$leftover_count" -eq 0 ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    printf 'FAIL: script-owned audit file was not cleaned up (%d leftover)
+' "$leftover_count" >&2
+fi
+rm -f "$unset_audit_file"
+
+# Case 2: GH_SHIM_AUDIT supplied → caller file preserved after exit.
+persistent_audit=$(mktemp)
+: > "$persistent_audit"
+GH_SHIM_AUDIT="$persistent_audit" timeout 10s "$SHIM" auth status 2>/dev/null || true
+if [[ -f "$persistent_audit" && -s "$persistent_audit" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    printf 'FAIL: caller-supplied audit file was removed or empty
+' >&2
+fi
+rm -f "$persistent_audit"
+
 # ── Summary ──────────────────────────────────────────────────────────────
 
 echo ""

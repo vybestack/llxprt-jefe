@@ -569,12 +569,12 @@ impl AppState {
     /// Open the agent chooser using Git metadata joined with agents recomputed
     /// from current state.
     ///
-    /// The reducer is the authoritative source of eligibility: it calls the
-    /// pure selector [`AppState::chooser_agents_for_repository`] to get
-    /// currently eligible agents (non-running, correct repo, available kind),
-    /// then joins only the Git metadata whose [`AgentId`] matches. Stale or
-    /// injected metadata from a removed/running/cross-repo agent is silently
-    /// dropped.
+    /// The reducer is the authoritative source of eligibility: it calls
+    /// [`build_chooser_entries_from_state`], which internally invokes
+    /// [`AppState::chooser_agents_for_repository`] to get currently eligible
+    /// agents (non-running, correct repo, available kind), then joins only the
+    /// Git metadata whose [`AgentId`] matches. Stale or injected metadata from
+    /// a removed/running/cross-repo agent is silently dropped.
     fn open_agent_chooser(&mut self, metadata: Vec<crate::domain::AgentChooserGitMetadata>) {
         let repo_id = self.selected_repository_id().cloned();
         let entries = super::build_chooser_entries_from_state(self, repo_id.as_ref(), &metadata);

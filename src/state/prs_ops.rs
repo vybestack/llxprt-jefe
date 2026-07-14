@@ -449,10 +449,11 @@ impl AppState {
     /// Open the PR agent chooser using Git metadata joined with agents
     /// recomputed from current state (precondition: detail + no composer).
     ///
-    /// The reducer is the authoritative source of eligibility: it calls the
-    /// pure selector [`AppState::chooser_agents_for_repository`] to get
-    /// currently eligible agents, then joins only the Git metadata whose
-    /// [`AgentId`] matches. Stale or injected metadata is silently dropped.
+    /// The reducer is the authoritative source of eligibility: it calls
+    /// [`build_chooser_entries_from_state`], which internally invokes
+    /// [`AppState::chooser_agents_for_repository`] to get currently eligible
+    /// agents, then joins only the Git metadata whose [`AgentId`] matches.
+    /// Stale or injected metadata is silently dropped.
     fn open_pr_agent_chooser(&mut self, metadata: Vec<crate::domain::AgentChooserGitMetadata>) {
         if self.prs_state.pr_focus != PrFocus::PrDetail
             || self.prs_state.inline_state != InlineState::None

@@ -151,6 +151,11 @@ fn pr_metadata_unavailable_kind_agent_dropped_from_chooser() {
         1,
         "unavailable-kind agent metadata must be dropped"
     );
+    assert_eq!(
+        chooser.agents[0].agent_id,
+        crate::domain::AgentId("llxprt-agent".to_string()),
+        "the eligible LLxprt agent must be the one retained"
+    );
 }
 
 /// PR chooser: stale/removed agent metadata is dropped.
@@ -185,6 +190,11 @@ fn pr_metadata_stale_removed_agent_dropped_from_chooser() {
         chooser.agents.len(),
         1,
         "stale/removed agent metadata must be dropped"
+    );
+    assert_eq!(
+        chooser.agents[0].agent_id,
+        crate::domain::AgentId("current-agent".to_string()),
+        "the current agent must be the one retained, not the stale one"
     );
 }
 

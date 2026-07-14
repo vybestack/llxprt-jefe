@@ -120,8 +120,10 @@ impl AppState {
     ///
     /// Filters to non-running agents in the specified repository, hiding
     /// agents whose local runtime kind is not installed — **unless** the
-    /// agent belongs to a remote-enabled repository (remote PATH resolution
-    /// is authoritative).
+    /// agent's repository is remote-enabled, in which case the remote PATH
+    /// resolution is authoritative and the local installed-kind check is
+    /// bypassed. Remote status does **not** exclude an agent; it only relaxes
+    /// the availability filter.
     ///
     /// Returns pure identity projections ([`ChooserAgentInfo`]) carrying the
     /// fields needed to construct typed chooser entries. Dirty status is NOT
@@ -142,6 +144,11 @@ impl AppState {
             .filter(|a| repository_id.is_some_and(|rid| a.repository_id == *rid))
             .filter(|a| self.is_chooser_agent_available(a))
             .filter_map(|a| {
+                // Fail-closed: if an agent's repository_id does not resolve
+                // in state (orphaned/corrupt data), the agent is dropped
+                // rather than shown in the chooser. This pure selector must
+                // NOT log, panic, or fall back to a guess — callers rely on
+                // it being deterministic and side-effect-free.
                 let repo = self.repository_by_id(&a.repository_id)?;
                 Some(ChooserAgentInfo {
                     agent_id: a.id.clone(),
