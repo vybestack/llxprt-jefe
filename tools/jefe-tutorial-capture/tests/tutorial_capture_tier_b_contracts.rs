@@ -640,6 +640,7 @@ fn execute_fake_tier_b(
 }
 
 /// This exercises the complete fake path without any live GitHub mutation.
+#[cfg(unix)]
 #[test]
 fn fake_tier_b_full_path_with_versioned_persistence_reload_and_cleanup() {
     let base = tempfile::tempdir().value_or_panic("temp dir");
