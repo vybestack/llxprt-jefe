@@ -18,6 +18,9 @@
 //! The reporting flag is read once per event (Finding E). Copy uses the
 //! snapshot captured at gesture start, not a fresh recapture (Finding B).
 
+#[path = "mouse_routing_detail.rs"]
+mod mouse_routing_detail;
+
 use crate::app_shell::{CtxArc, HookState, capture_terminal_snapshot};
 use crate::pty_encoding::mouse_event_to_bytes;
 use jefe::clipboard;
@@ -29,6 +32,7 @@ use jefe::selection::{
     point_to_content_coords, selection_text, terminal_selection_text,
 };
 use jefe::state::{AppState, PaneFocus, ScreenMode};
+use mouse_routing_detail::refresh_detail_viewport_rows;
 
 /// Type alias for the clipboard writer function, injected for testability.
 pub type ClipboardWriter = fn(&str) -> Result<(), std::io::Error>;
@@ -747,16 +751,26 @@ fn resolve_app_selection_point(
 
 /// Build the screen-layout descriptor from the current app state + terminal size.
 fn screen_layout_for(state: &AppState, cols: u16, rows: u16) -> ScreenLayout {
-    let error_visible = state.error_message.is_some()
-        || state.issues_state.error.is_some()
-        || state.prs_state.error.is_some()
-        || state.actions_state.error.is_some();
-    let filter_open = state.issues_state.filter_ui.controls_open
-        || state.prs_state.filter_ui.controls_open
-        || state.actions_state.ui.filter_ui_open;
-    let overlay = active_overlay_for(state);
+    let (error_visible, filter_open) = match state.screen_mode {
+        ScreenMode::DashboardIssues => (
+            jefe::layout::issues_banner_visible(
+                state.issues_state.error.as_deref(),
+                state.issues_state.draft_notice.as_deref(),
+            ),
+            state.issues_state.filter_ui.controls_open,
+        ),
+        ScreenMode::DashboardPullRequests => (
+            state.prs_state.error.is_some(),
+            state.prs_state.filter_ui.controls_open,
+        ),
+        ScreenMode::DashboardActions => (
+            state.actions_state.error.is_some(),
+            state.actions_state.ui.filter_ui_open,
+        ),
+        ScreenMode::Dashboard | ScreenMode::Split => (false, false),
+    };
     ScreenLayout::new(cols, rows, state.screen_mode, error_visible, filter_open)
-        .with_overlay(overlay)
+        .with_overlay(active_overlay_for(state))
 }
 
 /// Whether a blocking modal is open (Finding G).
@@ -805,8 +819,6 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
         | jefe::state::ModalState::Auth { .. } => {
             return OverlayPane::ConfirmModal;
         }
-        // Explicit match (not wildcard) so new ModalState variants force a
-        // conscious overlay-routing decision here (issue #178 z-order).
         jefe::state::ModalState::None
         | jefe::state::ModalState::Search { .. }
         | jefe::state::ModalState::ThemePicker { .. }
@@ -818,8 +830,14 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
     if state.prs_state.merge_chooser.is_some() {
         return OverlayPane::MergeChooser;
     }
+    if state.issues_state.property_editor.is_some() || state.prs_state.property_editor.is_some() {
+        return OverlayPane::PropertyEditor;
+    }
     if state.issues_state.close_reason_chooser.is_some() {
         return OverlayPane::CloseReasonChooser;
+    }
+    if state.issues_state.delete_confirm.is_some() {
+        return OverlayPane::IssueDeleteConfirm;
     }
     OverlayPane::None
 }
@@ -890,34 +908,6 @@ fn scroll_offset_for_pane(state: &AppState, pane: SelectablePane) -> usize {
             state.terminal_viewport_rows,
         ),
         _ => 0,
-    }
-}
-
-fn refresh_detail_viewport_rows(state: &mut AppState, pane: SelectablePane, term_rows: u16) {
-    let term_rows = usize::from(term_rows);
-    match pane {
-        SelectablePane::IssueDetail => {
-            state.issues_state.detail_viewport_rows = jefe::layout::issues_detail_viewport_rows(
-                term_rows,
-                state.issues_state.error.is_some(),
-                state.issues_state.filter_ui.controls_open,
-            );
-        }
-        SelectablePane::PrDetail => {
-            state.prs_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
-                term_rows,
-                state.prs_state.error.is_some(),
-                state.prs_state.filter_ui.controls_open,
-            );
-        }
-        SelectablePane::ActionsDetail => {
-            state.actions_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
-                term_rows,
-                state.actions_state.error.is_some(),
-                state.actions_state.ui.filter_ui_open,
-            );
-        }
-        _ => {}
     }
 }
 

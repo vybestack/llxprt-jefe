@@ -91,6 +91,9 @@ impl AppState {
             self.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
             self.issues_state.inline_state = InlineState::None;
         }
+        // M7: clear property editor on mode exit.
+        self.issues_state.property_editor = None;
+        self.issues_state.property_mutation_pending = None;
         if let Some(prior) = self.issues_state.prior_agent_focus.take() {
             self.pane_focus = prior.pane_focus;
             if let Some(idx) = prior.selected_agent_index {
@@ -242,6 +245,8 @@ impl AppState {
             self.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
             self.issues_state.inline_state = InlineState::None;
         }
+        self.issues_state.property_editor = None;
+        self.issues_state.property_mutation_pending = None;
         self.issues_state.list.clear();
         self.issues_state.issue_detail = None;
         self.issues_state.error = None;
@@ -564,7 +569,11 @@ impl AppState {
     fn open_agent_chooser(&mut self) {
         let repo_id = self.selected_repository_id().cloned();
         let agents = self.chooser_agents_for_repository(repo_id.as_ref());
-        if !agents.is_empty() {
+        if agents.is_empty() {
+            self.issues_state.agent_chooser = None;
+            self.issues_state.draft_notice = Some("No agents available".to_string());
+        } else {
+            self.issues_state.draft_notice = None;
             self.issues_state.agent_chooser = Some(AgentChooserState {
                 selected_index: 0,
                 agents,
@@ -576,7 +585,13 @@ impl AppState {
         match event {
             AppEvent::EnterIssuesMode => self.enter_issues_mode(),
             AppEvent::ExitIssuesMode => self.exit_issues_mode(),
-            AppEvent::RefocusIssueList => self.issues_state.issue_focus = IssueFocus::IssueList,
+            AppEvent::RefocusIssueList => {
+                // Issue #265: clear a stale non-blocking notice (e.g. "No
+                // agents available") when the user returns to the list. A real
+                // `error` is NOT cleared here — only the transient notice.
+                self.issues_state.draft_notice = None;
+                self.issues_state.issue_focus = IssueFocus::IssueList;
+            }
             AppEvent::IssuesNavigateUp
             | AppEvent::IssuesNavigateDown
             | AppEvent::IssuesNavigatePageUp
@@ -604,6 +619,8 @@ impl AppState {
             | AppEvent::IssueListPageLoaded { .. }
             | AppEvent::IssueDetailLoaded { .. }
             | AppEvent::IssueCommentsPageLoaded { .. }
+            | AppEvent::IssueListSilentRefreshed { .. }
+            | AppEvent::IssueDetailSilentRefreshed { .. }
             | AppEvent::SetSearchQuery { .. }
             | AppEvent::UpdateDraftFilter { .. } => self.apply_issues_data(event),
             _ => return false,
@@ -616,6 +633,8 @@ impl AppState {
             AppEvent::IssueListLoadFailed { .. }
             | AppEvent::IssueDetailLoadFailed { .. }
             | AppEvent::IssueCommentsPageFailed { .. }
+            | AppEvent::IssueListSilentRefreshFailed { .. }
+            | AppEvent::IssueDetailSilentRefreshFailed { .. }
             | AppEvent::CommentCreateFailed { .. }
             | AppEvent::MutationFailed { .. }
             | AppEvent::SendToAgentFailed { .. }
@@ -634,6 +653,7 @@ impl AppState {
             || self.apply_inline_open_event(event.clone())
             || self.apply_inline_event(event.clone())
             || self.apply_issue_mutation_event(event.clone())
+            || self.apply_issue_property_event(&event)
             || self.apply_agent_chooser_event(event.clone())
             || self.apply_issue_error_event(event)
     }

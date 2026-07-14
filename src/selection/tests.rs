@@ -658,3 +658,13 @@ fn pane_at_merge_chooser_overlay_resolves_within_workspace() {
     };
     assert!(matches!(pane, SelectablePane::MergeChooser));
 }
+
+#[test]
+fn pane_at_issue_delete_confirm_overlay_resolves_within_workspace() {
+    let lay = layout_with_overlay(120, 40, crate::selection::OverlayPane::IssueDeleteConfirm);
+    let resolved = pane_at(28, 4, ISSUES, false, &lay);
+    let Some((pane, _)) = resolved else {
+        panic!("expected issue delete confirm at (28, 4)");
+    };
+    assert!(matches!(pane, SelectablePane::IssueDeleteConfirm));
+}

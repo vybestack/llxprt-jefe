@@ -522,7 +522,7 @@ fn test_pr_detail_composer_visible_within_viewport_when_active() {
     );
     // The anchor/help line must be present.
     assert!(
-        content.text.contains("Ctrl+Enter submit | Esc cancel"),
+        content.text.contains("Alt+Enter submit | Esc cancel"),
         "the composer anchor/help line must render when the composer is active"
     );
     // The document cursor must be None (composer not flattened).

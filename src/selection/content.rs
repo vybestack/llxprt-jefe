@@ -107,7 +107,9 @@ pub fn pane_content_lines(
         SelectablePane::RepositoryForm => repository_form_lines(state),
         SelectablePane::AgentChooser => overlay_content::agent_chooser_lines(state),
         SelectablePane::MergeChooser => overlay_content::merge_chooser_lines(state),
+        SelectablePane::PropertyEditor => overlay_content::property_editor_lines(state),
         SelectablePane::CloseReasonChooser => overlay_content::close_reason_chooser_lines(state),
+        SelectablePane::IssueDeleteConfirm => overlay_content::issue_delete_confirm_lines(state),
         SelectablePane::ConfirmModal => overlay_content::confirm_modal_lines(state),
     }
 }
@@ -169,9 +171,16 @@ fn issue_detail_header_lines(detail: &IssueDetail) -> Vec<String> {
 /// Issue list lines that match the rendered Compact-mode projection exactly
 /// (prefix + `#number` + truncated title, one line per issue).
 fn issue_list_lines(state: &AppState, term_cols: u16, term_rows: u16) -> PaneContent {
+    // Use the shared banner projection so the selection window matches the
+    // rendered pane sizing — a notice-only banner reserves the same row as
+    // an error banner (issue #265 second review).
+    let banner_visible = crate::layout::issues_banner_visible(
+        state.issues_state.error.as_deref(),
+        state.issues_state.draft_notice.as_deref(),
+    );
     let (list_pane_rows, _) = crate::layout::issues_pane_rows(
         usize::from(term_rows),
-        state.issues_state.error.is_some(),
+        banner_visible,
         state.issues_state.filter_ui.controls_open,
     );
     let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
@@ -659,6 +668,7 @@ mod tests {
             comments: Vec::new(),
             has_more_comments: false,
             comments_cursor: None,
+            issue_type_name: None,
         });
         let content = pane_content_lines(SelectablePane::IssueDetail, &state, None, &[], 120, 40);
         // Line 0: title, Line 1: state/author, Line 2: labels/assignees/milestone,
@@ -941,3 +951,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "content_notice_tests.rs"]
+mod content_notice_tests;

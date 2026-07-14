@@ -137,8 +137,12 @@ message_names!(IssuesMessage {
     Self::ListLoaded { .. } => "IssueListLoaded",
     Self::ListLoadFailed { .. } => "IssueListLoadFailed",
     Self::ListPageLoaded { .. } => "IssueListPageLoaded",
+    Self::ListSilentRefreshed { .. } => "IssueListSilentRefreshed",
+    Self::ListSilentRefreshFailed { .. } => "IssueListSilentRefreshFailed",
     Self::DetailLoaded { .. } => "IssueDetailLoaded",
     Self::DetailLoadFailed { .. } => "IssueDetailLoadFailed",
+    Self::DetailSilentRefreshed { .. } => "IssueDetailSilentRefreshed",
+    Self::DetailSilentRefreshFailed { .. } => "IssueDetailSilentRefreshFailed",
     Self::CommentsPageLoaded { .. } => "IssueCommentsPageLoaded",
     Self::CommentsPageFailed { .. } => "IssueCommentsPageFailed",
     Self::OpenFilterControls => "OpenFilterControls",
@@ -200,6 +204,23 @@ message_names!(IssuesMessage {
     Self::SendToAgentCompleted => "SendToAgentCompleted",
     Self::SendToAgentFailed { .. } => "SendToAgentFailed",
     Self::IssueSelfAssignmentFailed { .. } => "IssueSelfAssignmentFailed",
+    Self::OpenPropertyEditor { .. } => "IssueOpenPropertyEditor",
+    Self::PropertyEditorNavigateUp => "IssuePropertyEditorNavigateUp",
+    Self::PropertyEditorNavigateDown => "IssuePropertyEditorNavigateDown",
+    Self::PropertyEditorToggle => "IssuePropertyEditorToggle",
+    Self::PropertyEditorConfirm => "IssuePropertyEditorConfirm",
+    Self::PropertyEditorCancel => "IssuePropertyEditorCancel",
+    Self::PropertyEditorTitleChar(_) => "IssuePropertyEditorTitleChar",
+    Self::PropertyEditorTitleBackspace => "IssuePropertyEditorTitleBackspace",
+    Self::PropertyEditorTitleDelete => "IssuePropertyEditorTitleDelete",
+    Self::PropertyEditorTitleCursorLeft => "IssuePropertyEditorTitleCursorLeft",
+    Self::PropertyEditorTitleCursorRight => "IssuePropertyEditorTitleCursorRight",
+    Self::PropertyEditorOptionsLoaded { .. } => "IssuePropertyEditorOptionsLoaded",
+    Self::PropertyEditorOptionsFailed { .. } => "IssuePropertyEditorOptionsFailed",
+    Self::PropertyEditSucceeded { .. } => "IssuePropertyEditSucceeded",
+    Self::PostMutationRefreshStarted => "IssuePostMutationRefreshStarted",
+    Self::PropertyEditFailed { .. } => "IssuePropertyEditFailed",
+    Self::PropertyEditorValidationError { .. } => "IssuePropertyEditorValidationError",
 });
 
 // @plan PLAN-20260624-PR-MODE.P03
@@ -269,4 +290,71 @@ message_names!(PullRequestsMessage {
     Self::ToggleThreadResolve { .. } => "PrToggleThreadResolve",
     Self::ThreadResolveSucceeded { .. } => "PrThreadResolveSucceeded",
     Self::ThreadResolveFailed { .. } => "PrThreadResolveFailed",
+    Self::OpenPropertyEditor { .. } => "PrOpenPropertyEditor",
+    Self::PropertyEditorNavigateUp => "PrPropertyEditorNavigateUp",
+    Self::PropertyEditorNavigateDown => "PrPropertyEditorNavigateDown",
+    Self::PropertyEditorToggle => "PrPropertyEditorToggle",
+    Self::PropertyEditorConfirm => "PrPropertyEditorConfirm",
+    Self::PropertyEditorCancel => "PrPropertyEditorCancel",
+    Self::PropertyEditorTitleChar(_) => "PrPropertyEditorTitleChar",
+    Self::PropertyEditorTitleBackspace => "PrPropertyEditorTitleBackspace",
+    Self::PropertyEditorTitleDelete => "PrPropertyEditorTitleDelete",
+    Self::PropertyEditorTitleCursorLeft => "PrPropertyEditorTitleCursorLeft",
+    Self::PropertyEditorTitleCursorRight => "PrPropertyEditorTitleCursorRight",
+    Self::PropertyEditorOptionsLoaded { .. } => "PrPropertyEditorOptionsLoaded",
+    Self::PropertyEditorOptionsFailed { .. } => "PrPropertyEditorOptionsFailed",
+    Self::PropertyEditSucceeded { .. } => "PrPropertyEditSucceeded",
+    Self::PostMutationRefreshStarted => "PrPostMutationRefreshStarted",
+    Self::PropertyEditFailed { .. } => "PrPropertyEditFailed",
+    Self::PropertyEditorValidationError { .. } => "PrPropertyEditorValidationError",
 });
+
+use crate::state::AppEvent;
+
+#[must_use]
+pub(super) fn is_issue_property_app_event(event: &AppEvent) -> bool {
+    matches!(
+        event,
+        AppEvent::IssueOpenPropertyEditor { .. }
+            | AppEvent::IssuePropertyEditorNavigateUp
+            | AppEvent::IssuePropertyEditorNavigateDown
+            | AppEvent::IssuePropertyEditorToggle
+            | AppEvent::IssuePropertyEditorConfirm
+            | AppEvent::IssuePropertyEditorCancel
+            | AppEvent::IssuePropertyEditorTitleChar(_)
+            | AppEvent::IssuePropertyEditorTitleBackspace
+            | AppEvent::IssuePropertyEditorTitleDelete
+            | AppEvent::IssuePropertyEditorTitleCursorLeft
+            | AppEvent::IssuePropertyEditorTitleCursorRight
+            | AppEvent::IssuePropertyEditorOptionsLoaded { .. }
+            | AppEvent::IssuePropertyEditorOptionsFailed { .. }
+            | AppEvent::IssuePropertyEditSucceeded { .. }
+            | AppEvent::IssuePostMutationRefreshStarted
+            | AppEvent::IssuePropertyEditFailed { .. }
+            | AppEvent::IssuePropertyEditorValidationError { .. }
+    )
+}
+
+#[must_use]
+pub(super) fn is_issue_property_msg(message: &IssuesMessage) -> bool {
+    matches!(
+        message,
+        IssuesMessage::OpenPropertyEditor { .. }
+            | IssuesMessage::PropertyEditorNavigateUp
+            | IssuesMessage::PropertyEditorNavigateDown
+            | IssuesMessage::PropertyEditorToggle
+            | IssuesMessage::PropertyEditorConfirm
+            | IssuesMessage::PropertyEditorCancel
+            | IssuesMessage::PropertyEditorTitleChar(_)
+            | IssuesMessage::PropertyEditorTitleBackspace
+            | IssuesMessage::PropertyEditorTitleDelete
+            | IssuesMessage::PropertyEditorTitleCursorLeft
+            | IssuesMessage::PropertyEditorTitleCursorRight
+            | IssuesMessage::PropertyEditorOptionsLoaded { .. }
+            | IssuesMessage::PropertyEditorOptionsFailed { .. }
+            | IssuesMessage::PropertyEditSucceeded { .. }
+            | IssuesMessage::PostMutationRefreshStarted
+            | IssuesMessage::PropertyEditFailed { .. }
+            | IssuesMessage::PropertyEditorValidationError { .. }
+    )
+}

@@ -1,0 +1,39 @@
+//! Detail-pane viewport refresh for mouse routing.
+
+use jefe::selection::SelectablePane;
+use jefe::state::AppState;
+
+pub(super) fn refresh_detail_viewport_rows(
+    state: &mut AppState,
+    pane: SelectablePane,
+    term_rows: u16,
+) {
+    let term_rows = usize::from(term_rows);
+    match pane {
+        SelectablePane::IssueDetail => {
+            state.issues_state.detail_viewport_rows = jefe::layout::issues_detail_viewport_rows(
+                term_rows,
+                jefe::layout::issues_banner_visible(
+                    state.issues_state.error.as_deref(),
+                    state.issues_state.draft_notice.as_deref(),
+                ),
+                state.issues_state.filter_ui.controls_open,
+            );
+        }
+        SelectablePane::PrDetail => {
+            state.prs_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
+                term_rows,
+                state.prs_state.error.is_some(),
+                state.prs_state.filter_ui.controls_open,
+            );
+        }
+        SelectablePane::ActionsDetail => {
+            state.actions_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
+                term_rows,
+                state.actions_state.error.is_some(),
+                state.actions_state.ui.filter_ui_open,
+            );
+        }
+        _ => {}
+    }
+}

@@ -40,6 +40,13 @@ pub struct ScenarioConfig {
     /// Milliseconds to wait before the first step runs.
     #[serde(default)]
     pub initial_wait_ms: u64,
+    /// Optional per-scenario budget (ms) for `waitFor`/`waitForNot` polling.
+    ///
+    /// `0` (the default) keeps the platform `DEFAULT_WAIT_TIMEOUT`. Real-process
+    /// scenarios on slow Windows runners may raise this without affecting the
+    /// Linux default.
+    #[serde(default)]
+    pub wait_timeout_ms: u32,
     /// Optional directory for captures and artifacts. Absent means ephemeral.
     #[serde(default)]
     pub out_dir: Option<PathBuf>,
