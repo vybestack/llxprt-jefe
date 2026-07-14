@@ -160,12 +160,12 @@ pub fn issue_filter_props(
     }
 }
 
-/// Number of fields per row for the Actions filter bar (two fields: workflow,
-/// status — both fit on one row).
-const ACTIONS_FIELDS_PER_ROW: usize = 2;
+/// Number of fields per row for the Actions filter bar (three fields:
+/// workflow, status, pr — all fit on one row).
+const ACTIONS_FIELDS_PER_ROW: usize = 3;
 
-/// Pure projection of the two Actions filter fields (workflow, status) with
-/// display values + active highlighting, for the generic [`FilterBar`].
+/// Pure projection of the three Actions filter fields (workflow, status, pr)
+/// with display values + active highlighting, for the generic [`FilterBar`].
 ///
 /// @plan PLAN-20260711-ACTIONS-MODE
 #[must_use]
@@ -183,6 +183,13 @@ pub fn actions_filter_fields(
             label: "status".to_string(),
             value: display_any(&filter.status),
             active: active_index == 1,
+        },
+        FilterFieldView {
+            label: "pr".to_string(),
+            value: filter
+                .pr_number
+                .map_or_else(|| display_any(""), |n| format!("#{n}")),
+            active: active_index == 2,
         },
     ]
 }

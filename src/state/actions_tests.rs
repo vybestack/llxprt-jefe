@@ -658,4 +658,128 @@ mod tests {
             "stale page after reload must not append"
         );
     }
+
+    // ── PR filter (issue #205) ────────────────────────────────────────────
+
+    use crate::domain::{PrCheckStatus, PrState, PullRequest};
+
+    fn make_pr(number: u64, head_sha: &str) -> PullRequest {
+        PullRequest {
+            number,
+            title: format!("PR #{number}"),
+            state: PrState::Open,
+            author_login: "testuser".to_string(),
+            updated_at: "2024-01-01T00:00:00Z".to_string(),
+            head_ref: "feature".to_string(),
+            head_sha: head_sha.to_string(),
+            base_ref: "main".to_string(),
+            is_draft: false,
+            review_decision: None,
+            checks_status: PrCheckStatus::None,
+            assignee_summary: String::new(),
+            labels_summary: String::new(),
+            comment_count: 0,
+        }
+    }
+
+    fn state_with_prs(prs: Vec<PullRequest>) -> AppState {
+        let mut state = create_test_state();
+        state.prs_state.list.replace_items(prs);
+        state.prs_state.list.set_selected_index(Some(0));
+        state
+    }
+
+    #[test]
+    fn enter_mode_with_pr_filter_sets_committed_and_draft() {
+        let mut state = create_test_state();
+        state.apply_actions_message(ActionsMessage::EnterModeWithPrFilter {
+            pr_number: 42,
+            head_sha: "abc123".to_string(),
+        });
+        assert!(state.actions_state.active);
+        assert_eq!(state.actions_state.committed_filter.pr_number, Some(42));
+        assert_eq!(
+            state.actions_state.committed_filter.head_sha.as_deref(),
+            Some("abc123")
+        );
+        assert_eq!(state.actions_state.draft_filter.pr_number, Some(42));
+        assert_eq!(
+            state.actions_state.draft_filter.head_sha.as_deref(),
+            Some("abc123")
+        );
+    }
+
+    #[test]
+    fn cycle_pr_filter_forward_through_prs() {
+        let mut state = state_with_prs(vec![
+            make_pr(1, "sha1"),
+            make_pr(2, "sha2"),
+            make_pr(3, "sha3"),
+        ]);
+        state.actions_state.ui.filter_ui_open = true;
+        state.actions_state.ui.filter_field_index = 2;
+
+        // None → PR 1
+        state.apply_actions_message(ActionsMessage::CycleFilterStatus);
+        assert_eq!(state.actions_state.draft_filter.pr_number, Some(1));
+        assert_eq!(
+            state.actions_state.draft_filter.head_sha.as_deref(),
+            Some("sha1")
+        );
+
+        // PR 1 → PR 2
+        state.apply_actions_message(ActionsMessage::CycleFilterStatus);
+        assert_eq!(state.actions_state.draft_filter.pr_number, Some(2));
+
+        // PR 2 → PR 3
+        state.apply_actions_message(ActionsMessage::CycleFilterStatus);
+        assert_eq!(state.actions_state.draft_filter.pr_number, Some(3));
+
+        // PR 3 → None (wraps)
+        state.apply_actions_message(ActionsMessage::CycleFilterStatus);
+        assert_eq!(state.actions_state.draft_filter.pr_number, None);
+        assert!(state.actions_state.draft_filter.head_sha.is_none());
+    }
+
+    #[test]
+    fn cycle_pr_filter_empty_prs_is_noop() {
+        let mut state = create_test_state();
+        state.actions_state.ui.filter_ui_open = true;
+        state.actions_state.ui.filter_field_index = 2;
+
+        state.apply_actions_message(ActionsMessage::CycleFilterStatus);
+        assert_eq!(state.actions_state.draft_filter.pr_number, None);
+    }
+
+    #[test]
+    fn clear_pr_filter_field() {
+        let mut state = state_with_prs(vec![make_pr(1, "sha1")]);
+        state.actions_state.ui.filter_ui_open = true;
+        state.actions_state.ui.filter_field_index = 2;
+        state.actions_state.draft_filter.pr_number = Some(1);
+        state.actions_state.draft_filter.head_sha = Some("sha1".to_string());
+
+        state.apply_actions_message(ActionsMessage::UpdateDraftFilter {
+            field: crate::state::ActionsFilterField::Pr,
+            value: String::new(),
+        });
+
+        assert_eq!(state.actions_state.draft_filter.pr_number, None);
+        assert!(state.actions_state.draft_filter.head_sha.is_none());
+    }
+
+    #[test]
+    fn filter_navigate_wraps_across_three_fields() {
+        let mut state = create_test_state();
+        state.actions_state.ui.filter_ui_open = true;
+        state.actions_state.ui.filter_field_index = 2;
+
+        // At index 2 (Pr), next wraps back to 0.
+        state.apply_actions_message(ActionsMessage::FilterNavigateNext);
+        assert_eq!(state.actions_state.ui.filter_field_index, 0);
+
+        // From 0, prev wraps to 2.
+        state.apply_actions_message(ActionsMessage::FilterNavigatePrev);
+        assert_eq!(state.actions_state.ui.filter_field_index, 2);
+    }
 }

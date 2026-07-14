@@ -106,11 +106,38 @@ fn resolve_pr_global_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEv
         KeyCode::Char('a') => Some(AppEvent::ExitPrsMode),
         KeyCode::Char('p' | 'P') => Some(AppEvent::RefocusPrList),
         KeyCode::Char('f') => Some(AppEvent::PrOpenFilterControls),
+        // Cross-mode: jump to Actions mode pre-filtered to the current PR
+        // (issue #205).
+        KeyCode::Char('g' | 'G') => Some(pr_to_actions_event(state)),
         // Cross-mode navigation: `i` from PRs switches to Issues mode (issue #164).
         KeyCode::Char('i' | 'I') => Some(AppEvent::EnterIssuesMode),
         // F12 defocuses the terminal or returns to the PR list (issue #164).
         KeyCode::F(12) => f12_event_for_prs(state),
         _ => None,
+    }
+}
+
+/// Resolve the `g`/`G` cross-mode action: jump to Actions mode pre-filtered
+/// to the currently focused PR (issue #205). When a PR detail is loaded, the
+/// detail's SHA is used; when a PR is selected in the list (but no detail),
+/// the list item's SHA is used; when neither, Actions mode is entered without
+/// a PR filter.
+fn pr_to_actions_event(state: &AppState) -> AppEvent {
+    if let Some(detail) = &state.prs_state.pr_detail {
+        AppEvent::EnterActionsModeWithPrFilter {
+            pr_number: detail.number,
+            head_sha: detail.head_sha.clone(),
+        }
+    } else if let Some(idx) = state.prs_state.selected_pr_index() {
+        if let Some(pr) = state.prs_state.pull_requests().get(idx) {
+            return AppEvent::EnterActionsModeWithPrFilter {
+                pr_number: pr.number,
+                head_sha: pr.head_sha.clone(),
+            };
+        }
+        AppEvent::EnterActionsMode
+    } else {
+        AppEvent::EnterActionsMode
     }
 }
 

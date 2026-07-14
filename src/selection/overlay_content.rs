@@ -853,6 +853,7 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
             head_ref: String::new(),
+            head_sha: String::new(),
             base_ref: String::new(),
             labels: Vec::new(),
             assignees: Vec::new(),

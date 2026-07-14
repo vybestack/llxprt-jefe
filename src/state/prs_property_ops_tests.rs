@@ -16,6 +16,7 @@ fn make_state_with_detail() -> AppState {
         created_at: "2024-01-01".to_string(),
         updated_at: "2024-01-02".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         labels: vec!["bug".to_string()],
         assignees: vec!["alice".to_string()],

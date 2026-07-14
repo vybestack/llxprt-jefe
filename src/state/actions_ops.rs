@@ -12,9 +12,9 @@ use super::{
 use crate::domain::{ActionsFilter, RepositoryId};
 use crate::messages::ActionsMessage;
 
-/// Number of navigable fields in the Actions filter bar (workflow, status).
+/// Number of navigable fields in the Actions filter bar (workflow, status, pr).
 /// Mirrors the field-count assumption used by `FilterNavigateNext/Prev`.
-const ACTIONS_FILTER_FIELD_COUNT: usize = 2;
+const ACTIONS_FILTER_FIELD_COUNT: usize = 3;
 
 impl AppState {
     /// Enter actions mode, saving prior focus state.
@@ -42,6 +42,18 @@ impl AppState {
         self.actions_state.workflows_pending = None;
         self.actions_state.expanded_jobs.clear();
         self.actions_state.focused_job_index = None;
+        true
+    }
+
+    /// Enter Actions mode with a PR filter pre-set (cross-mode action from
+    /// PR mode — issue #205). The PR filter is applied to both the committed
+    /// and draft filters so the initial load is immediately narrowed.
+    fn enter_actions_mode_with_pr_filter(&mut self, pr_number: u64, head_sha: String) -> bool {
+        self.enter_actions_mode();
+        self.actions_state.committed_filter.pr_number = Some(pr_number);
+        self.actions_state.committed_filter.head_sha = Some(head_sha.clone());
+        self.actions_state.draft_filter.pr_number = Some(pr_number);
+        self.actions_state.draft_filter.head_sha = Some(head_sha);
         true
     }
 
@@ -356,6 +368,13 @@ impl AppState {
             super::ActionsFilterField::Status => {
                 self.actions_state.draft_filter.status = value;
             }
+            super::ActionsFilterField::Pr => {
+                // PR filter is cycled, not typed — ClearCurrent sends empty string.
+                if value.is_empty() {
+                    self.actions_state.draft_filter.pr_number = None;
+                    self.actions_state.draft_filter.head_sha = None;
+                }
+            }
         }
         true
     }
@@ -418,6 +437,38 @@ impl AppState {
             let wf = &workflows[new_idx - 1];
             self.actions_state.draft_filter.workflow = wf.name.clone();
             self.actions_state.draft_filter.workflow_path = wf.path.clone();
+        }
+        true
+    }
+
+    /// Core PR filter cycling logic shared by next/prev.
+    ///
+    /// Cycles the draft filter through None → PR1 → PR2 → … → None (issue #205).
+    /// Sets both `pr_number` (display) and `head_sha` (API head_sha= param) so
+    /// the runs query narrows to the selected PR's head commit.
+    fn cycle_pr_filter(&mut self, forward: bool) -> bool {
+        let prs = self.prs_state.pull_requests();
+        if prs.is_empty() {
+            return true;
+        }
+        let current = self.actions_state.draft_filter.pr_number;
+        let numbers: Vec<Option<u64>> = std::iter::once(None)
+            .chain(prs.iter().map(|pr| Some(pr.number)))
+            .collect();
+        let idx = numbers.iter().position(|&n| n == current).unwrap_or(0);
+        let len = numbers.len();
+        let new_idx = if forward {
+            (idx + 1) % len
+        } else {
+            (idx + len - 1) % len
+        };
+        if new_idx == 0 {
+            self.actions_state.draft_filter.pr_number = None;
+            self.actions_state.draft_filter.head_sha = None;
+        } else {
+            let pr = &prs[new_idx - 1];
+            self.actions_state.draft_filter.pr_number = Some(pr.number);
+            self.actions_state.draft_filter.head_sha = Some(pr.head_sha.clone());
         }
         true
     }
@@ -498,6 +549,10 @@ impl AppState {
     fn handle_mode_message(&mut self, message: &ActionsMessage) -> bool {
         match message {
             ActionsMessage::EnterMode => self.enter_actions_mode(),
+            ActionsMessage::EnterModeWithPrFilter {
+                pr_number,
+                head_sha,
+            } => self.enter_actions_mode_with_pr_filter(*pr_number, head_sha.clone()),
             ActionsMessage::ExitMode => {
                 self.exit_actions_mode();
                 true
@@ -651,8 +706,10 @@ impl AppState {
             ActionsMessage::CycleFilterStatus => {
                 if self.actions_state.ui.filter_field_index == 0 {
                     self.cycle_workflow_filter(true)
-                } else {
+                } else if self.actions_state.ui.filter_field_index == 1 {
                     self.cycle_status_filter(true)
+                } else {
+                    self.cycle_pr_filter(true)
                 }
             }
             ActionsMessage::FocusSearchInput => {

@@ -50,6 +50,7 @@ const PR_DETAIL_JSON: &str = r#"{
     "createdAt": "2026-06-01T08:00:00Z",
     "updatedAt": "2026-06-15T10:00:00Z",
     "headRefName": "feature/cats",
+    "headRefOid": "abc123def456",
     "baseRefName": "main",
     "isDraft": true,
     "labels": [{"name": "enhancement"}],
@@ -161,6 +162,7 @@ fn sample_pr_detail() -> PullRequestDetail {
         created_at: "2026-06-01T08:00:00Z".to_string(),
         updated_at: "2026-06-15T10:00:00Z".to_string(),
         head_ref: "feature/cats".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         labels: vec!["enhancement".to_string()],
         assignees: vec!["acoliver".to_string()],
@@ -222,6 +224,21 @@ fn test_parse_pr_detail_maps_body_branches_and_external_url() {
         assert_eq!(detail.labels, vec!["enhancement"]);
         assert_eq!(detail.assignees, vec!["acoliver"]);
         assert!(detail.is_draft, "detail fixture PR #42 is a draft");
+    }
+}
+
+/// `headRefOid` from the `gh pr view --json` response must populate
+/// `PullRequestDetail::head_sha` (issue #205 — used by the Actions PR filter
+/// to query runs by `head_sha`).
+///
+/// @plan PLAN-20260624-PR-MODE.P07
+/// @requirement REQ-PR-007
+#[test]
+fn test_parse_pr_detail_maps_head_sha() {
+    let result = parse_pull_request_detail_json(PR_DETAIL_JSON, "owner/repo");
+    assert!(result.is_ok(), "should parse PR detail: {result:?}");
+    if let Ok(detail) = result {
+        assert_eq!(detail.head_sha, "abc123def456");
     }
 }
 
@@ -532,6 +549,7 @@ fn test_sort_pull_requests_by_updated_desc() {
             author_login: "a".to_string(),
             updated_at: "2026-06-01T10:00:00Z".to_string(),
             head_ref: "h".to_string(),
+            head_sha: "sha123".to_string(),
             base_ref: "main".to_string(),
             is_draft: false,
             review_decision: None,
@@ -547,6 +565,7 @@ fn test_sort_pull_requests_by_updated_desc() {
             author_login: "b".to_string(),
             updated_at: "2026-06-15T10:00:00Z".to_string(),
             head_ref: "h".to_string(),
+            head_sha: "sha123".to_string(),
             base_ref: "main".to_string(),
             is_draft: false,
             review_decision: None,
@@ -562,6 +581,7 @@ fn test_sort_pull_requests_by_updated_desc() {
             author_login: "c".to_string(),
             updated_at: "2026-06-15T10:00:00Z".to_string(),
             head_ref: "h".to_string(),
+            head_sha: "sha123".to_string(),
             base_ref: "main".to_string(),
             is_draft: false,
             review_decision: None,

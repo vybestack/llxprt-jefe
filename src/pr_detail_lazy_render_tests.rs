@@ -349,6 +349,7 @@ fn bodyless_review_detail() -> PullRequestDetail {
         created_at: "2026-06-20".to_string(),
         updated_at: "2026-06-24".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         labels: vec![],
         assignees: vec![],
