@@ -107,39 +107,35 @@ pub fn ssh_identity_validation_message() -> String {
 
 /// Validate a user-supplied OpenSSH `-o` value.
 ///
-/// Options must be one shell-free `name=value` argument. Settings that can
-/// execute a local command or override Jefe-owned connection structure are
-/// rejected so custom options cannot bypass the typed host, port, identity,
-/// timeout, host-key, and non-interactive policies.
+/// Options must be one shell-free `name=value` argument. Only options that do
+/// not alter Jefe-owned destination, authentication, host-key, forwarding,
+/// connection-sharing, command, timeout, or terminal policies are accepted.
 pub fn validate_ssh_option(option: &str) -> Result<(), String> {
+    const ALLOWED_OPTIONS: &[&str] = &[
+        "compression",
+        "ipqos",
+        "loglevel",
+        "logverbose",
+        "rekeylimit",
+        "tcpkeepalive",
+    ];
+
     let Some((name, value)) = option.split_once('=') else {
         return Err("SSH options must use name=value syntax".to_owned());
     };
-    let normalized = name.to_ascii_lowercase();
-    let valid_name = !name.is_empty()
-        && name
+    if name.is_empty()
+        || !name
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
-        && !matches!(
-            normalized.as_str(),
-            "proxycommand"
-                | "proxyjump"
-                | "localcommand"
-                | "permitlocalcommand"
-                | "include"
-                | "match"
-                | "hostname"
-                | "port"
-                | "user"
-                | "identityfile"
-                | "batchmode"
-                | "connecttimeout"
-                | "stricthostkeychecking"
-                | "serveraliveinterval"
-                | "serveralivecountmax"
-        );
-    if !valid_name || value.is_empty() || value.chars().any(char::is_control) {
+        || !ALLOWED_OPTIONS.contains(&name.to_ascii_lowercase().as_str())
+    {
         return Err(format!("SSH option {name:?} is not permitted"));
+    }
+    if value.is_empty() {
+        return Err(format!("SSH option {name:?} requires a value"));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(format!("SSH option {name:?} contains control characters"));
     }
     Ok(())
 }
@@ -418,6 +414,38 @@ mod tests {
         let mut bad = remote(true, "ubuntu", "build.example.com");
         bad.options = vec!["ProxyJump=gateway.example.com".to_owned()];
         assert!(validate_remote(&bad).is_err());
+    }
+
+    #[test]
+    fn validate_remote_allows_only_non_policy_ssh_options() {
+        let mut good = remote(true, "ubuntu", "build.example.com");
+        good.options = vec!["Compression=yes".to_owned(), "LogLevel=ERROR".to_owned()];
+        assert!(validate_remote(&good).is_ok());
+
+        for option in [
+            "UserKnownHostsFile=NUL",
+            "ForwardAgent=yes",
+            "CertificateFile=client-cert.pub",
+            "PasswordAuthentication=yes",
+            "ControlMaster=auto",
+            "RequestTTY=force",
+        ] {
+            let mut bad = good.clone();
+            bad.options = vec![option.to_owned()];
+            assert!(validate_remote(&bad).is_err(), "accepted {option}");
+        }
+    }
+
+    #[test]
+    fn ssh_option_validation_distinguishes_value_errors() {
+        assert_eq!(
+            validate_ssh_option("Compression="),
+            Err("SSH option \"Compression\" requires a value".to_owned())
+        );
+        assert_eq!(
+            validate_ssh_option("Compression=yes\n"),
+            Err("SSH option \"Compression\" contains control characters".to_owned())
+        );
     }
 
     #[test]
