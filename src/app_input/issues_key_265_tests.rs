@@ -67,7 +67,7 @@ fn shift_s_no_global_agents_still_dispatches_open_agent_chooser() {
     // modifier bit; the input layer must still emit the intent.
     let event = resolve_issues_key_event(&state, &key(KeyCode::Char('S')));
     assert!(
-        matches!(event, Some(AppEvent::OpenAgentChooser)),
+        matches!(event, Some(AppEvent::OpenAgentChooser { .. })),
         "Shift+S must always dispatch OpenAgentChooser even with no agents, got {event:?}"
     );
 }

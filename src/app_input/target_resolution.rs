@@ -66,6 +66,7 @@ mod tests {
             host: host.to_owned(),
             run_as_user: String::new(),
             setup_env_default: false,
+            ..RemoteRepositorySettings::default()
         }
     }
 

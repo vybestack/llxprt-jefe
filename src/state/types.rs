@@ -509,10 +509,14 @@ pub enum EditorTarget {
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-011
 /// State for send-to-agent chooser overlay.
+///
+/// The `agents` vector carries typed [`AgentChooserEntry`] snapshots built at
+/// the `app_input` boundary (where git probing is permitted). Reducers only
+/// validate non-emptiness and open/close/navigate — they never execute git.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentChooserState {
     pub selected_index: usize,
-    pub agents: Vec<(crate::domain::AgentId, String)>,
+    pub agents: Vec<crate::domain::AgentChooserEntry>,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

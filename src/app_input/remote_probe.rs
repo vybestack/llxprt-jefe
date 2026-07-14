@@ -43,9 +43,7 @@
 //! with a transport/auth/infrastructure message and **never triggers a
 //! clone**.
 
-use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
 
 use jefe::domain::{AgentKind, RemoteRepositorySettings};
 
@@ -115,39 +113,27 @@ pub(super) fn effective_user(remote: &RemoteRepositorySettings) -> String {
 /// - `exit_code == 0` with any prefix/suffix/both sentinels/malformed output
 ///   → `Error` (protocol mismatch, banner injection, or truncated output).
 /// - Any other nonzero exit → `Error`.
+///
+/// Live execution classifies transport failures through `SshPlan::execute`
+/// before calling this function. Accepting raw non-success outcomes here keeps
+/// this pure boundary classifier complete and directly testable.
 #[must_use]
 pub(super) fn classify_probe_output(
     exit_code: Option<i32>,
     stdout: &str,
     stderr: &str,
 ) -> RemoteProbeResult {
-    match exit_code {
-        Some(0) => {
-            let trimmed = stdout.trim();
-            if trimmed == SENTINEL_OK {
-                RemoteProbeResult::Available
-            } else if trimmed == SENTINEL_NO {
-                RemoteProbeResult::NotAvailable
-            } else {
-                // Exit 0 but output is not exactly one sentinel — protocol
-                // mismatch, banner/prefix/suffix, both sentinels, or
-                // truncated output. Treat as infrastructure error (never
-                // clone).
-                RemoteProbeResult::Error(format!(
-                    "remote probe returned unexpected output (expected exactly one sentinel): \
-                     stdout={stdout:?} stderr={stderr:?}"
-                ))
-            }
-        }
-        Some(255) => RemoteProbeResult::Error(format!(
-            "SSH transport/auth/host failure (exit 255): {}",
-            stderr.trim()
-        )),
-        Some(code) => RemoteProbeResult::Error(format!(
-            "remote probe failed (exit {code}): {}",
-            stderr.trim()
-        )),
-        None => RemoteProbeResult::Error("remote probe terminated by signal".to_owned()),
+    if exit_code != Some(0) {
+        return RemoteProbeResult::Error(
+            jefe::ssh::classify_failure(exit_code, stderr).to_string(),
+        );
+    }
+    match stdout.trim() {
+        SENTINEL_OK => RemoteProbeResult::Available,
+        SENTINEL_NO => RemoteProbeResult::NotAvailable,
+        _ => RemoteProbeResult::Error(
+            "remote probe returned unexpected output; verify remote shell startup files".to_owned(),
+        ),
     }
 }
 
@@ -184,14 +170,24 @@ pub(super) fn classify_probe_output(
 /// LLxprt path-local `[ -x <work_dir>/node_modules/.bin/llxprt ]` check,
 /// which safely fails when the directory is absent.
 #[must_use]
+#[cfg(test)]
 pub(super) fn plan_remote_probe(
     remote: &RemoteRepositorySettings,
     work_dir: &Path,
     kind: AgentKind,
 ) -> Vec<String> {
+    ssh_arguments_as_strings(remote, &remote_probe_command(remote, work_dir, kind))
+        .unwrap_or_else(|error| panic!("plan remote probe: {error}"))
+}
+
+fn remote_probe_command(
+    remote: &RemoteRepositorySettings,
+    work_dir: &Path,
+    kind: AgentKind,
+) -> String {
     let inner = probe_inner_command(kind, work_dir);
     let effective = effective_user(remote);
-    let command = if effective == remote.login_user.trim() {
+    if effective == remote.login_user.trim() {
         inner
     } else {
         format!(
@@ -199,44 +195,20 @@ pub(super) fn plan_remote_probe(
             shell_escape(&effective),
             shell_escape(&inner),
         )
-    };
-    // Defense in depth: validate SSH identity before constructing the
-    // Runtime defense-in-depth: validate SSH identity before constructing the
-    // destination. The authoritative validation is at form/persistence
-    // boundaries (domain::target::validate_remote), but every SSH command
-    // site re-checks at runtime (not just debug builds) so stale data can
-    // never reach the shell. The `--` separator below is the final structural
-    // guard.
-    let user = remote.login_user.trim();
-    let host = remote.host.trim();
-    assert!(
-        jefe::domain::target::is_valid_ssh_identity(user)
-            && jefe::domain::target::is_valid_ssh_identity(host),
-        "SSH identity fields must be validated before reaching plan_remote_probe"
-    );
-    vec![
-        "-o".to_owned(),
-        "BatchMode=yes".to_owned(),
-        "-o".to_owned(),
-        "ConnectTimeout=10".to_owned(),
-        // Auto-accept the host key on first connect (TOFU) and verify it on
-        // subsequent connections. Without this, OpenSSH prompts interactively
-        // to accept an unknown host key — but these probes run non-interactively
-        // (no PTY), so the prompt would hang indefinitely.
-        "-o".to_owned(),
-        "StrictHostKeyChecking=accept-new".to_owned(),
-        "-o".to_owned(),
-        "ServerAliveInterval=5".to_owned(),
-        "-o".to_owned(),
-        "ServerAliveCountMax=3".to_owned(),
-        "-T".to_owned(),
-        // `--` ends option parsing so a destination starting with '-' cannot
-        // be misinterpreted as an ssh option (defense in depth; validation
-        // is the primary guard).
-        "--".to_owned(),
-        format!("{user}@{host}"),
-        command,
-    ]
+    }
+}
+
+fn ssh_arguments_as_strings(
+    remote: &RemoteRepositorySettings,
+    remote_command: &str,
+) -> Result<Vec<String>, String> {
+    jefe::ssh::SshPlan::arguments(remote, remote_command, jefe::ssh::SshMode::NonInteractive)
+        .map(|args| {
+            args.into_iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect()
+        })
+        .map_err(|error| error.to_string())
 }
 
 /// Build the inner shell command for the sentinel-based availability probe.
@@ -318,21 +290,22 @@ pub(super) fn execute_remote_probe(
     work_dir: &Path,
     kind: AgentKind,
 ) -> RemoteProbeResult {
-    let argv = plan_remote_probe(remote, work_dir, kind);
-    let mut cmd = Command::new("ssh");
-    cmd.args(&argv);
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-    let output = match cmd.output() {
+    let command = remote_probe_command(remote, work_dir, kind);
+    let plan = match jefe::ssh::SshPlan::new(remote, &command, jefe::ssh::SshMode::NonInteractive) {
+        Ok(plan) => plan,
+        Err(error) => return RemoteProbeResult::Error(error.to_string()),
+    };
+    let output = match plan.execute(None, jefe::ssh::SSH_OPERATION_TIMEOUT, None) {
         Ok(output) => output,
-        Err(error) => {
-            return RemoteProbeResult::Error(format!(
-                "failed to spawn ssh for remote probe: {error}"
-            ));
-        }
+        Err(error) => return RemoteProbeResult::Error(error.to_string()),
     };
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() {
+        return RemoteProbeResult::Error(
+            jefe::ssh::classify_failure(output.status.code(), &stderr).to_string(),
+        );
+    }
     classify_probe_output(output.status.code(), &stdout, &stderr)
 }
 
@@ -449,6 +422,8 @@ pub(super) const PR_PROMPT_RELATIVE_PATH: &str = ".jefe/pr-prompt.md";
 pub(super) struct PlannedPromptWrite {
     /// The full `ssh -T` argv (everything after the `ssh` binary).
     pub ssh_argv: Vec<String>,
+    /// The controlled Unix command sent to the remote host.
+    remote_command: String,
     /// The relative prompt path targeted (e.g. `.jefe/pr-prompt.md`).
     pub relative_path: String,
     /// Prompt bytes that would be transferred via stdin.
@@ -490,25 +465,7 @@ pub(super) fn plan_remote_prompt_write(
             shell_escape(&inner),
         )
     };
-    let ssh_argv = vec![
-        "-o".to_owned(),
-        "BatchMode=yes".to_owned(),
-        "-o".to_owned(),
-        "ConnectTimeout=10".to_owned(),
-        // Non-interactive host-key policy and post-connect keepalive (see
-        // plan_remote_probe for rationale).
-        "-o".to_owned(),
-        "StrictHostKeyChecking=accept-new".to_owned(),
-        "-o".to_owned(),
-        "ServerAliveInterval=5".to_owned(),
-        "-o".to_owned(),
-        "ServerAliveCountMax=3".to_owned(),
-        "-T".to_owned(),
-        // `--` ends option parsing (defense in depth; validation is primary).
-        "--".to_owned(),
-        format!("{}@{}", remote.login_user.trim(), remote.host.trim()),
-        command,
-    ];
+    let ssh_argv = ssh_arguments_as_strings(remote, &command)?;
     // Adversarial content safety: prompt bytes are in stdin, NOT argv.
     // Compare whole tokens to avoid false positives when a short prompt is a
     // coincidental substring of a fixed ssh option (e.g. "yes" ⊂ "BatchMode=yes").
@@ -517,6 +474,7 @@ pub(super) fn plan_remote_prompt_write(
     }
     Ok(PlannedPromptWrite {
         ssh_argv,
+        remote_command: command,
         relative_path: relative_path.to_owned(),
         stdin_prompt: prompt.to_owned(),
     })
@@ -573,40 +531,28 @@ pub(super) fn write_remote_prompt(
     relative_path: &str,
     prompt: &str,
 ) -> Result<(), String> {
-    let plan = plan_remote_prompt_write(remote, work_dir, relative_path, prompt)?;
-    let mut child = Command::new("ssh");
-    child.args(&plan.ssh_argv);
-    child.stdin(Stdio::piped());
-    child.stdout(Stdio::piped());
-    child.stderr(Stdio::piped());
-    let mut child = child
-        .spawn()
-        .map_err(|e| format!("failed to spawn ssh for prompt write: {e}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(plan.stdin_prompt.as_bytes())
-            .map_err(|e| format!("failed to write prompt via stdin: {e}"))?;
-    }
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("ssh prompt write failed: {e}"))?;
+    let planned_write = plan_remote_prompt_write(remote, work_dir, relative_path, prompt)?;
+    let plan = jefe::ssh::SshPlan::new(
+        remote,
+        &planned_write.remote_command,
+        jefe::ssh::SshMode::NonInteractive,
+    )
+    .map_err(|error| error.to_string())?;
+    let output = plan
+        .execute(
+            Some(planned_write.stdin_prompt.as_bytes()),
+            jefe::ssh::SSH_OPERATION_TIMEOUT,
+            None,
+        )
+        .map_err(|error| error.to_string())?;
     if output.status.success() {
         Ok(())
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        let detail = if !stderr.is_empty() {
-            stderr
-        } else if !stdout.is_empty() {
-            stdout
-        } else {
-            format!("exit status {}", output.status)
-        };
-        Err(format!(
-            "remote prompt write on {}@{} failed ({relative_path}): {detail}",
-            remote.login_user.trim(),
-            remote.host.trim(),
-        ))
+        Err(jefe::ssh::classify_failure(
+            output.status.code(),
+            &String::from_utf8_lossy(&output.stderr),
+        )
+        .to_string())
     }
 }
 

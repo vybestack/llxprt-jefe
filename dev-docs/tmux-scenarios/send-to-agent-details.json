@@ -1,0 +1,33 @@
+{
+  "config": {
+    "cols": 160,
+    "rows": 40,
+    "history_limit": 4000,
+    "initial_wait_ms": 1500,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "waitFor": "alpha" },
+    { "expect": "owner/repo-230 @ main *" },
+    { "expect": "owner/repo-230 @ feature" },
+    { "capture": "dashboard-agent-list" },
+    { "key": "i" },
+    { "waitFor": "Issues" },
+    { "waitFor": "#230" },
+    { "capture": "issues-list" },
+    { "key": "Enter" },
+    { "waitFor": "Agent chooser identity and worktree status" },
+    { "capture": "issue-detail" },
+    { "key": "S" },
+    { "waitFor": "Send to Agent" },
+    { "expect": "alpha [LLxprt] profile: ops" },
+    { "expect": "beta [Code Puppy] model: (default)" },
+    { "expect": "profile: ops  @ main *" },
+    { "expect": "model: (default)  @ feature" },
+    { "capture": "send-to-agent-details" },
+    { "key": "Escape" },
+    { "key": "C-q" },
+    { "waitForExit": 3000 }
+  ]
+}

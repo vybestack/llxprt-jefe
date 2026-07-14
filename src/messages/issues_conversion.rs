@@ -310,7 +310,7 @@ impl IssuesMessage {
     /// non-agent events to the close-family dispatcher.
     fn from_app_event_mutation_and_agent(event: AppEvent) -> Self {
         match event {
-            AppEvent::OpenAgentChooser => Self::OpenAgentChooser,
+            AppEvent::OpenAgentChooser { metadata } => Self::OpenAgentChooser { metadata },
             AppEvent::AgentChooserNavigateUp => Self::AgentChooserNavigateUp,
             AppEvent::AgentChooserNavigateDown => Self::AgentChooserNavigateDown,
             AppEvent::AgentChooserConfirm => Self::AgentChooserConfirm,
@@ -718,7 +718,7 @@ impl IssuesMessage {
     /// non-agent messages to the close-family dispatcher.
     fn into_app_event_mutation_and_agent(self) -> AppEvent {
         match self {
-            Self::OpenAgentChooser => AppEvent::OpenAgentChooser,
+            Self::OpenAgentChooser { metadata } => AppEvent::OpenAgentChooser { metadata },
             Self::AgentChooserNavigateUp => AppEvent::AgentChooserNavigateUp,
             Self::AgentChooserNavigateDown => AppEvent::AgentChooserNavigateDown,
             Self::AgentChooserConfirm => AppEvent::AgentChooserConfirm,

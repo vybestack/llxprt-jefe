@@ -742,7 +742,12 @@ mod tests {
         let mut state = issues_base_state();
         state.issues_state.agent_chooser = Some(AgentChooserState {
             selected_index: 0,
-            agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+            agents: vec![jefe::domain::AgentChooserEntry::new(
+                AgentId(String::from("a1")),
+                String::from("Agent 1"),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
+            )],
         });
         assert!(matches!(
             input_mode_for_state(&state),
@@ -820,7 +825,12 @@ mod tests {
         let mut state = prs_base_state();
         state.prs_state.agent_chooser = Some(AgentChooserState {
             selected_index: 0,
-            agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+            agents: vec![jefe::domain::AgentChooserEntry::new(
+                AgentId(String::from("a1")),
+                String::from("Agent 1"),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
+            )],
         });
         assert!(matches!(
             input_mode_for_state(&state),

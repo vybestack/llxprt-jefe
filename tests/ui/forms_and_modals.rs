@@ -322,6 +322,9 @@ fn repository_form_toggles_remote_fields() {
     state = state.apply(AppEvent::FormNextField); // Host
     state = state.apply(AppEvent::FormChar('1'));
     state = state.apply(AppEvent::FormChar('0'));
+    state = state.apply(AppEvent::FormNextField); // SshPort
+    state = state.apply(AppEvent::FormNextField); // IdentityFile
+    state = state.apply(AppEvent::FormNextField); // SshOptions
     state = state.apply(AppEvent::FormNextField); // RunAsUser
     state = state.apply(AppEvent::FormChar('m'));
     state = state.apply(AppEvent::FormNextField); // SetupEnvDefault

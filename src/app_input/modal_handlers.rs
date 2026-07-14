@@ -499,14 +499,7 @@ fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
     let selection = match &state.modal {
         ModalState::NewRepository { fields, .. } | ModalState::EditRepository { fields, .. } => {
             let kind = AgentKind::from_form_value(&fields.default_agent_kind).unwrap_or_default();
-            let remote = RemoteRepositorySettings {
-                enabled: fields.remote_enabled,
-                login_user: fields.login_user.clone(),
-                host: fields.host.clone(),
-                run_as_user: fields.run_as_user.clone(),
-                setup_env_default: fields.setup_env_default,
-            };
-            (kind, remote)
+            jefe::state::AppState::remote_settings_from_fields(fields).map(|remote| (kind, remote))
         }
         ModalState::NewAgent {
             repository_id,
@@ -519,7 +512,7 @@ fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
                 .map_or_else(RemoteRepositorySettings::default, |repo| {
                     repo.remote.clone()
                 });
-            (kind, remote)
+            Ok((kind, remote))
         }
         ModalState::EditAgent { id, fields, .. } => {
             let kind = AgentKind::from_form_value(&fields.agent_kind).unwrap_or_default();
@@ -528,12 +521,18 @@ fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
                 .map_or_else(RemoteRepositorySettings::default, |repo| {
                     repo.remote.clone()
                 });
-            (kind, remote)
+            Ok((kind, remote))
         }
         _ => return true,
     };
     drop(state);
-    let (kind, remote) = selection;
+    let (kind, remote) = match selection {
+        Ok(selection) => selection,
+        Err(error) => {
+            app_state.write().error_message = Some(error);
+            return false;
+        }
+    };
 
     super::availability::local_kind_available_or_error(app_state, kind, &remote)
 }

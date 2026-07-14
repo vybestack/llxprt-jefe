@@ -486,9 +486,8 @@ fn guarded_real_jefe_qqq_quits() {
     let scenario = scenario_with_wait_timeout(
         r#"[
             { "waitFor": "LLxprt Jefe" },
-            { "key": "q" },
-            { "key": "q" },
-            { "key": "q" },
+            { "wait": 500 },
+            { "line": "qqq" },
             { "waitForExit": 3000 }
         ]"#,
         30_000,
@@ -505,7 +504,7 @@ fn guarded_real_jefe_qqq_quits() {
 
     let summary = run_tmux_scenario(&scenario, &request, None).value_or_panic("qqq quit scenario");
 
-    assert_eq!(summary.steps_run, 5);
+    assert_eq!(summary.steps_run, 4);
 }
 
 fn jefe_binary_path() -> Option<PathBuf> {

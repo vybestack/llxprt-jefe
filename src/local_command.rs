@@ -14,6 +14,8 @@ pub enum LocalTool {
     Git,
     /// GitHub command-line client.
     Gh,
+    /// OpenSSH command-line client.
+    Ssh,
 }
 
 impl LocalTool {
@@ -21,6 +23,7 @@ impl LocalTool {
         match self {
             Self::Git => "git",
             Self::Gh => "gh",
+            Self::Ssh => "ssh",
         }
     }
 
@@ -28,6 +31,7 @@ impl LocalTool {
         match self {
             Self::Git => "JEFE_GIT_BIN",
             Self::Gh => "JEFE_GH_BIN",
+            Self::Ssh => "JEFE_SSH_BIN",
         }
     }
 }
@@ -236,5 +240,24 @@ mod tests {
                 tool: LocalTool::Gh
             })
         ));
+    }
+
+    #[test]
+    fn windows_resolves_openssh_from_unicode_path() {
+        let root = tempfile::Builder::new()
+            .prefix("jefe OpenSSH Ω ")
+            .tempdir()
+            .unwrap_or_else(|error| panic!("create OpenSSH fixture: {error}"));
+        let executable = root.path().join("ssh.EXE");
+        std::fs::write(&executable, b"fixture")
+            .unwrap_or_else(|error| panic!("write OpenSSH fixture: {error}"));
+        let resolved = resolve_in(
+            LocalTool::Ssh,
+            ToolPlatform::Windows,
+            &[root.path().to_path_buf()],
+            Some(OsString::from(".EXE")),
+            None,
+        );
+        assert_eq!(resolved, Ok(executable));
     }
 }

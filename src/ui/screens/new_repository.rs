@@ -250,14 +250,38 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
     ));
 
     // Content lines 7-9: remote fields.
-    let remote_labels = ["Login User", "Host / IP", "Run As User"];
-    let remote_values = [&fields.login_user, &fields.host, &fields.run_as_user];
+    let remote_labels = [
+        "Login User",
+        "Host / IP",
+        "SSH Port",
+        "Identity File",
+        "SSH Options (space-separated)",
+        "Run As User",
+    ];
+    let remote_values = [
+        &fields.login_user,
+        &fields.host,
+        &fields.ssh_port,
+        &fields.identity_file,
+        &fields.ssh_options,
+        &fields.run_as_user,
+    ];
     let remote_focuses = [
         RepositoryFormFocus::LoginUser,
         RepositoryFormFocus::Host,
+        RepositoryFormFocus::SshPort,
+        RepositoryFormFocus::IdentityFile,
+        RepositoryFormFocus::SshOptions,
         RepositoryFormFocus::RunAsUser,
     ];
-    let remote_cursors = [cursor.login_user, cursor.host, cursor.run_as_user];
+    let remote_cursors = [
+        cursor.login_user,
+        cursor.host,
+        cursor.ssh_port,
+        cursor.identity_file,
+        cursor.ssh_options,
+        cursor.run_as_user,
+    ];
     for (((label, value), field_focus), field_cursor) in remote_labels
         .iter()
         .zip(remote_values.iter())

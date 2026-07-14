@@ -37,6 +37,13 @@ pub use issues::*;
 mod repo_ref;
 pub use repo_ref::{GitHubRepoRef, GitHubRepoRefError, GitHubRepoRefErrorReason};
 
+// Typed send-to-agent chooser entry and pure label projection (issue #230).
+mod agent_chooser;
+pub use agent_chooser::{
+    AgentChooserEntry, AgentChooserGitMetadata, ChooserRuntimeConfig, DirtyStatus,
+    agent_chooser_label,
+};
+
 /// Stable identifier for a repository.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RepositoryId(pub String);
@@ -69,6 +76,18 @@ impl AgentKind {
     pub const fn label(self) -> &'static str {
         match self {
             Self::CodePuppy => "code_puppy",
+            Self::Llxprt => "LLxprt",
+        }
+    }
+
+    /// Product display name for user-facing UI labels (e.g. the agent chooser).
+    ///
+    /// Unlike [`label`](Self::label) (which returns the internal form
+    /// identifier), this returns the human-readable product name.
+    #[must_use]
+    pub const fn display_label(self) -> &'static str {
+        match self {
+            Self::CodePuppy => "Code Puppy",
             Self::Llxprt => "LLxprt",
         }
     }
@@ -111,6 +130,12 @@ pub struct RemoteRepositorySettings {
     pub login_user: String,
     #[serde(default)]
     pub host: String,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub identity_file: PathBuf,
+    #[serde(default)]
+    pub options: Vec<String>,
     #[serde(default)]
     pub run_as_user: String,
     #[serde(default)]

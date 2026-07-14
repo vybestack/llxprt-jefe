@@ -40,6 +40,7 @@ pub use capabilities::{
     AgentRuntimeCapabilities, ModelDiscovery, code_puppy_help_supports_yolo, static_capabilities,
     validate_code_puppy_launch,
 };
+pub use commands::build_remote_attach_plan;
 #[cfg(feature = "psmux-smoke")]
 pub use commands::configure_prefix_for_passthrough_with_plan;
 pub use errors::RuntimeError;
