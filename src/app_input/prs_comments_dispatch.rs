@@ -11,7 +11,7 @@
 use jefe::domain::RepositoryId;
 use jefe::state::{AppEvent, ComposerTarget, InlineState};
 
-use super::prs_dispatch::{current_pr_scope_repo_id, resolve_pr_gh_repo};
+use super::prs_dispatch::{current_pr_scope_repo_id, resolve_pr_gh_repo_or_error};
 use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client};
 
 // ── PR comments page loading ──────────────────────────────────────────────
@@ -160,13 +160,19 @@ fn pr_comment_page_params(app_state: &AppStateHandle) -> PrCommentPageRequest {
     }
     let scope_repo_id = current_pr_scope_repo_id(&state);
     let pr_number = detail.number;
-    let (owner, repo) = resolve_pr_gh_repo(&state);
+    let (owner, repo, malformed_message) = match resolve_pr_gh_repo_or_error(&state) {
+        Ok((owner, repo)) => (owner, repo, None),
+        Err(error) => (String::new(), String::new(), Some(error.message)),
+    };
     if owner.is_empty() || repo.is_empty() {
+        let error = malformed_message.unwrap_or_else(|| {
+            "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string()
+        });
         return PrCommentPageRequest::Fail(AppEvent::PrCommentsPageFailed {
             scope_repo_id,
             pr_number,
             request_id: 0,
-            error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
+            error,
         });
     }
     let params = PrCommentPageParams {

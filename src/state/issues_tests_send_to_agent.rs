@@ -36,6 +36,7 @@ fn issue_detail() -> IssueDetail {
         labels: Vec::new(),
         assignees: Vec::new(),
         milestone: None,
+        issue_type_name: None,
         body: String::new(),
         external_url: String::new(),
         comments: Vec::new(),

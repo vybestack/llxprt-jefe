@@ -243,6 +243,12 @@ impl AppState {
                 cursor.github_repo =
                     delete_char_before(&mut fields.github_repo, cursor.github_repo);
             }
+            RepositoryFormFocus::IssuePrRepo => {
+                cursor.github_issue_pr_repo = delete_char_before(
+                    &mut fields.github_issue_pr_repo,
+                    cursor.github_issue_pr_repo,
+                );
+            }
             RepositoryFormFocus::LoginUser => {
                 cursor.login_user = delete_char_before(&mut fields.login_user, cursor.login_user);
             }
@@ -282,6 +288,12 @@ impl AppState {
             }
             RepositoryFormFocus::GitHubRepo => {
                 delete_char_at(&mut fields.github_repo, cursor.github_repo);
+            }
+            RepositoryFormFocus::IssuePrRepo => {
+                delete_char_at(
+                    &mut fields.github_issue_pr_repo,
+                    cursor.github_issue_pr_repo,
+                );
             }
             RepositoryFormFocus::LoginUser => {
                 delete_char_at(&mut fields.login_user, cursor.login_user);
@@ -711,6 +723,13 @@ impl AppState {
     pub(super) fn handle_submit_form(&mut self) {
         match self.modal.clone() {
             ModalState::NewRepository { fields, .. } => {
+                if let Err(error) =
+                    crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo)
+                {
+                    self.error_message = Some(error.to_string());
+                    return;
+                }
+                self.error_message = None;
                 if let Some(repo) = Self::create_repository_from_fields(&fields) {
                     self.repositories.push(repo);
                     self.selected_repository_index = Some(self.repositories.len() - 1);
@@ -718,6 +737,13 @@ impl AppState {
                 }
             }
             ModalState::EditRepository { id, fields, .. } => {
+                if let Err(error) =
+                    crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo)
+                {
+                    self.error_message = Some(error.to_string());
+                    return;
+                }
+                self.error_message = None;
                 let Some(repo) = self.repositories.iter_mut().find(|r| r.id == id) else {
                     return;
                 };

@@ -33,6 +33,10 @@ pub use pagination::*;
 mod issues;
 pub use issues::*;
 
+// Validated GitHub repo reference for issue/PR tracker routing (issue #266).
+mod repo_ref;
+pub use repo_ref::{GitHubRepoRef, GitHubRepoRefError, GitHubRepoRefErrorReason};
+
 /// Stable identifier for a repository.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RepositoryId(pub String);
@@ -128,6 +132,15 @@ pub struct Repository {
     /// When set, issues mode uses this instead of auto-detecting from git remotes.
     #[serde(default)]
     pub github_repo: String,
+    /// Optional override for the GitHub repository that sources issues and PRs
+    /// (issue #266). When nonblank, all issue/PR reads and mutations are
+    /// routed to this `owner/repo` (e.g. an upstream like
+    /// `vybestack/llxprt-jefe`), while cloning, origin checks, dashboard/git
+    /// display, and GitHub Actions continue to use [`github_repo`]. Blank
+    /// preserves current behavior (issues/PRs sourced from [`github_repo`]).
+    /// `#[serde(default)]` keeps existing schema-v1 data compatible.
+    #[serde(default)]
+    pub github_issue_pr_repo: String,
     #[serde(default)]
     pub remote: RemoteRepositorySettings,
     #[serde(default)]
@@ -729,11 +742,38 @@ impl Repository {
             default_profile: String::new(),
             default_code_puppy_model: String::new(),
             github_repo: String::new(),
+            github_issue_pr_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
             default_agent_kind: AgentKind::default(),
             agent_ids: Vec::new(),
         }
+    }
+
+    /// Resolve the effective issue/PR tracker target (issue #266).
+    ///
+    /// Returns a validated [`GitHubRepoRef`] for the upstream tracker that
+    /// issues and PRs should be read from and mutated against. When
+    /// [`github_issue_pr_repo`] is nonblank and valid, that override is
+    /// returned; otherwise the fallback [`github_repo`] is used. An empty
+    /// result (`Ok(None)`) means no tracker is configured.
+    ///
+    /// A malformed nonblank override returns `Err` so it fails visibly — it is
+    /// never silently mutated to the fallback fork identity. This is the
+    /// central resolver: every issue/PR read and mutation path must go
+    /// through here (not read `github_repo` directly).
+    ///
+    /// Clone/origin/Actions paths continue to use [`github_repo`] directly and
+    /// must **not** call this method.
+    ///
+    /// [`github_issue_pr_repo`]: Repository::github_issue_pr_repo
+    /// [`github_repo`]: Repository::github_repo
+    pub fn effective_issue_pr_repo(&self) -> Result<Option<GitHubRepoRef>, GitHubRepoRefError> {
+        let override_trimmed = self.github_issue_pr_repo.trim();
+        if !override_trimmed.is_empty() {
+            return GitHubRepoRef::parse(override_trimmed);
+        }
+        GitHubRepoRef::parse(&self.github_repo)
     }
 }
 #[cfg(test)]

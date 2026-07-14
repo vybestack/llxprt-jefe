@@ -69,12 +69,16 @@ pub(super) fn dispatch_pr_list_fetch(
     let mut params = pr_fetch_params(app_state, fresh_reload, silent);
 
     if params.owner.is_empty() || params.repo.is_empty() {
-        if params.silent {
+        if params.silent && params.malformed_message.is_none() {
             // Silent refresh of a repo with no GitHub slug: silently no-op
             // (do NOT surface a visible error — issue #128).
+            // A malformed override is still surfaced even in silent mode (issue #266).
             return;
         }
-        persist_missing_github_repo(app_state, ctx);
+        let error = params.malformed_message.as_deref().unwrap_or(
+            "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.",
+        );
+        persist_missing_github_repo_with(app_state, ctx, error);
         return;
     }
 
@@ -130,6 +134,8 @@ struct PrFetchParams {
     scope_repo_id: jefe::domain::RepositoryId,
     owner: String,
     repo: String,
+    /// Malformed tracker override message (issue #266).
+    malformed_message: Option<String>,
     filter: jefe::domain::PrFilter,
     request_id: u64,
     cursor: Option<String>,
@@ -187,11 +193,16 @@ fn mark_pr_list_fetch_loading(
 /// @pseudocode component-004 lines 127-137
 fn pr_fetch_params(app_state: &AppStateHandle, fresh_reload: bool, silent: bool) -> PrFetchParams {
     let state = app_state.read();
-    let gh_repo = prs_dispatch::resolve_pr_gh_repo(&state);
+    let (owner, repo, malformed_message) = prs_dispatch::resolve_pr_gh_repo_or_error(&state)
+        .map_or_else(
+            |error| (String::new(), String::new(), Some(error.message)),
+            |(owner, repo)| (owner, repo, None),
+        );
     PrFetchParams {
         scope_repo_id: prs_dispatch::current_pr_scope_repo_id(&state),
-        owner: gh_repo.0,
-        repo: gh_repo.1,
+        owner,
+        repo,
+        malformed_message,
         filter: state.prs_state.committed_filter.clone(),
         request_id: 0,
         cursor: (!fresh_reload)
@@ -205,20 +216,14 @@ fn pr_fetch_params(app_state: &AppStateHandle, fresh_reload: bool, silent: bool)
     }
 }
 
-/// Persist a missing-GitHub-repo error (no spawn).
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-006
-/// @pseudocode component-004 lines 127-137
-fn persist_missing_github_repo(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+fn persist_missing_github_repo_with(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: &str,
+) {
     let mut state = app_state.write();
-    // No repo configured: cancel any pending list load so the spinner clears
-    // (loading is now derived from the pending marker).
     state.prs_state.list.clear();
-    state.prs_state.error = Some(
-        "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings."
-            .to_string(),
-    );
+    state.prs_state.error = Some(message.to_string());
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
