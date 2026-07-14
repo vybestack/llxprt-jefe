@@ -9,6 +9,7 @@
 pub enum GhError {
     NotAuthenticated(String),
     NotInstalled,
+    ToolResolution(String),
     RateLimited,
     AccessDenied(String),
     ApiError(String),
@@ -21,6 +22,7 @@ impl std::fmt::Display for GhError {
         match self {
             Self::NotAuthenticated(msg) => write!(f, "Not authenticated: {msg}"),
             Self::NotInstalled => write!(f, "GitHub CLI (gh) is not installed"),
+            Self::ToolResolution(msg) => write!(f, "GitHub CLI resolution failed: {msg}"),
             Self::RateLimited => write!(f, "GitHub API rate limit exceeded"),
             Self::AccessDenied(msg) => write!(f, "Access denied: {msg}"),
             Self::ApiError(msg) => write!(f, "API error: {msg}"),

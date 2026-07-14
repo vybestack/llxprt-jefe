@@ -10,7 +10,6 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -43,7 +42,8 @@ const BRANCH_TTL: Duration = Duration::from_secs(5);
 ///
 /// The origin URL changes very rarely (essentially never during a session),
 /// so this is much longer than the branch TTL.
-const ORIGIN_TTL: Duration = Duration::from_secs(5 * 60);
+const ORIGIN_TTL_SECONDS: u64 = 5 * 60;
+const ORIGIN_TTL: Duration = Duration::from_secs(ORIGIN_TTL_SECONDS);
 
 /// Resolved git display info for an agent's work directory.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -200,8 +200,19 @@ fn sweep_stale(cache: &mut HashMap<PathBuf, CacheEntry>, now: Instant) {
 /// Returns `None` for non-git directories, detached HEAD states, or when git
 /// is not installed. Uses `git rev-parse --abbrev-ref HEAD` which returns the
 /// branch name or `HEAD` for detached HEAD (filtered out).
+fn git_command() -> Option<std::process::Command> {
+    match crate::local_command::command(crate::local_command::LocalTool::Git) {
+        Ok(command) => Some(command),
+        Err(error) => {
+            tracing::debug!(%error, "could not resolve Git while probing repository metadata");
+            None
+        }
+    }
+}
+
 fn probe_branch(work_dir: &Path) -> Option<String> {
-    let output = Command::new("git")
+    let mut command = git_command()?;
+    let output = command
         .arg("-C")
         .arg(work_dir)
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
@@ -220,7 +231,7 @@ fn probe_branch(work_dir: &Path) -> Option<String> {
 
 /// Fall back to the short commit hash for detached HEAD states.
 fn probe_short_commit(work_dir: &Path) -> Option<String> {
-    let output = Command::new("git")
+    let output = git_command()?
         .arg("-C")
         .arg(work_dir)
         .args(["rev-parse", "--short", "HEAD"])
@@ -244,7 +255,7 @@ fn probe_short_commit(work_dir: &Path) -> Option<String> {
 /// Returns `None` when the origin remote is missing or the URL doesn't match
 /// a known pattern.
 fn detect_origin_shortform(work_dir: &Path) -> Option<String> {
-    let output = Command::new("git")
+    let output = git_command()?
         .arg("-C")
         .arg(work_dir)
         .args(["remote", "get-url", "origin"])
