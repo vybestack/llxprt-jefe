@@ -67,6 +67,13 @@ pub use socket::jefe_tmux_socket_path;
 pub use stub_manager::StubRuntimeManager;
 
 #[cfg(test)]
+fn external_process_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(test)]
 #[path = "agent_executable_tests.rs"]
 mod agent_executable_tests;
 

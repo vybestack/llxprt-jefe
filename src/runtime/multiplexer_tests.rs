@@ -247,6 +247,7 @@ fn windows_pane_command_uses_powershell_without_unix_env_wrapper() {
 
 #[test]
 fn production_namespace_is_stable_while_test_namespaces_are_distinct() {
+    let _guard = super::external_process_test_guard();
     if !cfg!(windows) {
         return;
     }
@@ -268,6 +269,7 @@ fn production_namespace_is_stable_while_test_namespaces_are_distinct() {
 
 #[test]
 fn guarded_real_multiplexer_preflight_qualifies_the_current_dependency() {
+    let _guard = super::external_process_test_guard();
     let plan = match MultiplexerPlan::current_for_test() {
         Ok(plan) => plan,
         Err(_) if std::env::var("JEFE_REQUIRE_PSMUX").as_deref() != Ok("1") => return,

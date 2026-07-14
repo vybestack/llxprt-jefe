@@ -58,6 +58,7 @@ fn platform_identity_without_persisted_creation_time_is_malformed() {
 
 #[test]
 fn production_probe_observes_running_and_normal_exit() {
+    let _guard = super::external_process_test_guard();
     let mut child = spawn_sleeping_fixture(Duration::from_millis(120));
     let identity = capture_process_identity(child.id())
         .unwrap_or_else(|error| panic!("capture child process identity: {error}"));
@@ -71,6 +72,7 @@ fn production_probe_observes_running_and_normal_exit() {
 
 #[test]
 fn production_probe_observes_forced_termination() {
+    let _guard = super::external_process_test_guard();
     let mut child = spawn_sleeping_fixture(Duration::from_secs(10));
     let identity = capture_process_identity(child.id())
         .unwrap_or_else(|error| panic!("capture child process identity: {error}"));
