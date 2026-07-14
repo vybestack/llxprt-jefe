@@ -158,6 +158,7 @@ fn expand_tilde_for_platform(
     };
     let home = home.to_string_lossy();
     match platform {
+        LocalPathPlatform::Windows if home.starts_with('/') => path.to_owned(),
         LocalPathPlatform::Windows => {
             let home = home.replace('/', "\\");
             let home = home.trim_end_matches('\\');
@@ -420,6 +421,19 @@ mod tests {
                 Some(std::ffi::OsStr::new("C:/Users/Acoli Ω")),
             ),
             r"C:\Users\Acoli Ω\somedir"
+        );
+    }
+
+    #[test]
+    fn windows_tilde_does_not_convert_posix_home_fallback() {
+        assert_eq!(
+            expand_tilde_for_platform(
+                "~/somedir",
+                LocalPathPlatform::Windows,
+                Some(std::ffi::OsStr::new("/c/Users/alice")),
+                None,
+            ),
+            "~/somedir"
         );
     }
 
