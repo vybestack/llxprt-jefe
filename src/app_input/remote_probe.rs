@@ -113,6 +113,10 @@ pub(super) fn effective_user(remote: &RemoteRepositorySettings) -> String {
 /// - `exit_code == 0` with any prefix/suffix/both sentinels/malformed output
 ///   → `Error` (protocol mismatch, banner injection, or truncated output).
 /// - Any other nonzero exit → `Error`.
+///
+/// Live execution classifies transport failures through `SshPlan::execute`
+/// before calling this function. Accepting raw non-success outcomes here keeps
+/// this pure boundary classifier complete and directly testable.
 #[must_use]
 pub(super) fn classify_probe_output(
     exit_code: Option<i32>,
@@ -418,6 +422,8 @@ pub(super) const PR_PROMPT_RELATIVE_PATH: &str = ".jefe/pr-prompt.md";
 pub(super) struct PlannedPromptWrite {
     /// The full `ssh -T` argv (everything after the `ssh` binary).
     pub ssh_argv: Vec<String>,
+    /// The controlled Unix command sent to the remote host.
+    remote_command: String,
     /// The relative prompt path targeted (e.g. `.jefe/pr-prompt.md`).
     pub relative_path: String,
     /// Prompt bytes that would be transferred via stdin.
@@ -468,6 +474,7 @@ pub(super) fn plan_remote_prompt_write(
     }
     Ok(PlannedPromptWrite {
         ssh_argv,
+        remote_command: command,
         relative_path: relative_path.to_owned(),
         stdin_prompt: prompt.to_owned(),
     })
@@ -525,12 +532,12 @@ pub(super) fn write_remote_prompt(
     prompt: &str,
 ) -> Result<(), String> {
     let planned_write = plan_remote_prompt_write(remote, work_dir, relative_path, prompt)?;
-    let remote_command = planned_write
-        .ssh_argv
-        .last()
-        .ok_or_else(|| "remote prompt write plan has no command".to_owned())?;
-    let plan = jefe::ssh::SshPlan::new(remote, remote_command, jefe::ssh::SshMode::NonInteractive)
-        .map_err(|error| error.to_string())?;
+    let plan = jefe::ssh::SshPlan::new(
+        remote,
+        &planned_write.remote_command,
+        jefe::ssh::SshMode::NonInteractive,
+    )
+    .map_err(|error| error.to_string())?;
     let output = plan
         .execute(
             Some(planned_write.stdin_prompt.as_bytes()),

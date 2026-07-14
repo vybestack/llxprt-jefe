@@ -110,7 +110,7 @@ pub fn ssh_identity_validation_message() -> String {
 /// Options must be one shell-free `name=value` argument. Only options that do
 /// not alter Jefe-owned destination, authentication, host-key, forwarding,
 /// connection-sharing, command, timeout, or terminal policies are accepted.
-pub fn validate_ssh_option(option: &str) -> Result<(), String> {
+fn validate_ssh_option(option: &str) -> Result<(), String> {
     const ALLOWED_OPTIONS: &[&str] = &[
         "compression",
         "ipqos",
