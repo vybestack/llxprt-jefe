@@ -32,6 +32,12 @@ const STATUS_DLL_INIT_FAILED: i32 = -1_073_741_502;
 const MAX_VERSION_PROBE_ATTEMPTS: u32 = 4;
 const VERSION_PROBE_BACKOFF: Duration = Duration::from_millis(500);
 
+fn psmux_process_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct PsmuxVersion {
     major: u32,
@@ -344,6 +350,7 @@ fn prepare_agent_launch_fixture() -> AgentLaunchFixture {
 
 #[test]
 fn psmux_agent_launch_preserves_arguments_working_directory_and_environment_policy() {
+    let _guard = psmux_process_test_guard();
     let Some((executable, version_text)) = qualified_psmux() else {
         return;
     };
@@ -416,6 +423,7 @@ fn assert_agent_launch_observation(fixture: &AgentLaunchFixture) {
 
 #[test]
 fn psmux_command_contract_rejects_invalid_command_with_diagnostics() {
+    let _guard = psmux_process_test_guard();
     let Some((executable, version_text)) = qualified_psmux() else {
         return;
     };
@@ -435,6 +443,7 @@ fn psmux_command_contract_rejects_invalid_command_with_diagnostics() {
 
 #[test]
 fn psmux_supports_jefe_runtime_and_harness_command_surface() {
+    let _guard = psmux_process_test_guard();
     let Some((executable, version_text)) = qualified_psmux() else {
         return;
     };
@@ -446,6 +455,7 @@ fn psmux_supports_jefe_runtime_and_harness_command_surface() {
 
 #[test]
 fn psmux_named_namespaces_are_isolated_and_cleanup_is_scoped() {
+    let _guard = psmux_process_test_guard();
     let Some((executable, version_text)) = qualified_psmux() else {
         return;
     };
@@ -458,6 +468,7 @@ fn psmux_named_namespaces_are_isolated_and_cleanup_is_scoped() {
 
 #[test]
 fn psmux_four_recording_agents_remain_independent_and_scoped() {
+    let _guard = psmux_process_test_guard();
     let Some((executable, version_text)) = qualified_psmux() else {
         return;
     };
