@@ -543,22 +543,26 @@ fn tier_b_clone_destination_recorded_as_fixture_clone_kind() {
 
 // ── Finding #14: Fake Tier B full path (versioned persistence + cleanup) ──
 
+#[cfg(unix)]
 use jefe_tutorial_capture::{
     GithubCleanupStatus, RunOutcome, execute_github_cleanup_with_allowlist, prepare_run,
     save_manifest, save_manifest_atomic,
 };
 
 /// Fake runner that simulates successful cleanup for all resources.
+#[cfg(unix)]
 struct FakeCleanupRunner {
     closed: Vec<String>,
 }
 
+#[cfg(unix)]
 impl FakeCleanupRunner {
     fn new() -> Self {
         Self { closed: Vec::new() }
     }
 }
 
+#[cfg(unix)]
 impl CommandRunner for FakeCleanupRunner {
     fn run(
         &mut self,
@@ -588,6 +592,7 @@ impl CommandRunner for FakeCleanupRunner {
 /// save manifest (versioned persistence) → reload → cleanup → verify.
 ///
 /// Build a standard Tier-B run setup for the full-path test.
+#[cfg(unix)]
 fn build_tier_b_setup(run_id: &RunId, base: &std::path::Path) -> jefe_tutorial_capture::RunSetup {
     jefe_tutorial_capture::RunSetup {
         run_id: run_id.clone(),
@@ -606,6 +611,7 @@ fn build_tier_b_setup(run_id: &RunId, base: &std::path::Path) -> jefe_tutorial_c
 }
 
 /// Execute fake Tier B and return the run root + manifest.
+#[cfg(unix)]
 fn execute_fake_tier_b(
     dirs: &jefe_tutorial_capture::RunDirectories,
     manifest: &mut RunManifest,
