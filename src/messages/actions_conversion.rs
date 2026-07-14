@@ -118,13 +118,7 @@ impl ActionsMessage {
             Self::OpenWorkflowDispatch(workflow) => AppEvent::OpenWorkflowDispatch(workflow),
             Self::CloseWorkflowDispatch => AppEvent::CloseWorkflowDispatch,
             Self::WorkflowDispatchSubmitted { .. } => Self::into_dispatch_submitted(self),
-            Self::WorkflowDispatchSuccess {
-                scope_repo_id,
-                request_id,
-            } => AppEvent::WorkflowDispatchSuccess {
-                scope_repo_id,
-                request_id,
-            },
+            message @ Self::WorkflowDispatchSuccess { .. } => message.into_dispatch_success(),
             Self::WorkflowDispatchFailed { .. } => Self::into_dispatch_failed(self),
         }
     }
@@ -197,7 +191,6 @@ impl ActionsMessage {
             } => AppEvent::ActionsBeginDetailReload {
                 scope_repo_id,
                 run_id,
-
                 request_id,
             },
             _ => unreachable!(),
@@ -210,6 +203,19 @@ impl ActionsMessage {
                 scope_repo_id,
                 request_id,
             } => Self::WorkflowDispatchSuccess {
+                scope_repo_id,
+                request_id,
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn into_dispatch_success(self) -> AppEvent {
+        match self {
+            Self::WorkflowDispatchSuccess {
+                scope_repo_id,
+                request_id,
+            } => AppEvent::WorkflowDispatchSuccess {
                 scope_repo_id,
                 request_id,
             },

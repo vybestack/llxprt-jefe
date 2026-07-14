@@ -17,7 +17,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for command_name in cargo tmux; do
+for command_name in cargo python3 tmux; do
   command -v "$command_name" >/dev/null || { echo "FATAL: $command_name is required" >&2; exit 1; }
 done
 
@@ -27,22 +27,41 @@ schema_version = 1
 theme = "green-screen"
 override_agent_theme = false
 EOF
-cat > "$CONFIG/state.json" <<EOF
-{
-  "schema_version": 1,
-  "repositories": [{
-    "id": "issue194-repo", "name": "actions-fixture", "slug": "actions-fixture",
-    "base_dir": "$REPO", "default_profile": "", "default_code_puppy_model": "",
-    "github_repo": "owner/actions-fixture",
-    "remote": {"enabled": false, "host": "", "user": "", "port": null},
-    "issue_base_prompt": "", "default_agent_kind": "llxprt", "agent_ids": []
-  }],
-  "agents": [], "selected_repository_index": 0, "selected_agent_index": null,
-  "hide_idle_repositories": false, "last_selected_agent_by_repo": [],
-  "pane_focus": "", "terminal_focused": false, "user_preferences": {}
+python3 - "$REPO" "$CONFIG/state.json" <<'PY'
+import json
+import sys
+
+repo, output = sys.argv[1:]
+state = {
+    "schema_version": 1,
+    "repositories": [{
+        "id": "issue194-repo",
+        "name": "actions-fixture",
+        "slug": "actions-fixture",
+        "base_dir": repo,
+        "default_profile": "",
+        "default_code_puppy_model": "",
+        "github_repo": "owner/actions-fixture",
+        "remote": {"enabled": False, "host": "", "user": "", "port": None},
+        "issue_base_prompt": "",
+        "default_agent_kind": "llxprt",
+        "agent_ids": [],
+    }],
+    "agents": [],
+    "selected_repository_index": 0,
+    "selected_agent_index": None,
+    "hide_idle_repositories": False,
+    "last_selected_agent_by_repo": [],
+    "pane_focus": "",
+    "terminal_focused": False,
+    "user_preferences": {},
 }
-EOF
-cp "$ROOT/scripts/issue194-gh-shim.sh" "$SHIM_BIN/gh"
+with open(output, "w", encoding="utf-8") as stream:
+    json.dump(state, stream)
+PY
+SHIM_SOURCE="$ROOT/scripts/issue194-gh-shim.sh"
+[[ -s "$SHIM_SOURCE" ]] || { echo "FATAL: missing or empty gh shim: $SHIM_SOURCE" >&2; exit 1; }
+cp "$SHIM_SOURCE" "$SHIM_BIN/gh"
 chmod +x "$SHIM_BIN/gh"
 
 (cd "$ROOT" && cargo build --locked --bin jefe --bin jefe-tmux-harness)

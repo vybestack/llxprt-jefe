@@ -45,6 +45,9 @@ impl ActionsDetailProjection {
     }
 
     /// Clamp an offset and reveal the focused job within the display viewport.
+    ///
+    /// A zero-height viewport retains a bounded document-row anchor so a later
+    /// resize can reveal the same focused job without losing its position.
     #[must_use]
     pub fn reveal_focused_job(&self, offset: usize, viewport_rows: usize) -> usize {
         let max = self.max_scroll_offset(viewport_rows);
@@ -150,9 +153,19 @@ fn status_glyph(
     match status {
         WorkflowRunStatus::Completed => match conclusion {
             Some(WorkflowRunConclusion::Success) => "\u{2713}",
-            Some(WorkflowRunConclusion::Failure) => "\u{2717}",
-            Some(WorkflowRunConclusion::Cancelled | WorkflowRunConclusion::Skipped) => "\u{2298}",
-            _ => "?",
+            Some(
+                WorkflowRunConclusion::Failure
+                | WorkflowRunConclusion::TimedOut
+                | WorkflowRunConclusion::ActionRequired
+                | WorkflowRunConclusion::StartupFailure,
+            ) => "\u{2717}",
+            Some(
+                WorkflowRunConclusion::Cancelled
+                | WorkflowRunConclusion::Skipped
+                | WorkflowRunConclusion::Stale
+                | WorkflowRunConclusion::Neutral,
+            ) => "\u{2298}",
+            Some(WorkflowRunConclusion::Unknown) | None => "?",
         },
         WorkflowRunStatus::InProgress => "~",
         WorkflowRunStatus::Queued

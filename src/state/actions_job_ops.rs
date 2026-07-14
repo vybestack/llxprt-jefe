@@ -76,9 +76,13 @@ impl AppState {
         viewport_rows: usize,
         content_width: usize,
     ) -> bool {
-        self.actions_state.detail_viewport_rows = viewport_rows;
-        self.actions_state.detail_content_width = content_width;
-        self.follow_focused_job();
+        if self.actions_state.detail_viewport_rows != viewport_rows
+            || self.actions_state.detail_content_width != content_width
+        {
+            self.actions_state.detail_viewport_rows = viewport_rows;
+            self.actions_state.detail_content_width = content_width;
+            self.follow_focused_job();
+        }
         true
     }
 
@@ -146,7 +150,12 @@ impl AppState {
         self.actions_state.focused_job_index = Some(match dir {
             NavDir::Up => current.saturating_sub(1),
             NavDir::Down => current.saturating_add(1).min(last),
-            _ => current,
+            NavDir::PageUp
+            | NavDir::PageDown
+            | NavDir::Home
+            | NavDir::End
+            | NavDir::Next
+            | NavDir::Prev => current,
         });
         self.follow_focused_job();
         true

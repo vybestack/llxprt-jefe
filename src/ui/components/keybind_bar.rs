@@ -49,14 +49,14 @@ pub fn keybind_hints_for(
         ScreenMode::DashboardPullRequests => {
             "^/v items | </> panes | Enter detail | f filter | / search | Tab detail focus (j/k) | p list | r reply | R resolve | S send-to-agent | c comment | o open | m merge | L labels A assignees M milestone T title W state | a exit | Esc back/exit"
         }
-        ScreenMode::DashboardActions => match actions_focus.unwrap_or(ActionsFocus::RunList) {
-            ActionsFocus::RepoList => {
+        ScreenMode::DashboardActions => match actions_focus {
+            Some(ActionsFocus::RepoList) => {
                 "^/v repos | > runs | Tab pane | f filter | / search | d dispatch | r refresh | Esc exit"
             }
-            ActionsFocus::RunList => {
+            Some(ActionsFocus::RunList) | None => {
                 "^/v runs | Enter detail | Tab pane | f filter | / search | d dispatch | r refresh | Esc exit"
             }
-            ActionsFocus::Detail => {
+            Some(ActionsFocus::Detail) => {
                 "^/v jobs | Enter/Right expand | Left collapse | Esc collapse/back | PgUp/PgDn scroll | Tab pane | ? help"
             }
         },
@@ -91,7 +91,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn actions_hints_are_focus_specific_and_fit_151_columns() {
+    fn actions_hints_are_focus_specific_and_fit_footer_width() {
         let repos = keybind_hints_for(
             ScreenMode::DashboardActions,
             false,
