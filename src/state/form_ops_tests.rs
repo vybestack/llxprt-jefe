@@ -213,6 +213,7 @@ fn new_agent_work_dir_slug_excludes_slashes_from_name() {
     assert_eq!(std::path::Path::new(&fields.work_dir), expected);
 }
 
+#[cfg(windows)]
 #[test]
 fn automatic_agent_work_dir_joins_normalized_windows_repository_once() {
     let mut repository = seed_repository();
