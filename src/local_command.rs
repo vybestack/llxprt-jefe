@@ -54,6 +54,8 @@ impl ToolPlatform {
 pub enum LocalToolError {
     /// The executable was not found on `PATH`.
     NotFound { tool: LocalTool },
+    /// An explicit executable override does not identify an executable file.
+    InvalidOverride { tool: LocalTool, path: PathBuf },
 }
 
 impl fmt::Display for LocalToolError {
@@ -65,6 +67,12 @@ impl fmt::Display for LocalToolError {
                 tool.name(),
                 tool.override_name()
             ),
+            Self::InvalidOverride { tool, path } => write!(
+                formatter,
+                "{} does not identify an executable file: {}",
+                tool.override_name(),
+                path.display()
+            ),
         }
     }
 }
@@ -74,8 +82,14 @@ impl std::error::Error for LocalToolError {}
 /// Resolve a local tool to an explicit executable path.
 pub fn resolve(tool: LocalTool) -> Result<PathBuf, LocalToolError> {
     let override_path = std::env::var_os(tool.override_name()).map(PathBuf::from);
-    let paths =
-        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect::<Vec<_>>();
+    let paths = std::env::var_os("PATH")
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            std::env::split_paths(&value)
+                .filter(|path| !path.as_os_str().is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     resolve_in(
         tool,
         ToolPlatform::current(),
@@ -98,7 +112,9 @@ fn resolve_in(
     override_path: Option<PathBuf>,
 ) -> Result<PathBuf, LocalToolError> {
     if let Some(path) = override_path {
-        return Ok(path);
+        return executable_file(&path, platform)
+            .then_some(path.clone())
+            .ok_or(LocalToolError::InvalidOverride { tool, path });
     }
     let candidates = executable_names(tool.name(), platform, pathext.as_deref());
     for directory in paths {
@@ -173,8 +189,33 @@ mod tests {
     }
 
     #[test]
+    fn invalid_explicit_override_is_a_typed_error() {
+        let missing = std::env::temp_dir().join("jefe-missing-tool-override.exe");
+        let resolved = resolve_in(
+            LocalTool::Git,
+            ToolPlatform::Windows,
+            &[],
+            None,
+            Some(missing.clone()),
+        );
+        assert_eq!(
+            resolved,
+            Err(LocalToolError::InvalidOverride {
+                tool: LocalTool::Git,
+                path: missing,
+            })
+        );
+    }
+
+    #[test]
     fn explicit_override_is_preserved_as_a_path() {
-        let override_path = std::path::PathBuf::from(r"C:\Program Files\Git Ω\bin\git.exe");
+        let root = tempfile::Builder::new()
+            .prefix("jefe override Ω ")
+            .tempdir()
+            .unwrap_or_else(|error| panic!("create override directory: {error}"));
+        let override_path = root.path().join("git.exe");
+        std::fs::write(&override_path, b"fixture")
+            .unwrap_or_else(|error| panic!("write override fixture: {error}"));
         let resolved = resolve_in(
             LocalTool::Git,
             ToolPlatform::Windows,

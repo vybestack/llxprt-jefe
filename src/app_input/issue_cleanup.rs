@@ -2,6 +2,11 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+use std::ffi::OsString;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStringExt;
+
 use super::{git_capture, git_require_success, require_success};
 
 pub(in crate::app_input) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
@@ -21,7 +26,7 @@ pub(in crate::app_input) fn discard_workdir_changes(work_dir: &Path) -> Result<(
     for relative in &untracked {
         remove_untracked_path(work_dir, relative)?;
     }
-    remove_empty_untracked_parents(work_dir, &untracked);
+    remove_empty_untracked_parents(work_dir, &untracked)?;
     restore_tracked_paths(work_dir)
 }
 
@@ -72,17 +77,28 @@ fn parse_paths(stdout: &[u8]) -> Result<Vec<PathBuf>, String> {
         .split(|byte| *byte == 0)
         .filter(|raw| !raw.is_empty())
         .map(|raw| {
-            let value = std::str::from_utf8(raw)
-                .map_err(|error| format!("git returned a non-UTF-8 path: {error}"))?;
-            let path = PathBuf::from(value);
+            let path = path_from_git_bytes(raw)?;
             let safe = !path.is_absolute()
                 && path
                     .components()
                     .all(|component| matches!(component, std::path::Component::Normal(_)));
-            safe.then_some(path)
-                .ok_or_else(|| format!("git returned an unsafe path: {value:?}"))
+            safe.then_some(path.clone()).ok_or_else(|| {
+                format!("git returned an unsafe path: {}", path.display())
+            })
         })
         .collect()
+}
+
+#[cfg(unix)]
+fn path_from_git_bytes(raw: &[u8]) -> Result<PathBuf, String> {
+    Ok(PathBuf::from(OsString::from_vec(raw.to_vec())))
+}
+
+#[cfg(not(unix))]
+fn path_from_git_bytes(raw: &[u8]) -> Result<PathBuf, String> {
+    std::str::from_utf8(raw)
+        .map(PathBuf::from)
+        .map_err(|error| format!("git returned a non-UTF-8 path: {error}"))
 }
 
 fn remove_untracked_path(work_dir: &Path, relative: &Path) -> Result<(), String> {
@@ -106,14 +122,26 @@ fn remove_untracked_path(work_dir: &Path, relative: &Path) -> Result<(), String>
     })
 }
 
-fn remove_empty_untracked_parents(work_dir: &Path, paths: &[PathBuf]) {
+fn remove_empty_untracked_parents(work_dir: &Path, paths: &[PathBuf]) -> Result<(), String> {
     for relative in paths {
         let mut parent = relative.parent();
         while let Some(candidate) = parent.filter(|value| !value.as_os_str().is_empty()) {
-            if std::fs::remove_dir(work_dir.join(candidate)).is_err() {
-                break;
+            let directory = work_dir.join(candidate);
+            match std::fs::remove_dir(&directory) {
+                Ok(()) => parent = candidate.parent(),
+                Err(_error) if directory_has_entries(&directory) => break,
+                Err(error) => {
+                    return Err(format!(
+                        "Failed to remove empty untracked directory {}: {error}",
+                        directory.display()
+                    ));
+                }
             }
-            parent = candidate.parent();
         }
     }
+    Ok(())
+}
+
+fn directory_has_entries(path: &Path) -> bool {
+    std::fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_some())
 }

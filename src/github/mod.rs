@@ -70,8 +70,14 @@ pub use parse_pr::{
 };
 
 fn gh_command() -> Result<Command, GhError> {
-    crate::local_command::command(crate::local_command::LocalTool::Gh)
-        .map_err(|_| GhError::NotInstalled)
+    crate::local_command::command(crate::local_command::LocalTool::Gh).map_err(
+        |error| match error {
+            crate::local_command::LocalToolError::NotFound { .. } => GhError::NotInstalled,
+            error @ crate::local_command::LocalToolError::InvalidOverride { .. } => {
+                GhError::ToolResolution(error.to_string())
+            }
+        },
+    )
 }
 
 /// Response from listing issues.

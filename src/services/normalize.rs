@@ -43,14 +43,32 @@ fn local_paths_equivalent_for_platform(
     right: &str,
     platform: LocalPathPlatform,
 ) -> bool {
-    let normalize = |value: &str| match platform {
-        LocalPathPlatform::Windows => value
-            .replace('\\', "/")
-            .trim_end_matches('/')
-            .to_ascii_lowercase(),
-        LocalPathPlatform::Unix => value.trim_end_matches('/').to_owned(),
+    normalize_local_path(left, platform) == normalize_local_path(right, platform)
+}
+
+fn normalize_local_path(value: &str, platform: LocalPathPlatform) -> String {
+    let separated = match platform {
+        LocalPathPlatform::Windows => value.replace('\\', "/").to_lowercase(),
+        LocalPathPlatform::Unix => value.to_owned(),
     };
-    normalize(left) == normalize(right)
+    let rooted = separated.starts_with('/');
+    let mut parts = Vec::new();
+    for part in separated.split('/') {
+        match part {
+            ".." if parts.last().is_some_and(|last| *last != "..") => {
+                parts.pop();
+            }
+            ".." if !rooted => parts.push(part),
+            "" | "." | ".." => {}
+            _ => parts.push(part),
+        }
+    }
+    let normalized = parts.join("/");
+    if rooted {
+        format!("/{normalized}")
+    } else {
+        normalized
+    }
 }
 
 /// Validate that a local work directory is supported on this host.
@@ -63,8 +81,11 @@ fn validate_local_path_for_platform(
     platform: LocalPathPlatform,
 ) -> Result<(), String> {
     if platform == LocalPathPlatform::Windows {
-        let value = path.to_string_lossy();
-        if value.starts_with(r"\\") || value.starts_with("//") {
+        let value = path.to_string_lossy().replace('/', "\\");
+        let lower = value.to_lowercase();
+        let extended_local = lower.starts_with(r"\\?\") && !lower.starts_with(r"\\?\unc\");
+        let device_local = lower.starts_with(r"\\.\");
+        if value.starts_with(r"\\") && !extended_local && !device_local {
             return Err(format!(
                 "UNC work directories are not supported yet: {}. Choose a path on a local drive.",
                 path.display()
@@ -202,6 +223,23 @@ mod tests {
             LocalPathPlatform::Unix,
         ));
     }
+    #[test]
+    fn windows_path_comparison_handles_unicode_case_and_components() {
+        assert!(local_paths_equivalent_for_platform(
+            r"C:\MÜLLER\.\Repo\child\..",
+            r"c:/müller/repo",
+            LocalPathPlatform::Windows,
+        ));
+    }
+
+    #[test]
+    fn root_is_not_equivalent_to_empty_path() {
+        assert!(!local_paths_equivalent_for_platform(
+            "/",
+            "",
+            LocalPathPlatform::Unix,
+        ));
+    }
 
     #[test]
     fn windows_unc_path_is_rejected_with_actionable_error() {
@@ -212,6 +250,17 @@ mod tests {
         assert!(
             error.is_err_and(|message| message.contains("UNC") && message.contains("local drive")),
             "UNC rejection must explain the supported alternative"
+        );
+    }
+
+    #[test]
+    fn windows_extended_local_path_is_accepted() {
+        assert_eq!(
+            validate_local_path_for_platform(
+                std::path::Path::new(r"\\?\C:\workspace\repo"),
+                LocalPathPlatform::Windows,
+            ),
+            Ok(())
         );
     }
 
