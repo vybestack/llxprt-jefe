@@ -376,6 +376,8 @@ fn local_dirty_discard_preserves_tracked_jefe_owned_metadata() {
     std::fs::create_dir_all(work.join(".llxprt")).value_or_panic("create owned directory");
     std::fs::write(work.join(".llxprt/LLXPRT.md"), "committed")
         .value_or_panic("write committed owned file");
+    run_git(&work, &["config", "user.email", "test@example.com"]);
+    run_git(&work, &["config", "user.name", "Test"]);
     run_git(&work, &["add", ".llxprt/LLXPRT.md"]);
     run_git(&work, &["commit", "-m", "add owned metadata"]);
     std::fs::write(work.join(".llxprt/LLXPRT.md"), "local memory")
