@@ -695,4 +695,7 @@ impl PersistenceManager for FilePersistenceManager {
 }
 
 #[cfg(test)]
+mod runtime_binding_tests;
+
+#[cfg(test)]
 mod tests;

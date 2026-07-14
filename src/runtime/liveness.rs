@@ -66,51 +66,62 @@ fn pid_alive_on_platform(pid: u32) -> bool {
     true
 }
 
+/// Result of probing one persistent multiplexer session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionLiveness {
+    /// The session exists and contains a non-dead pane.
+    Alive,
+    /// The session is absent or all of its panes have exited.
+    Missing,
+    /// The multiplexer command could not be started or queried.
+    Unavailable,
+}
+
+/// Probe whether a local session exists and contains a non-dead pane.
+#[must_use]
+pub fn session_liveness(session_name: &str) -> SessionLiveness {
+    let Ok(mut command) = tmux_command() else {
+        return SessionLiveness::Unavailable;
+    };
+    let Ok(output) = command.args(["has-session", "-t", session_name]).output() else {
+        return SessionLiveness::Unavailable;
+    };
+    if !output.status.success() {
+        return SessionLiveness::Missing;
+    }
+
+    let Ok(mut command) = tmux_command() else {
+        return SessionLiveness::Unavailable;
+    };
+    let Ok(output) = command
+        .args(["list-panes", "-t", session_name, "-F", "#{pane_dead}"])
+        .output()
+    else {
+        return SessionLiveness::Unavailable;
+    };
+    if !output.status.success() {
+        return SessionLiveness::Missing;
+    }
+    if parse_dead_pane_flags(&String::from_utf8_lossy(&output.stdout)) {
+        SessionLiveness::Alive
+    } else {
+        SessionLiveness::Missing
+    }
+}
+
+fn parse_dead_pane_flags(output: &str) -> bool {
+    output
+        .lines()
+        .map(str::trim)
+        .any(|flag| !flag.is_empty() && (flag == "0" || flag.eq_ignore_ascii_case("false")))
+}
+
 /// Check if a tmux session exists and has at least one non-dead pane.
 ///
 /// @pseudocode component-002 lines 33-35
 #[must_use]
 pub fn check_session_alive(session_name: &str) -> bool {
-    let Ok(mut command) = tmux_command() else {
-        return false;
-    };
-    let has_session = command.args(["has-session", "-t", session_name]).output();
-
-    let Ok(out) = has_session else {
-        return false;
-    };
-    if !out.status.success() {
-        return false;
-    }
-
-    let Ok(mut command) = tmux_command() else {
-        return false;
-    };
-    let panes = command
-        .args(["list-panes", "-t", session_name, "-F", "#{pane_dead}"])
-        .output();
-
-    let Ok(out) = panes else {
-        return false;
-    };
-    if !out.status.success() {
-        return false;
-    }
-
-    let stdout = String::from_utf8_lossy(&out.stdout);
-
-    for line in stdout.lines() {
-        let dead_flag = line.trim();
-        if dead_flag.is_empty() {
-            continue;
-        }
-
-        if dead_flag == "0" || dead_flag.eq_ignore_ascii_case("false") {
-            return true;
-        }
-    }
-
-    false
+    session_liveness(session_name) == SessionLiveness::Alive
 }
 
 /// Check if a remote tmux session exists and has at least one non-dead pane.

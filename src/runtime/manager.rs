@@ -384,11 +384,25 @@ impl TmuxRuntimeManager {
         agent_id: &AgentId,
         signature: &LaunchSignature,
     ) -> bool {
+        self.session_liveness_for_signature(agent_id, signature) == liveness::SessionLiveness::Alive
+    }
+
+    /// Probe a persisted session without collapsing infrastructure failures into absence.
+    #[must_use]
+    pub fn session_liveness_for_signature(
+        &self,
+        agent_id: &AgentId,
+        signature: &LaunchSignature,
+    ) -> liveness::SessionLiveness {
         let session_name = RuntimeSession::session_name_for(agent_id);
         if signature.remote.enabled {
-            commands::remote_session_exists(&signature.remote, &session_name).unwrap_or(false)
+            match commands::remote_session_exists(&signature.remote, &session_name) {
+                Ok(true) => liveness::SessionLiveness::Alive,
+                Ok(false) => liveness::SessionLiveness::Missing,
+                Err(_) => liveness::SessionLiveness::Unavailable,
+            }
         } else {
-            liveness::check_session_alive(&session_name)
+            liveness::session_liveness(&session_name)
         }
     }
 
