@@ -157,16 +157,22 @@ fn expand_tilde_for_platform(
         return path.to_owned();
     };
     let home = home.to_string_lossy();
-    let Some(suffix) = suffix else {
-        return home.into_owned();
-    };
     match platform {
         LocalPathPlatform::Windows => {
-            let home = home.trim_end_matches(['/', '\\']);
-            let suffix = suffix.replace('/', "\\");
-            format!(r"{home}\{suffix}")
+            let home = home.replace('/', "\\");
+            let home = home.trim_end_matches('\\');
+            suffix.map_or_else(
+                || home.to_owned(),
+                |suffix| {
+                    let suffix = suffix.replace('/', "\\");
+                    format!(r"{home}\{suffix}")
+                },
+            )
         }
-        LocalPathPlatform::Unix => format!("{home}/{suffix}"),
+        LocalPathPlatform::Unix => match suffix {
+            Some(suffix) => format!("{home}/{suffix}"),
+            None => home.into_owned(),
+        },
     }
 }
 
@@ -386,6 +392,32 @@ mod tests {
                 LocalPathPlatform::Windows,
                 None,
                 Some(std::ffi::OsStr::new(r"C:\Users\Acoli Ω")),
+            ),
+            r"C:\Users\Acoli Ω\somedir"
+        );
+    }
+
+    #[test]
+    fn windows_tilde_prefers_user_profile_when_home_conflicts() {
+        assert_eq!(
+            expand_tilde_for_platform(
+                "~/somedir",
+                LocalPathPlatform::Windows,
+                Some(std::ffi::OsStr::new(r"C:\CustomHome")),
+                Some(std::ffi::OsStr::new(r"C:\Users\Default")),
+            ),
+            r"C:\Users\Default\somedir"
+        );
+    }
+
+    #[test]
+    fn windows_tilde_normalizes_user_profile_separators() {
+        assert_eq!(
+            expand_tilde_for_platform(
+                "~/somedir",
+                LocalPathPlatform::Windows,
+                None,
+                Some(std::ffi::OsStr::new("C:/Users/Acoli Ω")),
             ),
             r"C:\Users\Acoli Ω\somedir"
         );
