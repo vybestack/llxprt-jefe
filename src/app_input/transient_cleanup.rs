@@ -127,4 +127,24 @@ mod tests {
         // Should not attempt removal of an empty path.
         cleanup_transient_agent_dirs(&state);
     }
+
+    #[test]
+    fn cleanup_warns_on_non_notfound_error() {
+        // Pointing work_dir at a regular file causes remove_dir_all to fail
+        // with a non-NotFound error (NotADirectory on Unix), exercising the
+        // warn! path. The function must not panic.
+        let temp_file = unique_temp_dir("cleanup-file");
+        std::fs::write(&temp_file, b"not a dir")
+            .unwrap_or_else(|e| panic!("create test file: {e}"));
+        assert!(temp_file.is_file());
+
+        let mut state = AppState::default();
+        state
+            .agents
+            .push(transient_agent(temp_file.to_str().unwrap_or("")));
+
+        cleanup_transient_agent_dirs(&state);
+
+        let _ = std::fs::remove_file(&temp_file);
+    }
 }

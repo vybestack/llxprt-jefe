@@ -163,35 +163,10 @@ impl AppState {
         repo: &mut Repository,
         fields: &RepositoryFormFields,
     ) -> bool {
-        let trimmed_name = fields.name.trim();
-        let slug = form_runtime::repository_slug_from_name(trimmed_name);
-        if trimmed_name.is_empty() || slug.is_empty() {
+        let Some((trimmed_name, slug, remote_settings)) = Self::validate_repository_fields(fields)
+        else {
             return false;
-        }
-
-        if !Self::validate_github_repo(&fields.github_repo) {
-            warn!(
-                github_repo = %fields.github_repo,
-                "rejecting repository update: github_repo must be 'owner/repo' or empty"
-            );
-            return false;
-        }
-
-        if let Err(error) = crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo) {
-            warn!(
-                github_issue_pr_repo = %fields.github_issue_pr_repo,
-                error = %error,
-                "rejecting repository update: github_issue_pr_repo must be 'owner/repo' or empty"
-            );
-            return false;
-        }
-
-        // Reject an enabled-but-incomplete remote config visibly.
-        let remote_settings = Self::remote_settings_from_fields(fields);
-        if let Err(error) = crate::domain::target::validate_remote(&remote_settings) {
-            warn!(error = %error, "rejecting repository update: incomplete remote config");
-            return false;
-        }
+        };
 
         trimmed_name.clone_into(&mut repo.name);
         repo.slug = slug;
