@@ -173,6 +173,15 @@ pub fn parse_alive_sessions(raw_output: &str) -> HashSet<String> {
 ///
 /// This is a pure function — it does not invoke tmux — so it can be unit-tested
 /// without a tmux server.
+///
+/// # Colon assumption
+///
+/// `rsplit_once(':')` splits on the **last** colon. This is safe because
+/// `RuntimeSession::session_name_for` sanitizes agent IDs by replacing every
+/// non-alphanumeric / non-`-` / non-`_` character with `_`, guaranteeing no
+/// colon can appear in a session name. If session naming changes or this
+/// parser is reused for non-jefe sessions that may contain colons, the split
+/// must be reconsidered.
 #[must_use]
 pub fn parse_pane_alive(raw_output: &str) -> HashSet<String> {
     let mut alive_sessions: HashSet<String> = HashSet::new();
@@ -315,7 +324,17 @@ fn run_tmux_with_timeout(command: &mut std::process::Command) -> Result<std::pro
     command.stderr(Stdio::piped());
     let child = command.spawn().map_err(|_| ())?;
     let deadline = Instant::now() + LOCAL_TMUX_COMMAND_TIMEOUT;
-    let mut child = child;
+    run_child_with_timeout(child, deadline)
+}
+
+/// Testable inner: run a child to completion with a bounded deadline, killing
+/// it on timeout. Separated from [`run_tmux_with_timeout`] so the timeout
+/// behavior can be unit-tested with a plain `sleep` subprocess instead of a
+/// real tmux invocation (issue #287 review: kill path must be verified).
+fn run_child_with_timeout(
+    mut child: std::process::Child,
+    deadline: Instant,
+) -> Result<std::process::Output, ()> {
     loop {
         match child.try_wait() {
             Ok(Some(_)) => return child.wait_with_output().map_err(|_| ()),
@@ -609,5 +628,42 @@ jefe-b:0
         // (4_294_967_295) overflows pid_t parsing on macOS, which is
         // implementation-defined.
         assert!(!pid_alive(2_000_000_000));
+    }
+
+    // --- run_child_with_timeout (issue #287 review: kill path must be verified) ---
+
+    #[cfg(unix)]
+    #[test]
+    fn run_child_with_timeout_kills_long_running_subprocess() {
+        // Spawn a `sleep 30` and verify run_child_with_timeout kills it after
+        // a 1-second deadline rather than blocking indefinitely.
+        use std::process::Command;
+        let child = Command::new("sleep")
+            .arg("30")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|_| panic!("spawn sleep"));
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let result = run_child_with_timeout(child, deadline);
+        assert!(result.is_err(), "timeout must produce Err");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_child_with_timeout_returns_output_for_fast_subprocess() {
+        use std::process::Command;
+        let child = Command::new("echo")
+            .arg("ok")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|_| panic!("spawn echo"));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let result = run_child_with_timeout(child, deadline);
+        assert!(result.is_ok(), "fast subprocess must succeed");
+        let output = result.unwrap_or_else(|()| panic!("checked ok"));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("ok"), "output must contain echo result");
     }
 }
