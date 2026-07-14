@@ -55,15 +55,20 @@ fn sample_detail() -> PullRequestDetail {
             conclusion: "passed".to_string(),
             url: None,
         }],
-        comments: vec![IssueComment {
-            comment_id: 1,
-            author_login: "pat".to_string(),
-            created_at: "2026-06-22".to_string(),
-            edited_at: None,
-            body: "ready for review".to_string(),
-        }],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 84,
+            },
+            vec![IssueComment {
+                comment_id: 1,
+                author_login: "pat".to_string(),
+                created_at: "2026-06-22".to_string(),
+                edited_at: None,
+                body: "ready for review".to_string(),
+            }],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: None,
         merge_state_status: None,
     }

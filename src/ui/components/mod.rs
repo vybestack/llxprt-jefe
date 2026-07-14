@@ -100,12 +100,14 @@ pub(crate) mod terminal_viewport;
 /// @pseudocode component-001 lines 169-176
 mod text_box;
 
-pub use actions_detail::{ActionsDetailProjectionInputs, actions_detail_props};
+pub use actions_detail::{
+    ActionsDetailProjectionInputs, actions_detail_props, build_header_rows as actions_header_rows,
+};
 pub use actions_list::{
     ActionsListLayout, ActionsListWindow, actions_list_props, actions_list_status_message,
 };
 pub use agent_chooser::{AgentChooser, AgentChooserProps};
-pub use agent_list::{AgentListSelection, agent_list_props};
+pub use agent_list::{AgentListSelection, AgentListView, AgentListWindow, agent_list_props};
 /// @requirement issue #188
 pub use close_reason_chooser::{
     CloseReasonChooser, CloseReasonChooserProps, close_reason_chooser_lines,
@@ -137,8 +139,10 @@ pub use pr_detail::{PrDetailProjectionInputs, pr_detail_props};
 pub use pr_filter_controls::{pr_filter_action_hints, pr_filter_field_views, pr_filter_props};
 /// @plan PLAN-20260624-PR-MODE.P12
 /// @requirement REQ-PR-006
-pub use pr_list::{PrListLayout, PrListWindow, pr_list_props, pr_list_status_message};
-pub use preview::{Preview, PreviewProps};
+pub use pr_list::{
+    PrListLayout, PrListWindow, pr_list_props, pr_list_status_message, pr_list_visible_rows,
+};
+pub use preview::{Preview, PreviewProps, preview_content_lines};
 /// Property editor overlay component (issue #175).
 ///
 /// @requirement REQ-ISS-010
@@ -149,7 +153,7 @@ pub use selectable_list::{
     ListBorder, SelectableList, SelectableListProps, SelectableRow, SelectableSpan, SelectionStyle,
     SpanColor, SpanRole, selectable_list_element,
 };
-pub use sidebar::{Sidebar, SidebarProps};
+pub use sidebar::{Sidebar, SidebarProps, sidebar_list_props};
 pub use status_bar::{StatusBar, StatusBarProps};
 pub use terminal_view::{TerminalView, TerminalViewProps, terminal_empty_message};
 pub use terminal_viewport::{TerminalViewportProjection, build_terminal_viewport};

@@ -15,6 +15,7 @@ use crate::domain::{
 };
 use serde_json::Value;
 
+use super::comment_pages::exhausted_comments;
 use super::parse::parse_page_info;
 use super::{GhError, PrListResponse};
 
@@ -304,9 +305,8 @@ fn join_pr_nodes_field(item: &Value, field: &str, key: &str) -> String {
 /// Parse JSON output from `gh pr view --json` into a [`PullRequestDetail`].
 ///
 /// Reads the SINGLE-object `gh pr view` shape (NOT a search node). Comments
-/// are left EMPTY (`comments: []`, `has_more_comments: false`,
-/// `comments_cursor: None`) — comments are sourced separately by
-/// `list_pr_comments`. Malformed JSON yields `GhError::ParseError`.
+/// are initialized as an exhausted empty paginated list; they are sourced
+/// separately by `list_pr_comments`. Malformed JSON yields `GhError::ParseError`.
 ///
 /// @plan PLAN-20260624-PR-MODE.P08
 /// @requirement REQ-PR-009
@@ -367,9 +367,7 @@ pub fn parse_pull_request_detail_json(
         checks_status: parse_checks_rollup(&rollup),
         reviews,
         checks,
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: exhausted_comments(Vec::new()),
         mergeable: value.get("mergeable").and_then(Value::as_bool),
         merge_state_status: value
             .get("mergeStateStatus")

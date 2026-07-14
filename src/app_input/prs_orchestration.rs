@@ -422,6 +422,9 @@ fn refresh_repo_scope_if_changed_prs(
 fn reset_pr_list_for_repo_change(app_state: &mut AppStateHandle) {
     let mut state = app_state.write();
     state.prs_state.list.clear();
+    if let Some(detail) = &mut state.prs_state.pr_detail {
+        detail.comments.cancel_pending();
+    }
     state.prs_state.pr_detail = None;
     state.prs_state.error = None;
     // M7: clear property editor and pending mutation on scope reset.
@@ -435,7 +438,6 @@ fn reset_pr_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.prs_state.loading.detail = false;
     state.prs_state.loading.comments = false;
     state.prs_state.detail_pending = None;
-    state.prs_state.comments_page_pending = None;
     state.prs_state.agent_chooser = None;
     state.prs_state.merge_chooser = None;
     state.prs_state.merge_mutation_pending = None;
@@ -465,10 +467,11 @@ fn refresh_pr_preview_if_changed(app_state: &mut AppStateHandle, prev_pr_idx: Op
 /// @requirement REQ-PR-009
 /// @pseudocode component-004 lines 156-159
 fn update_pr_detail_viewport_rows(app_state: &mut AppStateHandle) {
-    let (term_rows, _term_cols) = crossterm::terminal::size().map_or((40, 120), |(c, r)| (r, c));
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (_, render_rows) = jefe::layout::effective_render_size(term_cols, term_rows);
     let mut state = app_state.write();
     state.prs_state.detail_viewport_rows = jefe::layout::prs_detail_viewport_rows(
-        term_rows as usize,
+        usize::from(render_rows),
         state.prs_state.error.is_some(),
         state.prs_state.filter_ui.controls_open,
     );

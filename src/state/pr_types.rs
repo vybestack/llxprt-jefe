@@ -11,7 +11,7 @@
 //! @requirement REQ-PR-012
 //! @requirement REQ-PR-013
 
-use crate::domain::RepositoryId;
+use crate::domain::{ListRequestId, RepositoryId};
 
 use super::{AgentChooserState, ComposerTarget, InlineState, PriorAgentFocus};
 
@@ -116,10 +116,6 @@ pub struct PullRequestsState {
     pub error: Option<String>,
     pub pr_focus: PrFocus,
     pub detail_subfocus: PrDetailSubfocus,
-    /// First-visible PR-list row; driven by the shared selection-follow helper.
-    pub list_scroll_offset: usize,
-    /// PR-list pane height in rows (set as a prop from the layout module).
-    pub list_viewport_rows: usize,
     /// Scroll offset (in lines) for the detail pane viewport.
     pub detail_scroll_offset: usize,
     /// Last rendered detail viewport height in rows.
@@ -146,8 +142,8 @@ pub struct PullRequestsState {
     pub next_property_request_id: u64,
     pub detail_pending: Option<PrDetailPending>,
     pub next_pr_detail_request_id: u64,
-    pub comments_page_pending: Option<PrCommentsPagePending>,
-    pub next_comments_page_request_id: u64,
+    /// High-water mark retained across replaceable PR-detail snapshots.
+    pub last_comments_page_request_id: ListRequestId,
     /// Pending review-thread resolve/unresolve mutation (issue #119).
     pub thread_resolve_pending: Option<PrThreadResolvePending>,
     /// Monotonic request id for thread-resolve mutations (issue #119).
@@ -194,18 +190,6 @@ impl PullRequestsState {
 pub struct PrDetailPending {
     pub scope_repo_id: RepositoryId,
     pub pr_number: u64,
-    pub request_id: u64,
-}
-
-/// @plan PLAN-20260624-PR-MODE.P03
-/// @requirement REQ-PR-010
-/// @pseudocode component-001 lines 88-98
-/// Pending comments-page staleness guard.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PrCommentsPagePending {
-    pub scope_repo_id: RepositoryId,
-    pub pr_number: u64,
-    pub cursor: Option<String>,
     pub request_id: u64,
 }
 

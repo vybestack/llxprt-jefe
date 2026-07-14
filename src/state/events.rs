@@ -1,4 +1,5 @@
 use crate::domain::RepositoryId;
+use crate::list_viewport::PageItemCount;
 
 use super::{ActionsFilterField, InlineState, ReadOnlyHintKind};
 
@@ -7,6 +8,10 @@ pub enum AppEvent {
     // Navigation
     NavigateUp,
     NavigateDown,
+    NavigatePageUp(PageItemCount),
+    NavigatePageDown(PageItemCount),
+    NavigateHome,
+    NavigateEnd,
     NavigateLeft,
     NavigateRight,
     SelectRepository(usize),
@@ -141,8 +146,8 @@ pub enum AppEvent {
     RefocusIssueList,
     IssuesNavigateUp,
     IssuesNavigateDown,
-    IssuesNavigatePageUp,
-    IssuesNavigatePageDown,
+    IssuesNavigatePageUp(PageItemCount),
+    IssuesNavigatePageDown(PageItemCount),
     IssuesNavigateHome,
     IssuesNavigateEnd,
     IssuesEnter,
@@ -390,8 +395,8 @@ pub enum AppEvent {
     RefocusPrList,
     PrNavigateUp,
     PrNavigateDown,
-    PrNavigatePageUp,
-    PrNavigatePageDown,
+    PrNavigatePageUp(PageItemCount),
+    PrNavigatePageDown(PageItemCount),
     PrNavigateHome,
     PrNavigateEnd,
     PrListEnter,
@@ -470,6 +475,11 @@ pub enum AppEvent {
         scope_repo_id: RepositoryId,
         pr_number: u64,
         request_id: u64,
+        error: String,
+    },
+    PrCommentsPageDispatchFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
         error: String,
     },
     PrOpenFilterControls,
@@ -586,8 +596,8 @@ pub enum AppEvent {
     ActionsReload,
     ActionsNavigateUp,
     ActionsNavigateDown,
-    ActionsNavigatePageUp,
-    ActionsNavigatePageDown,
+    ActionsNavigatePageUp(PageItemCount),
+    ActionsNavigatePageDown(PageItemCount),
     ActionsNavigateHome,
     ActionsNavigateEnd,
     ActionsEnter,
