@@ -11,22 +11,37 @@ use crate::domain::RepositoryId;
 use crate::state::events::AppEvent;
 
 /// PR chooser: cross-repo metadata is dropped.
+///
+/// A genuine cross-repo agent exists in state under `repo-2` and has
+/// matching metadata, so the only reason it is dropped is the repository
+/// filter — not absence from state (which is covered by the stale/removed
+/// test below).
 #[test]
 fn pr_metadata_cross_repo_agent_dropped_from_chooser() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
+    // Eligible agent in the selected repository (repo-1).
     state.agents.push(crate::domain::Agent::new(
         crate::domain::AgentId("agent-1".to_string()),
         RepositoryId("repo-1".to_string()),
         "My Agent".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     ));
+    // A real agent that exists in state but belongs to a different repository.
+    let mut other_repo_agent = crate::domain::Agent::new(
+        crate::domain::AgentId("agent-other-repo".to_string()),
+        RepositoryId("repo-2".to_string()),
+        "Other Repo Agent".to_string(),
+        std::path::PathBuf::from("/tmp/a-other"),
+    );
+    other_repo_agent.agent_kind = crate::domain::AgentKind::Llxprt;
+    state.agents.push(other_repo_agent);
     let metadata = vec![
         crate::domain::AgentChooserGitMetadata::for_agent(crate::domain::AgentId(
             "agent-1".to_string(),
         )),
         crate::domain::AgentChooserGitMetadata {
-            agent_id: crate::domain::AgentId("injected-cross-repo".to_string()),
+            agent_id: crate::domain::AgentId("agent-other-repo".to_string()),
             branch: Some("main".to_string()),
             dirty: crate::domain::DirtyStatus::dirty(),
         },
@@ -41,6 +56,10 @@ fn pr_metadata_cross_repo_agent_dropped_from_chooser() {
         chooser.agents.len(),
         1,
         "cross-repo metadata must be dropped"
+    );
+    assert_eq!(
+        chooser.agents[0].agent_id,
+        crate::domain::AgentId("agent-1".to_string()),
     );
 }
 
@@ -305,7 +324,7 @@ fn pr_metadata_cannot_override_identity() {
 /// PR chooser: when metadata has no matching `AgentId` for an eligible agent,
 /// the entry gets unknown dirty status and no branch (default display).
 #[test]
-fn pr_no_matching_metadata_gives_unknown_dirty_and_no_branch() {
+fn pr_no_metadata_gives_unknown_dirty_no_branch() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
     state.agents.push(crate::domain::Agent::new(
@@ -329,7 +348,7 @@ fn pr_no_matching_metadata_gives_unknown_dirty_and_no_branch() {
 /// PR chooser: empty agent value with nonempty repository defaults — the
 /// chooser shows the agent's own (empty) config, NOT the repository default.
 #[test]
-fn pr_empty_agent_value_not_replaced_by_repo_default() {
+fn pr_empty_agent_value_kept_not_repo_default() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
     let mut agent = crate::domain::Agent::new(
@@ -363,7 +382,7 @@ fn pr_empty_agent_value_not_replaced_by_repo_default() {
 /// PR chooser: agent config preserved exactly — a nonempty agent profile is
 /// used even when the repo has a different default.
 #[test]
-fn pr_agent_config_preserved_exactly_not_repo_fallback() {
+fn pr_agent_config_preserved_not_repo_fallback() {
     let mut state = prs_state_with_detail("repo-1", 1);
     state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
     let mut agent = crate::domain::Agent::new(

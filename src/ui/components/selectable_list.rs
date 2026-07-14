@@ -880,6 +880,32 @@ mod tests {
             "unknown dirty status must not show dirty marker in rendered output: {ansi}"
         );
     }
+    /// Clean worktree (dirty: Some(false)) renders the git suffix WITHOUT the
+    /// dirty marker — end-to-end render check symmetric to the dirty test.
+    #[test]
+    fn agent_list_clean_suffix_renders_no_marker() {
+        let props = agent_list_props(
+            &[agent("fix-login", AgentStatus::Running)],
+            &[GitRepoInfo {
+                origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
+                branch: Some("main".to_owned()),
+                dirty: Some(false),
+            }],
+            AgentListSelection::default(),
+            true,
+            ThemeColors::default(),
+            None,
+        );
+        let ansi = render_ansi(props, 70, 8);
+        assert!(
+            ansi.contains("vybestack/llxprt-jefe @ main"),
+            "rendered: {ansi}"
+        );
+        assert!(
+            !ansi.contains("main *"),
+            "clean must not show marker: {ansi}"
+        );
+    }
 
     /// An empty-message list renders the message text in the dim color and no
     /// row text appears.

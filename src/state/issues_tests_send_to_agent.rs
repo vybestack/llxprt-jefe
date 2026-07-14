@@ -427,6 +427,39 @@ fn metadata_running_agent_dropped_from_chooser() {
 
 /// Metadata for an agent whose kind is not installed (unavailable) must be
 /// dropped: the selector excludes agents whose runtime kind is not in the
+/// When metadata references ONLY ineligible agents (e.g. all running), the
+/// chooser stays closed and the `No agents available` notice is set — no
+/// eligible entries means no chooser, regardless of non-empty metadata.
+#[test]
+fn metadata_only_ineligible_agents_keeps_chooser_closed() {
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    let mut running = Agent::new(
+        AgentId("running-agent".to_string()),
+        RepositoryId("repo-1".to_string()),
+        "Running Agent".to_string(),
+        std::path::PathBuf::from("/tmp/running"),
+    );
+    running.status = crate::domain::AgentStatus::Running;
+    state.agents.push(running);
+
+    let metadata = vec![AgentChooserGitMetadata {
+        agent_id: AgentId("running-agent".to_string()),
+        branch: Some("main".to_string()),
+        dirty: crate::domain::DirtyStatus::dirty(),
+    }];
+    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    assert!(
+        state.issues_state.agent_chooser.is_none(),
+        "chooser must stay closed when all referenced agents are ineligible"
+    );
+    assert_eq!(
+        state.issues_state.draft_notice.as_deref(),
+        Some("No agents available"),
+        "ineligible-only metadata must set the no-agents notice"
+    );
+}
+
 /// installed snapshot (unless the repo is remote-enabled).
 #[test]
 fn metadata_unavailable_kind_agent_dropped_from_chooser() {
