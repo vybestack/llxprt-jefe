@@ -599,7 +599,6 @@ fn seed_sticky_agent_state(
         std::path::PathBuf::from("/tmp"),
     );
     agent.status = AgentStatus::Running;
-    agent.code_puppy_yolo = Some(false);
     agent.shortcut_slot = Some(1);
     agent.runtime_binding = Some(RuntimeBinding {
         session_name: agent_session.to_string(),
@@ -607,7 +606,7 @@ fn seed_sticky_agent_state(
             work_dir: std::path::PathBuf::from("/tmp"),
             profile: String::new(),
             code_puppy_model: String::new(),
-            code_puppy_yolo: Some(false),
+            code_puppy_yolo: None,
             code_puppy_quick_resume: false,
             mode_flags: vec![],
             llxprt_debug: String::new(),
