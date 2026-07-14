@@ -38,11 +38,11 @@ pub struct SshCancellation {
 impl SshCancellation {
     /// Request cancellation. The executor kills and reaps the SSH child.
     pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Release);
+        self.cancelled.store(true, Ordering::Relaxed);
     }
 
     fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Acquire)
+        self.cancelled.load(Ordering::Relaxed)
     }
 }
 
