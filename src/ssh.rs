@@ -7,7 +7,7 @@
 
 use std::ffi::OsString;
 use std::fmt;
-use std::io::Read;
+use std::io::{Error as IoError, ErrorKind, Read};
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::sync::Arc;
@@ -196,7 +196,7 @@ fn execute_command(
 ) -> Result<Output, SshError> {
     let mut child = command
         .spawn()
-        .map_err(|error| SshError::Spawn(error.to_string()))?;
+        .map_err(|error| SshError::Spawn(SshIoError::new(error)))?;
     let stdout = take_pipe(child.stdout.take(), &mut child, "stdout")?;
     let stderr = take_pipe(child.stderr.take(), &mut child, "stderr")?;
     let stdout_reader = read_pipe(stdout);
@@ -232,7 +232,7 @@ fn execute_command(
                     stdout_reader,
                     stderr_reader,
                     stdin_writer,
-                    SshError::Io(error.to_string()),
+                    SshError::Io(SshIoError::new(error)),
                 ));
             }
         }
@@ -256,7 +256,9 @@ fn take_pipe<T>(
 ) -> Result<T, SshError> {
     pipe.ok_or_else(|| {
         terminate_child(child);
-        SshError::Io(format!("OpenSSH {name} pipe was unavailable"))
+        SshError::Io(SshIoError::message(format!(
+            "OpenSSH {name} pipe was unavailable"
+        )))
     })
 }
 
@@ -289,8 +291,12 @@ fn join_reader(
 ) -> Result<Vec<u8>, SshError> {
     reader
         .join()
-        .map_err(|_| SshError::Io("OpenSSH output reader terminated unexpectedly".to_owned()))?
-        .map_err(|error| SshError::Io(error.to_string()))
+        .map_err(|_| {
+            SshError::Io(SshIoError::message(
+                "OpenSSH output reader terminated unexpectedly",
+            ))
+        })?
+        .map_err(|error| SshError::Io(SshIoError::new(error)))
 }
 
 fn join_writer(
@@ -301,8 +307,12 @@ fn join_writer(
     };
     writer
         .join()
-        .map_err(|_| SshError::Io("OpenSSH input writer terminated unexpectedly".to_owned()))?
-        .map_err(|error| SshError::Io(error.to_string()))
+        .map_err(|_| {
+            SshError::Io(SshIoError::message(
+                "OpenSSH input writer terminated unexpectedly",
+            ))
+        })?
+        .map_err(|error| SshError::Io(SshIoError::new(error)))
 }
 
 fn stop_execution(
@@ -324,6 +334,68 @@ fn terminate_child(child: &mut std::process::Child) {
     let _ = child.wait();
 }
 
+/// Preserved local process error with programmatic OS classification.
+#[derive(Clone)]
+pub struct SshIoError {
+    source: Arc<IoError>,
+}
+
+impl SshIoError {
+    fn new(source: IoError) -> Self {
+        Self {
+            source: Arc::new(source),
+        }
+    }
+
+    fn message(message: impl Into<String>) -> Self {
+        Self::new(IoError::other(message.into()))
+    }
+
+    /// Return the standard I/O error category.
+    #[must_use]
+    pub fn kind(&self) -> ErrorKind {
+        self.source.kind()
+    }
+
+    /// Return the platform error code when one is available.
+    #[must_use]
+    pub fn raw_os_error(&self) -> Option<i32> {
+        self.source.raw_os_error()
+    }
+}
+
+impl fmt::Debug for SshIoError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SshIoError")
+            .field("kind", &self.kind())
+            .field("raw_os_error", &self.raw_os_error())
+            .finish()
+    }
+}
+
+impl fmt::Display for SshIoError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.source.fmt(formatter)
+    }
+}
+
+impl PartialEq for SshIoError {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind() == other.kind()
+            && self.raw_os_error() == other.raw_os_error()
+            && self.source.to_string() == other.source.to_string()
+    }
+}
+
+impl Eq for SshIoError {}
+
+impl std::error::Error for SshIoError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.source.as_ref())
+    }
+}
+
 /// Typed SSH planning and execution failure.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SshError {
@@ -332,9 +404,9 @@ pub enum SshError {
     /// Connection settings are incomplete or unsafe.
     InvalidSettings(String),
     /// OpenSSH could not be started.
-    Spawn(String),
+    Spawn(SshIoError),
     /// Local process I/O failed.
-    Io(String),
+    Io(SshIoError),
     /// The remote host key could not be verified.
     HostKey,
     /// Authentication failed.
@@ -385,7 +457,22 @@ impl fmt::Display for SshError {
     }
 }
 
-impl std::error::Error for SshError {}
+impl std::error::Error for SshError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::LocalTool(error) => Some(error),
+            Self::Spawn(error) | Self::Io(error) => Some(error),
+            Self::InvalidSettings(_)
+            | Self::HostKey
+            | Self::Authentication
+            | Self::Timeout
+            | Self::Cancelled
+            | Self::MissingRemoteTmux
+            | Self::MissingRemoteRuntime
+            | Self::RemoteCommand { .. } => None,
+        }
+    }
+}
 
 /// Classify redacted OpenSSH diagnostics into actionable failure categories.
 #[must_use]
@@ -514,6 +601,20 @@ mod tests {
                 .to_string()
                 .contains("secret")
         );
+    }
+
+    #[test]
+    fn spawn_errors_preserve_io_kind_and_source() {
+        let plan = SshPlan {
+            executable: std::env::temp_dir().join("jefe-definitely-missing-ssh-executable"),
+            args: Vec::new(),
+        };
+        let result = plan.execute(None, Duration::from_secs(1), None);
+        let Err(SshError::Spawn(error)) = result else {
+            panic!("expected typed OpenSSH spawn failure");
+        };
+        assert_eq!(error.kind(), ErrorKind::NotFound);
+        assert!(std::error::Error::source(&error).is_some());
     }
 
     #[test]

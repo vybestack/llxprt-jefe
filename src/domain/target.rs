@@ -123,6 +123,7 @@ pub fn validate_ssh_option(option: &str) -> Result<(), String> {
         && !matches!(
             normalized.as_str(),
             "proxycommand"
+                | "proxyjump"
                 | "localcommand"
                 | "permitlocalcommand"
                 | "include"
@@ -411,6 +412,12 @@ mod tests {
         let mut good = remote(true, "ubuntu", "build.example.com");
         good.run_as_user = "deploy".to_owned();
         assert!(validate_remote(&good).is_ok());
+    }
+    #[test]
+    fn validate_remote_rejects_proxyjump_option() {
+        let mut bad = remote(true, "ubuntu", "build.example.com");
+        bad.options = vec!["ProxyJump=gateway.example.com".to_owned()];
+        assert!(validate_remote(&bad).is_err());
     }
 
     #[test]

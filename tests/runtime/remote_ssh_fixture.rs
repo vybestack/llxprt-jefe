@@ -33,7 +33,9 @@ impl Drop for RemoteFixtureGuard {
             "tmux kill-session -t '{}' >/dev/null 2>&1 || :; rm -rf -- '{}'",
             self.session, self.path
         );
-        let _ = self.execute(&command);
+        if let Err(error) = self.execute(&command) {
+            tracing::error!(%error, "failed to clean the owned real-SSH fixture");
+        }
     }
 }
 
@@ -64,6 +66,22 @@ fn configured_fixture() -> Result<Option<RemoteRepositorySettings>, String> {
         identity_file,
         ..RemoteRepositorySettings::default()
     }))
+}
+
+fn wait_for_attached_client(guard: &RemoteFixtureGuard, session: &str) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let command = format!("tmux list-clients -t '{session}' -F '#{{client_name}}'");
+        match guard.execute(&command) {
+            Ok(output) if output.status.success() && !output.stdout.is_empty() => return Ok(()),
+            Ok(_) | Err(_) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Ok(_) | Err(_) => {
+                return Err("remote tmux client did not attach before deadline".to_owned());
+            }
+        }
+    }
 }
 
 #[test]
@@ -102,15 +120,16 @@ fn guarded_windows_real_ssh_launches_attaches_and_cleans_owned_resources() {
     let attach = jefe::runtime::build_remote_attach_plan(&guard.settings, &session)
         .unwrap_or_else(|error| panic!("plan remote attach: {error}"));
     let cancellation = SshCancellation::default();
-    let cancellation_signal = cancellation.clone();
-    let cancel_thread = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(500));
-        cancellation_signal.cancel();
+    let attach_cancellation = cancellation.clone();
+    let attach_thread = std::thread::spawn(move || {
+        attach.execute(None, Duration::from_secs(10), Some(&attach_cancellation))
     });
-    let attached = attach.execute(None, Duration::from_secs(5), Some(&cancellation));
-    cancel_thread
+    wait_for_attached_client(&guard, &session)
+        .unwrap_or_else(|error| panic!("observe remote tmux attachment: {error}"));
+    cancellation.cancel();
+    let attached = attach_thread
         .join()
-        .unwrap_or_else(|_| panic!("join attach cancellation thread"));
+        .unwrap_or_else(|_| panic!("join remote attach thread"));
     assert!(matches!(attached, Err(jefe::ssh::SshError::Cancelled)));
 
     let verify = guard

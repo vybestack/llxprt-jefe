@@ -255,7 +255,7 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         "Host / IP",
         "SSH Port",
         "Identity File",
-        "SSH Options",
+        "SSH Options (space-separated)",
         "Run As User",
     ];
     let remote_values = [
