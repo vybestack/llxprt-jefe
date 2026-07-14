@@ -564,10 +564,11 @@ pub fn run_report(manifest_path: &Path) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let report_path = manifest_path.parent().map_or_else(
-        || PathBuf::from("run-report.md"),
-        |p| p.join("artifacts").join("run-report.md"),
-    );
+    let manifest_dir = manifest_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let report_path = manifest_dir.join("artifacts").join("run-report.md");
     if let Err(err) = save_report(&manifest, &report_path) {
         write_stderr(&format!("failed to save report: {err}\n"));
         return ExitCode::from(1);

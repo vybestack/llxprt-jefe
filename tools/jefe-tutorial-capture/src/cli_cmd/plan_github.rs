@@ -45,7 +45,9 @@ fn resolve_clone_dest(opts: &PlanGithubOpts) -> PathBuf {
             let run_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
             run_root.join("fixture-clone")
         } else {
-            PathBuf::from(format!("/tmp/jefe-tutorial-{}/fixture-clone", opts.run_id))
+            std::env::temp_dir()
+                .join(format!("jefe-tutorial-{}", opts.run_id))
+                .join("fixture-clone")
         }
     })
 }
@@ -165,6 +167,23 @@ fn print_dry_run(plan: &TierBPlan) -> ExitCode {
 /// **Task #3 fix**: Persists the normalized effective creation allowlist
 /// before the first mutation so cleanup can revalidate against immutable
 /// manifest provenance (not env).
+fn reject_existing_tier_b_state(manifest: &RunManifest, clone_dest: &Path) -> Result<(), ExitCode> {
+    if !manifest.github_resources.is_empty() {
+        write_stderr(
+            "error: manifest already contains Tier-B resources; refusing to overwrite cleanup provenance\n",
+        );
+        return Err(ExitCode::from(1));
+    }
+    if clone_dest.exists() {
+        write_stderr(&format!(
+            "error: Tier-B clone destination already exists at '{}'; refusing to overwrite it\n",
+            clone_dest.display()
+        ));
+        return Err(ExitCode::from(1));
+    }
+    Ok(())
+}
+
 fn execute_plan_github(
     opts: &PlanGithubOpts,
     plan: &TierBPlan,
@@ -189,11 +208,8 @@ fn execute_plan_github(
         return ExitCode::from(1);
     }
 
-    if !manifest.github_resources.is_empty() || clone_dest.exists() {
-        write_stderr(
-            "error: manifest already contains Tier-B resources; refusing to overwrite cleanup provenance\n",
-        );
-        return ExitCode::from(1);
+    if let Err(code) = reject_existing_tier_b_state(&manifest, clone_dest) {
+        return code;
     }
     if let Some(recorded_clone) = manifest.find_path_by_kind(OwnedPathKind::FixtureClone)
         && recorded_clone != clone_dest

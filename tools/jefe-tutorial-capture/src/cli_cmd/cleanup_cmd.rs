@@ -49,7 +49,10 @@ pub fn run_cleanup(opts: &CleanupOpts) -> ExitCode {
         write_stderr("error: --confirm (or --dry-run) is required for cleanup\n");
         return ExitCode::from(1);
     }
-    let run_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let run_root = manifest_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     if let Err(err) = verify_sentinel_ownership(run_root, manifest.run_id.as_str()) {
         write_stderr(&format!("cleanup ownership verification failed: {err}\n"));
         return ExitCode::from(1);
@@ -68,7 +71,7 @@ pub fn run_cleanup(opts: &CleanupOpts) -> ExitCode {
         return ExitCode::from(1);
     }
 
-    let purge = opts.purge_evidence && !gh_cleanup_incomplete;
+    let purge = opts.purge_evidence;
     match jefe_tutorial_capture::cleanup_manifest_with_root(&mut manifest, run_root, purge) {
         Ok(records) => {
             write_stdout("cleanup complete\n");

@@ -63,8 +63,8 @@ impl RedactionSet {
     }
 
     /// Add a token-prefix redaction rule. Matches the prefix followed by
-    /// `min_tail` or more alphanumeric/underscore characters and replaces the
-    /// entire match.
+    /// `min_tail` or more alphanumeric, underscore, hyphen, or period
+    /// characters and replaces the entire match.
     pub fn add_token_prefix(
         &mut self,
         prefix: impl Into<String>,

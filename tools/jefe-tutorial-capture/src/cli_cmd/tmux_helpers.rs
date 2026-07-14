@@ -425,11 +425,15 @@ fn register_capture_artifacts(
             ));
             continue;
         }
-        let _ = manifest.add_artifact(ArtifactEntry {
+        if let Err(err) = manifest.add_artifact(ArtifactEntry {
             label: name.clone(),
             relative_path,
             kind: ArtifactKind::ScreenCapture,
-        });
+        }) {
+            manifest.add_discrepancy(format!(
+                "failed to register screen capture artifact '{name}': {err}"
+            ));
+        }
         register_ansi_artifact(manifest, manifest_path, name, &sanitized);
     }
 }
@@ -451,12 +455,16 @@ fn register_ansi_artifact(
     }
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let ansi_full = manifest_dir.join("artifacts").join(&ansi_relative);
-    if ansi_full.exists() {
-        let _ = manifest.add_artifact(ArtifactEntry {
+    if ansi_full.exists()
+        && let Err(err) = manifest.add_artifact(ArtifactEntry {
             label: format!("{name}-ansi"),
             relative_path: ansi_relative,
             kind: ArtifactKind::AnsiCapture,
-        });
+        })
+    {
+        manifest.add_discrepancy(format!(
+            "failed to register ANSI capture artifact '{name}': {err}"
+        ));
     }
 }
 

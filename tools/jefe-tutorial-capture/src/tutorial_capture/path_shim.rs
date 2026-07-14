@@ -182,11 +182,11 @@ pub fn validate_real_runtime(profile: RuntimeProfile) -> Result<(), ShimError> {
 #[must_use]
 pub fn which(binary: &str) -> Option<PathBuf> {
     let path = std::env::var("PATH").ok()?;
-    for dir in path.split(':') {
-        if dir.is_empty() {
+    for dir in std::env::split_paths(&path) {
+        if dir.as_os_str().is_empty() {
             continue;
         }
-        let candidate = PathBuf::from(dir).join(binary);
+        let candidate = dir.join(binary);
         if is_executable(&candidate) {
             return Some(candidate);
         }
@@ -380,11 +380,11 @@ const REQUIRED_SYSTEM_TOOLS: &[&str] = &["git", "tmux", "sh", "env", "id", "kill
 /// the presence of an agent binary in the source directory is irrelevant
 /// — it is never symlinked as a system tool.
 fn resolve_system_tool(tool: &str, inherited_path: &str) -> Option<PathBuf> {
-    for dir in inherited_path.split(':') {
-        if dir.is_empty() {
+    for dir in std::env::split_paths(inherited_path) {
+        if dir.as_os_str().is_empty() {
             continue;
         }
-        let candidate = PathBuf::from(dir).join(tool);
+        let candidate = dir.join(tool);
         if is_executable(&candidate) {
             return Some(candidate);
         }

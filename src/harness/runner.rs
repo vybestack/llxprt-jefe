@@ -688,21 +688,20 @@ fn capture_artifact<D: HarnessDriver>(
         return Ok(());
     };
     let capture = driver.capture_screen().map_err(driver_error)?;
+    let color_lines = if context.capture_policy == CapturePolicy::PlainTextAndAnsi {
+        Some(driver.capture_screen_with_color().map_err(driver_error)?)
+    } else {
+        None
+    };
     let label = artifact_label(name);
-    write_text(
-        dir.join(format!("{label}.screen.txt")),
-        &capture.lines.join("\n"),
-    )?;
-    // Color capture is opt-in via CapturePolicy::PlainTextAndAnsi. Only
-    // callers that explicitly request it get ANSI artifacts; the default
-    // harness path writes plain-text-only artifacts, preserving origin/main
-    // behavior.
-    if context.capture_policy == CapturePolicy::PlainTextAndAnsi {
-        let color_lines = driver.capture_screen_with_color().map_err(driver_error)?;
-        write_text(
-            dir.join(format!("{label}.screen.ansi")),
-            &color_lines.join("\n"),
-        )?;
+    let plain_path = dir.join(format!("{label}.screen.txt"));
+    write_text(plain_path.clone(), &capture.lines.join("\n"))?;
+    if let Some(color_lines) = color_lines {
+        let ansi_path = dir.join(format!("{label}.screen.ansi"));
+        if let Err(error) = write_text(ansi_path, &color_lines.join("\n")) {
+            let _ = fs::remove_file(plain_path);
+            return Err(error);
+        }
     }
     context.captures.push(name.to_string());
     Ok(())
