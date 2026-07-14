@@ -272,12 +272,20 @@ fn unique_backup_path(parent: &Path) -> PathBuf {
     ))
 }
 
+#[cfg(unix)]
 fn sync_seed_parent(parent: &Path) -> Result<(), SeedError> {
     let directory = fs::File::open(parent)
         .map_err(|err| seed_io_error("open seed parent for sync", parent, err))?;
     directory
         .sync_all()
         .map_err(|err| seed_io_error("sync seed parent", parent, err))
+}
+
+#[cfg(not(unix))]
+fn sync_seed_parent(parent: &Path) -> Result<(), SeedError> {
+    fs::metadata(parent)
+        .map(|_| ())
+        .map_err(|err| seed_io_error("inspect seed parent", parent, err))
 }
 
 fn remove_staging_dir(staging_dir: &Path) {
