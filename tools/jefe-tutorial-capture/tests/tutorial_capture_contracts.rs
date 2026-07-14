@@ -64,6 +64,7 @@ fn sample_setup(base: &std::path::Path) -> RunSetup {
 /// owned paths are gone and the manifest is marked cleaned.
 ///
 /// @requirement REQ-TUTORIAL-CAPTURE-001
+#[cfg(unix)]
 #[test]
 fn prepare_then_cleanup_is_reversible() {
     let base = temp_base();
@@ -85,6 +86,7 @@ fn prepare_then_cleanup_is_reversible() {
 /// The manifest records the config directory so the CLI can find it later.
 ///
 /// @requirement REQ-TUTORIAL-CAPTURE-001
+#[cfg(unix)]
 #[test]
 fn manifest_records_config_dir_for_cli_lookup() {
     let base = temp_base();
@@ -100,6 +102,7 @@ fn manifest_records_config_dir_for_cli_lookup() {
 /// `prepare` writes executable shim scripts for the Shim runtime profile.
 ///
 /// @requirement REQ-TUTORIAL-CAPTURE-003
+#[cfg(unix)]
 #[test]
 fn prepare_writes_shim_executables_for_shim_profile() {
     let base = temp_base();
@@ -145,6 +148,7 @@ fn allowlist_refuses_production_repo_in_integration() {
 /// paths and outcome.
 ///
 /// @requirement REQ-TUTORIAL-CAPTURE-001
+#[cfg(unix)]
 #[test]
 fn manifest_save_load_roundtrip_in_integration() {
     let base = temp_base();
@@ -165,6 +169,7 @@ fn manifest_save_load_roundtrip_in_integration() {
 /// editorial note.
 ///
 /// @requirement REQ-TUTORIAL-CAPTURE-005
+#[cfg(unix)]
 #[test]
 fn save_report_writes_markdown_with_run_id_in_integration() {
     let base = temp_base();
@@ -183,6 +188,7 @@ fn save_report_writes_markdown_with_run_id_in_integration() {
 /// text files.
 ///
 /// @requirement REQ-TUTORIAL-CAPTURE-006
+#[cfg(unix)]
 #[test]
 fn redact_artifacts_removes_tokens_in_integration() {
     let base = temp_base();
