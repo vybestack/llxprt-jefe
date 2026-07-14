@@ -1,0 +1,36 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+
+    { "key": "a" },
+    { "waitFor": "No terminal attached" },
+
+    { "key": "F12" },
+    { "waitFor": "F12/t to focus" },
+
+    { "key": "Escape" },
+    { "wait": 200 },
+    { "key": "Escape" },
+    { "wait": 200 },
+
+    { "key": "Enter" },
+    { "wait": 100 },
+
+    { "capture": "paste-enter-escape-after" },
+
+    { "key": "F12" },
+    { "waitFor": "F12 to unfocus" },
+
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}
