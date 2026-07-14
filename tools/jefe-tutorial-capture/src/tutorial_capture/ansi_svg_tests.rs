@@ -722,6 +722,15 @@ fn color_svg_handles_truncated_48_2_sequence() {
     assert!(!svg.contains('\x1b'), "no ESC bytes must leak: {svg}");
 }
 
+#[test]
+fn truncated_truecolor_does_not_reinterpret_partial_zero_as_reset() {
+    let foreground = "\x1b[31mRED\x1b[38;2;255;0mX".to_string();
+    let background = "\x1b[41mRED\x1b[48;2;255;0mX".to_string();
+    let foreground_svg = render_color_svg(&[foreground], &sample_metadata());
+    let background_svg = render_color_svg(&[background], &sample_metadata());
+    assert!(foreground_svg.contains("#ff5555"));
+    assert!(background_svg.contains("#ff5555"));
+}
 /// BLOCKER 6: An empty SGR sequence (`ESC [ m`) is equivalent to `ESC [ 0 m`
 /// (reset). It must reset colors to defaults.
 #[test]

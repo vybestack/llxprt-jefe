@@ -537,10 +537,9 @@ fn apply_extended_fg(
                 current.fg_color = format!("#{r:02x}{g:02x}{b:02x}");
                 *idx += 4;
             } else {
-                // Truncated `38;2;...` (missing RGB components): skip the
-                // sub-mode selector so it is not reprocessed as a standalone
-                // SGR code.
-                *idx += 1;
+                // Consume the entire malformed extended-color command so its
+                // partial RGB values cannot be reinterpreted as SGR codes.
+                *idx = params.len().saturating_sub(1);
             }
         }
         _ => {
@@ -581,7 +580,7 @@ fn apply_extended_bg(
                 current.bg_color = format!("#{r:02x}{g:02x}{b:02x}");
                 *idx += 4;
             } else {
-                *idx += 1;
+                *idx = params.len().saturating_sub(1);
             }
         }
         _ => {

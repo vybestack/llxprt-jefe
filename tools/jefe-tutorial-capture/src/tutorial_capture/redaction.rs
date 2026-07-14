@@ -303,8 +303,9 @@ pub fn add_privacy_rules(set: &mut RedactionSet, hostname: Option<&str>) {
             set.add(format!("{month} {day:02}, "), "<date> ");
         }
     }
-    // Redact tmux clock forms: HH:MM and HH:MM:SS. We add all 24×60
-    // combinations of HH:MM (1440 rules). This is defense-in-depth.
+    // Redact tmux clock prefixes in HH:MM and HH:MM:SS displays. Replacing
+    // every HH:MM prefix also redacts the identifying portion of clocks that
+    // include seconds without adding 86,400 separate rules.
     for hour in 0..=23 {
         for minute in 0..=59 {
             set.add(format!("{hour:02}:{minute:02}"), "<time>");

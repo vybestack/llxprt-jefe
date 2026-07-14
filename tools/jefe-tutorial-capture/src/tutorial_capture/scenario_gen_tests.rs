@@ -202,12 +202,12 @@ fn generate_tier_b_scenario_escapes_quotes_in_titles() {
     let parsed: serde_json::Value = serde_json::from_str(&json).value_or_panic("JSON should parse");
     assert!(parsed.is_object(), "scenario JSON must be a valid object");
     assert!(
-        json.contains(r#"\"quoted\""#),
-        "quotes must be escaped in JSON: {json}"
+        json.contains(r#"\"quoted\" issue"#),
+        "issue-title quotes must be escaped in JSON: {json}"
     );
     assert!(
-        json.contains(r#"\"quoted\""#),
-        "quotes must be escaped in JSON: {json}"
+        json.contains(r#"\"quoted\" PR"#),
+        "PR-title quotes must be escaped in JSON: {json}"
     );
 }
 
