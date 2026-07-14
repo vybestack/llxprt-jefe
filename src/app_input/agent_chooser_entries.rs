@@ -204,18 +204,25 @@ mod tests {
         assert_eq!(md[0].dirty, DirtyStatus::unknown());
     }
 
-    // ── Finding 3: agent config preserved exactly (no repo default fallback) ──
+    // ── Eligibility/inclusion is independent of a custom profile ──
+    //
+    // This verifies that an agent with its OWN profile (not the repo default)
+    // still passes the selector and receives metadata. It is an
+    // eligibility/inclusion assertion only: the metadata payload never
+    // carries the profile/config value (metadata is git display info only),
+    // so we assert the agent is present (len == 1), not any config field.
 
     #[test]
-    fn build_metadata_includes_eligible_agent_with_custom_profile() {
-        // The metadata only carries git info, but the reducer rebuilds
-        // identity. Here we verify the metadata is built for the right agents
-        // (those that pass the selector). The config value is NOT in metadata.
+    fn build_metadata_includes_agent_with_custom_profile_as_eligible() {
         let mut agent = make_agent("a1", "r1", AgentKind::Llxprt);
         agent.profile = "agent-profile".to_string();
         let state = state_with_repo_and_agents("r1", &[agent]);
         let md = build_chooser_metadata(&state);
-        assert_eq!(md.len(), 1, "agent with own profile must be eligible");
+        assert_eq!(
+            md.len(),
+            1,
+            "agent with own profile must be eligible/included"
+        );
     }
 
     #[test]

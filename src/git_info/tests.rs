@@ -902,3 +902,35 @@ fn timeout_captures_stdout() {
     let output = result.value_or_panic("echo must produce output");
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello");
 }
+
+#[cfg(unix)]
+#[test]
+fn timeout_completes_child_exceeding_pipe_capacity() {
+    // Regression for the pipe-buffer deadlock: a child that writes more than
+    // the OS pipe capacity (commonly 64 KiB) before exiting would block on
+    // the full pipe and never terminate under the old read-after-poll design,
+    // producing a spurious timeout (None). With concurrent pipe draining, the
+    // child must complete and its full output must be captured.
+    //
+    // `dd` is POSIX and present on Linux/macOS/BSD; it writes a deterministic
+    // 256000-byte run of NUL bytes to stdout and exits 0. Invoked directly
+    // (no shell), so no shell assumptions.
+    let mut cmd = std::process::Command::new("dd");
+    cmd.args(["if=/dev/zero", "bs=1000", "count=256"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let child = cmd.spawn().value_or_panic("spawn dd");
+    let result = super::run_child_with_timeout(child, Path::new("/test"), "dd");
+    let output = result.value_or_panic("large-output child must complete, not time out");
+    assert!(
+        output.status.success(),
+        "dd must exit 0, got {:?}",
+        output.status
+    );
+    assert_eq!(
+        output.stdout.len(),
+        256_000,
+        "full stdout ({} bytes) must be captured",
+        output.stdout.len()
+    );
+}

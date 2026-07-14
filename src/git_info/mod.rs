@@ -271,6 +271,26 @@ fn run_git_with_timeout(command: &mut Command, work_dir: &Path) -> Option<std::p
     run_child_with_timeout(child, work_dir, git_probe_label(command))
 }
 
+/// Join a reader thread, returning its buffered bytes.
+///
+/// Returns an empty vec if the thread handle is missing (pipes were not
+/// piped) so the resulting [`Output`](std::process::Output) still has
+/// well-formed contents. A panicked reader thread is logged and yields an
+/// empty buffer so a single probe failure cannot panic the caller.
+fn join_reader(thread: Option<std::thread::JoinHandle<Vec<u8>>>) -> Vec<u8> {
+    match thread {
+        Some(handle) => {
+            if let Ok(buf) = handle.join() {
+                buf
+            } else {
+                tracing::debug!("git probe reader thread panicked; discarding its buffer");
+                Vec::new()
+            }
+        }
+        None => Vec::new(),
+    }
+}
+
 /// Poll a spawned [`std::process::Child`] for completion up to
 /// [`GIT_PROBE_TIMEOUT`], reading stdout/stderr into an [`Output`] on
 /// success. Kills and reaps the child on timeout, returning `None`.
@@ -279,12 +299,44 @@ fn run_git_with_timeout(command: &mut Command, work_dir: &Path) -> Option<std::p
 /// with an arbitrary child (e.g. `sleep`). The `work_dir` and `probe_label`
 /// are used only for the timeout warning message so diagnostics identify
 /// which git probe on which directory was slow.
+///
+/// # Pipe-buffer safety
+///
+/// stdout and stderr are consumed by dedicated reader threads for the entire
+/// lifetime of the poll. Without this, a child that writes more than the OS
+/// pipe capacity (commonly 64 KiB) before exiting would block on the full
+/// pipe and never terminate, causing a spurious timeout. The reader threads
+/// drain the pipes concurrently with polling, are joined on every exit path
+/// (normal exit, timeout, poll error), and own no resources beyond their
+/// join handle, so no reader thread is orphaned and no child is leaked.
+/// Spawn a draining reader thread for a piped child handle so the child can
+/// never block on a full pipe buffer. Returns `None` when the pipe was not
+/// piped.
+fn spawn_pipe_reader<R>(pipe: Option<R>) -> Option<std::thread::JoinHandle<Vec<u8>>>
+where
+    R: std::io::Read + Send + 'static,
+{
+    let mut pipe = pipe?;
+    Some(std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = pipe.read_to_end(&mut buf);
+        buf
+    }))
+}
+
 fn run_child_with_timeout(
     mut child: std::process::Child,
     work_dir: &Path,
     probe_label: &str,
 ) -> Option<std::process::Output> {
     let deadline = Instant::now() + GIT_PROBE_TIMEOUT;
+
+    // Take the piped handles immediately and drain them on dedicated threads
+    // so a child producing more than the pipe buffer capacity cannot deadlock
+    // against an unread pipe.
+    let stdout_thread = spawn_pipe_reader(child.stdout.take());
+    let stderr_thread = spawn_pipe_reader(child.stderr.take());
+
     let mut status = None;
 
     // Poll every 50ms until the child exits or the deadline passes.
@@ -304,6 +356,8 @@ fn run_child_with_timeout(
                 tracing::debug!(%error, "git probe try_wait failed");
                 let _ = child.kill();
                 let _ = child.wait();
+                let _ = join_reader(stdout_thread);
+                let _ = join_reader(stderr_thread);
                 return None;
             }
         }
@@ -319,21 +373,13 @@ fn run_child_with_timeout(
         );
         let _ = child.kill();
         let _ = child.wait();
+        let _ = join_reader(stdout_thread);
+        let _ = join_reader(stderr_thread);
         return None;
     }
 
-    // Read stdout/stderr (pipes are still open since we didn't use
-    // wait_with_output).
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    if let Some(mut out) = child.stdout.take() {
-        use std::io::Read;
-        let _ = out.read_to_end(&mut stdout);
-    }
-    if let Some(mut err) = child.stderr.take() {
-        use std::io::Read;
-        let _ = err.read_to_end(&mut stderr);
-    }
+    let stdout = join_reader(stdout_thread);
+    let stderr = join_reader(stderr_thread);
 
     // status is guaranteed Some here because the None case returns early
     // above (timeout path).
@@ -583,47 +629,72 @@ fn unquote(field: &[u8]) -> &str {
 /// ALL affected paths are under `.jefe/`/`.llxprt/`. Only split on ` -> ` for
 /// records whose status begins with `R` or `C`, so that `?? ".jefe/foo -> bar"`
 /// is treated as a single owned path (not a rename).
+///
+/// **Fail-safe:** A nonempty line that is not valid porcelain v1 (e.g. a
+/// truncated status field, a missing space, or a rename missing one side) is
+/// treated as dirty, matching the NUL parser. Only truly blank/whitespace-only
+/// lines are skipped (they are normal between records in newline format).
 fn porcelain_is_dirty_newline(porcelain: &str) -> bool {
     for line in porcelain.lines() {
-        let Some(paths) = newline_affected_paths(line) else {
-            // Skip blank/garbage lines (not fail-safe dirty — a truly empty
-            // line is normal between records in newline format).
+        // Skip genuinely blank lines (normal separators in newline format).
+        if line.trim().is_empty() {
             continue;
-        };
-        if !is_all_ignored(&paths) {
-            return true;
+        }
+        match newline_affected_paths(line) {
+            NewlineRecord::Paths(paths) => {
+                if !is_all_ignored(&paths) {
+                    return true;
+                }
+            }
+            // A nonempty but unparseable record fails safe as dirty: unknown
+            // real changes must never be silently reported as clean.
+            NewlineRecord::Malformed => return true,
         }
     }
     false
+}
+
+/// Classification of a single newline-delimited porcelain v1 line.
+enum NewlineRecord<'a> {
+    /// The line parsed into one or more affected paths.
+    Paths(Vec<&'a str>),
+    /// The line is nonempty but not valid porcelain v1 — fail safe as dirty.
+    Malformed,
 }
 
 /// Extract all affected paths from a newline-delimited porcelain v1 line.
 ///
 /// For a non-rename record (`XY <path>`), returns a single-element vec.
 /// For a rename/copy record (status begins `R`/`C`), splits on ` -> ` and
-/// returns BOTH old and new paths. Returns `None` for malformed/garbage
-/// lines. Only R/C status records are split on ` -> `, so an untracked file
-/// named `foo -> bar` is treated as a single path.
-fn newline_affected_paths(line: &str) -> Option<Vec<&str>> {
+/// returns BOTH old and new paths. Returns [`NewlineRecord::Malformed`] for
+/// nonempty lines that don't conform to the `XY <path>` shape or have empty
+/// path fields. Only R/C status records are split on ` -> `, so an untracked
+/// file named `foo -> bar` is treated as a single path.
+fn newline_affected_paths(line: &str) -> NewlineRecord<'_> {
     let bytes = line.as_bytes();
     // Porcelain v1 format: 2-char status + 1 space + path.
     if bytes.len() < 3 || bytes[2] != b' ' {
-        return None;
+        return NewlineRecord::Malformed;
     }
     let trimmed = line.trim_end();
-    let rest = trimmed.get(3..)?;
+    let Some(rest) = trimmed.get(3..) else {
+        return NewlineRecord::Malformed;
+    };
     let is_rename = bytes[0] == b'R' || bytes[0] == b'C' || bytes[1] == b'R' || bytes[1] == b'C';
     if is_rename && let Some((old, new)) = rest.split_once(" -> ") {
         let old_unquoted = old.trim_matches('"');
         let new_unquoted = new.trim_matches('"');
         if old_unquoted.is_empty() || new_unquoted.is_empty() {
-            return None;
+            return NewlineRecord::Malformed;
         }
-        return Some(vec![old_unquoted, new_unquoted]);
+        return NewlineRecord::Paths(vec![old_unquoted, new_unquoted]);
     }
     // Non-rename (or R/C without a ` -> `): single path.
     let unquoted = rest.trim_matches('"');
-    (!unquoted.is_empty()).then(|| vec![unquoted])
+    if unquoted.is_empty() {
+        return NewlineRecord::Malformed;
+    }
+    NewlineRecord::Paths(vec![unquoted])
 }
 
 /// True when ALL given paths are under an ignored (`.jefe/`/`.llxprt/`) prefix.

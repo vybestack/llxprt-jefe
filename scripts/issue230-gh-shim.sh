@@ -50,7 +50,7 @@ SHIM_OWNED_AUDIT=false
 if [[ -n "${GH_SHIM_AUDIT:-}" ]]; then
     AUDIT_FILE="$GH_SHIM_AUDIT"
 else
-    AUDIT_FILE=$(mktemp "${TMPDIR:-/tmp}/jefe-issue230-gh-audit.XXXXXX.log") || {
+    AUDIT_FILE=$(mktemp "${TMPDIR:-/tmp}/${ISSUE230_AUDIT_PREFIX}.XXXXXX.log") || {
         echo "gh shim: failed to create a private audit file" >&2
         exit 2
     }

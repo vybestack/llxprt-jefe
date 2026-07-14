@@ -371,6 +371,11 @@ fn strip_remote_prefix(refname: &str) -> &str {
 /// orchestration.
 pub(super) fn is_workdir_dirty(work_dir: &Path) -> Result<bool, String> {
     let output = git_capture(work_dir, ["status", "--porcelain=v1", "-z"])?;
+    // Fail closed: a nonzero exit from `git status` (e.g. corrupt index,
+    // not a worktree after a race) must NOT be interpreted as "clean" from
+    // empty stdout. Surface a useful error so the caller blocks the launch
+    // rather than proceeding against an unknown tree state.
+    require_success(&output, "status --porcelain=v1 -z")?;
     // NUL is valid UTF-8 (U+0000), so from_utf8_lossy preserves embedded NULs.
     let porcelain = String::from_utf8_lossy(&output.stdout);
     Ok(jefe::git_info::porcelain_is_dirty(&porcelain))
@@ -662,6 +667,54 @@ mod tests {
         assert!(is_dirty_from("RA src/old.txt -> src/new.txt\n"));
     }
 
+    // ── newline parser fail-safe: nonempty malformed records are dirty ──
+    //
+    // The newline-delimited parser must treat any nonempty but unparseable
+    // record as dirty (matching the NUL parser), so an unknown real change is
+    // never silently reported as clean. Only truly blank lines are skipped.
+
+    #[test]
+    fn newline_malformed_short_record_is_dirty() {
+        // Too short for the "XY <path>" shape.
+        assert!(is_dirty_from("X\n"));
+        assert!(is_dirty_from("XY\n"));
+    }
+
+    #[test]
+    fn newline_malformed_missing_space_is_dirty() {
+        // Status field not followed by a space separator.
+        assert!(is_dirty_from("XYpath\n"));
+    }
+
+    #[test]
+    fn newline_truncated_rename_missing_new_path_is_dirty() {
+        // Rename status with ` -> ` but empty new path.
+        assert!(is_dirty_from("R  src/old.txt -> \n"));
+        assert!(is_dirty_from("R  src/old.txt ->\n"));
+    }
+
+    #[test]
+    fn newline_rename_without_arrow_is_dirty() {
+        // An R/C status without a ` -> ` and a real path is still dirty, but
+        // a malformed empty path after the status must fail safe as dirty.
+        assert!(is_dirty_from("R  \n"));
+        assert!(is_dirty_from("C  \n"));
+    }
+
+    #[test]
+    fn newline_blank_lines_are_not_dirty() {
+        // Blank/whitespace-only lines are normal separators, not malformed.
+        assert!(!is_dirty_from(""));
+        assert!(!is_dirty_from("\n\n  \n"));
+        assert!(!is_dirty_from("   "));
+    }
+
+    #[test]
+    fn newline_garbage_among_clean_records_is_dirty() {
+        // A garbage line between two otherwise-clean jefe records fails safe.
+        assert!(is_dirty_from("?? .jefe/a\nGARBAGE\n M .jefe/b\n"));
+    }
+
     /// Helper: evaluate dirtiness from raw porcelain text via the exported
     /// `porcelain_is_dirty` wrapper so tests exercise the same public API
     /// production code uses.
@@ -799,5 +852,30 @@ mod tests {
             "https://GitHub.COM/acme/widgets.git",
             "acme/widgets"
         ));
+    }
+
+    // ── is_workdir_dirty: fail-closed on nonzero git status ─────────────
+    //
+    // `git status` exits nonzero (e.g. 128) when run outside a git worktree
+    // or against a corrupt index. Previously, is_workdir_dirty ignored the
+    // exit status and parsed stdout, so an empty stdout (typical of a
+    // nonzero exit) was misreported as "clean". This regression proves a
+    // nonzero status now surfaces a useful Err rather than a false clean.
+
+    #[test]
+    fn is_workdir_dirty_fails_closed_on_nonzero_status() {
+        // A temp directory that exists but is NOT a git worktree: `git
+        // status` here exits nonzero. This is an isolated, deterministic
+        // seam (no env mutation, no JEFE_GIT_BIN race with parallel tests).
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+        let result = is_workdir_dirty(dir.path());
+        let msg = match result {
+            Err(message) => message,
+            Ok(clean) => panic!("nonzero git status must fail closed, got Ok({clean})"),
+        };
+        assert!(
+            msg.contains("failed"),
+            "error should describe the git failure, got: {msg}"
+        );
     }
 }

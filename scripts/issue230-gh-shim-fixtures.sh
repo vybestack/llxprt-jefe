@@ -40,3 +40,11 @@ readonly ISSUE230_VIEW_JSON_FIELDS='number,title,state,author,createdAt,updatedA
 # The exact GraphQL comments query body (no cursor — first page).
 # Source: src/github/mod.rs list_comments, cursor=None branch.
 readonly ISSUE230_COMMENTS_QUERY_BODY='query($owner: String!, $repo: String!, $number: Int!, $first: Int!) { repository(owner: $owner, name: $repo) { issue(number: $number) { comments(first: $first) { nodes { id databaseId author { login } createdAt lastEditedAt body } pageInfo { hasNextPage endCursor } } } } }'
+
+# The default (script-owned) audit filename pattern the shim uses when
+# GH_SHIM_AUDIT is not supplied. Declared here (readonly, non-empty) so the
+# shim (mktemp template) and the self-test (leftover-file assertion) share a
+# single source of truth and cannot drift. The leading prefix must match the
+# shim's mktemp template so the self-test glob finds exactly the files the
+# shim creates.
+readonly ISSUE230_AUDIT_PREFIX='jefe-issue230-gh-audit'

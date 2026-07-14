@@ -42,7 +42,7 @@ fi
 
 # shellcheck source=issue230-gh-shim-fixtures.sh
 . "$FIXTURES"
-for fixture_name in ISSUE230_SEARCH_QUERY_BODY ISSUE230_SEARCH_QUERY_STRING ISSUE230_VIEW_JSON_FIELDS ISSUE230_COMMENTS_QUERY_BODY ISSUE230_REPO_SLUG ISSUE230_NUMBER ISSUE230_REPO_OWNER ISSUE230_REPO_NAME; do
+for fixture_name in ISSUE230_SEARCH_QUERY_BODY ISSUE230_SEARCH_QUERY_STRING ISSUE230_VIEW_JSON_FIELDS ISSUE230_COMMENTS_QUERY_BODY ISSUE230_REPO_SLUG ISSUE230_NUMBER ISSUE230_REPO_OWNER ISSUE230_REPO_NAME ISSUE230_AUDIT_PREFIX; do
     fixture_declaration=$(declare -p "$fixture_name" 2>/dev/null) || {
         echo "FATAL: shared fixture is not declared: $fixture_name" >&2
         exit 1
@@ -62,7 +62,13 @@ FAIL=0
 TMPAUDIT=$(mktemp)
 TMPSTDERR=$(mktemp)
 DEPLOYED_SHIM_DIR=$(mktemp -d)
-trap 'rm -f "$TMPAUDIT" "$TMPSTDERR"; rm -rf "$DEPLOYED_SHIM_DIR"' EXIT
+# Dedicated isolated directory for the script-owned audit cleanup assertion.
+# Created once here so the single EXIT trap can remove it; the shim runs with
+# TMPDIR pointed here so any leftover owned audit file lands in it.
+CLEANUP_TEST_DIR=$(mktemp -d)
+# Single EXIT trap: remove every temp path this script created. Defined once
+# (not redefined later) so cleanup is exactly-once and never misses a path.
+trap 'rm -f "$TMPAUDIT" "$TMPSTDERR"; rm -rf "$DEPLOYED_SHIM_DIR" "$CLEANUP_TEST_DIR"' EXIT
 cp "$SHIM" "$DEPLOYED_SHIM_DIR/gh"
 cp "$FIXTURES" "$DEPLOYED_SHIM_DIR/issue230-gh-shim-fixtures.sh"
 chmod +x "$DEPLOYED_SHIM_DIR/gh"
@@ -361,15 +367,11 @@ expect_reject "issue-view missing --json" \
 # file and must remove it on exit. When GH_SHIM_AUDIT IS supplied, the file
 # is persistent and must be preserved.
 #
-# Case 1 uses a DEDICATED temporary directory so the leftover-file assertion
-# is race-free: no concurrent process (shim, test, or other) can create
-# files in this isolated directory. The shim is run in a subshell with
-# GH_SHIM_AUDIT unset and TMPDIR set to the isolated directory, so any
-# script-owned audit file lands there. After the shim exits, we assert the
-# directory contains NO leftover audit file.
-
-CLEANUP_TEST_DIR=$(mktemp -d)
-trap 'rm -f "$TMPAUDIT" "$TMPSTDERR"; rm -rf "$DEPLOYED_SHIM_DIR" "$CLEANUP_TEST_DIR"' EXIT
+# CLEANUP_TEST_DIR was created once near the top and is removed by the single
+# EXIT trap. The shim runs in a subshell with GH_SHIM_AUDIT unset and TMPDIR
+# pointed at this isolated directory, so any script-owned audit file lands
+# there. After the shim exits, we assert the directory contains NO leftover
+# audit file.
 
 # Case 1: no GH_SHIM_AUDIT → temp file created and cleaned up.
 # Run in a subshell with GH_SHIM_AUDIT explicitly unset (not `env -u`, which
@@ -382,15 +384,17 @@ trap 'rm -f "$TMPAUDIT" "$TMPSTDERR"; rm -rf "$DEPLOYED_SHIM_DIR" "$CLEANUP_TEST
 ) || true
 
 # After exit, the isolated directory must contain no leftover owned audit
-# file (the only file that could exist is one the shim failed to clean up).
-leftover_count=$(find "$CLEANUP_TEST_DIR" -maxdepth 1 -name 'jefe-issue230-gh-audit.*' -type f 2>/dev/null | wc -l | tr -d ' ')
-if [[ "$leftover_count" -eq 0 ]]; then
+# file. Use a direct glob (whitespace-independent) rather than wc -l so the
+# check is robust regardless of locale or output formatting.
+shopt -s nullglob
+leftover_files=( "$CLEANUP_TEST_DIR"/${ISSUE230_AUDIT_PREFIX}.* )
+shopt -u nullglob
+if [[ ${#leftover_files[@]} -eq 0 ]]; then
     PASS=$((PASS + 1))
 else
     FAIL=$((FAIL + 1))
-    printf 'FAIL: script-owned audit file was not cleaned up (%d leftover in %s)
-' \
-        "$leftover_count" "$CLEANUP_TEST_DIR" >&2
+    printf 'FAIL: script-owned audit file was not cleaned up (%d leftover in %s)\n' \
+        "${#leftover_files[@]}" "$CLEANUP_TEST_DIR" >&2
 fi
 
 # Case 2: GH_SHIM_AUDIT supplied → caller file preserved after exit.

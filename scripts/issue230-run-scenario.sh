@@ -123,7 +123,13 @@ SESSION_NAME="jefe-issue230-$(basename "$ARTIFACT_DIR")"
 # --keep-session is also set, which preserves everything including tmux).
 SCENARIO_STATUS=1
 
+# Idempotency guard so the EXIT trap never cleans up twice even if a failure
+# path explicitly invoked cleanup_session before exiting.
+_CLEANUP_DONE=false
+
 cleanup_session() {
+    [[ "$_CLEANUP_DONE" == true ]] && return 0
+    _CLEANUP_DONE=true
     # Always kill the tmux session unless --keep-session was requested.
     if [[ "$KEEP_SESSION" == false ]]; then
         tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
@@ -135,13 +141,16 @@ cleanup_session() {
         rm -rf "$ARTIFACT_DIR" 2>/dev/null || true
     fi
 }
+# Single EXIT trap is the ONLY cleanup hook. Failure paths must NOT call
+# cleanup_session explicitly; they set SCENARIO_STATUS and exit, letting this
+# trap run exactly once (preserving artifacts on failure, removing on success).
 trap cleanup_session EXIT
 
 echo "== Issue #230 real tmux scenario =="
 
 echo "Building jefe and jefe-tmux-harness (incremental)..."
 build_status=0
-timeout 300s cargo build --bin jefe --bin jefe-tmux-harness 2>&1 || build_status=$?
+timeout 300s cargo build --manifest-path "$PROJECT_ROOT/Cargo.toml" --bin jefe --bin jefe-tmux-harness 2>&1 || build_status=$?
 if [[ $build_status -eq 124 ]]; then
     echo "FATAL: cargo build timed out after 300 seconds" >&2
     exit 1
@@ -199,16 +208,29 @@ EOF
 # Portable `git init` with an initial branch name. The `-b` flag requires
 # Git 2.28+; for older versions we fall back to `git init -q` followed by
 # `git checkout -b`. This preserves the branch name on all supported Git
-# versions.
+# versions. After initialization, the actual branch is verified to equal the
+# requested name — a mismatch is a hard failure (never masked) so a future
+# Git behavior change cannot silently put the scenario on the wrong branch.
 git_init_with_branch() {
     local dir="$1"
     local branch="$2"
     if git -C "$dir" init -q -b "$branch" 2>/dev/null; then
-        return 0
+        :
+    else
+        # Fallback for Git < 2.28: init on the default branch, then switch.
+        git -C "$dir" init -q
+        git -C "$dir" checkout -q -b "$branch"
     fi
-    # Fallback for Git < 2.28: init on the default branch, then switch.
-    git -C "$dir" init -q
-    git -C "$dir" checkout -q -b "$branch" 2>/dev/null || true
+    # Fail closed: verify the repo is actually on the requested branch rather
+    # than trusting init/checkout to have honored it. Use symbolic-ref (not
+    # rev-parse HEAD) so the check works on a freshly-init'd repo with no
+    # commits yet (unborn HEAD).
+    local actual_branch
+    actual_branch="$(git -C "$dir" symbolic-ref --quiet --short HEAD)"
+    if [[ "$actual_branch" != "$branch" ]]; then
+        echo "FATAL: git_init_with_branch failed to set branch '$branch' (got '$actual_branch') in $dir" >&2
+        return 1
+    fi
 }
 
 # LLxprt agent repo: branch "main", will be made dirty.
@@ -365,8 +387,6 @@ chmod +x "$SHIM_DIR/llxprt" "$SHIM_DIR/code-puppy"
 rm -f "$AUDIT_FILE"
 
 echo "Running scenario..."
-cd "$PROJECT_ROOT"
-
 harness_status=0
 timeout 180s env \
     HOME="$ARTIFACT_DIR" \
@@ -381,26 +401,26 @@ timeout 180s env \
     "${HARNESS_ARGS[@]}" || harness_status=$?
 if [[ $harness_status -eq 124 ]]; then
     echo "FAIL: harness timed out after 180 seconds" >&2
-    cleanup_session
     echo ""
     echo "== Diagnostics: final screen =="
     cat "$ARTIFACT_DIR/final-screen.txt" 2>/dev/null || echo "(no final-screen.txt)"
     echo ""
     echo "== Diagnostics: error =="
     cat "$ARTIFACT_DIR/error.txt" 2>/dev/null || echo "(no error.txt)"
+    # SCENARIO_STATUS stays nonzero; the EXIT trap preserves artifacts.
     exit 1
 fi
 if [[ $harness_status -ne 0 ]]; then
-    cleanup_session
     echo ""
     echo "== Diagnostics: final screen =="
     cat "$ARTIFACT_DIR/final-screen.txt" 2>/dev/null || echo "(no final-screen.txt)"
     echo ""
     echo "== Diagnostics: error =="
     cat "$ARTIFACT_DIR/error.txt" 2>/dev/null || echo "(no error.txt)"
+    # SCENARIO_STATUS stays nonzero; the EXIT trap preserves artifacts.
     exit "$harness_status"
 fi
-cleanup_session
+# Success: the EXIT trap will remove artifacts when SCENARIO_STATUS is set to 0.
 
 echo ""
 echo "== Verifying gh audit =="
