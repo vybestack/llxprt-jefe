@@ -277,7 +277,7 @@ jobs:
         shell: pwsh
         run: |
           $remaining = 'target/windows-ci/remaining-sessions.txt'
-          'No harness namespace was recorded.' | Out-File $remaining
+          $recordedNamespace = $false
           $detailsFiles = @(
             'target/tmux-harness/windows-startup/multiplexer.txt',
             'target/tmux-harness/windows-renderer/multiplexer.txt'
@@ -286,6 +286,7 @@ jobs:
             if (Test-Path $details) {
               $match = Select-String -Path $details -Pattern '^namespace: (.+)$'
               if ($null -ne $match) {
+                $recordedNamespace = $true
                 $namespace = $match.Matches[0].Groups[1].Value
                 $output = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace list-sessions 2>&1
                 $status = $LASTEXITCODE
@@ -293,6 +294,9 @@ jobs:
                   Out-File $remaining -Append
               }
             }
+          }
+          if (-not $recordedNamespace) {
+            'No harness namespace was recorded.' | Out-File $remaining
           }
           exit 0
       - name: Upload native Windows diagnostics
