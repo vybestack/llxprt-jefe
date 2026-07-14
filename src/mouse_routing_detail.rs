@@ -9,7 +9,8 @@ pub(super) fn refresh_detail_viewport_rows(
     term_cols: u16,
     term_rows: u16,
 ) {
-    let term_rows_usize = usize::from(term_rows);
+    let (render_cols, render_rows) = jefe::layout::effective_render_size(term_cols, term_rows);
+    let term_rows_usize = usize::from(render_rows);
     match pane {
         SelectablePane::IssueDetail => {
             state.issues_state.detail_viewport_rows = jefe::layout::issues_detail_viewport_rows(
@@ -30,8 +31,8 @@ pub(super) fn refresh_detail_viewport_rows(
         }
         SelectablePane::ActionsDetail => {
             let geometry = jefe::layout::actions_detail_geometry(
-                term_cols,
-                term_rows,
+                render_cols,
+                render_rows,
                 state.actions_state.error.is_some(),
                 state.actions_state.ui.filter_ui_open,
             );

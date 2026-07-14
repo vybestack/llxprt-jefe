@@ -27,9 +27,7 @@ fn make_state_with_detail() -> AppState {
         checks_status: crate::domain::PrCheckStatus::None,
         reviews: Vec::new(),
         checks: Vec::new(),
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::default(),
         mergeable: Some(true),
         merge_state_status: None,
     };

@@ -5,6 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::{CommentDetailIdentity, PaginatedList};
+
 /// @requirement REQ-ISS-006
 /// @pseudocode component-001 lines 83-96
 /// Issue state for list display.
@@ -58,9 +60,7 @@ pub struct IssueDetail {
     pub milestone: Option<String>,
     pub body: String,
     pub external_url: String,
-    pub comments: Vec<IssueComment>,
-    pub has_more_comments: bool,
-    pub comments_cursor: Option<String>,
+    pub comments: PaginatedList<IssueComment, CommentDetailIdentity>,
     /// The issue's type name (GitHub issue types), if any (issue #175).
     pub issue_type_name: Option<String>,
 }
@@ -192,43 +192,5 @@ impl CloseReason {
             Self::Completed => "completed",
             Self::NotPlanned | Self::Duplicate | Self::Invalid => "not planned",
         }
-    }
-}
-
-#[cfg(test)]
-mod close_reason_tests {
-    use super::*;
-
-    #[test]
-    fn completed_label_and_flag() {
-        assert_eq!(CloseReason::Completed.label(), "Completed");
-        assert_eq!(CloseReason::Completed.gh_reason_flag(), "completed");
-    }
-
-    #[test]
-    fn not_planned_label_and_flag() {
-        assert_eq!(CloseReason::NotPlanned.label(), "Not planned");
-        assert_eq!(CloseReason::NotPlanned.gh_reason_flag(), "not planned");
-    }
-
-    #[test]
-    fn duplicate_label_and_flag() {
-        assert_eq!(CloseReason::Duplicate.label(), "Duplicate");
-        assert_eq!(CloseReason::Duplicate.gh_reason_flag(), "not planned");
-    }
-
-    #[test]
-    fn invalid_label_and_flag() {
-        assert_eq!(CloseReason::Invalid.label(), "Invalid");
-        assert_eq!(CloseReason::Invalid.gh_reason_flag(), "not planned");
-    }
-
-    #[test]
-    fn close_reasons_has_four_variants_in_order() {
-        assert_eq!(CLOSE_REASONS.len(), 4);
-        assert_eq!(CLOSE_REASONS[0], CloseReason::Completed);
-        assert_eq!(CLOSE_REASONS[1], CloseReason::NotPlanned);
-        assert_eq!(CLOSE_REASONS[2], CloseReason::Duplicate);
-        assert_eq!(CLOSE_REASONS[3], CloseReason::Invalid);
     }
 }

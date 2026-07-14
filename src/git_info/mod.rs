@@ -70,6 +70,18 @@ pub struct GitRepoInfo {
 }
 
 impl GitRepoInfo {
+    /// Build display info from the configured origin without probing the filesystem.
+    #[must_use]
+    pub fn from_configured_origin(github_repo: &str) -> Self {
+        let origin_shortform =
+            (!github_repo.trim().is_empty()).then(|| github_repo.trim().to_owned());
+        Self {
+            origin_shortform,
+            branch: None,
+            dirty: None,
+        }
+    }
+
     /// Build a `GitRepoInfo` for the given work directory.
     ///
     /// - `github_repo`: the configured `Repository.github_repo` field

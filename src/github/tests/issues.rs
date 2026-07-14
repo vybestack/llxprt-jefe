@@ -304,7 +304,7 @@ fn test_get_issue_detail_parses_json() {
 }
 
 #[test]
-fn test_parse_issue_detail_json_disables_pagination_until_graphql_comments_are_loaded() {
+fn test_parsed_issue_comments_are_identity_free_before_reducer_rebind() {
     let json = r#"{
         "number": 17,
         "title": "Create a feature list",
@@ -322,8 +322,9 @@ fn test_parse_issue_detail_json_disables_pagination_until_graphql_comments_are_l
 
     let detail = parse_issue_detail_json(json).value_or_panic("should parse detail JSON");
 
-    assert!(!detail.has_more_comments);
-    assert_eq!(detail.comments_cursor, None);
+    assert!(!detail.comments.has_more());
+    assert_eq!(detail.comments.next_page(), &crate::domain::PageToken::Done);
+    assert!(detail.comments.identity().is_none());
 }
 
 #[test]
@@ -603,9 +604,14 @@ fn test_build_send_payload_with_comment() {
         milestone: Some("v1.0".to_string()),
         body: "Issue body".to_string(),
         external_url: "https://github.com/owner/repo/issues/17".to_string(),
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 17,
+            },
+            vec![],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         issue_type_name: None,
     };
 
@@ -654,9 +660,14 @@ fn test_build_send_payload_without_comment() {
         milestone: None,
         body: "Another body".to_string(),
         external_url: "https://github.com/owner/repo/issues/5".to_string(),
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 5,
+            },
+            vec![],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         issue_type_name: None,
     };
 

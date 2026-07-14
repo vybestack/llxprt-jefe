@@ -37,7 +37,6 @@ fn load_first_page_and_navigate_to_end(state: &mut AppState) -> u64 {
     assert!(state.prs_state.has_more_prs());
     assert_eq!(state.prs_state.selected_pr_index(), Some(0));
 
-    state.prs_state.list_viewport_rows = 10;
     (0..29).for_each(|_| state.apply_in_place(AppEvent::PrNavigateDown));
     assert_eq!(state.prs_state.selected_pr_index(), Some(29));
 
@@ -87,17 +86,13 @@ fn deliver_second_page_and_assert_append(state: &mut AppState, request_id: u64) 
     assert!(matches!(state.prs_state.list.next_page(), PageToken::Done));
     assert!(!state.prs_state.has_more_prs());
 
-    let sel = state.prs_state.selected_pr_index().unwrap_or(0);
-    let len = state.prs_state.pull_requests().len();
-    let vp = state.prs_state.list_viewport_rows.max(1);
-    let expected_first = crate::layout::list_first_visible_index(sel, len, vp);
-    assert_eq!(state.prs_state.list_scroll_offset, expected_first);
-    let visible = crate::layout::list_visible_window(state.prs_state.pull_requests(), sel, vp);
-    assert!(!visible.is_empty());
-    assert!(
-        sel >= expected_first && sel < expected_first + visible.len(),
-        "selected row must stay visible"
+    let viewport = crate::list_viewport::ListViewport::uniform(
+        state.prs_state.pull_requests().len(),
+        state.prs_state.selected_pr_index(),
+        crate::list_viewport::ContentRows::new(10),
+        crate::list_viewport::RowsPerItem::new(1),
     );
+    assert!(viewport.visible_range().contains(&29));
 }
 
 /// Deliver stale page responses (wrong scope + wrong request_id) and assert
@@ -156,9 +151,8 @@ fn assert_stale_pages_discarded(state: &mut AppState) {
 ///    fires (selected_pr_index == pull_requests.len()-1 AND has_more_prs).
 /// 3. Simulate the page-load dispatch by marking list_page_pending.
 /// 4. Deliver PrListPageLoaded and assert apply_pr_list_page_loaded APPENDS
-///    the new rows (30 to 60), PRESERVES existing rows + the current selection
-///    index, and recomputes list_scroll_offset via list_first_visible_index so
-///    the selected row stays visible (no jump, no clipping, #54/#55).
+///    the new rows (30 to 60), PRESERVES existing rows + the current selection,
+///    and the shared viewport projection keeps it visible (#54/#55).
 /// 5. Deliver a STALE page response (wrong scope_id or stale request_id) and
 ///    assert it is DISCARDED (rows NOT duplicated/appended, selection unchanged).
 ///

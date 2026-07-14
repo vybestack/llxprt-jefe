@@ -95,17 +95,21 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
     // Compute the rows/columns available to panes using the SAME shared helpers
     // the PRs screen uses — single source of truth for geometry.
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let (list_pane_rows, _) =
-        crate::layout::prs_pane_rows(usize::from(term_rows), error_message.is_some(), filter_open);
-    let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
-    let detail_geometry = crate::layout::actions_detail_geometry(
-        term_cols,
-        term_rows,
+    let (render_cols, render_rows) = crate::layout::effective_render_size(term_cols, term_rows);
+    let (list_pane_rows, _) = crate::layout::actions_pane_rows(
+        usize::from(render_rows),
         error_message.is_some(),
         filter_open,
     );
-    let list_width = crate::layout::pr_list_content_width(term_cols);
-    let sidebar_width = u32::from(crate::layout::prs_main_columns(term_cols).sidebar_width);
+    let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
+    let detail_geometry = crate::layout::actions_detail_geometry(
+        render_cols,
+        render_rows,
+        error_message.is_some(),
+        filter_open,
+    );
+    let list_width = crate::layout::pr_list_content_width(render_cols);
+    let sidebar_width = u32::from(crate::layout::prs_main_columns(render_cols).sidebar_width);
 
     // In Actions mode the sidebar focus is driven solely by ActionsFocus
     // (RepoList), not PaneFocus — otherwise the state=None default
@@ -147,6 +151,9 @@ pub fn ActionsScreen(props: &ActionsScreenProps) -> impl Into<AnyElement<'static
                         agent_counts: agent_counts,
                         selected: selected_repo_idx,
                         focused: sidebar_focused,
+                        grabbed: None,
+                        pane_rows: render_rows.saturating_sub(crate::layout::OUTER_BARS_HEIGHT),
+                        content_width: crate::list_viewport::bordered_padded_content_width(crate::layout::PRS_SIDEBAR_WIDTH),
                         colors: colors.clone(),
                         selection: selection,
                     )

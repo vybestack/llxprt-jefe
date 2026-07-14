@@ -223,17 +223,15 @@ fn test_up_in_issue_list_dispatches_navigate() {
     assert!(matches!(event, Some(AppEvent::IssuesNavigateUp)));
 }
 
-/// PageUp in IssueList focus dispatches IssuesNavigatePageUp.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P10
-/// @plan PLAN-20260329-ISSUES-MODE.P11
-/// @requirement REQ-ISS-003
 /// @pseudocode component-003 lines 39-50
 #[test]
 fn test_page_up_in_issue_list_dispatches_navigate() {
     let state = issues_state_with_focus(IssueFocus::IssueList);
-    let event = resolve_issues_key_event(&state, &key(KeyCode::PageUp));
-    assert!(matches!(event, Some(AppEvent::IssuesNavigatePageUp)));
+    let event = resolve_issues_key_event_for_rows(&state, &key(KeyCode::PageUp), 22);
+    assert!(matches!(
+        event,
+        Some(AppEvent::IssuesNavigatePageUp(page)) if page.get() == 3
+    ));
 }
 
 /// PageDown in IssueList focus dispatches IssuesNavigatePageDown.
@@ -245,8 +243,11 @@ fn test_page_up_in_issue_list_dispatches_navigate() {
 #[test]
 fn test_page_down_in_issue_list_dispatches_navigate() {
     let state = issues_state_with_focus(IssueFocus::IssueList);
-    let event = resolve_issues_key_event(&state, &key(KeyCode::PageDown));
-    assert!(matches!(event, Some(AppEvent::IssuesNavigatePageDown)));
+    let event = resolve_issues_key_event_for_rows(&state, &key(KeyCode::PageDown), 36);
+    assert!(matches!(
+        event,
+        Some(AppEvent::IssuesNavigatePageDown(page)) if page.get() == 7
+    ));
 }
 
 #[test]

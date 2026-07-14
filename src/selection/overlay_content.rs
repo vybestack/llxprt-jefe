@@ -818,9 +818,7 @@ mod tests {
             milestone: None,
             body: String::new(),
             external_url: String::new(),
-            comments: Vec::new(),
-            has_more_comments: false,
-            comments_cursor: None,
+            comments: crate::domain::PaginatedList::default(),
             issue_type_name: None,
         });
         state.issues_state.property_editor = Some(IssuePropertyEditorState {
@@ -937,9 +935,7 @@ mod tests {
             checks_status: PrCheckStatus::None,
             reviews: Vec::new(),
             checks: Vec::new(),
-            comments: Vec::new(),
-            has_more_comments: false,
-            comments_cursor: None,
+            comments: crate::domain::PaginatedList::default(),
             mergeable: None,
             merge_state_status: None,
         }

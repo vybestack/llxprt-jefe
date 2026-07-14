@@ -1,10 +1,19 @@
 //! Pagination contracts shared across list state and boundary messages.
 //!
-//! These are pure value types with no project-internal dependencies. They
-//! unify the two pagination backends (GraphQL cursor and REST page-number)
-//! behind a single `PageToken` enum so the deterministic state container
-//! (`crate::state::pagination::PaginatedList`) can reason about "is there
-//! more?" without storing a contradictory bool.
+//! These pure value types unify GraphQL cursor and REST page-number pagination
+//! so the deterministic state container can derive whether another page exists
+//! without storing a contradictory bool.
+
+use super::RepositoryId;
+
+/// Identity shared by Issue and PR detail comment pagination.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommentDetailIdentity {
+    /// Repository whose detail comments are loaded.
+    pub scope_repo_id: RepositoryId,
+    /// Issue or pull-request number within the repository.
+    pub number: u64,
+}
 
 /// Correlation identifier for one list request.
 ///

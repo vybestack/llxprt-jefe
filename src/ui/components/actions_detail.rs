@@ -47,7 +47,8 @@ pub struct ActionsDetailProjectionInputs<'a> {
 }
 
 /// Build the five fixed header rows for a loaded run detail.
-fn build_header_rows(detail: &WorkflowRunDetail) -> Vec<DetailHeaderRow> {
+#[must_use]
+pub fn build_header_rows(detail: &WorkflowRunDetail) -> Vec<DetailHeaderRow> {
     let run = &detail.run;
     vec![
         DetailHeaderRow {

@@ -2,6 +2,7 @@
 //!
 //! Extracted from mod.rs to keep file sizes manageable.
 
+use jefe::domain::PageToken;
 use jefe::messages::IssuesMessage;
 use jefe::state::AppEvent;
 
@@ -93,9 +94,14 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
                     milestone: None,
                     body: preview_body_from_list(&issue.body),
                     external_url: String::new(),
-                    comments: Vec::new(),
-                    has_more_comments: false,
-                    comments_cursor: None,
+                    comments: jefe::domain::PaginatedList::from_loaded(
+                        jefe::domain::CommentDetailIdentity {
+                            scope_repo_id: current_scope_repo_id(&state),
+                            number: issue.number,
+                        },
+                        Vec::new(),
+                        PageToken::Done,
+                    ),
                     issue_type_name: if issue.issue_type.is_empty() {
                         None
                     } else {
@@ -107,11 +113,13 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
 
     if let Some(detail) = preview {
         let mut state = app_state.write();
+        if let Some(previous_detail) = &mut state.issues_state.issue_detail {
+            previous_detail.comments.cancel_pending();
+        }
         state.issues_state.issue_detail = Some(detail);
         state.issues_state.loading.detail = false;
         state.issues_state.loading.comments = false;
         state.issues_state.detail_pending = None;
-        state.issues_state.comments_page_pending = None;
         state.issues_state.detail_subfocus = jefe::state::DetailSubfocus::Body;
         state.issues_state.detail_scroll_offset = 0;
     }
@@ -368,25 +376,26 @@ pub(super) fn load_more_comments(app_state: &mut AppStateHandle, ctx: &SharedCon
     let mut params = match comment_page_params(app_state) {
         CommentPageRequest::Ready(params) => params,
         CommentPageRequest::Fail(event) => {
-            mark_comment_failure_pending(app_state, &event);
-            apply_and_persist(app_state, ctx, event);
+            if let Some(event) = mark_comment_failure_pending(app_state, event) {
+                apply_and_persist(app_state, ctx, event);
+            }
             return;
         }
         CommentPageRequest::Skip => return,
     };
 
-    {
+    let request_id = {
         let mut state = app_state.write();
-        let request_id = state.next_comments_page_request_id();
-        state.mark_comments_page_loading_with_request_id(
-            params.scope_repo_id.clone(),
+        state.begin_issue_comment_page(
+            &params.scope_repo_id,
             params.issue_number,
             params.cursor.clone(),
-            request_id,
-        );
-        drop(state);
-        params.request_id = request_id;
-    }
+        )
+    };
+    let Some(request_id) = request_id else {
+        return;
+    };
+    params.request_id = request_id;
 
     let panic_params = params.clone();
     gh_async::spawn_gh_task_with_panic(
@@ -412,20 +421,42 @@ pub(super) fn load_more_comments(app_state: &mut AppStateHandle, ctx: &SharedCon
     );
 }
 
-fn mark_comment_failure_pending(app_state: &mut AppStateHandle, event: &AppEvent) {
-    if let AppEvent::IssueCommentsPageFailed {
+fn mark_comment_failure_pending(
+    app_state: &mut AppStateHandle,
+    event: AppEvent,
+) -> Option<AppEvent> {
+    let AppEvent::IssueCommentsPageFailed {
         scope_repo_id,
         issue_number,
         request_cursor,
+        error,
         ..
     } = event
-    {
-        let mut state = app_state.write();
-        state.mark_comments_page_loading(
-            scope_repo_id.clone(),
-            *issue_number,
-            request_cursor.clone(),
-        );
+    else {
+        return None;
+    };
+    let request_id = app_state.write().begin_issue_comment_page(
+        &scope_repo_id,
+        issue_number,
+        request_cursor.clone(),
+    )?;
+    Some(AppEvent::IssueCommentsPageFailed {
+        scope_repo_id,
+        issue_number,
+        request_id,
+        request_cursor,
+        error,
+    })
+}
+
+/// Return the GraphQL cursor for issue comments.
+///
+/// Comment pagination is cursor-only. `PageNumber` is a REST-list token and is
+/// intentionally rejected here rather than translated into unrelated behavior.
+fn issue_comment_cursor(token: &PageToken) -> Option<String> {
+    match token {
+        PageToken::Cursor(cursor) => Some(cursor.clone()),
+        PageToken::PageNumber(_) | PageToken::Done => None,
     }
 }
 
@@ -434,7 +465,7 @@ fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
     let Some(detail) = state.issues_state.issue_detail.as_ref() else {
         return CommentPageRequest::Skip;
     };
-    if !detail.has_more_comments || state.issues_state.loading.comments {
+    if !detail.comments.has_more() || state.issues_state.loading.comments {
         return CommentPageRequest::Skip;
     }
     if state.issues_state.detail_scroll_offset < state.issues_state.max_detail_scroll_offset() {
@@ -442,6 +473,7 @@ fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
     }
     let scope_repo_id = current_scope_repo_id(&state);
     let issue_number = detail.number;
+    let requested_cursor = issue_comment_cursor(detail.comments.next_page());
     let tracker = match jefe::domain::GitHubRepoRef::parse(&detail.repo_owner_name) {
         Ok(Some(tracker)) => tracker,
         Ok(None) => {
@@ -449,7 +481,7 @@ fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
                 scope_repo_id,
                 issue_number,
                 request_id: 0,
-                request_cursor: detail.comments_cursor.clone(),
+                request_cursor: requested_cursor,
                 error: MISSING_DETAIL_REPO_MSG.to_owned(),
             });
         }
@@ -458,7 +490,7 @@ fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
                 scope_repo_id,
                 issue_number,
                 request_id: 0,
-                request_cursor: detail.comments_cursor.clone(),
+                request_cursor: requested_cursor,
                 error: error.to_string(),
             });
         }
@@ -468,7 +500,7 @@ fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
         issue_number,
         owner: tracker.owner().to_owned(),
         repo: tracker.repo().to_owned(),
-        cursor: detail.comments_cursor.clone(),
+        cursor: requested_cursor,
         page_size: 30,
         request_id: 0,
     };
@@ -587,8 +619,8 @@ pub(super) fn dispatch_issues_message(
     match message {
         message @ (IssuesMessage::NavigateUp
         | IssuesMessage::NavigateDown
-        | IssuesMessage::NavigatePageUp
-        | IssuesMessage::NavigatePageDown
+        | IssuesMessage::NavigatePageUp(_)
+        | IssuesMessage::NavigatePageDown(_)
         | IssuesMessage::NavigateHome
         | IssuesMessage::NavigateEnd) => {
             dispatch_issues_navigation(app_state, ctx, message);
@@ -706,7 +738,21 @@ pub(super) fn resume_issue_post_mutation_refresh(
 
 #[cfg(test)]
 mod tests {
-    use super::preview_body_from_list;
+    use super::{issue_comment_cursor, preview_body_from_list};
+    use jefe::domain::PageToken;
+
+    #[test]
+    fn issue_comment_cursor_rejects_rest_page_tokens() {
+        assert_eq!(issue_comment_cursor(&PageToken::PageNumber(2)), None);
+    }
+
+    #[test]
+    fn issue_comment_cursor_extracts_graphql_cursor() {
+        assert_eq!(
+            issue_comment_cursor(&PageToken::Cursor("next".to_string())),
+            Some("next".to_string())
+        );
+    }
 
     #[test]
     fn empty_list_preview_body_prompts_for_detail_load() {
