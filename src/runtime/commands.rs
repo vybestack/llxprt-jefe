@@ -335,51 +335,6 @@ fn run_command_capture_with_timeout(
     }
 }
 
-fn remote_ssh_args(
-    remote: &crate::domain::RemoteRepositorySettings,
-    remote_command: &str,
-) -> Vec<String> {
-    // Runtime defense-in-depth: validate SSH identity fields before
-    // constructing the destination. The authoritative validation happens at
-    // form/persistence boundaries via domain::target::validate_remote, but
-    // every SSH command site re-checks at runtime (not just debug builds) so
-    // a stale or unvalidated RemoteRepositorySettings can never reach the
-    // shell. The `--` separator below is the final structural guard: it ends
-    // option parsing so a destination starting with '-' cannot be parsed as
-    // an ssh option even if validation were bypassed.
-    let user = remote.login_user.trim();
-    let host = remote.host.trim();
-    assert!(
-        crate::domain::target::is_valid_ssh_identity(user)
-            && crate::domain::target::is_valid_ssh_identity(host),
-        "SSH identity fields must be validated before reaching remote_ssh_args"
-    );
-    vec![
-        "-o".to_owned(),
-        "BatchMode=yes".to_owned(),
-        "-o".to_owned(),
-        "ConnectTimeout=10".to_owned(),
-        // Auto-accept the host key on first connect (TOFU) and verify it on
-        // subsequent connections so SSH never hangs waiting for interactive
-        // acceptance in the non-PTY runtime path.
-        "-o".to_owned(),
-        "StrictHostKeyChecking=accept-new".to_owned(),
-        // Post-connect keepalive so a hung remote command is detected within
-        // ~15s instead of blocking indefinitely.
-        "-o".to_owned(),
-        "ServerAliveInterval=5".to_owned(),
-        "-o".to_owned(),
-        "ServerAliveCountMax=3".to_owned(),
-        "-tt".to_owned(),
-        // `--` ends option parsing so a destination starting with '-' cannot
-        // be misinterpreted as an ssh option (defense in depth; validation
-        // is the primary guard).
-        "--".to_owned(),
-        format!("{user}@{host}"),
-        remote_command.to_owned(),
-    ]
-}
-
 pub fn remote_tmux_command(
     remote: &crate::domain::RemoteRepositorySettings,
     inner_command: &str,
@@ -416,10 +371,10 @@ fn remote_kill_session_command(
     )
 }
 
-pub fn build_remote_attach_command(
+pub fn build_remote_attach_plan(
     remote: &crate::domain::RemoteRepositorySettings,
     session_name: &str,
-) -> String {
+) -> Result<crate::ssh::SshPlan, RuntimeError> {
     let remote_command = remote_tmux_command(
         remote,
         &format!(
@@ -427,21 +382,18 @@ pub fn build_remote_attach_command(
             shell_escape_single(session_name)
         ),
     );
-    let ssh_args = remote_ssh_args(remote, &remote_command);
-    format!("exec ssh {}", shell_join(&ssh_args))
+    crate::ssh::SshPlan::new(remote, &remote_command, crate::ssh::SshMode::Terminal)
+        .map_err(|error| RuntimeError::RemoteExecutionFailed(error.to_string()))
 }
 
 pub fn run_remote_ssh(
     remote: &crate::domain::RemoteRepositorySettings,
     remote_command: &str,
 ) -> Result<Output, RuntimeError> {
-    let ssh_args = remote_ssh_args(remote, remote_command);
-    let mut cmd = Command::new("ssh");
-    cmd.args(&ssh_args);
-    run_command_capture(
-        cmd,
-        &format!("ssh {}@{}", remote.login_user.trim(), remote.host.trim()),
-    )
+    let plan = crate::ssh::SshPlan::new(remote, remote_command, crate::ssh::SshMode::Terminal)
+        .map_err(|error| RuntimeError::RemoteExecutionFailed(error.to_string()))?;
+    plan.execute(None, crate::ssh::SSH_OPERATION_TIMEOUT, None)
+        .map_err(|error| RuntimeError::RemoteExecutionFailed(error.to_string()))
 }
 
 fn ensure_remote_success(
@@ -452,22 +404,12 @@ fn ensure_remote_success(
     if output.status.success() {
         Ok(output)
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        let detail = if !stderr.is_empty() {
-            stderr
-        } else if !stdout.is_empty() {
-            stdout
-        } else {
-            format!(
-                "remote command failed on {}@{} with status {}",
-                remote.login_user.trim(),
-                remote.host.trim(),
-                output.status
-            )
-        };
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let failure = crate::ssh::classify_failure(output.status.code(), &stderr);
         Err(RuntimeError::RemoteExecutionFailed(format!(
-            "{action}: {detail}"
+            "{action} on {}@{}: {failure}",
+            remote.login_user.trim(),
+            remote.host.trim()
         )))
     }
 }

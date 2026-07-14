@@ -255,6 +255,17 @@ impl AppState {
             RepositoryFormFocus::Host => {
                 cursor.host = delete_char_before(&mut fields.host, cursor.host);
             }
+            RepositoryFormFocus::SshPort => {
+                cursor.ssh_port = delete_char_before(&mut fields.ssh_port, cursor.ssh_port);
+            }
+            RepositoryFormFocus::IdentityFile => {
+                cursor.identity_file =
+                    delete_char_before(&mut fields.identity_file, cursor.identity_file);
+            }
+            RepositoryFormFocus::SshOptions => {
+                cursor.ssh_options =
+                    delete_char_before(&mut fields.ssh_options, cursor.ssh_options);
+            }
             RepositoryFormFocus::RunAsUser => {
                 cursor.run_as_user =
                     delete_char_before(&mut fields.run_as_user, cursor.run_as_user);
@@ -300,6 +311,15 @@ impl AppState {
             }
             RepositoryFormFocus::Host => {
                 delete_char_at(&mut fields.host, cursor.host);
+            }
+            RepositoryFormFocus::SshPort => {
+                delete_char_at(&mut fields.ssh_port, cursor.ssh_port);
+            }
+            RepositoryFormFocus::IdentityFile => {
+                delete_char_at(&mut fields.identity_file, cursor.identity_file);
+            }
+            RepositoryFormFocus::SshOptions => {
+                delete_char_at(&mut fields.ssh_options, cursor.ssh_options);
             }
             RepositoryFormFocus::RunAsUser => {
                 delete_char_at(&mut fields.run_as_user, cursor.run_as_user);

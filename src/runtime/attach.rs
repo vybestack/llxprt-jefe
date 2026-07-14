@@ -470,13 +470,14 @@ fn ensure_wrap_slot(wraps: &mut Vec<bool>, rows: usize) {
 
 fn attach_command(
     session_name: &str,
-    ssh_command: Option<&str>,
+    ssh_plan: Option<&crate::ssh::SshPlan>,
     multiplexer_plan: Option<&super::multiplexer::MultiplexerPlan>,
 ) -> Result<CommandBuilder, RuntimeError> {
-    let mut cmd = if let Some(ssh_command) = ssh_command {
-        let mut cmd = CommandBuilder::new("sh");
-        cmd.arg("-lc");
-        cmd.arg(ssh_command);
+    let mut cmd = if let Some(ssh_plan) = ssh_plan {
+        let mut cmd = CommandBuilder::new(ssh_plan.executable());
+        for arg in ssh_plan.args() {
+            cmd.arg(arg);
+        }
         cmd
     } else {
         // Local attachment uses the same resolved executable and isolation
@@ -538,22 +539,22 @@ impl AttachedViewer {
         session_name: &str,
         rows: u16,
         cols: u16,
-        ssh_command: &str,
+        ssh_plan: &crate::ssh::SshPlan,
     ) -> Result<Self, RuntimeError> {
-        Self::spawn_command(session_name, rows, cols, Some(ssh_command), None)
+        Self::spawn_command(session_name, rows, cols, Some(ssh_plan), None)
     }
 
     fn spawn_command(
         session_name: &str,
         rows: u16,
         cols: u16,
-        ssh_command: Option<&str>,
+        ssh_plan: Option<&crate::ssh::SshPlan>,
         multiplexer_plan: Option<&super::multiplexer::MultiplexerPlan>,
     ) -> Result<Self, RuntimeError> {
-        debug!(session_name = %session_name, rows, cols, remote = ssh_command.is_some(), "AttachedViewer::spawn start");
+        debug!(session_name = %session_name, rows, cols, remote = ssh_plan.is_some(), "AttachedViewer::spawn start");
 
         let pty_pair = open_pty(rows, cols)?;
-        let cmd = attach_command(session_name, ssh_command, multiplexer_plan)?;
+        let cmd = attach_command(session_name, ssh_plan, multiplexer_plan)?;
 
         let child = pty_pair
             .slave

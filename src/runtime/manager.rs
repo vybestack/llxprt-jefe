@@ -637,8 +637,8 @@ impl RuntimeManager for TmuxRuntimeManager {
             // Spawn new viewer
             debug!(agent_id = %agent_id.0, session_name = %session_name, "attach: spawning AttachedViewer");
             let viewer = if let Some(remote) = remote_settings {
-                let ssh_command = commands::build_remote_attach_command(&remote, &session_name);
-                AttachedViewer::spawn_remote(&session_name, self.rows, self.cols, &ssh_command)?
+                let ssh_plan = commands::build_remote_attach_plan(&remote, &session_name)?;
+                AttachedViewer::spawn_remote(&session_name, self.rows, self.cols, &ssh_plan)?
             } else {
                 AttachedViewer::spawn(&session_name, self.rows, self.cols)?
             };

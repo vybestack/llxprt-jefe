@@ -121,6 +121,12 @@ impl AppState {
                 remote_enabled: r.remote.enabled,
                 login_user: r.remote.login_user.clone(),
                 host: r.remote.host.clone(),
+                ssh_port: r
+                    .remote
+                    .port
+                    .map_or_else(String::new, |port| port.to_string()),
+                identity_file: r.remote.identity_file.to_string_lossy().into_owned(),
+                ssh_options: r.remote.options.join(" "),
                 run_as_user: r.remote.run_as_user.clone(),
                 setup_env_default: r.remote.setup_env_default,
             })
@@ -136,6 +142,9 @@ impl AppState {
                 github_issue_pr_repo: fields.github_issue_pr_repo.chars().count(),
                 login_user: fields.login_user.chars().count(),
                 host: fields.host.chars().count(),
+                ssh_port: fields.ssh_port.chars().count(),
+                identity_file: fields.identity_file.chars().count(),
+                ssh_options: fields.ssh_options.chars().count(),
                 run_as_user: fields.run_as_user.chars().count(),
             },
             fields,
