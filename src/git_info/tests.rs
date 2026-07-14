@@ -471,7 +471,14 @@ fn z_trailing_empty_record_ignored() {
 // (exercised via GitRepoInfo::resolve) correctly ignores owned arrow-named
 // files while flagging real arrow-named files as dirty. This is the exact
 // regression the review flagged: a naive ` -> ` split would misclassify these.
+//
+// Gated to non-Windows platforms: the filename `foo -> bar` contains `>`,
+// which is a reserved character on Windows (CreateFile error 123). The
+// production parser logic is still covered cross-platform by the synthetic
+// raw porcelain -z tests above. These filesystem tests run only where the
+// OS permits `>` in filenames.
 
+#[cfg(not(windows))]
 #[test]
 fn resolve_real_untracked_jefe_arrow_filename_ignored() {
     let repo = temp_git_repo();
@@ -481,6 +488,7 @@ fn resolve_real_untracked_jefe_arrow_filename_ignored() {
     assert_eq!(info.dirty, Some(false), ".jefe/foo -> bar must be ignored");
 }
 
+#[cfg(not(windows))]
 #[test]
 fn resolve_real_untracked_llxprt_arrow_filename_ignored() {
     let repo = temp_git_repo();
@@ -494,6 +502,7 @@ fn resolve_real_untracked_llxprt_arrow_filename_ignored() {
     );
 }
 
+#[cfg(not(windows))]
 #[test]
 fn resolve_real_untracked_src_arrow_filename_dirty() {
     let repo = temp_git_repo();
