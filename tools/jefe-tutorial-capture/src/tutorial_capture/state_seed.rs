@@ -91,6 +91,8 @@ const SEEDED_REPO_ID: &str = "fixture-clone";
 
 /// The stable agent ID used for the seeded agent.
 const SEEDED_AGENT_ID: &str = "tutorial-agent";
+const SEEDED_PR_AGENT_ID: &str = "tutorial-pr-agent";
+const PR_AGENT_SUFFIX: &str = "Pr";
 
 /// Derive the agent kind from the runtime profile and shim availability.
 ///
@@ -135,7 +137,6 @@ pub fn derive_agent_kind(profile: RuntimeProfile, availability: ShimAvailability
 pub fn seed_tier_b_state(seed: &TierBStateSeed) -> Result<SeededState, StateSeedError> {
     let repository_id = RepositoryId(SEEDED_REPO_ID.to_string());
     let agent_id = AgentId(SEEDED_AGENT_ID.to_string());
-
     let settings = build_settings(&seed.theme);
     let state = build_state(
         &repository_id,
@@ -185,6 +186,7 @@ fn build_state(
     agent_kind: AgentKind,
 ) -> State {
     let profile = agent_kind.binary_name().to_string();
+    let pr_agent_id = AgentId(SEEDED_PR_AGENT_ID.to_string());
     let repo = Repository {
         id: repository_id.clone(),
         name: "Tutorial Fixture".to_string(),
@@ -196,7 +198,7 @@ fn build_state(
         remote: jefe::domain::RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),
         default_agent_kind: agent_kind,
-        agent_ids: vec![agent_id.clone()],
+        agent_ids: vec![agent_id.clone(), pr_agent_id.clone()],
     };
     let agent = Agent {
         id: agent_id.clone(),
@@ -220,10 +222,15 @@ fn build_state(
         status: AgentStatus::Queued,
         runtime_binding: None,
     };
+    let mut pr_agent = agent.clone();
+    pr_agent.id = pr_agent_id.clone();
+    pr_agent.display_id = format!("{agent_name}{PR_AGENT_SUFFIX}");
+    pr_agent.name.clone_from(&pr_agent.display_id);
+    pr_agent.description = "Tutorial capture PR agent".to_string();
     State {
         schema_version: STATE_SCHEMA_VERSION,
         repositories: vec![repo],
-        agents: vec![agent],
+        agents: vec![agent, pr_agent],
         selected_repository_index: Some(0),
         selected_agent_index: Some(0),
         hide_idle_repositories: false,
@@ -284,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn seed_writes_state_json_with_repository_and_agent() {
+    fn seed_writes_state_json_with_repository_and_distinct_send_agents() {
         let dir = temp_dir();
         let config_dir = dir.path().join("config");
         std::fs::create_dir_all(&config_dir).value_or_panic("create config dir");
@@ -295,7 +302,13 @@ mod tests {
         let content = std::fs::read_to_string(&state_path).value_or_panic("read state.json");
         let state: State = serde_json::from_str(&content).value_or_panic("parse state.json");
         assert_eq!(state.repositories.len(), 1, "must have one repository");
-        assert_eq!(state.agents.len(), 1, "must have one agent");
+        assert_eq!(
+            state.agents.len(),
+            2,
+            "must have separate issue and PR agents"
+        );
+        assert_eq!(state.agents[0].name, "TutorialAgent");
+        assert_eq!(state.agents[1].name, "TutorialAgentPr");
     }
 
     #[test]

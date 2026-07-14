@@ -177,7 +177,7 @@ fn is_agent_dead(
     }
     matches!(
         process_liveness(process_identity),
-        ProcessLiveness::Dead | ProcessLiveness::ReusedPid
+        ProcessLiveness::Dead | ProcessLiveness::ReusedPid | ProcessLiveness::MalformedIdentity
     )
 }
 
@@ -567,11 +567,11 @@ mod tests {
         ));
     }
 
-    /// Local agent, session gone, no identity recorded → inconclusive, so the
-    /// recovery safety net fails open instead of orphaning a possible worker.
+    /// Local agent, session gone, no identity recorded has no affirmative
+    /// liveness evidence and must not remain stuck in Running.
     #[test]
-    fn is_agent_dead_false_when_local_identity_missing() {
-        assert!(!is_agent_dead(false, false, None));
+    fn is_agent_dead_true_when_local_identity_missing() {
+        assert!(is_agent_dead(false, false, None));
     }
 
     /// Remote agent, session gone → always dead (no local PID fallback).
@@ -609,13 +609,13 @@ mod tests {
         );
     }
 
-    /// Local agent, no session, no identity ⇒ preserve as an orphan because
-    /// liveness is inconclusive and recovery must fail open.
+    /// Local agent, no session, no identity ⇒ Dead because there is no
+    /// affirmative process-liveness evidence to preserve.
     #[test]
-    fn restore_decision_skips_local_orphan_without_identity() {
+    fn restore_decision_dead_without_identity() {
         assert_eq!(
             restore_dead_decision(false, false, None),
-            RestoreDecision::SkipOrphan
+            RestoreDecision::Dead
         );
     }
 

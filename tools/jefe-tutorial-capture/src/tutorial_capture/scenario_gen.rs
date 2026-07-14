@@ -121,7 +121,7 @@ pub fn generate_tier_b_scenario(params: &TierBScenarioParams) -> String {
             },
             "send-pr-to-agent": {
                 "params": ["agent"],
-                "steps": build_send_to_agent_steps("pr", &p.agent_name)
+                "steps": build_send_to_agent_steps("pr", &format!("{}Pr", p.agent_name))
             }
         },
         "steps": build_tier_b_steps(p)
@@ -211,7 +211,7 @@ fn build_tier_b_steps(p: &TierBScenarioParams) -> serde_json::Value {
         { "expect": p.pr_title },
         { "capture": "pr-detail-exact" },
 
-        { "macro": "send-pr-to-agent", "args": { "agent": p.agent_name } },
+        { "macro": "send-pr-to-agent", "args": { "agent": format!("{}Pr", p.agent_name) } },
 
         { "key": "Escape" },
         { "wait": 200 },

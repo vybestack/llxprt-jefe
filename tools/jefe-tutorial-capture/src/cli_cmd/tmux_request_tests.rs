@@ -266,8 +266,13 @@ fn seed_tier_b_state_makes_isolated_config_see_repo_and_agent() {
         state.repositories[0].github_repo, "fixture/test-repo",
         "must have github repo association"
     );
-    assert_eq!(state.agents.len(), 1, "must have 1 agent");
+    assert_eq!(
+        state.agents.len(),
+        2,
+        "must have distinct issue and PR agents"
+    );
     assert_eq!(state.agents[0].name, "TutorialAgent");
+    assert_eq!(state.agents[1].name, "TutorialAgentPr");
     assert_eq!(
         state.agents[0].repository_id, result.repository_id,
         "agent must be bound to seeded repository"

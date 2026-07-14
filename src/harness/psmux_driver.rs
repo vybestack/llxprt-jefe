@@ -22,6 +22,9 @@ pub struct TmuxStartRequest {
     pub rows: u16,
     pub history_limit: u32,
     pub keep_session: bool,
+    pub env_path: Option<String>,
+    pub extra_env: Vec<(String, String)>,
+    pub suppress_status_bar: bool,
 }
 
 impl TmuxStartRequest {
@@ -41,6 +44,9 @@ impl TmuxStartRequest {
             rows,
             history_limit,
             keep_session: false,
+            env_path: None,
+            extra_env: Vec::new(),
+            suppress_status_bar: false,
         };
         request.validate()?;
         Ok(request)
@@ -71,6 +77,37 @@ impl TmuxStartRequest {
     #[must_use]
     pub fn with_keep_session(mut self, keep_session: bool) -> Self {
         self.keep_session = keep_session;
+        self
+    }
+
+    #[must_use]
+    pub fn with_env_path(mut self, path: impl Into<String>) -> Self {
+        self.env_path = Some(path.into());
+        self
+    }
+
+    pub fn with_extra_env(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Result<Self, TmuxDriverError> {
+        let key = key.into();
+        let value = value.into();
+        if key.contains('\0') || value.contains('\0') {
+            return Err(invalid_request("extra_env must not contain NUL bytes"));
+        }
+        if !is_portable_environment_identifier(&key) {
+            return Err(invalid_request(
+                "extra_env key is not a portable identifier",
+            ));
+        }
+        self.extra_env.push((key, value));
+        Ok(self)
+    }
+
+    #[must_use]
+    pub fn with_suppress_status_bar(mut self, suppress: bool) -> Self {
+        self.suppress_status_bar = suppress;
         self
     }
 
@@ -211,6 +248,9 @@ impl TmuxDriver {
         self.send_key(session, "Enter")
     }
 
+    pub fn send_type(&self, session: &TmuxSession, text: &str) -> Result<(), TmuxDriverError> {
+        self.run(&["send-keys", "-l", "-t", &session.name, "--", text])
+    }
     pub fn send_key(&self, session: &TmuxSession, key: &str) -> Result<(), TmuxDriverError> {
         if key.is_empty() {
             return Err(invalid_request("key must not be empty"));
@@ -239,6 +279,14 @@ impl TmuxDriver {
             session.cols,
             output_lines(&output.stdout),
         ))
+    }
+
+    pub fn capture_screen_with_color(
+        &self,
+        session: &TmuxSession,
+    ) -> Result<Vec<String>, TmuxDriverError> {
+        let output = self.capture(&["capture-pane", "-p", "-e", "-t", &session.name])?;
+        Ok(output_lines(&output.stdout))
     }
 
     pub fn capture_scrollback(
@@ -293,7 +341,11 @@ impl TmuxDriver {
             &request.session_name,
             "history-limit",
             &request.history_limit.to_string(),
-        ])
+        ])?;
+        if request.suppress_status_bar {
+            self.run(&["set-option", "-t", &request.session_name, "status", "off"])?;
+        }
+        Ok(())
     }
 
     fn display_message(
@@ -520,17 +572,44 @@ fn new_session_args(request: &TmuxStartRequest) -> Vec<String> {
         "-c".to_string(),
         request.working_dir.to_string_lossy().into_owned(),
     ];
-    args.push(windows_command_line(&request.command));
+    args.push(windows_command_line(
+        &request.command,
+        request.env_path.as_deref(),
+        &request.extra_env,
+    ));
     args
 }
 
-fn windows_command_line(arguments: &[String]) -> String {
+fn windows_command_line(
+    arguments: &[String],
+    env_path: Option<&str>,
+    extra_env: &[(String, String)],
+) -> String {
     let quoted = arguments
         .iter()
         .map(|argument| powershell_quote(argument))
         .collect::<Vec<_>>()
         .join(" ");
-    format!("& {quoted}")
+    let mut environment = Vec::new();
+    if let Some(path) = env_path {
+        environment.push(format!("$env:PATH = {};", powershell_quote(path)));
+    }
+    environment.extend(
+        extra_env
+            .iter()
+            .map(|(key, value)| format!("$env:{key} = {};", powershell_quote(value))),
+    );
+    if environment.is_empty() {
+        format!("& {quoted}")
+    } else {
+        format!("{} & {quoted}", environment.join(" "))
+    }
+}
+
+fn is_portable_environment_identifier(key: &str) -> bool {
+    let mut chars = key.chars();
+    matches!(chars.next(), Some('_' | 'A'..='Z' | 'a'..='z'))
+        && chars.all(|character| character == '_' || character.is_ascii_alphanumeric())
 }
 
 fn powershell_quote(argument: &str) -> String {
