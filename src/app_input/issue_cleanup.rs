@@ -1,5 +1,6 @@
 //! Ownership-scoped local dirty-worktree cleanup.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
@@ -125,20 +126,27 @@ fn remove_untracked_path(work_dir: &Path, relative: &Path) -> Result<(), String>
 }
 
 fn remove_empty_untracked_parents(work_dir: &Path, paths: &[PathBuf]) -> Result<(), String> {
+    let mut candidates = HashSet::new();
     for relative in paths {
         let mut parent = relative.parent();
         while let Some(candidate) = parent.filter(|value| !value.as_os_str().is_empty()) {
-            let directory = work_dir.join(candidate);
-            match std::fs::remove_dir(&directory) {
-                Ok(()) => parent = candidate.parent(),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
-                Err(_error) if directory_has_entries(&directory) => break,
-                Err(error) => {
-                    return Err(format!(
-                        "Failed to remove empty untracked directory {}: {error}",
-                        directory.display()
-                    ));
-                }
+            candidates.insert(candidate.to_path_buf());
+            parent = candidate.parent();
+        }
+    }
+    let mut candidates = candidates.into_iter().collect::<Vec<_>>();
+    candidates.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
+    for candidate in candidates {
+        let directory = work_dir.join(candidate);
+        match std::fs::remove_dir(&directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_error) if directory_has_entries(&directory) => {}
+            Err(error) => {
+                return Err(format!(
+                    "Failed to remove empty untracked directory {}: {error}",
+                    directory.display()
+                ));
             }
         }
     }
