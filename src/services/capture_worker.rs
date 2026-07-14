@@ -50,8 +50,10 @@ impl CaptureHandle {
     /// This is the render-path call — it stores the request under a short
     /// lock and returns immediately. No I/O occurs here.
     ///
-    /// **Dedup:** if the pending request has the same `(agent_id, generation)`,
-    /// the request is a no-op (the in-flight capture will satisfy it).
+    /// **Dedup:** if the pending request has the same
+    /// `(agent_id, generation, session_name)`, the request is a no-op (the
+    /// in-flight capture will satisfy it). A different `session_name`
+    /// replaces the pending request.
     ///
     /// # Panics
     ///

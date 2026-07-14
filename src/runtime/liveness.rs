@@ -255,7 +255,11 @@ pub fn reconcile_dead_agents<S: BuildHasher>(
 /// Carries enough information for the caller to verify the result is not stale
 /// (issue #301 Phase 4): the agent id, the session name that was checked, and
 /// the lifecycle generation at snapshot time.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// **PII note:** `binding_session_name` may encode user or project
+/// identifiers (tmux session names often include usernames or project
+/// names). Redact before including in logs or persisted diagnostics.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LivenessIdentity {
     pub agent_id: AgentId,
     pub binding_session_name: Option<String>,

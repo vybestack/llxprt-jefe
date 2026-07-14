@@ -103,11 +103,12 @@ impl PersistHandle {
     /// Take the pending snapshot and its generation for off-thread writing.
     ///
     /// The caller offloads `persist_fn` to `smol::unblock`, then calls
-    /// [`Self::commit`] with the generation and [`Self::clear_pending`].
+    /// [`Self::commit`] with the generation and [`Self::clear_pending_if`].
     ///
     /// # Panics
     ///
-    /// Panics if the internal mutex is poisoned and cannot be recovered.
+    /// Recovers from a poisoned mutex by taking the inner guard (logs an
+    /// error). Does not panic on poison.
     #[must_use]
     pub fn take_pending(&self) -> Option<(PersistedState, u64)> {
         let mut pending = lock_or_recover(&self.inner.pending);
@@ -201,6 +202,11 @@ impl PersistHandle {
     }
 
     /// Synchronously flush the final pending snapshot (shutdown path).
+    ///
+    /// Uses [`clear_pending_if`] (generation-guarded) instead of
+    /// [`clear_pending`] (unconditional) so a `schedule()` arriving between
+    /// `take_pending` and the clear is not silently dropped (issue #301
+    /// review: TOCTOU race).
     pub fn shutdown_flush(&self) {
         let Some((snapshot, generation)) = self.take_pending() else {
             return;
@@ -208,7 +214,7 @@ impl PersistHandle {
         if let Err(e) = (self.inner.persist_fn)(&snapshot) {
             tracing::warn!(error = %e, "shutdown persist failed");
         }
-        self.clear_pending();
+        self.clear_pending_if(generation);
         let _ = self.commit(generation);
     }
 }

@@ -538,16 +538,21 @@ pub fn refresh_terminal_scroll_geometry(app_state: &mut AppStateHandle, ctx: &Sh
                         // Use exact-generation cache; on miss, fall back to
                         // the any-generation cache so a cache miss (background
                         // capture still in flight) does not reset the
-                        // scrollback count to zero mid-output.
+                        // scrollback count to zero mid-output. Use fallback
+                        // only when the exact-generation lookup returns None
+                        // (not .max()) to avoid overcounting when both caches
+                        // contain data (issue #301 review).
                         guard
                             .runtime
                             .history_cache_get(agent_id, generation)
-                            .map_or(0, Vec::len)
-                            .max(
-                                guard
-                                    .runtime
-                                    .history_cache_fallback(agent_id)
-                                    .map_or(0, Vec::len),
+                            .map_or_else(
+                                || {
+                                    guard
+                                        .runtime
+                                        .history_cache_fallback(agent_id)
+                                        .map_or(0, Vec::len)
+                                },
+                                Vec::len,
                             )
                     }
                     None => 0,

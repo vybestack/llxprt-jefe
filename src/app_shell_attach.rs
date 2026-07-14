@@ -4,6 +4,9 @@
 //! builds the `AttachedViewer` on the calling background thread, then
 //! reacquires the lock to install the result — never holding `AppContext`
 //! across the external spawn.
+//!
+//! **Caller contract:** must be invoked from a background thread (e.g. via
+//! `smol::unblock`), not from the input/render hot path.
 
 use std::sync::Arc;
 
@@ -91,19 +94,24 @@ pub fn perform_async_attach(
 /// Detach with no running agent selected.
 fn perform_async_detach(ctx: &Arc<std::sync::Mutex<AppContext>>) -> AsyncAttachOutcome {
     let Ok(mut ctx_guard) = ctx.lock() else {
+        warn!("background: ctx mutex poisoned during detach; returning Detached as best-effort");
         return AsyncAttachOutcome::Detached;
     };
     debug!("background: detaching (no running agent selected)");
-    let _ = ctx_guard.runtime.detach();
+    if let Err(e) = ctx_guard.runtime.detach() {
+        warn!(error = %e, "background: detach failed");
+    }
     AsyncAttachOutcome::Detached
 }
 
 /// Mark `agent_id` dead, logging if the session was already gone.
 fn mark_dead_or_log(ctx: &Arc<std::sync::Mutex<AppContext>>, agent_id: &AgentId) {
-    if let Ok(mut ctx_guard) = ctx.lock() {
-        if !ctx_guard.runtime.mark_session_dead(agent_id) {
-            warn!(agent_id = %agent_id.0, "background: session already gone when marking dead after build_viewer failure");
-        }
+    let Ok(mut ctx_guard) = ctx.lock() else {
+        warn!(agent_id = %agent_id.0, "background: ctx mutex poisoned; cannot mark session dead");
+        return;
+    };
+    if !ctx_guard.runtime.mark_session_dead(agent_id) {
+        warn!(agent_id = %agent_id.0, "background: session already gone when marking dead after build_viewer failure");
     }
 }
 
