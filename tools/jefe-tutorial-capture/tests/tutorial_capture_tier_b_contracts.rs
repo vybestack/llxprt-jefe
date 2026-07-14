@@ -79,6 +79,14 @@ impl FakeTierBRunner {
             "https://github.com/fixture/test/pull/7\n".to_string(),
         );
         outputs.insert("Merge fixture PR".to_string(), String::new());
+        outputs.insert(
+            "View fixture issue".to_string(),
+            r#"{"title":"[tutorial-capture:tier-b-full-001] fixture issue for documentation capture"}"#.to_string(),
+        );
+        outputs.insert(
+            "View fixture PR".to_string(),
+            r#"{"title":"[tutorial-capture:tier-b-full-001] fixture pull request","headRefName":"tutorial-capture/tier-b-full-001"}"#.to_string(),
+        );
         Self {
             commands: Vec::new(),
             outputs,
@@ -98,7 +106,11 @@ impl CommandRunner for FakeTierBRunner {
             argv.to_vec(),
             cwd.map(Path::to_path_buf),
         ));
-        let key = if argv.contains(&"issue".to_string()) && argv.contains(&"create".to_string()) {
+        let key = if argv.contains(&"issue".to_string()) && argv.contains(&"view".to_string()) {
+            "View fixture issue"
+        } else if argv.contains(&"pr".to_string()) && argv.contains(&"view".to_string()) {
+            "View fixture PR"
+        } else if argv.contains(&"issue".to_string()) && argv.contains(&"create".to_string()) {
             "Create fixture issue"
         } else if argv.contains(&"clone".to_string()) {
             // Simulate clone: create the destination directory from argv.
@@ -556,6 +568,18 @@ impl CommandRunner for FakeCleanupRunner {
     ) -> Result<String, String> {
         let desc = argv.join(" ");
         self.closed.push(desc);
+        if argv.contains(&"view".to_string()) && argv.contains(&"issue".to_string()) {
+            return Ok(
+                r#"{"title":"[tutorial-capture:tier-b-full-001] fixture issue for documentation capture"}"#
+                    .to_string(),
+            );
+        }
+        if argv.contains(&"view".to_string()) && argv.contains(&"pr".to_string()) {
+            return Ok(
+                r#"{"title":"[tutorial-capture:tier-b-full-001] fixture pull request","headRefName":"tutorial-capture/tier-b-full-001"}"#
+                    .to_string(),
+            );
+        }
         Ok(String::new())
     }
 }

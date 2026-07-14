@@ -321,22 +321,72 @@ fn execute_single_cleanup(
             identifier: resource.identifier.clone(),
             status: GithubCleanupStatus::Skipped { reason },
         },
-        Ok(()) => match runner.run(&cmd.program, &cmd.argv, cmd.cwd.as_deref()) {
-            Ok(_) => cleaned_outcome(cmd, resource),
-            Err(stderr) => {
-                if is_already_closed_or_deleted(&stderr) {
-                    cleaned_outcome(cmd, resource)
-                } else {
-                    GithubCleanupOutcome {
-                        description: cmd.description.clone(),
-                        repository: resource.repository.clone(),
-                        identifier: resource.identifier.clone(),
-                        status: GithubCleanupStatus::Failed { stderr },
+        Ok(()) => match verify_live_resource_identity(resource, manifest, runner) {
+            Err(reason) => GithubCleanupOutcome {
+                description: cmd.description.clone(),
+                repository: resource.repository.clone(),
+                identifier: resource.identifier.clone(),
+                status: GithubCleanupStatus::Skipped { reason },
+            },
+            Ok(()) => match runner.run(&cmd.program, &cmd.argv, cmd.cwd.as_deref()) {
+                Ok(_) => cleaned_outcome(cmd, resource),
+                Err(stderr) => {
+                    if is_already_closed_or_deleted(&stderr) {
+                        cleaned_outcome(cmd, resource)
+                    } else {
+                        GithubCleanupOutcome {
+                            description: cmd.description.clone(),
+                            repository: resource.repository.clone(),
+                            identifier: resource.identifier.clone(),
+                            status: GithubCleanupStatus::Failed { stderr },
+                        }
                     }
                 }
-            }
+            },
         },
     }
+}
+
+fn verify_live_resource_identity(
+    resource: &GitHubResource,
+    manifest: &RunManifest,
+    runner: &mut dyn CommandRunner,
+) -> Result<(), String> {
+    if resource.kind == GitHubResourceKind::Branch || resource.title.is_empty() {
+        return Ok(());
+    }
+    let kind = match resource.kind {
+        GitHubResourceKind::Issue => "issue",
+        GitHubResourceKind::PullRequest => "pr",
+        GitHubResourceKind::Branch => return Ok(()),
+    };
+    let mut argv = vec![
+        kind.to_string(),
+        "view".to_string(),
+        resource.identifier.clone(),
+        "--repo".to_string(),
+        resource.repository.clone(),
+        "--json".to_string(),
+        "title".to_string(),
+    ];
+    if resource.kind == GitHubResourceKind::PullRequest {
+        argv[6] = "title,headRefName".to_string();
+    }
+    let output = runner
+        .run("gh", &argv, None)
+        .map_err(|stderr| format!("could not verify live resource identity: {stderr}"))?;
+    let live: serde_json::Value = serde_json::from_str(&output)
+        .map_err(|error| format!("could not parse live resource identity: {error}"))?;
+    if live.get("title").and_then(serde_json::Value::as_str) != Some(resource.title.as_str()) {
+        return Err("live resource title does not match the manifest".to_string());
+    }
+    if resource.kind == GitHubResourceKind::PullRequest {
+        let expected = format!("tutorial-capture/{}", manifest.run_id);
+        if live.get("headRefName").and_then(serde_json::Value::as_str) != Some(expected.as_str()) {
+            return Err("live pull request branch does not match the current run".to_string());
+        }
+    }
+    Ok(())
 }
 
 /// Build a `Cleaned` outcome for a resource.

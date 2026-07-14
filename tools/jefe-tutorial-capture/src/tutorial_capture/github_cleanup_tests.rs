@@ -43,6 +43,7 @@ fn error_or_panic<T: std::fmt::Debug, E>(result: Result<T, E>, context: &str) ->
 /// A fake command runner for testing that returns canned responses.
 struct FakeCommandRunner {
     responses: RefCell<HashMap<String, String>>,
+    calls: RefCell<Vec<Vec<String>>>,
 }
 
 impl FakeCommandRunner {
@@ -59,6 +60,7 @@ impl FakeCommandRunner {
         );
         Self {
             responses: RefCell::new(map),
+            calls: RefCell::new(Vec::new()),
         }
     }
 }
@@ -70,6 +72,7 @@ impl CommandRunner for FakeCommandRunner {
         argv: &[String],
         _cwd: Option<&Path>,
     ) -> Result<String, String> {
+        self.calls.borrow_mut().push(argv.to_vec());
         let key = format!("{program} {}", argv.first().unwrap_or(&String::new()));
         let responses = self.responses.borrow();
         if let Some(resp) = responses.get(&key) {
@@ -113,10 +116,47 @@ fn execute_github_cleanup_runs_all_commands() {
     let mut runner = FakeCommandRunner::new();
     let outcomes =
         execute_github_cleanup(&manifest, &mut runner).value_or_panic("cleanup should succeed");
+
     assert_eq!(outcomes.len(), 1);
     assert!(matches!(outcomes[0].status, GithubCleanupStatus::Cleaned));
 }
 
+#[test]
+fn cleanup_skips_live_issue_with_mismatched_title_without_closing_it() {
+    let mut manifest = make_test_manifest();
+    manifest.set_fixture_github_repo("fixture/test");
+    manifest.add_github_resource(GitHubResource {
+        kind: GitHubResourceKind::Issue,
+        repository: "fixture/test".to_string(),
+        identifier: "42".to_string(),
+        url: None,
+        title: "[tutorial-capture:cleanup-test] expected".to_string(),
+    });
+    let mut runner = FakeCommandRunner::new();
+    runner.responses.borrow_mut().insert(
+        "gh issue".to_string(),
+        r#"{"title":"unrelated issue"}"#.to_string(),
+    );
+
+    let error = error_or_panic(
+        execute_github_cleanup(&manifest, &mut runner),
+        "title mismatch must fail closed",
+    );
+    let TierBError::CleanupPartialFailure { outcomes } = error else {
+        panic!("expected partial cleanup failure");
+    };
+    assert!(matches!(
+        outcomes[0].status,
+        GithubCleanupStatus::Skipped { .. }
+    ));
+    assert!(
+        runner
+            .calls
+            .borrow()
+            .iter()
+            .all(|argv| argv.get(1).map(String::as_str) != Some("close"))
+    );
+}
 #[test]
 fn cleanup_rejects_arbitrary_branch_and_non_numeric_issue() {
     let manifest = make_test_manifest();
