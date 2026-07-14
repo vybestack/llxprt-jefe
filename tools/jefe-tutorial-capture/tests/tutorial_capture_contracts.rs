@@ -12,9 +12,12 @@ use std::path::{Path, PathBuf};
 
 use jefe::harness::run_tmux_scenario;
 use jefe_tutorial_capture::{
-    FixtureAllowlist, OwnedPathKind, RunDirectories, RunId, RunManifest, RunOutcome, RunSetup,
-    RuntimeProfile, check_fixture_repo, cleanup_manifest, controlled_path_for, load_manifest,
-    prepare_run, redact_artifacts, save_manifest, save_report,
+    FixtureAllowlist, OwnedPathKind, RunDirectories, RunId, RunManifest, RunSetup, RuntimeProfile,
+    check_fixture_repo, cleanup_manifest, controlled_path_for, prepare_run,
+};
+#[cfg(unix)]
+use jefe_tutorial_capture::{
+    RunOutcome, load_manifest, redact_artifacts, save_manifest, save_report,
 };
 
 trait TestResultExt<T> {
@@ -43,6 +46,7 @@ fn temp_base() -> tempfile::TempDir {
     tempfile::tempdir().value_or_panic("create temp base")
 }
 
+#[cfg(unix)]
 fn sample_setup(base: &std::path::Path) -> RunSetup {
     RunSetup {
         run_id: RunId::new("integration-test-001").value_or_panic("valid run id"),
