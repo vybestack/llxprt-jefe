@@ -243,6 +243,10 @@ pub struct TmuxRuntimeManager {
     output_generation: AtomicU64,
     /// Cached scrollback history (issue #198).
     pub(crate) history_cache: HistoryCache,
+    /// Global lifecycle generation counter. Incremented on every
+    /// spawn/relaunch so each `RuntimeSession` gets a unique generation
+    /// for stale-liveness rejection (issue #301 Phase 4).
+    lifecycle_counter: AtomicU64,
 }
 
 /// Drop the current viewer (if any) on a background OS thread.
@@ -278,6 +282,7 @@ impl TmuxRuntimeManager {
             cols,
             output_generation: AtomicU64::new(0),
             history_cache: HistoryCache::default(),
+            lifecycle_counter: AtomicU64::new(0),
         }
     }
 
@@ -285,6 +290,12 @@ impl TmuxRuntimeManager {
     pub fn set_size(&mut self, rows: u16, cols: u16) {
         self.rows = rows;
         self.cols = cols;
+    }
+
+    /// Allocate the next lifecycle generation (issue #301 Phase 4).
+    #[must_use]
+    fn next_lifecycle_generation(&self) -> u64 {
+        self.lifecycle_counter.fetch_add(1, Ordering::Relaxed) + 1
     }
 
     /// Enforce clipboard passthrough for `session_name` if not already done.
@@ -405,7 +416,7 @@ impl TmuxRuntimeManager {
                     None
                 },
                 binding_session_name: Some(session.session_name.clone()),
-                lifecycle_generation: 0,
+                lifecycle_generation: session.lifecycle_generation,
             })
             .collect()
     }
@@ -576,11 +587,14 @@ impl TmuxRuntimeManager {
             commands::pane_pid(&session_name)
         };
 
-        // Store/refresh session binding.
+        // Store/refresh session binding. Bump the lifecycle generation so
+        // stale liveness results from a prior binding are rejected (issue
+        // #301 Phase 4).
         let mut session = RuntimeSession::new(agent_id.clone(), session_name, signature.clone());
         session.pid = captured_pid;
         session.process_identity =
             captured_pid.and_then(|pid| super::process::capture_process_identity(pid).ok());
+        session.lifecycle_generation = self.next_lifecycle_generation();
         self.sessions.insert(agent_id.clone(), session);
 
         // Remove from dead signatures if present.

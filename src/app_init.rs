@@ -560,6 +560,7 @@ fn apply_restored_state(
                 last_seen: None,
                 process_identity,
                 pid,
+                lifecycle_generation: 0,
             });
         }
     }
@@ -860,6 +861,7 @@ mod tests {
             last_seen: None,
             pid: Some(41),
             process_identity: Some(ProcessIdentity::new(41, 900)),
+            lifecycle_generation: 0,
         };
         assert_eq!(
             binding_evidence(Some(&binding), &agent.id, &signature),

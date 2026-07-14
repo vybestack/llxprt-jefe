@@ -173,9 +173,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                     // Issue #301 Phase 4: stale-result protection. Before
                     // marking an agent dead, verify the agent's current
                     // binding session name and lifecycle generation still
-                    // match the liveness snapshot. A mismatch means the agent
-                    // was rebound/restarted after the check was dispatched;
-                    // skip it.
+                    // match the liveness snapshot. A mismatch means the
+                    // agent was rebound/restarted after the check was
+                    // dispatched; skip it.
                     let mut state = app_state.write();
                     let mut to_apply: Vec<AgentId> = Vec::new();
                     for identity in &dead_identities {
@@ -184,16 +184,25 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                             // Agent removed from state since the check — skip.
                             continue;
                         };
-                        let current_binding = agent.runtime_binding.as_ref();
-                        let current_session = current_binding.map(|b| b.session_name.clone());
-                        let matches = current_session == identity.binding_session_name;
-                        if matches {
+                        let current_session = agent
+                            .runtime_binding
+                            .as_ref()
+                            .map(|b| b.session_name.clone());
+                        let current_gen = agent
+                            .runtime_binding
+                            .as_ref()
+                            .map_or(0, |b| b.lifecycle_generation);
+                        let session_matches = current_session == identity.binding_session_name;
+                        let gen_matches = current_gen == identity.lifecycle_generation;
+                        if session_matches && gen_matches {
                             to_apply.push(identity.agent_id.clone());
                         } else {
                             debug!(
                                 agent_id = %identity.agent_id.0,
                                 checked_session = ?identity.binding_session_name,
                                 current_session = ?current_session,
+                                checked_gen = identity.lifecycle_generation,
+                                current_gen,
                                 "liveness: stale result after rebind/restart; skipping"
                             );
                         }
@@ -349,6 +358,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         // Issue #301: flush the coalescing persistence worker so the final
         // state is durable before exit.
         crate::app_shell_workers::shutdown_flush_persist(ctx.as_ref());
+        // Issue #301: drain any pending capture request so the capture
+        // worker does not leave a request mid-flight on exit.
+        crate::app_shell_workers::shutdown_flush_capture(ctx.as_ref());
 
         hooks.use_context_mut::<SystemContext>().exit();
 
@@ -937,7 +949,6 @@ fn is_pty_dirty(ctx: Option<&CtxArc>) -> bool {
 mod tests {
     use super::*;
     use jefe::domain::AgentStatus;
-    use jefe::state::PaneFocus;
 
     // --- wants_live_snapshot (issue #160 gate removal) ---
     //
@@ -950,19 +961,10 @@ mod tests {
 
     #[test]
     fn wants_live_snapshot_for_running_regardless_of_pane() {
-        // Running agents always get a snapshot attempt. `wants_live_snapshot`
-        // does NOT take pane_focus — proving the old focus gate is gone.
-        for focus in [
-            PaneFocus::Agents,
-            PaneFocus::Repositories,
-            PaneFocus::Terminal,
-        ] {
-            let _ = focus; // pane focus is intentionally irrelevant
-            assert!(
-                wants_live_snapshot(AgentStatus::Running),
-                "Running status must always want a live snapshot (pane_focus={focus:?})"
-            );
-        }
+        assert!(
+            wants_live_snapshot(AgentStatus::Running),
+            "Running status must always want a live snapshot"
+        );
     }
 
     #[test]

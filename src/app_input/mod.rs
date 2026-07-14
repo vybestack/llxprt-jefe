@@ -534,10 +534,20 @@ pub fn refresh_terminal_scroll_geometry(app_state: &mut AppStateHandle, ctx: &Sh
                 let history_count = match guard.runtime.attached_agent() {
                     Some(agent_id) => {
                         let generation = guard.runtime.output_generation();
+                        // Use exact-generation cache; on miss, fall back to
+                        // the any-generation cache so a cache miss (background
+                        // capture still in flight) does not reset the
+                        // scrollback count to zero mid-output.
                         guard
                             .runtime
                             .history_cache_get(agent_id, generation)
                             .map_or(0, Vec::len)
+                            .max(
+                                guard
+                                    .runtime
+                                    .history_cache_fallback(agent_id)
+                                    .map_or(0, Vec::len),
+                            )
                     }
                     None => 0,
                 };

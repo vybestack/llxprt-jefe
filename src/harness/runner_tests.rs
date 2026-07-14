@@ -585,10 +585,7 @@ fn seed_sticky_agent_state(
     agent_id: &StickyAgentId,
     agent_session: &str,
 ) {
-    use crate::domain::{
-        Agent, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature, RemoteRepositorySettings,
-        Repository, RepositoryId, RuntimeBinding, SandboxEngine,
-    };
+    use crate::domain::{Agent, AgentStatus, Repository, RepositoryId};
     use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
 
     let mut agent = Agent::new(
@@ -599,34 +596,13 @@ fn seed_sticky_agent_state(
     );
     agent.status = AgentStatus::Running;
     agent.shortcut_slot = Some(1);
-    agent.runtime_binding = Some(RuntimeBinding {
-        session_name: agent_session.to_string(),
-        launch_signature: LaunchSignature {
-            work_dir: std::path::PathBuf::from("/tmp"),
-            profile: String::new(),
-            code_puppy_model: String::new(),
-            code_puppy_yolo: None,
-            code_puppy_quick_resume: false,
-            mode_flags: vec![],
-            llxprt_debug: String::new(),
-            pass_continue: true,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-            remote: RemoteRepositorySettings::default(),
-            agent_kind: crate::domain::AgentKind::Llxprt,
-        },
-        attached: false,
-        last_seen: None,
-        process_identity: None,
-        pid: None,
-    });
+    agent.runtime_binding = Some(make_sticky_binding(agent_session));
 
     let persisted_state = State {
         schema_version: crate::persistence::STATE_SCHEMA_VERSION,
         repositories: vec![Repository::new(
             RepositoryId("testrepo".into()),
-            "TestRepo".into(),
+            "testrepo".into(),
             "testrepo".into(),
             std::path::PathBuf::from("/tmp"),
         )],
@@ -647,6 +623,37 @@ fn seed_sticky_agent_state(
     persistence
         .save_state(&persisted_state)
         .unwrap_or_else(|e| panic!("save state: {e:?}"));
+}
+
+#[cfg(unix)]
+fn make_sticky_binding(agent_session: &str) -> crate::domain::RuntimeBinding {
+    use crate::domain::{
+        DEFAULT_SANDBOX_FLAGS, LaunchSignature, RemoteRepositorySettings, RuntimeBinding,
+        SandboxEngine,
+    };
+    RuntimeBinding {
+        session_name: agent_session.to_string(),
+        launch_signature: LaunchSignature {
+            work_dir: std::path::PathBuf::from("/tmp"),
+            profile: String::new(),
+            code_puppy_model: String::new(),
+            code_puppy_yolo: None,
+            code_puppy_quick_resume: false,
+            mode_flags: vec![],
+            llxprt_debug: String::new(),
+            pass_continue: true,
+            sandbox_enabled: false,
+            sandbox_engine: SandboxEngine::Podman,
+            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+            remote: RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
+        },
+        attached: false,
+        last_seen: None,
+        process_identity: None,
+        pid: None,
+        lifecycle_generation: 0,
+    }
 }
 
 /// Run the issue #116 sticky-kill TUI scenario against the real jefe binary.
@@ -874,6 +881,7 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
         last_seen: None,
         process_identity: None,
         pid: None,
+        lifecycle_generation: 0,
     });
 
     let persisted_state = State {

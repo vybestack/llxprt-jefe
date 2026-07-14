@@ -39,9 +39,10 @@ pub async fn run_persist_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
         let Some((handle, persist_fn, state, generation)) = handle_and_fn else {
             continue;
         };
-        // Clear the pending slot immediately so a cancelled future does not
-        // re-drain the same snapshot on the next poll iteration.
-        handle.clear_pending();
+        // Clear the pending slot only if its generation matches — a newer
+        // schedule arriving between take_pending and this clear must not be
+        // discarded.
+        handle.clear_pending_if(generation);
         let result = smol::unblock(move || persist_fn(&state)).await;
         if let Err(e) = result {
             warn!(error = %e, "background persist failed");
@@ -79,6 +80,9 @@ pub async fn run_capture_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
         let generation = request.generation;
         let captured =
             smol::unblock(move || capture_pane_history(&session_name, HISTORY_LINE_CAP)).await;
+        if captured.is_none() {
+            warn!(session_name = %request.session_name, "background capture-pane failed; preserving prior cache");
+        }
         let Ok(mut ctx_guard) = ctx_arc.lock() else {
             continue;
         };
@@ -147,4 +151,22 @@ pub fn shutdown_flush_persist(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) {
         return;
     };
     ctx_guard.persist_handle.shutdown_flush();
+}
+
+/// Synchronously drain any pending capture request (shutdown path).
+///
+/// Called from the shutdown path so a pending capture does not leave the
+/// capture worker mid-flight on exit. This is best-effort: if the capture
+/// cannot complete, the prior cache is preserved.
+pub fn shutdown_flush_capture(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) {
+    let Some(ctx_arc) = ctx else {
+        return;
+    };
+    let Ok(ctx_guard) = ctx_arc.lock() else {
+        return;
+    };
+    // Take and discard the pending request — the cache already holds the
+    // last good snapshot, and a synchronous capture on shutdown would block
+    // the exit path.
+    let _ = ctx_guard.capture_handle.take_pending();
 }

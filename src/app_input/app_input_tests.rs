@@ -179,6 +179,7 @@ fn mark_and_clear_runtime_attachment_flags() {
         last_seen: None,
         process_identity: None,
         pid: None,
+        lifecycle_generation: 0,
     });
 
     let mut second = sample_agent(&agent_b);
@@ -189,6 +190,7 @@ fn mark_and_clear_runtime_attachment_flags() {
         last_seen: None,
         process_identity: None,
         pid: None,
+        lifecycle_generation: 0,
     });
 
     let mut state = AppState::default();
@@ -224,6 +226,7 @@ fn mark_runtime_session_dead_sets_dead_and_detaches() {
         last_seen: None,
         process_identity: None,
         pid: None,
+        lifecycle_generation: 0,
     });
 
     let mut state = AppState::default();

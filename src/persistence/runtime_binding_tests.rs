@@ -57,6 +57,7 @@ fn runtime_binding(
             10_000 + index,
             90_000 + u64::from(index),
         )),
+        lifecycle_generation: 0,
     }
 }
 

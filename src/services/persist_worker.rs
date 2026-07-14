@@ -113,14 +113,22 @@ impl PersistHandle {
     /// Returns `true` if the write was committed, `false` if it was stale
     /// (a newer schedule arrived or an equal/newer generation was already
     /// applied).
+    ///
+    /// Delegates to the pure [`should_commit`] predicate for the newest-wins
+    /// decision, then uses a CAS loop to update `applied_generation`
+    /// atomically.
     #[must_use]
     pub fn commit(&self, generation: u64) -> bool {
+        // fetch_add returns the *previous* value, so +1 gives the value
+        // assigned to this schedule. The schedule_generation is bumped in
+        // `schedule()`, so comparing it to `generation` tells us whether a
+        // newer schedule has superseded this one.
         if self.inner.schedule_generation.load(Ordering::SeqCst) > generation {
             return false;
         }
         loop {
             let current = self.inner.applied_generation.load(Ordering::SeqCst);
-            if current >= generation {
+            if !should_commit(current, generation) {
                 return false;
             }
             if self
@@ -134,7 +142,21 @@ impl PersistHandle {
         }
     }
 
-    /// Clear the pending slot (called after a successful drain).
+    /// Clear the pending slot if its generation matches `generation`.
+    ///
+    /// This prevents a race where a newer schedule (generation N+1) arrives
+    /// between `take_pending` (which returned generation N) and the clear:
+    /// clearing unconditionally would discard the newer snapshot. The
+    /// generation guard ensures only the matching slot is cleared.
+    pub fn clear_pending_if(&self, generation: u64) {
+        let mut pending = lock_or_recover(&self.inner.pending);
+        if pending.generation == generation {
+            pending.snapshot = None;
+        }
+    }
+
+    /// Clear the pending slot unconditionally (called after a successful
+    /// drain when the caller has already verified the generation).
     pub fn clear_pending(&self) {
         let mut pending = lock_or_recover(&self.inner.pending);
         pending.snapshot = None;

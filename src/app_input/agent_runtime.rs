@@ -34,6 +34,7 @@ pub(super) fn set_agent_runtime_binding(
             last_seen: None,
             process_identity,
             pid,
+            lifecycle_generation: 0,
         });
     }
 }

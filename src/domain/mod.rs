@@ -685,6 +685,10 @@ pub struct RuntimeBinding {
     /// this field and continue through the legacy PID-only migration path.
     #[serde(default)]
     pub process_identity: Option<ProcessIdentity>,
+    /// Lifecycle generation at binding time. Used to reject stale liveness
+    /// results after a restart/rebind (issue #301 Phase 4).
+    #[serde(default)]
+    pub lifecycle_generation: u64,
 }
 
 /// Launch signature for recreating runtime sessions.
