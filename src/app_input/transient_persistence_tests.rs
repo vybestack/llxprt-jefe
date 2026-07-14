@@ -118,3 +118,43 @@ fn to_persisted_state_keeps_all_non_transient_agents() {
     let persisted = to_persisted_state(&state);
     assert_eq!(persisted.agents.len(), 3);
 }
+
+#[test]
+fn to_persisted_state_remaps_selected_index_when_transient_precedes_persistent() {
+    let repo = make_repo();
+    let mut state = AppState::default();
+    state.repositories.push(repo.clone());
+
+    // Transient agent at index 0, persistent at index 1.
+    let transient = {
+        let mut a = Agent::new(
+            AgentId("transient-1".to_owned()),
+            repo.id.clone(),
+            "Transient".to_owned(),
+            repo.effective_transient_dir().join("jefe-transient-1"),
+        );
+        a.origin = jefe::domain::AgentOrigin::Transient;
+        a
+    };
+    let persistent = Agent::new(
+        AgentId("persistent-1".to_owned()),
+        repo.id.clone(),
+        "Persistent".to_owned(),
+        PathBuf::from("/tmp/persistent-1"),
+    );
+    state.agents.push(transient);
+    state.agents.push(persistent);
+
+    // Selection points at index 1 (the persistent agent).
+    state.selected_agent_index = Some(1);
+
+    let persisted = to_persisted_state(&state);
+
+    // After filtering, the persistent agent is at index 0.
+    assert_eq!(persisted.agents.len(), 1);
+    assert_eq!(
+        persisted.selected_agent_index,
+        Some(0),
+        "selected_agent_index must be remapped to the persistent agent's new position"
+    );
+}

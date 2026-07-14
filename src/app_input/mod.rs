@@ -194,11 +194,16 @@ pub fn to_persisted_state(state: &AppState) -> PersistedState {
         .cloned()
         .collect();
 
-    // Recompute selected_agent_index: if it pointed at a transient agent,
-    // clear it so restart does not select a different agent by stale index.
-    let selected_agent_index = state
-        .selected_agent_index
-        .filter(|&idx| idx < persistent_agents.len());
+    // Recompute selected_agent_index by tracking the originally-selected
+    // agent's ID through the filter: if it was transient, clear; otherwise
+    // find its new index in the persistent list (issue #213 OCR fix).
+    let selected_agent_index = state.selected_agent_index.and_then(|idx| {
+        let original = state.agents.get(idx)?;
+        if original.is_transient() {
+            return None;
+        }
+        persistent_agents.iter().position(|a| a.id == original.id)
+    });
 
     // Filter last_selected_agent_by_repo: remove entries whose agent ID
     // belonged to a transient agent (no longer in persistent_agents).

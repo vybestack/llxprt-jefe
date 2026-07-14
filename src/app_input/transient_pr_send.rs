@@ -15,7 +15,7 @@ use super::fresh_prompt::{FreshPromptKind, prepare_fresh_prompt_signature};
 use super::issue_prep::{DirtyPolicy, PrepOutcome};
 use super::preflight::preflight_or_prompt;
 use super::prs_dispatch;
-use super::{AppEvent, apply_and_persist, persist_state, to_persisted_state};
+use super::{AppEvent, apply_and_persist};
 use crate::app_input::{AppStateHandle, SharedContext};
 
 use super::prs_orchestration::{
@@ -76,9 +76,9 @@ pub(super) fn dispatch_transient_pr_send(app_state: &mut AppStateHandle, ctx: &S
         };
         let mut state = app_state.write();
         let pos = state.push_transient_queue_item(queue_item);
-        let persisted = to_persisted_state(&state);
         drop(state);
-        persist_state(ctx, &persisted);
+        // apply_and_persist will persist the queue item along with the event
+        // state — no separate persist needed (issue #213 OCR fix).
         apply_and_persist(
             app_state,
             ctx,

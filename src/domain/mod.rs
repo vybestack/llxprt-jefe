@@ -775,12 +775,13 @@ impl Agent {
     /// - `repo` — the source repository whose defaults (profile, model, kind,
     ///   yolo) are copied.
     ///
-    /// # Panics
+    /// # Panics (debug only)
     ///
-    /// Panics if `work_dir` is not under the repo's effective transient
-    /// directory. Callers should always use `generate_transient_work_dir` to
-    /// produce a valid path; this assertion is defense-in-depth against bugs
-    /// or misuse that would escape the expected cleanup/isolation boundary.
+    /// In debug builds, panics if `work_dir` is not under the repo's effective
+    /// transient directory. In release builds the check is skipped. Callers
+    /// should always use `generate_transient_work_dir` to produce a valid
+    /// path; this assertion is defense-in-depth against bugs or misuse that
+    /// would escape the expected cleanup/isolation boundary.
     #[must_use]
     pub fn new_transient(
         id: AgentId,
@@ -788,7 +789,7 @@ impl Agent {
         work_dir: PathBuf,
         repo: &Repository,
     ) -> Self {
-        assert!(
+        debug_assert!(
             work_dir.starts_with(repo.effective_transient_dir()),
             "transient agent work_dir must be under the repo's effective_transient_dir"
         );

@@ -22,6 +22,17 @@ pub(super) fn drain_transient_queue(app_state: &mut AppStateHandle, ctx: &Shared
         return;
     };
 
+    // Verify the repo still exists BEFORE popping the queue item, so a
+    // deleted repo does not permanently lose the queued send (issue #213
+    // OCR fix).
+    let repo = {
+        let state = app_state.read();
+        state.repository_by_id(&repo_id).cloned()
+    };
+    let Some(repo) = repo else {
+        return;
+    };
+
     let dequeued = {
         let mut state = app_state.write();
         let item = state.pop_transient_queue_for_repo(&repo_id);
@@ -35,14 +46,6 @@ pub(super) fn drain_transient_queue(app_state: &mut AppStateHandle, ctx: &Shared
     };
 
     apply_and_persist(app_state, ctx, AppEvent::TransientAgentDequeued);
-
-    let repo = {
-        let state = app_state.read();
-        state.repository_by_id(&item.repository_id).cloned()
-    };
-    let Some(repo) = repo else {
-        return;
-    };
 
     let agent_id = AgentId(jefe::services::generate_id("transient"));
     let clone_identity = clone_identity::CloneIdentity::from_repository(&repo);
