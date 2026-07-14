@@ -808,11 +808,9 @@ impl RuntimeManager for TmuxRuntimeManager {
 
         // Spawn with stored signature using force-fresh semantics so runtime
         // warnings are surfaced consistently through the relaunch path.
+        // spawn_session_fresh → spawn_session_internal already sets
+        // session.lifecycle_generation, so no explicit bump is needed here.
         self.spawn_session_fresh(agent_id, &signature.work_dir.clone(), &signature)?;
-
-        // Bump lifecycle generation so stale liveness observations from the
-        // prior binding are rejected (issue #301 Phase 4).
-        let _ = self.bump_lifecycle_generation(agent_id);
 
         Ok(())
     }

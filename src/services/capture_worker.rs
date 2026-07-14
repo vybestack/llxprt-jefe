@@ -113,7 +113,7 @@ fn lock_or_recover<'a, T>(mutex: &'a Mutex<T>, label: &str) -> std::sync::MutexG
     match mutex.lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
-            tracing::error!(label, "mutex poisoned; recovering");
+            tracing::error!(label = %label, "mutex poisoned; recovering");
             poisoned.into_inner()
         }
     }
@@ -121,17 +121,28 @@ fn lock_or_recover<'a, T>(mutex: &'a Mutex<T>, label: &str) -> std::sync::MutexG
 
 /// Decide whether a completed capture result should be stored.
 ///
-/// Returns `true` if the result's `(agent_id, generation)` matches the
-/// `current` request — i.e., the result is not stale.
+/// Returns `true` if the result's `(agent_id, session_name, generation)`
+/// matches the current request — i.e., the result is not stale.
+///
+/// The `session_name` parameter provides defense-in-depth: even though
+/// `session_name` is derived from `agent_id` via `session_name_for`, checking
+/// it explicitly guards against any future code path that might rebind an
+/// agent to a different session.
 #[must_use]
 pub fn should_store_result(
     result_agent: &AgentId,
+    result_session_name: &str,
     result_generation: u64,
     current_agent: Option<&AgentId>,
+    current_session_name: Option<&str>,
     current_generation: Option<u64>,
 ) -> bool {
-    match (current_agent, current_generation) {
-        (Some(agent), Some(generation)) => agent == result_agent && generation == result_generation,
+    match (current_agent, current_session_name, current_generation) {
+        (Some(agent), Some(session), Some(generation)) => {
+            agent == result_agent
+                && session == result_session_name
+                && generation == result_generation
+        }
         _ => false,
     }
 }
@@ -222,11 +233,13 @@ mod tests {
     }
 
     #[test]
-    fn should_store_when_agent_and_generation_match() {
+    fn should_store_when_agent_session_and_generation_match() {
         assert!(should_store_result(
             &agent("a"),
+            "session-a",
             5,
             Some(&agent("a")),
+            Some("session-a"),
             Some(5)
         ));
     }
@@ -235,8 +248,10 @@ mod tests {
     fn should_not_store_when_generation_mismatches() {
         assert!(!should_store_result(
             &agent("a"),
+            "session-a",
             3,
             Some(&agent("a")),
+            Some("session-a"),
             Some(5)
         ));
     }
@@ -245,23 +260,46 @@ mod tests {
     fn should_not_store_when_agent_mismatches() {
         assert!(!should_store_result(
             &agent("a"),
+            "session-a",
             5,
             Some(&agent("b")),
+            Some("session-a"),
+            Some(5)
+        ));
+    }
+
+    #[test]
+    fn should_not_store_when_session_name_mismatches() {
+        assert!(!should_store_result(
+            &agent("a"),
+            "session-a-old",
+            5,
+            Some(&agent("a")),
+            Some("session-a-new"),
             Some(5)
         ));
     }
 
     #[test]
     fn should_not_store_when_no_current_target() {
-        assert!(!should_store_result(&agent("a"), 5, None, None));
+        assert!(!should_store_result(
+            &agent("a"),
+            "session-a",
+            5,
+            None,
+            None,
+            None
+        ));
     }
 
     #[test]
     fn should_not_store_when_current_generation_missing() {
         assert!(!should_store_result(
             &agent("a"),
+            "session-a",
             5,
             Some(&agent("a")),
+            Some("session-a"),
             None
         ));
     }

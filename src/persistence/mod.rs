@@ -239,8 +239,9 @@ pub fn validate_config_dir(dir: &std::path::Path) -> Result<(), PersistenceError
     validate_persistence_target(dir, &targets.state_path)?;
     // The actual temp file is `settings.tmp.<pid>` / `state.json.tmp.<pid>`,
     // but validating the base `settings.tmp` / `state.json.tmp` sibling is a
-    // superset check: if a directory blocks `settings.tmp`, it also blocks
-    // `settings.tmp.1234`.
+    // useful sanity check: if that sibling already exists as a directory or
+    // non-writable file, it signals a misconfigured config directory that
+    // would also affect the pid-suffixed variant.
     validate_atomic_temp_target(dir, &targets.settings_path.with_extension("tmp"))?;
     validate_atomic_temp_target(dir, &targets.state_path.with_extension("tmp"))?;
 

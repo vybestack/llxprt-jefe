@@ -28,6 +28,14 @@ pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     // The render body sets desired from `selected_running_agent_id`, so F12
     // just flips the focus intent — no synchronous `runtime.attach()` call.
     //
+    // When F12 toggles terminal focus OFF, the viewer stays attached: the
+    // scheduler's desired target is driven by `selected_running_agent_id`
+    // (which is still `Some` because the agent is still Running), not by
+    // `terminal_focused`. This is intentional — the terminal pane continues
+    // to render as a read-only preview (issue #160). F12 controls keystroke
+    // routing only; the viewer detaches only when the selected agent changes
+    // or the agent transitions out of Running.
+    //
     // If the background attach later fails (session gone, tmux error), the
     // attach worker calls `apply_attach_failure`, which resets
     // `terminal_focused` to false and `pane_focus` to Agents, restoring the

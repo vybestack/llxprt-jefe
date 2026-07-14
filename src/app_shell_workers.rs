@@ -45,7 +45,20 @@ pub async fn run_persist_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
         // clear_pending_if only clears if the generation still matches,
         // preserving any newer snapshot (issue #301 review feedback).
         handle.clear_pending_if(generation);
-        let result = smol::unblock(move || persist_fn(&state)).await;
+        let result = smol::unblock(move || {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| persist_fn(&state))) {
+                Ok(inner) => inner,
+                Err(payload) => {
+                    let msg = payload
+                        .downcast_ref::<&str>()
+                        .copied()
+                        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                        .unwrap_or("unknown panic");
+                    Err(format!("persist_fn panicked: {msg}"))
+                }
+            }
+        })
+        .await;
         match result {
             Ok(()) => {
                 let _ = handle.commit(generation);
@@ -94,10 +107,18 @@ pub async fn run_capture_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
         };
         let current_agent = ctx_guard.runtime.attached_agent();
         let current_generation = ctx_guard.runtime.output_generation();
+        let current_session_name = current_agent.and_then(|a| {
+            ctx_guard
+                .runtime
+                .get_session(a)
+                .map(|s| s.session_name.as_str())
+        });
         let is_current = should_store_result(
             &agent_id,
+            &request.session_name,
             generation,
             current_agent,
+            current_session_name,
             Some(current_generation),
         );
         if is_current && let Some(raw_lines) = captured {
@@ -149,7 +170,10 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
     // since the last frame, reducing mutex contention on the render path.
     let need_request = LAST_CAPTURE_REQUEST.with(|cell| {
         let prev = cell.borrow();
-        let changed = *prev != Some((attached_agent.clone(), generation));
+        let changed = prev
+            .as_ref()
+            .is_some_and(|(a, g)| a != &attached_agent || *g != generation)
+            || prev.is_none();
         drop(prev);
         if changed {
             *cell.borrow_mut() = Some((attached_agent.clone(), generation));
@@ -182,6 +206,7 @@ pub fn shutdown_flush_persist(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) {
         return;
     };
     let Ok(ctx_guard) = ctx_arc.lock() else {
+        warn!("shutdown_flush_persist: ctx mutex poisoned; skipping final persist");
         return;
     };
     ctx_guard.persist_handle.shutdown_flush();
@@ -197,6 +222,7 @@ pub fn shutdown_flush_capture(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) {
         return;
     };
     let Ok(ctx_guard) = ctx_arc.lock() else {
+        warn!("shutdown_flush_capture: ctx mutex poisoned; skipping capture drain");
         return;
     };
     // Take and discard the pending request — the cache already holds the
