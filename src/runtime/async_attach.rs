@@ -103,12 +103,7 @@ impl TmuxRuntimeManager {
     pub fn build_viewer(inputs: &AttachInputs) -> Result<AttachedViewer, RuntimeError> {
         if let Some(remote) = &inputs.remote {
             let ssh_plan = commands::build_remote_attach_plan(remote, &inputs.session_name)?;
-            AttachedViewer::spawn_remote(
-                &inputs.session_name,
-                inputs.rows,
-                inputs.cols,
-                &ssh_plan,
-            )
+            AttachedViewer::spawn_remote(&inputs.session_name, inputs.rows, inputs.cols, &ssh_plan)
         } else {
             AttachedViewer::spawn(&inputs.session_name, inputs.rows, inputs.cols)
         }
