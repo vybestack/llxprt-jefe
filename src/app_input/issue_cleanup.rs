@@ -157,6 +157,9 @@ fn remove_empty_untracked_parents(work_dir: &Path, paths: &[PathBuf]) -> Result<
 }
 
 fn is_directory_not_empty(error: &std::io::Error, _path: &Path) -> bool {
+    // Stable Rust before 1.83 has no ErrorKind::DirectoryNotEmpty. These are
+    // ENOTEMPTY on Linux (39), macOS (66), and ERROR_DIR_NOT_EMPTY on Windows
+    // (145); unknown platforms propagate instead of masking a real failure.
     matches!(error.raw_os_error(), Some(39 | 66 | 145))
 }
 
