@@ -26,6 +26,9 @@ fn make_repo_with_github(github_repo: &str) -> Repository {
         PathBuf::from("/tmp/repo"),
     );
     repo.github_repo = github_repo.to_owned();
+    // Use a fixed transient dir so new_transient's path-containment assertion
+    // passes deterministically across platforms.
+    repo.transient_agent_dir = PathBuf::from("/tmp");
     repo
 }
 
@@ -167,6 +170,51 @@ fn agent_chooser_navigation_bounds_include_transient_slot() {
         chooser.selected_index, 2,
         "navigation must clamp at the transient slot"
     );
+}
+
+#[test]
+fn agent_chooser_navigation_up_from_transient_slot() {
+    let chooser = AgentChooserState {
+        // Start at the transient slot (index = agents.len()).
+        selected_index: 2,
+        agents: vec![
+            (AgentId("a1".to_owned()), "Agent 1".to_owned()),
+            (AgentId("a2".to_owned()), "Agent 2".to_owned()),
+        ],
+        transient_available: true,
+    };
+    let mut state = AppState::default();
+    state.issues_state.agent_chooser = Some(chooser);
+    // Navigate up: transient slot (2) -> agent a2 (1).
+    state = state.apply(AppEvent::AgentChooserNavigateUp);
+    let chooser = state
+        .issues_state
+        .agent_chooser
+        .as_ref()
+        .or_panic("chooser must still be open after navigation");
+    assert_eq!(
+        chooser.selected_index, 1,
+        "up from transient slot must land on the last agent"
+    );
+    // Navigate up again: agent a2 (1) -> agent a1 (0).
+    state = state.apply(AppEvent::AgentChooserNavigateUp);
+    let chooser = state
+        .issues_state
+        .agent_chooser
+        .as_ref()
+        .or_panic("chooser must still be open after navigation");
+    assert_eq!(
+        chooser.selected_index, 0,
+        "up from agent a2 must land on agent a1"
+    );
+    // Navigate up past 0: clamps at 0.
+    state = state.apply(AppEvent::AgentChooserNavigateUp);
+    let chooser = state
+        .issues_state
+        .agent_chooser
+        .as_ref()
+        .or_panic("chooser must still be open after navigation");
+    assert_eq!(chooser.selected_index, 0, "up at index 0 must clamp");
 }
 
 #[test]

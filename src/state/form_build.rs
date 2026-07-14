@@ -151,7 +151,7 @@ impl AppState {
             default_agent_kind: AgentKind::from_form_value(&fields.default_agent_kind)
                 .unwrap_or_default(),
             transient_agent_dir: parse_transient_agent_dir(&fields.transient_agent_dir),
-            default_code_puppy_yolo: None,
+            default_code_puppy_yolo: fields.default_code_puppy_yolo.then_some(true),
             transient_max_concurrent: parse_transient_max_concurrent(
                 &fields.transient_max_concurrent,
             ),
@@ -210,6 +210,7 @@ impl AppState {
             .default_code_puppy_model
             .trim()
             .clone_into(&mut repo.default_code_puppy_model);
+        repo.default_code_puppy_yolo = fields.default_code_puppy_yolo.then_some(true);
         repo.default_agent_kind = AgentKind::from_form_value(&fields.default_agent_kind)
             .unwrap_or(repo.default_agent_kind);
         fields.github_repo.trim().clone_into(&mut repo.github_repo);

@@ -342,8 +342,8 @@ fn launch_transient_issue_agent(
 ) {
     let launched = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
     let (pid, process_identity) = super::process_on_success(ctx, &agent_id, launched);
-    let mut state = app_state.write();
     if launched {
+        let mut state = app_state.write();
         persist_issue_agent_launch_success(
             &mut state,
             &agent_id,
@@ -351,18 +351,19 @@ fn launch_transient_issue_agent(
             pid,
             process_identity,
         );
+        let persisted = to_persisted_state(&state);
+        drop(state);
+        persist_state(ctx, &persisted);
     } else {
-        // Mark the transient agent as errored instead of leaving it Running.
-        if let Some(agent) = state.agents.iter_mut().find(|a| a.id == agent_id) {
-            agent.status = jefe::domain::AgentStatus::Errored;
-        }
-        *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
-            error: "Failed to launch transient agent".to_string(),
-        });
+        // Surface the failure, then remove the transient agent and clean up
+        // its temp directory via fail_transient_agent.
+        let error_msg = format!(
+            "Failed to launch transient {} agent",
+            launch_sig.agent_kind.label()
+        );
+        apply_send_to_agent_failed(app_state, ctx, error_msg);
+        fail_transient_agent(app_state, ctx, &agent_id);
     }
-    let persisted = to_persisted_state(&state);
-    drop(state);
-    persist_state(ctx, &persisted);
     apply_assignment_action(
         app_state,
         ctx,
@@ -404,17 +405,33 @@ fn issue_assignment_from_payload(payload: &jefe::github::SendPayload) -> IssueAs
     IssueAssignment::from_send_context(tracker.as_ref(), payload.issue_number)
 }
 
-/// Mark a transient agent as errored and remove it from state on a failure
-/// path (issue #213). This prevents phantom Running agents from consuming
-/// capacity indefinitely.
+/// Remove a transient agent from state on a failure path and best-effort
+/// delete its temporary work directory (issue #213). This prevents phantom
+/// agents from consuming capacity indefinitely and avoids leaking the cloned
+/// temp directory.
 pub(super) fn fail_transient_agent(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     agent_id: &AgentId,
 ) {
-    let mut state = app_state.write();
-    state.agents.retain(|a| a.id != *agent_id);
-    let persisted = to_persisted_state(&state);
-    drop(state);
-    persist_state(ctx, &persisted);
+    let work_dir = {
+        let mut state = app_state.write();
+        let work_dir = state
+            .agents
+            .iter()
+            .find(|a| a.id == *agent_id)
+            .filter(|a| a.is_transient())
+            .map(|a| a.work_dir.clone());
+        state.agents.retain(|a| a.id != *agent_id);
+        let persisted = to_persisted_state(&state);
+        drop(state);
+        persist_state(ctx, &persisted);
+        work_dir
+    };
+    // Best-effort cleanup of the transient work directory. Only transient
+    // agents that were in state have a work_dir here; non-transient agents
+    // are skipped (their directories are user-managed).
+    if let Some(dir) = work_dir {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

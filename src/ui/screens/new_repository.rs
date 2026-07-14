@@ -151,6 +151,27 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
             if model_focused { rc.bright } else { rc.fg },
             sel,
         ));
+
+        // Default Code Puppy YOLO for transient agents (issue #213).
+        let yolo_focused = focus == RepositoryFormFocus::DefaultCodePuppyYolo;
+        let yolo_mark = if fields.default_code_puppy_yolo {
+            "x"
+        } else {
+            " "
+        };
+        let yolo_line = format!("  {:<16} [{}]  (space toggles)", "Default YOLO", yolo_mark);
+        all_lines.push(selectable_line(
+            &yolo_line,
+            {
+                let i = line_idx;
+                line_idx += 1;
+                i
+            },
+            selection,
+            pane,
+            if yolo_focused { rc.bright } else { rc.fg },
+            sel,
+        ));
     }
 
     let kind_focused = focus == RepositoryFormFocus::DefaultAgentKind;

@@ -7,7 +7,7 @@
 /// Shared validated target-resolution predicates for remote settings.
 pub mod target;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -774,6 +774,13 @@ impl Agent {
     ///   `effective_transient_dir`).
     /// - `repo` — the source repository whose defaults (profile, model, kind,
     ///   yolo) are copied.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `work_dir` is not under the repo's effective transient
+    /// directory. Callers should always use `generate_transient_work_dir` to
+    /// produce a valid path; this assertion is defense-in-depth against bugs
+    /// or misuse that would escape the expected cleanup/isolation boundary.
     #[must_use]
     pub fn new_transient(
         id: AgentId,
@@ -781,6 +788,10 @@ impl Agent {
         work_dir: PathBuf,
         repo: &Repository,
     ) -> Self {
+        assert!(
+            work_dir.starts_with(repo.effective_transient_dir()),
+            "transient agent work_dir must be under the repo's effective_transient_dir"
+        );
         Self {
             id: id.clone(),
             display_id: id.0.clone(),
@@ -856,18 +867,19 @@ impl Repository {
         GitHubRepoRef::parse(&self.github_repo)
     }
 
-    /// Resolve the effective transient agent directory (defaults to `/tmp`
-    /// when empty).
+    /// Resolve the effective transient agent directory (defaults to the
+    /// platform temp directory when empty).
     ///
     /// Transient agents are created on-the-fly under this directory. An empty
     /// `transient_agent_dir` field — the default for existing persisted
-    /// repos — falls back to the system temp directory.
+    /// repos — falls back to `std::env::temp_dir()` which is cross-platform
+    /// (`/tmp` on Linux/macOS, `%TEMP%` on Windows).
     #[must_use]
-    pub fn effective_transient_dir(&self) -> &Path {
+    pub fn effective_transient_dir(&self) -> PathBuf {
         if self.transient_agent_dir.as_os_str().is_empty() {
-            Path::new("/tmp")
+            std::env::temp_dir()
         } else {
-            &self.transient_agent_dir
+            self.transient_agent_dir.clone()
         }
     }
 }

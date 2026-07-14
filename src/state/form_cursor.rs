@@ -63,6 +63,7 @@ pub(super) fn handle_repository_field_char(
             );
         }
         RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::DefaultCodePuppyYolo
         | RepositoryFormFocus::RemoteEnabled
         | RepositoryFormFocus::SetupEnvDefault => {
             return c == ' ' || c == 'x' || c == 'X';
@@ -78,6 +79,7 @@ pub(super) fn move_repository_field_cursor_right(
 ) {
     match focus {
         RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::DefaultCodePuppyYolo
         | RepositoryFormFocus::RemoteEnabled
         | RepositoryFormFocus::SetupEnvDefault => {}
         RepositoryFormFocus::Name => cursor.name = move_cursor_right(&fields.name, cursor.name),
@@ -180,6 +182,7 @@ pub(super) fn move_repository_field_cursor_left(
 ) {
     match focus {
         RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::DefaultCodePuppyYolo
         | RepositoryFormFocus::RemoteEnabled
         | RepositoryFormFocus::SetupEnvDefault => {}
         RepositoryFormFocus::Name => cursor.name = move_cursor_left(cursor.name),

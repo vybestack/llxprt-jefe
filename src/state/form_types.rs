@@ -110,6 +110,8 @@ pub struct RepositoryFormFields {
     pub base_dir: String,
     pub default_profile: String,
     pub default_code_puppy_model: String,
+    /// Default Code Puppy YOLO for transient agents (issue #213).
+    pub default_code_puppy_yolo: bool,
     pub default_agent_kind: String,
     /// GitHub repository slug in `"owner/repo"` format.
     pub github_repo: String,
@@ -154,6 +156,8 @@ pub enum RepositoryFormFocus {
     BaseDir,
     DefaultProfile,
     DefaultCodePuppyModel,
+    /// Default Code Puppy YOLO for transient agents (issue #213).
+    DefaultCodePuppyYolo,
     DefaultAgentKind,
     GitHubRepo,
     IssuePrRepo,
@@ -176,7 +180,8 @@ impl RepositoryFormFocus {
             Self::Name => Self::BaseDir,
             Self::BaseDir => Self::DefaultProfile,
             Self::DefaultProfile => Self::DefaultCodePuppyModel,
-            Self::DefaultCodePuppyModel => Self::DefaultAgentKind,
+            Self::DefaultCodePuppyModel => Self::DefaultCodePuppyYolo,
+            Self::DefaultCodePuppyYolo => Self::DefaultAgentKind,
             Self::DefaultAgentKind => Self::GitHubRepo,
             Self::GitHubRepo => Self::IssuePrRepo,
             Self::IssuePrRepo => Self::RemoteEnabled,
@@ -198,7 +203,8 @@ impl RepositoryFormFocus {
             Self::BaseDir => Self::Name,
             Self::DefaultProfile => Self::BaseDir,
             Self::DefaultCodePuppyModel => Self::DefaultProfile,
-            Self::DefaultAgentKind => Self::DefaultCodePuppyModel,
+            Self::DefaultCodePuppyYolo => Self::DefaultCodePuppyModel,
+            Self::DefaultAgentKind => Self::DefaultCodePuppyYolo,
             Self::GitHubRepo => Self::DefaultAgentKind,
             Self::IssuePrRepo => Self::GitHubRepo,
             Self::RemoteEnabled => Self::IssuePrRepo,

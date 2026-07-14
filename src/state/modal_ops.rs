@@ -115,6 +115,7 @@ impl AppState {
                 base_dir: r.base_dir.to_string_lossy().into_owned(),
                 default_profile: r.default_profile.clone(),
                 default_code_puppy_model: r.default_code_puppy_model.clone(),
+                default_code_puppy_yolo: r.default_code_puppy_yolo.unwrap_or(false),
                 default_agent_kind: r.default_agent_kind.label().to_owned(),
                 github_repo: r.github_repo.clone(),
                 github_issue_pr_repo: r.github_issue_pr_repo.clone(),

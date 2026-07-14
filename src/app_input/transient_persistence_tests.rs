@@ -32,10 +32,11 @@ fn to_persisted_state_filters_out_transient_agents() {
     state.agents.push(regular);
 
     // Transient agent
+    let work_dir = repo.effective_transient_dir().join("transient");
     let transient = Agent::new_transient(
         AgentId("transient-1".to_owned()),
         repo.id.clone(),
-        PathBuf::from("/tmp/transient"),
+        work_dir,
         &repo,
     );
     state.agents.push(transient);
@@ -47,6 +48,54 @@ fn to_persisted_state_filters_out_transient_agents() {
         "only non-transient agents should persist"
     );
     assert!(!persisted.agents[0].is_transient());
+}
+
+#[test]
+fn to_persisted_state_clears_selected_agent_index_pointing_at_transient() {
+    let repo = make_repo();
+    let mut state = AppState::default();
+    state.repositories.push(repo.clone());
+
+    // One regular agent at index 0, one transient at index 1.
+    let mut regular = Agent::new(
+        AgentId("regular-1".to_owned()),
+        repo.id.clone(),
+        "Regular".to_owned(),
+        PathBuf::from("/tmp/regular"),
+    );
+    regular.status = AgentStatus::Running;
+    state.agents.push(regular);
+
+    let work_dir = repo.effective_transient_dir().join("transient");
+    let transient = Agent::new_transient(
+        AgentId("transient-1".to_owned()),
+        repo.id.clone(),
+        work_dir,
+        &repo,
+    );
+    state.agents.push(transient);
+
+    // selected_agent_index = 1 points at the transient agent.
+    state.selected_agent_index = Some(1);
+    // Also set a last_selected entry for the transient agent.
+    state.last_selected_agent_by_repo = vec![(repo.id.clone(), AgentId("transient-1".to_owned()))];
+
+    let persisted = to_persisted_state(&state);
+
+    // After filtering, only the regular agent (index 0) remains, so index 1
+    // is out of bounds and must be cleared (not silently remapped).
+    assert_eq!(
+        persisted.selected_agent_index, None,
+        "selected_agent_index pointing at a transient agent must be cleared"
+    );
+    // The transient agent's ID must not survive in last_selected_agent_by_repo.
+    assert!(
+        persisted
+            .last_selected_agent_by_repo
+            .iter()
+            .all(|(_, id)| id != &AgentId("transient-1".to_owned())),
+        "last_selected_agent_by_repo must not reference a transient agent ID"
+    );
 }
 
 #[test]

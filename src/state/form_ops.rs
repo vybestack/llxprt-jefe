@@ -16,14 +16,18 @@ impl AppState {
         focus: RepositoryFormFocus,
         step: fn(RepositoryFormFocus) -> RepositoryFormFocus,
     ) -> RepositoryFormFocus {
-        let candidate = step(focus);
-        if candidate == RepositoryFormFocus::DefaultCodePuppyModel
-            && AgentKind::from_form_value(&fields.default_agent_kind) != Some(AgentKind::CodePuppy)
+        let is_code_puppy =
+            AgentKind::from_form_value(&fields.default_agent_kind) == Some(AgentKind::CodePuppy);
+        let mut candidate = step(focus);
+        // Skip CodePuppy-only fields (model + yolo) when the agent kind is
+        // not CodePuppy (issue #213).
+        while !is_code_puppy
+            && (candidate == RepositoryFormFocus::DefaultCodePuppyModel
+                || candidate == RepositoryFormFocus::DefaultCodePuppyYolo)
         {
-            step(candidate)
-        } else {
-            candidate
+            candidate = step(candidate);
         }
+        candidate
     }
 
     fn handle_agent_shortcut_char(fields: &mut AgentFormFields, c: char) {
@@ -270,6 +274,7 @@ impl AppState {
                 );
             }
             RepositoryFormFocus::DefaultAgentKind
+            | RepositoryFormFocus::DefaultCodePuppyYolo
             | RepositoryFormFocus::RemoteEnabled
             | RepositoryFormFocus::SetupEnvDefault => {}
         }
@@ -324,6 +329,7 @@ impl AppState {
                 );
             }
             RepositoryFormFocus::DefaultAgentKind
+            | RepositoryFormFocus::DefaultCodePuppyYolo
             | RepositoryFormFocus::RemoteEnabled
             | RepositoryFormFocus::SetupEnvDefault => {}
         }
@@ -651,6 +657,9 @@ impl AppState {
                 {
                     next.label().clone_into(&mut fields.default_agent_kind);
                 }
+            }
+            RepositoryFormFocus::DefaultCodePuppyYolo => {
+                fields.default_code_puppy_yolo = !fields.default_code_puppy_yolo;
             }
             RepositoryFormFocus::RemoteEnabled => fields.remote_enabled = !fields.remote_enabled,
             RepositoryFormFocus::SetupEnvDefault => {

@@ -990,11 +990,9 @@ mod prs_integration_tests;
 #[cfg(test)]
 #[path = "prs_tests_pagination.rs"]
 mod prs_tests_pagination;
-/// Transient agent state-layer tests (issue #213).
 #[cfg(test)]
 #[path = "transient_agent_tests.rs"]
 mod transient_agent_tests;
-/// Transient agent SystemMessage reducer tests (issue #213).
 #[cfg(test)]
 #[path = "transient_system_message_tests.rs"]
 mod transient_system_message_tests;
