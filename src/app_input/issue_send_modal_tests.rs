@@ -56,6 +56,7 @@ fn state_for_issue_agent_chooser_send(
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     };
 
     let issues_state = jefe::state::IssuesState {

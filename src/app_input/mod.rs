@@ -7,12 +7,17 @@ mod issues_filter;
 mod issues_lifecycle;
 mod issues_list_dispatch;
 mod issues_mutation;
+mod issues_navigation;
+mod issues_property_edit;
 mod issues_subfocus_dispatch;
 mod modal_handlers;
 mod normal;
 mod persist_focus;
 mod preflight;
 mod pty_passthrough;
+mod settled_refresh;
+
+use settled_refresh::SettledRefresh;
 
 // Re-export so sibling modules importing `super::preflight_or_prompt` keep
 // resolving after the helper moved into the `preflight` submodule.
@@ -29,6 +34,7 @@ mod prs_filter;
 mod prs_list_dispatch;
 mod prs_merge_dispatch;
 mod prs_mutation;
+mod prs_property_edit;
 // @plan PLAN-20260624-PR-MODE.P11
 mod prs_orchestration;
 
@@ -227,11 +233,21 @@ fn agent_and_signature(
 }
 
 fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
+    let settled_refresh = SettledRefresh::from_event(&evt);
     let mut state = app_state.write();
     *state = std::mem::take(&mut *state).apply(evt);
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
+    match settled_refresh {
+        Some(SettledRefresh::Issues) => {
+            issues_dispatch::resume_issue_post_mutation_refresh(app_state, ctx);
+        }
+        Some(SettledRefresh::PullRequests) => {
+            prs_orchestration::resume_pr_post_mutation_refresh(app_state, ctx);
+        }
+        None => {}
+    }
 }
 
 fn close_modal_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -874,84 +890,6 @@ fn persist_relaunch_failure(state: &mut AppState, agent_id: &AgentId, relaunch_e
     mark_runtime_session_dead_if_present(state, agent_id);
     if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
         agent.runtime_binding = None;
-    }
-}
-
-fn dispatch_issues_navigation(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    message: IssuesMessage,
-) {
-    let (focus, prev_repo_idx, prev_issue_idx) = {
-        let state = app_state.read();
-        (
-            state.issues_state.issue_focus,
-            state.selected_repository_index,
-            state.issues_state.selected_issue_index(),
-        )
-    };
-
-    apply_and_persist(app_state, ctx, AppEvent::from(message));
-    refresh_issue_navigation(app_state, ctx, focus, prev_repo_idx, prev_issue_idx);
-}
-
-fn refresh_issue_navigation(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    focus: jefe::state::IssueFocus,
-    prev_repo_idx: Option<usize>,
-    prev_issue_idx: Option<usize>,
-) {
-    match focus {
-        jefe::state::IssueFocus::RepoList => {
-            refresh_repo_scope_if_changed(app_state, ctx, prev_repo_idx);
-        }
-        jefe::state::IssueFocus::IssueList => {
-            refresh_issue_preview_if_changed(app_state, prev_issue_idx);
-            issues_list_dispatch::load_more_issues_if_at_end(app_state, ctx);
-        }
-        jefe::state::IssueFocus::IssueDetail => {}
-    }
-}
-
-fn refresh_repo_scope_if_changed(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    prev_repo_idx: Option<usize>,
-) {
-    let new_repo_idx = app_state.read().selected_repository_index;
-    if new_repo_idx == prev_repo_idx {
-        return;
-    }
-    reset_issue_list_for_repo_change(app_state);
-    dispatch_app_event(app_state, ctx, AppEvent::RefocusIssueList);
-    app_state.write().issues_state.issue_focus = jefe::state::IssueFocus::RepoList;
-    issues_list_dispatch::dispatch_issue_list_fetch(app_state, ctx, true);
-}
-
-fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
-    let mut state = app_state.write();
-    // Clear the unified list (items, selection, identity, continuation,
-    // pending) for the repo switch; a fresh reload is kicked off by the caller.
-    state.issues_state.list.clear();
-    state.issues_state.issue_detail = None;
-    state.issues_state.error = None;
-    if state.issues_state.inline_state != jefe::state::InlineState::None {
-        state.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
-    }
-    state.issues_state.inline_state = jefe::state::InlineState::None;
-    state.issues_state.mutation_pending = None;
-    state.issues_state.loading.detail = false;
-    state.issues_state.loading.comments = false;
-    state.issues_state.detail_pending = None;
-    state.issues_state.comments_page_pending = None;
-    state.issues_state.agent_chooser = None;
-}
-
-fn refresh_issue_preview_if_changed(app_state: &mut AppStateHandle, prev_issue_idx: Option<usize>) {
-    let new_issue_idx = app_state.read().issues_state.selected_issue_index();
-    if new_issue_idx != prev_issue_idx {
-        issues_dispatch::preview_issue_from_list(app_state);
     }
 }
 

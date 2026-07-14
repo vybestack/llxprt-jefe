@@ -196,6 +196,7 @@ fn issue_send_state(repo: Repository) -> AppState {
         labels: vec![],
         assignees: vec![],
         milestone: None,
+        issue_type_name: None,
         body: "Fork should source issues from upstream".to_owned(),
         external_url: String::new(),
         comments: vec![],

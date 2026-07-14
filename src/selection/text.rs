@@ -48,8 +48,12 @@ pub enum SelectablePane {
     AgentChooser,
     /// Merge-method chooser overlay (PR mode). Issue #178.
     MergeChooser,
+    /// Property editor overlay (issues/PR mode). Issue #175.
+    PropertyEditor,
     /// Close-reason chooser overlay (issues mode). Issue #188.
     CloseReasonChooser,
+    /// Issue delete confirmation overlay (issues mode). Issue #182.
+    IssueDeleteConfirm,
     /// Confirmation modal (delete/kill/preflight/dirty-copy). Issue #178.
     ConfirmModal,
 }

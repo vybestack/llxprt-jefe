@@ -7,10 +7,13 @@ use jefe::state::AppEvent;
 
 use super::tracker_resolver::{ResolvedTracker, resolve_tracker_outcome};
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, dispatch_issues_lifecycle,
-    dispatch_issues_navigation, gh_async, github_client,
+    AppStateHandle, SharedContext, apply_and_persist, dispatch_issues_lifecycle, gh_async,
+    github_client, issues_navigation::dispatch_issues_navigation,
 };
-use super::{issues_list_dispatch, issues_mutation, issues_send, issues_subfocus_dispatch};
+use super::{
+    issues_list_dispatch, issues_mutation, issues_property_edit, issues_send,
+    issues_subfocus_dispatch,
+};
 
 /// Resolve the effective issue repository, returning empty components when
 /// no valid target exists. User-visible callers use [`resolve_gh_repo_or_error`]
@@ -93,6 +96,11 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
                     comments: Vec::new(),
                     has_more_comments: false,
                     comments_cursor: None,
+                    issue_type_name: if issue.issue_type.is_empty() {
+                        None
+                    } else {
+                        Some(issue.issue_type.clone())
+                    },
                 }
             })
     };
@@ -159,6 +167,90 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
             );
         },
     );
+}
+
+/// Silently refresh issue detail for the currently selected issue (issue #175).
+/// Mirrors `load_issue_detail_for_selection` but does NOT set `loading.detail`
+/// (no spinner flash), preserves `detail_scroll_offset` on success, and does
+/// NOT surface errors visibly on failure (delivers `IssueDetailSilentRefreshed`
+/// / `IssueDetailSilentRefreshFailed`).
+pub(super) fn load_issue_detail_silent_refresh(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+) {
+    let Some(mut params) = issue_detail_load_params(app_state) else {
+        return;
+    };
+    mark_detail_silent_loading(app_state, &mut params);
+    if params.owner.is_empty() || params.repo.is_empty() {
+        // Missing repo: silently clear the pending marker (no visible error).
+        apply_and_persist(app_state, ctx, detail_silent_refresh_failed_event(&params));
+        return;
+    }
+
+    let panic_params = params.clone();
+    gh_async::spawn_gh_task_with_panic(
+        app_state,
+        ctx,
+        move |mut app_state, ctx| {
+            let event = detail_silent_refresh_event(&ctx, params);
+            apply_and_persist(&mut app_state, &ctx, event);
+        },
+        move |mut app_state, ctx, _message| {
+            // On panic: silently clear the pending marker (no visible error).
+            apply_and_persist(
+                &mut app_state,
+                &ctx,
+                detail_silent_refresh_failed_event(&panic_params),
+            );
+        },
+    );
+}
+
+/// Mark issue detail as silently loading (does NOT set `loading.detail`).
+fn mark_detail_silent_loading(app_state: &mut AppStateHandle, params: &mut DetailLoadParams) {
+    let mut state = app_state.write();
+    let request_id = state.next_issue_detail_request_id();
+    state.mark_issue_detail_silent_loading(
+        params.scope_repo_id.clone(),
+        params.issue_number,
+        request_id,
+    );
+    drop(state);
+    params.request_id = request_id;
+}
+
+/// Build the silent-refresh detail event from the gh result.
+fn detail_silent_refresh_event(ctx: &SharedContext, params: DetailLoadParams) -> AppEvent {
+    let result = github_client(ctx)
+        .map(|client| client.get_issue_detail(&params.owner, &params.repo, params.issue_number));
+    match result {
+        Some(Ok(detail)) => AppEvent::IssueDetailSilentRefreshed {
+            scope_repo_id: params.scope_repo_id,
+            issue_number: params.issue_number,
+            request_id: params.request_id,
+            detail: std::boxed::Box::new(detail),
+        },
+        _ => detail_silent_refresh_failed_event_owned(params),
+    }
+}
+
+/// Build the silent-refresh failure event from owned params (clears pending).
+fn detail_silent_refresh_failed_event_owned(params: DetailLoadParams) -> AppEvent {
+    AppEvent::IssueDetailSilentRefreshFailed {
+        scope_repo_id: params.scope_repo_id,
+        issue_number: params.issue_number,
+        request_id: params.request_id,
+    }
+}
+
+/// Build the silent-refresh failure event from borrowed params (clears pending).
+fn detail_silent_refresh_failed_event(params: &DetailLoadParams) -> AppEvent {
+    AppEvent::IssueDetailSilentRefreshFailed {
+        scope_repo_id: params.scope_repo_id.clone(),
+        issue_number: params.issue_number,
+        request_id: params.request_id,
+    }
 }
 
 fn detail_load_params(app_state: &AppStateHandle) -> Option<DetailLoadParams> {
@@ -254,16 +346,21 @@ fn detail_load_panic_event(params: &DetailLoadParams, message: String) -> AppEve
 }
 
 #[derive(Clone)]
-struct DetailLoadParams {
-    scope_repo_id: jefe::domain::RepositoryId,
-    issue_number: u64,
-    owner: String,
-    repo: String,
-    request_id: u64,
+pub(super) struct DetailLoadParams {
+    pub(super) scope_repo_id: jefe::domain::RepositoryId,
+    pub(super) issue_number: u64,
+    pub(super) owner: String,
+    pub(super) repo: String,
+    pub(super) request_id: u64,
     /// When the tracker override is malformed, this carries the
     /// user-visible reason so it can be surfaced instead of a misleading
     /// "missing GitHub Repo" (issue #266).
-    malformed_message: Option<String>,
+    pub(super) malformed_message: Option<String>,
+}
+
+/// Gather detail-load params from state (returns None if no issue selected).
+pub(super) fn issue_detail_load_params(app_state: &AppStateHandle) -> Option<DetailLoadParams> {
+    detail_load_params(app_state)
 }
 
 /// Load the next comments page when the detail view is scrolled to the bottom.
@@ -521,6 +618,11 @@ pub(super) fn dispatch_issues_message(
         IssuesMessage::InlineSubmit => {
             issues_mutation::handle_inline_submit(app_state, ctx);
         }
+        message @ (IssuesMessage::OpenPropertyEditor { .. }
+        | IssuesMessage::PropertyEditorConfirm
+        | IssuesMessage::PropertyEditSucceeded { .. }) => {
+            dispatch_issue_property_message(app_state, ctx, message);
+        }
         message @ (IssuesMessage::CloseIssue
         | IssuesMessage::OpenDeleteIssueConfirm
         | IssuesMessage::IssueDeleteConfirm
@@ -539,6 +641,67 @@ pub(super) fn dispatch_issues_message(
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
+}
+
+/// Route property-editor messages that require boundary I/O.
+fn dispatch_issue_property_message(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: IssuesMessage,
+) {
+    match message {
+        IssuesMessage::OpenPropertyEditor { kind } => {
+            apply_and_persist(app_state, ctx, AppEvent::IssueOpenPropertyEditor { kind });
+            let should_load_options = {
+                let state = app_state.read();
+                state
+                    .issues_state
+                    .property_editor
+                    .as_ref()
+                    .is_some_and(|editor| {
+                        matches!(
+                            editor.kind,
+                            jefe::state::IssuePropertyKind::Labels
+                                | jefe::state::IssuePropertyKind::Assignees
+                                | jefe::state::IssuePropertyKind::Milestone
+                                | jefe::state::IssuePropertyKind::Type
+                        )
+                    })
+            };
+            if should_load_options {
+                issues_property_edit::handle_issue_property_options_load(app_state, ctx);
+            }
+        }
+        IssuesMessage::PropertyEditorConfirm => {
+            issues_property_edit::handle_issue_property_confirm(app_state, ctx);
+        }
+        IssuesMessage::PropertyEditSucceeded { .. } => {
+            issues_property_edit::dispatch_issue_property_post_mutation(
+                app_state,
+                ctx,
+                AppEvent::from(message),
+            );
+        }
+        other => apply_and_persist(app_state, ctx, AppEvent::from(other)),
+    }
+}
+
+/// Start a coalesced post-mutation refresh once earlier requests have settled.
+pub(super) fn resume_issue_post_mutation_refresh(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+) {
+    let ready = {
+        let state = app_state.read();
+        state.screen_mode == jefe::state::ScreenMode::DashboardIssues
+            && state.issue_post_mutation_refresh_ready()
+    };
+    if !ready {
+        return;
+    }
+    apply_and_persist(app_state, ctx, AppEvent::IssuePostMutationRefreshStarted);
+    issues_list_dispatch::request_issue_list_silent_refresh(app_state, ctx);
+    load_issue_detail_silent_refresh(app_state, ctx);
 }
 
 #[cfg(test)]

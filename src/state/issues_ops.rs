@@ -91,6 +91,9 @@ impl AppState {
             self.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
             self.issues_state.inline_state = InlineState::None;
         }
+        // M7: clear property editor on mode exit.
+        self.issues_state.property_editor = None;
+        self.issues_state.property_mutation_pending = None;
         if let Some(prior) = self.issues_state.prior_agent_focus.take() {
             self.pane_focus = prior.pane_focus;
             if let Some(idx) = prior.selected_agent_index {
@@ -242,6 +245,8 @@ impl AppState {
             self.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
             self.issues_state.inline_state = InlineState::None;
         }
+        self.issues_state.property_editor = None;
+        self.issues_state.property_mutation_pending = None;
         self.issues_state.list.clear();
         self.issues_state.issue_detail = None;
         self.issues_state.error = None;
@@ -604,6 +609,8 @@ impl AppState {
             | AppEvent::IssueListPageLoaded { .. }
             | AppEvent::IssueDetailLoaded { .. }
             | AppEvent::IssueCommentsPageLoaded { .. }
+            | AppEvent::IssueListSilentRefreshed { .. }
+            | AppEvent::IssueDetailSilentRefreshed { .. }
             | AppEvent::SetSearchQuery { .. }
             | AppEvent::UpdateDraftFilter { .. } => self.apply_issues_data(event),
             _ => return false,
@@ -616,6 +623,8 @@ impl AppState {
             AppEvent::IssueListLoadFailed { .. }
             | AppEvent::IssueDetailLoadFailed { .. }
             | AppEvent::IssueCommentsPageFailed { .. }
+            | AppEvent::IssueListSilentRefreshFailed { .. }
+            | AppEvent::IssueDetailSilentRefreshFailed { .. }
             | AppEvent::CommentCreateFailed { .. }
             | AppEvent::MutationFailed { .. }
             | AppEvent::SendToAgentFailed { .. }
@@ -634,6 +643,7 @@ impl AppState {
             || self.apply_inline_open_event(event.clone())
             || self.apply_inline_event(event.clone())
             || self.apply_issue_mutation_event(event.clone())
+            || self.apply_issue_property_event(&event)
             || self.apply_agent_chooser_event(event.clone())
             || self.apply_issue_error_event(event)
     }

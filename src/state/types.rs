@@ -663,3 +663,87 @@ pub struct WorkflowsPending {
     pub scope_repo_id: RepositoryId,
     pub request_id: u64,
 }
+
+/// Which property of an issue the user is editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IssuePropertyKind {
+    Labels,
+    Assignees,
+    Milestone,
+    Title,
+    Type,
+    State,
+}
+
+/// Which property of a PR the user is editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrPropertyKind {
+    Labels,
+    Assignees,
+    Milestone,
+    Title,
+    State,
+}
+
+/// A selectable option in the property editor list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyOption {
+    pub label: String,
+    pub selected: bool,
+    /// Opaque node ID for issue types (None for other kinds). Display uses
+    /// `label`; the mutation submits `id` (H2 fix).
+    pub id: Option<String>,
+}
+
+/// Pending property mutation staleness guard (issue #175, H4 fix).
+///
+/// Mirrors `IssueMutationPending` / `PrMergeMutationPending`. Prevents
+/// duplicate confirmations and ensures stale completions are ignored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyMutationPending {
+    pub scope_repo_id: crate::domain::RepositoryId,
+    pub request_id: u64,
+    pub number: u64,
+}
+
+/// Property editor overlay state for issues (mirrors `PrMergeChooserState`).
+#[derive(Debug, Clone)]
+pub struct IssuePropertyEditorState {
+    pub kind: IssuePropertyKind,
+    pub options: Vec<PropertyOption>,
+    pub selected_index: usize,
+    pub title_text: String,
+    pub title_cursor: usize,
+    pub error: Option<String>,
+    /// Baseline labels/assignees currently applied (for diff computation, M8).
+    pub baseline: Vec<String>,
+    /// Whether the background options fetch failed (H5). When true, confirm is
+    /// disabled to prevent destructive writes from missing data.
+    pub loading_failed: bool,
+    /// Whether options are still loading (M6). Set true on open, false on
+    /// load-success/load-failure. Confirm is blocked while true.
+    pub options_loading: bool,
+    /// Request ID for the in-flight options load (M6 correlation).
+    pub load_request_id: u64,
+}
+
+/// Property editor overlay state for PRs.
+#[derive(Debug, Clone)]
+pub struct PrPropertyEditorState {
+    pub kind: PrPropertyKind,
+    pub options: Vec<PropertyOption>,
+    pub selected_index: usize,
+    pub title_text: String,
+    pub title_cursor: usize,
+    pub error: Option<String>,
+    /// Baseline labels/assignees currently applied (for diff computation, M8).
+    pub baseline: Vec<String>,
+    /// Whether the background options fetch failed (H5). When true, confirm is
+    /// disabled to prevent destructive writes from missing data.
+    pub loading_failed: bool,
+    /// Whether options are still loading (M6). Set true on open, false on
+    /// load-success/load-failure. Confirm is blocked while true.
+    pub options_loading: bool,
+    /// Request ID for the in-flight options load (M6 correlation).
+    pub load_request_id: u64,
+}

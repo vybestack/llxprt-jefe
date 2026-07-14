@@ -805,8 +805,6 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
         | jefe::state::ModalState::Auth { .. } => {
             return OverlayPane::ConfirmModal;
         }
-        // Explicit match (not wildcard) so new ModalState variants force a
-        // conscious overlay-routing decision here (issue #178 z-order).
         jefe::state::ModalState::None
         | jefe::state::ModalState::Search { .. }
         | jefe::state::ModalState::ThemePicker { .. }
@@ -818,8 +816,14 @@ fn active_overlay_for(state: &AppState) -> jefe::selection::OverlayPane {
     if state.prs_state.merge_chooser.is_some() {
         return OverlayPane::MergeChooser;
     }
+    if state.issues_state.property_editor.is_some() || state.prs_state.property_editor.is_some() {
+        return OverlayPane::PropertyEditor;
+    }
     if state.issues_state.close_reason_chooser.is_some() {
         return OverlayPane::CloseReasonChooser;
+    }
+    if state.issues_state.delete_confirm.is_some() {
+        return OverlayPane::IssueDeleteConfirm;
     }
     OverlayPane::None
 }

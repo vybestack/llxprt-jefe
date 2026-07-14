@@ -298,7 +298,7 @@ impl TmuxRuntimeManager {
         // Only memoize on success, mirroring the remote path: a transient tmux
         // failure leaves the session un-remediated and un-memoized so the next
         // attach retries (#200 review).
-        match commands::disable_prefix_for_passthrough(session_name) {
+        match commands::configure_prefix_for_passthrough(session_name) {
             Ok(()) => {
                 self.prefix_enforced.insert(session_name.to_owned());
             }

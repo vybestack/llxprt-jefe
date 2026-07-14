@@ -606,6 +606,7 @@ fn test_build_send_payload_with_comment() {
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     };
 
     let focused_comment = IssueComment {
@@ -656,6 +657,7 @@ fn test_build_send_payload_without_comment() {
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     };
 
     let payload = GhClient::build_send_payload("owner/repo", &detail, None, "Base prompt here");

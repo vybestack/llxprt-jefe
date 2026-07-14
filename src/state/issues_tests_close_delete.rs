@@ -70,7 +70,22 @@ fn make_detail(number: u64, node_id: &str) -> IssueDetail {
         comments: Vec::new(),
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     }
+}
+
+#[test]
+fn list_focus_uses_selected_row_when_stale_detail_is_retained() {
+    let mut state = issues_state_with_list("repo-1");
+    state.issues_state.list.set_selected_index(Some(1));
+    state.issues_state.issue_detail = Some(make_detail(1, "I_1"));
+    state.issues_state.issue_focus = IssueFocus::IssueList;
+
+    let state = state.apply(AppEvent::CloseIssue);
+    let Some(pending) = state.issues_state.close_mutation_pending.as_ref() else {
+        panic!("close mutation should target the selected list row");
+    };
+    assert_eq!(pending.issue_number, 2);
 }
 
 // ── Close mutation ────────────────────────────────────────────────────────

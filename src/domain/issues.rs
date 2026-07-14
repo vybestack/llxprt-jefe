@@ -61,6 +61,8 @@ pub struct IssueDetail {
     pub comments: Vec<IssueComment>,
     pub has_more_comments: bool,
     pub comments_cursor: Option<String>,
+    /// The issue's type name (GitHub issue types), if any (issue #175).
+    pub issue_type_name: Option<String>,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

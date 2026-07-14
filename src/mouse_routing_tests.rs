@@ -656,6 +656,16 @@ fn active_overlay_agent_chooser() {
     assert_eq!(active_overlay_for(&state), OverlayPane::AgentChooser);
 }
 
+#[test]
+fn active_overlay_issue_delete_confirm() {
+    let mut state = AppState::default();
+    state.issues_state.delete_confirm = Some(jefe::state::IssueDeleteConfirmState {
+        issue_number: 42,
+        awaiting_confirmation: false,
+    });
+    assert_eq!(active_overlay_for(&state), OverlayPane::IssueDeleteConfirm);
+}
+
 // ── Issue #198: wheel→scrollback helpers ─────────────────────────────────
 
 fn fullscreen_event(kind: MouseEventKind) -> iocraft::FullscreenMouseEvent {
@@ -756,6 +766,7 @@ fn state_with_issue_body(body: &str) -> AppState {
         comments: Vec::new(),
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     });
     state
 }

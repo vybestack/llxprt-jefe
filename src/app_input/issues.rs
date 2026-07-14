@@ -8,7 +8,7 @@
 
 use iocraft::prelude::*;
 
-use jefe::state::{AppEvent, AppState, DetailSubfocus, InlineState, IssueFocus};
+use jefe::state::{AppEvent, AppState, DetailSubfocus, InlineState, IssueFocus, IssuePropertyKind};
 
 use super::issues_filter::resolve_filter_key_event;
 
@@ -27,6 +27,10 @@ use super::{AppStateHandle, SharedContext};
 /// @requirement REQ-ISS-002
 /// @pseudocode component-003 lines 01-38
 pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    if let Some(editor) = state.issues_state.property_editor.as_ref() {
+        return resolve_property_editor_key_event(editor.kind, key_event);
+    }
+
     if state.issues_state.close_reason_chooser.is_some() {
         return resolve_close_reason_chooser_key_event(state, key_event);
     }
@@ -83,6 +87,35 @@ fn resolve_agent_chooser_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
         KeyCode::Down => Some(AppEvent::AgentChooserNavigateDown),
         KeyCode::Enter => Some(AppEvent::AgentChooserConfirm),
         KeyCode::Esc => Some(AppEvent::AgentChooserCancel),
+        _ => None,
+    }
+}
+
+/// Property-editor key router (issue #175).
+///
+/// Mirrors the merge-chooser pattern: Up/Down navigate, Space toggles, Enter
+/// confirms, Esc cancels. When `kind == Title`, character input, Backspace,
+/// Delete, and Left/Right edit the title text. All other keys are consumed
+/// as `None` so the overlay is modal.
+fn resolve_property_editor_key_event(
+    kind: IssuePropertyKind,
+    key_event: &KeyEvent,
+) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Up => Some(AppEvent::IssuePropertyEditorNavigateUp),
+        KeyCode::Down => Some(AppEvent::IssuePropertyEditorNavigateDown),
+        KeyCode::Char(' ') if kind != IssuePropertyKind::Title => {
+            Some(AppEvent::IssuePropertyEditorToggle)
+        }
+        KeyCode::Enter => Some(AppEvent::IssuePropertyEditorConfirm),
+        KeyCode::Esc => Some(AppEvent::IssuePropertyEditorCancel),
+        KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(AppEvent::IssuePropertyEditorTitleChar(c))
+        }
+        KeyCode::Backspace => Some(AppEvent::IssuePropertyEditorTitleBackspace),
+        KeyCode::Delete => Some(AppEvent::IssuePropertyEditorTitleDelete),
+        KeyCode::Left => Some(AppEvent::IssuePropertyEditorTitleCursorLeft),
+        KeyCode::Right => Some(AppEvent::IssuePropertyEditorTitleCursorRight),
         _ => None,
     }
 }
@@ -232,8 +265,32 @@ fn resolve_issue_detail_key_event(state: &AppState, key_event: &KeyEvent) -> Opt
         KeyCode::Char('D') => Some(AppEvent::OpenDeleteIssueConfirm),
         KeyCode::Tab | KeyCode::Char('j') => Some(AppEvent::IssueDetailSubfocusNext),
         KeyCode::BackTab | KeyCode::Char('k') => Some(AppEvent::IssueDetailSubfocusPrev),
-        _ => None,
+        _ => resolve_issue_property_open_key(state, key_event),
     }
+}
+
+/// Property editor open-key shortcuts (issue #175).
+///
+/// Shift-letter opens the corresponding property editor overlay. Only active
+/// on Body subfocus and when no overlay is already open.
+fn resolve_issue_property_open_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    if state.issues_state.detail_subfocus != DetailSubfocus::Body
+        || state.issues_state.property_editor.is_some()
+        || state.issues_state.close_reason_chooser.is_some()
+        || state.issues_state.delete_confirm.is_some()
+    {
+        return None;
+    }
+    let kind = match key_event.code {
+        KeyCode::Char('L') => IssuePropertyKind::Labels,
+        KeyCode::Char('A') => IssuePropertyKind::Assignees,
+        KeyCode::Char('M') => IssuePropertyKind::Milestone,
+        KeyCode::Char('T') => IssuePropertyKind::Title,
+        KeyCode::Char('Y') => IssuePropertyKind::Type,
+        KeyCode::Char('W') => IssuePropertyKind::State,
+        _ => return None,
+    };
+    Some(AppEvent::IssueOpenPropertyEditor { kind })
 }
 
 fn editor_event_for_subfocus(subfocus: DetailSubfocus) -> Option<AppEvent> {
@@ -293,6 +350,10 @@ pub fn handle_issues_mode_key(
 #[cfg(test)]
 #[path = "issues_key_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "issues_property_key_tests.rs"]
+mod issues_property_key_tests;
 
 #[cfg(test)]
 #[path = "issues_close_reason_key_tests.rs"]

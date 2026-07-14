@@ -21,14 +21,47 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     crossterm::terminal::enable_raw_mode()?;
     let _raw_mode = RawModeGuard;
+    #[cfg(windows)]
+    let _input = {
+        let input = winsafe::HSTD::GetStdHandle(winsafe::co::STD_HANDLE::INPUT)?;
+        let mode = input.GetConsoleMode()?;
+        input.SetConsoleMode(
+            (mode
+                & !(winsafe::co::CONSOLE::ENABLE_LINE_INPUT
+                    | winsafe::co::CONSOLE::ENABLE_ECHO_INPUT
+                    | winsafe::co::CONSOLE::ENABLE_PROCESSED_INPUT))
+                | winsafe::co::CONSOLE::ENABLE_VIRTUAL_TERMINAL_INPUT,
+        )?;
+        input
+    };
     let mut output = std::io::stdout().lock();
+    for line in 0..80 {
+        writeln!(output, "SCROLLBACK_{line:03}")?;
+    }
+    output.write_all(b"\x1b[31mCOLOR_RED\x1b[0m\r\n")?;
+    output.write_all("UNICODE_Ω_界_e\u{301}\r\n".as_bytes())?;
+    output.write_all(b"CURSOR_AB\x1b[D!\r\n")?;
+    output.write_all(b"\x1b[?1000h\x1b[?1006h\x1b[?2004h\x1b[?1049hALT_SCREEN\r\n")?;
+    output.write_all(b"\x1b[31mCOLOR_RED\x1b[0m\r\n")?;
+    output.write_all("UNICODE_Ω_界_e\u{301}\r\n".as_bytes())?;
+    output.write_all(b"CURSOR_AB\x1b[D!\r\n")?;
+    output.write_all(b"\x1b]52;c;bmF0aXZlIGNsaXBib2FyZA==\x07")?;
     output.write_all(b"PSMUX_SMOKE_READY\r\n")?;
     output.flush()?;
 
     let mut byte = [0_u8; 1];
+    let mut received = Vec::new();
     loop {
         std::io::stdin().read_exact(&mut byte)?;
-        writeln!(output, "PSMUX_BYTE_{:02X}", byte[0])?;
+        received.push(byte[0]);
+        writeln!(output, "PSMUX_BYTE_{:02X} BYTE_{:02X}", byte[0], byte[0])?;
+        if byte[0] == 0x12 {
+            output.write_all(b"\x1b[?1049lMAIN_SCREEN\r\nINPUT_HEX")?;
+            for value in &received {
+                write!(output, "_{value:02X}")?;
+            }
+            output.write_all(b"\r\n")?;
+        }
         output.flush()?;
         if byte[0] == 0x04 {
             return Ok(());

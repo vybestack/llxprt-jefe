@@ -49,7 +49,6 @@ pub(super) struct PrOpenInBrowserInfo {
     pub number: u64,
 }
 
-#[cfg(test)]
 pub(super) fn resolve_pr_gh_repo(state: &jefe::state::AppState) -> (String, String) {
     resolve_pr_gh_repo_or_error(state).unwrap_or_default()
 }
