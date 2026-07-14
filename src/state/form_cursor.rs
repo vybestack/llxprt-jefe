@@ -12,9 +12,24 @@ pub(super) fn handle_repository_field_char(
     c: char,
 ) -> bool {
     match focus {
-        RepositoryFormFocus::Name => {
-            cursor.name = insert_char_at(&mut fields.name, cursor.name, c);
+        RepositoryFormFocus::DefaultAgentKind
+        | RepositoryFormFocus::RemoteEnabled
+        | RepositoryFormFocus::SetupEnvDefault => c == ' ' || c == 'x' || c == 'X',
+        text_focus => {
+            insert_repository_text_char(fields, cursor, text_focus, c);
+            false
         }
+    }
+}
+
+fn insert_repository_text_char(
+    fields: &mut RepositoryFormFields,
+    cursor: &mut RepositoryFormCursor,
+    focus: RepositoryFormFocus,
+    c: char,
+) {
+    match focus {
+        RepositoryFormFocus::Name => cursor.name = insert_char_at(&mut fields.name, cursor.name, c),
         RepositoryFormFocus::BaseDir => {
             cursor.base_dir = insert_char_at(&mut fields.base_dir, cursor.base_dir, c);
         }
@@ -49,19 +64,24 @@ pub(super) fn handle_repository_field_char(
         RepositoryFormFocus::LoginUser => {
             cursor.login_user = insert_char_at(&mut fields.login_user, cursor.login_user, c);
         }
-        RepositoryFormFocus::Host => {
-            cursor.host = insert_char_at(&mut fields.host, cursor.host, c);
+        RepositoryFormFocus::Host => cursor.host = insert_char_at(&mut fields.host, cursor.host, c),
+        RepositoryFormFocus::SshPort => {
+            cursor.ssh_port = insert_char_at(&mut fields.ssh_port, cursor.ssh_port, c);
+        }
+        RepositoryFormFocus::IdentityFile => {
+            cursor.identity_file =
+                insert_char_at(&mut fields.identity_file, cursor.identity_file, c);
+        }
+        RepositoryFormFocus::SshOptions => {
+            cursor.ssh_options = insert_char_at(&mut fields.ssh_options, cursor.ssh_options, c);
         }
         RepositoryFormFocus::RunAsUser => {
             cursor.run_as_user = insert_char_at(&mut fields.run_as_user, cursor.run_as_user, c);
         }
         RepositoryFormFocus::DefaultAgentKind
         | RepositoryFormFocus::RemoteEnabled
-        | RepositoryFormFocus::SetupEnvDefault => {
-            return c == ' ' || c == 'x' || c == 'X';
-        }
+        | RepositoryFormFocus::SetupEnvDefault => {}
     }
-    false
 }
 
 pub(super) fn move_repository_field_cursor_right(
@@ -104,6 +124,15 @@ pub(super) fn move_repository_field_cursor_right(
             cursor.login_user = move_cursor_right(&fields.login_user, cursor.login_user);
         }
         RepositoryFormFocus::Host => cursor.host = move_cursor_right(&fields.host, cursor.host),
+        RepositoryFormFocus::SshPort => {
+            cursor.ssh_port = move_cursor_right(&fields.ssh_port, cursor.ssh_port);
+        }
+        RepositoryFormFocus::IdentityFile => {
+            cursor.identity_file = move_cursor_right(&fields.identity_file, cursor.identity_file);
+        }
+        RepositoryFormFocus::SshOptions => {
+            cursor.ssh_options = move_cursor_right(&fields.ssh_options, cursor.ssh_options);
+        }
         RepositoryFormFocus::RunAsUser => {
             cursor.run_as_user = move_cursor_right(&fields.run_as_user, cursor.run_as_user);
         }
@@ -194,6 +223,13 @@ pub(super) fn move_repository_field_cursor_left(
         }
         RepositoryFormFocus::LoginUser => cursor.login_user = move_cursor_left(cursor.login_user),
         RepositoryFormFocus::Host => cursor.host = move_cursor_left(cursor.host),
+        RepositoryFormFocus::SshPort => cursor.ssh_port = move_cursor_left(cursor.ssh_port),
+        RepositoryFormFocus::IdentityFile => {
+            cursor.identity_file = move_cursor_left(cursor.identity_file);
+        }
+        RepositoryFormFocus::SshOptions => {
+            cursor.ssh_options = move_cursor_left(cursor.ssh_options);
+        }
         RepositoryFormFocus::RunAsUser => cursor.run_as_user = move_cursor_left(cursor.run_as_user),
     }
 }

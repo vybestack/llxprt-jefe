@@ -49,6 +49,16 @@ pub fn help_content_lines() -> &'static [&'static str] {
         "  m           Merge (PR)",
         "  Tip: Tab/j/k to a review thread, then R resolve / r reply",
         "",
+        "Actions:",
+        "  Up/Down     Select repository, run, or focused job",
+        "  Enter       Open run detail / expand focused job",
+        "  Right/Left  Expand / collapse focused job",
+        "  Esc         Collapse job, back to runs, then exit Actions",
+        "  PgUp/PgDn   Scroll job detail",
+        "  Tab         Cycle repository, runs, and detail focus",
+        "  f /         Filter / search workflow runs",
+        "  d / r       Dispatch workflow / refresh runs",
+        "",
         "Dashboard:",
         "  n           New agent",
         "  N           New repository",
@@ -223,6 +233,15 @@ mod tests {
         assert!(joined.contains("Space       Grab/move/drop reorder"));
         assert!(joined.contains("v           Toggle active-only"));
         assert!(joined.contains("F9          Theme picker"));
+        for action in [
+            "Open run detail / expand focused job",
+            "Expand / collapse focused job",
+            "Collapse job, back to runs, then exit Actions",
+            "Filter / search workflow runs",
+            "Dispatch workflow / refresh runs",
+        ] {
+            assert!(joined.contains(action), "missing Actions help: {action}");
+        }
     }
 
     /// `help_viewport_rows` honors the preferred minimum on normal terminals and

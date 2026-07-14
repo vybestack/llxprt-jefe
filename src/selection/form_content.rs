@@ -250,17 +250,15 @@ fn repo_remote_field_specs(
     ]
 }
 
-/// Build the copyable content lines for the repository-definition form.
-#[must_use]
-pub fn repository_form_content_lines(state: &AppState) -> Option<Vec<String>> {
-    let (title, fields, focus, cursor) = repository_form_state(state)?;
-    let mut lines = vec![format!(" {title}"), String::new()];
-
-    let text_specs = repo_text_field_specs(fields, cursor);
-    repo_text_field_lines(&text_specs, focus, &mut lines);
-
-    let repo_kind = crate::state::kind_from_form_value(&fields.default_agent_kind);
-
+/// Push the agent-kind-specific field row (Default Model for CodePuppy,
+/// Default Version for LLxprt) into the repository form lines.
+fn repo_specific_field_lines(
+    fields: &RepositoryFormFields,
+    focus: RepositoryFormFocus,
+    cursor: &RepositoryFormCursor,
+    repo_kind: crate::domain::AgentKind,
+    lines: &mut Vec<String>,
+) {
     if repo_kind == crate::domain::AgentKind::CodePuppy {
         let model_value = if focus == RepositoryFormFocus::DefaultCodePuppyModel {
             text_with_caret(
@@ -284,6 +282,20 @@ pub fn repository_form_content_lines(state: &AppState) -> Option<Vec<String>> {
         };
         lines.push(render_field("Default Version", &version_value));
     }
+}
+
+/// Build the copyable content lines for the repository-definition form.
+#[must_use]
+pub fn repository_form_content_lines(state: &AppState) -> Option<Vec<String>> {
+    let (title, fields, focus, cursor) = repository_form_state(state)?;
+    let mut lines = vec![format!(" {title}"), String::new()];
+
+    let text_specs = repo_text_field_specs(fields, cursor);
+    repo_text_field_lines(&text_specs, focus, &mut lines);
+
+    let repo_kind = crate::state::kind_from_form_value(&fields.default_agent_kind);
+
+    repo_specific_field_lines(fields, focus, cursor, repo_kind, &mut lines);
 
     let effective_kinds = effective_agent_kinds_with_npm(
         &state.installed_agent_kinds,
@@ -303,6 +315,21 @@ pub fn repository_form_content_lines(state: &AppState) -> Option<Vec<String>> {
     };
     lines.push(render_field("GitHub Repo", &github_value));
 
+    let issue_pr_value = if focus == RepositoryFormFocus::IssuePrRepo {
+        text_with_caret(&fields.github_issue_pr_repo, cursor.github_issue_pr_repo)
+    } else {
+        fields.github_issue_pr_repo.clone()
+    };
+    let issue_pr_hint = if fields.github_issue_pr_repo.trim().is_empty() {
+        "blank uses GitHub Repo"
+    } else {
+        "override issue/PR tracker"
+    };
+    lines.push(format!(
+        "  {:<16} [{issue_pr_value}]  ({issue_pr_hint})",
+        "Issues / PRs Repo"
+    ));
+
     lines.push(render_checkbox(
         "Remote Repository",
         fields.remote_enabled,
@@ -317,6 +344,9 @@ pub fn repository_form_content_lines(state: &AppState) -> Option<Vec<String>> {
         fields.setup_env_default,
         "space toggles",
     ));
+    if let Some(error) = state.error_message.as_deref() {
+        lines.push(format!("  Error: {error}"));
+    }
     lines.push(String::new());
     lines.push(REPO_HINT.to_string());
     Some(lines)

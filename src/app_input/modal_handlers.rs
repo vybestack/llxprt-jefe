@@ -547,13 +547,8 @@ fn validate_form_kind_available(app_state: &mut AppStateHandle) -> bool {
     let selection = match &state.modal {
         ModalState::NewRepository { fields, .. } | ModalState::EditRepository { fields, .. } => {
             let kind = AgentKind::from_form_value(&fields.default_agent_kind).unwrap_or_default();
-            let remote = RemoteRepositorySettings {
-                enabled: fields.remote_enabled,
-                login_user: fields.login_user.clone(),
-                host: fields.host.clone(),
-                run_as_user: fields.run_as_user.clone(),
-                setup_env_default: fields.setup_env_default,
-            };
+            let remote =
+                jefe::state::AppState::remote_settings_from_fields(fields).unwrap_or_default();
             (kind, fields.default_llxprt_version.clone(), remote)
         }
         ModalState::NewAgent {

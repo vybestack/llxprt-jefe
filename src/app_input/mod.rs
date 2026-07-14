@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+mod agent_chooser_entries;
 mod filter_controls;
 mod issues;
 mod issues_dispatch;
@@ -74,7 +75,12 @@ pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
 
 // Re-export the background-refresh orchestration helper so `app_shell` can
 // import it from `app_input` (issue #128).
+pub use actions_orchestration::synchronize_actions_geometry;
 pub use prs_orchestration::request_pr_background_refresh;
+
+// Re-export the chooser metadata builder so key handlers in `issues`/`prs`
+// can resolve git display metadata at the app_input boundary (issue #230).
+pub use agent_chooser_entries::build_chooser_metadata;
 
 // Re-export the PTY-forwarding helpers so `app_shell` can drive the agent
 // terminal without owning the encoding/forwarding logic (issue #200, #286).

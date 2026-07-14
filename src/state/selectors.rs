@@ -4,7 +4,28 @@
 //! @requirement REQ-TECH-001
 
 use super::{Agent, AppState, Repository, RepositoryId};
-use crate::domain::AgentId;
+use crate::domain::{AgentChooserGitMetadata, AgentId, AgentKind};
+use std::collections::HashMap;
+
+/// Pure projection of an agent's identity fields needed to construct an
+/// [`crate::domain::AgentChooserEntry`].
+///
+/// Does not carry dirty status — that is resolved at the `app_input`
+/// boundary via `GitRepoInfo::resolve`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChooserAgentInfo {
+    pub agent_id: AgentId,
+    pub name: String,
+    pub kind: AgentKind,
+    /// Configured profile (LLxprt) or model (Code Puppy).
+    pub runtime_config: String,
+    /// Whether the agent's repository is remote-enabled (dirty unknown).
+    pub is_remote: bool,
+    /// The repository's `github_repo` for git probing.
+    pub github_repo: String,
+    /// The agent's working directory for git probing.
+    pub work_dir: std::path::PathBuf,
+}
 
 impl AppState {
     #[must_use]
@@ -99,8 +120,15 @@ impl AppState {
     ///
     /// Filters to non-running agents in the specified repository, hiding
     /// agents whose local runtime kind is not installed — **unless** the
-    /// agent belongs to a remote-enabled repository (remote PATH resolution
-    /// is authoritative).
+    /// agent's repository is remote-enabled, in which case the remote PATH
+    /// resolution is authoritative and the local installed-kind check is
+    /// bypassed. Remote status does **not** exclude an agent; it only relaxes
+    /// the availability filter.
+    ///
+    /// Returns pure identity projections ([`ChooserAgentInfo`]) carrying the
+    /// fields needed to construct typed chooser entries. Dirty status is NOT
+    /// resolved here (the selector is deterministic and never executes git);
+    /// the `app_input` boundary resolves it via `GitRepoInfo::resolve`.
     ///
     /// This is the single shared selector consumed by both the issue and PR
     /// chooser open paths, ensuring repository scoping and availability
@@ -109,13 +137,29 @@ impl AppState {
     pub fn chooser_agents_for_repository(
         &self,
         repository_id: Option<&RepositoryId>,
-    ) -> Vec<(AgentId, String)> {
+    ) -> Vec<ChooserAgentInfo> {
         self.agents
             .iter()
             .filter(|a| !a.is_running())
             .filter(|a| repository_id.is_some_and(|rid| a.repository_id == *rid))
             .filter(|a| self.is_chooser_agent_available(a))
-            .map(|a| (a.id.clone(), a.name.clone()))
+            .filter_map(|a| {
+                // Fail-closed: if an agent's repository_id does not resolve
+                // in state (orphaned/corrupt data), the agent is dropped
+                // rather than shown in the chooser. This pure selector must
+                // NOT log, panic, or fall back to a guess — callers rely on
+                // it being deterministic and side-effect-free.
+                let repo = self.repository_by_id(&a.repository_id)?;
+                Some(ChooserAgentInfo {
+                    agent_id: a.id.clone(),
+                    name: a.name.clone(),
+                    kind: a.agent_kind,
+                    runtime_config: runtime_config_value(a),
+                    is_remote: repo.remote.enabled,
+                    github_repo: repo.github_repo.clone(),
+                    work_dir: a.work_dir.clone(),
+                })
+            })
             .collect()
     }
 
@@ -128,5 +172,73 @@ impl AppState {
             .repository_by_id(&agent.repository_id)
             .is_some_and(|r| r.remote.enabled);
         repo_remote || self.installed_agent_kinds.contains(&agent.agent_kind)
+    }
+}
+
+/// Build typed chooser entries by joining state-computed eligible agents with
+/// effect-derived Git metadata.
+///
+/// The reducer calls the pure selector
+/// [`AppState::chooser_agents_for_repository`] to get currently eligible
+/// agents (authoritative identity: name, kind, runtime config, repo
+/// scoping, non-running, available kind). Then it joins only the Git metadata
+/// (branch + dirty) whose [`AgentId`] matches an eligible agent.
+///
+/// Metadata for agents that are no longer eligible (removed, running,
+/// cross-repo, unavailable kind) is silently dropped — the chooser never
+/// displays or selects stale/injected agents.
+///
+/// This function is deterministic and performs NO git subprocess calls. It is
+/// the single shared builder consumed by both the issue and PR chooser open
+/// paths.
+pub fn build_chooser_entries_from_state(
+    state: &AppState,
+    repository_id: Option<&RepositoryId>,
+    metadata: &[AgentChooserGitMetadata],
+) -> Vec<crate::domain::AgentChooserEntry> {
+    // Build an AgentId-keyed map for O(1) lookups. If duplicate metadata
+    // entries exist for the same AgentId, the FIRST one wins (matching the
+    // previous `.find()` semantics). This is a defensive choice: callers
+    // should not produce duplicates, but first-wins is the safest stable
+    // behavior.
+    let metadata_map: HashMap<&AgentId, &AgentChooserGitMetadata> = {
+        let mut map = HashMap::with_capacity(metadata.len());
+        for m in metadata {
+            map.entry(&m.agent_id).or_insert(m);
+        }
+        map
+    };
+    let infos = state.chooser_agents_for_repository(repository_id);
+    infos
+        .into_iter()
+        .map(|info| {
+            let md = metadata_map.get(&info.agent_id).copied();
+            crate::domain::AgentChooserEntry {
+                agent_id: info.agent_id,
+                name: info.name,
+                kind: info.kind,
+                runtime_config: crate::domain::ChooserRuntimeConfig::new(info.runtime_config),
+                branch: md.and_then(|m| m.branch.clone()),
+                dirty: md.map_or(crate::domain::DirtyStatus::unknown(), |m| m.dirty),
+            }
+        })
+        .collect()
+}
+
+/// Resolve the runtime config value for chooser display.
+/// Reports the agent's **own** configured field exactly:
+/// - LLxprt agents: `agent.profile` (no repo-default fallback).
+/// - Code Puppy agents: `agent.code_puppy_model` (no repo-default fallback).
+///
+/// Empty/whitespace values are preserved so the pure label projection can
+/// render `(default)` — indicating the runtime's own default is in effect.
+/// This matches the launch-signature behavior for the LLxprt profile field
+/// (`agent.profile` is used directly). The chooser shows what the agent is
+/// configured with, not what the effective launch value would be after
+/// repository-default resolution.
+fn runtime_config_value(agent: &Agent) -> String {
+    match agent.agent_kind {
+        AgentKind::Llxprt => agent.profile.clone(),
+        AgentKind::CodePuppy => agent.code_puppy_model.clone(),
     }
 }

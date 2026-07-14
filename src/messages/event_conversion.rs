@@ -212,6 +212,7 @@ impl AppMessage {
         matches!(
             event,
             AppEvent::EnterActionsMode
+                | AppEvent::EnterActionsModeWithPrFilter { .. }
                 | AppEvent::ExitActionsMode
                 | AppEvent::RefocusActionsList
                 | AppEvent::ActionsReload
@@ -224,12 +225,15 @@ impl AppMessage {
                 | AppEvent::ActionsEnter
                 | AppEvent::ActionsCycleFocus
                 | AppEvent::ActionsCycleFocusReverse
+                | AppEvent::ActionsSetDetailGeometry { .. }
                 | AppEvent::ActionsScrollDetailUp
                 | AppEvent::ActionsScrollDetailDown
-                | AppEvent::ActionsToggleJobExpand
+                | AppEvent::ActionsExpandJob
                 | AppEvent::ActionsCollapseJob
+                | AppEvent::ActionsDetailEscape
                 | AppEvent::ActionsNavigateJobUp
                 | AppEvent::ActionsNavigateJobDown
+                | AppEvent::ActionsBeginDetailReload { .. }
                 | AppEvent::ActionsRunsLoaded { .. }
                 | AppEvent::ActionsRunsLoadFailed { .. }
                 | AppEvent::ActionsRunsPageLoaded { .. }
@@ -347,7 +351,7 @@ impl AppMessage {
                 | AppEvent::CloseReasonDuplicateSearchNavigateDown
                 | AppEvent::CloseReasonConfirm
                 | AppEvent::CloseReasonCancel
-                | AppEvent::OpenAgentChooser
+                | AppEvent::OpenAgentChooser { .. }
                 | AppEvent::AgentChooserNavigateUp
                 | AppEvent::AgentChooserNavigateDown
                 | AppEvent::AgentChooserConfirm

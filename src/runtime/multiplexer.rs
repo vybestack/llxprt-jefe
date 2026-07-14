@@ -87,15 +87,29 @@ impl MultiplexerVersion {
                 path: None,
                 output: output.to_owned(),
             })?;
-        let mut parts = token.split('.');
-        let major = parse_version_part(parts.next(), output)?;
-        let minor = parse_version_part(parts.next(), output)?;
-        let patch = parts
-            .next()
-            .map_or(Ok(0), |part| parse_version_part(Some(part), output))?;
-        if parts.next().is_some() {
+        let mut components = token.split('.');
+        let major_raw = components.next().ok_or_else(|| malformed_version(output))?;
+        let major = parse_strict_version_part(major_raw, output)?;
+        let minor_raw = components.next();
+        let patch_raw = components.next();
+        // After consuming up to three components, no trailing component may remain.
+        if components.next().is_some() {
             return Err(malformed_version(output));
         }
+        // The major component is always strict. Only the final present component
+        // may carry a single alphabetic release letter (e.g. Homebrew `tmux 3.7b`).
+        let (minor, patch) = match (minor_raw, patch_raw) {
+            (Some(minor_raw), None) => {
+                let minor = parse_final_version_part(minor_raw, output)?;
+                (minor, 0)
+            }
+            (Some(minor_raw), Some(patch_raw)) => {
+                let minor = parse_strict_version_part(minor_raw, output)?;
+                let patch = parse_final_version_part(patch_raw, output)?;
+                (minor, patch)
+            }
+            (None, _) => return Err(malformed_version(output)),
+        };
         Ok(Self::new(major, minor, patch))
     }
 }
@@ -693,21 +707,34 @@ fn stable_jefe_namespace() -> String {
     super::identity::stable_current_user_namespace()
 }
 
-fn parse_version_part(part: Option<&str>, source: &str) -> Result<u32, MultiplexerError> {
-    let Some(part) = part else {
-        return Err(malformed_version(source));
-    };
-    // tmux ships point releases with a single trailing letter suffix (e.g.
-    // `3.5a`, `3.7b`). The suffix carries no semantic ordering for jefe's
-    // minimum-version gate, so strip exactly one trailing ASCII letter before
-    // requiring the remainder to be all digits.
-    let part = part
-        .strip_suffix(|ch: char| ch.is_ascii_alphabetic())
-        .unwrap_or(part);
+fn parse_strict_version_part(part: &str, source: &str) -> Result<u32, MultiplexerError> {
     if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(malformed_version(source));
     }
     part.parse::<u32>().map_err(|_| malformed_version(source))
+}
+
+/// Parse the final present version component, permitting an optional single
+/// trailing ASCII alphabetic release letter (e.g. Homebrew `tmux 3.7b`).
+///
+/// The letter carries no semantic weight beyond release identification; it is
+/// discarded so that `3.7b` resolves to `3.7.0` and `3.3.6a` to `3.3.6`.
+fn parse_final_version_part(part: &str, source: &str) -> Result<u32, MultiplexerError> {
+    let digits_end = part
+        .bytes()
+        .position(|byte| !byte.is_ascii_digit())
+        .unwrap_or(part.len());
+    let (digits, suffix) = part.split_at(digits_end);
+    let valid_suffix = suffix.is_empty()
+        || (suffix.len() == 1
+            && suffix
+                .bytes()
+                .next()
+                .is_some_and(|byte| byte.is_ascii_lowercase()));
+    if digits.is_empty() || !valid_suffix {
+        return Err(malformed_version(source));
+    }
+    digits.parse::<u32>().map_err(|_| malformed_version(source))
 }
 
 fn malformed_version(source: &str) -> MultiplexerError {

@@ -486,9 +486,8 @@ fn guarded_real_jefe_qqq_quits() {
     let scenario = scenario_with_wait_timeout(
         r#"[
             { "waitFor": "LLxprt Jefe" },
-            { "key": "q" },
-            { "key": "q" },
-            { "key": "q" },
+            { "wait": 500 },
+            { "line": "qqq" },
             { "waitForExit": 3000 }
         ]"#,
         30_000,
@@ -505,7 +504,7 @@ fn guarded_real_jefe_qqq_quits() {
 
     let summary = run_tmux_scenario(&scenario, &request, None).value_or_panic("qqq quit scenario");
 
-    assert_eq!(summary.steps_run, 5);
+    assert_eq!(summary.steps_run, 4);
 }
 
 fn jefe_binary_path() -> Option<PathBuf> {
@@ -544,7 +543,8 @@ fn guarded_real_jefe_sticky_kill_scenario() {
         return;
     };
 
-    let agent_id = crate::domain::AgentId(unique_session("stickyagent"));
+    let unique = unique_session("stickyagent");
+    let agent_id = crate::domain::AgentId(unique);
     let agent_session = crate::runtime::RuntimeSession::session_name_for(&agent_id);
 
     // Pre-create a tmux session running sleep on jefe's dedicated socket so
@@ -566,7 +566,7 @@ fn guarded_real_jefe_sticky_kill_scenario() {
     };
 
     let config_dir = tempfile::tempdir().value_or_panic("isolated config tempdir");
-    seed_sticky_agent_state(config_dir.path(), agent_id, &agent_session);
+    seed_sticky_agent_state(config_dir.path(), &agent_id, &agent_session);
 
     let summary = run_sticky_scenario(&jefe_binary, config_dir.path());
     assert_eq!(summary.steps_run, 13);
@@ -575,36 +575,21 @@ fn guarded_real_jefe_sticky_kill_scenario() {
 /// Seed a config directory with a state.json containing a single Running agent
 /// bound to the given tmux session name (issue #116 scenario fixture).
 #[cfg(unix)]
-fn seeded_launch_signature() -> crate::domain::LaunchSignature {
-    crate::domain::LaunchSignature {
-        work_dir: std::path::PathBuf::from("/tmp"),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        llxprt_version: String::new(),
-        code_puppy_yolo: Some(false),
-        code_puppy_quick_resume: false,
-        mode_flags: vec![],
-        llxprt_debug: String::new(),
-        pass_continue: true,
-        sandbox_enabled: false,
-        sandbox_engine: crate::domain::SandboxEngine::Podman,
-        sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
-        remote: crate::domain::RemoteRepositorySettings::default(),
-        agent_kind: crate::domain::AgentKind::Llxprt,
-    }
-}
+type StickyAgentId = crate::domain::AgentId;
+#[cfg(unix)]
+type StickyConfigPath = std::path::Path;
 
 #[cfg(unix)]
 fn seed_sticky_agent_state(
-    config_dir: &std::path::Path,
-    agent_id: crate::domain::AgentId,
+    config_dir: &StickyConfigPath,
+    agent_id: &StickyAgentId,
     agent_session: &str,
 ) {
     use crate::domain::{Agent, AgentStatus, Repository, RepositoryId, RuntimeBinding};
     use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
 
     let mut agent = Agent::new(
-        agent_id,
+        agent_id.clone(),
         RepositoryId("testrepo".into()),
         "StickyAgent".into(),
         std::path::PathBuf::from("/tmp"),
@@ -613,7 +598,7 @@ fn seed_sticky_agent_state(
     agent.shortcut_slot = Some(1);
     agent.runtime_binding = Some(RuntimeBinding {
         session_name: agent_session.to_string(),
-        launch_signature: seeded_launch_signature(),
+        launch_signature: sticky_launch_signature(),
         attached: false,
         last_seen: None,
         process_identity: None,
@@ -645,6 +630,27 @@ fn seed_sticky_agent_state(
     persistence
         .save_state(&persisted_state)
         .unwrap_or_else(|e| panic!("save state: {e:?}"));
+}
+
+#[cfg(unix)]
+fn sticky_launch_signature() -> crate::domain::LaunchSignature {
+    use crate::domain::{DEFAULT_SANDBOX_FLAGS, RemoteRepositorySettings, SandboxEngine};
+    crate::domain::LaunchSignature {
+        work_dir: std::path::PathBuf::from("/tmp"),
+        profile: String::new(),
+        code_puppy_model: String::new(),
+        llxprt_version: String::new(),
+        code_puppy_yolo: None,
+        code_puppy_quick_resume: false,
+        mode_flags: vec![],
+        llxprt_debug: String::new(),
+        pass_continue: true,
+        sandbox_enabled: false,
+        sandbox_engine: SandboxEngine::Podman,
+        sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+        remote: RemoteRepositorySettings::default(),
+        agent_kind: crate::domain::AgentKind::Llxprt,
+    }
 }
 
 /// Run the issue #116 sticky-kill TUI scenario against the real jefe binary.
@@ -833,7 +839,10 @@ fn guarded_real_jefe_restart_scenario() {
 /// bound to the given tmux session name (issue #117 scenario fixture).
 #[cfg(unix)]
 fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
-    use crate::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId, RuntimeBinding};
+    use crate::domain::{
+        Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
+        RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
+    };
     use crate::persistence::State;
     // `RuntimeSession::session_name_for(agent_id)` reproduces `agent_session`
     // exactly. This keeps the pre-created (sleep) session name coherent with
@@ -850,7 +859,22 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
     agent.shortcut_slot = Some(1);
     agent.runtime_binding = Some(RuntimeBinding {
         session_name: agent_session.to_string(),
-        launch_signature: seeded_launch_signature(),
+        launch_signature: LaunchSignature {
+            work_dir: std::path::PathBuf::from("/tmp"),
+            profile: String::new(),
+            code_puppy_model: String::new(),
+            llxprt_version: String::new(),
+            code_puppy_yolo: Some(false),
+            code_puppy_quick_resume: false,
+            mode_flags: vec![],
+            llxprt_debug: String::new(),
+            pass_continue: true,
+            sandbox_enabled: false,
+            sandbox_engine: SandboxEngine::Podman,
+            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+            remote: RemoteRepositorySettings::default(),
+            agent_kind: crate::domain::AgentKind::Llxprt,
+        },
         attached: false,
         last_seen: None,
         process_identity: None,

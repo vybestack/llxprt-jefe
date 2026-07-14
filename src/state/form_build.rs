@@ -58,15 +58,53 @@ impl AppState {
         resolve_agent_work_dir(repository, value)
     }
 
-    pub(super) fn remote_settings_from_fields(
+    /// Parse and validate SSH settings from repository form fields.
+    pub fn remote_settings_from_fields(
         fields: &RepositoryFormFields,
-    ) -> RemoteRepositorySettings {
-        RemoteRepositorySettings {
+    ) -> Result<RemoteRepositorySettings, String> {
+        let port = if fields.remote_enabled {
+            match fields.ssh_port.trim() {
+                "" => None,
+                value => {
+                    let port = value
+                        .parse::<u16>()
+                        .map_err(|_| "SSH port must be between 1 and 65535".to_owned())?;
+                    if port == 0 {
+                        return Err("SSH port must be between 1 and 65535".to_owned());
+                    }
+                    Some(port)
+                }
+            }
+        } else {
+            None
+        };
+        let settings = RemoteRepositorySettings {
             enabled: fields.remote_enabled,
             login_user: fields.login_user.trim().to_owned(),
             host: fields.host.trim().to_owned(),
+            port,
+            identity_file: std::path::PathBuf::from(fields.identity_file.trim()),
+            options: fields
+                .ssh_options
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect(),
             run_as_user: fields.run_as_user.trim().to_owned(),
             setup_env_default: fields.setup_env_default,
+        };
+        crate::domain::target::validate_remote(&settings)?;
+        Ok(settings)
+    }
+
+    fn validated_remote_settings(
+        fields: &RepositoryFormFields,
+    ) -> Option<RemoteRepositorySettings> {
+        match Self::remote_settings_from_fields(fields) {
+            Ok(settings) => Some(settings),
+            Err(error) => {
+                warn!(error = %error, "rejecting repository create: invalid remote config");
+                None
+            }
         }
     }
 
@@ -98,24 +136,17 @@ impl AppState {
             return None;
         }
 
-        // Reject an enabled-but-incomplete remote config visibly: the user
-        // must provide both login_user and host when remote is enabled.
-        // This prevents silently persisting a config that would later be
-        // treated as local or rejected at launch time.
-        let remote_settings = Self::remote_settings_from_fields(fields);
-        if let Err(error) = crate::domain::target::validate_remote(&remote_settings) {
-            warn!(error = %error, "rejecting repository create: incomplete remote config");
+        if let Err(error) = crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo) {
+            warn!(
+                github_issue_pr_repo = %fields.github_issue_pr_repo,
+                error = %error,
+                "rejecting repository create: github_issue_pr_repo must be 'owner/repo' or empty"
+            );
             return None;
         }
 
-        let trimmed_base_dir = fields.base_dir.trim();
-        let base_dir = if trimmed_base_dir.is_empty() {
-            format!("/tmp/{slug}")
-        } else if fields.remote_enabled {
-            trimmed_base_dir.to_owned()
-        } else {
-            expand_tilde(trimmed_base_dir)
-        };
+        let remote_settings = Self::validated_remote_settings(fields)?;
+        let base_dir = Self::resolve_base_dir(fields, &slug);
 
         if !fields.remote_enabled
             && let Err(e) = std::fs::create_dir_all(&base_dir)
@@ -127,22 +158,46 @@ impl AppState {
             );
         }
 
-        Some(Repository {
+        Some(Self::build_repository(
+            fields,
+            &slug,
+            &base_dir,
+            remote_settings,
+        ))
+    }
+    fn resolve_base_dir(fields: &RepositoryFormFields, slug: &str) -> String {
+        let trimmed_base_dir = fields.base_dir.trim();
+        if trimmed_base_dir.is_empty() {
+            format!("/tmp/{slug}")
+        } else if fields.remote_enabled {
+            trimmed_base_dir.to_owned()
+        } else {
+            expand_tilde(trimmed_base_dir)
+        }
+    }
+
+    fn build_repository(
+        fields: &RepositoryFormFields,
+        slug: &str,
+        base_dir: &str,
+        remote: RemoteRepositorySettings,
+    ) -> Repository {
+        Repository {
             id: RepositoryId(generate_id("repo")),
-            name: trimmed_name.to_owned(),
-            slug,
-            base_dir: std::path::PathBuf::from(&base_dir),
+            name: fields.name.trim().to_owned(),
+            slug: slug.to_owned(),
+            base_dir: std::path::PathBuf::from(base_dir),
             default_profile: normalize_profile(&fields.default_profile),
             default_code_puppy_model: fields.default_code_puppy_model.trim().to_owned(),
             default_llxprt_version: fields.default_llxprt_version.trim().to_owned(),
             github_repo: fields.github_repo.trim().to_owned(),
             github_issue_pr_repo: fields.github_issue_pr_repo.trim().to_owned(),
-            remote: remote_settings,
+            remote,
             issue_base_prompt: String::new(),
             default_agent_kind: AgentKind::from_form_value(&fields.default_agent_kind)
                 .unwrap_or_default(),
             agent_ids: Vec::new(),
-        })
+        }
     }
 
     pub(super) fn update_repository_from_fields(
@@ -170,13 +225,34 @@ impl AppState {
             return false;
         }
 
-        // Reject an enabled-but-incomplete remote config visibly.
-        let remote_settings = Self::remote_settings_from_fields(fields);
-        if let Err(error) = crate::domain::target::validate_remote(&remote_settings) {
-            warn!(error = %error, "rejecting repository update: incomplete remote config");
+        if let Err(error) = crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo) {
+            warn!(
+                github_issue_pr_repo = %fields.github_issue_pr_repo,
+                error = %error,
+                "rejecting repository update: github_issue_pr_repo must be 'owner/repo' or empty"
+            );
             return false;
         }
 
+        let remote_settings = match Self::remote_settings_from_fields(fields) {
+            Ok(settings) => settings,
+            Err(error) => {
+                warn!(error = %error, "rejecting repository update: invalid remote config");
+                return false;
+            }
+        };
+
+        Self::apply_repository_fields(repo, fields, trimmed_name, slug, remote_settings);
+        true
+    }
+
+    fn apply_repository_fields(
+        repo: &mut Repository,
+        fields: &RepositoryFormFields,
+        trimmed_name: &str,
+        slug: String,
+        remote_settings: RemoteRepositorySettings,
+    ) {
         trimmed_name.clone_into(&mut repo.name);
         repo.slug = slug;
 
@@ -201,8 +277,11 @@ impl AppState {
         repo.default_agent_kind = AgentKind::from_form_value(&fields.default_agent_kind)
             .unwrap_or(repo.default_agent_kind);
         fields.github_repo.trim().clone_into(&mut repo.github_repo);
+        fields
+            .github_issue_pr_repo
+            .trim()
+            .clone_into(&mut repo.github_issue_pr_repo);
         repo.remote = remote_settings;
-        true
     }
 
     /// Build an agent from New Agent form fields via the canonical
@@ -276,7 +355,10 @@ impl AppState {
 
         if let Some(new_dir) = Self::validated_agent_work_dir(repository, &fields.work_dir) {
             if !repository.remote.enabled
-                && new_dir != agent.work_dir.to_string_lossy()
+                && !crate::services::local_paths_equivalent(
+                    std::path::Path::new(&new_dir),
+                    &agent.work_dir,
+                )
                 && let Err(e) = std::fs::create_dir_all(&new_dir)
             {
                 warn!(

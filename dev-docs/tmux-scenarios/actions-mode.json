@@ -1,7 +1,7 @@
 {
   "config": {
     "cols": 100,
-    "rows": 32,
+    "rows": 24,
     "history_limit": 2000,
     "initial_wait_ms": 100,
     "assert_mode": "strict"
@@ -9,15 +9,30 @@
   "steps": [
     { "waitFor": "LLxprt Jefe" },
     { "key": "g" },
-    { "waitFor": "WORKFLOW RUNS" },
-    { "expect": "navigate" },
-    { "capture": "actions-mode-entered" },
-    { "key": "Down" },
-    { "wait": 100 },
-    { "capture": "actions-mode-navigated" },
+    { "waitFor": "Inspectable Actions fixture" },
+    { "expect": "Enter detail" },
+    { "key": "Enter" },
+    { "waitFor": "Jobs:" },
+    { "expect": "> ▸ ✓ build-linux-with-a-long-job-name" },
+    { "waitForNot": "Checkout fixture source" },
+    { "key": "Right" },
+    { "waitFor": "Checkout fixture source" },
+    { "expect": "✓ [1] Checkout fixture source" },
     { "key": "Escape" },
-    { "waitForNot": "WORKFLOW RUNS" },
-    { "key": "q" },
+    { "waitForNot": "Checkout fixture source" },
+    { "expect": "> ▸ ✓ build-linux-with-a-long-job-name" },
+    { "key": "Down" },
+    { "expect": "> ▸ ✗ test-suite-with-a-long-job-name" },
+    { "key": "Enter" },
+    { "waitFor": "Run failing fixture tests" },
+    { "expect": "✗ [1] Run failing fixture tests" },
+    { "key": "Escape" },
+    { "waitForNot": "Run failing fixture tests" },
+    { "key": "Escape" },
+    { "expect": "Inspectable Actions fixture" },
+    { "key": "Escape" },
+    { "waitForNot": "Workflow Runs" },
+    { "keys": ["q", "q", "q"] },
     { "waitForExit": 3000 }
   ]
 }

@@ -364,7 +364,9 @@ pub enum AppEvent {
     /// Esc: close the chooser without closing the issue.
     CloseReasonCancel,
 
-    OpenAgentChooser,
+    OpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     AgentChooserNavigateUp,
     AgentChooserNavigateDown,
     AgentChooserConfirm,
@@ -560,7 +562,9 @@ pub enum AppEvent {
         pr_number: u64,
         error: String,
     },
-    PrOpenAgentChooser,
+    PrOpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     PrAgentChooserNavigateUp,
     PrAgentChooserNavigateDown,
     PrAgentChooserConfirm,
@@ -572,6 +576,11 @@ pub enum AppEvent {
 
     // Actions Mode events
     EnterActionsMode,
+    /// Enter Actions mode with a PR filter pre-set (cross-mode action from PR mode).
+    EnterActionsModeWithPrFilter {
+        pr_number: u64,
+        head_sha: String,
+    },
     ExitActionsMode,
     RefocusActionsList,
     ActionsReload,
@@ -584,12 +593,22 @@ pub enum AppEvent {
     ActionsEnter,
     ActionsCycleFocus,
     ActionsCycleFocusReverse,
+    ActionsSetDetailGeometry {
+        viewport_rows: usize,
+        content_width: usize,
+    },
     ActionsScrollDetailUp,
     ActionsScrollDetailDown,
-    ActionsToggleJobExpand,
+    ActionsExpandJob,
     ActionsCollapseJob,
+    ActionsDetailEscape,
     ActionsNavigateJobUp,
     ActionsNavigateJobDown,
+    ActionsBeginDetailReload {
+        scope_repo_id: RepositoryId,
+        run_id: u64,
+        request_id: u64,
+    },
     ActionsRunsLoaded {
         scope_repo_id: RepositoryId,
         filter: Box<crate::domain::ActionsFilter>,

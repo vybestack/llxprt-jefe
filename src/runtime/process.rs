@@ -66,6 +66,7 @@ const fn classify_running(expected: ProcessIdentity, actual: ProcessIdentity) ->
     }
     match (expected.started_at, actual.started_at) {
         (Some(expected), Some(actual)) if expected != actual => ProcessLiveness::ReusedPid,
+        (None, Some(_)) => ProcessLiveness::MalformedIdentity,
         (Some(_), None) => ProcessLiveness::ProbeFailure,
         _ => ProcessLiveness::Alive,
     }
@@ -161,55 +162,7 @@ fn unix_process_start_time(pid: u32) -> Option<u64> {
         .ok()
 }
 
-/// macOS process start token: a stable hash of the exact `ps -o lstart` output
-/// for the process.
-///
-/// macOS does not expose `/proc`, so a process start token is obtained by
-/// shelling out to `ps -o lstart= -p <pid>`, which prints the process start
-/// time in a human-readable format (e.g. "Mon Jul 13 19:40:26 2026"). The
-/// output is hashed into a compact `u64` start token via an FNV-1a-inspired
-/// hash. While less precise than a kernel `kinfo_proc` read, this is
-/// sufficient as a start token because `ps` reads the same kernel
-/// `p_starttime` field — a recycled PID will have a different start time
-/// and therefore a different hash.
-///
-/// The hash is stable across calls for the same input, and different start
-/// times produce different hashes with high probability — sufficient for
-/// PID-reuse detection.
-#[cfg(target_os = "macos")]
-fn unix_process_start_time(pid: u32) -> Option<u64> {
-    let output = std::process::Command::new("ps")
-        .args(["-o", "lstart=", "-p", &pid.to_string()])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let start_str = String::from_utf8_lossy(&output.stdout);
-    stable_hash(&start_str)
-}
-
-/// FNV-1a-inspired stable hash of a byte string into a `u64`.
-///
-/// Used to convert the human-readable `ps -o lstart` output into a compact
-/// start token. The hash is stable across calls for the same input, and
-/// different start times produce different hashes with high probability —
-/// sufficient for PID-reuse detection.
-#[cfg(target_os = "macos")]
-fn stable_hash(input: &str) -> Option<u64> {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in trimmed.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    Some(hash)
-}
-
-#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+#[cfg(all(unix, not(target_os = "linux")))]
 const fn unix_process_start_time(_pid: u32) -> Option<u64> {
     None
 }

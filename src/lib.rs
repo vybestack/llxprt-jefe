@@ -4,6 +4,7 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P09
 //! @requirement REQ-TECH-001
 
+pub mod actions_detail_view;
 pub mod actions_view;
 pub mod agent_detection;
 pub mod cli;
@@ -29,6 +30,8 @@ pub mod runtime;
 /// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).
 pub mod selection;
 pub mod services;
+/// Native-host OpenSSH planning and typed failure classification.
+pub mod ssh;
 pub mod startup;
 pub mod state;
 /// Pure multiline text-box viewport projection (iocraft-free).

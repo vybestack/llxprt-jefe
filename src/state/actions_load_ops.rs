@@ -41,7 +41,7 @@ impl AppState {
         if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
             self.actions_state.error = None;
             self.actions_state.run_detail = None;
-            self.actions_state.detail_scroll_offset = 0;
+            self.reset_actions_inspection();
             self.actions_state.loading.detail = false;
             self.actions_state.detail_pending = None;
         }
@@ -121,7 +121,7 @@ impl AppState {
     pub(super) fn trigger_list_reload(&mut self) -> bool {
         self.actions_state.list.clear_items();
         self.actions_state.run_detail = None;
-        self.actions_state.detail_scroll_offset = 0;
+        self.reset_actions_inspection();
         self.actions_state.loading.detail = false;
         self.actions_state.detail_pending = None;
         if let Some(repo_id) = self.selected_repository().map(|r| r.id.clone()) {
@@ -132,6 +132,7 @@ impl AppState {
 
     /// Allocate a request id and begin a visible reload on the list.
     pub(super) fn begin_actions_reload(&mut self, repo_id: RepositoryId) {
+        self.reset_actions_inspection();
         let Ok(request_id) = self.actions_state.list.next_request_id() else {
             return;
         };

@@ -22,6 +22,7 @@ mod history_cache;
 mod identity;
 mod liveness;
 mod manager;
+mod manager_trait;
 mod multiplexer;
 mod npm_launch;
 mod pane_capture;
@@ -46,13 +47,15 @@ pub use capabilities::{
     validate_code_puppy_launch,
 };
 pub use command_plan::ExecutablePlan;
+pub use commands::build_remote_attach_plan;
 #[cfg(feature = "psmux-smoke")]
 pub use commands::configure_prefix_for_passthrough_with_plan;
 pub use errors::{ReplacementFailurePhase, RuntimeError};
 pub use gh_auth::{AuthRunResult, run_device_auth};
 pub use liveness::{
-    alive_session_set, batch_liveness_check, check_remote_session_alive, check_session_alive,
-    parse_alive_sessions, parse_pane_alive, pid_alive, reconcile_dead_agents,
+    SessionLiveness, alive_session_set, batch_liveness_check, check_remote_session_alive,
+    check_session_alive, parse_alive_sessions, parse_pane_alive, pid_alive, reconcile_dead_agents,
+    session_liveness,
 };
 pub use manager::{LivenessCheck, RuntimeManager, TmuxRuntimeManager};
 pub use multiplexer::{

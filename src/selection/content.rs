@@ -22,7 +22,7 @@ use crate::issue_detail_content::build_detail_content;
 use crate::pr_detail_content::build_pr_detail_content;
 use crate::runtime::TerminalSnapshot;
 use crate::selection::SelectablePane;
-use crate::state::AppState;
+use crate::state::{AppState, ScreenMode};
 use crate::ui::components::issue_detail::issue_detail_header_view;
 use crate::ui::components::issue_list::{IssueListLayout, issue_list_visible_rows};
 use crate::ui::components::pr_detail::pr_detail_header_view;
@@ -373,7 +373,13 @@ fn status_bar_lines(state: &AppState) -> PaneContent {
 /// Keybind bar line that matches the rendered hint text for the active screen
 /// mode, reusing the pure [`keybind_hints_for`] projection.
 fn keybind_bar_lines(state: &AppState) -> PaneContent {
-    let hints = crate::ui::components::keybind_bar::keybind_hints_for(state.screen_mode, false);
+    let actions_focus =
+        (state.screen_mode == ScreenMode::DashboardActions).then_some(state.actions_state.focus);
+    let hints = crate::ui::components::keybind_bar::keybind_hints_for(
+        state.screen_mode,
+        false,
+        actions_focus,
+    );
     PaneContent::new(SelectablePane::KeybindBar, vec![hints.to_string()])
 }
 
@@ -559,6 +565,7 @@ mod tests {
             author_login: "octocat".to_string(),
             updated_at: String::new(),
             head_ref: String::new(),
+            head_sha: String::new(),
             base_ref: String::new(),
             is_draft: false,
             review_decision: None,
@@ -700,6 +707,7 @@ mod tests {
             created_at: "2026-01-01".to_string(),
             updated_at: "2026-02-01".to_string(),
             head_ref: "feature".to_string(),
+            head_sha: "sha123".to_string(),
             base_ref: "main".to_string(),
             labels: vec!["enhancement".to_string()],
             assignees: vec!["bob".to_string()],
@@ -842,8 +850,8 @@ mod tests {
         state.issues_state.agent_chooser = Some(crate::state::AgentChooserState {
             selected_index: 0,
             agents: vec![
-                (AgentId("a1".to_string()), "alpha".to_string()),
-                (AgentId("a2".to_string()), "beta".to_string()),
+                crate::domain::AgentChooserEntry::simple("a1", "alpha"),
+                crate::domain::AgentChooserEntry::simple("a2", "beta"),
             ],
         });
         let content = pane_content_lines(SelectablePane::AgentChooser, &state, None, &[], 120, 40);
@@ -881,6 +889,7 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
             head_ref: String::new(),
+            head_sha: String::new(),
             base_ref: String::new(),
             labels: Vec::new(),
             assignees: Vec::new(),

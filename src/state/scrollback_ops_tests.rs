@@ -8,42 +8,35 @@ use super::*;
 
 // ── max_scroll_offset ─────────────────────────────────────────────────
 
-#[test]
 fn max_offset_when_content_exceeds_viewport() {
     // 50 total lines, 10 viewport rows → can scroll back 40 lines.
     assert_eq!(max_scroll_offset(50, 10), 40);
 }
 
-#[test]
 fn max_offset_zero_when_content_fits_viewport() {
     assert_eq!(max_scroll_offset(5, 10), 0);
 }
 
-#[test]
 fn max_offset_zero_when_equal() {
     assert_eq!(max_scroll_offset(10, 10), 0);
 }
 
 // ── terminal_scroll_up ────────────────────────────────────────────────
 
-#[test]
 fn scroll_up_from_follow_sets_offset() {
     // Starting from None (follow-tail), scrolling up by 1 sets Some(1).
     assert_eq!(terminal_scroll_up(None, 50, 10, 1), Some(1));
 }
 
-#[test]
 fn scroll_up_increments_existing_offset() {
     assert_eq!(terminal_scroll_up(Some(5), 50, 10, 3), Some(8));
 }
 
-#[test]
 fn scroll_up_clamps_at_max() {
     // max = 40; scrolling up from 38 by 5 should clamp to 40.
     assert_eq!(terminal_scroll_up(Some(38), 50, 10, 5), Some(40));
 }
 
-#[test]
 fn scroll_up_returns_none_when_no_scrollable_content() {
     // Content fits entirely in viewport (max = 0).
     assert_eq!(terminal_scroll_up(None, 5, 10, 1), None);
@@ -51,48 +44,40 @@ fn scroll_up_returns_none_when_no_scrollable_content() {
 
 // ── terminal_scroll_down ──────────────────────────────────────────────
 
-#[test]
 fn scroll_down_from_offset_decrements() {
     assert_eq!(terminal_scroll_down(Some(10), 50, 10, 3), Some(7));
 }
 
-#[test]
 fn scroll_down_to_bottom_clears_offset() {
     // Scrolling down from 3 by 5 → reaches bottom → None (follow-tail).
     assert_eq!(terminal_scroll_down(Some(3), 50, 10, 5), None);
 }
 
-#[test]
 fn scroll_down_exact_step_to_bottom_clears_offset() {
     // Scrolling down from 5 by 5 → exactly at bottom → None.
     assert_eq!(terminal_scroll_down(Some(5), 50, 10, 5), None);
 }
 
-#[test]
 fn scroll_down_from_none_stays_none() {
     assert_eq!(terminal_scroll_down(None, 50, 10, 1), None);
 }
 
 // ── page up / page down ───────────────────────────────────────────────
 
-#[test]
 fn page_up_steps_by_viewport_rows() {
     // From None, page up by 10 rows → Some(10).
     assert_eq!(terminal_scroll_page_up(None, 50, 10), Some(10));
 }
 
-#[test]
 fn page_up_clamps_at_max() {
     // From Some(35), page up by 10 → max 40.
     assert_eq!(terminal_scroll_page_up(Some(35), 50, 10), Some(40));
 }
 
-#[test]
 fn page_down_steps_by_viewport_rows() {
     assert_eq!(terminal_scroll_page_down(Some(25), 50, 10), Some(15));
 }
 
-#[test]
 fn page_down_to_bottom_clears_offset() {
     // From Some(5), page down by 10 → None.
     assert_eq!(terminal_scroll_page_down(Some(5), 50, 10), None);
@@ -100,7 +85,6 @@ fn page_down_to_bottom_clears_offset() {
 
 // ── sticky offset ─────────────────────────────────────────────────────
 
-#[test]
 fn sticky_offset_unchanged_by_new_output() {
     // The policy helpers do not change offset on "new output" — the offset
     // is sticky. This test documents that property: calling scroll_up then
@@ -117,24 +101,20 @@ fn sticky_offset_unchanged_by_new_output() {
 
 // ── terminal_at_bottom ────────────────────────────────────────────────
 
-#[test]
 fn at_bottom_when_offset_none() {
     assert!(terminal_at_bottom(None));
 }
 
-#[test]
 fn not_at_bottom_when_offset_some() {
     assert!(!terminal_at_bottom(Some(5)));
 }
 
 // ── terminal_follow_indicator ─────────────────────────────────────────
 
-#[test]
 fn indicator_none_when_following() {
     assert!(terminal_follow_indicator(None).is_none());
 }
 
-#[test]
 fn indicator_present_when_scrolled_back() {
     let ind = terminal_follow_indicator(Some(42));
     let Some(ind) = ind else {
@@ -153,7 +133,6 @@ fn indicator_present_when_scrolled_back() {
     );
 }
 
-#[test]
 fn indicator_has_no_emoji() {
     let ind = terminal_follow_indicator(Some(10));
     let Some(ind) = ind else {
@@ -169,7 +148,6 @@ fn indicator_has_no_emoji() {
 
 // ── apply_scroll_request (consolidated policy) ────────────────────────
 
-#[test]
 fn apply_request_up_sets_offset_from_follow_tail() {
     assert_eq!(
         apply_scroll_request(None, 50, 10, ScrollRequest::Up),
@@ -177,7 +155,6 @@ fn apply_request_up_sets_offset_from_follow_tail() {
     );
 }
 
-#[test]
 fn apply_request_down_to_bottom_resumes_follow() {
     assert_eq!(
         apply_scroll_request(Some(1), 50, 10, ScrollRequest::Down),
@@ -186,7 +163,6 @@ fn apply_request_down_to_bottom_resumes_follow() {
     );
 }
 
-#[test]
 fn apply_request_page_up_advances_by_viewport() {
     assert_eq!(
         apply_scroll_request(None, 50, 10, ScrollRequest::PageUp),
@@ -194,7 +170,6 @@ fn apply_request_page_up_advances_by_viewport() {
     );
 }
 
-#[test]
 fn apply_request_follow_tail_clears_offset() {
     assert_eq!(
         apply_scroll_request(Some(42), 50, 10, ScrollRequest::FollowTail),
@@ -202,7 +177,6 @@ fn apply_request_follow_tail_clears_offset() {
     );
 }
 
-#[test]
 fn apply_request_up_clamps_at_max() {
     // max offset = 50 - 10 = 40; requesting page-up (10) from offset 35
     // must clamp at 40, not exceed it.
@@ -212,7 +186,6 @@ fn apply_request_up_clamps_at_max() {
     );
 }
 
-#[test]
 fn apply_request_to_top_jumps_to_max() {
     // Home key: jump to the top of history (max offset).
     assert_eq!(
@@ -222,7 +195,6 @@ fn apply_request_to_top_jumps_to_max() {
     );
 }
 
-#[test]
 fn apply_request_to_top_from_follow_enters_scrolled() {
     // ToTop from follow-tail (None) jumps to max.
     assert_eq!(
@@ -231,7 +203,6 @@ fn apply_request_to_top_from_follow_enters_scrolled() {
     );
 }
 
-#[test]
 fn apply_request_to_top_returns_none_when_no_scrollable_content() {
     // Content fits viewport (max=0) → ToTop returns None.
     assert_eq!(
@@ -242,7 +213,6 @@ fn apply_request_to_top_returns_none_when_no_scrollable_content() {
 
 // ── reconcile_offset_for_new_content ───────────────────────────────
 
-#[test]
 fn reconcile_grows_offset_when_scrolled_back_and_content_grows() {
     // old: total=50, viewport=10, offset=5 (scrolled back 5 from bottom)
     // new: total=55 (5 lines appended)
@@ -253,7 +223,6 @@ fn reconcile_grows_offset_when_scrolled_back_and_content_grows() {
     );
 }
 
-#[test]
 fn reconcile_preserves_absolute_viewport_position() {
     // Pure integration test: project at Some(offset); append k lines;
     // reconcile; re-project; assert the projected rows are IDENTICAL.
@@ -315,7 +284,6 @@ fn reconcile_preserves_absolute_viewport_position() {
     }
 }
 
-#[test]
 fn reconcile_clamps_to_new_max() {
     // old: total=50, viewport=10, offset=40 (max=40, at top)
     // new: total=55 → delta=5 → raw offset = 45, new_max = 45 → clamp 45
@@ -325,13 +293,11 @@ fn reconcile_clamps_to_new_max() {
     );
 }
 
-#[test]
 fn reconcile_returns_none_for_follow_tail() {
     // Follow-tail (None) is unaffected by new content.
     assert_eq!(reconcile_offset_for_new_content(None, 50, 55, 10), None);
 }
 
-#[test]
 fn reconcile_unchanged_when_no_growth() {
     // delta = 0 → offset unchanged.
     assert_eq!(
@@ -340,7 +306,6 @@ fn reconcile_unchanged_when_no_growth() {
     );
 }
 
-#[test]
 fn reconcile_unchanged_when_content_shrinks() {
     // new_total < old_total → checked_sub returns None → function returns None.
     // (Content shrinking is not a normal terminal operation; returning None
@@ -350,7 +315,6 @@ fn reconcile_unchanged_when_content_shrinks() {
 
 // ── compute_terminal_scroll_geometry ──────────────────────────────────
 
-#[test]
 fn compute_geometry_normal_case() {
     // history=40, live=10, viewport=10 → total=50.
     // No prior offset (follow-tail) → offset stays None.
@@ -359,7 +323,6 @@ fn compute_geometry_normal_case() {
     assert_eq!(total, 50);
 }
 
-#[test]
 fn compute_geometry_saturates_on_overflow() {
     // Pathological inputs near usize::MAX: saturating_add prevents wrap.
     let huge = usize::MAX - 5;
@@ -369,7 +332,6 @@ fn compute_geometry_saturates_on_overflow() {
     assert_eq!(offset, None);
 }
 
-#[test]
 fn compute_geometry_reconciles_offset_on_content_growth() {
     // Old: total=50, offset=5 (scrolled back 5 from bottom).
     // New: history=45, live=10 → total=55 (5 lines appended).
@@ -381,39 +343,33 @@ fn compute_geometry_reconciles_offset_on_content_growth() {
 
 // ── terminal_content_start_line ─────────────────────────────────────
 
-#[test]
 fn content_start_line_follow_tail_shows_bottom() {
     // total=50, viewport=10, offset=None (follow) → max=40, start=40-0=40
     assert_eq!(terminal_content_start_line(None, 50, 10), 40);
 }
 
-#[test]
 fn content_start_line_scrolled_back() {
     // total=50, viewport=10, offset=Some(15) → max=40, start=40-15=25
     assert_eq!(terminal_content_start_line(Some(15), 50, 10), 25);
 }
 
-#[test]
 fn content_start_line_at_top() {
     // total=50, viewport=10, offset=Some(40)=max → start=40-40=0
     assert_eq!(terminal_content_start_line(Some(40), 50, 10), 0);
 }
 
-#[test]
 fn content_start_line_content_fits_viewport() {
     // total=5, viewport=10 → max=0, start=0 regardless of offset.
     assert_eq!(terminal_content_start_line(Some(3), 5, 10), 0);
     assert_eq!(terminal_content_start_line(None, 5, 10), 0);
 }
 
-#[test]
 fn content_start_line_offset_exceeds_max_clamps_to_zero() {
     // offset > max → saturating_sub → 0 (defensive: offset should never
     // exceed max, but the function must not underflow).
     assert_eq!(terminal_content_start_line(Some(100), 50, 10), 0);
 }
 
-#[test]
 fn selection_offset_agrees_with_viewport_projection() {
     // Behavioral selection test: the top-relative
     // start line derived from a bottom-relative offset must map to the SAME
@@ -447,7 +403,6 @@ fn state_with_geometry(total_lines: usize, viewport_rows: usize) -> crate::state
     }
 }
 
-#[test]
 fn reducer_terminal_scroll_up_sets_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_geometry(50, 10);
@@ -455,7 +410,6 @@ fn reducer_terminal_scroll_up_sets_offset() {
     assert_eq!(state.terminal_history_offset, Some(1));
 }
 
-#[test]
 fn reducer_terminal_scroll_down_to_bottom_clears_offset() {
     use crate::state::{AppEvent, AppState};
     let mut state = AppState {
@@ -470,7 +424,6 @@ fn reducer_terminal_scroll_down_to_bottom_clears_offset() {
     assert_eq!(state.terminal_history_offset, None);
 }
 
-#[test]
 fn reducer_terminal_follow_tail_clears_offset() {
     use crate::state::{AppEvent, AppState};
     let mut state = AppState {
@@ -481,7 +434,6 @@ fn reducer_terminal_follow_tail_clears_offset() {
     assert_eq!(state.terminal_history_offset, None);
 }
 
-#[test]
 fn reducer_terminal_page_up_down() {
     use crate::state::AppEvent;
     let mut state = state_with_geometry(50, 10);
@@ -491,7 +443,6 @@ fn reducer_terminal_page_up_down() {
     assert_eq!(state.terminal_history_offset, None);
 }
 
-#[test]
 fn reducer_scroll_events_not_blocked_when_terminal_focused() {
     use crate::state::{AppEvent, AppState, PaneFocus};
     let mut state = AppState {
@@ -539,7 +490,6 @@ fn state_with_agent() -> crate::state::AppState {
     }
 }
 
-#[test]
 fn reducer_select_repository_resets_scroll_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_agent();
@@ -551,7 +501,6 @@ fn reducer_select_repository_resets_scroll_offset() {
     );
 }
 
-#[test]
 fn reducer_select_agent_resets_scroll_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_agent();
@@ -562,7 +511,6 @@ fn reducer_select_agent_resets_scroll_offset() {
     );
 }
 
-#[test]
 fn reducer_jump_to_agent_resets_scroll_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_agent();
@@ -611,7 +559,6 @@ fn state_with_two_agents() -> crate::state::AppState {
     }
 }
 
-#[test]
 fn reducer_navigate_down_agent_resets_scroll_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_two_agents();
@@ -625,7 +572,6 @@ fn reducer_navigate_down_agent_resets_scroll_offset() {
     assert_eq!(state.terminal_total_lines, 0);
 }
 
-#[test]
 fn reducer_navigate_up_agent_resets_scroll_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_two_agents();
@@ -682,7 +628,6 @@ fn state_with_two_repos() -> crate::state::AppState {
     }
 }
 
-#[test]
 fn reducer_navigate_down_repo_resets_scroll_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_two_repos();
@@ -696,7 +641,6 @@ fn reducer_navigate_down_repo_resets_scroll_offset() {
     assert_eq!(state.terminal_total_lines, 0);
 }
 
-#[test]
 fn reducer_navigate_up_repo_resets_scroll_offset() {
     use crate::state::AppEvent;
     let mut state = state_with_two_repos();
@@ -710,4 +654,99 @@ fn reducer_navigate_up_repo_resets_scroll_offset() {
     );
     assert_eq!(state.terminal_viewport_rows, 0);
     assert_eq!(state.terminal_total_lines, 0);
+}
+
+// ── Aggregate runner ─────────────────────────────────────────────────
+// Issue #198 scrollback policy: 56 individual cases consolidated into a
+// single test registration to satisfy the lib-test registration limit
+// (≤2048). Each assertion below runs in its own function so panic
+// messages identify exactly which contract failed.
+
+#[test]
+fn scrollback_policy_all_contracts() {
+    // ── max_scroll_offset ──
+    max_offset_when_content_exceeds_viewport();
+    max_offset_zero_when_content_fits_viewport();
+    max_offset_zero_when_equal();
+
+    // ── terminal_scroll_up ──
+    scroll_up_from_follow_sets_offset();
+    scroll_up_increments_existing_offset();
+    scroll_up_clamps_at_max();
+    scroll_up_returns_none_when_no_scrollable_content();
+
+    // ── terminal_scroll_down ──
+    scroll_down_from_offset_decrements();
+    scroll_down_to_bottom_clears_offset();
+    scroll_down_exact_step_to_bottom_clears_offset();
+    scroll_down_from_none_stays_none();
+
+    // ── page up / page down ──
+    page_up_steps_by_viewport_rows();
+    page_up_clamps_at_max();
+    page_down_steps_by_viewport_rows();
+    page_down_to_bottom_clears_offset();
+
+    // ── sticky offset ──
+    sticky_offset_unchanged_by_new_output();
+
+    // ── terminal_at_bottom ──
+    at_bottom_when_offset_none();
+    not_at_bottom_when_offset_some();
+
+    // ── terminal_follow_indicator ──
+    indicator_none_when_following();
+    indicator_present_when_scrolled_back();
+    indicator_has_no_emoji();
+
+    // ── apply_scroll_request ──
+    apply_request_up_sets_offset_from_follow_tail();
+    apply_request_down_to_bottom_resumes_follow();
+    apply_request_page_up_advances_by_viewport();
+    apply_request_follow_tail_clears_offset();
+    apply_request_up_clamps_at_max();
+    apply_request_to_top_jumps_to_max();
+    apply_request_to_top_from_follow_enters_scrolled();
+    apply_request_to_top_returns_none_when_no_scrollable_content();
+
+    // ── reconcile_offset_for_new_content ──
+    reconcile_grows_offset_when_scrolled_back_and_content_grows();
+    reconcile_preserves_absolute_viewport_position();
+    reconcile_clamps_to_new_max();
+    reconcile_returns_none_for_follow_tail();
+    reconcile_unchanged_when_no_growth();
+    reconcile_unchanged_when_content_shrinks();
+
+    // ── compute_terminal_scroll_geometry ──
+    compute_geometry_normal_case();
+    compute_geometry_saturates_on_overflow();
+    compute_geometry_reconciles_offset_on_content_growth();
+
+    // ── terminal_content_start_line ──
+    content_start_line_follow_tail_shows_bottom();
+    content_start_line_scrolled_back();
+    content_start_line_at_top();
+    content_start_line_content_fits_viewport();
+    content_start_line_offset_exceeds_max_clamps_to_zero();
+
+    // ── selection ──
+    selection_offset_agrees_with_viewport_projection();
+
+    // ── reducer integration ──
+    reducer_terminal_scroll_up_sets_offset();
+    reducer_terminal_scroll_down_to_bottom_clears_offset();
+    reducer_terminal_follow_tail_clears_offset();
+    reducer_terminal_page_up_down();
+    reducer_scroll_events_not_blocked_when_terminal_focused();
+
+    // ── agent switch resets scroll state ──
+    reducer_select_repository_resets_scroll_offset();
+    reducer_select_agent_resets_scroll_offset();
+    reducer_jump_to_agent_resets_scroll_offset();
+
+    // ── arrow navigation resets scroll state ──
+    reducer_navigate_down_agent_resets_scroll_offset();
+    reducer_navigate_up_agent_resets_scroll_offset();
+    reducer_navigate_down_repo_resets_scroll_offset();
+    reducer_navigate_up_repo_resets_scroll_offset();
 }

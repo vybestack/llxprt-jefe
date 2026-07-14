@@ -106,12 +106,58 @@ fn resolve_pr_global_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEv
         KeyCode::Char('a') => Some(AppEvent::ExitPrsMode),
         KeyCode::Char('p' | 'P') => Some(AppEvent::RefocusPrList),
         KeyCode::Char('f') => Some(AppEvent::PrOpenFilterControls),
+        // Cross-mode: jump to Actions mode pre-filtered to the current PR
+        // (issue #205).
+        KeyCode::Char('g' | 'G') => Some(pr_to_actions_event(state)),
         // Cross-mode navigation: `i` from PRs switches to Issues mode (issue #164).
         KeyCode::Char('i' | 'I') => Some(AppEvent::EnterIssuesMode),
         // F12 defocuses the terminal or returns to the PR list (issue #164).
         KeyCode::F(12) => f12_event_for_prs(state),
         _ => None,
     }
+}
+
+/// Resolve the `g`/`G` cross-mode action: jump to Actions mode pre-filtered
+/// to the currently focused PR (issue #205). When a PR detail is loaded, the
+/// detail's SHA is used; when a PR is selected in the list (but no detail),
+/// the list item's SHA is used; when neither, Actions mode is entered without
+/// a PR filter.
+///
+/// Prefer the list selection when it exists and differs from `pr_detail`:
+/// list navigation keeps the previous detail around while only clearing
+/// pending/loading state, so `pr_detail` can be stale after the cursor moves.
+fn pr_to_actions_event(state: &AppState) -> AppEvent {
+    let selected_pr = state
+        .prs_state
+        .selected_pr_index()
+        .and_then(|idx| state.prs_state.pull_requests().get(idx));
+
+    if let Some(pr) = selected_pr {
+        // Use pr_detail only when it matches the selected list PR (the detail
+        // may carry a fresher SHA from the full detail fetch). When the
+        // selection has moved away, the list item is authoritative.
+        let head_sha = state
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .filter(|d| d.number == pr.number)
+            .map_or_else(|| pr.head_sha.clone(), |d| d.head_sha.clone());
+        return AppEvent::EnterActionsModeWithPrFilter {
+            pr_number: pr.number,
+            head_sha,
+        };
+    }
+
+    // No list selection — use pr_detail if available (edge case: detail
+    // loaded but list not yet populated or selection cleared).
+    if let Some(detail) = &state.prs_state.pr_detail {
+        return AppEvent::EnterActionsModeWithPrFilter {
+            pr_number: detail.number,
+            head_sha: detail.head_sha.clone(),
+        };
+    }
+
+    AppEvent::EnterActionsMode
 }
 
 /// F12 semantics in PR mode (issue #164): defocus the terminal if it is
@@ -243,7 +289,9 @@ fn handle_pr_detail_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEve
         KeyCode::Char('e') => Some(AppEvent::PrShowNotice(
             ReadOnlyHintKind::ReadOnlyNotEditable,
         )),
-        KeyCode::Char('S') => Some(AppEvent::PrOpenAgentChooser),
+        KeyCode::Char('S') => Some(AppEvent::PrOpenAgentChooser {
+            metadata: super::build_chooser_metadata(state),
+        }),
         KeyCode::Char('o') => Some(pr_open_in_browser_or_notice(pr_detail_present(state))),
         KeyCode::Char('m') => Some(pr_merge_event_for_detail(state)),
         _ => resolve_pr_property_open_key(state, key_event),

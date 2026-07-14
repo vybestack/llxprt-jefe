@@ -33,8 +33,16 @@ pub use pagination::*;
 mod issues;
 pub use issues::*;
 
+// Validated GitHub repo reference for issue/PR tracker routing (issue #266).
 mod repo_ref;
 pub use repo_ref::{GitHubRepoRef, GitHubRepoRefError, GitHubRepoRefErrorReason};
+
+// Typed send-to-agent chooser entry and pure label projection (issue #230).
+mod agent_chooser;
+pub use agent_chooser::{
+    AgentChooserEntry, AgentChooserGitMetadata, ChooserRuntimeConfig, DirtyStatus,
+    agent_chooser_label,
+};
 
 /// Pure validation/normalization for LLxprt version selectors (issue #269).
 pub mod version_selector;
@@ -78,6 +86,18 @@ impl AgentKind {
         }
     }
 
+    /// Product display name for user-facing UI labels (e.g. the agent chooser).
+    ///
+    /// Unlike [`label`](Self::label) (which returns the internal form
+    /// identifier), this returns the human-readable product name.
+    #[must_use]
+    pub const fn display_label(self) -> &'static str {
+        match self {
+            Self::CodePuppy => "Code Puppy",
+            Self::Llxprt => "LLxprt",
+        }
+    }
+
     /// Parse a value entered or persisted by a form.
     #[must_use]
     pub fn from_form_value(value: &str) -> Option<Self> {
@@ -117,6 +137,12 @@ pub struct RemoteRepositorySettings {
     #[serde(default)]
     pub host: String,
     #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub identity_file: PathBuf,
+    #[serde(default)]
+    pub options: Vec<String>,
+    #[serde(default)]
     pub run_as_user: String,
     #[serde(default)]
     pub setup_env_default: bool,
@@ -144,6 +170,13 @@ pub struct Repository {
     /// When set, issues mode uses this instead of auto-detecting from git remotes.
     #[serde(default)]
     pub github_repo: String,
+    /// Optional override for the GitHub repository that sources issues and PRs
+    /// (issue #266). When nonblank, all issue/PR reads and mutations are
+    /// routed to this `owner/repo` (e.g. an upstream like
+    /// `vybestack/llxprt-jefe`), while cloning, origin checks, dashboard/git
+    /// display, and GitHub Actions continue to use [`github_repo`]. Blank
+    /// preserves current behavior (issues/PRs sourced from [`github_repo`]).
+    /// `#[serde(default)]` keeps existing schema-v1 data compatible.
     #[serde(default)]
     pub github_issue_pr_repo: String,
     #[serde(default)]
@@ -267,6 +300,7 @@ pub struct PullRequest {
     pub author_login: String,
     pub updated_at: String,
     pub head_ref: String,
+    pub head_sha: String,
     pub base_ref: String,
     pub is_draft: bool,
     pub review_decision: Option<PrReviewState>,
@@ -349,6 +383,7 @@ pub struct PullRequestDetail {
     pub created_at: String,
     pub updated_at: String,
     pub head_ref: String,
+    pub head_sha: String,
     pub base_ref: String,
     pub labels: Vec<String>,
     pub assignees: Vec<String>,
@@ -629,6 +664,8 @@ pub struct Agent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessIdentity {
     pub pid: u32,
+    /// Platform process creation discriminator. Windows exposes this as the
+    /// process creation FILETIME; `None` supports legacy/Unix bindings.
     #[serde(default)]
     pub started_at: Option<u64>,
 }
@@ -662,6 +699,8 @@ pub struct RuntimeBinding {
     /// files that predate this field.
     #[serde(default)]
     pub pid: Option<u32>,
+    /// Process-instance identity captured with the PID. Older state files omit
+    /// this field and continue through the legacy PID-only migration path.
     #[serde(default)]
     pub process_identity: Option<ProcessIdentity>,
 }
@@ -763,6 +802,24 @@ impl Repository {
         }
     }
 
+    /// Resolve the effective issue/PR tracker target (issue #266).
+    ///
+    /// Returns a validated [`GitHubRepoRef`] for the upstream tracker that
+    /// issues and PRs should be read from and mutated against. When
+    /// [`github_issue_pr_repo`] is nonblank and valid, that override is
+    /// returned; otherwise the fallback [`github_repo`] is used. An empty
+    /// result (`Ok(None)`) means no tracker is configured.
+    ///
+    /// A malformed nonblank override returns `Err` so it fails visibly — it is
+    /// never silently mutated to the fallback fork identity. This is the
+    /// central resolver: every issue/PR read and mutation path must go
+    /// through here (not read `github_repo` directly).
+    ///
+    /// Clone/origin/Actions paths continue to use [`github_repo`] directly and
+    /// must **not** call this method.
+    ///
+    /// [`github_issue_pr_repo`]: Repository::github_issue_pr_repo
+    /// [`github_repo`]: Repository::github_repo
     pub fn effective_issue_pr_repo(&self) -> Result<Option<GitHubRepoRef>, GitHubRepoRefError> {
         let override_trimmed = self.github_issue_pr_repo.trim();
         if !override_trimmed.is_empty() {

@@ -704,7 +704,12 @@ impl PersistenceManager for FilePersistenceManager {
 }
 
 #[cfg(test)]
-#[path = "tests.rs"]
+mod remote_ssh_tests;
+
+#[cfg(test)]
+mod runtime_binding_tests;
+
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]

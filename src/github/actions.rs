@@ -325,6 +325,11 @@ pub fn build_runs_api_path(
         let _ = write!(api_path, "&status={status_enc}");
     }
 
+    if let Some(ref sha) = filter.head_sha {
+        let sha_enc = percent_encode_query(sha);
+        let _ = write!(api_path, "&event=pull_request&head_sha={sha_enc}");
+    }
+
     api_path
 }
 
@@ -580,6 +585,43 @@ mod tests {
         assert!(
             path.contains("&status=failed"),
             "expected status query param, got: {path}"
+        );
+    }
+
+    /// A PR filter with `pr_number`/`head_sha` set must append
+    /// `&event=pull_request&head_sha=<sha>` so the API returns only runs for
+    /// that PR's head commit (issue #205).
+    #[test]
+    fn build_runs_api_path_with_pr_filter() {
+        let filter = ActionsFilter {
+            pr_number: Some(42),
+            head_sha: Some("abc123".to_string()),
+            ..ActionsFilter::default()
+        };
+        let path = build_runs_api_path("owner", "repo", &filter, 1, 30);
+        assert!(
+            path.contains("&event=pull_request"),
+            "expected event=pull_request query param, got: {path}"
+        );
+        assert!(
+            path.contains("&head_sha=abc123"),
+            "expected head_sha=abc123 query param, got: {path}"
+        );
+    }
+
+    /// Without a PR filter, the path must NOT contain `event=` or `head_sha=`
+    /// params (issue #205).
+    #[test]
+    fn build_runs_api_path_without_pr_filter() {
+        let filter = ActionsFilter::default();
+        let path = build_runs_api_path("owner", "repo", &filter, 1, 30);
+        assert!(
+            !path.contains("event="),
+            "default filter must not add event= param, got: {path}"
+        );
+        assert!(
+            !path.contains("head_sha="),
+            "default filter must not add head_sha= param, got: {path}"
         );
     }
 }

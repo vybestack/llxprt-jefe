@@ -45,6 +45,7 @@ fn valid_remote() -> RemoteRepositorySettings {
         host: "build.example.com".to_owned(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RemoteRepositorySettings::default()
     }
 }
 
@@ -55,6 +56,7 @@ fn remote_with_run_as() -> RemoteRepositorySettings {
         host: "build.example.com".to_owned(),
         run_as_user: "acoliver".to_owned(),
         setup_env_default: false,
+        ..RemoteRepositorySettings::default()
     }
 }
 
@@ -212,6 +214,7 @@ fn effective_user_trims_whitespace() {
         host: "host".to_owned(),
         run_as_user: "  acoliver  ".to_owned(),
         setup_env_default: false,
+        ..RemoteRepositorySettings::default()
     };
     assert_eq!(effective_user(&remote), "acoliver");
 }

@@ -302,8 +302,8 @@ fn test_issue_base_prompt_state_round_trip() {
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
         default_llxprt_version: String::new(),
-        github_issue_pr_repo: String::new(),
-        github_repo: String::new(),
+        github_repo: "fork-owner/issues-repo".to_string(),
+        github_issue_pr_repo: "upstream-owner/issues-repo".to_string(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: "Always reproduce the bug first".to_string(),
         default_agent_kind: crate::domain::AgentKind::Llxprt,
@@ -337,6 +337,10 @@ fn test_issue_base_prompt_state_round_trip() {
     assert_eq!(
         loaded.repositories[0].issue_base_prompt,
         "Always reproduce the bug first"
+    );
+    assert_eq!(
+        loaded.repositories[0].github_issue_pr_repo, "upstream-owner/issues-repo",
+        "Issues / PRs repository override must survive persistence round-trip"
     );
 
     let _ = std::fs::remove_dir_all(&temp);

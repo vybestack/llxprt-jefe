@@ -1,12 +1,10 @@
-//! Pure GitHub Actions list and detail viewport projections.
+//! Pure GitHub Actions run-list viewport projection.
 //!
-//! This module is iocraft-free and side-effect-free: it maps the actions state
-//! (runs, selected index, details, scrolling offset) plus viewport heights
-//! into windowed display projections. This makes the scrolling math and layout
-//! logic fully unit-testable without a terminal.
+//! This iocraft-free module maps loaded runs and list geometry into a stable
+//! selection-following window. Job-detail projection lives in
+//! [`crate::actions_detail_view`].
 
-use crate::domain::{WorkflowRun, WorkflowRunConclusion, WorkflowRunDetail, WorkflowRunStatus};
-use std::collections::HashSet;
+use crate::domain::{WorkflowRun, WorkflowRunConclusion, WorkflowRunStatus};
 
 /// A single run in the projected runs list view.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,51 +45,17 @@ pub fn project_runs_list(
             total_runs_count: 0,
         };
     }
-
-    // Clamp selected index defensively (it may briefly exceed len during async
-    // updates, and slicing with an out-of-bounds index would panic).
     let selected_idx = selected_run_index.unwrap_or(0).min(runs.len() - 1);
-    // The window's start must leave room for a full viewport below it when the
-    // list is long enough. Using `runs.len() - 1` as the cap lets the window
-    // slide all the way to the last item, which can show fewer than
-    // `list_viewport_height` runs even when a full page would fit. Cap at
-    // `runs.len() - list_viewport_height` (saturating) so the window fills the
-    // viewport whenever possible; when the list is shorter than the viewport,
-    // this saturates to 0 (show everything from the top).
     let max_first_visible = runs.len().saturating_sub(list_viewport_height);
     let first_visible_run = selected_idx
         .saturating_sub(list_viewport_height / 2)
         .min(max_first_visible);
-
     let end = (first_visible_run + list_viewport_height).min(runs.len());
-    let visible_slice = if first_visible_run >= runs.len() {
-        &[]
-    } else {
-        &runs[first_visible_run..end]
-    };
-
-    let visible_runs = visible_slice
+    let visible_runs = runs[first_visible_run..end]
         .iter()
         .enumerate()
-        .map(|(i, r)| {
-            let actual_idx = first_visible_run + i;
-            ProjectedRun {
-                id: r.id,
-                name: r.name.clone(),
-                head_branch: r.head_branch.clone(),
-                head_sha: r.head_sha.clone(),
-                run_number: r.run_number,
-                event: r.event.clone(),
-                workflow_name: r.workflow_name.clone(),
-                created_at: r.created_at.clone(),
-                updated_at: r.updated_at.clone(),
-                status: r.status,
-                conclusion: r.conclusion,
-                is_selected: selected_run_index == Some(actual_idx),
-            }
-        })
+        .map(|(offset, run)| projected_run(run, first_visible_run + offset, selected_run_index))
         .collect();
-
     ActionsRunListView {
         visible_runs,
         first_visible_run_index: first_visible_run,
@@ -99,139 +63,28 @@ pub fn project_runs_list(
     }
 }
 
-/// Count the total rendered content lines for a workflow run detail.
-///
-/// This is the pure line-count helper used by the scroll-clamp logic in
-/// `actions_ops.rs`. When a job is collapsed (not in `expanded_jobs`), only
-/// its JobRow line is counted; when expanded, its StepRows are also counted.
-/// Always counts: 1 header + 1 section title + 1 line per job.
-#[must_use]
-pub fn detail_line_count<S: ::std::hash::BuildHasher>(
-    detail: &WorkflowRunDetail,
-    expanded_jobs: &HashSet<u64, S>,
-) -> usize {
-    let mut count = 2; // Header + "Jobs:" section title
-    for job in &detail.jobs {
-        count += 1; // JobRow
-        if expanded_jobs.contains(&job.id) {
-            count += job.steps.len(); // StepRows (only when expanded)
-        }
-    }
-    count
-}
-
-/// A structured line in the projected run details view.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DetailLine {
-    Header {
-        workflow_name: String,
-        event: String,
-        head_branch: String,
-        head_sha: String,
-        created_at: String,
-        updated_at: String,
-    },
-    SectionTitle {
-        title: String,
-    },
-    JobRow {
-        job_id: u64,
-        name: String,
-        status: crate::domain::WorkflowRunStatus,
-        conclusion: Option<crate::domain::WorkflowRunConclusion>,
-        expanded: bool,
-    },
-    StepRow {
-        number: u32,
-        name: String,
-        status: crate::domain::WorkflowRunStatus,
-        conclusion: Option<crate::domain::WorkflowRunConclusion>,
-    },
-}
-
-/// The projected window of run details (jobs/steps).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ActionsDetailView {
-    pub visible_lines: Vec<DetailLine>,
-    pub total_lines_count: usize,
-}
-
-/// Project the workflow run details into a scroll-windowed view.
-///
-/// Jobs not in `expanded_jobs` render as a single JobRow; expanded jobs also
-/// render their StepRows. The JobRow carries an `expanded` flag so the
-/// renderer can show the `\u{25B8}`/`\u{25BE}` indicator.
-#[must_use]
-pub fn project_detail_view<S: ::std::hash::BuildHasher>(
-    detail: &WorkflowRunDetail,
-    detail_scroll_offset: usize,
-    detail_viewport_height: usize,
-    expanded_jobs: &HashSet<u64, S>,
-) -> ActionsDetailView {
-    let mut lines = Vec::new();
-
-    lines.push(DetailLine::Header {
-        workflow_name: detail.run.workflow_name.clone(),
-        event: detail.run.event.clone(),
-        head_branch: detail.run.head_branch.clone(),
-        head_sha: detail.run.head_sha.clone(),
-        created_at: detail.run.created_at.clone(),
-        updated_at: detail.run.updated_at.clone(),
-    });
-
-    lines.push(DetailLine::SectionTitle {
-        title: "Jobs:".to_string(),
-    });
-
-    for job in &detail.jobs {
-        let is_expanded = expanded_jobs.contains(&job.id);
-        lines.push(DetailLine::JobRow {
-            job_id: job.id,
-            name: job.name.clone(),
-            status: job.status,
-            conclusion: job.conclusion,
-            expanded: is_expanded,
-        });
-
-        if is_expanded {
-            for step in &job.steps {
-                lines.push(DetailLine::StepRow {
-                    number: step.number,
-                    name: step.name.clone(),
-                    status: step.status,
-                    conclusion: step.conclusion,
-                });
-            }
-        }
-    }
-
-    let total_lines_count = lines.len();
-    let start = detail_scroll_offset.min(total_lines_count.saturating_sub(1));
-    let visible_lines = if lines.is_empty() {
-        Vec::new()
-    } else {
-        lines
-            .into_iter()
-            .skip(start)
-            .take(detail_viewport_height)
-            .collect()
-    };
-
-    ActionsDetailView {
-        visible_lines,
-        total_lines_count,
+fn projected_run(run: &WorkflowRun, index: usize, selected: Option<usize>) -> ProjectedRun {
+    ProjectedRun {
+        id: run.id,
+        name: run.name.clone(),
+        head_branch: run.head_branch.clone(),
+        head_sha: run.head_sha.clone(),
+        run_number: run.run_number,
+        event: run.event.clone(),
+        workflow_name: run.workflow_name.clone(),
+        created_at: run.created_at.clone(),
+        updated_at: run.updated_at.clone(),
+        status: run.status,
+        conclusion: run.conclusion,
+        is_selected: selected == Some(index),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{
-        WorkflowRun, WorkflowRunConclusion, WorkflowRunDetail, WorkflowRunJob, WorkflowRunStatus,
-        WorkflowRunStep,
-    };
 
-    fn make_run(id: u64) -> WorkflowRun {
+    fn run(id: u64) -> WorkflowRun {
         WorkflowRun {
             id,
             name: format!("run {id}"),
@@ -248,417 +101,48 @@ mod tests {
     }
 
     #[test]
-    fn test_project_runs_list_scrolling() {
-        let runs: Vec<WorkflowRun> = (0..10).map(make_run).collect();
+    fn selection_is_centered_when_possible() {
+        let runs: Vec<_> = (0..10).map(run).collect();
+        let view = project_runs_list(&runs, Some(5), 3);
 
-        // 3 viewport size, selected index 5 (middle)
-        let projection = project_runs_list(&runs, Some(5), 3);
-        assert_eq!(projection.first_visible_run_index, 4);
-        assert_eq!(projection.visible_runs.len(), 3);
-        assert_eq!(projection.visible_runs[0].id, 4);
-        assert_eq!(projection.visible_runs[1].id, 5);
-        assert!(projection.visible_runs[1].is_selected);
-        assert_eq!(projection.visible_runs[2].id, 6);
+        assert_eq!(view.first_visible_run_index, 4);
+        assert_eq!(view.visible_runs.len(), 3);
+        assert!(view.visible_runs[1].is_selected);
     }
 
     #[test]
-    fn test_project_runs_list_empty_no_panic() {
-        let projection = project_runs_list(&[], None, 5);
-        assert!(projection.visible_runs.is_empty());
-        assert_eq!(projection.first_visible_run_index, 0);
-        assert_eq!(projection.total_runs_count, 0);
+    fn final_page_stays_full() {
+        let runs: Vec<_> = (0..7).map(run).collect();
+        let view = project_runs_list(&runs, Some(6), 5);
+
+        assert_eq!(view.first_visible_run_index, 2);
+        assert_eq!(view.visible_runs.len(), 5);
+        assert!(view.visible_runs.last().is_some_and(|run| run.id == 6));
     }
 
     #[test]
-    fn test_project_runs_list_zero_height_viewport() {
-        let runs: Vec<WorkflowRun> = (0..5).map(make_run).collect();
-        let projection = project_runs_list(&runs, Some(2), 0);
-        // Zero-height viewport: no visible runs but no panic.
-        assert!(projection.visible_runs.is_empty());
-        assert_eq!(projection.total_runs_count, 5);
+    fn empty_and_zero_height_are_total() {
+        assert!(project_runs_list(&[], None, 5).visible_runs.is_empty());
+        let runs: Vec<_> = (0..3).map(run).collect();
+        assert!(project_runs_list(&runs, Some(2), 0).visible_runs.is_empty());
     }
 
     #[test]
-    fn test_project_runs_list_stale_selected_eq_len_no_panic() {
-        let runs: Vec<WorkflowRun> = vec![make_run(0), make_run(1), make_run(2)];
-        // selected_run_index == runs.len() (3 == 3) — stale, must not panic.
-        let projection = project_runs_list(&runs, Some(3), 5);
-        assert_eq!(projection.total_runs_count, 3);
-        // The clamped index should be 2 (len-1), not 3.
-        assert!(
-            projection.visible_runs.iter().all(|r| r.id <= 2),
-            "clamped selection must not exceed last index"
-        );
+    fn short_list_stays_visible_from_the_top() {
+        let runs: Vec<_> = (0..2).map(run).collect();
+        let view = project_runs_list(&runs, Some(1), 5);
+
+        assert_eq!(view.first_visible_run_index, 0);
+        assert_eq!(view.visible_runs.len(), 2);
+        assert!(view.visible_runs[1].is_selected);
     }
 
     #[test]
-    fn test_project_runs_list_stale_selected_greatly_exceeds_len_no_panic() {
-        let runs: Vec<WorkflowRun> = vec![make_run(0), make_run(1)];
-        // selected_run_index >> runs.len() — extremely stale, must not panic.
-        let projection = project_runs_list(&runs, Some(999), 3);
-        assert_eq!(projection.total_runs_count, 2);
-        assert!(
-            projection.visible_runs.iter().all(|r| r.id <= 1),
-            "greatly-exceeding selection must clamp to valid range"
-        );
-    }
+    fn stale_selection_clamps_window_without_marking_invalid_row() {
+        let runs: Vec<_> = (0..3).map(run).collect();
+        let view = project_runs_list(&runs, Some(99), 2);
 
-    #[test]
-    fn test_project_runs_list_final_partial_page() {
-        let runs: Vec<WorkflowRun> = (0..7).map(make_run).collect();
-        // Select the last run (index 6) with a 5-row viewport. The window
-        // start is clamped to len-viewport = 7-5 = 2 so a full 5-row page fits
-        // (runs 2..7) rather than sliding to show only a partial tail.
-        let projection = project_runs_list(&runs, Some(6), 5);
-        assert_eq!(
-            projection.first_visible_run_index, 2,
-            "window start must leave room for a full viewport"
-        );
-        assert_eq!(
-            projection.visible_runs.len(),
-            5,
-            "a full page must fit when the list is longer than the viewport"
-        );
-        assert_eq!(projection.total_runs_count, 7);
-        // The selected (last) run should be visible.
-        assert!(
-            projection.visible_runs.last().is_some_and(|r| r.id == 6),
-            "final page must include the last run"
-        );
-    }
-
-    #[test]
-    fn test_project_runs_list_short_list_shows_all_from_top() {
-        // When the list is shorter than the viewport, the window start
-        // saturates to 0 and everything is shown from the top.
-        let runs: Vec<WorkflowRun> = vec![make_run(0), make_run(1)];
-        let projection = project_runs_list(&runs, Some(1), 5);
-        assert_eq!(projection.first_visible_run_index, 0);
-        assert_eq!(projection.visible_runs.len(), 2);
-    }
-
-    #[test]
-    fn test_project_detail_view_scrolling_and_clamp() {
-        let detail = WorkflowRunDetail {
-            run: make_run(0),
-            jobs: vec![WorkflowRunJob {
-                id: 0,
-                name: "build".to_string(),
-                status: WorkflowRunStatus::Completed,
-                conclusion: Some(WorkflowRunConclusion::Success),
-                steps: vec![
-                    WorkflowRunStep {
-                        name: "checkout".to_string(),
-                        status: WorkflowRunStatus::Completed,
-                        conclusion: Some(WorkflowRunConclusion::Success),
-                        number: 1,
-                    },
-                    WorkflowRunStep {
-                        name: "compile".to_string(),
-                        status: WorkflowRunStatus::Completed,
-                        conclusion: Some(WorkflowRunConclusion::Success),
-                        number: 2,
-                    },
-                ],
-            }],
-        };
-        // All jobs expanded for backward-compat with the original test.
-        let expanded: HashSet<u64> = HashSet::from([0u64]);
-        // 2 (header + section title) + 1 job + 2 steps = 5 lines.
-        assert_eq!(detail_line_count(&detail, &expanded), 5);
-
-        // Normal windowed projection from offset 0 with viewport 3 -> first 3.
-        let view = project_detail_view(&detail, 0, 3, &expanded);
-        assert_eq!(view.total_lines_count, 5);
-        assert_eq!(view.visible_lines.len(), 3);
-
-        // Offset 1 with viewport 3 -> lines 1..4 (3 lines).
-        let view = project_detail_view(&detail, 1, 3, &expanded);
-        assert_eq!(view.visible_lines.len(), 3);
-
-        // Offset past end clamps to last line (4), showing 1 line.
-        let view = project_detail_view(&detail, 999, 3, &expanded);
-        assert_eq!(view.visible_lines.len(), 1);
-    }
-
-    #[test]
-    fn test_project_detail_view_zero_viewport() {
-        let detail = WorkflowRunDetail {
-            run: make_run(0),
-            jobs: Vec::new(),
-        };
-        let expanded = HashSet::new();
-        // Zero-height viewport: no visible lines but no panic.
-        let view = project_detail_view(&detail, 0, 0, &expanded);
-        assert_eq!(view.total_lines_count, 2);
-        assert!(view.visible_lines.is_empty());
-    }
-
-    #[test]
-    fn test_project_detail_view_line_order() {
-        let detail = WorkflowRunDetail {
-            run: make_run(0),
-            jobs: vec![WorkflowRunJob {
-                id: 0,
-                name: "build".to_string(),
-                status: WorkflowRunStatus::Completed,
-                conclusion: Some(WorkflowRunConclusion::Success),
-                steps: vec![WorkflowRunStep {
-                    name: "checkout".to_string(),
-                    status: WorkflowRunStatus::Completed,
-                    conclusion: Some(WorkflowRunConclusion::Success),
-                    number: 1,
-                }],
-            }],
-        };
-        let expanded: HashSet<u64> = HashSet::from([0u64]);
-        // Header -> SectionTitle -> JobRow -> StepRow
-        let view = project_detail_view(&detail, 0, 10, &expanded);
-        assert_eq!(view.visible_lines.len(), 4);
-        assert!(matches!(view.visible_lines[0], DetailLine::Header { .. }));
-        assert!(matches!(
-            view.visible_lines[1],
-            DetailLine::SectionTitle { .. }
-        ));
-        assert!(matches!(view.visible_lines[2], DetailLine::JobRow { .. }));
-        assert!(matches!(view.visible_lines[3], DetailLine::StepRow { .. }));
-    }
-
-    #[test]
-    fn test_detail_line_count_zero_jobs() {
-        let detail = WorkflowRunDetail {
-            run: make_run(0),
-            jobs: Vec::new(),
-        };
-        let expanded = HashSet::new();
-        // 1 header + 1 section title + 0 jobs = 2
-        assert_eq!(detail_line_count(&detail, &expanded), 2);
-    }
-
-    #[test]
-    fn test_detail_line_count_one_job_zero_steps() {
-        let detail = WorkflowRunDetail {
-            run: make_run(0),
-            jobs: vec![WorkflowRunJob {
-                id: 0,
-                name: "build".to_string(),
-                status: WorkflowRunStatus::Completed,
-                conclusion: None,
-                steps: Vec::new(),
-            }],
-        };
-        let expanded = HashSet::new();
-        // 2 + 1 job + 0 steps = 3
-        assert_eq!(detail_line_count(&detail, &expanded), 3);
-    }
-
-    #[test]
-    fn test_detail_line_count_multiple_jobs_and_steps() {
-        let detail = WorkflowRunDetail {
-            run: make_run(0),
-            jobs: vec![
-                WorkflowRunJob {
-                    id: 0,
-                    name: "build".to_string(),
-                    status: WorkflowRunStatus::Completed,
-                    conclusion: Some(WorkflowRunConclusion::Success),
-                    steps: vec![
-                        WorkflowRunStep {
-                            name: "checkout".to_string(),
-                            status: WorkflowRunStatus::Completed,
-                            conclusion: Some(WorkflowRunConclusion::Success),
-                            number: 1,
-                        },
-                        WorkflowRunStep {
-                            name: "compile".to_string(),
-                            status: WorkflowRunStatus::Completed,
-                            conclusion: Some(WorkflowRunConclusion::Success),
-                            number: 2,
-                        },
-                    ],
-                },
-                WorkflowRunJob {
-                    id: 1,
-                    name: "test".to_string(),
-                    status: WorkflowRunStatus::Completed,
-                    conclusion: Some(WorkflowRunConclusion::Success),
-                    steps: vec![WorkflowRunStep {
-                        name: "unit-tests".to_string(),
-                        status: WorkflowRunStatus::Completed,
-                        conclusion: Some(WorkflowRunConclusion::Success),
-                        number: 1,
-                    }],
-                },
-            ],
-        };
-        let expanded: HashSet<u64> = [0u64, 1u64].into_iter().collect();
-        // 2 (header+title) + 1 job + 2 steps + 1 job + 1 step = 7
-        assert_eq!(detail_line_count(&detail, &expanded), 7);
-    }
-
-    // ---- BUG 5: expand/collapse ----
-
-    #[test]
-    fn detail_line_count_all_collapsed() {
-        let detail = WorkflowRunDetail {
-            run: make_run(0),
-            jobs: vec![
-                WorkflowRunJob {
-                    id: 10,
-                    name: "build".to_string(),
-                    status: WorkflowRunStatus::Completed,
-                    conclusion: Some(WorkflowRunConclusion::Success),
-                    steps: vec![
-                        WorkflowRunStep {
-                            name: "checkout".to_string(),
-                            status: WorkflowRunStatus::Completed,
-                            conclusion: Some(WorkflowRunConclusion::Success),
-                            number: 1,
-                        },
-                        WorkflowRunStep {
-                            name: "compile".to_string(),
-                            status: WorkflowRunStatus::Completed,
-                            conclusion: Some(WorkflowRunConclusion::Success),
-                            number: 2,
-                        },
-                    ],
-                },
-                WorkflowRunJob {
-                    id: 20,
-                    name: "test".to_string(),
-                    status: WorkflowRunStatus::Completed,
-                    conclusion: Some(WorkflowRunConclusion::Success),
-                    steps: vec![WorkflowRunStep {
-                        name: "unit-tests".to_string(),
-                        status: WorkflowRunStatus::Completed,
-                        conclusion: Some(WorkflowRunConclusion::Success),
-                        number: 1,
-                    }],
-                },
-            ],
-        };
-        let expanded = HashSet::new();
-        // 2 (header+title) + 2 jobs (collapsed, no steps) = 4
-        assert_eq!(
-            detail_line_count(&detail, &expanded),
-            2 + 2,
-            "all collapsed: 2 + num_jobs"
-        );
-    }
-
-    #[test]
-    fn detail_line_count_one_job_expanded() {
-        let detail = WorkflowRunDetail {
-            run: make_run(0),
-            jobs: vec![
-                WorkflowRunJob {
-                    id: 10,
-                    name: "build".to_string(),
-                    status: WorkflowRunStatus::Completed,
-                    conclusion: Some(WorkflowRunConclusion::Success),
-                    steps: vec![
-                        WorkflowRunStep {
-                            name: "checkout".to_string(),
-                            status: WorkflowRunStatus::Completed,
-                            conclusion: Some(WorkflowRunConclusion::Success),
-                            number: 1,
-                        },
-                        WorkflowRunStep {
-                            name: "compile".to_string(),
-                            status: WorkflowRunStatus::Completed,
-                            conclusion: Some(WorkflowRunConclusion::Success),
-                            number: 2,
-                        },
-                    ],
-                },
-                WorkflowRunJob {
-                    id: 20,
-                    name: "test".to_string(),
-                    status: WorkflowRunStatus::Completed,
-                    conclusion: Some(WorkflowRunConclusion::Success),
-                    steps: vec![WorkflowRunStep {
-                        name: "unit-tests".to_string(),
-                        status: WorkflowRunStatus::Completed,
-                        conclusion: Some(WorkflowRunConclusion::Success),
-                        number: 1,
-                    }],
-                },
-            ],
-        };
-        let expanded: HashSet<u64> = HashSet::from([10u64]);
-        // 2 + 2 jobs + 2 steps in expanded job 10 = 6
-        assert_eq!(
-            detail_line_count(&detail, &expanded),
-            2 + 2 + 2,
-            "one expanded: 2 + num_jobs + steps_in_expanded_job"
-        );
-    }
-
-    #[test]
-    fn project_detail_view_collapsed_omits_steps() {
-        let detail = WorkflowRunDetail {
-            run: make_run(0),
-            jobs: vec![WorkflowRunJob {
-                id: 10,
-                name: "build".to_string(),
-                status: WorkflowRunStatus::Completed,
-                conclusion: Some(WorkflowRunConclusion::Success),
-                steps: vec![WorkflowRunStep {
-                    name: "checkout".to_string(),
-                    status: WorkflowRunStatus::Completed,
-                    conclusion: Some(WorkflowRunConclusion::Success),
-                    number: 1,
-                }],
-            }],
-        };
-        let expanded = HashSet::new();
-        let view = project_detail_view(&detail, 0, 10, &expanded);
-        // Header + SectionTitle + 1 JobRow (no steps) = 3 lines.
-        assert_eq!(view.visible_lines.len(), 3);
-        // The JobRow must exist but no StepRow.
-        assert!(matches!(view.visible_lines[2], DetailLine::JobRow { .. }));
-        assert!(
-            !view
-                .visible_lines
-                .iter()
-                .any(|l| matches!(l, DetailLine::StepRow { .. })),
-            "collapsed job must not emit StepRows"
-        );
-        // The JobRow must carry expanded: false.
-        assert!(matches!(
-            view.visible_lines[2],
-            DetailLine::JobRow {
-                expanded: false,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn project_detail_view_expanded_includes_steps() {
-        let detail = WorkflowRunDetail {
-            run: make_run(0),
-            jobs: vec![WorkflowRunJob {
-                id: 10,
-                name: "build".to_string(),
-                status: WorkflowRunStatus::Completed,
-                conclusion: Some(WorkflowRunConclusion::Success),
-                steps: vec![WorkflowRunStep {
-                    name: "checkout".to_string(),
-                    status: WorkflowRunStatus::Completed,
-                    conclusion: Some(WorkflowRunConclusion::Success),
-                    number: 1,
-                }],
-            }],
-        };
-        let expanded: HashSet<u64> = HashSet::from([10u64]);
-        let view = project_detail_view(&detail, 0, 10, &expanded);
-        // Header + SectionTitle + 1 JobRow + 1 StepRow = 4 lines.
-        assert_eq!(view.visible_lines.len(), 4);
-        assert!(matches!(
-            view.visible_lines[2],
-            DetailLine::JobRow { expanded: true, .. }
-        ));
-        assert!(matches!(view.visible_lines[3], DetailLine::StepRow { .. }));
+        assert_eq!(view.first_visible_run_index, 1);
+        assert!(view.visible_runs.iter().all(|run| !run.is_selected));
     }
 }

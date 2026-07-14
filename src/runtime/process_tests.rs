@@ -40,10 +40,23 @@ fn classification_distinguishes_every_required_state() {
         classify_process_observation(Some(expected), ProcessObservation::ProbeFailed),
         ProcessLiveness::ProbeFailure
     );
-    production_probe_observes_running_and_normal_exit();
-    production_probe_observes_forced_termination();
 }
 
+#[test]
+fn platform_identity_without_persisted_creation_time_is_malformed() {
+    let legacy = ProcessIdentity {
+        pid: 41,
+        started_at: None,
+    };
+    let observed = ProcessIdentity::new(41, 900);
+
+    assert_eq!(
+        classify_process_observation(Some(legacy), ProcessObservation::Running(observed)),
+        ProcessLiveness::MalformedIdentity
+    );
+}
+
+#[test]
 fn production_probe_observes_running_and_normal_exit() {
     let mut child = spawn_sleeping_fixture(Duration::from_millis(120));
     let identity = capture_process_identity(child.id())
@@ -56,6 +69,7 @@ fn production_probe_observes_running_and_normal_exit() {
     assert_eq!(process_liveness(Some(identity)), ProcessLiveness::Dead);
 }
 
+#[test]
 fn production_probe_observes_forced_termination() {
     let mut child = spawn_sleeping_fixture(Duration::from_secs(10));
     let identity = capture_process_identity(child.id())

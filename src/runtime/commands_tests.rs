@@ -7,6 +7,37 @@ use crate::domain::SandboxEngine;
 use crate::runtime::pane_capture::{capture_pane_history_args, parse_pane_pid};
 #[cfg(unix)]
 use std::time::Duration;
+#[test]
+fn remote_attach_plan_uses_direct_ssh_and_excludes_local_psmux_namespace() {
+    let remote = crate::domain::RemoteRepositorySettings {
+        enabled: true,
+        login_user: "ubuntu".to_owned(),
+        host: "linux.example".to_owned(),
+        port: Some(2222),
+        identity_file: std::path::PathBuf::from(r"C:\Keys Ω\agent key"),
+        options: vec!["Compression=yes".to_owned()],
+        ..crate::domain::RemoteRepositorySettings::default()
+    };
+    let plan = crate::ssh::SshPlan::with_executable(
+        std::path::PathBuf::from(r"C:\Program Files\OpenSSH\ssh.exe"),
+        &remote,
+        &remote_tmux_command(&remote, "tmux attach-session -t 'remote-agent'"),
+        crate::ssh::SshMode::Terminal,
+    )
+    .unwrap_or_else(|error| panic!("plan remote attach: {error}"));
+    assert_eq!(
+        plan.executable(),
+        std::path::Path::new(r"C:\Program Files\OpenSSH\ssh.exe")
+    );
+    assert!(plan.args().contains(&std::ffi::OsString::from("-tt")));
+    let remote_command = plan.args().last().map_or_else(
+        || panic!("remote attach plan should contain a command"),
+        |argument| argument.to_string_lossy(),
+    );
+    assert!(remote_command.contains("tmux attach-session"));
+    assert!(!remote_command.contains("psmux"));
+    assert!(!remote_command.contains("JEFE_PSMUX"));
+}
 
 pub(super) fn base_signature() -> LaunchSignature {
     LaunchSignature {
@@ -174,6 +205,7 @@ fn remote_tmux_command_wraps_run_as_user_once() {
         host: "example.com".to_owned(),
         run_as_user: "acoliver".to_owned(),
         setup_env_default: false,
+        ..crate::domain::RemoteRepositorySettings::default()
     };
 
     let command = remote_tmux_command(&remote, "tmux has-session -t 'demo'");
@@ -312,6 +344,7 @@ fn remote_disable_prefix_command_targets_session_with_both_options() {
         host: "example.com".to_owned(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..crate::domain::RemoteRepositorySettings::default()
     };
 
     let command = remote_disable_prefix_command(&remote, "jefe-agent-prefix");
@@ -348,6 +381,7 @@ fn remote_disable_prefix_command_wraps_through_run_as_user() {
         host: "example.com".to_owned(),
         run_as_user: "acoliver".to_owned(),
         setup_env_default: false,
+        ..crate::domain::RemoteRepositorySettings::default()
     };
 
     let command = remote_disable_prefix_command(&remote, "s");

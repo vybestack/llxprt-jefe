@@ -461,7 +461,8 @@ fn issue_send_info(app_state: &AppStateHandle) -> Option<IssueSendInfo> {
 pub(super) fn issue_send_info_from_state(state: &AppState) -> Option<IssueSendInfo> {
     let chooser = state.issues_state.agent_chooser.as_ref()?;
     let detail = state.issues_state.issue_detail.as_ref()?;
-    let (agent_id, _) = chooser.agents.get(chooser.selected_index)?.clone();
+    let entry = chooser.agents.get(chooser.selected_index)?;
+    let agent_id = entry.agent_id.clone();
     let agent = state.agents.iter().find(|a| a.id == agent_id)?;
     let repo = state.repository_by_id(&agent.repository_id)?;
     let focused_comment = focused_issue_comment(state, detail);

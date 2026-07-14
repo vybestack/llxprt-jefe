@@ -426,6 +426,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
             KeybindBar(
                 screen_mode: state.map_or(ScreenMode::DashboardIssues, |s| s.screen_mode),
                 terminal_focused: false,
+                actions_focus: None,
                 colors: colors.clone(),
             )
         }
