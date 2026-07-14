@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 //! Guarded real-runtime validation tests extracted from runner_tests.rs
 //! to keep that module under the per-file line limit (Finding #7).
 //!
@@ -86,13 +88,14 @@ fn build_curated_path(shims: &[&str], artifact_dir: &std::path::Path) -> PathBuf
         let shim_path = bin.join(name);
         std::fs::write(
             &shim_path,
-            "#!/bin/sh\necho \"[jefe-tutorial-shim]\"\necho \"runtime-shim: ready\"\nwhile IFS= read -r line; do echo \"> $line\"; done\n",
+            "#!/bin/sh\necho \"[jefe-tutorial-shim]\"\necho \"runtime-shim: ready\"\nwhile IFS= read -r line; do printf '> %s\\n' \"$line\"; done\n",
         )
         .value_or_panic("write shim");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&shim_path, std::fs::Permissions::from_mode(0o755));
+            std::fs::set_permissions(&shim_path, std::fs::Permissions::from_mode(0o755))
+                .value_or_panic("make shim executable");
         }
     }
 
@@ -109,11 +112,12 @@ fn build_curated_path(shims: &[&str], artifact_dir: &std::path::Path) -> PathBuf
             let candidate = std::path::PathBuf::from(dir).join(tool);
             if candidate.exists() {
                 let link_path = bin.join(tool);
-                let _ = std::fs::remove_file(&link_path);
-                #[cfg(unix)]
-                {
-                    let _ = std::os::unix::fs::symlink(&candidate, &link_path);
+                if link_path.exists() {
+                    std::fs::remove_file(&link_path).value_or_panic("remove stale tool link");
                 }
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(&candidate, &link_path)
+                    .value_or_panic("create curated tool link");
                 break;
             }
         }

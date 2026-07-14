@@ -193,6 +193,9 @@ where
             other => return Err(ParseError::message(format!("unknown argument: {other}"))),
         }
     }
+    if let Some(value) = &runtime_profile {
+        parse_runtime_profile(value).map_err(ParseError::message)?;
+    }
     let shim_availability = match &shim_availability {
         Some(value) => jefe_tutorial_capture::ShimAvailability::parse(value).ok_or_else(|| {
             ParseError::message(format!(
@@ -426,7 +429,7 @@ fn required_string(value: Option<String>, flag: &str) -> Result<String, ParseErr
 ///
 /// # Errors
 ///
-/// Returns a `ParseError` if the value is not a recognized runtime profile.
+/// Returns a diagnostic string if the value is not a recognized runtime profile.
 pub fn parse_runtime_profile(value: &str) -> Result<RuntimeProfile, String> {
     match value.trim().to_ascii_lowercase().as_str() {
         "shim" => Ok(RuntimeProfile::Shim),

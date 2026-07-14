@@ -56,8 +56,8 @@ pub fn run_cleanup(opts: &CleanupOpts) -> ExitCode {
         return ExitCode::from(1);
     }
 
-    let gh_had_failures = execute_github_cleanup_phase(&mut manifest);
-    if gh_had_failures {
+    let gh_cleanup_incomplete = execute_github_cleanup_phase(&mut manifest);
+    if gh_cleanup_incomplete {
         if let Err(err) = save_manifest(&manifest, manifest_path) {
             return handle_cleanup_persistence_failure(manifest_path, &err, &[]);
         }
@@ -69,7 +69,7 @@ pub fn run_cleanup(opts: &CleanupOpts) -> ExitCode {
         return ExitCode::from(1);
     }
 
-    let purge = opts.purge_evidence && !gh_had_failures;
+    let purge = opts.purge_evidence && !gh_cleanup_incomplete;
     match cleanup_manifest(&mut manifest, purge) {
         Ok(records) => {
             write_stdout("cleanup complete\n");
