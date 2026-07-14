@@ -864,17 +864,23 @@ fn mark_agent_attached(app_state: &mut HookState<AppState>, selected_agent_id: &
 /// Apply an attach failure to app state only (no runtime side effects).
 ///
 /// `mark_session_dead` is called in [`perform_async_attach`] while the mutex
-/// is held; this function only updates the UI/state layer.
+/// is held; this function only reverts the UI intent (terminal_focused,
+/// pane_focus) and clears attachment markers — matching the old synchronous
+/// `update_f12_attachment_state` behavior. It does NOT mutate agent lifecycle
+/// state (status/binding) so a transient attach failure (e.g. temporary tmux
+/// unavailability) does not permanently kill a Running agent (issue #301
+/// review feedback).
 fn apply_attach_failure(app_state: &mut HookState<AppState>, agent_id: &AgentId) {
     let mut state = app_state.write();
     state.terminal_focused = false;
     state.pane_focus = PaneFocus::Agents;
-    if let Some(agent) = state.agents.iter_mut().find(|agent| agent.id == *agent_id) {
-        agent.status = AgentStatus::Dead;
-        agent.runtime_binding = None;
-    }
+    // Clear the attachment marker for the failed agent only. Agent status and
+    // runtime_binding are left intact — the liveness poll will detect actual
+    // session death and update lifecycle state through the proper path.
     for agent in &mut state.agents {
-        if let Some(binding) = agent.runtime_binding.as_mut() {
+        if agent.id == *agent_id
+            && let Some(binding) = agent.runtime_binding.as_mut()
+        {
             binding.attached = false;
         }
     }
@@ -898,6 +904,15 @@ fn clear_all_attachments(app_state: &mut HookState<AppState>) {
 #[must_use]
 fn wants_live_snapshot(status: AgentStatus) -> bool {
     matches!(status, AgentStatus::Running | AgentStatus::Dead)
+}
+
+/// Public test accessor for [`wants_live_snapshot`] (issue #301 review:
+/// tests relocated to `app_input_tests.rs` to keep this file under the
+/// source-file size limit).
+#[cfg(test)]
+#[must_use]
+pub fn wants_live_snapshot_pub(status: AgentStatus) -> bool {
+    wants_live_snapshot(status)
 }
 
 /// Capture terminal output for the currently selected agent if available.

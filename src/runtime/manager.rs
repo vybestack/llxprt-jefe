@@ -785,8 +785,9 @@ impl RuntimeManager for TmuxRuntimeManager {
             commands::kill_session(&session.session_name)?;
         }
 
-        // Bump lifecycle generation so stale liveness observations from the
-        // killed session are rejected (issue #301 Phase 4).
+        // Bump lifecycle generation only after a successful session removal,
+        // so stale liveness observations from the killed session are rejected
+        // (issue #301 Phase 4 review: make the invariant explicit).
         let _ = self.next_lifecycle_generation();
 
         Ok(())
