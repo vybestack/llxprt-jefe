@@ -83,8 +83,11 @@ fn parse_paths(stdout: &[u8]) -> Result<Vec<PathBuf>, String> {
                 && path
                     .components()
                     .all(|component| matches!(component, std::path::Component::Normal(_)));
-            safe.then_some(path.clone())
-                .ok_or_else(|| format!("git returned an unsafe path: {}", path.display()))
+            if safe {
+                Ok(path)
+            } else {
+                Err(format!("git returned an unsafe path: {}", path.display()))
+            }
         })
         .collect()
 }
@@ -141,7 +144,7 @@ fn remove_empty_untracked_parents(work_dir: &Path, paths: &[PathBuf]) -> Result<
         match std::fs::remove_dir(&directory) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_error) if directory_has_entries(&directory) => {}
+            Err(error) if is_directory_not_empty(&error, &directory) => {}
             Err(error) => {
                 return Err(format!(
                     "Failed to remove empty untracked directory {}: {error}",
@@ -153,8 +156,8 @@ fn remove_empty_untracked_parents(work_dir: &Path, paths: &[PathBuf]) -> Result<
     Ok(())
 }
 
-fn directory_has_entries(path: &Path) -> bool {
-    std::fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_some())
+fn is_directory_not_empty(error: &std::io::Error, _path: &Path) -> bool {
+    matches!(error.raw_os_error(), Some(39 | 66 | 145))
 }
 
 #[cfg(test)]
