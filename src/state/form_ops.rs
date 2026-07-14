@@ -861,5 +861,9 @@ impl AppState {
 }
 
 #[cfg(test)]
+#[path = "form_ops_remote_work_dir_tests.rs"]
+mod remote_work_dir_tests;
+
+#[cfg(test)]
 #[path = "form_ops_tests.rs"]
 mod tests;
