@@ -784,6 +784,6 @@ fn redact_single_file(path: &Path, set: &RedactionSet) -> Result<usize, Orchestr
     Ok(1)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "orchestration_tests.rs"]
 mod tests;

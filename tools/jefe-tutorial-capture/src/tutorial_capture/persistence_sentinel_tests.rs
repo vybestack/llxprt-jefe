@@ -362,33 +362,18 @@ fn merge_authorized_roundtrips_through_versioned_dto_when_false() {
 fn merge_authorized_defaults_to_false_when_absent_in_json() {
     let base = temp_dir();
     let run_root = make_run_root(base.path(), "merge-legacy");
-    create_run_root_with_sentinel(&run_root, "merge-legacy-001");
-    let json = format!(
-        r#"{{
-            "schema_version": 1,
-            "run_id": "merge-legacy-001",
-            "jefe_version": "0.0.28",
-            "git_commit": null,
-            "scenario_name": "test-scenario",
-            "scenario_hash": null,
-            "cols": 100,
-            "rows": 32,
-            "runtime_profile": "shim",
-            "fixture_repo_path": "{}",
-            "fixture_github_repo": null,
-            "owned_paths": [],
-            "github_resources": [],
-            "artifacts": [],
-            "outcome": "pending",
-            "cleanup_completed": false,
-            "binary_hash": null,
-            "theme": null,
-            "tool_versions": null
-        }}"#,
-        run_root.join("fixture-repo").display()
-    );
+    create_run_root_with_sentinel(&run_root, "test-persist-001");
+    let manifest = make_valid_manifest(&run_root);
+    save_manifest_atomic(&manifest, &run_root).value_or_panic("save current manifest");
     let manifest_path = manifest_path(&run_root);
-    atomic_write(&manifest_path, &json).value_or_panic("write legacy manifest");
+    let content = fs::read_to_string(&manifest_path).value_or_panic("read current manifest");
+    let mut json: serde_json::Value =
+        serde_json::from_str(&content).value_or_panic("parse current manifest");
+    json.as_object_mut()
+        .value_or_panic("manifest must be an object")
+        .remove("merge_authorized");
+    let legacy = serde_json::to_string_pretty(&json).value_or_panic("serialize legacy manifest");
+    atomic_write(&manifest_path, &legacy).value_or_panic("write legacy manifest");
     let loaded = load_and_validate(&run_root).value_or_panic("load legacy manifest");
     assert!(
         !loaded.merge_authorized,

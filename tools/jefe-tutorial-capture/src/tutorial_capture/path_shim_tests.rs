@@ -254,6 +254,7 @@ fn detection_path_does_not_inherit_host_path() {
 
 // ── plan_system_tool_links (Finding #2) ──────────────────────────────
 
+#[cfg(unix)]
 #[test]
 fn plan_system_tool_links_resolves_required_tools() {
     // Resolve against the real host PATH — git, sh, tmux should exist.
@@ -304,6 +305,7 @@ fn plan_system_tool_links_resolves_from_dir_with_agent_binaries() {
 }
 
 /// Finding #1: check_tier_a_required_tools finds sh/git/tmux on host PATH.
+#[cfg(unix)]
 #[test]
 fn check_tier_a_required_tools_finds_all_on_host() {
     let inherited = std::env::var("PATH").unwrap_or_default();
