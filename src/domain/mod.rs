@@ -7,7 +7,7 @@
 /// Shared validated target-resolution predicates for remote settings.
 pub mod target;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -147,6 +147,15 @@ pub struct Repository {
     pub issue_base_prompt: String,
     #[serde(default)]
     pub default_agent_kind: AgentKind,
+    /// Directory for transient agent work copies. Empty defaults to /tmp.
+    #[serde(default)]
+    pub transient_agent_dir: PathBuf,
+    /// Default Code Puppy YOLO for transient agents. `None` = no yolo.
+    #[serde(default)]
+    pub default_code_puppy_yolo: Option<bool>,
+    /// Max concurrent transient agents. 0 = no limit (no queueing).
+    #[serde(default)]
+    pub transient_max_concurrent: u32,
     pub agent_ids: Vec<AgentId>,
 }
 
@@ -613,6 +622,19 @@ pub struct Agent {
     pub agent_kind: AgentKind,
     pub status: AgentStatus,
     pub runtime_binding: Option<RuntimeBinding>,
+    /// Whether this agent is persistent or transient (created on-the-fly,
+    /// not persisted, cleaned up on exit).
+    #[serde(default)]
+    pub origin: AgentOrigin,
+}
+
+/// Whether an agent was pre-defined by the user or created transiently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentOrigin {
+    #[default]
+    Persistent,
+    Transient,
 }
 
 /// Stable identity of one operating-system process instance.
@@ -720,6 +742,7 @@ impl Agent {
             agent_kind: AgentKind::default(),
             status: AgentStatus::default(),
             runtime_binding: None,
+            origin: AgentOrigin::default(),
         }
     }
 
@@ -727,6 +750,60 @@ impl Agent {
     #[must_use]
     pub fn is_running(&self) -> bool {
         self.status == AgentStatus::Running
+    }
+
+    /// Whether this agent is transient (created on-the-fly, not persisted).
+    #[must_use]
+    pub fn is_transient(&self) -> bool {
+        self.origin == AgentOrigin::Transient
+    }
+
+    /// Create a transient agent from repository defaults.
+    ///
+    /// Transient agents are one-shot: they are created on-the-fly from the
+    /// issue/PR agent chooser, use the repository's default model/options,
+    /// run in a temporary work directory, and are never persisted to
+    /// `state.json`. `pass_continue` is always `false` because transient
+    /// agents are single-session.
+    ///
+    /// # Parameters
+    ///
+    /// - `id` — stable identifier for the new agent.
+    /// - `repository_id` — the repository the transient agent is bound to.
+    /// - `work_dir` — temporary working directory (under the repo's
+    ///   `effective_transient_dir`).
+    /// - `repo` — the source repository whose defaults (profile, model, kind,
+    ///   yolo) are copied.
+    #[must_use]
+    pub fn new_transient(
+        id: AgentId,
+        repository_id: RepositoryId,
+        work_dir: PathBuf,
+        repo: &Repository,
+    ) -> Self {
+        Self {
+            id: id.clone(),
+            display_id: id.0.clone(),
+            repository_id,
+            shortcut_slot: None,
+            name: format!("Transient ({})", repo.name),
+            description: String::new(),
+            work_dir,
+            profile: repo.default_profile.clone(),
+            code_puppy_model: repo.default_code_puppy_model.clone(),
+            code_puppy_yolo: repo.default_code_puppy_yolo,
+            code_puppy_quick_resume: false,
+            mode_flags: Vec::new(),
+            llxprt_debug: String::new(),
+            pass_continue: false,
+            sandbox_enabled: false,
+            sandbox_engine: SandboxEngine::Podman,
+            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
+            agent_kind: repo.default_agent_kind,
+            status: AgentStatus::Running,
+            runtime_binding: None,
+            origin: AgentOrigin::Transient,
+        }
     }
 }
 
@@ -746,6 +823,9 @@ impl Repository {
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
             default_agent_kind: AgentKind::default(),
+            transient_agent_dir: PathBuf::new(),
+            default_code_puppy_yolo: None,
+            transient_max_concurrent: 0,
             agent_ids: Vec::new(),
         }
     }
@@ -774,6 +854,21 @@ impl Repository {
             return GitHubRepoRef::parse(override_trimmed);
         }
         GitHubRepoRef::parse(&self.github_repo)
+    }
+
+    /// Resolve the effective transient agent directory (defaults to `/tmp`
+    /// when empty).
+    ///
+    /// Transient agents are created on-the-fly under this directory. An empty
+    /// `transient_agent_dir` field — the default for existing persisted
+    /// repos — falls back to the system temp directory.
+    #[must_use]
+    pub fn effective_transient_dir(&self) -> &Path {
+        if self.transient_agent_dir.as_os_str().is_empty() {
+            Path::new("/tmp")
+        } else {
+            &self.transient_agent_dir
+        }
     }
 }
 #[cfg(test)]

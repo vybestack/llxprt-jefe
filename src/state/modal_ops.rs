@@ -123,6 +123,8 @@ impl AppState {
                 host: r.remote.host.clone(),
                 run_as_user: r.remote.run_as_user.clone(),
                 setup_env_default: r.remote.setup_env_default,
+                transient_agent_dir: r.transient_agent_dir.to_string_lossy().into_owned(),
+                transient_max_concurrent: r.transient_max_concurrent.to_string(),
             })
             .unwrap_or_default();
         self.modal = ModalState::EditRepository {
@@ -137,6 +139,8 @@ impl AppState {
                 login_user: fields.login_user.chars().count(),
                 host: fields.host.chars().count(),
                 run_as_user: fields.run_as_user.chars().count(),
+                transient_agent_dir: fields.transient_agent_dir.chars().count(),
+                transient_max_concurrent: fields.transient_max_concurrent.chars().count(),
             },
             fields,
             focus: RepositoryFormFocus::default(),

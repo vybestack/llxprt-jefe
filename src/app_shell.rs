@@ -290,9 +290,9 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
 
     // Handle quit.
     if should_quit.get() {
-        // Save state before exiting.
         let state = app_state.read();
         let persisted = to_persisted_state(&state);
+        crate::app_input::transient_cleanup::cleanup_transient_agent_dirs(&state);
         drop(state);
         persist_state(&ctx, &persisted);
 

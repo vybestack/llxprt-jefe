@@ -803,6 +803,12 @@ pub enum SystemMessage {
     AuthCancelled,
     /// User requested a retry of the auth flow.
     AuthRetry,
+    /// A transient agent send was queued (issue #213).
+    TransientAgentQueued {
+        queue_position: usize,
+    },
+    /// A transient agent was dequeued and is being launched (issue #213).
+    TransientAgentDequeued,
 }
 
 /// Top-level typed message routed by the bus.

@@ -89,6 +89,7 @@ fn esc_l2_agent_chooser_cancels() {
     state.prs_state.agent_chooser = Some(AgentChooserState {
         selected_index: 0,
         agents: vec![],
+        transient_available: false,
     });
     resolve_esc_and_apply(&mut state, |ev| {
         matches!(ev, AppEvent::PrAgentChooserCancel)

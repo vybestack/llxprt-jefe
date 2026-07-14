@@ -123,6 +123,11 @@ pub struct RepositoryFormFields {
     pub host: String,
     pub run_as_user: String,
     pub setup_env_default: bool,
+    /// Directory for transient agent work directories (issue #213).
+    /// Empty string means "use /tmp".
+    pub transient_agent_dir: String,
+    /// Max concurrent transient agents. Empty or "0" means no limit (issue #213).
+    pub transient_max_concurrent: String,
 }
 
 /// Cursor positions for repository form text fields.
@@ -137,6 +142,8 @@ pub struct RepositoryFormCursor {
     pub login_user: usize,
     pub host: usize,
     pub run_as_user: usize,
+    pub transient_agent_dir: usize,
+    pub transient_max_concurrent: usize,
 }
 
 /// Which field is focused in the repository form.
@@ -155,6 +162,10 @@ pub enum RepositoryFormFocus {
     Host,
     RunAsUser,
     SetupEnvDefault,
+    /// Transient agent directory (issue #213).
+    TransientAgentDir,
+    /// Max concurrent transient agents (issue #213).
+    TransientMaxConcurrent,
 }
 
 impl RepositoryFormFocus {
@@ -173,7 +184,9 @@ impl RepositoryFormFocus {
             Self::LoginUser => Self::Host,
             Self::Host => Self::RunAsUser,
             Self::RunAsUser => Self::SetupEnvDefault,
-            Self::SetupEnvDefault => Self::Name,
+            Self::SetupEnvDefault => Self::TransientAgentDir,
+            Self::TransientAgentDir => Self::TransientMaxConcurrent,
+            Self::TransientMaxConcurrent => Self::Name,
         }
     }
 
@@ -181,7 +194,7 @@ impl RepositoryFormFocus {
     #[must_use]
     pub fn prev(self) -> Self {
         match self {
-            Self::Name => Self::SetupEnvDefault,
+            Self::Name => Self::TransientMaxConcurrent,
             Self::BaseDir => Self::Name,
             Self::DefaultProfile => Self::BaseDir,
             Self::DefaultCodePuppyModel => Self::DefaultProfile,
@@ -193,6 +206,8 @@ impl RepositoryFormFocus {
             Self::Host => Self::LoginUser,
             Self::RunAsUser => Self::Host,
             Self::SetupEnvDefault => Self::RunAsUser,
+            Self::TransientAgentDir => Self::SetupEnvDefault,
+            Self::TransientMaxConcurrent => Self::TransientAgentDir,
         }
     }
 }

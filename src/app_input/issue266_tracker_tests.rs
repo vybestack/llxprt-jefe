@@ -210,6 +210,7 @@ fn issue_send_state(repo: Repository) -> AppState {
         agent_chooser: Some(AgentChooserState {
             selected_index: 0,
             agents: vec![(agent_id.clone(), "Agent One".to_owned())],
+            transient_available: false,
         }),
         ..IssuesState::default()
     };

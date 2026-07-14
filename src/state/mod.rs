@@ -53,6 +53,7 @@ pub mod scrollback_ops;
 mod selectors;
 pub mod state_ops;
 pub mod theme_picker_view;
+mod transient_ops;
 mod types;
 mod util;
 
@@ -756,6 +757,12 @@ impl AppState {
             SystemMessage::ClearError => self.error_message = None,
             SystemMessage::ClearWarning => self.warning_message = None,
             SystemMessage::Quit => {}
+            SystemMessage::TransientAgentQueued { queue_position } => {
+                self.apply_transient_queued(queue_position);
+            }
+            SystemMessage::TransientAgentDequeued => {
+                self.clear_transient_notice();
+            }
             auth => self.apply_auth_message(auth),
         }
     }
@@ -983,3 +990,11 @@ mod prs_integration_tests;
 #[cfg(test)]
 #[path = "prs_tests_pagination.rs"]
 mod prs_tests_pagination;
+/// Transient agent state-layer tests (issue #213).
+#[cfg(test)]
+#[path = "transient_agent_tests.rs"]
+mod transient_agent_tests;
+/// Transient agent SystemMessage reducer tests (issue #213).
+#[cfg(test)]
+#[path = "transient_system_message_tests.rs"]
+mod transient_system_message_tests;

@@ -16,6 +16,9 @@ fn seed_repository() -> Repository {
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),
         default_agent_kind: crate::domain::AgentKind::Llxprt,
+        transient_agent_dir: std::path::PathBuf::new(),
+        default_code_puppy_yolo: None,
+        transient_max_concurrent: 0,
         agent_ids: Vec::new(),
     }
 }
@@ -226,6 +229,8 @@ fn remote_repository_creation_preserves_remote_base_dir_without_local_expansion(
         host: "170.9.234.179".to_owned(),
         run_as_user: "acoliver".to_owned(),
         setup_env_default: true,
+        transient_agent_dir: std::path::PathBuf::new().to_string_lossy().into_owned(),
+        transient_max_concurrent: String::new(),
     };
 
     let Some(repository) = AppState::create_repository_from_fields(&fields) else {
@@ -258,6 +263,8 @@ fn repository_name_that_normalizes_to_empty_slug_is_rejected() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        transient_agent_dir: String::new(),
+        transient_max_concurrent: String::new(),
     };
 
     assert!(AppState::create_repository_from_fields(&fields).is_none());
@@ -311,6 +318,7 @@ fn update_agent_ignores_whitespace_only_work_dir() {
         agent_kind: crate::domain::AgentKind::Llxprt,
         status: crate::domain::AgentStatus::Running,
         runtime_binding: None,
+        origin: crate::domain::AgentOrigin::Persistent,
     };
 
     let fields = AgentFormFields {
@@ -362,6 +370,7 @@ fn update_agent_empty_llxprt_mode_stays_empty() {
         agent_kind: crate::domain::AgentKind::Llxprt,
         status: crate::domain::AgentStatus::Running,
         runtime_binding: None,
+        origin: crate::domain::AgentOrigin::Persistent,
     };
     let fields = AgentFormFields {
         shortcut_slot: None,
@@ -447,6 +456,8 @@ fn create_repository_rejects_invalid_github_repo_without_slash() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        transient_agent_dir: String::new(),
+        transient_max_concurrent: String::new(),
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -466,6 +477,8 @@ fn create_repository_rejects_github_repo_with_extra_slash() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        transient_agent_dir: String::new(),
+        transient_max_concurrent: String::new(),
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -485,6 +498,8 @@ fn create_repository_rejects_github_repo_missing_owner() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        transient_agent_dir: String::new(),
+        transient_max_concurrent: String::new(),
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -504,6 +519,8 @@ fn create_repository_rejects_github_repo_missing_repo_name() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        transient_agent_dir: String::new(),
+        transient_max_concurrent: String::new(),
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -523,6 +540,8 @@ fn create_repository_accepts_empty_github_repo() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        transient_agent_dir: String::new(),
+        transient_max_concurrent: String::new(),
     };
     assert!(AppState::create_repository_from_fields(&fields).is_some());
 }
@@ -542,6 +561,8 @@ fn create_repository_accepts_well_formed_github_repo() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        transient_agent_dir: String::new(),
+        transient_max_concurrent: String::new(),
     };
     let Some(repo) = AppState::create_repository_from_fields(&fields) else {
         panic!("valid repo");
@@ -563,6 +584,8 @@ fn create_repository_rejects_github_repo_with_internal_whitespace_in_owner() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        transient_agent_dir: String::new(),
+        transient_max_concurrent: String::new(),
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -583,6 +606,8 @@ fn create_repository_rejects_github_repo_with_whitespace_around_slash() {
             host: String::new(),
             run_as_user: String::new(),
             setup_env_default: false,
+            transient_agent_dir: String::new(),
+            transient_max_concurrent: String::new(),
         };
         assert!(
             AppState::create_repository_from_fields(&fields).is_none(),
@@ -607,6 +632,8 @@ fn create_repository_rejects_github_repo_with_at_sign() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        transient_agent_dir: String::new(),
+        transient_max_concurrent: String::new(),
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -626,6 +653,8 @@ fn create_repository_accepts_github_repo_with_surrounding_whitespace_and_trims_i
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        transient_agent_dir: String::new(),
+        transient_max_concurrent: String::new(),
     };
     let Some(repo) = AppState::create_repository_from_fields(&fields) else {
         panic!("valid repo with surrounding whitespace");
@@ -650,6 +679,8 @@ fn update_repository_rejects_invalid_github_repo_keeping_existing() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        transient_agent_dir: String::new(),
+        transient_max_concurrent: String::new(),
     };
     assert!(!AppState::update_repository_from_fields(&mut repo, &fields));
     // Existing value preserved because update was rejected.
@@ -673,6 +704,8 @@ fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        transient_agent_dir: String::new(),
+        transient_max_concurrent: String::new(),
     };
     assert!(!AppState::update_repository_from_fields(
         &mut repo, &invalid
@@ -783,6 +816,8 @@ fn issue266_valid_fields() -> RepositoryFormFields {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        transient_agent_dir: String::new(),
+        transient_max_concurrent: String::new(),
     }
 }
 

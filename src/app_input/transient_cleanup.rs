@@ -1,0 +1,117 @@
+//! Transient agent work-directory cleanup on quit (issue #213).
+//!
+//! When jefe exits, any transient agent's `work_dir` (created under the
+//! repository's `transient_agent_dir`, default `/tmp`) is best-effort
+//! removed. A left-behind directory is a minor leak, not a data-loss risk,
+//! so errors are logged but never propagated — quit must always succeed.
+
+use jefe::state::AppState;
+
+use tracing::warn;
+
+/// Best-effort removal of all transient agent work directories.
+///
+/// Iterates the live `AppState.agents` list, removing each transient
+/// agent's `work_dir`. A non-empty path that does not exist is silently
+/// ignored (`NotFound`); all other errors are logged at `warn`.
+pub fn cleanup_transient_agent_dirs(state: &AppState) {
+    for agent in &state.agents {
+        if agent.is_transient()
+            && !agent.work_dir.as_os_str().is_empty()
+            && let Err(error) = std::fs::remove_dir_all(&agent.work_dir)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            warn!(
+                work_dir = %agent.work_dir.display(),
+                error = %error,
+                "failed to remove transient agent directory on quit"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jefe::domain::{Agent, AgentId, AgentOrigin, RepositoryId};
+    use std::path::PathBuf;
+
+    fn transient_agent(work_dir: &str) -> Agent {
+        let mut agent = Agent::new(
+            AgentId("t1".to_string()),
+            RepositoryId("r1".to_string()),
+            "Transient".to_string(),
+            PathBuf::from(work_dir),
+        );
+        agent.origin = AgentOrigin::Transient;
+        agent
+    }
+
+    fn unique_temp_dir(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("jefe-transient-{label}-{}", std::process::id()))
+    }
+
+    #[test]
+    fn cleanup_removes_transient_dir() {
+        let temp = unique_temp_dir("cleanup-removes");
+        std::fs::create_dir_all(&temp).ok();
+        assert!(temp.exists());
+
+        let mut state = AppState::default();
+        state
+            .agents
+            .push(transient_agent(temp.to_str().unwrap_or("")));
+
+        cleanup_transient_agent_dirs(&state);
+
+        assert!(!temp.exists(), "transient dir should be removed on cleanup");
+    }
+
+    #[test]
+    fn cleanup_skips_persistent_agents() {
+        let temp = unique_temp_dir("cleanup-skips-persistent");
+        std::fs::create_dir_all(&temp).ok();
+
+        let mut state = AppState::default();
+        // Default Agent::new produces a persistent agent.
+        state.agents.push(Agent::new(
+            AgentId("p1".to_string()),
+            RepositoryId("r1".to_string()),
+            "Persistent".to_string(),
+            temp.clone(),
+        ));
+
+        cleanup_transient_agent_dirs(&state);
+
+        assert!(
+            temp.exists(),
+            "persistent agent dir must NOT be removed on cleanup"
+        );
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn cleanup_ignores_missing_dir() {
+        let missing = unique_temp_dir("cleanup-missing");
+        assert!(!missing.exists());
+
+        let mut state = AppState::default();
+        state
+            .agents
+            .push(transient_agent(missing.to_str().unwrap_or("")));
+
+        // Should not panic or error on a missing directory.
+        cleanup_transient_agent_dirs(&state);
+    }
+
+    #[test]
+    fn cleanup_skips_empty_work_dir() {
+        let mut state = AppState::default();
+        let mut agent = transient_agent("");
+        agent.work_dir = PathBuf::new();
+        state.agents.push(agent);
+
+        // Should not attempt removal of an empty path.
+        cleanup_transient_agent_dirs(&state);
+    }
+}

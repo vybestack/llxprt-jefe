@@ -74,6 +74,7 @@ fn issues_state_with_chooser() -> AppState {
             agent_chooser: Some(AgentChooserState {
                 selected_index: 0,
                 agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+                transient_available: false,
             }),
             ..IssuesState::default()
         },

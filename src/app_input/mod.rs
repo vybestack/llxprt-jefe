@@ -56,6 +56,8 @@ mod issues_send;
 mod remote_probe;
 mod target_resolution;
 mod tracker_resolver;
+pub mod transient_cleanup;
+mod transient_issue_send;
 use agent_runtime::{
     clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, process_on_success, set_agent_runtime_binding,
@@ -183,7 +185,14 @@ pub fn to_persisted_state(state: &AppState) -> PersistedState {
     PersistedState {
         schema_version: jefe::persistence::STATE_SCHEMA_VERSION,
         repositories: state.repositories.clone(),
-        agents: state.agents.clone(),
+        // Transient agents are runtime-only — never persisted to state.json
+        // (issue #213).
+        agents: state
+            .agents
+            .iter()
+            .filter(|a| !a.is_transient())
+            .cloned()
+            .collect(),
         selected_repository_index: state.selected_repository_index,
         selected_agent_index: state.selected_agent_index,
         hide_idle_repositories: state.hide_idle_repositories,
@@ -576,6 +585,14 @@ pub fn dispatch_app_message(
         AppMessage::Runtime(RuntimeMessage::RestartAgent(agent_id)) => {
             dispatch_restart_agent(app_state, ctx, agent_id);
         }
+        AppMessage::Runtime(RuntimeMessage::AgentStatusChanged(agent_id, status)) => {
+            apply_and_persist(
+                app_state,
+                ctx,
+                AppEvent::AgentStatusChanged(agent_id, status),
+            );
+            drain_transient_queue(app_state, ctx);
+        }
         AppMessage::Issues(message) => {
             issues_dispatch::dispatch_issues_message(app_state, ctx, message);
         }
@@ -667,6 +684,32 @@ fn log_dispatch(message: &AppMessage) {
         message = route.name,
         "dispatching app message"
     );
+}
+
+/// Drain the transient agent queue when a transient agent completes
+/// (issue #213). If there are queued sends for a repo whose transient agent
+/// just finished, dequeue the oldest and emit `TransientAgentDequeued` so
+/// the UI clears the queue notice.
+fn drain_transient_queue(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let has_queued = {
+        let state = app_state.read();
+        !state.transient_queue.pending.is_empty()
+    };
+    if !has_queued {
+        return;
+    }
+    // Dequeue the oldest pending send and clear the notice.
+    let dequeued = {
+        let mut state = app_state.write();
+        let item = state.transient_queue.pending.first().cloned();
+        if item.is_some() {
+            state.transient_queue.pending.remove(0);
+        }
+        item
+    };
+    if dequeued.is_some() {
+        apply_and_persist(app_state, ctx, AppEvent::TransientAgentDequeued);
+    }
 }
 
 fn dispatch_kill_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {
@@ -939,3 +982,8 @@ mod prs_dispatch_tests;
 #[cfg(test)]
 #[path = "issue266_tracker_tests.rs"]
 mod issue266_tracker_tests;
+
+// Transient agent persistence tests (issue #213).
+#[cfg(test)]
+#[path = "transient_persistence_tests.rs"]
+mod transient_persistence_tests;

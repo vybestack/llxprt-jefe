@@ -338,6 +338,9 @@ fn test_issue_base_prompt_serde_roundtrip() {
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: "Prioritize diagnosis".to_string(),
         default_agent_kind: crate::domain::AgentKind::Llxprt,
+        transient_agent_dir: PathBuf::new(),
+        default_code_puppy_yolo: None,
+        transient_max_concurrent: 0,
         agent_ids: vec![],
     };
 
@@ -530,4 +533,132 @@ fn pr_review_thread_supports_unresolved_with_location() {
         thread.comments[1].edited_at.as_deref(),
         Some("2026-07-01T11:30:00Z")
     );
+}
+
+// =============================================================================
+// Transient Agent Support (issue #213)
+// =============================================================================
+
+#[test]
+fn repository_new_defaults_transient_fields() {
+    let repo = Repository::new(
+        RepositoryId("repo-1".into()),
+        "Test Repo".into(),
+        "test-repo".into(),
+        PathBuf::from("/tmp/repo"),
+    );
+    assert!(repo.transient_agent_dir.as_os_str().is_empty());
+    assert_eq!(repo.default_code_puppy_yolo, None);
+    assert_eq!(repo.transient_max_concurrent, 0);
+}
+
+#[test]
+fn repository_effective_transient_dir_defaults_to_tmp_when_empty() {
+    let repo = Repository::new(
+        RepositoryId("repo-1".into()),
+        "Test Repo".into(),
+        "test-repo".into(),
+        PathBuf::from("/tmp/repo"),
+    );
+    assert_eq!(repo.effective_transient_dir(), Path::new("/tmp"));
+}
+
+#[test]
+fn repository_effective_transient_dir_returns_configured_dir_when_set() {
+    let mut repo = Repository::new(
+        RepositoryId("repo-1".into()),
+        "Test Repo".into(),
+        "test-repo".into(),
+        PathBuf::from("/tmp/repo"),
+    );
+    repo.transient_agent_dir = PathBuf::from("/var/tmp/jefe-agents");
+    assert_eq!(
+        repo.effective_transient_dir(),
+        Path::new("/var/tmp/jefe-agents")
+    );
+}
+
+#[test]
+fn agent_new_defaults_is_transient_false() {
+    let agent = Agent::new(
+        AgentId("test-1".into()),
+        RepositoryId("repo-1".into()),
+        "Test Agent".into(),
+        PathBuf::from("/tmp/test"),
+    );
+    assert!(!agent.is_transient());
+}
+
+#[test]
+fn agent_new_transient_sets_is_transient_true_and_inherits_repo_defaults() {
+    let mut repo = Repository::new(
+        RepositoryId("repo-1".into()),
+        "My Repo".into(),
+        "my-repo".into(),
+        PathBuf::from("/tmp/repo"),
+    );
+    repo.default_profile = "dev".to_string();
+    repo.default_code_puppy_model = "gpt-5".to_string();
+    repo.default_code_puppy_yolo = Some(true);
+    repo.default_agent_kind = AgentKind::CodePuppy;
+
+    let agent = Agent::new_transient(
+        AgentId("transient-1".into()),
+        RepositoryId("repo-1".into()),
+        PathBuf::from("/tmp/jefe-transient-1"),
+        &repo,
+    );
+
+    assert!(agent.is_transient());
+    assert_eq!(agent.id, AgentId("transient-1".into()));
+    assert_eq!(agent.repository_id, RepositoryId("repo-1".into()));
+    assert_eq!(agent.work_dir, PathBuf::from("/tmp/jefe-transient-1"));
+    assert_eq!(agent.profile, "dev");
+    assert_eq!(agent.code_puppy_model, "gpt-5");
+    assert_eq!(agent.code_puppy_yolo, Some(true));
+    assert_eq!(agent.agent_kind, AgentKind::CodePuppy);
+    assert!(!agent.pass_continue, "transient agents are one-shot");
+    assert_eq!(agent.status, AgentStatus::Running);
+    assert!(agent.name.contains("My Repo"));
+}
+
+#[test]
+fn repository_transient_fields_backward_compat_with_missing_fields() {
+    let repo_json = json!({
+        "id": "repo-1",
+        "name": "Repo",
+        "slug": "repo",
+        "base_dir": "/tmp/repo",
+        "default_profile": "",
+        "agent_ids": []
+        // Note: no transient_agent_dir, default_code_puppy_yolo, transient_max_concurrent
+    });
+    let repo: Repository = serde_json::from_value(repo_json).value_or_panic("repo serde");
+    assert!(repo.transient_agent_dir.as_os_str().is_empty());
+    assert_eq!(repo.default_code_puppy_yolo, None);
+    assert_eq!(repo.transient_max_concurrent, 0);
+    assert_eq!(repo.effective_transient_dir(), Path::new("/tmp"));
+}
+
+#[test]
+fn agent_is_transient_backward_compat_with_missing_field() {
+    let agent_json = json!({
+        "id": "agent-1",
+        "display_id": "#1",
+        "repository_id": "repo-1",
+        "name": "Agent",
+        "description": "",
+        "work_dir": "/tmp/a",
+        "profile": "",
+        "mode_flags": [],
+        "pass_continue": true,
+        "sandbox_enabled": false,
+        "sandbox_engine": "podman",
+        "sandbox_flags": DEFAULT_SANDBOX_FLAGS,
+        "status": "Queued",
+        "runtime_binding": null
+        // Note: no origin field
+    });
+    let agent: Agent = serde_json::from_value(agent_json).value_or_panic("agent serde");
+    assert!(!agent.is_transient());
 }

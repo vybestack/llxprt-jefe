@@ -259,6 +259,16 @@ impl AppState {
                 cursor.run_as_user =
                     delete_char_before(&mut fields.run_as_user, cursor.run_as_user);
             }
+            RepositoryFormFocus::TransientAgentDir => {
+                cursor.transient_agent_dir =
+                    delete_char_before(&mut fields.transient_agent_dir, cursor.transient_agent_dir);
+            }
+            RepositoryFormFocus::TransientMaxConcurrent => {
+                cursor.transient_max_concurrent = delete_char_before(
+                    &mut fields.transient_max_concurrent,
+                    cursor.transient_max_concurrent,
+                );
+            }
             RepositoryFormFocus::DefaultAgentKind
             | RepositoryFormFocus::RemoteEnabled
             | RepositoryFormFocus::SetupEnvDefault => {}
@@ -303,6 +313,15 @@ impl AppState {
             }
             RepositoryFormFocus::RunAsUser => {
                 delete_char_at(&mut fields.run_as_user, cursor.run_as_user);
+            }
+            RepositoryFormFocus::TransientAgentDir => {
+                delete_char_at(&mut fields.transient_agent_dir, cursor.transient_agent_dir);
+            }
+            RepositoryFormFocus::TransientMaxConcurrent => {
+                delete_char_at(
+                    &mut fields.transient_max_concurrent,
+                    cursor.transient_max_concurrent,
+                );
             }
             RepositoryFormFocus::DefaultAgentKind
             | RepositoryFormFocus::RemoteEnabled

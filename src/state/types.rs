@@ -434,6 +434,10 @@ pub struct AppState {
     /// Runtime mirror of `persistence::Settings.override_agent_theme` (issue
     /// #179). settings.toml is the source of truth; the render path reads this.
     pub override_agent_theme: bool,
+
+    /// Pending transient-agent sends queued because max_concurrent is reached
+    /// (issue #213). Runtime-only — never persisted.
+    pub transient_queue: TransientAgentQueue,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03
@@ -509,10 +513,50 @@ pub enum EditorTarget {
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 /// @requirement REQ-ISS-011
 /// State for send-to-agent chooser overlay.
+///
+/// When `transient_available` is true, an additional "Transient Agent" entry
+/// appears after all regular agents at index `agents.len()` (issue #213).
+/// Navigation bounds become `agents.len() + transient_available as usize`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentChooserState {
     pub selected_index: usize,
     pub agents: Vec<(crate::domain::AgentId, String)>,
+    /// Whether the transient-agent slot is available (issue #213).
+    pub transient_available: bool,
+}
+
+/// What to send to a transient agent (issue #213).
+///
+/// Mirrors the issue/PR send paths: the payload is the same `SendPayload` /
+/// `PrSendPayload` that the regular send orchestration consumes.
+#[derive(Debug, Clone)]
+pub enum TransientPayload {
+    Issue {
+        payload: crate::github::SendPayload,
+    },
+    PullRequest {
+        payload: crate::github::PrSendPayload,
+    },
+}
+
+/// A queued transient agent send waiting for a slot (issue #213).
+///
+/// When `transient_max_concurrent` is reached, the send context is captured
+/// here and replayed when a running transient agent completes.
+#[derive(Debug, Clone)]
+pub struct QueuedTransientSend {
+    pub repository_id: RepositoryId,
+    pub work_dir: std::path::PathBuf,
+    pub launch_signature: LaunchSignature,
+    pub payload: TransientPayload,
+}
+
+/// Queue of pending transient agent sends (issue #213).
+///
+/// Runtime-only — never persisted.
+#[derive(Debug, Clone, Default)]
+pub struct TransientAgentQueue {
+    pub pending: Vec<QueuedTransientSend>,
 }
 
 /// @plan PLAN-20260329-ISSUES-MODE.P03

@@ -491,6 +491,11 @@ const PR_PROMPT_RELATIVE_PATH: &str = ".jefe/pr-prompt.md";
 /// @requirement REQ-PR-011
 /// @pseudocode component-003 lines 147-156
 fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    if is_transient_slot_selected_prs(app_state) {
+        dispatch_transient_pr_send(app_state, ctx);
+        return;
+    }
+
     let send_info = pr_send_info(app_state);
     apply_and_persist(app_state, ctx, AppEvent::PrAgentChooserConfirm);
 
@@ -498,18 +503,12 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
         return;
     };
 
-    // Use the shared kind-specific prompt construction so CodePuppy PR sends
-    // do not get a duplicate -i (the runtime layer prepends it) and the
-    // issue/PR send paths agree on the exact arg shape.
     let launch_sig = prepare_fresh_prompt_signature(
         send_info.signature,
         FreshPromptKind::PullRequest,
         PR_PROMPT_RELATIVE_PATH,
     );
 
-    // Availability + target validation BEFORE any prompt side effect: a
-    // missing agent runtime or an invalid/incomplete remote config must not
-    // trigger a local or remote prompt write.
     if !super::availability::local_kind_available_or_error(
         app_state,
         launch_sig.agent_kind,
@@ -525,12 +524,6 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
         }
     };
 
-    // Centralized pre-side-effect availability probe (defect 2): BEFORE any
-    // PR prompt write, probe the selected runtime on the resolved target.
-    // For local targets this reuses the session snapshot; for remote targets
-    // this is a no-install/no-setup/side-effect-free ssh -T probe for the
-    // exact binary executed as the effective run_as_user. Unavailable remote
-    // means no prompt write operation.
     if !super::remote_probe::pre_side_effect_runtime_available_or_error(
         app_state,
         &target,
@@ -540,27 +533,8 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
         return;
     }
 
-    // Write the PR prompt to the selected WorkTarget (local fs or remote
-    // ssh -T with prompt bytes via stdin). The remote path reuses the exact
-    // production remote prompt planning seam from `remote_probe` so `.jefe/
-    // pr-prompt.md` is targeted, prompt bytes are stdin, and adversarial
-    // content is absent from argv.
-    let prompt_content = prs_dispatch::format_pr_prompt(&send_info.payload);
-    let write_result = match &target {
-        super::issue_prep::WorkTarget::Local => super::issue_prep::write_prompt_to_target(
-            &target,
-            &send_info.work_dir,
-            PR_PROMPT_RELATIVE_PATH,
-            &prompt_content,
-        ),
-        super::issue_prep::WorkTarget::Remote(remote) => super::remote_probe::write_remote_prompt(
-            remote,
-            &send_info.work_dir,
-            PR_PROMPT_RELATIVE_PATH,
-            &prompt_content,
-        ),
-    };
-    if let Err(error) = write_result {
+    if let Err(error) = write_pr_prompt_to_target(&target, &send_info.work_dir, &send_info.payload)
+    {
         apply_pr_send_to_agent_failed(app_state, ctx, error);
         return;
     }
@@ -573,6 +547,30 @@ fn dispatch_pr_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &Share
             send_info.work_dir,
             launch_sig,
         );
+    }
+}
+
+/// Write the PR prompt to the selected WorkTarget (local fs or remote ssh).
+/// Returns `Err` on failure so the caller can apply the send-failed event.
+fn write_pr_prompt_to_target(
+    target: &super::issue_prep::WorkTarget,
+    work_dir: &std::path::Path,
+    payload: &jefe::github::PrSendPayload,
+) -> Result<(), String> {
+    let prompt_content = prs_dispatch::format_pr_prompt(payload);
+    match target {
+        super::issue_prep::WorkTarget::Local => super::issue_prep::write_prompt_to_target(
+            target,
+            work_dir,
+            PR_PROMPT_RELATIVE_PATH,
+            &prompt_content,
+        ),
+        super::issue_prep::WorkTarget::Remote(remote) => super::remote_probe::write_remote_prompt(
+            remote,
+            work_dir,
+            PR_PROMPT_RELATIVE_PATH,
+            &prompt_content,
+        ),
     }
 }
 
@@ -815,4 +813,170 @@ fn apply_pr_send_to_agent_failed(
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
+}
+
+// =============================================================================
+// Transient Agent PR Send (issue #213)
+// =============================================================================
+
+/// Whether the PRs agent-chooser has the transient slot selected.
+fn is_transient_slot_selected_prs(app_state: &AppStateHandle) -> bool {
+    let state = app_state.read();
+    let selected = state
+        .prs_state
+        .agent_chooser
+        .as_ref()
+        .is_some_and(|c| c.transient_available && c.selected_index == c.agents.len());
+    drop(state);
+    selected
+}
+
+/// Dispatch a transient PR send: close chooser, check queue, create agent,
+/// clone + launch.
+fn dispatch_transient_pr_send(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    apply_and_persist(app_state, ctx, AppEvent::PrAgentChooserConfirm);
+
+    let Some(payload_and_repo) = transient_pr_payload_and_repo(app_state) else {
+        apply_pr_send_to_agent_failed(
+            app_state,
+            ctx,
+            "Could not resolve PR context for transient send".to_string(),
+        );
+        return;
+    };
+    let (payload, repo, repo_id) = payload_and_repo;
+
+    if let Some(queue_pos) = super::transient_issue_send::check_transient_queue_capacity_pub(
+        app_state,
+        &repo_id,
+        repo.transient_max_concurrent,
+    ) {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::TransientAgentQueued {
+                queue_position: queue_pos,
+            },
+        );
+        return;
+    }
+
+    let work_dir = super::transient_issue_send::generate_transient_work_dir_pub(&repo);
+    let agent = jefe::domain::Agent::new_transient(
+        jefe::domain::AgentId(jefe::services::generate_id("transient")),
+        repo_id.clone(),
+        work_dir.clone(),
+        &repo,
+    );
+    let agent_id = agent.id.clone();
+    let launch_sig = launch_signature_for_agent(&agent, &repo);
+    super::transient_issue_send::push_transient_agent_pub(app_state, ctx, agent);
+
+    prepare_and_launch_transient_pr(app_state, ctx, &work_dir, launch_sig, &payload, &agent_id);
+}
+
+/// Availability check, target resolution, prompt write, and launch for a
+/// transient PR send (extracted to keep `dispatch_transient_pr_send` under
+/// the line limit).
+fn prepare_and_launch_transient_pr(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    work_dir: &std::path::Path,
+    launch_sig: LaunchSignature,
+    payload: &jefe::github::PrSendPayload,
+    agent_id: &jefe::domain::AgentId,
+) {
+    let launch_sig = prepare_fresh_prompt_signature(
+        launch_sig,
+        FreshPromptKind::PullRequest,
+        PR_PROMPT_RELATIVE_PATH,
+    );
+
+    if !super::availability::local_kind_available_or_error(
+        app_state,
+        launch_sig.agent_kind,
+        &launch_sig.remote,
+    ) {
+        return;
+    }
+    let target = match super::target_resolution::resolve_target(&launch_sig.remote) {
+        Ok(target) => target,
+        Err(error) => {
+            apply_pr_send_to_agent_failed(app_state, ctx, error);
+            return;
+        }
+    };
+    if !super::remote_probe::pre_side_effect_runtime_available_or_error(
+        app_state,
+        &target,
+        work_dir,
+        launch_sig.agent_kind,
+    ) {
+        return;
+    }
+
+    let prompt_content = prs_dispatch::format_pr_prompt(payload);
+    let write_result = match &target {
+        super::issue_prep::WorkTarget::Local => super::issue_prep::write_prompt_to_target(
+            &target,
+            work_dir,
+            PR_PROMPT_RELATIVE_PATH,
+            &prompt_content,
+        ),
+        super::issue_prep::WorkTarget::Remote(remote) => super::remote_probe::write_remote_prompt(
+            remote,
+            work_dir,
+            PR_PROMPT_RELATIVE_PATH,
+            &prompt_content,
+        ),
+    };
+    if let Err(error) = write_result {
+        apply_pr_send_to_agent_failed(app_state, ctx, error);
+        return;
+    }
+
+    if preflight_or_prompt(app_state, ctx, agent_id, &launch_sig, None) {
+        launch_pr_agent(
+            app_state,
+            ctx,
+            agent_id.clone(),
+            work_dir.to_path_buf(),
+            launch_sig,
+        );
+    }
+}
+
+/// Resolve the PR payload and repository for a transient send.
+fn transient_pr_payload_and_repo(
+    app_state: &AppStateHandle,
+) -> Option<(
+    jefe::github::PrSendPayload,
+    Repository,
+    jefe::domain::RepositoryId,
+)> {
+    let state = app_state.read();
+    let result = transient_pr_payload_and_repo_from_state(&state);
+    drop(state);
+    result
+}
+
+/// Pure state-reading variant (testable without `AppStateHandle`).
+fn transient_pr_payload_and_repo_from_state(
+    state: &AppState,
+) -> Option<(
+    jefe::github::PrSendPayload,
+    Repository,
+    jefe::domain::RepositoryId,
+)> {
+    let detail = state.prs_state.pr_detail.as_ref()?;
+    let repo = state.selected_repository()?;
+    let repo_id = repo.id.clone();
+    let focused_comment = focused_pr_comment(state, detail);
+    let payload = jefe::github::GhClient::build_pr_send_payload(
+        &detail.repo_owner_name,
+        detail,
+        focused_comment.as_ref(),
+        pr_base_prompt(repo),
+    );
+    Some((payload, repo.clone(), repo_id))
 }

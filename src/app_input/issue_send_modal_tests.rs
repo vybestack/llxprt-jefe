@@ -65,6 +65,7 @@ fn state_for_issue_agent_chooser_send(
         agent_chooser: Some(AgentChooserState {
             selected_index: 0,
             agents: vec![(agent_id.clone(), String::from("Agent One"))],
+            transient_available: false,
         }),
         ..jefe::state::IssuesState::default()
     };

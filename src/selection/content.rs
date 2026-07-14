@@ -538,6 +538,9 @@ mod tests {
             remote: crate::domain::RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
             default_agent_kind: crate::domain::AgentKind::Llxprt,
+            transient_agent_dir: std::path::PathBuf::new(),
+            default_code_puppy_yolo: None,
+            transient_max_concurrent: 0,
             agent_ids: vec![AgentId("a1".to_string()), AgentId("a2".to_string())],
         });
         // Select the first repo so the rendered "> " prefix appears.
@@ -844,6 +847,7 @@ mod tests {
                 (AgentId("a1".to_string()), "alpha".to_string()),
                 (AgentId("a2".to_string()), "beta".to_string()),
             ],
+            transient_available: false,
         });
         let content = pane_content_lines(SelectablePane::AgentChooser, &state, None, &[], 120, 40);
         assert!(

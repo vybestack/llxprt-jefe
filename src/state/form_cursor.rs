@@ -48,6 +48,20 @@ pub(super) fn handle_repository_field_char(
         RepositoryFormFocus::RunAsUser => {
             cursor.run_as_user = insert_char_at(&mut fields.run_as_user, cursor.run_as_user, c);
         }
+        RepositoryFormFocus::TransientAgentDir => {
+            cursor.transient_agent_dir = insert_char_at(
+                &mut fields.transient_agent_dir,
+                cursor.transient_agent_dir,
+                c,
+            );
+        }
+        RepositoryFormFocus::TransientMaxConcurrent => {
+            cursor.transient_max_concurrent = insert_char_at(
+                &mut fields.transient_max_concurrent,
+                cursor.transient_max_concurrent,
+                c,
+            );
+        }
         RepositoryFormFocus::DefaultAgentKind
         | RepositoryFormFocus::RemoteEnabled
         | RepositoryFormFocus::SetupEnvDefault => {
@@ -93,6 +107,16 @@ pub(super) fn move_repository_field_cursor_right(
         RepositoryFormFocus::Host => cursor.host = move_cursor_right(&fields.host, cursor.host),
         RepositoryFormFocus::RunAsUser => {
             cursor.run_as_user = move_cursor_right(&fields.run_as_user, cursor.run_as_user);
+        }
+        RepositoryFormFocus::TransientAgentDir => {
+            cursor.transient_agent_dir =
+                move_cursor_right(&fields.transient_agent_dir, cursor.transient_agent_dir);
+        }
+        RepositoryFormFocus::TransientMaxConcurrent => {
+            cursor.transient_max_concurrent = move_cursor_right(
+                &fields.transient_max_concurrent,
+                cursor.transient_max_concurrent,
+            );
         }
     }
 }
@@ -175,6 +199,12 @@ pub(super) fn move_repository_field_cursor_left(
         RepositoryFormFocus::LoginUser => cursor.login_user = move_cursor_left(cursor.login_user),
         RepositoryFormFocus::Host => cursor.host = move_cursor_left(cursor.host),
         RepositoryFormFocus::RunAsUser => cursor.run_as_user = move_cursor_left(cursor.run_as_user),
+        RepositoryFormFocus::TransientAgentDir => {
+            cursor.transient_agent_dir = move_cursor_left(cursor.transient_agent_dir);
+        }
+        RepositoryFormFocus::TransientMaxConcurrent => {
+            cursor.transient_max_concurrent = move_cursor_left(cursor.transient_max_concurrent);
+        }
     }
 }
 

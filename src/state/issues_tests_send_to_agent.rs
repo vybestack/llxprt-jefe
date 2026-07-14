@@ -110,6 +110,7 @@ fn test_send_to_agent_no_eligible_clears_stale_chooser() {
     state.issues_state.agent_chooser = Some(AgentChooserState {
         selected_index: 0,
         agents: vec![(AgentId("stale".to_string()), "Stale".to_string())],
+        transient_available: false,
     });
 
     let state = state.apply(AppEvent::OpenAgentChooser);

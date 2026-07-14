@@ -156,6 +156,10 @@ impl AppMessage {
             AppEvent::AuthFailed { error } => Self::System(SystemMessage::AuthFailed { error }),
             AppEvent::AuthCancelled => Self::System(SystemMessage::AuthCancelled),
             AppEvent::AuthRetry => Self::System(SystemMessage::AuthRetry),
+            AppEvent::TransientAgentQueued { queue_position } => {
+                Self::System(SystemMessage::TransientAgentQueued { queue_position })
+            }
+            AppEvent::TransientAgentDequeued => Self::System(SystemMessage::TransientAgentDequeued),
             // Catch-all: repository/agent events, then issues/PRs/actions.
             other => Self::from_repository_agent_event(other),
         }
@@ -536,6 +540,10 @@ impl From<SystemMessage> for AppEvent {
             SystemMessage::AuthFailed { error } => Self::AuthFailed { error },
             SystemMessage::AuthCancelled => Self::AuthCancelled,
             SystemMessage::AuthRetry => Self::AuthRetry,
+            SystemMessage::TransientAgentQueued { queue_position } => {
+                Self::TransientAgentQueued { queue_position }
+            }
+            SystemMessage::TransientAgentDequeued => Self::TransientAgentDequeued,
         }
     }
 }

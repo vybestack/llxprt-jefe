@@ -570,6 +570,14 @@ pub enum AppEvent {
         error: String,
     },
 
+    // Transient Agent events (issue #213)
+    /// A transient agent send was queued (max_concurrent reached).
+    TransientAgentQueued {
+        queue_position: usize,
+    },
+    /// A transient agent was dequeued and is being launched.
+    TransientAgentDequeued,
+
     // Actions Mode events
     EnterActionsMode,
     ExitActionsMode,

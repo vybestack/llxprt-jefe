@@ -20,7 +20,8 @@ pub(crate) use normalize::{
 pub use normalize::{local_paths_equivalent, validate_local_path};
 
 /// Generate a stable, time-based identifier with the given prefix.
-pub(crate) fn generate_id(prefix: &str) -> String {
+#[must_use]
+pub fn generate_id(prefix: &str) -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -148,6 +149,7 @@ pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
         // App-created agents start Running because creation triggers immediate launch.
         status: AgentStatus::Running,
         runtime_binding: None,
+        origin: crate::domain::AgentOrigin::Persistent,
     })
 }
 

@@ -552,10 +552,11 @@ impl AppState {
                 }
             }
             AppEvent::AgentChooserNavigateDown => {
-                if let Some(chooser) = &mut self.issues_state.agent_chooser
-                    && chooser.selected_index + 1 < chooser.agents.len()
-                {
-                    chooser.selected_index += 1;
+                if let Some(chooser) = &mut self.issues_state.agent_chooser {
+                    let max = chooser.agents.len() + usize::from(chooser.transient_available);
+                    if max > 0 && chooser.selected_index + 1 < max {
+                        chooser.selected_index += 1;
+                    }
                 }
             }
             AppEvent::AgentChooserConfirm
@@ -574,9 +575,11 @@ impl AppState {
             self.issues_state.draft_notice = Some("No agents available".to_string());
         } else {
             self.issues_state.draft_notice = None;
+            let transient_available = self.is_transient_available_for_repo(repo_id.as_ref());
             self.issues_state.agent_chooser = Some(AgentChooserState {
                 selected_index: 0,
                 agents,
+                transient_available,
             });
         }
     }

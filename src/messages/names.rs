@@ -113,6 +113,8 @@ message_names!(SystemMessage {
     Self::AuthFailed { .. } => "AuthFailed",
     Self::AuthCancelled => "AuthCancelled",
     Self::AuthRetry => "AuthRetry",
+    Self::TransientAgentQueued { .. } => "TransientAgentQueued",
+    Self::TransientAgentDequeued => "TransientAgentDequeued",
 });
 
 message_names!(IssuesMessage {

@@ -315,6 +315,73 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
         sel,
     ));
 
+    // Transient agent directory (issue #213).
+    let transient_dir_focused = focus == RepositoryFormFocus::TransientAgentDir;
+    let transient_dir_value = if transient_dir_focused {
+        text_with_caret(&fields.transient_agent_dir, cursor.transient_agent_dir)
+    } else {
+        fields.transient_agent_dir.clone()
+    };
+    let transient_dir_hint = if fields.transient_agent_dir.trim().is_empty() {
+        "blank uses /tmp"
+    } else {
+        "transient agent work dirs root"
+    };
+    let transient_dir_line = format!(
+        "  {:<16} [{transient_dir_value}]  ({transient_dir_hint})",
+        "Transient Dir"
+    );
+    all_lines.push(selectable_line(
+        &transient_dir_line,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        if transient_dir_focused {
+            rc.bright
+        } else {
+            rc.fg
+        },
+        sel,
+    ));
+
+    // Max concurrent transient agents (issue #213).
+    let max_conc_focused = focus == RepositoryFormFocus::TransientMaxConcurrent;
+    let max_conc_value = if max_conc_focused {
+        text_with_caret(
+            &fields.transient_max_concurrent,
+            cursor.transient_max_concurrent,
+        )
+    } else {
+        fields.transient_max_concurrent.clone()
+    };
+    let max_conc_hint = if fields.transient_max_concurrent.trim().is_empty()
+        || fields.transient_max_concurrent.trim() == "0"
+    {
+        "0 = no limit"
+    } else {
+        "max concurrent transient agents"
+    };
+    let max_conc_line = format!(
+        "  {:<16} [{max_conc_value}]  ({max_conc_hint})",
+        "Max Transient"
+    );
+    all_lines.push(selectable_line(
+        &max_conc_line,
+        {
+            let i = line_idx;
+            line_idx += 1;
+            i
+        },
+        selection,
+        pane,
+        if max_conc_focused { rc.bright } else { rc.fg },
+        sel,
+    ));
+
     // Content line 11: blank, line 12: hints.
     all_lines.push(selectable_line(
         "",

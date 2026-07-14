@@ -699,6 +699,7 @@ fn test_esc_chain_all_six_levels_integrated() {
     state.issues_state.agent_chooser = Some(AgentChooserState {
         selected_index: 0,
         agents: vec![(AgentId("a1".to_string()), "Agent 1".to_string())],
+        transient_available: false,
     });
     let state = state.apply(AppEvent::AgentChooserCancel);
     assert!(state.issues_state.agent_chooser.is_none());

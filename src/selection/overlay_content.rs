@@ -21,7 +21,6 @@ const SEPARATOR_LINE: &str = "────────────────�
 /// Agent chooser overlay lines: header + separator + agent entries + hints.
 #[must_use]
 pub fn agent_chooser_lines(state: &AppState) -> PaneContent {
-    // The chooser can be active in issues or PR mode; check both.
     let chooser = state
         .issues_state
         .agent_chooser
@@ -31,9 +30,7 @@ pub fn agent_chooser_lines(state: &AppState) -> PaneContent {
         return PaneContent::empty(SelectablePane::AgentChooser);
     };
     let mut lines = vec!["Send to Agent".to_string(), SEPARATOR_LINE.to_string()];
-    if chooser.agents.is_empty() {
-        // The empty-state box has height 2 (text + blank), matching the
-        // renderer's Box(height: 2u32).
+    if chooser.agents.is_empty() && !chooser.transient_available {
         lines.push("No agents available. Create an agent in Agents Mode.".to_string());
         lines.push(String::new());
     } else {
@@ -44,6 +41,15 @@ pub fn agent_chooser_lines(state: &AppState) -> PaneContent {
                 "( )"
             };
             lines.push(format!("{marker} {name}"));
+        }
+        if chooser.transient_available {
+            let transient_idx = chooser.agents.len();
+            let marker = if transient_idx == chooser.selected_index {
+                "(x)"
+            } else {
+                "( )"
+            };
+            lines.push(format!("{marker} Transient Agent"));
         }
     }
     lines.push(SEPARATOR_LINE.to_string());
@@ -592,6 +598,7 @@ mod tests {
                 agent_chooser: Some(crate::state::AgentChooserState {
                     selected_index: 0,
                     agents: vec![],
+                    transient_available: false,
                 }),
                 ..Default::default()
             },
@@ -625,6 +632,7 @@ mod tests {
                         (AgentId("a1".to_string()), "alpha".to_string()),
                         (AgentId("a2".to_string()), "beta".to_string()),
                     ],
+                    transient_available: false,
                 }),
                 ..Default::default()
             },

@@ -140,6 +140,9 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
         .as_ref()
         .map_or_else(Vec::new, |c| c.agents.clone());
     let chooser_selected = agent_chooser.as_ref().map_or(0, |c| c.selected_index);
+    let chooser_transient_available = agent_chooser
+        .as_ref()
+        .is_some_and(|c| c.transient_available);
 
     // Property editor overlay (issue #175)
     let prop_editor = state.and_then(|s| s.issues_state.property_editor.clone());
@@ -336,6 +339,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                                 AgentChooser(
                                     visible: true,
                                     agents: chooser_agents.clone(),
+                                    transient_available: chooser_transient_available,
                                     selected_index: chooser_selected,
                                     colors: colors.clone(),
                                     selection: selection,

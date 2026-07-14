@@ -142,7 +142,7 @@ pub struct SendPayload {
 /// @plan PLAN-20260624-PR-MODE.P06
 /// @requirement REQ-PR-011
 /// @pseudocode component-002 lines 123-129
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct PrSendPayload {
     pub repository: String,
     pub pr_number: u64,

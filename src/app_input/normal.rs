@@ -743,6 +743,7 @@ mod tests {
         state.issues_state.agent_chooser = Some(AgentChooserState {
             selected_index: 0,
             agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+            transient_available: false,
         });
         assert!(matches!(
             input_mode_for_state(&state),
@@ -821,6 +822,7 @@ mod tests {
         state.prs_state.agent_chooser = Some(AgentChooserState {
             selected_index: 0,
             agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+            transient_available: false,
         });
         assert!(matches!(
             input_mode_for_state(&state),
