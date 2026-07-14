@@ -212,6 +212,8 @@ fn issue_send_state(repo: Repository) -> AppState {
             agents: vec![jefe::domain::AgentChooserEntry::new(
                 agent_id.clone(),
                 "Agent One".to_owned(),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
             )],
         }),
         ..IssuesState::default()

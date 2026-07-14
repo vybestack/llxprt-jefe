@@ -222,6 +222,15 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
     }
 }
 
+impl<T> TestResultExt<T> for Option<T> {
+    fn value_or_panic(self, context: &str) -> T {
+        match self {
+            Some(value) => value,
+            None => panic!("{context}"),
+        }
+    }
+}
+
 /// Helper: create a temp git repo on a deterministicly-named branch with an
 /// initial commit, returning its path. Uses a named branch (`test-main`) so
 /// tests can assert a concrete branch rather than guessing `master`/`main`.
@@ -243,13 +252,19 @@ fn temp_git_repo() -> tempfile::TempDir {
 }
 
 fn run_git(dir: &Path, args: &[&str]) {
-    let status = std::process::Command::new("git")
+    let output = std::process::Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(args)
-        .status()
+        .output()
         .value_or_panic(&format!("spawn git {args:?}"));
-    assert!(status.success(), "git {args:?} failed in {}", dir.display());
+    assert!(
+        output.status.success(),
+        "git {args:?} failed in {}
+{}",
+        dir.display(),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn write_file(path: &Path, content: &str) {
@@ -462,6 +477,82 @@ fn z_trailing_empty_record_ignored() {
     // The -z terminator leaves a trailing empty field; it must not be
     // treated as a real change.
     assert!(!porcelain_is_dirty("?? .jefe/a\u{0000}\u{0000}"));
+}
+
+// ── Y-column rename/copy detection (issue #230 review finding) ───────────
+//
+// Porcelain v1 uses two status columns: X (staged) and Y (worktree). A
+// rename or copy can appear in EITHER column. Records like " R" or " C"
+// (staged clean, worktree renamed) have a space in X but R/C in Y. The
+// parser must check BOTH columns so worktree-only renames are not missed
+// (which would leave the second path unconsumed and desynchronize parsing).
+
+#[test]
+fn z_y_column_rename_real_to_real_is_dirty() {
+    // Worktree-only rename: X=' ', Y='R'. Both paths are real.
+    // -z format: destination THEN source.
+    assert!(porcelain_is_dirty(
+        " R src/new.txt\u{0000}src/old.txt\u{0000}"
+    ));
+}
+
+#[test]
+fn z_y_column_copy_real_to_real_is_dirty() {
+    // Worktree-only copy: X=' ', Y='C'.
+    assert!(porcelain_is_dirty(
+        " C src/new.txt\u{0000}src/old.txt\u{0000}"
+    ));
+}
+
+#[test]
+fn z_y_column_rename_both_owned_is_not_dirty() {
+    // Worktree-only rename where both paths are owned → ignored.
+    assert!(!porcelain_is_dirty(
+        " R .jefe/new.md\u{0000}.jefe/old.md\u{0000}"
+    ));
+}
+
+#[test]
+fn z_y_column_rename_owned_to_real_is_dirty() {
+    // Worktree-only rename: owned→real is dirty.
+    assert!(porcelain_is_dirty(
+        " R src/new.txt\u{0000}.jefe/old.md\u{0000}"
+    ));
+}
+
+#[test]
+fn z_y_column_rename_real_to_owned_is_dirty() {
+    // Worktree-only rename: real→owned is dirty.
+    assert!(porcelain_is_dirty(" R .jefe/x.md\u{0000}old.txt\u{0000}"));
+}
+
+#[test]
+fn z_y_column_rename_consumes_second_path() {
+    // If the parser misses the Y-column R/C and doesn't consume the second
+    // path, the next record will be misread. This test places a real
+    // worktree-only rename followed by a separate owned untracked file.
+    // The second path of the rename must be consumed, not misread as a
+    // standalone record.
+    let porcelain = " R src/new.txt\u{0000}src/old.txt\u{0000}?? .jefe/a\u{0000}";
+    assert!(porcelain_is_dirty(porcelain));
+}
+
+#[test]
+fn newline_y_column_rename_real_to_real_is_dirty() {
+    // Newline format: " R src/old.rs -> src/new.rs" (worktree-only rename).
+    assert!(porcelain_is_dirty(" R src/old.rs -> src/new.rs\n"));
+}
+
+#[test]
+fn newline_y_column_rename_both_owned_is_not_dirty() {
+    // Worktree-only rename where both paths are owned → ignored.
+    assert!(!porcelain_is_dirty(" R .jefe/old.md -> .jefe/new.md\n"));
+}
+
+#[test]
+fn newline_y_column_copy_owned_to_real_is_dirty() {
+    // Worktree-only copy: owned→real is dirty.
+    assert!(porcelain_is_dirty(" C src/new.txt -> .jefe/old.md\n"));
 }
 
 // ── porcelain_is_dirty: real temp git repos with arrow filenames (-z prod) ─
@@ -772,4 +863,42 @@ fn parse_repository_origin_ipv6_literal_is_not_github_host() {
     assert!(parsed.is_some(), "IPv6 literal must parse");
     let host = parsed.map(|p| p.host);
     assert_ne!(host.as_deref(), Some("github.com"));
+}
+
+// ── run_child_with_timeout: cross-platform subprocess timeout (issue #230) ──
+
+#[cfg(unix)]
+#[test]
+fn timeout_kills_long_running_child() {
+    // `sleep 30` will exceed the 3-second timeout. The helper must kill it,
+    // reap it, and return None.
+    let mut cmd = std::process::Command::new("sleep");
+    cmd.arg("30");
+    let child = cmd.spawn().value_or_panic("spawn sleep");
+    let result = super::run_child_with_timeout(child);
+    assert!(result.is_none(), "timed-out child must return None");
+}
+
+#[cfg(unix)]
+#[test]
+fn timeout_returns_output_for_fast_child() {
+    // `true` exits immediately — the helper must return Some(output) with
+    // a successful exit status.
+    let mut cmd = std::process::Command::new("true");
+    let child = cmd.spawn().value_or_panic("spawn true");
+    let result = super::run_child_with_timeout(child);
+    let output = result.value_or_panic("fast child must produce output");
+    assert!(output.status.success(), "true must exit 0");
+}
+
+#[cfg(unix)]
+#[test]
+fn timeout_captures_stdout() {
+    // `echo hello` writes to stdout — the helper must capture it.
+    let mut cmd = std::process::Command::new("echo");
+    cmd.arg("hello").stdout(std::process::Stdio::piped());
+    let child = cmd.spawn().value_or_panic("spawn echo");
+    let result = super::run_child_with_timeout(child);
+    let output = result.value_or_panic("echo must produce output");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello");
 }

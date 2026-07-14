@@ -127,25 +127,41 @@ pub struct AgentChooserEntry {
 }
 
 impl AgentChooserEntry {
+    /// Construct a chooser entry with an explicit runtime kind and config.
+    ///
+    /// Requires `kind` and `runtime_config` explicitly so a call site can
+    /// never silently default to `AgentKind::Llxprt`. Branch and dirty status
+    /// default to unknown (no suffix rendered).
     #[must_use]
-    pub fn new(agent_id: AgentId, name: String) -> Self {
+    pub fn new(
+        agent_id: AgentId,
+        name: String,
+        kind: AgentKind,
+        runtime_config: ChooserRuntimeConfig,
+    ) -> Self {
         Self {
             agent_id,
             name,
-            kind: AgentKind::Llxprt,
-            runtime_config: ChooserRuntimeConfig::default(),
+            kind,
+            runtime_config,
             branch: None,
             dirty: DirtyStatus::unknown(),
         }
     }
 
-    /// Test/fixture helper: build a simple entry from an id and display name
-    /// with default kind (LLxprt), empty config, no branch, and unknown dirty
-    /// status.
+    /// Test/fixture helper: build an entry from an id and display name with
+    /// default kind (LLxprt), empty config, no branch, and unknown dirty
+    /// status. Production code MUST use [`AgentChooserEntry::new`] so the
+    /// kind and config are explicit.
     #[cfg(test)]
     #[must_use]
     pub fn simple(id: &str, name: &str) -> Self {
-        Self::new(AgentId(id.to_string()), name.to_string())
+        Self::new(
+            AgentId(id.to_string()),
+            name.to_string(),
+            AgentKind::Llxprt,
+            ChooserRuntimeConfig::default(),
+        )
     }
 }
 

@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -33,6 +34,11 @@ struct CacheEntry {
 /// next lookup. Stale entries are swept opportunistically on insertion to
 /// prevent unbounded growth.
 static GIT_CACHE: Mutex<Option<HashMap<PathBuf, CacheEntry>>> = Mutex::new(None);
+
+/// Maximum wall-clock time a single git subprocess probe may take before it
+/// is killed and treated as unknown. Prevents a stuck/slow worktree (e.g.
+/// NFS hang, giant repo) from blocking the chooser open.
+const GIT_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// How long a cached branch result remains fresh before re-probing.
 ///
@@ -247,6 +253,91 @@ fn git_command() -> Option<std::process::Command> {
     }
 }
 
+/// Run a prepared git [`Command`] with a wall-clock timeout.
+///
+/// Spawns the child, polls for completion up to [`GIT_PROBE_TIMEOUT`], then
+/// kills and reaps the child if it has not exited. On timeout, logs a warn
+/// message and returns `None` so the caller treats the probe as unknown.
+///
+/// Cross-platform (no `unsafe`, FFI, or external dependencies): uses
+/// `Child::try_wait()` polling and `Child::kill()` for termination.
+fn run_git_with_timeout(command: &mut Command) -> Option<std::process::Output> {
+    // Pipe stdout/stderr so we can read them after polling. Without this,
+    // spawn() inherits the parent's stdout/stderr and child.stdout is None.
+    command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let child = command.spawn().ok()?;
+    run_child_with_timeout(child)
+}
+
+/// Poll a spawned [`std::process::Child`] for completion up to
+/// [`GIT_PROBE_TIMEOUT`], reading stdout/stderr into an [`Output`] on
+/// success. Kills and reaps the child on timeout, returning `None`.
+///
+/// Extracted from [`run_git_with_timeout`] so tests can exercise the timeout
+/// with an arbitrary child (e.g. `sleep`).
+fn run_child_with_timeout(mut child: std::process::Child) -> Option<std::process::Output> {
+    let deadline = Instant::now() + GIT_PROBE_TIMEOUT;
+    let mut status = None;
+
+    // Poll every 50ms until the child exits or the deadline passes.
+    loop {
+        match child.try_wait() {
+            Ok(Some(exit_status)) => {
+                status = Some(exit_status);
+                break;
+            }
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => {
+                tracing::debug!(%error, "git probe try_wait failed");
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+
+    if status.is_none() {
+        // Timed out — kill and reap.
+        tracing::warn!(
+            timeout = ?GIT_PROBE_TIMEOUT,
+            "git probe timed out, killing child and returning unknown metadata"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    }
+
+    // Read stdout/stderr (pipes are still open since we didn't use
+    // wait_with_output).
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    if let Some(mut out) = child.stdout.take() {
+        use std::io::Read;
+        let _ = out.read_to_end(&mut stdout);
+    }
+    if let Some(mut err) = child.stderr.take() {
+        use std::io::Read;
+        let _ = err.read_to_end(&mut stderr);
+    }
+
+    // status is guaranteed Some here because the None case returns early
+    // above (timeout path).
+    let exit_status = status?;
+
+    Some(std::process::Output {
+        status: exit_status,
+        stdout,
+        stderr,
+    })
+}
+
 /// Probe the current git branch and dirty status for a work directory.
 ///
 /// Returns `(None, None)` for non-git directories or when git is not
@@ -268,12 +359,11 @@ fn probe_branch_and_dirty(work_dir: &Path) -> (Option<String>, Option<bool>) {
 /// output) so paths containing newlines or ` -> ` are handled correctly. The
 /// shared [`porcelain_is_dirty`] parser auto-detects the NUL-delimited format.
 fn probe_dirty(work_dir: &Path) -> Option<bool> {
-    let output = git_command()?
-        .arg("-C")
-        .arg(work_dir)
-        .args(["status", "--porcelain=v1", "-z"])
-        .output()
-        .ok()?;
+    let output = run_git_with_timeout(git_command()?.arg("-C").arg(work_dir).args([
+        "status",
+        "--porcelain=v1",
+        "-z",
+    ]))?;
     if !output.status.success() {
         return None;
     }
@@ -289,12 +379,11 @@ fn probe_dirty(work_dir: &Path) -> Option<bool> {
 /// branch name or `HEAD` for detached HEAD (filtered out).
 fn probe_branch(work_dir: &Path) -> Option<String> {
     let mut command = git_command()?;
-    let output = command
-        .arg("-C")
-        .arg(work_dir)
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .ok()?;
+    let output = run_git_with_timeout(command.arg("-C").arg(work_dir).args([
+        "rev-parse",
+        "--abbrev-ref",
+        "HEAD",
+    ]))?;
     if !output.status.success() {
         return None;
     }
@@ -308,12 +397,11 @@ fn probe_branch(work_dir: &Path) -> Option<String> {
 
 /// Fall back to the short commit hash for detached HEAD states.
 fn probe_short_commit(work_dir: &Path) -> Option<String> {
-    let output = git_command()?
-        .arg("-C")
-        .arg(work_dir)
-        .args(["rev-parse", "--short", "HEAD"])
-        .output()
-        .ok()?;
+    let output = run_git_with_timeout(git_command()?.arg("-C").arg(work_dir).args([
+        "rev-parse",
+        "--short",
+        "HEAD",
+    ]))?;
     if !output.status.success() {
         return None;
     }
@@ -397,8 +485,11 @@ fn porcelain_is_dirty_z(porcelain: &str) -> bool {
             return true;
         }
         let status_x = bytes[cursor];
+        let status_y = bytes[cursor + 1];
         cursor += 3; // skip "XY "
-        let is_rename = status_x == b'R' || status_x == b'C';
+        // Rename/copy can appear in EITHER column: X (staged) or Y (worktree).
+        let is_rename =
+            status_x == b'R' || status_x == b'C' || status_y == b'R' || status_y == b'C';
 
         // First path (ordinary: the path; rename/copy: the destination).
         let Some(path1) = next_nul_field(bytes, &mut cursor) else {
@@ -490,7 +581,7 @@ fn newline_affected_paths(line: &str) -> Option<Vec<&str>> {
     }
     let trimmed = line.trim_end();
     let rest = trimmed.get(3..)?;
-    let is_rename = bytes[0] == b'R' || bytes[0] == b'C';
+    let is_rename = bytes[0] == b'R' || bytes[0] == b'C' || bytes[1] == b'R' || bytes[1] == b'C';
     if is_rename && let Some((old, new)) = rest.split_once(" -> ") {
         let old_unquoted = old.trim_matches('"');
         let new_unquoted = new.trim_matches('"');
@@ -519,12 +610,12 @@ fn is_all_ignored(paths: &[&str]) -> bool {
 /// Returns `None` when the origin remote is missing or the URL doesn't match
 /// a known pattern.
 fn detect_origin_shortform(work_dir: &Path) -> Option<String> {
-    let output = git_command()?
-        .arg("-C")
-        .arg(work_dir)
-        .args(["remote", "get-url", "origin"])
-        .output()
-        .ok()?;
+    let output = run_git_with_timeout(
+        git_command()?
+            .arg("-C")
+            .arg(work_dir)
+            .args(["remote", "get-url", "origin"]),
+    )?;
     if !output.status.success() {
         return None;
     }

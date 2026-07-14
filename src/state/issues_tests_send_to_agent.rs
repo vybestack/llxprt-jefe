@@ -346,11 +346,20 @@ fn metadata_cross_repo_agent_dropped_from_chooser() {
         "My Agent".to_string(),
         std::path::PathBuf::from("/tmp/a1"),
     ));
-    // Metadata includes a cross-repo agent_id that is NOT in state.
+    // Agent that genuinely exists, but in a different repository.
+    let mut other_repo_agent = Agent::new(
+        AgentId("agent-other-repo".to_string()),
+        RepositoryId("repo-2".to_string()),
+        "Other Repo Agent".to_string(),
+        std::path::PathBuf::from("/tmp/a-other"),
+    );
+    other_repo_agent.agent_kind = AgentKind::Llxprt;
+    state.agents.push(other_repo_agent);
+    // Metadata for both agents.
     let metadata = vec![
         AgentChooserGitMetadata::for_agent(AgentId("agent-1".to_string())),
         AgentChooserGitMetadata {
-            agent_id: AgentId("injected-cross-repo".to_string()),
+            agent_id: AgentId("agent-other-repo".to_string()),
             branch: Some("main".to_string()),
             dirty: crate::domain::DirtyStatus::dirty(),
         },
@@ -533,6 +542,47 @@ fn metadata_cannot_override_identity() {
     assert_eq!(chooser.agents[0].name, "Real Name");
     assert_eq!(chooser.agents[0].kind, AgentKind::Llxprt);
     assert_eq!(chooser.agents[0].runtime_config.value, "real-profile");
+}
+
+/// When duplicate metadata entries exist for the same AgentId, the FIRST one
+/// wins (defensive first-wins semantics). This documents the HashMap join
+/// behavior so it is not accidentally changed.
+#[test]
+fn metadata_duplicate_agent_id_first_wins() {
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.installed_agent_kinds = vec![AgentKind::Llxprt];
+    state.agents.push(Agent::new(
+        AgentId("agent-1".to_string()),
+        RepositoryId("repo-1".to_string()),
+        "Agent 1".to_string(),
+        std::path::PathBuf::from("/tmp/a1"),
+    ));
+    // Two metadata entries for the same agent: first has branch "main",
+    // second has branch "feature". First must win.
+    let metadata = vec![
+        AgentChooserGitMetadata {
+            agent_id: AgentId("agent-1".to_string()),
+            branch: Some("main".to_string()),
+            dirty: crate::domain::DirtyStatus::clean(),
+        },
+        AgentChooserGitMetadata {
+            agent_id: AgentId("agent-1".to_string()),
+            branch: Some("feature".to_string()),
+            dirty: crate::domain::DirtyStatus::dirty(),
+        },
+    ];
+    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
+    let chooser = state
+        .issues_state
+        .agent_chooser
+        .as_ref()
+        .unwrap_or_else(|| panic!("chooser must open"));
+    assert_eq!(chooser.agents.len(), 1);
+    assert_eq!(
+        chooser.agents[0].branch.as_deref(),
+        Some("main"),
+        "first metadata entry must win for duplicate AgentId"
+    );
 }
 
 /// Navigating to a nonzero chooser index selects the correct AgentId. The

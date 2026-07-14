@@ -4,7 +4,8 @@
 //! @requirement REQ-TECH-001
 
 use super::{Agent, AppState, Repository, RepositoryId};
-use crate::domain::{AgentId, AgentKind};
+use crate::domain::{AgentChooserGitMetadata, AgentId, AgentKind};
+use std::collections::HashMap;
 
 /// Pure projection of an agent's identity fields needed to construct an
 /// [`crate::domain::AgentChooserEntry`].
@@ -186,13 +187,25 @@ impl AppState {
 pub fn build_chooser_entries_from_state(
     state: &AppState,
     repository_id: Option<&RepositoryId>,
-    metadata: &[crate::domain::AgentChooserGitMetadata],
+    metadata: &[AgentChooserGitMetadata],
 ) -> Vec<crate::domain::AgentChooserEntry> {
+    // Build an AgentId-keyed map for O(1) lookups. If duplicate metadata
+    // entries exist for the same AgentId, the FIRST one wins (matching the
+    // previous `.find()` semantics). This is a defensive choice: callers
+    // should not produce duplicates, but first-wins is the safest stable
+    // behavior.
+    let metadata_map: HashMap<&AgentId, &AgentChooserGitMetadata> = {
+        let mut map = HashMap::with_capacity(metadata.len());
+        for m in metadata {
+            map.entry(&m.agent_id).or_insert(m);
+        }
+        map
+    };
     let infos = state.chooser_agents_for_repository(repository_id);
     infos
         .into_iter()
         .map(|info| {
-            let md = metadata.iter().find(|m| m.agent_id == info.agent_id);
+            let md = metadata_map.get(&info.agent_id).copied();
             crate::domain::AgentChooserEntry {
                 agent_id: info.agent_id,
                 name: info.name,

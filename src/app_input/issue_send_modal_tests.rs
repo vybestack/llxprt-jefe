@@ -67,6 +67,8 @@ fn state_for_issue_agent_chooser_send(
             agents: vec![jefe::domain::AgentChooserEntry::new(
                 agent_id.clone(),
                 String::from("Agent One"),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
             )],
         }),
         ..jefe::state::IssuesState::default()

@@ -27,13 +27,45 @@ use jefe::state::{AppState, ChooserAgentInfo};
 /// [`GitRepoInfo::resolve`] at this boundary. Remote repos always get
 /// [`DirtyStatus::unknown`] and no branch (no SSH worktree probe).
 ///
+/// Eligible agents are probed **concurrently** using scoped threads so that
+/// cold-cache latency is bounded by the slowest single agent rather than the
+/// agent count. Output order is deterministic (preserves the selector's
+/// ordering) because results are collected by original index.
+///
 /// This function MAY spawn cached git processes; it must only be called from
 /// the `app_input` layer, never from reducers or selectors.
 #[must_use]
 pub fn build_chooser_metadata(state: &AppState) -> Vec<AgentChooserGitMetadata> {
     let repo_id = state.selected_repository_id().cloned();
     let infos = state.chooser_agents_for_repository(repo_id.as_ref());
-    infos.into_iter().map(agent_info_to_metadata).collect()
+    if infos.is_empty() {
+        return Vec::new();
+    }
+
+    // Probe all eligible agents concurrently with scoped threads. Each
+    // thread borrows its `ChooserAgentInfo` immutably and produces metadata.
+    // Results are collected by index to preserve the deterministic selector
+    // ordering.
+    let results: Vec<(usize, AgentChooserGitMetadata)> = std::thread::scope(|scope| {
+        // Spawn all threads first so they run concurrently, then join.
+        let handles: Vec<_> = infos
+            .iter()
+            .enumerate()
+            .map(|(idx, info)| scope.spawn(move || (idx, agent_info_to_metadata(info.clone()))))
+            .collect::<Vec<_>>();
+        let mut joined = Vec::with_capacity(handles.len());
+        for handle in handles {
+            if let Ok(result) = handle.join() {
+                joined.push(result);
+            }
+        }
+        joined
+    });
+
+    // Sort by original index to restore deterministic order.
+    let mut sorted = results;
+    sorted.sort_by_key(|(idx, _)| *idx);
+    sorted.into_iter().map(|(_, md)| md).collect()
 }
 
 /// Convert a pure [`ChooserAgentInfo`] projection into Git display metadata
@@ -146,7 +178,7 @@ mod tests {
     // ── Finding 3: agent config preserved exactly (no repo default fallback) ──
 
     #[test]
-    fn build_metadata_uses_agent_profile_not_repo_default() {
+    fn build_metadata_includes_eligible_agent_with_custom_profile() {
         // The metadata only carries git info, but the reducer rebuilds
         // identity. Here we verify the metadata is built for the right agents
         // (those that pass the selector). The config value is NOT in metadata.
@@ -155,5 +187,22 @@ mod tests {
         let state = state_with_repo_and_agents("r1", &[agent]);
         let md = build_chooser_metadata(&state);
         assert_eq!(md.len(), 1, "agent with own profile must be eligible");
+    }
+
+    #[test]
+    fn build_metadata_preserves_deterministic_order() {
+        // Concurrent probing must preserve the selector's deterministic order.
+        let agents = vec![
+            make_agent("c3", "r1", AgentKind::Llxprt),
+            make_agent("a1", "r1", AgentKind::Llxprt),
+            make_agent("b2", "r1", AgentKind::CodePuppy),
+        ];
+        let state = state_with_repo_and_agents("r1", &agents);
+        let md = build_chooser_metadata(&state);
+        assert_eq!(md.len(), 3);
+        // Order must match the agent insertion order (selector preserves it).
+        assert_eq!(md[0].agent_id, AgentId("c3".to_string()));
+        assert_eq!(md[1].agent_id, AgentId("a1".to_string()));
+        assert_eq!(md[2].agent_id, AgentId("b2".to_string()));
     }
 }

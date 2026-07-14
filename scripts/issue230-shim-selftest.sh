@@ -30,6 +30,15 @@ command -v timeout >/dev/null 2>&1 || {
     echo "FATAL: timeout is required for the shim self-test" >&2
     exit 1
 }
+# Verify GNU timeout behavior (exit 124 on timeout). BSD timeout (macOS) and
+# some busybox implementations have different exit-code semantics. The
+# self-test uses timeout to guard against hangs and relies on exit 124.
+timeout_status=0
+timeout 0.1s sleep 1 2>/dev/null || timeout_status=$?
+if [[ $timeout_status -ne 124 ]]; then
+    echo "FATAL: timeout does not behave like GNU coreutils timeout (exit code $timeout_status, expected 124)" >&2
+    exit 1
+fi
 
 # shellcheck source=issue230-gh-shim-fixtures.sh
 . "$FIXTURES"
@@ -80,11 +89,16 @@ record_failure() {
     local expectation="$1"
     local label="$2"
     FAIL=$((FAIL + 1))
-    echo "FAIL (expected $expectation): $label"
-    echo "  exit: $SHIM_EXIT"
-    echo "  stdout: $SHIM_STDOUT"
-    echo "  stderr: $SHIM_STDERR"
-    echo "  audit: $SHIM_AUDIT"
+    printf 'FAIL (expected %s): %s
+' "$expectation" "$label"
+    printf '  exit: %s
+' "$SHIM_EXIT"
+    printf '  stdout: %s
+' "$SHIM_STDOUT"
+    printf '  stderr: %s
+' "$SHIM_STDERR"
+    printf '  audit: %s
+' "$SHIM_AUDIT"
 }
 
 exact_one_nonempty_audit_record() {
@@ -115,7 +129,8 @@ expect_reject() {
     run_shim "$@"
     if [[ $SHIM_EXIT -ne 0 && $SHIM_EXIT -ne 124 ]] \
         && exact_one_nonempty_audit_record \
-        && [[ "$SHIM_AUDIT" == *"] REJECTED unmatched argv (not an exact allowlisted vector) -- gh"* ]]; then
+        && [[ "$SHIM_AUDIT" == *"] REJECTED "* ]] \
+        && [[ "$SHIM_AUDIT" == *" -- gh"* ]]; then
         PASS=$((PASS + 1))
     else
         record_failure "REJECT" "$label"
@@ -294,7 +309,8 @@ expect_reject "api POST mutation" \
 run_shim
 if [[ $SHIM_EXIT -ne 0 && $SHIM_EXIT -ne 124 ]] \
     && exact_one_nonempty_audit_record \
-    && [[ "$SHIM_AUDIT" == *"] REJECTED no subcommand -- gh ''"* ]]; then
+    && [[ "$SHIM_AUDIT" == *"] REJECTED "* ]] \
+    && [[ "$SHIM_AUDIT" == *" -- gh ''"* ]]; then
     PASS=$((PASS + 1))
 else
     record_failure "REJECT (no subcommand)" "no arguments"

@@ -745,6 +745,8 @@ mod tests {
             agents: vec![jefe::domain::AgentChooserEntry::new(
                 AgentId(String::from("a1")),
                 String::from("Agent 1"),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
             )],
         });
         assert!(matches!(
@@ -826,6 +828,8 @@ mod tests {
             agents: vec![jefe::domain::AgentChooserEntry::new(
                 AgentId(String::from("a1")),
                 String::from("Agent 1"),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
             )],
         });
         assert!(matches!(

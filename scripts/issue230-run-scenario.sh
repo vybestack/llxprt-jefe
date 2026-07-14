@@ -4,7 +4,7 @@
 # Sets up an isolated environment (temp HOME, config, state, PATH) seeded
 # with a repository and two eligible local agents (one LLxprt with a
 # configured profile, one Code Puppy with an empty model → default). Creates
-# real local Git worktrees on known branches and makes one genuinely dirty
+# real local Git repos on known branches and makes one genuinely dirty
 # with a non-owned change. Injects a fail-closed gh shim and executable
 # availability shims (llxprt, code-puppy) into PATH. Runs the scenario via
 # the real tmux driver and verifies the exact accepted gh command sequence.
@@ -27,16 +27,29 @@ ARTIFACT_DIR="$PROJECT_ROOT/target/tmux-harness/issue230-$$"
 CONFIG_DIR="$ARTIFACT_DIR/config"
 SHIM_DIR="$ARTIFACT_DIR/shim-bin"
 REPO_DIR="$ARTIFACT_DIR/repo"
-WORKTREE_LLX="$ARTIFACT_DIR/wt-llxprt-alpha"
-WORKTREE_PUP="$ARTIFACT_DIR/wt-codepuppy-beta"
+LLX_REPO_DIR="$ARTIFACT_DIR/wt-llxprt-alpha"
+PUP_REPO_DIR="$ARTIFACT_DIR/wt-codepuppy-beta"
 AUDIT_FILE="$ARTIFACT_DIR/gh-audit.log"
 
 command -v timeout >/dev/null 2>&1 || {
     echo "FATAL: timeout is required for the Linux tmux scenario" >&2
     exit 1
 }
+# Verify GNU timeout behavior (exit 124 on timeout). BSD timeout (macOS) and
+# some busybox implementations have different exit-code semantics or option
+# syntax. The scenario and self-tests rely on exit 124 to detect hangs.
+timeout_status=0
+timeout 0.1s sleep 1 2>/dev/null || timeout_status=$?
+if [[ $timeout_status -ne 124 ]]; then
+    echo "FATAL: timeout does not behave like GNU coreutils timeout (exit code $timeout_status, expected 124)" >&2
+    exit 1
+fi
 command -v realpath >/dev/null 2>&1 || {
     echo "FATAL: realpath is required for safe scenario cleanup" >&2
+    exit 1
+}
+command -v python3 >/dev/null 2>&1 || {
+    echo "FATAL: python3 is required for JSON state generation" >&2
     exit 1
 }
 command -v cargo >/dev/null 2>&1 || {
@@ -73,9 +86,21 @@ if [[ "${1:-}" == "--keep-session" ]]; then
 fi
 SESSION_NAME="jefe-issue230-$$"
 
+# Tracks the overall exit status: 0 = success, non-zero = failure.
+# On failure the artifact directory is preserved for debugging (unless
+# --keep-session is also set, which preserves everything including tmux).
+SCENARIO_STATUS=1
+
 cleanup_session() {
+    # Always kill the tmux session unless --keep-session was requested.
     if [[ "$KEEP_SESSION" == false ]]; then
         tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
+    fi
+    # On success (SCENARIO_STATUS=0) and without --keep-session, also remove
+    # the artifact directory so repeated runs don't accumulate. On failure,
+    # preserve everything for debugging.
+    if [[ "$SCENARIO_STATUS" -eq 0 && "$KEEP_SESSION" == false ]]; then
+        rm -rf "$ARTIFACT_DIR" 2>/dev/null || true
     fi
 }
 trap cleanup_session EXIT
@@ -111,10 +136,10 @@ require_target_descendant "$ARTIFACT_DIR"
 require_target_descendant "$CONFIG_DIR"
 require_target_descendant "$SHIM_DIR"
 require_target_descendant "$REPO_DIR"
-require_target_descendant "$WORKTREE_LLX"
-require_target_descendant "$WORKTREE_PUP"
+require_target_descendant "$LLX_REPO_DIR"
+require_target_descendant "$PUP_REPO_DIR"
 
-rm -rf "$CONFIG_DIR" "$SHIM_DIR" "$REPO_DIR" "$WORKTREE_LLX" "$WORKTREE_PUP"
+rm -rf "$CONFIG_DIR" "$SHIM_DIR" "$REPO_DIR" "$LLX_REPO_DIR" "$PUP_REPO_DIR"
 mkdir -p "$CONFIG_DIR" "$REPO_DIR"
 
 # ── Seed settings.toml ──────────────────────────────────────────────────
@@ -124,112 +149,130 @@ theme = "green-screen"
 override_agent_theme = false
 EOF
 
-# ── Create real local Git worktrees on known branches ───────────────────
+# ── Create real local Git repos on known branches ───────────────────────
 #
-# Each worktree is an independent git repo (not a shared-object worktree) so
+# Each repo is an independent git repo (not a shared-object worktree) so
 # that the branch name is deterministic and the dirty state is independently
 # controllable.
 
-# LLxprt agent worktree: branch "main", will be made dirty.
-mkdir -p "$WORKTREE_LLX"
-git -C "$WORKTREE_LLX" init -q -b main
-git -C "$WORKTREE_LLX" config user.email "test@example.com"
-git -C "$WORKTREE_LLX" config user.name "Test User"
-echo "# LLxprt worktree" > "$WORKTREE_LLX/README.md"
-git -C "$WORKTREE_LLX" add README.md
-git -C "$WORKTREE_LLX" commit -q -m "initial commit"
+# LLxprt agent repo: branch "main", will be made dirty.
+mkdir -p "$LLX_REPO_DIR"
+git -C "$LLX_REPO_DIR" init -q -b main
+git -C "$LLX_REPO_DIR" config user.email "test@example.com"
+git -C "$LLX_REPO_DIR" config user.name "Test User"
+echo "# LLxprt repo" > "$LLX_REPO_DIR/README.md"
+git -C "$LLX_REPO_DIR" add README.md
+git -C "$LLX_REPO_DIR" commit -q -m "initial commit"
 
-# Code Puppy agent worktree: branch "feature", will stay clean.
-mkdir -p "$WORKTREE_PUP"
-git -C "$WORKTREE_PUP" init -q -b feature
-git -C "$WORKTREE_PUP" config user.email "test@example.com"
-git -C "$WORKTREE_PUP" config user.name "Test User"
-echo "# Code Puppy worktree" > "$WORKTREE_PUP/README.md"
-git -C "$WORKTREE_PUP" add README.md
-git -C "$WORKTREE_PUP" commit -q -m "initial commit"
+# Code Puppy agent repo: branch "feature", will stay clean.
+mkdir -p "$PUP_REPO_DIR"
+git -C "$PUP_REPO_DIR" init -q -b feature
+git -C "$PUP_REPO_DIR" config user.email "test@example.com"
+git -C "$PUP_REPO_DIR" config user.name "Test User"
+echo "# Code Puppy repo" > "$PUP_REPO_DIR/README.md"
+git -C "$PUP_REPO_DIR" add README.md
+git -C "$PUP_REPO_DIR" commit -q -m "initial commit"
 
-# Make the LLxprt worktree genuinely dirty with a NON-owned change.
-echo "uncommitted change" > "$WORKTREE_LLX/src-change.txt"
+# Make the LLxprt repo genuinely dirty with a NON-owned change.
+echo "uncommitted change" > "$LLX_REPO_DIR/src-change.txt"
 
 # ── Seed state.json with repository + two eligible local agents ─────────
 #
-# Agent "alpha": LLxprt, profile "ops", worktree on branch "main" (dirty).
-# Agent "beta": Code Puppy, empty model (→ default), worktree on branch
+# Agent "alpha": LLxprt, profile "ops", repo on branch "main" (dirty).
+# Agent "beta": Code Puppy, empty model (→ default), repo on branch
 # "feature" (clean).
-cat > "$CONFIG_DIR/state.json" <<EOF
-{
-  "schema_version": 1,
-  "repositories": [
-    {
-      "id": "repo-230",
-      "name": "repo-230",
-      "slug": "repo-230",
-      "base_dir": "$REPO_DIR",
-      "default_profile": "",
-      "default_code_puppy_model": "",
-      "github_repo": "owner/repo-230",
-      "github_issue_pr_repo": "",
-      "remote": { "enabled": false, "login_user": "", "host": "", "run_as_user": "", "setup_env_default": false },
-      "issue_base_prompt": "",
-      "default_agent_kind": "llxprt",
-      "agent_ids": ["agent-alpha", "agent-beta"]
-    }
-  ],
-  "agents": [
-    {
-      "id": "agent-alpha",
-      "display_id": "agent-alpha",
-      "repository_id": "repo-230",
-      "shortcut_slot": null,
-      "name": "alpha",
-      "description": "",
-      "work_dir": "$WORKTREE_LLX",
-      "profile": "ops",
-      "code_puppy_model": "",
-      "code_puppy_yolo": null,
-      "code_puppy_quick_resume": false,
-      "mode_flags": [],
-      "llxprt_debug": "",
-      "pass_continue": true,
-      "sandbox_enabled": false,
-      "sandbox_engine": "podman",
-      "sandbox_flags": "",
-      "agent_kind": "llxprt",
-      "status": "Queued",
-      "runtime_binding": null
-    },
-    {
-      "id": "agent-beta",
-      "display_id": "agent-beta",
-      "repository_id": "repo-230",
-      "shortcut_slot": null,
-      "name": "beta",
-      "description": "",
-      "work_dir": "$WORKTREE_PUP",
-      "profile": "",
-      "code_puppy_model": "",
-      "code_puppy_yolo": null,
-      "code_puppy_quick_resume": false,
-      "mode_flags": [],
-      "llxprt_debug": "",
-      "pass_continue": true,
-      "sandbox_enabled": false,
-      "sandbox_engine": "podman",
-      "sandbox_flags": "",
-      "agent_kind": "code_puppy",
-      "status": "Queued",
-      "runtime_binding": null
-    }
-  ],
-  "selected_repository_index": 0,
-  "selected_agent_index": null,
-  "hide_idle_repositories": false,
-  "last_selected_agent_by_repo": [],
-  "pane_focus": "",
-  "terminal_focused": false,
-  "user_preferences": {}
+#
+# State is generated with python3 and json.dump so filesystem paths are
+# properly escaped (handles quotes, backslashes, control characters that may
+# appear in temp paths on some systems).
+python3 -c '
+import json, sys
+
+repo_dir = sys.argv[1]
+llx_repo_dir = sys.argv[2]
+pup_repo_dir = sys.argv[3]
+
+state = {
+    "schema_version": 1,
+    "repositories": [
+        {
+            "id": "repo-230",
+            "name": "repo-230",
+            "slug": "repo-230",
+            "base_dir": repo_dir,
+            "default_profile": "",
+            "default_code_puppy_model": "",
+            "github_repo": "owner/repo-230",
+            "github_issue_pr_repo": "",
+            "remote": {
+                "enabled": False,
+                "login_user": "",
+                "host": "",
+                "run_as_user": "",
+                "setup_env_default": False,
+            },
+            "issue_base_prompt": "",
+            "default_agent_kind": "llxprt",
+            "agent_ids": ["agent-alpha", "agent-beta"],
+        }
+    ],
+    "agents": [
+        {
+            "id": "agent-alpha",
+            "display_id": "agent-alpha",
+            "repository_id": "repo-230",
+            "shortcut_slot": None,
+            "name": "alpha",
+            "description": "",
+            "work_dir": llx_repo_dir,
+            "profile": "ops",
+            "code_puppy_model": "",
+            "code_puppy_yolo": None,
+            "code_puppy_quick_resume": False,
+            "mode_flags": [],
+            "llxprt_debug": "",
+            "pass_continue": True,
+            "sandbox_enabled": False,
+            "sandbox_engine": "podman",
+            "sandbox_flags": "",
+            "agent_kind": "llxprt",
+            "status": "Queued",
+            "runtime_binding": None,
+        },
+        {
+            "id": "agent-beta",
+            "display_id": "agent-beta",
+            "repository_id": "repo-230",
+            "shortcut_slot": None,
+            "name": "beta",
+            "description": "",
+            "work_dir": pup_repo_dir,
+            "profile": "",
+            "code_puppy_model": "",
+            "code_puppy_yolo": None,
+            "code_puppy_quick_resume": False,
+            "mode_flags": [],
+            "llxprt_debug": "",
+            "pass_continue": True,
+            "sandbox_enabled": False,
+            "sandbox_engine": "podman",
+            "sandbox_flags": "",
+            "agent_kind": "code_puppy",
+            "status": "Queued",
+            "runtime_binding": None,
+        },
+    ],
+    "selected_repository_index": 0,
+    "selected_agent_index": None,
+    "hide_idle_repositories": False,
+    "last_selected_agent_by_repo": [],
+    "pane_focus": "",
+    "terminal_focused": False,
+    "user_preferences": {},
 }
-EOF
+
+json.dump(state, sys.stdout, indent=2)
+' "$REPO_DIR" "$LLX_REPO_DIR" "$PUP_REPO_DIR" > "$CONFIG_DIR/state.json"
 
 # ── Build isolated PATH directory ────────────────────────────────────────
 #
@@ -369,7 +412,7 @@ comments"
 
 if [[ "$accepted_seq" != "$expected_seq" ]]; then
     echo ""
-    echo "FAIL: accepted issue-read sequence does not match expected four operations."
+    echo "FAIL: accepted issue-read sequence does not match expected three operations."
     echo "  expected:"
     echo "$expected_seq" | sed 's/^/    /'
     echo "  actual:"
@@ -379,9 +422,12 @@ fi
 
 auth_count=$(grep -c 'ACCEPTED auth-status' -- "$AUDIT_FILE" || true)
 if [[ "$auth_count" -gt 0 ]]; then
-    echo "(auth-status calls: $auth_count — excluded from four-operation check)"
+    echo "(auth-status calls: $auth_count — excluded from three-operation check)"
 fi
 
 echo ""
 echo "PASS: exact accepted command sequence verified (search, issue-view, comments)."
 echo "PASS: no mutations or rejected commands."
+
+# All checks passed — mark success so the cleanup trap removes the artifact dir.
+SCENARIO_STATUS=0

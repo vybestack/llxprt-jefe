@@ -6,7 +6,9 @@
 
 use super::*;
 use iocraft::prelude::{KeyCode, KeyEventKind, KeyModifiers};
-use jefe::domain::{Agent, AgentChooserEntry, AgentId, RepositoryId};
+use jefe::domain::{
+    Agent, AgentChooserEntry, AgentId, AgentKind, ChooserRuntimeConfig, RepositoryId,
+};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::state::{
     AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget,
@@ -76,6 +78,8 @@ fn issues_state_with_chooser() -> AppState {
                 agents: vec![AgentChooserEntry::new(
                     AgentId(String::from("a1")),
                     String::from("Agent 1"),
+                    AgentKind::Llxprt,
+                    ChooserRuntimeConfig::default(),
                 )],
             }),
             ..IssuesState::default()

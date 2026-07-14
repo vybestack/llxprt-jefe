@@ -833,8 +833,9 @@ mod tests {
             None,
         );
         // The suffix span text must include the dirty marker.
+        let suffix = find_git_suffix_span(&props.rows[0].spans);
         assert_eq!(
-            props.rows[0].spans[3].text, "  vybestack/llxprt-jefe @ main *",
+            suffix, "  vybestack/llxprt-jefe @ main *",
             "dirty worktree must append ' *' to the git suffix span"
         );
         let ansi = render_ansi(props, 70, 8);
@@ -844,15 +845,21 @@ mod tests {
         );
     }
 
-    /// Agent list git-info suffix does NOT include the dirty marker when the
-    /// tree is clean or dirty status is unknown (issue #230).
+    fn find_git_suffix_span(spans: &[SelectableSpan]) -> &str {
+        spans
+            .iter()
+            .rev()
+            .find(|s| s.text.starts_with("  "))
+            .map_or("", |s| s.text.as_str())
+    }
+
     #[test]
-    fn agent_list_clean_suffix_no_marker() {
+    fn agent_list_unknown_dirty_suffix_no_marker() {
         let agents = vec![agent("fix-login", AgentStatus::Running)];
         let git_infos = vec![GitRepoInfo {
             origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
             branch: Some("main".to_owned()),
-            dirty: Some(false),
+            dirty: None,
         }];
         let props = agent_list_props(
             &agents,
@@ -862,9 +869,15 @@ mod tests {
             ThemeColors::default(),
             None,
         );
+        let suffix = find_git_suffix_span(&props.rows[0].spans);
         assert_eq!(
-            props.rows[0].spans[3].text, "  vybestack/llxprt-jefe @ main",
-            "clean worktree must not append a dirty marker"
+            suffix, "  vybestack/llxprt-jefe @ main",
+            "unknown dirty status must not append a dirty marker"
+        );
+        let ansi = render_ansi(props, 70, 8);
+        assert!(
+            !ansi.contains("main *"),
+            "unknown dirty status must not show dirty marker in rendered output: {ansi}"
         );
     }
 

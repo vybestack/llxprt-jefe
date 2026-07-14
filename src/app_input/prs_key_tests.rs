@@ -13,7 +13,9 @@
 //! @requirement REQ-PR-013
 
 use super::*;
-use jefe::domain::{AgentChooserEntry, AgentId, ChecksFilter, ReviewDecisionFilter};
+use jefe::domain::{
+    AgentChooserEntry, AgentId, AgentKind, ChecksFilter, ChooserRuntimeConfig, ReviewDecisionFilter,
+};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::state::{
     AgentChooserState, ComposerTarget, PrFilterUiState, PullRequestsState, ScreenMode,
@@ -60,6 +62,8 @@ fn prs_state_with_chooser() -> AppState {
         agents: vec![AgentChooserEntry::new(
             AgentId(String::from("a1")),
             String::from("Agent 1"),
+            AgentKind::Llxprt,
+            ChooserRuntimeConfig::default(),
         )],
     });
     state

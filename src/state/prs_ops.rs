@@ -463,6 +463,7 @@ impl AppState {
         let entries =
             crate::state::build_chooser_entries_from_state(self, repo_id.as_ref(), &metadata);
         if entries.is_empty() {
+            self.prs_state.agent_chooser = None;
             self.prs_state.draft_notice = Some("No agents available".to_string());
             return;
         }

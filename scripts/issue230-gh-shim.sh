@@ -6,16 +6,19 @@
 # variables. Every accepted call logs ACCEPTED with its operation label;
 # every rejected call logs REJECTED and exits non-zero.
 #
-# The four exact operations (in scenario order):
+# The exact operations for this scenario (in order):
 #   1. GraphQL issue search list (initial load)
 #   2. `gh issue view --json` detail read
 #   3. GraphQL issue comments
-#   4. GraphQL issue search list (refresh)
 #
 # If production startup invokes `gh auth status`, its exact vector is also
 # allowlisted. Every other invocation — mutations, reordered args, duplicate
 # flags, wrong repo/issue/query/page size, marker-containing arbitrary
 # GraphQL, extra args, auth trailing args — is REJECTED.
+#
+# The shim also generically allows a repeat of the search vector (operation
+# #1) so a future scenario that refreshes the issues list can exercise it,
+# but this scenario's driver never triggers one.
 #
 # This shim MUST NOT perform any live GitHub request. It never delegates to
 # the real gh binary. It is a test-only fixture seam.
@@ -110,8 +113,12 @@ shell_quote() {
 reject() {
     local reason="$1"
     shift
-    audit_reject "$reason" "$@"
-    echo "gh shim: REJECTED ($reason): gh $(shell_quote "$@")" >&2
+    # Audit logging is best-effort: if the audit file becomes unwritable or
+    # un-lockable, the rejection must still reach the expected `exit 1` so
+    # callers can distinguish a rejected command from an audit failure.
+    audit_reject "$reason" "$@" || true
+    printf 'gh shim: REJECTED (%s): gh %s
+' "$reason" "$(shell_quote "$@")" >&2
     exit 1
 }
 
@@ -220,25 +227,25 @@ main() {
     build_auth_status_argv
 
     if argv_eq SEARCH_ARGV actual; then
-        audit_accept "search" "${actual[@]}"
+        audit_accept "search" "${actual[@]}" || true
         issue_search_json
         return 0
     fi
 
     if argv_eq ISSUE_VIEW_ARGV actual; then
-        audit_accept "issue-view" "${actual[@]}"
+        audit_accept "issue-view" "${actual[@]}" || true
         issue_view_json
         return 0
     fi
 
     if argv_eq COMMENTS_ARGV actual; then
-        audit_accept "comments" "${actual[@]}"
+        audit_accept "comments" "${actual[@]}" || true
         issue_comments_json
         return 0
     fi
 
     if argv_eq AUTH_STATUS_ARGV actual; then
-        audit_accept "auth-status" "${actual[@]}"
+        audit_accept "auth-status" "${actual[@]}" || true
         echo "github.com"
         echo "  Logged in to github.com account testuser"
         return 0

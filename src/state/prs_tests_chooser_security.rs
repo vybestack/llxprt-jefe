@@ -390,3 +390,46 @@ fn pr_agent_config_preserved_exactly_not_repo_fallback() {
         .agents[0];
     assert_eq!(entry.runtime_config.value, "agent-profile");
 }
+
+/// PR chooser stale state: when `PrOpenAgentChooser` recomputes no eligible
+/// entries (e.g. the sole agent became running between open calls), the
+/// chooser must be cleared before setting the notice — matching issues
+/// behavior. A stale chooser left open would reference agents that are no
+/// longer eligible.
+#[test]
+fn pr_open_chooser_clears_stale_chooser_when_no_eligible() {
+    let mut state = prs_state_with_detail("repo-1", 1);
+    state.installed_agent_kinds = vec![crate::domain::AgentKind::Llxprt];
+    let agent = crate::domain::Agent::new(
+        crate::domain::AgentId("a1".to_string()),
+        RepositoryId("repo-1".to_string()),
+        "Agent 1".to_string(),
+        std::path::PathBuf::from("/tmp/a1"),
+    );
+    state.agents.push(agent);
+
+    // Open the chooser: one eligible agent → chooser is open.
+    let metadata = vec![crate::domain::AgentChooserGitMetadata::for_agent(
+        crate::domain::AgentId("a1".to_string()),
+    )];
+    let mut state = state.apply(AppEvent::PrOpenAgentChooser { metadata });
+    assert!(
+        state.prs_state.agent_chooser.is_some(),
+        "chooser must be open initially"
+    );
+
+    // Now the agent becomes running → no longer eligible.
+    state.agents[0].status = crate::domain::AgentStatus::Running;
+
+    // Reopen: no eligible agents → chooser must be cleared and notice set.
+    let state = state.apply(AppEvent::PrOpenAgentChooser { metadata: vec![] });
+    assert!(
+        state.prs_state.agent_chooser.is_none(),
+        "stale chooser must be cleared when no agents are eligible"
+    );
+    assert_eq!(
+        state.prs_state.draft_notice.as_deref(),
+        Some("No agents available"),
+        "notice must be set when chooser has no eligible entries"
+    );
+}
