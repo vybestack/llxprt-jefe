@@ -198,6 +198,7 @@ pub struct TmuxSession {
 /// Guarantees teardown on every exit path: success, assertion failure,
 /// timeout, panic, and launch failure. When `keep_session` is true on the
 /// session, the guard skips the kill (mirroring `cleanup_session`).
+#[derive(Debug)]
 pub struct TmuxSessionGuard {
     driver: TmuxDriver,
     session: Option<TmuxSession>,
@@ -227,6 +228,7 @@ impl TmuxSessionGuard {
 
     /// Manually release the session (stop tracking it without killing).
     /// After calling this, `drop` will not kill the session.
+    #[must_use]
     pub fn release(&mut self) -> Option<TmuxSession> {
         self.session.take()
     }

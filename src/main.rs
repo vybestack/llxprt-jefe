@@ -195,7 +195,9 @@ fn main() {
 /// Build the coalescing persistence worker's durable-write boundary (issue #301).
 ///
 /// The worker calls this function on a background OS thread; the input path
-/// never touches the filesystem directly.
+/// never touches the filesystem directly. If persistence setup fails here
+/// (after the startup `build_persistence` already succeeded), the closure
+/// becomes a no-op and a warning is logged so the app does not crash.
 fn build_persist_fn(
     config_dir: Option<&std::path::Path>,
 ) -> jefe::services::persist_worker::PersistFn {
@@ -214,6 +216,9 @@ fn build_persist_fn(
                 },
             )
         }
-        Err(_) => Arc::new(|_: &jefe::persistence::State| Ok(())),
+        Err(e) => {
+            tracing::warn!(error = %e, "persist worker: build_persistence failed; durable writes disabled");
+            Arc::new(|_: &jefe::persistence::State| Ok(()))
+        }
     }
 }

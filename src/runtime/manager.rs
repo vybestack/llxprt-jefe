@@ -4,7 +4,6 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P08
 //! @requirement REQ-TECH-004
 //! @requirement REQ-FUNC-007
-//! @pseudocode component-002 lines 01-35
 
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -57,14 +56,15 @@ const MAX_DEAD_SIGNATURES: NonZeroUsize = match NonZeroUsize::new(100) {
 /// cost.
 pub const HISTORY_LINE_CAP: usize = 2000;
 
-/// Lightweight metadata for checking session liveness without holding the runtime lock.
+/// Metadata for checking session liveness without holding the runtime lock.
 ///
-/// Callers collect these under the lock, drop it, then run the (potentially slow)
-/// liveness checks externally — avoiding mutex contention with input/render paths.
+/// Callers collect these under the lock, drop it, then run the (potentially
+/// slow) liveness checks externally — avoiding mutex contention with
+/// input/render paths.
 ///
-/// Issue #301 Phase 4: `binding_session_name` and `lifecycle_generation` carry the
-/// identity of the binding at snapshot time so stale liveness results (after
-/// rebind/restart) can be rejected.
+/// Issue #301 Phase 4: `binding_session_name` and `lifecycle_generation`
+/// carry the identity of the binding at snapshot time so stale liveness
+/// results (after rebind/restart) can be rejected.
 #[derive(Clone)]
 pub struct LivenessCheck {
     pub agent_id: AgentId,

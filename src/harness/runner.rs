@@ -199,6 +199,12 @@ fn run_expanded_scenario<D: HarnessDriver>(
 /// Returns [`RunnerError`] if the driver cannot start/cleanup or the scenario
 /// run fails.
 ///
+/// # Panics
+///
+/// Panics if the RAII guard's session is unexpectedly `None` immediately
+/// after construction (an invariant violation — the guard is created with
+/// a live session).
+///
 /// @plan PLAN-20260629-TMUX-HARNESS.P04
 /// @requirement REQ-TMUX-HARNESS-004
 pub fn run_tmux_scenario(
@@ -229,11 +235,10 @@ pub fn run_tmux_scenario(
     // `cleanup_session` was called manually after the run, which leaked
     // the session on early-return / panic paths.
     let guard = TmuxSessionGuard::new(tmux.clone(), session);
-    let Some(session_ref) = guard.session() else {
-        return Err(RunnerError::Driver(
-            "guard just created with a live session but session() returned None".to_owned(),
-        ));
-    };
+    // guard.session() is guaranteed Some right after construction.
+    let session_ref = guard
+        .session()
+        .unwrap_or_else(|| panic!("guard just created with a live session"));
     let mut driver = TmuxHarnessDriver::new(tmux.clone(), session_ref.clone());
     let mut result = run_expanded_scenario(&expanded, &mut driver, artifact_dir);
     if let Ok(summary) = &mut result {

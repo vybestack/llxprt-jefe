@@ -63,7 +63,7 @@ impl TmuxRuntimeManager {
         viewer: AttachedViewer,
     ) -> Result<(), RuntimeError> {
         if !self.sessions.contains_key(agent_id) {
-            std::thread::spawn(move || drop(viewer));
+            super::manager::drop_viewer_in_background_pub(&mut std::option::Option::Some(viewer));
             return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
         }
 
@@ -74,6 +74,8 @@ impl TmuxRuntimeManager {
                 tracing::debug!(old_agent_id = %old_id.0, "apply_attach: detaching previous viewer");
                 old_session.attached = false;
             }
+            // Drop the old viewer on a background thread to avoid blocking
+            // the caller during AttachedViewer::drop child teardown (~300ms).
             super::manager::drop_viewer_in_background_pub(&mut self.viewer);
         }
 
@@ -82,6 +84,9 @@ impl TmuxRuntimeManager {
             if let Some(session) = self.sessions.get_mut(agent_id) {
                 session.attached = false;
             }
+            // Drop the dead viewer on a background thread for the same reason.
+            let mut viewer_opt = Some(viewer);
+            super::manager::drop_viewer_in_background_pub(&mut viewer_opt);
             return Err(RuntimeError::AttachFailed(
                 "session viewer terminated before attach completed".to_owned(),
             ));

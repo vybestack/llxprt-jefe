@@ -55,17 +55,19 @@ impl CaptureHandle {
     ///
     /// # Panics
     ///
-    /// Panics if the internal mutex is poisoned.
+    /// Recovers from a poisoned mutex by taking the inner guard (logs an
+    /// error). Does not panic on poison.
     pub fn request(&self, agent_id: AgentId, session_name: String, generation: u64) {
         let req = CaptureRequest {
             agent_id,
             session_name,
             generation,
         };
-        let mut pending = lock_or_panic(&self.inner.pending, "capture slot");
+        let mut pending = lock_or_recover(&self.inner.pending, "capture slot");
         if let Some(existing) = &*pending
             && existing.agent_id == req.agent_id
             && existing.generation == req.generation
+            && existing.session_name == req.session_name
         {
             return;
         }
@@ -77,10 +79,11 @@ impl CaptureHandle {
     ///
     /// # Panics
     ///
-    /// Panics if the internal mutex is poisoned.
+    /// Recovers from a poisoned mutex by taking the inner guard (logs an
+    /// error). Does not panic on poison.
     #[must_use]
     pub fn take_pending(&self) -> Option<CaptureRequest> {
-        let mut pending = lock_or_panic(&self.inner.pending, "capture slot");
+        let mut pending = lock_or_recover(&self.inner.pending, "capture slot");
         pending.take()
     }
 
@@ -88,11 +91,12 @@ impl CaptureHandle {
     ///
     /// # Panics
     ///
-    /// Panics if the internal mutex is poisoned.
+    /// Recovers from a poisoned mutex by taking the inner guard (logs an
+    /// error). Does not panic on poison.
     #[cfg(test)]
     #[must_use]
     pub fn peek_pending(&self) -> Option<CaptureRequest> {
-        lock_or_panic(&self.inner.pending, "capture slot").clone()
+        lock_or_recover(&self.inner.pending, "capture slot").clone()
     }
 }
 
@@ -103,7 +107,7 @@ impl Default for CaptureHandle {
 }
 
 /// Lock a mutex, recovering from poison by taking the inner guard.
-fn lock_or_panic<'a, T>(mutex: &'a Mutex<T>, label: &str) -> std::sync::MutexGuard<'a, T> {
+fn lock_or_recover<'a, T>(mutex: &'a Mutex<T>, label: &str) -> std::sync::MutexGuard<'a, T> {
     match mutex.lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
@@ -162,9 +166,19 @@ mod tests {
         handle.request(agent("a"), "session-a-different".to_string(), 5);
         let pending = require_pending(&handle);
         assert_eq!(
-            pending.session_name, "session-a",
-            "dedup must preserve the original request"
+            pending.session_name, "session-a-different",
+            "dedup must now include session_name: a different session replaces"
         );
+    }
+
+    #[test]
+    fn request_deduplicates_same_agent_generation_and_session() {
+        let handle = CaptureHandle::new();
+        handle.request(agent("a"), "session-a".to_string(), 5);
+        handle.request(agent("a"), "session-a".to_string(), 5);
+        let pending = require_pending(&handle);
+        assert_eq!(pending.generation, 5, "exact dup is a no-op");
+        assert_eq!(pending.session_name, "session-a");
     }
 
     #[test]

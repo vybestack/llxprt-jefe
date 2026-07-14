@@ -9,7 +9,7 @@ use std::time::Duration;
 use tracing::warn;
 
 use jefe::runtime::{HISTORY_LINE_CAP, RuntimeManager, capture_pane_history, strip_trailing_rows};
-use jefe::services::capture_worker::CaptureHandle;
+use jefe::services::capture_worker::{CaptureHandle, should_store_result};
 
 use crate::AppContext;
 
@@ -39,13 +39,14 @@ pub async fn run_persist_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
         let Some((handle, persist_fn, state, generation)) = handle_and_fn else {
             continue;
         };
+        // Clear the pending slot immediately so a cancelled future does not
+        // re-drain the same snapshot on the next poll iteration.
+        handle.clear_pending();
         let result = smol::unblock(move || persist_fn(&state)).await;
         if let Err(e) = result {
             warn!(error = %e, "background persist failed");
         }
-        if handle.commit(generation) {
-            handle.clear_pending();
-        }
+        let _ = handle.commit(generation);
     }
 }
 
@@ -83,7 +84,12 @@ pub async fn run_capture_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
         };
         let current_agent = ctx_guard.runtime.attached_agent();
         let current_generation = ctx_guard.runtime.output_generation();
-        let is_current = current_agent == Some(&agent_id) && current_generation == generation;
+        let is_current = should_store_result(
+            &agent_id,
+            generation,
+            current_agent,
+            Some(current_generation),
+        );
         if is_current && let Some(raw_lines) = captured {
             let live_rows = ctx_guard.runtime.snapshot().map_or(0, |s| s.rows);
             let lines = strip_trailing_rows(raw_lines, live_rows);

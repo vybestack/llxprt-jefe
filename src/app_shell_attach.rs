@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tracing::{debug, warn};
 
 use jefe::domain::AgentId;
-use jefe::runtime::{RuntimeManager, TmuxRuntimeManager};
+use jefe::runtime::{AttachedViewer, RuntimeManager, TmuxRuntimeManager};
 
 use crate::AppContext;
 
@@ -36,65 +36,77 @@ pub fn perform_async_attach(
     ctx: Arc<std::sync::Mutex<AppContext>>,
     target: Option<AgentId>,
 ) -> AsyncAttachOutcome {
-    if let Some(agent_id) = target {
-        let inputs = {
-            let Ok(ctx_guard) = ctx.lock() else {
-                return AsyncAttachOutcome::Failed(agent_id);
-            };
-            ctx_guard.runtime.attach_inputs(&agent_id)
-        };
+    let Some(agent_id) = target else {
+        return perform_async_detach(&ctx);
+    };
 
-        let Some(inputs) = inputs else {
+    let inputs = {
+        let Ok(ctx_guard) = ctx.lock() else {
             return AsyncAttachOutcome::Failed(agent_id);
         };
+        ctx_guard.runtime.attach_inputs(&agent_id)
+    };
 
-        let viewer = match TmuxRuntimeManager::build_viewer(&inputs) {
-            Ok(v) => v,
-            Err(error) => {
-                warn!(
-                    agent_id = %agent_id.0,
-                    error = %error,
-                    "background: build_viewer failed"
-                );
-                if let Ok(mut ctx_guard) = ctx.lock() {
-                    let _ = ctx_guard.runtime.mark_session_dead(&agent_id);
-                }
-                return AsyncAttachOutcome::Failed(agent_id);
-            }
-        };
+    let Some(inputs) = inputs else {
+        return AsyncAttachOutcome::Failed(agent_id);
+    };
 
-        let Ok(mut ctx_guard) = ctx.lock() else {
-            std::thread::spawn(move || drop(viewer));
-            return AsyncAttachOutcome::Failed(agent_id);
-        };
-
-        if ctx_guard.runtime.get_session(&agent_id).is_none() {
-            debug!(
-                agent_id = %agent_id.0,
-                "background: agent session gone after viewer built; stale attach rejected"
-            );
-            std::thread::spawn(move || drop(viewer));
+    let viewer = match TmuxRuntimeManager::build_viewer(&inputs) {
+        Ok(v) => v,
+        Err(error) => {
+            warn!(agent_id = %agent_id.0, error = %error, "background: build_viewer failed");
+            mark_dead_or_log(&ctx, &agent_id);
             return AsyncAttachOutcome::Failed(agent_id);
         }
+    };
 
-        match ctx_guard.runtime.apply_attach_result(&agent_id, viewer) {
-            Ok(()) => AsyncAttachOutcome::Attached(agent_id),
-            Err(error) => {
-                warn!(
-                    agent_id = %agent_id.0,
-                    error = %error,
-                    "background: apply_attach_result failed"
-                );
-                let _ = ctx_guard.runtime.mark_session_dead(&agent_id);
-                AsyncAttachOutcome::Failed(agent_id)
-            }
-        }
-    } else {
-        let Ok(mut ctx_guard) = ctx.lock() else {
-            return AsyncAttachOutcome::Detached;
-        };
-        debug!("background: detaching (no running agent selected)");
-        let _ = ctx_guard.runtime.detach();
-        AsyncAttachOutcome::Detached
+    let Ok(mut ctx_guard) = ctx.lock() else {
+        drop_viewer_in_background(viewer);
+        return AsyncAttachOutcome::Failed(agent_id);
+    };
+
+    // Stale-attach guard: if the agent's session was removed (e.g. by a
+    // kill or restart) while the viewer was being built, reject the
+    // result and dispose of the viewer on a background thread.
+    if ctx_guard.runtime.get_session(&agent_id).is_none() {
+        debug!(agent_id = %agent_id.0, "background: agent session gone after viewer built; stale attach rejected");
+        drop_viewer_in_background(viewer);
+        return AsyncAttachOutcome::Failed(agent_id);
     }
+
+    match ctx_guard.runtime.apply_attach_result(&agent_id, viewer) {
+        Ok(()) => AsyncAttachOutcome::Attached(agent_id),
+        Err(error) => {
+            warn!(agent_id = %agent_id.0, error = %error, "background: apply_attach_result failed");
+            if !ctx_guard.runtime.mark_session_dead(&agent_id) {
+                warn!(agent_id = %agent_id.0, "background: session already gone when marking dead after apply_attach_result failure");
+            }
+            AsyncAttachOutcome::Failed(agent_id)
+        }
+    }
+}
+
+/// Detach with no running agent selected.
+fn perform_async_detach(ctx: &Arc<std::sync::Mutex<AppContext>>) -> AsyncAttachOutcome {
+    let Ok(mut ctx_guard) = ctx.lock() else {
+        return AsyncAttachOutcome::Detached;
+    };
+    debug!("background: detaching (no running agent selected)");
+    let _ = ctx_guard.runtime.detach();
+    AsyncAttachOutcome::Detached
+}
+
+/// Mark `agent_id` dead, logging if the session was already gone.
+fn mark_dead_or_log(ctx: &Arc<std::sync::Mutex<AppContext>>, agent_id: &AgentId) {
+    if let Ok(mut ctx_guard) = ctx.lock() {
+        if !ctx_guard.runtime.mark_session_dead(agent_id) {
+            warn!(agent_id = %agent_id.0, "background: session already gone when marking dead after build_viewer failure");
+        }
+    }
+}
+
+/// Drop an `AttachedViewer` on a background thread to avoid blocking during
+/// `AttachedViewer::drop` child teardown (~300ms).
+fn drop_viewer_in_background(viewer: AttachedViewer) {
+    std::thread::spawn(move || drop(viewer));
 }

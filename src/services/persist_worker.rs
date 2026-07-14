@@ -56,7 +56,7 @@ impl std::fmt::Debug for PersistHandle {
 }
 
 /// Lock a mutex, recovering from poison by taking the inner guard.
-fn lock_or_panic<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
@@ -92,7 +92,7 @@ impl PersistHandle {
             .schedule_generation
             .fetch_add(1, Ordering::SeqCst)
             + 1;
-        let mut pending = lock_or_panic(&self.inner.pending);
+        let mut pending = lock_or_recover(&self.inner.pending);
         pending.snapshot = Some(snapshot);
         pending.generation = generation;
     }
@@ -103,7 +103,7 @@ impl PersistHandle {
     /// [`Self::commit`] with the generation and [`Self::clear_pending`].
     #[must_use]
     pub fn take_pending(&self) -> Option<(PersistedState, u64)> {
-        let pending = lock_or_panic(&self.inner.pending);
+        let pending = lock_or_recover(&self.inner.pending);
         let snapshot = pending.snapshot.clone()?;
         Some((snapshot, pending.generation))
     }
@@ -136,7 +136,7 @@ impl PersistHandle {
 
     /// Clear the pending slot (called after a successful drain).
     pub fn clear_pending(&self) {
-        let mut pending = lock_or_panic(&self.inner.pending);
+        let mut pending = lock_or_recover(&self.inner.pending);
         pending.snapshot = None;
     }
 

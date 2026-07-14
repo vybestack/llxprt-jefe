@@ -27,18 +27,16 @@ pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
     // attach future (Phase 3) driven by the AttachScheduler's desired target.
     // The render body sets desired from `selected_running_agent_id`, so F12
     // just flips the focus intent — no synchronous `runtime.attach()` call.
-    let enabling_focus = prepare_f12_toggle(app_state);
-    let _ = enabling_focus; // focus state is already set; attach is async
+    prepare_f12_toggle(app_state);
     persist_current_state(app_state, ctx);
 }
 
-fn prepare_f12_toggle(app_state: &mut AppStateHandle) -> bool {
+fn prepare_f12_toggle(app_state: &mut AppStateHandle) {
     let mut state = app_state.write();
 
     if state.terminal_focused {
         state.pane_focus = PaneFocus::Agents;
         *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
-        false
     } else {
         let selected_running_agent_id = state
             .selected_agent()
@@ -48,11 +46,9 @@ fn prepare_f12_toggle(app_state: &mut AppStateHandle) -> bool {
         if selected_running_agent_id.is_some() {
             state.pane_focus = PaneFocus::Terminal;
             *state = std::mem::take(&mut *state).apply(AppEvent::ToggleTerminalFocus);
-            true
         } else {
             state.pane_focus = PaneFocus::Agents;
             state.terminal_focused = false;
-            false
         }
     }
 }
