@@ -68,8 +68,7 @@ pub fn create_run_root_with_run_id(
     let sentinel = run_root.join(EXCLUSIVE_SENTINEL);
     let time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs());
     let sentinel_content = if let Some(id) = run_id {
         format!("pid={}\ntime={time}\nrun_id={id}\n", std::process::id())
     } else {

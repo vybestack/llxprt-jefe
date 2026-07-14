@@ -206,9 +206,7 @@ pub fn which(binary: &str) -> Option<PathBuf> {
 #[cfg(unix)]
 fn is_executable(path: &std::path::Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    fs::metadata(path)
-        .map(|m| m.is_file() && (m.permissions().mode() & 0o111 != 0))
-        .unwrap_or(false)
+    fs::metadata(path).is_ok_and(|m| m.is_file() && (m.permissions().mode() & 0o111 != 0))
 }
 
 /// Whether a path exists and is executable (non-Unix: just checks existence).
