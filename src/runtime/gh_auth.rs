@@ -26,7 +26,8 @@ use crate::github::{
 /// by design: it only bounds a hung subprocess (interactive-prompt leak,
 /// network stall, CLI bug) — `gh`'s own device-code flow expires server-side
 /// well before this and the user is authorizing in parallel (issue #244).
-const DEVICE_AUTH_WAIT_DEADLINE: Duration = Duration::from_mins(5);
+const DEVICE_AUTH_WAIT_SECONDS: u64 = 5 * 60;
+const DEVICE_AUTH_WAIT_DEADLINE: Duration = Duration::from_secs(DEVICE_AUTH_WAIT_SECONDS);
 
 /// The outcome of running the device-code auth flow.
 ///

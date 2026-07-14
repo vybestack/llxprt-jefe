@@ -264,7 +264,8 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         let mut app_state = app_state;
         async move {
             loop {
-                smol::Timer::after(std::time::Duration::from_mins(1)).await;
+                const REFRESH_INTERVAL_SECONDS: u64 = 60;
+                smol::Timer::after(std::time::Duration::from_secs(REFRESH_INTERVAL_SECONDS)).await;
                 request_pr_background_refresh(&mut app_state, &ctx);
             }
         }
