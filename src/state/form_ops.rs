@@ -727,16 +727,31 @@ impl AppState {
             if *work_dir_manual {
                 return;
             }
-            let base_dir = self
+            fields.work_dir = self
                 .repositories
                 .iter()
                 .find(|r| r.id == *repository_id)
                 .map_or_else(
-                    || "/tmp".to_owned(),
-                    |r| r.base_dir.to_string_lossy().into_owned(),
+                    || {
+                        super::form_runtime::derive_local_work_dir_from_name(
+                            &fields.name,
+                            std::path::Path::new("/tmp"),
+                        )
+                    },
+                    |repository| {
+                        if repository.remote.enabled {
+                            super::form_runtime::derive_remote_work_dir_from_name(
+                                &fields.name,
+                                &repository.base_dir.to_string_lossy(),
+                            )
+                        } else {
+                            super::form_runtime::derive_local_work_dir_from_name(
+                                &fields.name,
+                                &repository.base_dir,
+                            )
+                        }
+                    },
                 );
-            fields.work_dir =
-                super::form_runtime::derive_work_dir_from_name(&fields.name, &base_dir);
         }
     }
 
