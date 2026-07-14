@@ -61,6 +61,9 @@ fn refresh_repo_scope_if_changed(
 fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
     let mut state = app_state.write();
     state.issues_state.list.clear();
+    if let Some(detail) = state.issues_state.issue_detail.as_mut() {
+        detail.comments.cancel_pending();
+    }
     state.issues_state.issue_detail = None;
     state.issues_state.error = None;
     state.issues_state.property_editor = None;
@@ -73,7 +76,6 @@ fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.issues_state.loading.detail = false;
     state.issues_state.loading.comments = false;
     state.issues_state.detail_pending = None;
-    state.issues_state.comments_page_pending = None;
     state.issues_state.agent_chooser = None;
 }
 

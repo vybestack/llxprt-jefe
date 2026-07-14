@@ -42,15 +42,34 @@ pub struct ScreenCoord<'a> {
 pub fn content_coords_for_pane(
     app_state: &AppState,
     pane: SelectablePane,
-    cols: u16,
+    terminal_cols: u16,
+    terminal_rows: u16,
     coord: &ScreenCoord<'_>,
 ) -> (usize, usize) {
     let geometry = coord.geometry;
-    // Only detail-style panes wrap; everything else uses the naive 1:1 map.
+    let (render_cols, _) = jefe::layout::effective_render_size(terminal_cols, terminal_rows);
+    // Only detail-style panes wrap; finite-row panes use their exact projected
+    // physical line to translate terminal cells into character columns.
     let Some((body_content, header_rows, wrap_width)) =
-        detail_wrap_projection(app_state, pane, cols)
+        detail_wrap_projection(app_state, pane, render_cols)
     else {
-        return point_to_content_coords(coord.col, coord.row, coord.scroll_offset, geometry);
+        let (line, cell_col) =
+            point_to_content_coords(coord.col, coord.row, coord.scroll_offset, geometry);
+        let content = jefe::pane_content_projection::projected_pane_content(
+            pane,
+            app_state,
+            None,
+            &[],
+            terminal_cols,
+            terminal_rows,
+        );
+        let Some(text) = content.lines.get(line) else {
+            return content.lines.last().map_or((0, 0), |last| {
+                (content.lines.len() - 1, last.chars().count())
+            });
+        };
+        let char_col = jefe::ui::components::doc_wrap::display_cell_to_char_offset(text, cell_col);
+        return (line, char_col);
     };
 
     let vp_row_abs = usize::from(coord.row.saturating_sub(geometry.content_origin_row));
@@ -71,24 +90,23 @@ pub fn content_coords_for_pane(
         .saturating_sub(1);
     let past_end = body_vp_row > last_visible_row;
     let col_rel = usize::from(coord.col.saturating_sub(geometry.content_origin_col));
-    let (body_line, line_offset) = jefe::ui::components::doc_wrap::viewport_row_to_content(
-        &body_rows,
-        first_visible,
-        body_vp_row,
-    )
-    .unwrap_or((0, 0));
-    // Selection content coordinates include the header lines, so add the
-    // header offset. For an in-range row, the column is the row's char start
-    // plus the in-row col; for a click in empty space below the document,
-    // `viewport_row_to_content` already returns the last line's END column, so
-    // do not add the screen column again.
-    let content_line = header_rows + body_line;
-    let content_col = if past_end {
-        line_offset
+    let (body_line, content_col) = if past_end {
+        jefe::ui::components::doc_wrap::viewport_row_to_content(
+            &body_rows,
+            first_visible,
+            body_vp_row,
+        )
+        .unwrap_or((0, 0))
     } else {
-        line_offset + col_rel
+        jefe::ui::components::doc_wrap::viewport_cell_to_content(
+            &body_rows,
+            first_visible,
+            body_vp_row,
+            col_rel,
+        )
+        .unwrap_or((0, 0))
     };
-    (content_line, content_col)
+    (header_rows + body_line, content_col)
 }
 
 /// Build the `(body_content, header_rows, wrap_width)` projection for a

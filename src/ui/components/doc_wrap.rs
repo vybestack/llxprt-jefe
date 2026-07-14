@@ -7,12 +7,8 @@
 //! inline-editor caret placement, and the mouse-selection reverse-map cannot
 //! drift.
 //!
-//! It builds on the lower-level [`crate::text_wrap::wrap_text`] primitive
-//! (which wraps one logical line into `WrapRow`s carrying half-open
-//! `[start, end)` char ranges). This module lifts that to the whole document:
-//! it tracks which content *line* each display row belongs to and the char
-//! range of that row *within its line*, so consumers can map between screen
-//! rows and content coordinates.
+//! It retains character ranges for the editor/selection model while measuring
+//! row capacity in terminal display cells.
 //!
 //! # Coordinate spaces
 //!
@@ -23,16 +19,15 @@
 //!   render path windows display rows into a fixed-height viewport.
 //! - **Line char offset**: 0-based char column within a single content line.
 //!
-//! `width` is counted in Unicode scalar values (one per `char`), matching
-//! [`crate::text_wrap`] and the editor's char-based caret model. Terminal
-//! display-width wrapping (CJK/emoji) is a separate, larger change.
+//! `width` is counted in terminal display cells. Source ranges remain Unicode
+//! scalar offsets because the editor and selection model are char-based.
 //!
 //! This module is side-effect-free and iocraft-free so it is fully
 //! unit-testable and reusable by both the renderer and the selection layer.
 //!
 //! @requirement REQ-DOC-WRAP
 
-use crate::text_wrap::wrap_text;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// One display row produced by wrapping a content document.
 ///
@@ -54,7 +49,7 @@ pub struct DocDisplayRow {
 }
 
 /// Wrap a full content document (lines joined by `'\n'`) into a flat list of
-/// display rows of at most `width` characters, breaking at word boundaries.
+/// display rows of at most `width` terminal cells, breaking at whitespace.
 ///
 /// See the module docs for the full semantics. `width == 0` yields one empty
 /// row per content line (callers suppress the caret / selection). The result
@@ -64,7 +59,7 @@ pub fn wrap_document(content: &str, width: usize) -> Vec<DocDisplayRow> {
     let lines: Vec<&str> = content.split('\n').collect();
     let mut rows: Vec<DocDisplayRow> = Vec::new();
     for (line_idx, line) in lines.iter().enumerate() {
-        for seg in wrap_text(line, width) {
+        for seg in wrap_display_line(line, width) {
             rows.push(DocDisplayRow {
                 text: seg.text,
                 line: line_idx,
@@ -84,6 +79,130 @@ pub fn wrap_document(content: &str, width: usize) -> Vec<DocDisplayRow> {
         });
     }
     rows
+}
+
+const OVERWIDE_GLYPH_PLACEHOLDER: &str = "…";
+#[derive(Debug)]
+struct DisplaySegment {
+    text: String,
+    start: usize,
+    end: usize,
+}
+
+fn wrap_display_line(line: &str, width: usize) -> Vec<DisplaySegment> {
+    if width == 0 || line.is_empty() {
+        return vec![DisplaySegment {
+            text: String::new(),
+            start: 0,
+            end: 0,
+        }];
+    }
+    let chars: Vec<char> = line.chars().collect();
+    let mut rows = Vec::new();
+    let mut start = 0;
+    while start < chars.len() {
+        let (display_end, source_end) = display_row_end(&chars, start, width);
+        let text = if display_end == start && source_end > start {
+            OVERWIDE_GLYPH_PLACEHOLDER.to_string()
+        } else {
+            chars[start..display_end]
+                .iter()
+                .collect::<String>()
+                .trim_end_matches(' ')
+                .to_string()
+        };
+        rows.push(DisplaySegment {
+            text,
+            start,
+            end: source_end,
+        });
+        start = source_end;
+    }
+    rows
+}
+
+fn display_row_end(chars: &[char], start: usize, width: usize) -> (usize, usize) {
+    let mut used: usize = 0;
+    let mut cursor = start;
+    let mut last_whitespace_end = None;
+    while cursor < chars.len() {
+        let char_width = UnicodeWidthChar::width(chars[cursor]).unwrap_or(0);
+        if used.saturating_add(char_width) > width {
+            if chars[cursor].is_whitespace() {
+                let mut source_end = cursor;
+                while source_end < chars.len() && chars[source_end].is_whitespace() {
+                    source_end += 1;
+                }
+                return (cursor, source_end);
+            }
+            if let Some(break_end) = last_whitespace_end.filter(|end| *end > start) {
+                return (break_end, break_end);
+            }
+            if cursor == start {
+                return (cursor, cursor + 1);
+            }
+            return (cursor, cursor);
+        }
+        used = used.saturating_add(char_width);
+        cursor += 1;
+        if chars[cursor - 1].is_whitespace() {
+            last_whitespace_end = Some(cursor);
+        }
+    }
+    (cursor, cursor)
+}
+
+/// Convert a terminal-cell column in `text` to a clamped character boundary.
+#[must_use]
+pub fn display_cell_to_char_offset(text: &str, cell_col: usize) -> usize {
+    if cell_col == 0 {
+        return 0;
+    }
+    let mut used = 0;
+    let mut char_offset = 0;
+    let mut chars = text.chars().peekable();
+    while let Some(character) = chars.next() {
+        let width = UnicodeWidthChar::width(character).unwrap_or(0);
+        if width > 0 && cell_col <= used {
+            return char_offset;
+        }
+        used = used.saturating_add(width);
+        char_offset += 1;
+        while chars
+            .peek()
+            .is_some_and(|next| UnicodeWidthChar::width(*next).unwrap_or(0) == 0)
+        {
+            chars.next();
+            char_offset += 1;
+        }
+        if cell_col <= used {
+            return char_offset;
+        }
+    }
+    char_offset
+}
+
+/// Map a visible wrapped row and terminal-cell column to content coordinates.
+#[must_use]
+pub fn viewport_cell_to_content(
+    rows: &[DocDisplayRow],
+    first_visible_row: usize,
+    vp_row: usize,
+    cell_col: usize,
+) -> Option<(usize, usize)> {
+    let target = first_visible_row.saturating_add(vp_row);
+    let last_idx = rows.len().checked_sub(1)?;
+    let row = rows.get(target.min(last_idx))?;
+    if target > last_idx {
+        return Some((row.line, row.line_char_end));
+    }
+    let relative = display_cell_to_char_offset(&row.text, cell_col);
+    Some((
+        row.line,
+        row.line_char_start
+            .saturating_add(relative)
+            .min(row.line_char_end),
+    ))
 }
 
 /// The display-row index where content `line` begins, or the last row if `line`
@@ -157,10 +276,12 @@ pub fn caret_row_for_line_col(
     for idx in std::iter::once(first).chain(rest.iter().copied()) {
         let r = &rows[idx];
         if line_char_col < r.line_char_end {
-            return Some((idx, line_char_col.saturating_sub(r.line_char_start)));
+            let char_col = line_char_col.saturating_sub(r.line_char_start);
+            let prefix = r.text.chars().take(char_col).collect::<String>();
+            return Some((idx, UnicodeWidthStr::width(prefix.as_str())));
         }
         best_idx = idx;
-        best_rel = r.line_char_end.saturating_sub(r.line_char_start);
+        best_rel = UnicodeWidthStr::width(r.text.as_str());
     }
     Some((best_idx, best_rel))
 }
@@ -273,5 +394,51 @@ mod tests {
         let rows = wrap_document("abc\ndef", 0);
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|r| r.text.is_empty()));
+    }
+
+    #[test]
+    fn cjk_wraps_by_terminal_cells_and_retains_char_ranges() {
+        let rows = wrap_document("甲乙丙", 4);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            (
+                rows[0].text.as_str(),
+                rows[0].line_char_start,
+                rows[0].line_char_end,
+            ),
+            ("甲乙", 0, 2)
+        );
+        assert_eq!(
+            (
+                rows[1].text.as_str(),
+                rows[1].line_char_start,
+                rows[1].line_char_end,
+            ),
+            ("丙", 2, 3)
+        );
+    }
+
+    #[test]
+    fn overwide_glyph_uses_finite_placeholder_and_retains_source_range() {
+        let rows = wrap_document("甲", 1);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text, OVERWIDE_GLYPH_PLACEHOLDER);
+        assert_eq!((rows[0].line_char_start, rows[0].line_char_end), (0, 1));
+        assert!(UnicodeWidthStr::width(rows[0].text.as_str()) <= 1);
+    }
+
+    #[test]
+    fn display_cells_map_wide_and_combining_text_to_char_boundaries() {
+        assert_eq!(display_cell_to_char_offset("甲乙", 1), 1);
+        assert_eq!(display_cell_to_char_offset("甲乙", 2), 1);
+        assert_eq!(display_cell_to_char_offset("e\u{301}x", 1), 2);
+        assert_eq!(display_cell_to_char_offset("e\u{301}x", 2), 3);
+    }
+
+    #[test]
+    fn viewport_cell_mapping_clamps_to_the_visible_wrapped_row() {
+        let rows = wrap_document("甲乙丙", 4);
+        assert_eq!(viewport_cell_to_content(&rows, 0, 0, 99), Some((0, 2)));
+        assert_eq!(viewport_cell_to_content(&rows, 0, 1, 1), Some((0, 3)));
     }
 }

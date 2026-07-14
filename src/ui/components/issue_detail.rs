@@ -103,7 +103,7 @@ fn issue_state_color(state: IssueState) -> DetailHeaderColor {
 /// height. Mirrors the pre-refactor component's height-derived viewport math.
 fn detail_viewport_rows(available_height: Option<u16>) -> usize {
     if let Some(height) = available_height {
-        (height as usize).saturating_sub(HEADER_ROWS + 2)
+        crate::layout::detail_body_viewport_rows(usize::from(height))
     } else {
         let term_rows = crossterm::terminal::size().map_or(40, |(_, h)| h as usize);
         crate::layout::detail_viewport_rows(term_rows)

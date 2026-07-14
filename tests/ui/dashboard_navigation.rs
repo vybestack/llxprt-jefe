@@ -213,6 +213,17 @@ fn enter_split_mode_changes_screen_mode() {
 }
 
 #[test]
+fn enter_split_mode_focuses_the_visible_repository_list() {
+    let mut state = create_test_state();
+    state.screen_mode = ScreenMode::Dashboard;
+    state.pane_focus = PaneFocus::Agents;
+
+    state = state.apply(AppEvent::EnterSplitMode);
+
+    assert_eq!(state.screen_mode, ScreenMode::Split);
+    assert_eq!(state.pane_focus, PaneFocus::Repositories);
+}
+#[test]
 fn exit_split_mode_returns_to_dashboard() {
     let mut state = create_test_state();
     state.screen_mode = ScreenMode::Split;

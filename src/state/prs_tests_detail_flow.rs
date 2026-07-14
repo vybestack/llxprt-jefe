@@ -77,9 +77,14 @@ fn make_test_pr_detail(number: u64, comments: Vec<IssueComment>) -> PullRequestD
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments,
-        has_more_comments: true,
-        comments_cursor: Some("cursor-1".to_string()),
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: RepositoryId::default(),
+                number,
+            },
+            comments,
+            crate::domain::PageToken::Cursor("cursor-1".to_string()),
+        ),
         mergeable: None,
         merge_state_status: None,
     }
@@ -113,9 +118,7 @@ fn test_list_loaded_renders_all_rows_including_first_and_last() {
     );
     assert_eq!(new_state.prs_state.pull_requests()[0].number, 1);
     assert_eq!(new_state.prs_state.pull_requests()[9].number, 10);
-    // First row selected, scroll offset at 0.
     assert_eq!(new_state.prs_state.selected_pr_index(), Some(0));
-    assert_eq!(new_state.prs_state.list_scroll_offset, 0);
 }
 
 /// PrListLoaded with a mismatched scope_repo_id OR a mismatched request_id
@@ -325,17 +328,18 @@ fn test_comments_page_loaded_appends_older_stable_order() {
     state.prs_state.pr_detail = Some(make_test_pr_detail(1, vec![existing]));
     state.prs_state.list.replace_items(vec![make_test_pr(1)]);
     state.prs_state.list.set_selected_index(Some(0));
-    state.prs_state.comments_page_pending = Some(crate::state::types::PrCommentsPagePending {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        cursor: Some("cursor-1".to_string()),
-        request_id: 0,
-    });
+    let request_id = state
+        .begin_pr_comment_page(
+            &RepositoryId("repo-1".to_string()),
+            1,
+            Some("cursor-1".to_string()),
+        )
+        .unwrap_or_else(|| panic!("comment page should start"));
 
     let new_state = state.apply(AppEvent::PrCommentsPageLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         pr_number: 1,
-        request_id: 0,
+        request_id,
         comments: vec![appended],
         cursor: None,
         has_more: false,
@@ -354,27 +358,17 @@ fn test_comments_page_loaded_appends_older_stable_order() {
     assert_eq!(loaded.comments[1].comment_id, 60, "new comment appended");
 }
 
-/// HIGH-1: When the staleness guard passes (the comments-page request is for
-/// the CURRENT scope/pr/request_id) but `pr_detail` is `None` (the detail was
-/// swapped out / never arrived), the reducer MUST still clear
-/// `loading.comments` and `comments_page_pending` so the spinner does not
-/// spin forever.
+/// A comments result without its detail container is stale and cannot clear
+/// loading state that may belong to another transition.
 ///
 /// @plan PLAN-20260624-PR-MODE.P05
 /// @requirement REQ-PR-010
 /// @pseudocode component-001 lines 236-241
 #[test]
-fn test_comments_page_loaded_clears_loading_when_detail_is_none() {
+fn test_comments_page_loaded_without_detail_preserves_unrelated_state() {
     let mut state = prs_mode_state("repo-1");
-    // No detail at all — but the request is for THIS repo/pr (guard passes).
-    state.prs_state.pr_detail = None;
     state.prs_state.loading.comments = true;
-    state.prs_state.comments_page_pending = Some(crate::state::types::PrCommentsPagePending {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        cursor: Some("cursor-1".to_string()),
-        request_id: 0,
-    });
+    state.prs_state.error = Some("current transition".to_string());
 
     let new_state = state.apply(AppEvent::PrCommentsPageLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
@@ -391,13 +385,10 @@ fn test_comments_page_loaded_clears_loading_when_detail_is_none() {
         has_more: false,
     });
 
-    assert!(
-        !new_state.prs_state.loading.comments,
-        "loading.comments MUST clear even when pr_detail is None (no infinite spinner)"
-    );
-    assert!(
-        new_state.prs_state.comments_page_pending.is_none(),
-        "comments_page_pending MUST clear even when pr_detail is None"
+    assert!(new_state.prs_state.loading.comments);
+    assert_eq!(
+        new_state.prs_state.error.as_deref(),
+        Some("current transition")
     );
     assert!(
         new_state.prs_state.pr_detail.is_none(),
@@ -423,17 +414,18 @@ fn test_comments_page_loaded_appends_and_clears_when_detail_matches() {
     let mut state = prs_mode_state("repo-1");
     state.prs_state.pr_detail = Some(make_test_pr_detail(1, vec![existing]));
     state.prs_state.loading.comments = true;
-    state.prs_state.comments_page_pending = Some(crate::state::types::PrCommentsPagePending {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        pr_number: 1,
-        cursor: Some("cursor-1".to_string()),
-        request_id: 0,
-    });
+    let request_id = state
+        .begin_pr_comment_page(
+            &RepositoryId("repo-1".to_string()),
+            1,
+            Some("cursor-1".to_string()),
+        )
+        .unwrap_or_else(|| panic!("comment page should start"));
 
     let new_state = state.apply(AppEvent::PrCommentsPageLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         pr_number: 1,
-        request_id: 0,
+        request_id,
         comments: vec![IssueComment {
             comment_id: 60,
             author_login: "bob".to_string(),
@@ -455,9 +447,124 @@ fn test_comments_page_loaded_appends_and_clears_when_detail_matches() {
         !new_state.prs_state.loading.comments,
         "loading.comments must clear on success"
     );
+    assert!(!loaded.comments.has_pending_request());
+}
+
+#[test]
+fn test_stale_comments_page_failure_after_detail_reassignment_does_not_override_newer_request() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.pr_detail = Some(make_test_pr_detail(1, Vec::new()));
+
+    let Some(stale_request_id) =
+        state.begin_pr_comment_page(&repo_id, 1, Some("cursor-1".to_string()))
+    else {
+        panic!("first comment page should start");
+    };
+    state.prs_state.pr_detail = Some(make_test_pr_detail(1, Vec::new()));
+    state.prs_state.loading.comments = false;
+    let Some(current_request_id) =
+        state.begin_pr_comment_page(&repo_id, 1, Some("cursor-1".to_string()))
+    else {
+        panic!("replacement comment page should start");
+    };
+    assert_ne!(stale_request_id, current_request_id);
+
+    let state = state.apply(AppEvent::PrCommentsPageFailed {
+        scope_repo_id: repo_id,
+        pr_number: 1,
+        request_id: stale_request_id,
+        error: "stale page failed".to_string(),
+    });
+
+    assert!(state.prs_state.error.is_none());
+    assert!(state.prs_state.loading.comments);
     assert!(
-        new_state.prs_state.comments_page_pending.is_none(),
-        "comments_page_pending must clear on success"
+        state
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .is_some_and(|detail| detail.comments.has_pending_request())
+    );
+}
+
+#[test]
+fn test_current_comments_dispatch_failure_surfaces_and_clears_orphaned_loading() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.pr_detail = Some(make_test_pr_detail(1, Vec::new()));
+    state.prs_state.loading.comments = true;
+
+    let state = state.apply(AppEvent::PrCommentsPageDispatchFailed {
+        scope_repo_id: repo_id,
+        pr_number: 1,
+        error: "repository unavailable".to_string(),
+    });
+
+    assert_eq!(
+        state.prs_state.error.as_deref(),
+        Some("repository unavailable")
+    );
+    assert!(!state.prs_state.loading.comments);
+}
+
+#[test]
+fn test_stale_comments_dispatch_failure_is_ignored() {
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.pr_detail = Some(make_test_pr_detail(2, Vec::new()));
+    state.prs_state.loading.comments = true;
+    state.prs_state.error = Some("current error".to_string());
+
+    let state = state.apply(AppEvent::PrCommentsPageDispatchFailed {
+        scope_repo_id: RepositoryId("repo-1".to_string()),
+        pr_number: 1,
+        error: "stale dispatch".to_string(),
+    });
+
+    assert_eq!(state.prs_state.error.as_deref(), Some("current error"));
+    assert!(state.prs_state.loading.comments);
+}
+
+#[test]
+fn test_stale_scope_comments_dispatch_failure_is_ignored() {
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.pr_detail = Some(make_test_pr_detail(1, Vec::new()));
+    state.prs_state.loading.comments = true;
+    state.prs_state.error = Some("current error".to_string());
+
+    let state = state.apply(AppEvent::PrCommentsPageDispatchFailed {
+        scope_repo_id: RepositoryId("repo-2".to_string()),
+        pr_number: 1,
+        error: "stale scope dispatch".to_string(),
+    });
+
+    assert_eq!(state.prs_state.error.as_deref(), Some("current error"));
+    assert!(state.prs_state.loading.comments);
+}
+
+#[test]
+fn test_comments_dispatch_failure_does_not_override_pending_request() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = prs_mode_state("repo-1");
+    state.prs_state.pr_detail = Some(make_test_pr_detail(1, Vec::new()));
+    let Some(_) = state.begin_pr_comment_page(&repo_id, 1, Some("cursor-1".to_string())) else {
+        panic!("comment page should start");
+    };
+
+    let state = state.apply(AppEvent::PrCommentsPageDispatchFailed {
+        scope_repo_id: repo_id,
+        pr_number: 1,
+        error: "uncorrelated dispatch".to_string(),
+    });
+
+    assert!(state.prs_state.error.is_none());
+    assert!(state.prs_state.loading.comments);
+    assert!(
+        state
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .is_some_and(|detail| detail.comments.has_pending_request())
     );
 }
 
@@ -475,6 +582,7 @@ fn test_list_loaded_non_empty_clears_stale_pr_detail() {
     let mut state = prs_mode_state("repo-1");
     // Seed a STALE detail for PR #99 (not in the incoming list).
     state.prs_state.pr_detail = Some(make_test_pr_detail(99, vec![]));
+    state.prs_state.loading.comments = true;
     state.prs_state.detail_scroll_offset = 5;
     state.prs_state.detail_subfocus = crate::state::types::PrDetailSubfocus::Comment(0);
     let request_id = begin_pr_list_reload(&mut state, "repo-1", PrFilter::default());
@@ -497,6 +605,7 @@ fn test_list_loaded_non_empty_clears_stale_pr_detail() {
         new_state.prs_state.pr_detail.is_none(),
         "stale pr_detail MUST be cleared when a new non-empty list arrives"
     );
+    assert!(!new_state.prs_state.loading.comments);
     assert_eq!(
         new_state.prs_state.selected_pr_index(),
         Some(0),

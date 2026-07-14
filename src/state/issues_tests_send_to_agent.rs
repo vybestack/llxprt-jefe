@@ -42,9 +42,7 @@ fn issue_detail() -> IssueDetail {
         issue_type_name: None,
         body: String::new(),
         external_url: String::new(),
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::default(),
     }
 }
 
@@ -290,7 +288,7 @@ fn open_inline_editor_clears_stale_draft_notice() {
 
 #[test]
 fn blocked_inline_opens_preserve_draft_notice_and_active_editor() {
-    let events = [
+    let events = vec![
         AppEvent::OpenNewIssueComposer,
         AppEvent::OpenNewCommentComposer,
         AppEvent::OpenReplyComposer { comment_index: 0 },

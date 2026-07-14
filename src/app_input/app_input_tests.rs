@@ -74,7 +74,7 @@ fn filter_and_search_messages_are_fresh_issue_list_reloads() {
     assert!(is_fresh_issue_list_reload(&IssuesMessage::ClearFilter));
     assert!(is_fresh_issue_list_reload(&IssuesMessage::ApplySearch));
     assert!(!is_fresh_issue_list_reload(
-        &IssuesMessage::NavigatePageDown
+        &IssuesMessage::NavigatePageDown(jefe::list_viewport::PageItemCount::new(3))
     ));
 }
 
@@ -337,9 +337,14 @@ fn test_pr_detail(number: u64) -> jefe::domain::PullRequestDetail {
         checks_status: PrCheckStatus::None,
         reviews: vec![],
         checks: vec![],
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: jefe::domain::PaginatedList::from_loaded(
+            jefe::domain::CommentDetailIdentity {
+                scope_repo_id: jefe::domain::RepositoryId::default(),
+                number,
+            },
+            vec![],
+            jefe::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: None,
         merge_state_status: None,
     }
@@ -765,9 +770,14 @@ fn state_for_issue_agent_chooser_send(
         milestone: None,
         body: "Send to agent".to_owned(),
         external_url: "https://github.com/owner/repo/issues/166".to_owned(),
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: jefe::domain::PaginatedList::from_loaded(
+            jefe::domain::CommentDetailIdentity {
+                scope_repo_id: jefe::domain::RepositoryId::default(),
+                number: 166,
+            },
+            vec![],
+            jefe::domain::PageToken::from_cursor(None, false),
+        ),
         issue_type_name: None,
     };
 

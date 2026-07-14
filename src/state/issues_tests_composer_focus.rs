@@ -39,9 +39,14 @@ fn p15_detail(number: u64) -> IssueDetail {
         milestone: None,
         body: "Issue body".to_string(),
         external_url: format!("https://github.com/owner/repo/issues/{number}"),
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number,
+            },
+            vec![],
+            crate::domain::PageToken::from_cursor(None, false),
+        ),
         issue_type_name: None,
     }
 }

@@ -15,6 +15,7 @@ use crate::domain::{
 };
 use std::process::Command;
 
+mod comment_pages;
 mod create_issue;
 mod error;
 mod issue_lifecycle;
@@ -53,6 +54,7 @@ pub use actions::{
 };
 
 mod parse;
+use comment_pages::loaded_comments;
 use parse::{active_issue_type_filter, issue_type_requires_search_filter};
 pub use parse::{
     build_issue_search_args, build_list_issues_args, categorize_error, parse_comments_json,
@@ -252,9 +254,7 @@ impl GhClient {
         let mut detail = parse_issue_detail_json(&stdout)?;
         let comments_response =
             self.list_comments(owner, repo, number, None, ISSUE_DETAIL_COMMENT_PAGE_SIZE)?;
-        detail.comments = comments_response.comments;
-        detail.comments_cursor = comments_response.cursor;
-        detail.has_more_comments = comments_response.has_more;
+        detail.comments = loaded_comments(comments_response);
         Ok(detail)
     }
 
@@ -618,9 +618,7 @@ impl GhClient {
         })?;
 
         let mut detail = detail;
-        detail.comments = comments.comments;
-        detail.comments_cursor = comments.cursor;
-        detail.has_more_comments = comments.has_more;
+        detail.comments = loaded_comments(comments);
         assign_threads_to_reviews(&mut detail.reviews, threads);
         Ok(detail)
     }
