@@ -174,14 +174,11 @@ pub fn parse_alive_sessions(raw_output: &str) -> HashSet<String> {
 /// This is a pure function — it does not invoke tmux — so it can be unit-tested
 /// without a tmux server.
 ///
-/// # Colon assumption
-///
-/// `rsplit_once(':')` splits on the **last** colon. This is safe because
-/// `RuntimeSession::session_name_for` sanitizes agent IDs by replacing every
-/// non-alphanumeric / non-`-` / non-`_` character with `_`, guaranteeing no
-/// colon can appear in a session name. If session naming changes or this
-/// parser is reused for non-jefe sessions that may contain colons, the split
-/// must be reconsidered.
+/// `rsplit_once(':')` splits on the **last** colon, which correctly isolates
+/// the `pane_dead` suffix even when the session name itself contains colons
+/// (e.g., `my:session:0` -> `("my:session", "0")`). Jefe's session-name
+/// sanitizer also replaces colons with underscores as an extra guarantee,
+/// but the parser itself is robust regardless.
 #[must_use]
 pub fn parse_pane_alive(raw_output: &str) -> HashSet<String> {
     let mut alive_sessions: HashSet<String> = HashSet::new();
@@ -195,8 +192,8 @@ pub fn parse_pane_alive(raw_output: &str) -> HashSet<String> {
             if session.is_empty() {
                 continue;
             }
-            let pane_dead = pane_dead.trim();
-            if pane_dead == "0" || pane_dead.eq_ignore_ascii_case("false") {
+            // tmux #{pane_dead} outputs 0 (alive) or 1 (dead).
+            if pane_dead.trim() == "0" {
                 alive_sessions.insert(session.to_string());
             }
         }
@@ -515,13 +512,17 @@ jefe-c:0
     }
 
     #[test]
-    fn parse_pane_alive_handles_false_flag() {
-        let raw = "jefe-a:false
-jefe-b:true
+    fn parse_pane_alive_only_numeric_flags() {
+        // tmux #{pane_dead} outputs only 0 (alive) or 1 (dead).
+        // Non-numeric strings like "false" must not match.
+        let raw = "jefe-a:0
+jefe-b:1
+jefe-c:false
 ";
         let set = parse_pane_alive(raw);
         assert!(set.contains("jefe-a"));
         assert!(!set.contains("jefe-b"));
+        assert!(!set.contains("jefe-c"), "non-numeric flags must not match");
     }
 
     #[test]
