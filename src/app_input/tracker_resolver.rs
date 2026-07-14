@@ -91,6 +91,7 @@ pub enum ResolvedTracker {
 /// from either selected source (with its raw value and reason) from a genuinely
 /// absent configuration. This is the preferred entry point for paths that
 /// build user-visible error messages.
+#[must_use]
 pub(super) fn resolve_tracker_outcome(repo: &Repository) -> ResolvedTracker {
     match repo.effective_issue_pr_repo() {
         Ok(Some(reference)) => ResolvedTracker::Resolved(TrackerTarget::from(&reference)),

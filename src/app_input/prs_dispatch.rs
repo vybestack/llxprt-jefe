@@ -49,6 +49,7 @@ pub(super) struct PrOpenInBrowserInfo {
     pub number: u64,
 }
 
+#[cfg(test)]
 pub(super) fn resolve_pr_gh_repo(state: &jefe::state::AppState) -> (String, String) {
     resolve_pr_gh_repo_or_error(state).unwrap_or_default()
 }
@@ -357,7 +358,11 @@ pub(super) fn preview_pr_from_list(app_state: &mut AppStateHandle) {
         Ok(Some(preview)) => preview,
         Ok(None) => return,
         Err(error) => {
-            app_state.write().prs_state.error = Some(error.message);
+            let mut state = app_state.write();
+            state.prs_state.error = Some(error.message);
+            state.prs_state.loading.detail = false;
+            state.prs_state.loading.comments = false;
+            drop(state);
             return;
         }
     };
