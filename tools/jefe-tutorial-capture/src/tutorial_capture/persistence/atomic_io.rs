@@ -99,7 +99,8 @@ fn is_unsupported_directory_sync(err: &std::io::Error) -> bool {
 
 /// On non-Unix, directory sync is unavailable.
 #[cfg(not(unix))]
-fn fsync_dir(_path: &Path) -> Result<(), PersistenceError> {
+fn fsync_dir(path: &Path) -> Result<(), PersistenceError> {
+    std::fs::metadata(path).map_err(|e| io_error_path(path, e))?;
     Ok(())
 }
 

@@ -212,7 +212,7 @@ fn is_executable(path: &std::path::Path) -> bool {
 /// Whether a path exists and is executable (non-Unix: just checks existence).
 #[cfg(not(unix))]
 fn is_executable(path: &std::path::Path) -> bool {
-    fs::metadata(path).map(|m| m.is_file()).unwrap_or(false)
+    fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
 /// Build a deterministic interactive shim script for the given binary name.

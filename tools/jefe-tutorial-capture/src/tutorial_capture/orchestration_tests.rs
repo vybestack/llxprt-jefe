@@ -217,21 +217,19 @@ fn prepare_run_fails_on_collision() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn shim_scripts_are_executable_on_unix() {
+    use std::os::unix::fs::PermissionsExt;
+
     let base = temp_base();
     let setup = sample_setup(base.path());
     let (dirs, _manifest) = prepare_run(&setup).value_or_panic("prepare_run");
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = fs::metadata(dirs.shim_dir.join("llxprt"))
-            .value_or_panic("stat shim")
-            .permissions()
-            .mode();
-        assert!(perms & 0o111 != 0, "shim must be executable");
-    }
+    let perms = fs::metadata(dirs.shim_dir.join("llxprt"))
+        .value_or_panic("stat shim")
+        .permissions()
+        .mode();
+    assert!(perms & 0o111 != 0, "shim must be executable");
 }
 
 // ── save/load manifest ────────────────────────────────────────────────

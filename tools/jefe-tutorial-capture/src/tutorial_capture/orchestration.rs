@@ -258,16 +258,16 @@ pub fn plan_real_runtime_link_for(profile: RuntimeProfile) -> Option<path_shim::
 ///
 /// Returns [`OrchestrationError`] if directory creation, shim writing, git
 /// initialization, or manifest persistence fails.
+#[cfg(not(unix))]
+pub fn prepare_run(_setup: &RunSetup) -> Result<(RunDirectories, RunManifest), OrchestrationError> {
+    Err(OrchestrationError::Io {
+        path: PathBuf::new(),
+        reason: "tutorial-capture is Unix-only: requires tmux, git, and POSIX shell".to_string(),
+    })
+}
+
+#[cfg(unix)]
 pub fn prepare_run(setup: &RunSetup) -> Result<(RunDirectories, RunManifest), OrchestrationError> {
-    // Non-Unix fail fast: the workflow requires tmux, git, and POSIX shell.
-    #[cfg(not(unix))]
-    {
-        return Err(OrchestrationError::Io {
-            path: PathBuf::new(),
-            reason: "tutorial-capture is Unix-only: requires tmux, git, and POSIX shell"
-                .to_string(),
-        });
-    }
     // Finding #1: fail prepare if sh/git/tmux required tools are unavailable.
     let missing = path_shim::check_tier_a_required_tools(&inherited_path());
     if !missing.is_empty() {
@@ -422,7 +422,7 @@ fn make_executable(path: &Path) -> Result<(), OrchestrationError> {
 
 #[cfg(not(unix))]
 fn make_executable(path: &Path) -> Result<(), OrchestrationError> {
-    let _ = path;
+    fs::metadata(path).map_err(|e| io_error(path, e))?;
     Ok(())
 }
 

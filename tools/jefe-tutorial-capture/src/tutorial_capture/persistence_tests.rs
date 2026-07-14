@@ -255,15 +255,12 @@ fn validate_rejects_symlink_owned_path() {
 
 #[test]
 fn validate_rejects_nul_in_path() {
-    use std::ffi::OsString;
-    use std::os::unix::ffi::OsStringExt;
     let base = temp_dir();
     let run_root = make_run_root(base.path(), "run-001");
 
     let id = RunId::new("nul-test").value_or_panic("valid id");
     let mut manifest = RunManifest::new(id, "0.0.28", "test", 100, 32, RuntimeProfile::Shim);
-    let bad_bytes = b"/tmp/run-\0root/config";
-    let bad_path = PathBuf::from(OsString::from_vec(bad_bytes.to_vec()));
+    let bad_path = PathBuf::from("/tmp/run-\0root/config");
     manifest.add_owned_path(OwnedPathKind::ConfigDir, bad_path);
 
     let err = error_or_panic(
