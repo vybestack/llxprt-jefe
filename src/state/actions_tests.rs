@@ -730,10 +730,18 @@ mod tests {
         // PR 1 → PR 2
         state.apply_actions_message(ActionsMessage::CycleFilterStatus);
         assert_eq!(state.actions_state.draft_filter.pr_number, Some(2));
+        assert_eq!(
+            state.actions_state.draft_filter.head_sha.as_deref(),
+            Some("sha2")
+        );
 
         // PR 2 → PR 3
         state.apply_actions_message(ActionsMessage::CycleFilterStatus);
         assert_eq!(state.actions_state.draft_filter.pr_number, Some(3));
+        assert_eq!(
+            state.actions_state.draft_filter.head_sha.as_deref(),
+            Some("sha3")
+        );
 
         // PR 3 → None (wraps)
         state.apply_actions_message(ActionsMessage::CycleFilterStatus);
