@@ -16,6 +16,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::{Agent, AgentId, Repository, RepositoryId};
 
+mod selector_validation;
+pub(crate) use selector_validation::validate_state_selectors;
+
 /// Persistence errors.
 #[derive(Debug, Clone)]
 pub enum PersistenceError {
@@ -672,6 +675,12 @@ impl PersistenceManager for FilePersistenceManager {
         let state: State = serde_json::from_str(&content)
             .map_err(|e| PersistenceError::ParseError(format!("parse state: {e}")))?;
 
+        // Semantic validation: reject structurally invalid selectors (e.g.
+        // embedded NUL bytes) at the persistence boundary rather than loading
+        // state that can never produce a successful launch. See
+        // [`validate_state_selectors`] for the full rationale.
+        validate_state_selectors(&state)?;
+
         Ok(state)
     }
 
@@ -695,4 +704,9 @@ impl PersistenceManager for FilePersistenceManager {
 }
 
 #[cfg(test)]
+#[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "selector_validation_tests.rs"]
+mod selector_validation_tests;

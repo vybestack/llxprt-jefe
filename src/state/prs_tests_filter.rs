@@ -81,10 +81,12 @@ fn test_apply_filter_commits_and_resets_for_reload() {
     );
     // Controls closed.
     assert!(!new_state.prs_state.filter_ui.controls_open);
-    // Reload requested: loading.list true and/or a new pending request.
+    // Reload requested: the list is cleared (the dispatch layer begins the
+    // actual fetch). The reducer drops stale rows/continuation so the next
+    // PrListLoaded starts fresh.
     assert!(
-        new_state.prs_state.loading.list || new_state.prs_state.list_reload_pending.is_some(),
-        "apply filter must trigger a list reload"
+        new_state.prs_state.pull_requests().is_empty(),
+        "apply filter must clear the list for reload"
     );
 }
 
@@ -143,9 +145,10 @@ fn test_apply_search_commits_trimmed_query_and_resets() {
         !new_state.prs_state.search_input_focused,
         "search input must be blurred after apply"
     );
+    // The list is cleared for reload (the dispatch layer begins the fetch).
     assert!(
-        new_state.prs_state.loading.list || new_state.prs_state.list_reload_pending.is_some(),
-        "apply search must trigger a list reload"
+        new_state.prs_state.pull_requests().is_empty(),
+        "apply search must clear the list for reload"
     );
 }
 
@@ -175,9 +178,10 @@ fn test_clear_search_blurs_and_reloads() {
         !new_state.prs_state.search_input_focused,
         "search input must be blurred"
     );
+    // The list is cleared for reload (the dispatch layer begins the fetch).
     assert!(
-        new_state.prs_state.loading.list || new_state.prs_state.list_reload_pending.is_some(),
-        "clear search must trigger a list reload"
+        new_state.prs_state.pull_requests().is_empty(),
+        "clear search must clear the list for reload"
     );
 }
 

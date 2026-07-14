@@ -17,13 +17,11 @@ use tracing::{debug, info};
 use super::attach::AttachedViewer;
 use super::commands;
 use super::errors::RuntimeError;
+use super::history_cache::HistoryCache;
 use super::liveness;
-use super::session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
+use super::session::RuntimeSession;
+use super::session::TerminalSnapshot;
 use crate::domain::{AgentId, LaunchSignature, RemoteRepositorySettings};
-
-#[path = "history_cache.rs"]
-mod history_cache;
-use history_cache::{HistoryCache, strip_trailing_rows};
 
 /// Maximum number of dead-session launch signatures retained for relaunch.
 ///
@@ -36,12 +34,6 @@ const MAX_DEAD_SIGNATURES: NonZeroUsize = match NonZeroUsize::new(100) {
     Some(n) => n,
     None => NonZeroUsize::MIN,
 };
-
-/// Maximum number of scrollback history lines retained for an embedded
-/// terminal session (issue #198). Matches the `terminal-scrollback.json` test
-/// scenario's `history_limit` (2000), intentionally smaller than the harness
-/// default (10000) to bound render/capture cost.
-const HISTORY_LINE_CAP: usize = 2000;
 
 /// Lightweight metadata for checking session liveness without holding the runtime lock.
 ///
@@ -81,6 +73,37 @@ pub trait RuntimeManager: Send {
         signature: &LaunchSignature,
     ) -> Result<(), RuntimeError> {
         self.spawn_session(agent_id, work_dir, signature)
+    }
+
+    /// Spawn a fresh session from an already-prepared launch, killing the
+    /// existing session exactly once and reusing the prepared data for the
+    /// post-kill spawn (issue #269).
+    ///
+    /// The caller prepares the [`PreparedLaunch`] once (resolving all
+    /// non-destructive prerequisites before the kill). This method kills the
+    /// existing session (if any), waits for teardown if required, executes
+    /// the SAME prepared data, and stores the runtime session mapping. No
+    /// re-resolution or re-prepare occurs — eliminating the double-kill /
+    /// double-probe hazard of the old prepare → drop → kill → reprepare path.
+    ///
+    /// Unlike [`spawn_session_fresh`](Self::spawn_session_fresh), this method
+    /// is the ONE path that may REPLACE an existing running mapping for the
+    /// agent (the restart/replacement case): it stashes the old mapping,
+    /// performs the single kill → delay → spawn transaction, and restores the
+    /// old mapping on spawn failure so the caller observes the pre-restart
+    /// state.
+    fn spawn_prepared_session_fresh(
+        &mut self,
+        agent_id: &AgentId,
+        work_dir: &Path,
+        signature: &LaunchSignature,
+        prepared: &super::prepared_launch::PreparedLaunch,
+    ) -> Result<(), RuntimeError> {
+        // Default: ignore the prepared launch and fall back to the standard
+        // force-fresh path. Real implementations override this to reuse the
+        // prepared data.
+        let _ = prepared;
+        self.spawn_session_fresh(agent_id, work_dir, signature)
     }
 
     /// Attach to an existing session.
@@ -441,6 +464,15 @@ impl TmuxRuntimeManager {
         self.sessions.get(agent_id).and_then(|s| s.pid)
     }
 
+    /// Return the session-cached npm executable path, if one was detected at
+    /// startup. Exposed so the restart dispatch can pass it to
+    /// `PreparedLaunch::prepare` — ensuring the pre-kill preflight resolves
+    /// npm from the exact same cached path that the runtime manager uses.
+    #[must_use]
+    pub fn npm_executable_path(&self) -> Option<std::path::PathBuf> {
+        self.npm_executable.clone()
+    }
+
     fn spawn_session_internal(
         &mut self,
         agent_id: &AgentId,
@@ -475,30 +507,22 @@ impl TmuxRuntimeManager {
                 self.ensure_prefix_passthrough(&session_name);
             }
         } else {
-            if !allow_reattach {
-                // Explicit relaunch-after-kill path: best-effort kill by name so a
-                // stale session cannot be reused with old environment values.
-                let kill_result = if signature.remote.enabled {
-                    commands::kill_remote_session(&signature.remote, &session_name)
-                } else {
-                    commands::kill_session(&session_name)
-                };
-                if let Err(error) = kill_result {
-                    debug!(
-                        session_name = %session_name,
-                        error = %error,
-                        "force-fresh spawn pre-kill was not clean"
-                    );
-                }
+            if allow_reattach {
+                debug!(session_name = %session_name, "creating new tmux session");
+                commands::create_session(
+                    &session_name,
+                    work_dir,
+                    signature,
+                    self.npm_executable.as_deref(),
+                )?;
+            } else {
+                super::prepared_spawn::force_fresh_spawn(
+                    &session_name,
+                    work_dir,
+                    signature,
+                    self.npm_executable.as_deref(),
+                )?;
             }
-
-            debug!(session_name = %session_name, "creating new tmux session");
-            commands::create_session(
-                &session_name,
-                work_dir,
-                signature,
-                self.npm_executable.as_deref(),
-            )?;
 
             // `finalize_local_session` (inside create_session) already ran
             // `enforce_clipboard_passthrough` for a freshly created local
@@ -546,6 +570,80 @@ impl TmuxRuntimeManager {
 
         Ok(())
     }
+
+    /// Prepared-session spawn: kill the existing session exactly once using
+    /// the prepared data, wait for teardown, then execute the SAME prepared
+    /// data and store the runtime session mapping. No re-resolution occurs.
+    ///
+    /// This is the restart replacement transaction (issue #269): the app
+    /// dispatch prepares once and passes the prepared launch into the manager,
+    /// which kills once only after the prepared data exists, then reuses it
+    /// for the post-kill spawn — eliminating the double-kill / double-probe
+    /// hazard of the old prepare → drop → kill → reprepare path.
+    ///
+    /// Unlike `spawn_session_internal`, this method permits and replaces an
+    /// existing runtime mapping so restarting a running mapped agent does not
+    /// return `AlreadyRunning`. Once the old session is killed, its mapping is
+    /// not restored if replacement fails.
+    fn spawn_prepared_session_internal(
+        &mut self,
+        agent_id: &AgentId,
+        signature: &LaunchSignature,
+        prepared: &super::prepared_launch::PreparedLaunch,
+    ) -> Result<(), RuntimeError> {
+        let session_name = prepared.session_name().to_owned();
+
+        // Remove any existing mapping before replacement. The prepared path is
+        // the one caller allowed to replace a running mapped session. If spawn
+        // fails after the kill, retaining the old mapping would falsely report
+        // a dead session as running.
+        if let Some(old) = self.sessions.remove(agent_id) {
+            self.clipboard_enforced.remove(&old.session_name);
+            self.prefix_enforced.remove(&old.session_name);
+        }
+
+        // Invalidate stale cache for the fresh spawn.
+        self.history_cache.clear(agent_id);
+
+        // Execute the single kill → delay → spawn transaction. The kill is
+        // best-effort (logged inside run_prepared_transaction, never aborts
+        // the spawn). The delay gives the old session time to release the
+        // pane before the new session is created. This is the SINGLE kill —
+        // the app dispatch does NOT kill separately.
+        let spawn_result = super::prepared_spawn::run_prepared_transaction(
+            || super::prepared_spawn::kill_session_for_prepared(prepared, &session_name),
+            || {
+                std::thread::sleep(super::prepared_spawn::PREPARED_KILL_TEARDOWN_DELAY);
+            },
+            || super::prepared_spawn::execute_prepared_launch(prepared),
+        );
+
+        spawn_result?;
+
+        // Enforce clipboard + prefix passthrough for a freshly created local
+        // session (mirrors the create_session / force_fresh_spawn path).
+        if !signature.remote.enabled {
+            self.ensure_clipboard_passthrough(&session_name);
+            self.ensure_prefix_passthrough(&session_name);
+        }
+
+        // Capture the worker PID for the PID-liveness fallback (local only).
+        let captured_pid = if signature.remote.enabled {
+            None
+        } else {
+            commands::pane_pid(&session_name)
+        };
+
+        // Store/refresh session binding.
+        let mut session = RuntimeSession::new(agent_id.clone(), session_name, signature.clone());
+        session.pid = captured_pid;
+        self.sessions.insert(agent_id.clone(), session);
+
+        // Remove from dead signatures if present.
+        let _ = self.dead_signatures.pop(agent_id);
+
+        Ok(())
+    }
 }
 
 impl RuntimeManager for TmuxRuntimeManager {
@@ -571,6 +669,20 @@ impl RuntimeManager for TmuxRuntimeManager {
             "spawning fresh runtime session"
         );
         self.spawn_session_internal(agent_id, work_dir, signature, false)
+    }
+
+    fn spawn_prepared_session_fresh(
+        &mut self,
+        agent_id: &AgentId,
+        _work_dir: &Path,
+        signature: &LaunchSignature,
+        prepared: &super::prepared_launch::PreparedLaunch,
+    ) -> Result<(), RuntimeError> {
+        info!(
+            agent_id = %agent_id.0,
+            "spawning fresh runtime session from prepared launch"
+        );
+        self.spawn_prepared_session_internal(agent_id, signature, prepared)
     }
 
     fn attach(&mut self, agent_id: &AgentId) -> Result<(), RuntimeError> {
@@ -822,102 +934,23 @@ impl RuntimeManager for TmuxRuntimeManager {
     }
 
     fn capture_session_output(&self, agent_id: &AgentId) -> Option<TerminalSnapshot> {
-        let session = self.sessions.get(agent_id)?;
-        if session.launch_signature.remote.enabled {
-            return None;
-        }
-
-        let lines = commands::capture_pane_lines(&session.session_name)?;
-
-        let rows = lines.len();
-        let cols = lines
-            .iter()
-            .map(|line| line.chars().count())
-            .max()
-            .unwrap_or(0);
-
-        if rows == 0 || cols == 0 {
-            return Some(TerminalSnapshot::default());
-        }
-
-        let default_style = TerminalCellStyle {
-            fg: iocraft::Color::White,
-            bg: iocraft::Color::Black,
-            bold: false,
-            dim: false,
-            underline: false,
-        };
-
-        let mut snapshot = TerminalSnapshot::blank(rows, cols, default_style);
-        // `capture_pane_lines` does not preserve soft-wrap metadata, so all
-        // rows are treated as hard line breaks (wraps stays all-false, which
-        // is the default from `blank` — issue #197).
-        snapshot.wraps = vec![false; rows];
-        for (r, line) in lines.iter().enumerate() {
-            for (c, ch) in line.chars().enumerate() {
-                snapshot.cells[r][c] = TerminalCell {
-                    ch,
-                    style: default_style,
-                    wide_spacer: false,
-                };
-            }
-        }
-
-        Some(snapshot)
+        super::capture_ops::capture_session_output(&self.sessions, agent_id)
     }
 
     fn capture_history(&mut self) -> Option<Vec<String>> {
-        let agent_id = self.attached_agent_id.clone()?;
-        let session_name = self
-            .sessions
-            .get(&agent_id)
-            .map(|s| s.session_name.clone())?;
-
-        // Remote sessions do not support local capture-pane history.
-        let is_remote = self
-            .sessions
-            .get(&agent_id)
-            .is_some_and(|s| s.launch_signature.remote.enabled);
-        if is_remote {
-            return None;
-        }
-
-        // Cache hit: same agent + generation + not dirty → reuse (fix #2/#10).
-        // The generation counter increments on take_dirty(). Also treat a
-        // currently-dirty viewer as a cache miss so input-driven refresh does
-        // not serve stale lines before take_dirty() bumps the generation.
+        // Collect immutable fields first to avoid borrowing conflicts with
+        // the mutable history_cache reference passed to capture_history.
         let generation = self.output_generation();
         let is_currently_dirty = self.is_dirty();
-        if !is_currently_dirty && let Some(cached) = self.history_cache.get(&agent_id, generation) {
-            return Some(cached.clone());
-        }
-
-        // Cache miss / dirty: re-capture. On transient failure, return prior
-        // cache so a momentary tmux hiccup doesn't wipe retained history.
-        let Some(raw_lines) = commands::capture_pane_history(&session_name, HISTORY_LINE_CAP)
-        else {
-            if let Some(prior) = self.history_cache.get_fallback(&agent_id) {
-                debug!(session_name = %session_name, "capture-pane failed; retaining prior cache");
-                return Some(prior.clone());
-            }
-            return None;
-        };
-
-        // Strip the visible pane rows (live snapshot already has them).
         let live_rows = self.snapshot().map_or(0, |s| s.rows);
-        let lines = strip_trailing_rows(raw_lines, live_rows);
-
-        // Do NOT strip trailing blank lines — they may be real blank output,
-        // not tmux padding. Cache the result (including an empty capture) so
-        // we don't shell out every frame. Return `Some(lines)` consistently so
-        // the current frame and subsequent cache-hit frames agree (an empty
-        // capture returns `Some(vec![])`, not `None` — callers normalize via
-        // `map_or(0, Vec::len)`, and `None` is reserved for "no session /
-        // capture not applicable").
-        self.history_cache
-            .store(&agent_id, generation, Some(lines.clone()));
-
-        Some(lines)
+        super::capture_ops::capture_history(
+            self.attached_agent_id.as_ref(),
+            &self.sessions,
+            &mut self.history_cache,
+            generation,
+            is_currently_dirty,
+            live_rows,
+        )
     }
 }
 

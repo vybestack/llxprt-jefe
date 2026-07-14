@@ -12,12 +12,15 @@ use tracing::debug;
 
 use crate::domain::{AgentKind, LaunchSignature};
 
-use super::command_plan::ExecutablePlan;
-use super::command_plan::{LocalLaunchPlan, launch_args, local_launch_plan};
-#[cfg(test)]
-use super::command_plan::{code_puppy_launch_args, llxprt_launch_args};
+use super::command_plan::{ExecutablePlan, launch_args};
 use super::errors::RuntimeError;
-use super::socket::jefe_tmux_socket_path;
+use super::multiplexer::MultiplexerPlan;
+use super::npm_launch;
+
+#[cfg(test)]
+use super::command_plan::{
+    LocalLaunchPlan, code_puppy_launch_args, llxprt_launch_args, local_launch_plan,
+};
 
 const REMOTE_SSH_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -40,7 +43,7 @@ const TMUX_ENV_VARS_TO_SCRUB: &[&str] = &["TMUX", "TMUX_PANE", "TMUX_TMPDIR"];
 ///
 /// See [`TMUX_ENV_VARS_TO_SCRUB`] for why this is mandatory (#171).
 #[must_use]
-fn tmux_scrub_env_args() -> Vec<String> {
+pub(super) fn tmux_scrub_env_args() -> Vec<String> {
     let mut args = vec!["env".to_owned()];
     for var in TMUX_ENV_VARS_TO_SCRUB {
         args.push("-u".to_owned());
@@ -49,38 +52,14 @@ fn tmux_scrub_env_args() -> Vec<String> {
     args
 }
 
-/// The fixed base arguments every jefe local tmux command starts with:
-/// `-f /dev/null` (skip user config) and `-S <jefe-socket>` (dedicated socket).
+/// Resolve the local platform multiplexer and construct its isolated command.
 ///
-/// Factored out so tests can inspect the base arg composition deterministically
-/// without spawning tmux.
-#[must_use]
-pub fn tmux_base_args() -> Vec<String> {
-    let socket = jefe_tmux_socket_path();
-    vec![
-        "-f".to_owned(),
-        "/dev/null".to_owned(),
-        "-S".to_owned(),
-        socket.to_string_lossy().into_owned(),
-    ]
-}
-
-/// Build a local tmux `Command` that skips user config (`-f /dev/null`) and
-/// targets jefe's *private* socket (`-S <jefe-socket>`).
-///
-/// Jefe sets all tmux options programmatically, so loading `~/.tmux.conf` is
-/// unnecessary and can cause errors (e.g., pane-scoped options in the user
-/// config fail with "no current pane" when the server starts headlessly).
-///
-/// The dedicated socket (`-S`) isolates jefe's sessions from any unrelated user
-/// tmux sessions that share the default socket. This prevents jefe from
-/// destroying unrelated sessions and means jefe is unaffected when the shared
-/// default server dies (e.g. an OS reboot of the default tmux server).
-pub fn tmux_command() -> Command {
-    let mut cmd = Command::new("tmux");
-    let base = tmux_base_args();
-    cmd.args(&base);
-    cmd
+/// Unix preserves upstream tmux's `/dev/null` configuration and private socket.
+/// Native Windows selects qualified psmux with `NUL` and a private namespace.
+pub fn tmux_command() -> Result<Command, RuntimeError> {
+    MultiplexerPlan::current()
+        .map(|plan| plan.command())
+        .map_err(RuntimeError::Multiplexer)
 }
 
 // Re-export the pane capture / introspection helpers that production callers
@@ -90,7 +69,7 @@ pub fn tmux_command() -> Command {
 pub use super::pane_capture::{capture_pane_history, capture_pane_lines, pane_pid};
 
 fn tmux_cmd_status(args: &[&str], cwd: Option<&str>) -> Result<(), String> {
-    let mut cmd = tmux_command();
+    let mut cmd = tmux_command().map_err(|error| error.to_string())?;
     cmd.args(args);
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
@@ -243,9 +222,10 @@ pub fn enforce_clipboard_passthrough(session_name: &str) {
         None,
     );
 
-    if let Ok(output) = tmux_command()
-        .args(["list-panes", "-t", session_name, "-F", PANE_FORMAT])
-        .output()
+    if let Ok(mut command) = tmux_command()
+        && let Ok(output) = command
+            .args(["list-panes", "-t", session_name, "-F", PANE_FORMAT])
+            .output()
         && output.status.success()
     {
         let panes = String::from_utf8_lossy(&output.stdout);
@@ -258,11 +238,11 @@ pub fn enforce_clipboard_passthrough(session_name: &str) {
     }
 }
 
-pub fn shell_escape_single(value: &str) -> String {
+pub(super) fn shell_escape_single(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
 
-fn shell_join(parts: &[String]) -> String {
+pub(super) fn shell_join(parts: &[String]) -> String {
     parts
         .iter()
         .map(|part| shell_escape_single(part))
@@ -270,7 +250,7 @@ fn shell_join(parts: &[String]) -> String {
         .join(" ")
 }
 
-fn remote_is_enabled(remote: &crate::domain::RemoteRepositorySettings) -> bool {
+pub(super) fn remote_is_enabled(remote: &crate::domain::RemoteRepositorySettings) -> bool {
     // Delegate to the shared validated contract in domain::target so the
     // runtime layer's definition of "remote" can never drift from the
     // availability/prep layers. The shared predicate requires enabled AND
@@ -447,7 +427,7 @@ pub fn run_remote_ssh(
     )
 }
 
-fn ensure_remote_success(
+pub(super) fn ensure_remote_success(
     remote: &crate::domain::RemoteRepositorySettings,
     action: &str,
     output: Output,
@@ -486,7 +466,7 @@ fn resolve_remote_agent_command(
     // resolver and setup-env entirely. The npm exec command resolves and
     // installs the exact package version into the npm cache before running.
     if plan.requires_npm() {
-        return resolve_remote_npm_command(remote, work_dir);
+        return resolve_remote_npm_command(remote);
     }
     match agent_kind {
         AgentKind::CodePuppy => resolve_remote_code_puppy_command(remote, work_dir),
@@ -496,13 +476,12 @@ fn resolve_remote_agent_command(
 
 fn resolve_remote_npm_command(
     remote: &crate::domain::RemoteRepositorySettings,
-    _work_dir: &Path,
 ) -> Result<String, RuntimeError> {
     // Probe npm globally WITHOUT cd-ing into work_dir: the work directory may
     // not exist yet (clone-if-missing flow), and a versioned launch only needs
     // npm on the remote PATH, not a working directory. The actual tmux
     // new-session later creates the directory via `mkdir -p`.
-    let script = remote_npm_probe_script();
+    let script = npm_launch::remote_npm_probe_script();
     let output = run_remote_ssh(remote, &remote_tmux_command(remote, &script))?;
     let resolved = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     if output.status.success() && !resolved.is_empty() {
@@ -512,16 +491,6 @@ fn resolve_remote_npm_command(
             "npm is required on the remote host for versioned LLxprt launch but was not found. Install Node.js/npm on the remote host or clear the Version field to use a directly installed llxprt.".to_owned(),
         ))
     }
-}
-
-/// Build the remote npm probe script (pure, for test verification).
-///
-/// The script checks for `npm` on the global remote PATH WITHOUT cd-ing
-/// into the work directory. This is critical: the work directory may not
-/// exist yet (clone-if-missing flow), and requiring `cd` would turn a
-/// globally-installed npm into a spurious "npm not found" error.
-fn remote_npm_probe_script() -> String {
-    "command -v npm".to_owned()
 }
 
 fn resolve_remote_code_puppy_command(
@@ -596,43 +565,7 @@ fn resolve_remote_llxprt_command(
 }
 
 fn remote_env_exports(signature: &LaunchSignature) -> Vec<String> {
-    let mut env_exports = Vec::new();
-    if signature.agent_kind == AgentKind::CodePuppy {
-        return env_exports;
-    }
-    if signature.sandbox_enabled {
-        env_exports.push(format!(
-            "export SANDBOX_FLAGS={};",
-            shell_escape_single(&signature.sandbox_flags)
-        ));
-        if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
-            env_exports.push(format!(
-                "export LLXPRT_SANDBOX_IMAGE={};",
-                shell_escape_single(&image_ref.to_string_lossy())
-            ));
-        }
-    }
-    if !signature.llxprt_debug.is_empty() {
-        env_exports.push(format!(
-            "export LLXPRT_DEBUG={};",
-            shell_escape_single(&signature.llxprt_debug)
-        ));
-    }
-    env_exports
-}
-
-fn remote_cli_command(llxprt_command: &str, launch_args: &[String]) -> String {
-    let executable = if llxprt_command == "llxprt" {
-        llxprt_command.to_owned()
-    } else {
-        shell_escape_single(llxprt_command)
-    };
-
-    if launch_args.is_empty() {
-        executable
-    } else {
-        format!("{} {}", executable, shell_join(launch_args))
-    }
+    npm_launch::remote_env_exports(signature)
 }
 
 /// Assemble the remote CLI command from the executable plan, resolved agent
@@ -653,21 +586,10 @@ fn assemble_remote_cli_command(
     agent_command: &str,
     args: &[String],
 ) -> String {
-    if plan.requires_npm() {
-        let prefix = plan.remote_command_prefix(agent_command);
-        if prefix.is_empty() {
-            remote_cli_command(agent_command, args)
-        } else if args.is_empty() {
-            prefix
-        } else {
-            format!("{prefix} {}", shell_join(args))
-        }
-    } else {
-        remote_cli_command(agent_command, args)
-    }
+    npm_launch::assemble_remote_cli_command(plan, agent_command, args)
 }
 
-fn build_remote_launch_command(
+pub(super) fn build_remote_launch_command(
     session_name: &str,
     work_dir: &Path,
     signature: &LaunchSignature,
@@ -733,63 +655,15 @@ fn build_remote_tmux_script(
     )
 }
 
-fn local_launch_command(
-    session_name: &str,
-    work_dir: &Path,
-    plan: &LocalLaunchPlan,
-    npm_executable: Option<&Path>,
-) -> Command {
-    let mut cmd = tmux_command();
-    cmd.arg("new-session")
-        .arg("-d")
-        .arg("-s")
-        .arg(session_name)
-        .arg("-c")
-        .arg(work_dir);
+/// Resolve the local executable for a launch plan using an explicit resolver.
+#[cfg(test)]
+pub(super) use npm_launch::resolve_local_executable_with_resolver;
 
-    // Wrap the pane command in `env -u TMUX -u TMUX_PANE -u TMUX_TMPDIR …` so
-    // the llxprt child (and any tool it spawns) cannot reach jefe's private
-    // tmux server via a bare `tmux` (#171). tmux's server populates the pane
-    // env, so the scrub MUST live in the pane command rather than jefe's own
-    // process env. The argv is built by the pure [`local_pane_command_args`]
-    // helper so it is directly unit-testable.
-    for arg in local_pane_command_args(plan, npm_executable) {
-        cmd.arg(arg);
-    }
-    cmd
-}
+/// Build the complete Unix pane-command argv for regression tests.
+#[cfg(test)]
+pub(super) use npm_launch::local_pane_command_args;
 
-/// Build the pane-command argv for a local agent session: the `env -u` scrub
-/// prefix, any `KEY=VALUE` env assignments, then the executable selection
-/// (direct binary or npm exec prefix) and its launch args.
-///
-/// Factored out of [`local_launch_command`] so the scrub and executable plan
-/// are unit-testable without spawning tmux or introspecting a `Command`
-/// (#171).
-fn local_pane_command_args(
-    plan: &LocalLaunchPlan,
-    npm_executable: Option<&Path>,
-) -> Vec<std::ffi::OsString> {
-    let mut args: Vec<std::ffi::OsString> =
-        tmux_scrub_env_args().into_iter().map(Into::into).collect();
-    for (key, value) in &plan.env {
-        args.push(format!("{key}={value}").into());
-    }
-    // For a Direct plan, emit the binary name (llxprt or code-puppy). For an
-    // NpmExec plan, the prefix already includes `npm exec ... -- llxprt`.
-    match plan.plan {
-        ExecutablePlan::Direct => {
-            args.push(plan.agent_kind.binary_name().into());
-        }
-        ExecutablePlan::NpmExec { .. } => {
-            args.extend(plan.plan.local_argv_prefix(npm_executable));
-        }
-    }
-    args.extend(plan.args.iter().map(Into::into));
-    args
-}
-
-fn finalize_local_session(session_name: &str, warning: Option<String>) {
+pub(super) fn finalize_local_session(session_name: &str, warning: Option<String>) {
     enforce_clipboard_passthrough(session_name);
     if let Err(error) = disable_prefix_for_passthrough(session_name) {
         debug!(session_name = %session_name, error = %error, "prefix passthrough option failed on create; will retry on attach");
@@ -815,36 +689,8 @@ fn finalize_local_session(session_name: &str, warning: Option<String>) {
     }
 }
 
-fn try_local_create_session(
-    session_name: &str,
-    work_dir: &Path,
-    signature: &LaunchSignature,
-    attempt: u8,
-    npm_executable: Option<&Path>,
-) -> Result<(), String> {
-    let plan = local_launch_plan(signature);
-    let mut cmd = local_launch_command(session_name, work_dir, &plan, npm_executable);
-    debug!(session_name = %session_name, attempt, "create_session invoking tmux new-session");
-
-    let output = cmd.output().map_err(|e| format!("tmux new-session: {e}"))?;
-    if output.status.success() {
-        debug!(session_name = %session_name, attempt, "create_session tmux new-session succeeded");
-        finalize_local_session(session_name, plan.warning);
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
-}
-
-fn create_remote_session(
-    session_name: &str,
-    work_dir: &Path,
-    signature: &LaunchSignature,
-) -> Result<(), RuntimeError> {
-    let remote_command = build_remote_launch_command(session_name, work_dir, signature)?;
-    let output = run_remote_ssh(&signature.remote, &remote_command)?;
-    ensure_remote_success(&signature.remote, "remote tmux new-session", output)?;
-    Ok(())
+pub(super) fn is_tmux_fork_broken_pub(stderr: &str) -> bool {
+    is_tmux_fork_broken(stderr)
 }
 
 fn is_tmux_fork_broken(stderr: &str) -> bool {
@@ -869,42 +715,87 @@ pub fn create_session(
     npm_executable: Option<&Path>,
 ) -> Result<(), RuntimeError> {
     debug!(session_name = %session_name, work_dir = %work_dir.display(), "create_session start");
-    if remote_is_enabled(&signature.remote) {
-        return create_remote_session(session_name, work_dir, signature);
-    }
 
-    let _ = kill_session(session_name);
-    match try_local_create_session(session_name, work_dir, signature, 0, npm_executable) {
-        Ok(()) => return Ok(()),
-        Err(stderr) if is_tmux_fork_broken(&stderr) => {
-            debug!(session_name = %session_name, attempt = 0, stderr = %stderr, "create_session retrying after tmux fork failure");
-            // Scoped recovery: kill only this one target session on the
-            // jefe-private socket, then retry. We must NOT call `tmux
-            // kill-server` here — that would nuke every jefe session (and,
-            // before the dedicated socket, every unrelated user session too)
-            // over a transient per-session fork error.
+    // Prepared-launch abstraction (issue #269): resolve and validate ALL
+    // non-destructive prerequisites (selector, multiplexer + capabilities,
+    // local executable / remote npm probe + command) BEFORE any kill. This
+    // guarantees an invalid selector or unavailable target causes NO
+    // destruction, and eliminates resolution drift between the pre-kill
+    // validation and the post-kill spawn.
+    let prepared = super::prepared_launch::PreparedLaunch::prepare(
+        session_name,
+        work_dir,
+        signature,
+        npm_executable,
+    )?;
+
+    // Kill the existing session AFTER all prerequisites are validated.
+    match &prepared {
+        super::prepared_launch::PreparedLaunch::Remote(remote_prepared) => {
+            let _ = kill_remote_session(remote_prepared.remote(), session_name);
+            return remote_prepared.execute();
+        }
+        super::prepared_launch::PreparedLaunch::Local(_) => {
             let _ = kill_session(session_name);
         }
-        Err(stderr) => return Err(local_spawn_error(session_name, 0, stderr)),
     }
 
-    match try_local_create_session(session_name, work_dir, signature, 1, npm_executable) {
+    // Execute from prepared data — no re-resolution.
+    execute_prepared_local(&prepared, 0)
+}
+
+/// Execute a prepared local launch with the fork-broken retry path preserved.
+/// The first attempt may fail with a fork-broken error; a second attempt is
+/// made after a scoped kill. All data comes from the prepared launch — no
+/// re-resolution occurs on retry.
+fn execute_prepared_local(
+    prepared: &super::prepared_launch::PreparedLaunch,
+    attempt: u8,
+) -> Result<(), RuntimeError> {
+    let super::prepared_launch::PreparedLaunch::Local(local) = prepared else {
+        // Remote launches are handled directly by PreparedRemoteLaunch::execute.
+        return Err(RuntimeError::SpawnFailed(
+            "execute_prepared_local called for a remote launch".to_owned(),
+        ));
+    };
+
+    match local.try_execute() {
         Ok(()) => Ok(()),
-        Err(stderr) => Err(local_spawn_error(session_name, 1, stderr)),
+        Err(super::prepared_launch::LocalExecuteFailure::Runtime(error)) => Err(error),
+        Err(super::prepared_launch::LocalExecuteFailure::Command(stderr))
+            if is_tmux_fork_broken(&stderr) =>
+        {
+            debug!(
+                session_name = %local.session_name(),
+                attempt,
+                stderr = %stderr,
+                "create_session retrying after multiplexer fork failure"
+            );
+            // Scoped recovery: kill only this one target session in Jefe's
+            // private isolation handle. Never terminate the whole server.
+            let _ = kill_session(local.session_name());
+            // Retry from the SAME prepared data — no re-resolution.
+            local.try_execute().map_err(|failure| match failure {
+                super::prepared_launch::LocalExecuteFailure::Runtime(error) => error,
+                super::prepared_launch::LocalExecuteFailure::Command(stderr) => {
+                    local_spawn_error(local.session_name(), attempt + 1, stderr)
+                }
+            })
+        }
+        Err(super::prepared_launch::LocalExecuteFailure::Command(stderr)) => {
+            Err(local_spawn_error(local.session_name(), attempt, stderr))
+        }
     }
 }
 
 /// Check if a tmux session exists.
 #[allow(dead_code)]
-pub fn session_exists(session_name: &str) -> bool {
-    let output = tmux_command()
+pub fn session_exists(session_name: &str) -> Result<bool, RuntimeError> {
+    let output = tmux_command()?
         .args(["has-session", "-t", session_name])
-        .output();
-
-    match output {
-        Ok(out) => out.status.success(),
-        Err(_) => false,
-    }
+        .output()
+        .map_err(|error| RuntimeError::CapabilityProbeFailed(error.to_string()))?;
+    Ok(output.status.success())
 }
 
 pub fn remote_session_exists(
@@ -920,7 +811,7 @@ pub fn remote_session_exists(
 ///
 /// @pseudocode component-002 lines 24-25
 pub fn kill_session(session_name: &str) -> Result<(), RuntimeError> {
-    let output = tmux_command()
+    let output = tmux_command()?
         .args(["kill-session", "-t", session_name])
         .output()
         .map_err(|e| RuntimeError::KillFailed(format!("tmux kill-session: {e}")))?;
@@ -948,7 +839,7 @@ pub fn kill_remote_session(
 /// Send keys to a tmux session (for testing/automation).
 #[allow(dead_code)]
 pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
-    let output = tmux_command()
+    let output = tmux_command()?
         .args(["send-keys", "-t", session_name, keys, "Enter"])
         .output()
         .map_err(|e| RuntimeError::WriteFailed(format!("tmux send-keys: {e}")))?;
@@ -968,5 +859,9 @@ pub fn send_keys(session_name: &str, keys: &str) -> Result<(), RuntimeError> {
 mod tests;
 
 #[cfg(test)]
+#[path = "commands_version_tests.rs"]
+mod commands_version_tests;
+
+#[cfg(all(test, unix))]
 #[path = "prefix_passthrough_tests.rs"]
 mod prefix_passthrough_tests;

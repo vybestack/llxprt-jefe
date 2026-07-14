@@ -243,6 +243,18 @@ pub(super) struct LocalLaunchPlan {
     pub(super) warning: Option<String>,
 }
 
+impl std::fmt::Debug for LocalLaunchPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalLaunchPlan")
+            .field("agent_kind", &self.agent_kind)
+            .field("plan", &self.plan)
+            .field("args", &self.args)
+            .field("env", &self.env)
+            .field("warning", &self.warning)
+            .finish()
+    }
+}
+
 /// Build a [`LocalLaunchPlan`] from a [`LaunchSignature`].
 pub(super) fn local_launch_plan(signature: &LaunchSignature) -> LocalLaunchPlan {
     let mut env = Vec::new();

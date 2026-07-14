@@ -74,9 +74,9 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
 
     // ── PRs state ──────────────────────────────────────────────────────────
     let pr_focus = state.map_or(PrFocus::PrList, |s| s.prs_state.pr_focus);
-    let pull_requests = state.map_or_else(Vec::new, |s| s.prs_state.pull_requests.clone());
-    let selected_pr_idx = state.and_then(|s| s.prs_state.selected_pr_index);
-    let list_loading = state.is_some_and(|s| s.prs_state.loading.list);
+    let pull_requests = state.map_or_else(Vec::new, |s| s.prs_state.pull_requests().to_vec());
+    let selected_pr_idx = state.and_then(|s| s.prs_state.selected_pr_index());
+    let list_loading = state.is_some_and(|s| s.prs_state.list_loading());
     let filter_controls_open = state.is_some_and(|s| s.prs_state.filter_ui.controls_open);
     let filter_field_index = state.map_or(0, |s| s.prs_state.filter_ui.field_index);
     let draft_labels_text = state.map_or_else(String::new, |s| {

@@ -36,6 +36,7 @@ mod actions_orchestration;
 // In-app device-code auth remediation dispatch (issue #244).
 mod auth_remediation;
 mod gh_async;
+mod list_loader;
 
 mod agent_runtime;
 mod availability;
@@ -48,6 +49,7 @@ mod issues_send;
 mod remote_probe;
 #[cfg(test)]
 mod remote_probe_version_tests;
+mod restart_dispatch;
 mod target_resolution;
 use agent_runtime::{
     clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
@@ -551,10 +553,10 @@ pub fn dispatch_app_message(
             dispatch_kill_agent(app_state, ctx, agent_id);
         }
         AppMessage::Runtime(RuntimeMessage::RelaunchAgent(agent_id)) => {
-            dispatch_relaunch_agent(app_state, ctx, agent_id);
+            restart_dispatch::dispatch_relaunch_agent(app_state, ctx, agent_id);
         }
         AppMessage::Runtime(RuntimeMessage::RestartAgent(agent_id)) => {
-            dispatch_restart_agent(app_state, ctx, agent_id);
+            restart_dispatch::dispatch_restart_agent(app_state, ctx, agent_id);
         }
         AppMessage::Issues(message) => {
             issues_dispatch::dispatch_issues_message(app_state, ctx, message);
@@ -591,6 +593,21 @@ fn dispatch_issues_lifecycle(
             apply_and_persist(app_state, ctx, AppEvent::CloseIssue);
             issues_lifecycle::handle_issue_close(app_state, ctx);
         }
+        IssuesMessage::CloseReasonConfirm => {
+            apply_and_persist(app_state, ctx, AppEvent::CloseReasonConfirm);
+            issues_lifecycle::handle_issue_close_with_reason(app_state, ctx);
+        }
+        message @ (IssuesMessage::OpenCloseReasonChooser
+        | IssuesMessage::CloseReasonNavigateUp
+        | IssuesMessage::CloseReasonNavigateDown
+        | IssuesMessage::CloseReasonSelect
+        | IssuesMessage::CloseReasonDuplicateSearchChar(_)
+        | IssuesMessage::CloseReasonDuplicateSearchBackspace
+        | IssuesMessage::CloseReasonDuplicateSearchNavigateUp
+        | IssuesMessage::CloseReasonDuplicateSearchNavigateDown
+        | IssuesMessage::CloseReasonCancel) => {
+            apply_and_persist(app_state, ctx, AppEvent::from(message));
+        }
         IssuesMessage::OpenDeleteIssueConfirm => {
             apply_and_persist(app_state, ctx, AppEvent::OpenDeleteIssueConfirm);
         }
@@ -602,7 +619,7 @@ fn dispatch_issues_lifecycle(
             apply_and_persist(app_state, ctx, AppEvent::IssueDeleteCancel);
         }
         // Defensive fallback: the sole caller (dispatch_app_message) pre-filters
-        // to the four lifecycle variants above, so other IssuesMessage variants
+        // to the lifecycle variants above, so other IssuesMessage variants
         // never reach here. Kept as a no-op safety net rather than forcing this
         // match to enumerate every IssuesMessage variant.
         _ => apply_and_persist(app_state, ctx, AppEvent::from(message)),
@@ -660,206 +677,6 @@ fn persist_error_message(app_state: &mut AppStateHandle, ctx: &SharedContext, er
     drop(state);
     persist_state(ctx, &persisted);
 }
-
-/// Restart an agent: kill, wait for session teardown, then relaunch with fresh
-/// config/env (issue #117). Surfaces an error if any step fails.
-fn dispatch_restart_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {
-    // Only kill if the agent is currently running; dead agents skip straight
-    // to relaunch (tolerating Ctrl-r on already-dead agents).
-    let agent_is_running = app_state
-        .read()
-        .agents
-        .iter()
-        .find(|a| a.id == agent_id)
-        .is_some_and(jefe::domain::Agent::is_running);
-
-    if agent_is_running {
-        if let Err(error) = kill_runtime_agent(ctx, &agent_id) {
-            warn!(agent_id = %agent_id.0, error = %error, "restart: kill failed");
-            persist_error_message(app_state, ctx, error);
-            return;
-        }
-
-        // Apply kill state transition so the UI reflects the kill immediately.
-        {
-            let mut state = app_state.write();
-            *state = std::mem::take(&mut *state).apply(AppEvent::KillAgent(agent_id.clone()));
-            state.terminal_focused = false;
-            let persisted = to_persisted_state(&state);
-            drop(state);
-            persist_state(ctx, &persisted);
-        }
-
-        // Wait for session teardown before relaunching (issue says 1-2s).
-        std::thread::sleep(Duration::from_millis(1500));
-    }
-
-    // Relaunch with fresh config (reuses existing relaunch plumbing).
-    dispatch_relaunch_agent(app_state, ctx, agent_id);
-}
-
-fn dispatch_relaunch_agent(app_state: &mut AppStateHandle, ctx: &SharedContext, agent_id: AgentId) {
-    if !relaunch_preflight_passed(app_state, ctx, &agent_id) {
-        return;
-    }
-
-    let relaunched = relaunch_runtime_session(app_state, ctx, &agent_id);
-    persist_relaunch_result(app_state, ctx, agent_id, relaunched);
-}
-
-fn relaunch_preflight_passed(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    agent_id: &AgentId,
-) -> bool {
-    let state_ro = app_state.read();
-    let agent_sig = agent_and_signature(&state_ro, agent_id);
-    drop(state_ro);
-    let Some((_, signature)) = agent_sig else {
-        return true;
-    };
-    if !availability::local_kind_available_or_error(
-        app_state,
-        signature.agent_kind,
-        &signature.llxprt_version,
-        &signature.remote,
-    ) {
-        return false;
-    }
-    preflight_or_prompt(app_state, ctx, agent_id, &signature, None)
-}
-
-fn relaunch_runtime_session(
-    app_state: &AppStateHandle,
-    ctx: &SharedContext,
-    agent_id: &AgentId,
-) -> bool {
-    let Some(ctx_arc) = ctx else {
-        return false;
-    };
-    let Ok(mut ctx_guard) = ctx_arc.lock() else {
-        return false;
-    };
-
-    let state_ro = app_state.read();
-    let Some((agent, signature)) = agent_and_signature(&state_ro, agent_id) else {
-        return false;
-    };
-    drop(state_ro);
-
-    if !spawn_relaunch_session(
-        &mut ctx_guard.runtime,
-        agent_id,
-        &agent.work_dir,
-        &signature,
-    ) {
-        return false;
-    }
-    std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
-    attach_relaunched_session(&mut ctx_guard.runtime, agent_id)
-}
-
-fn spawn_relaunch_session(
-    runtime: &mut jefe::runtime::TmuxRuntimeManager,
-    agent_id: &AgentId,
-    work_dir: &std::path::Path,
-    signature: &LaunchSignature,
-) -> bool {
-    match runtime.spawn_session_fresh(agent_id, work_dir, signature) {
-        Ok(()) => true,
-        Err(RuntimeError::AlreadyRunning(_)) => runtime.relaunch(agent_id).is_ok(),
-        Err(error) => {
-            warn!(
-                agent_id = %agent_id.0,
-                error = %error,
-                "could not spawn fresh runtime session for relaunch"
-            );
-            false
-        }
-    }
-}
-
-fn attach_relaunched_session(
-    runtime: &mut jefe::runtime::TmuxRuntimeManager,
-    agent_id: &AgentId,
-) -> bool {
-    match runtime.attach(agent_id) {
-        Ok(()) => true,
-        Err(error) => {
-            warn!(agent_id = %agent_id.0, error = %error, "could not attach relaunched session");
-            let _ = runtime.mark_session_dead(agent_id);
-            false
-        }
-    }
-}
-
-fn persist_relaunch_result(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    agent_id: AgentId,
-    relaunched: bool,
-) {
-    let relaunch_event = AppEvent::RelaunchAgent(agent_id.clone());
-    // Query the PID BEFORE taking the app-state write lock: worker_pid_for
-    // acquires the ctx mutex, so app_state-lock → ctx-lock would be a
-    // lock-ordering hazard. `pid_on_success` skips the query on the failure
-    // path (no binding is persisted).
-    let pid = pid_on_success(ctx, &agent_id, relaunched);
-    let mut state = app_state.write();
-    if relaunched {
-        persist_relaunch_success(&mut state, &agent_id, relaunch_event, pid);
-    } else {
-        persist_relaunch_failure(&mut state, &agent_id, relaunch_event);
-    }
-    let persisted = to_persisted_state(&state);
-    drop(state);
-    persist_state(ctx, &persisted);
-}
-
-fn persist_relaunch_success(
-    state: &mut AppState,
-    agent_id: &AgentId,
-    relaunch_event: AppEvent,
-    pid: Option<u32>,
-) {
-    // Capture agent_kind before `apply` consumes the state snapshot, so the
-    // SSH-agent warning can be gated: only LLxprt uses the sandbox subsystem,
-    // and CodePuppy must not trigger it from stale persisted sandbox flags.
-    let agent_sig = agent_and_signature(state, agent_id);
-    let relaunch_kind = agent_sig.as_ref().map(|(_, sig)| sig.agent_kind);
-    if let Some((agent, signature)) = agent_sig {
-        set_agent_runtime_binding(
-            state,
-            agent_id,
-            jefe::runtime::RuntimeSession::session_name_for(&agent.id),
-            signature,
-            pid,
-        );
-    }
-    *state = std::mem::take(state).apply(relaunch_event);
-    state.terminal_focused = false;
-    clear_agent_runtime_attachment(state);
-    mark_agent_runtime_attached(state, agent_id, true);
-    // Gate the SSH-agent warning to LLxprt only (see comment above).
-    if relaunch_kind == Some(jefe::domain::AgentKind::Llxprt) {
-        if let Some(warning) = sandbox_ssh_agent_warning() {
-            state.warning_message = Some(warning);
-        } else {
-            clear_runtime_warning(state);
-        }
-    }
-}
-
-fn persist_relaunch_failure(state: &mut AppState, agent_id: &AgentId, relaunch_event: AppEvent) {
-    *state = std::mem::take(state).apply(relaunch_event);
-    state.terminal_focused = false;
-    state.pane_focus = PaneFocus::Agents;
-    mark_runtime_session_dead_if_present(state, agent_id);
-    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
-        agent.runtime_binding = None;
-    }
-}
-
 fn dispatch_issues_navigation(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -870,7 +687,7 @@ fn dispatch_issues_navigation(
         (
             state.issues_state.issue_focus,
             state.selected_repository_index,
-            state.issues_state.selected_issue_index,
+            state.issues_state.selected_issue_index(),
         )
     };
 
@@ -914,11 +731,10 @@ fn refresh_repo_scope_if_changed(
 
 fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
     let mut state = app_state.write();
-    state.issues_state.issues.clear();
-    state.issues_state.selected_issue_index = None;
+    // Clear the unified list (items, selection, identity, continuation,
+    // pending) for the repo switch; a fresh reload is kicked off by the caller.
+    state.issues_state.list.clear();
     state.issues_state.issue_detail = None;
-    state.issues_state.list_cursor = None;
-    state.issues_state.has_more_issues = false;
     state.issues_state.error = None;
     if state.issues_state.inline_state != jefe::state::InlineState::None {
         state.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
@@ -929,14 +745,11 @@ fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.issues_state.loading.comments = false;
     state.issues_state.detail_pending = None;
     state.issues_state.comments_page_pending = None;
-    state.issues_state.list_reload_pending = None;
-    state.issues_state.list_page_pending = None;
     state.issues_state.agent_chooser = None;
-    state.issues_state.loading.list = true;
 }
 
 fn refresh_issue_preview_if_changed(app_state: &mut AppStateHandle, prev_issue_idx: Option<usize>) {
-    let new_issue_idx = app_state.read().issues_state.selected_issue_index;
+    let new_issue_idx = app_state.read().issues_state.selected_issue_index();
     if new_issue_idx != prev_issue_idx {
         issues_dispatch::preview_issue_from_list(app_state);
     }
@@ -955,12 +768,19 @@ mod modal_handlers_tests;
 #[cfg(test)]
 #[path = "preflight_gating_tests.rs"]
 mod preflight_gating_tests;
+#[cfg(test)]
+#[path = "restart_preflight_tests.rs"]
+mod restart_preflight_tests;
 
 // @plan PLAN-20260624-PR-MODE.P15
 // @requirement REQ-PR-001
 #[cfg(test)]
 #[path = "prs_integration_tests.rs"]
 mod prs_integration_tests;
+
+#[cfg(test)]
+#[path = "prs_integration_tests_background.rs"]
+mod prs_integration_tests_background;
 
 // @plan PLAN-20260624-PR-MODE.P15
 // @requirement REQ-PR-004

@@ -232,6 +232,8 @@ impl AppMessage {
                 | AppEvent::ActionsNavigateJobDown
                 | AppEvent::ActionsRunsLoaded { .. }
                 | AppEvent::ActionsRunsLoadFailed { .. }
+                | AppEvent::ActionsRunsPageLoaded { .. }
+                | AppEvent::ActionsRunsPageLoadFailed { .. }
                 | AppEvent::ActionsDetailLoaded { .. }
                 | AppEvent::ActionsDetailLoadFailed { .. }
                 | AppEvent::WorkflowsLoaded { .. }
@@ -335,6 +337,16 @@ impl AppMessage {
                 | AppEvent::IssueDeleteCancel
                 | AppEvent::IssueClosed { .. }
                 | AppEvent::IssueDeleted { .. }
+                | AppEvent::OpenCloseReasonChooser
+                | AppEvent::CloseReasonNavigateUp
+                | AppEvent::CloseReasonNavigateDown
+                | AppEvent::CloseReasonSelect
+                | AppEvent::CloseReasonDuplicateSearchChar(_)
+                | AppEvent::CloseReasonDuplicateSearchBackspace
+                | AppEvent::CloseReasonDuplicateSearchNavigateUp
+                | AppEvent::CloseReasonDuplicateSearchNavigateDown
+                | AppEvent::CloseReasonConfirm
+                | AppEvent::CloseReasonCancel
                 | AppEvent::OpenAgentChooser
                 | AppEvent::AgentChooserNavigateUp
                 | AppEvent::AgentChooserNavigateDown

@@ -7,22 +7,41 @@
 //!
 //! Pseudocode reference: component-002 lines 01-35
 
+mod agent_executable;
+mod agent_launcher;
 mod attach;
 mod attach_scheduler;
 mod capabilities;
+mod capture_ops;
 mod command_plan;
 mod commands;
 mod errors;
 /// One-shot `gh auth login --web` device-code subprocess driver (issue #244).
 mod gh_auth;
+/// Per-agent scrollback history cache (issue #198).
+mod history_cache;
 mod liveness;
 mod manager;
+mod multiplexer;
+/// npm / local-executable resolution helpers extracted from `commands.rs`.
+mod npm_launch;
 mod pane_capture;
 mod preflight;
+/// Prepared-launch abstraction: resolve all non-destructive prerequisites
+/// before kill, then execute from prepared data (issue #269).
+mod prepared_launch;
+/// Prepared-launch execution orchestration extracted from `manager.rs` to
+/// keep it under the source-file size hard limit (issue #269).
+mod prepared_spawn;
 mod session;
 mod socket;
 mod stub_manager;
 
+pub use agent_executable::{
+    AgentExecutableError, AgentExecutablePlatform, AgentExecutableResolver, AgentWrapperKind,
+    NpmDirectInvocation, ResolvedAgentExecutable,
+};
+pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use capabilities::{
     AgentRuntimeCapabilities, ModelDiscovery, code_puppy_help_supports_yolo, static_capabilities,
@@ -33,13 +52,40 @@ pub use errors::RuntimeError;
 pub use gh_auth::{AuthRunResult, run_device_auth};
 pub use liveness::{check_remote_session_alive, check_session_alive, pid_alive};
 pub use manager::{LivenessCheck, RuntimeManager, TmuxRuntimeManager};
+pub use multiplexer::{
+    LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation, MultiplexerPlan,
+    MultiplexerVersion, ProbeObservation, classify_probe,
+};
 pub use preflight::{
     PreflightAction, PreflightIssue, execute_preflight_action, platform_engine_diagnostic,
     sandbox_preflight, sandbox_ssh_agent_warning,
 };
+pub use prepared_launch::{
+    LocalExecuteFailure, PreparedLaunch, PreparedLocalLaunch, PreparedRemoteLaunch,
+};
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 pub use socket::jefe_tmux_socket_path;
 pub use stub_manager::StubRuntimeManager;
+
+#[cfg(test)]
+#[path = "agent_command_spec_tests.rs"]
+mod agent_command_spec_tests;
+
+#[cfg(test)]
+#[path = "agent_executable_tests.rs"]
+mod agent_executable_tests;
+
+#[cfg(test)]
+#[path = "agent_launcher_tests.rs"]
+mod agent_launcher_tests;
+
+#[cfg(test)]
+#[path = "multiplexer_tests.rs"]
+mod multiplexer_tests;
+
+#[cfg(test)]
+#[path = "prepared_sequencing_tests.rs"]
+mod prepared_sequencing_tests;
 
 #[cfg(test)]
 mod tests {

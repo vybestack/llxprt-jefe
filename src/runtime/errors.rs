@@ -4,6 +4,10 @@
 //! @requirement REQ-TECH-004
 
 use crate::domain::AgentId;
+use crate::domain::VersionSelectorError;
+
+use super::agent_executable::AgentExecutableError;
+use super::multiplexer::MultiplexerError;
 
 /// Errors from runtime operations.
 #[derive(Debug, Clone)]
@@ -14,6 +18,10 @@ pub enum RuntimeError {
     AttachFailed(String),
     /// Failed to spawn session.
     SpawnFailed(String),
+    /// Local agent executable resolution or launch-strategy failure.
+    AgentExecutable(AgentExecutableError),
+    /// Local multiplexer dependency or policy failure.
+    Multiplexer(MultiplexerError),
     /// Failed to execute remote SSH session lifecycle command.
     RemoteExecutionFailed(String),
     /// A runtime capability probe could not execute successfully.
@@ -32,6 +40,10 @@ pub enum RuntimeError {
     WriteFailed(String),
     /// Resize failed.
     ResizeFailed(String),
+    /// A persisted LLxprt version selector is structurally invalid (e.g.
+    /// contains an embedded NUL byte). Rejected at the runtime boundary
+    /// before any destructive session kill (issue #269).
+    InvalidVersionSelector(VersionSelectorError),
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -40,6 +52,8 @@ impl std::fmt::Display for RuntimeError {
             Self::SessionNotFound(name) => write!(f, "session not found: {name}"),
             Self::AttachFailed(msg) => write!(f, "attach failed: {msg}"),
             Self::SpawnFailed(msg) => write!(f, "spawn failed: {msg}"),
+            Self::AgentExecutable(error) => write!(f, "agent launch unavailable: {error}"),
+            Self::Multiplexer(error) => write!(f, "multiplexer dependency failed: {error}"),
             Self::RemoteExecutionFailed(msg) => write!(f, "remote execution failed: {msg}"),
             Self::CapabilityProbeFailed(msg) => write!(f, "capability probe failed: {msg}"),
             Self::CapabilityCheckFailed(msg) => write!(f, "capability check failed: {msg}"),
@@ -49,6 +63,9 @@ impl std::fmt::Display for RuntimeError {
             Self::NoAttachedViewer => write!(f, "no attached viewer"),
             Self::WriteFailed(msg) => write!(f, "write failed: {msg}"),
             Self::ResizeFailed(msg) => write!(f, "resize failed: {msg}"),
+            Self::InvalidVersionSelector(error) => {
+                write!(f, "invalid LLxprt version selector: {error}")
+            }
         }
     }
 }

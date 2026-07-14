@@ -1,6 +1,6 @@
 use super::*;
 
-trait TestResultExt<T> {
+pub(super) trait TestResultExt<T> {
     fn value_or_panic(self, context: &str) -> T;
 }
 
@@ -13,7 +13,7 @@ impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
     }
 }
 
-trait TestResultErrorExt<E> {
+pub(super) trait TestResultErrorExt<E> {
     fn error_or_panic(self, context: &str) -> E;
 }
 

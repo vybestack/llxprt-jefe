@@ -120,3 +120,97 @@ fn tmux_take_dirty_returns_false_without_viewer() {
         "take_dirty should return false when no viewer is attached"
     );
 }
+
+// ── Pre-destructive validation: invalid selector causes no kill ────────────
+//
+// spawn_session_fresh must validate the version selector BEFORE the force-fresh
+// pre-kill. An invalid selector (embedded NUL) must return
+// InvalidVersionSelector without any destruction. This proves the validation
+// ordering: the error is returned before the kill/kill_remote commands run.
+
+/// Build a LaunchSignature with an embedded NUL byte in the version selector.
+fn signature_with_nul_selector() -> LaunchSignature {
+    LaunchSignature {
+        work_dir: std::path::PathBuf::from("/tmp"),
+        profile: "default".into(),
+        code_puppy_model: String::new(),
+        llxprt_version: "0.9.0\x00; rm -rf /".to_owned(),
+        code_puppy_yolo: None,
+        code_puppy_quick_resume: false,
+        mode_flags: vec![],
+        llxprt_debug: String::new(),
+        pass_continue: true,
+        sandbox_enabled: false,
+        sandbox_engine: crate::domain::SandboxEngine::Podman,
+        sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
+        remote: crate::domain::RemoteRepositorySettings::default(),
+        agent_kind: crate::domain::AgentKind::Llxprt,
+    }
+}
+
+/// `spawn_session_fresh` with an embedded-NUL selector must return
+/// `InvalidVersionSelector` without reaching the force-fresh pre-kill. Since
+/// the kill runs tmux commands that don't exist in the test environment, a
+/// non-`InvalidVersionSelector` error proves the validation did NOT fire first.
+#[test]
+fn spawn_session_fresh_validates_selector_before_kill() {
+    let mut mgr = TmuxRuntimeManager::new(40, 120);
+    let agent_id = AgentId("test-nul-selector".into());
+    let signature = signature_with_nul_selector();
+
+    let result = mgr.spawn_session_fresh(&agent_id, signature.work_dir.as_path(), &signature);
+
+    let Err(error) = result else {
+        panic!("invalid selector must be rejected by spawn_session_fresh");
+    };
+
+    // Must be InvalidVersionSelector — NOT KillFailed, CapabilityProbeFailed,
+    // or any tmux-related error that would prove the kill ran first.
+    assert!(
+        matches!(error, RuntimeError::InvalidVersionSelector(_)),
+        "expected InvalidVersionSelector before kill, got {error:?}"
+    );
+
+    // The agent must NOT be tracked as a session.
+    assert!(
+        !mgr.is_alive(&agent_id),
+        "invalid-selector agent must not be tracked after rejection"
+    );
+}
+
+/// `spawn_session` (reattach path) with a valid selector must NOT return
+/// InvalidVersionSelector — proving the validation only rejects truly
+/// invalid selectors, not valid ones.
+#[test]
+fn spawn_session_valid_selector_does_not_trigger_validation_error() {
+    let mut mgr = TmuxRuntimeManager::new(40, 120);
+    let agent_id = AgentId("test-valid-selector".into());
+
+    let signature = LaunchSignature {
+        work_dir: std::path::PathBuf::from("/tmp"),
+        profile: "default".into(),
+        code_puppy_model: String::new(),
+        llxprt_version: "0.9.0".to_owned(),
+        code_puppy_yolo: None,
+        code_puppy_quick_resume: false,
+        mode_flags: vec![],
+        llxprt_debug: String::new(),
+        pass_continue: true,
+        sandbox_enabled: false,
+        sandbox_engine: crate::domain::SandboxEngine::Podman,
+        sandbox_flags: crate::domain::DEFAULT_SANDBOX_FLAGS.to_owned(),
+        remote: crate::domain::RemoteRepositorySettings::default(),
+        agent_kind: crate::domain::AgentKind::Llxprt,
+    };
+
+    let result = mgr.spawn_session(&agent_id, signature.work_dir.as_path(), &signature);
+
+    // We expect an error (no tmux in test env), but it must NOT be
+    // InvalidVersionSelector — the selector is valid.
+    if let Err(error) = result {
+        assert!(
+            !matches!(error, RuntimeError::InvalidVersionSelector(_)),
+            "valid selector must not trigger InvalidVersionSelector: {error:?}"
+        );
+    }
+}

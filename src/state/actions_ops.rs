@@ -1,5 +1,15 @@
-use super::{ActionsFocus, AppState, ModalState, PaneFocus, PriorAgentFocus, ScreenMode};
-use crate::domain::ActionsFilter;
+//! Actions mode reducer operations.
+//!
+//! All list-load correlation is delegated to `PaginatedList` — the reducer
+//! only constructs identity/result values, delegates, and applies
+//! screen-specific side effects (error, detail reset) based on the returned
+//! `AcceptOutcome`.
+
+use super::{
+    ActionsFocus, AppState, ModalState, PaneFocus, PriorAgentFocus, ScreenMode,
+    actions_load_ops::RunsLoadData,
+};
+use crate::domain::{ActionsFilter, RepositoryId};
 use crate::messages::ActionsMessage;
 
 /// Number of navigable fields in the Actions filter bar (workflow, status).
@@ -17,8 +27,7 @@ impl AppState {
         self.screen_mode = ScreenMode::DashboardActions;
         self.actions_state.active = true;
         self.actions_state.focus = ActionsFocus::RunList;
-        self.actions_state.runs.clear();
-        self.actions_state.selected_run_index = None;
+        self.actions_state.list.clear();
         self.actions_state.run_detail = None;
         self.actions_state.workflows.clear();
         self.actions_state.committed_filter = ActionsFilter::default();
@@ -27,12 +36,8 @@ impl AppState {
         self.actions_state.search_query.clear();
         self.actions_state.ui.search_input_focused = false;
         self.actions_state.error = None;
-        self.actions_state.loading.list = true;
         self.actions_state.loading.detail = false;
         self.actions_state.dispatch_pending = None;
-        self.actions_state.page = 1;
-        self.actions_state.has_more = false;
-        self.actions_state.list_reload_pending = None;
         self.actions_state.detail_pending = None;
         self.actions_state.workflows_pending = None;
         self.actions_state.expanded_jobs.clear();
@@ -74,8 +79,6 @@ impl AppState {
     }
 
     fn handle_navigation(&mut self, dir: crate::messages::NavDir) -> bool {
-        // When the repository sidebar is focused, Up/Down navigate repos
-        // (mirroring Issues/PRs RepoList focus) instead of the run list.
         if matches!(self.actions_state.focus, ActionsFocus::RepoList)
             && matches!(
                 dir,
@@ -87,22 +90,22 @@ impl AppState {
             }
             return true;
         }
-        if self.actions_state.runs.is_empty() {
+        let runs = self.actions_state.list.items();
+        if runs.is_empty() {
             return true;
         }
-        let current = self.actions_state.selected_run_index.unwrap_or(0);
+        let current = self.actions_state.list.selected_index().unwrap_or(0);
+        let last = runs.len() - 1;
         let new_idx = match dir {
             crate::messages::NavDir::Up => current.saturating_sub(1),
-            crate::messages::NavDir::Down => (current + 1).min(self.actions_state.runs.len() - 1),
-            crate::messages::NavDir::PageUp => current.saturating_sub(10),
-            crate::messages::NavDir::PageDown => {
-                (current + 10).min(self.actions_state.runs.len() - 1)
-            }
+            crate::messages::NavDir::Down => (current + 1).min(last),
+            crate::messages::NavDir::PageUp => current.saturating_sub(super::VIEWPORT_PAGE_JUMP),
+            crate::messages::NavDir::PageDown => (current + super::VIEWPORT_PAGE_JUMP).min(last),
             crate::messages::NavDir::Home => 0,
-            crate::messages::NavDir::End => self.actions_state.runs.len() - 1,
+            crate::messages::NavDir::End => last,
             crate::messages::NavDir::Next | crate::messages::NavDir::Prev => current,
         };
-        self.actions_state.selected_run_index = Some(new_idx);
+        self.actions_state.list.set_selected_index(Some(new_idx));
         self.actions_state.detail_scroll_offset = 0;
         self.actions_state.run_detail = None;
         self.actions_state.loading.detail = false;
@@ -116,8 +119,7 @@ impl AppState {
     /// navigation), mirroring `reset_issues_for_repo_change`. The next list
     /// load is queued via `trigger_list_reload`.
     fn reset_actions_for_repo_change(&mut self) {
-        self.actions_state.runs.clear();
-        self.actions_state.selected_run_index = None;
+        self.actions_state.list.clear();
         self.actions_state.run_detail = None;
         self.actions_state.detail_scroll_offset = 0;
         self.actions_state.expanded_jobs.clear();
@@ -127,21 +129,15 @@ impl AppState {
         self.actions_state.draft_filter = ActionsFilter::default();
         self.actions_state.search_query.clear();
         self.actions_state.error = None;
-        self.actions_state.has_more = false;
-        self.actions_state.list_reload_pending = None;
         self.actions_state.detail_pending = None;
         self.actions_state.workflows_pending = None;
-        self.actions_state.loading.list = true;
         self.actions_state.loading.detail = false;
-        self.actions_state.page = 1;
         self.trigger_list_reload();
     }
 
     fn handle_enter(&mut self) -> bool {
-        // Enter in the run list moves focus to the detail pane so the user can
-        // navigate jobs/steps (mirroring Issues/PRs Enter-on-list behavior).
         if matches!(self.actions_state.focus, ActionsFocus::RunList)
-            && self.actions_state.selected_run_index.is_some()
+            && self.actions_state.list.selected_index().is_some()
         {
             self.actions_state.focus = ActionsFocus::Detail;
         }
@@ -199,10 +195,12 @@ impl AppState {
                 self.actions_state.detail_scroll_offset = (current + 1).min(max);
             }
             crate::messages::ScrollDir::PageUp => {
-                self.actions_state.detail_scroll_offset = current.saturating_sub(10);
+                self.actions_state.detail_scroll_offset =
+                    current.saturating_sub(super::VIEWPORT_PAGE_JUMP);
             }
             crate::messages::ScrollDir::PageDown => {
-                self.actions_state.detail_scroll_offset = (current + 10).min(max);
+                self.actions_state.detail_scroll_offset =
+                    (current + super::VIEWPORT_PAGE_JUMP).min(max);
             }
         }
         true
@@ -259,70 +257,9 @@ impl AppState {
         true
     }
 
-    fn reload_runs(
-        &mut self,
-        req: (
-            crate::domain::RepositoryId,
-            &crate::domain::ActionsFilter,
-            u32,
-            u64,
-        ),
-        runs: Vec<crate::domain::WorkflowRun>,
-        has_more: bool,
-    ) -> bool {
-        let (scope_repo_id, filter, page, request_id) = req;
-        let Some(pending) = &self.actions_state.list_reload_pending else {
-            return true;
-        };
-        if pending.scope_repo_id != scope_repo_id
-            || pending.filter != *filter
-            || pending.request_id != request_id
-        {
-            return true;
-        }
-
-        if page == 1 {
-            self.actions_state.runs = runs;
-            self.actions_state.selected_run_index = if self.actions_state.runs.is_empty() {
-                None
-            } else {
-                Some(0)
-            };
-            self.actions_state.run_detail = None;
-            self.actions_state.detail_scroll_offset = 0;
-            self.actions_state.loading.detail = false;
-            self.actions_state.detail_pending = None;
-            self.actions_state.error = None;
-        } else {
-            self.actions_state.runs.extend(runs);
-        }
-        self.actions_state.page = page;
-        self.actions_state.has_more = has_more;
-        self.actions_state.loading.list = false;
-        self.actions_state.list_reload_pending = None;
-        true
-    }
-
-    fn fail_runs_load(
-        &mut self,
-        scope_repo_id: crate::domain::RepositoryId,
-        request_id: u64,
-        error: String,
-    ) -> bool {
-        if let Some(pending) = &self.actions_state.list_reload_pending
-            && pending.scope_repo_id == scope_repo_id
-            && pending.request_id == request_id
-        {
-            self.actions_state.error = Some(error);
-            self.actions_state.loading.list = false;
-            self.actions_state.list_reload_pending = None;
-        }
-        true
-    }
-
     fn load_detail(
         &mut self,
-        scope_repo_id: crate::domain::RepositoryId,
+        scope_repo_id: RepositoryId,
         run_id: u64,
         request_id: u64,
         detail: Box<crate::domain::WorkflowRunDetail>,
@@ -346,7 +283,7 @@ impl AppState {
 
     fn fail_detail_load(
         &mut self,
-        scope_repo_id: crate::domain::RepositoryId,
+        scope_repo_id: RepositoryId,
         run_id: u64,
         request_id: u64,
         error: String,
@@ -365,7 +302,7 @@ impl AppState {
 
     fn load_workflows(
         &mut self,
-        scope_repo_id: crate::domain::RepositoryId,
+        scope_repo_id: RepositoryId,
         request_id: u64,
         workflows: Vec<crate::domain::Workflow>,
     ) -> bool {
@@ -382,7 +319,7 @@ impl AppState {
 
     fn fail_workflows_load(
         &mut self,
-        scope_repo_id: crate::domain::RepositoryId,
+        scope_repo_id: RepositoryId,
         request_id: u64,
         error: String,
     ) -> bool {
@@ -399,20 +336,7 @@ impl AppState {
     fn apply_filter(&mut self) -> bool {
         self.actions_state.committed_filter = self.actions_state.draft_filter.clone();
         self.actions_state.ui.filter_ui_open = false;
-        self.actions_state.runs.clear();
-        self.actions_state.selected_run_index = None;
-        self.actions_state.run_detail = None;
-        self.actions_state.loading.list = true;
-        if let Some(repo_id) = self.selected_repository().map(|r| r.id.clone()) {
-            let req_id = self.actions_state.next_list_request_id.saturating_add(1);
-            self.actions_state.next_list_request_id = req_id;
-            self.actions_state.list_reload_pending = Some(super::ActionsListReloadPending {
-                scope_repo_id: repo_id,
-                filter: self.actions_state.committed_filter.clone(),
-                page: 1,
-                request_id: req_id,
-            });
-        }
+        self.trigger_list_reload();
         true
     }
 
@@ -420,20 +344,7 @@ impl AppState {
         self.actions_state.committed_filter = ActionsFilter::default();
         self.actions_state.draft_filter = ActionsFilter::default();
         self.actions_state.ui.filter_ui_open = false;
-        self.actions_state.runs.clear();
-        self.actions_state.selected_run_index = None;
-        self.actions_state.run_detail = None;
-        self.actions_state.loading.list = true;
-        if let Some(repo_id) = self.selected_repository().map(|r| r.id.clone()) {
-            let req_id = self.actions_state.next_list_request_id.saturating_add(1);
-            self.actions_state.next_list_request_id = req_id;
-            self.actions_state.list_reload_pending = Some(super::ActionsListReloadPending {
-                scope_repo_id: repo_id,
-                filter: self.actions_state.committed_filter.clone(),
-                page: 1,
-                request_id: req_id,
-            });
-        }
+        self.trigger_list_reload();
         true
     }
 
@@ -464,31 +375,6 @@ impl AppState {
         self.actions_state.ui.search_input_focused = false;
         self.trigger_list_reload()
     }
-
-    /// Common: reset run list state and set up a fresh list-reload pending.
-    fn trigger_list_reload(&mut self) -> bool {
-        self.actions_state.runs.clear();
-        self.actions_state.selected_run_index = None;
-        self.actions_state.run_detail = None;
-        self.actions_state.detail_scroll_offset = 0;
-        self.actions_state.loading.list = true;
-        self.actions_state.loading.detail = false;
-        self.actions_state.detail_pending = None;
-        if let Some(repo_id) = self.selected_repository().map(|r| r.id.clone()) {
-            let req_id = self.actions_state.next_list_request_id.saturating_add(1);
-            self.actions_state.next_list_request_id = req_id;
-            self.actions_state.list_reload_pending = Some(super::ActionsListReloadPending {
-                scope_repo_id: repo_id,
-                filter: self.actions_state.committed_filter.clone(),
-                page: 1,
-                request_id: req_id,
-            });
-        }
-        true
-    }
-
-    /// Cycle the draft status filter forward/backward through the allowed
-    /// values. Used by the filter bar's Up/Down when the status field (index 1)
     /// is active.
     fn cycle_status_filter(&mut self, forward: bool) -> bool {
         const ORDER: [&str; 5] = ["all", "completed", "failed", "in_progress", "queued"];
@@ -539,10 +425,10 @@ impl AppState {
     fn open_workflow_dispatch(&mut self, workflow: crate::domain::Workflow) -> bool {
         let ref_name = if let Some(detail) = &self.actions_state.run_detail {
             detail.run.head_branch.clone()
-        } else if let Some(idx) = self.actions_state.selected_run_index
-            && idx < self.actions_state.runs.len()
+        } else if let Some(idx) = self.actions_state.list.selected_index()
+            && idx < self.actions_state.list.items().len()
         {
-            self.actions_state.runs[idx].head_branch.clone()
+            self.actions_state.list.items()[idx].head_branch.clone()
         } else {
             String::new()
         };
@@ -588,14 +474,7 @@ impl AppState {
             && pending.request_id == request_id
         {
             self.actions_state.dispatch_pending = None;
-            let req_id = self.actions_state.next_list_request_id.saturating_add(1);
-            self.actions_state.next_list_request_id = req_id;
-            self.actions_state.list_reload_pending = Some(super::ActionsListReloadPending {
-                scope_repo_id: scope_repo_id.clone(),
-                filter: self.actions_state.committed_filter.clone(),
-                page: 1,
-                request_id: req_id,
-            });
+            self.begin_actions_reload(scope_repo_id);
         }
         true
     }
@@ -624,7 +503,6 @@ impl AppState {
                 true
             }
             ActionsMessage::Reload => {
-                self.actions_state.loading.list = true;
                 self.actions_state.error = None;
                 true
             }
@@ -642,6 +520,17 @@ impl AppState {
     }
 
     fn handle_load_message(&mut self, message: &ActionsMessage) -> bool {
+        if self.handle_runs_message(message) {
+            return true;
+        }
+        if self.handle_detail_message(message) {
+            return true;
+        }
+        false
+    }
+
+    /// Handle runs list load/failure messages (reload, page, failures).
+    fn handle_runs_message(&mut self, message: &ActionsMessage) -> bool {
         match message {
             ActionsMessage::RunsLoaded {
                 scope_repo_id,
@@ -650,17 +539,61 @@ impl AppState {
                 request_id,
                 runs,
                 has_more,
-            } => self.reload_runs(
-                (scope_repo_id.clone(), filter, *page, *request_id),
-                runs.clone(),
-                *has_more,
-            ),
+            } => self.reload_runs(RunsLoadData {
+                scope_repo_id: scope_repo_id.clone(),
+                filter: (**filter).clone(),
+                page: *page,
+                request_id: *request_id,
+                runs: runs.clone(),
+                has_more: *has_more,
+            }),
             ActionsMessage::RunsLoadFailed {
                 scope_repo_id,
+                filter,
                 request_id,
                 error,
                 ..
-            } => self.fail_runs_load(scope_repo_id.clone(), *request_id, error.clone()),
+            } => self.fail_runs_load(
+                scope_repo_id.clone(),
+                (**filter).clone(),
+                *request_id,
+                error.clone(),
+            ),
+            ActionsMessage::RunsPageLoaded {
+                scope_repo_id,
+                filter,
+                page,
+                request_id,
+                runs,
+                has_more,
+            } => self.apply_runs_page_loaded(RunsLoadData {
+                scope_repo_id: scope_repo_id.clone(),
+                filter: (**filter).clone(),
+                page: *page,
+                request_id: *request_id,
+                runs: runs.clone(),
+                has_more: *has_more,
+            }),
+            ActionsMessage::RunsPageLoadFailed {
+                scope_repo_id,
+                filter,
+                page,
+                request_id,
+                error,
+            } => self.fail_runs_page_load(
+                scope_repo_id.clone(),
+                (**filter).clone(),
+                *page,
+                *request_id,
+                error.clone(),
+            ),
+            _ => false,
+        }
+    }
+
+    /// Handle detail and workflow load/failure messages.
+    fn handle_detail_message(&mut self, message: &ActionsMessage) -> bool {
+        match message {
             ActionsMessage::DetailLoaded {
                 scope_repo_id,
                 run_id,
@@ -716,9 +649,6 @@ impl AppState {
                 true
             }
             ActionsMessage::CycleFilterStatus => {
-                // Cycle the value of the currently-focused filter field:
-                // field 0 = workflow, field 1 = status. Up/Down in the filter
-                // bar advances whichever field is active (Tab switches fields).
                 if self.actions_state.ui.filter_field_index == 0 {
                     self.cycle_workflow_filter(true)
                 } else {

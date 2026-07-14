@@ -6,11 +6,11 @@
 //! `actions_tests.rs`.
 
 use crate::domain::{
-    ActionsFilter, Repository, RepositoryId, Workflow, WorkflowRun, WorkflowRunDetail,
-    WorkflowRunJob, WorkflowRunStatus,
+    ActionsFilter, ListRequestId, Repository, RepositoryId, Workflow, WorkflowRun,
+    WorkflowRunDetail, WorkflowRunJob, WorkflowRunStatus,
 };
 use crate::messages::ActionsMessage;
-use crate::state::AppState;
+use crate::state::{ActionsListIdentity, AppState};
 
 fn create_test_state() -> AppState {
     let mut state = AppState::default();
@@ -55,42 +55,42 @@ fn make_detail_with_jobs(id: u64, jobs: Vec<WorkflowRunJob>) -> WorkflowRunDetai
     }
 }
 
+/// Start a visible reload so a RunsLoaded message is accepted (not stale).
+fn start_reload(state: &mut AppState, request_id: u64) {
+    let identity = ActionsListIdentity {
+        scope_repo_id: RepositoryId("test_repo".to_string()),
+        filter: state.actions_state.committed_filter.clone(),
+    };
+    state
+        .actions_state
+        .list
+        .begin_reload(identity, ListRequestId::from_raw(request_id));
+}
+
 /// A `RunsLoaded` whose `request_id` doesn't match the pending reload is
 /// ignored entirely — runs stay unchanged and loading stays true.
 #[test]
 fn stale_runs_loaded_is_ignored() {
     let mut state = create_test_state();
-    let repo_id = RepositoryId("test_repo".to_string());
     let filter = ActionsFilter::default();
 
-    state.actions_state.list_reload_pending = Some(crate::state::ActionsListReloadPending {
-        scope_repo_id: repo_id.clone(),
-        filter: filter.clone(),
-        page: 1,
-        request_id: 100,
-    });
-    state.actions_state.loading.list = true;
+    start_reload(&mut state, 100);
 
-    // Stale: request_id 999 != pending 100
     state.apply_actions_message(ActionsMessage::RunsLoaded {
-        scope_repo_id: repo_id,
+        scope_repo_id: RepositoryId("test_repo".to_string()),
         filter: Box::new(filter),
         page: 1,
-        request_id: 999,
+        request_id: 999, // stale
         runs: vec![make_run(1)],
         has_more: false,
     });
 
     assert!(
-        state.actions_state.runs.is_empty(),
+        state.actions_state.runs().is_empty(),
         "stale result must not populate runs"
     );
     assert!(
-        state.actions_state.loading.list,
-        "stale result must not clear loading"
-    );
-    assert!(
-        state.actions_state.list_reload_pending.is_some(),
+        state.actions_state.list_pending(),
         "stale result must not clear pending"
     );
 }
@@ -111,7 +111,7 @@ fn stale_detail_loaded_is_ignored() {
     state.apply_actions_message(ActionsMessage::DetailLoaded {
         scope_repo_id: repo_id,
         run_id: 1,
-        request_id: 999, // stale
+        request_id: 999,
         detail: Box::new(make_detail(1)),
     });
 
@@ -129,20 +129,13 @@ fn stale_detail_loaded_is_ignored() {
 #[test]
 fn wrong_scope_runs_loaded_is_ignored() {
     let mut state = create_test_state();
-    let repo_id = RepositoryId("test_repo".to_string());
     let other_repo = RepositoryId("other_repo".to_string());
     let filter = ActionsFilter::default();
 
-    state.actions_state.list_reload_pending = Some(crate::state::ActionsListReloadPending {
-        scope_repo_id: repo_id,
-        filter: filter.clone(),
-        page: 1,
-        request_id: 1,
-    });
-    state.actions_state.loading.list = true;
+    start_reload(&mut state, 1);
 
     state.apply_actions_message(ActionsMessage::RunsLoaded {
-        scope_repo_id: other_repo, // wrong scope
+        scope_repo_id: other_repo,
         filter: Box::new(filter),
         page: 1,
         request_id: 1,
@@ -151,54 +144,34 @@ fn wrong_scope_runs_loaded_is_ignored() {
     });
 
     assert!(
-        state.actions_state.runs.is_empty(),
+        state.actions_state.runs().is_empty(),
         "wrong-scope result must not populate runs"
     );
-    assert!(state.actions_state.loading.list);
-    assert!(
-        state.actions_state.list_reload_pending.is_some(),
-        "wrong-scope result must not clear pending"
-    );
+    assert!(state.actions_state.list_pending());
 }
 
 /// After a failed load sets `error`, a subsequent accepted successful load
-/// clears `error` (SHOULD-FIX E).
+/// clears `error`.
 #[test]
 fn error_cleared_on_accepted_success() {
     let mut state = create_test_state();
-    let repo_id = RepositoryId("test_repo".to_string());
-    let filter = ActionsFilter::default();
 
-    // First: a failed load sets error.
-    state.actions_state.list_reload_pending = Some(crate::state::ActionsListReloadPending {
-        scope_repo_id: repo_id.clone(),
-        filter: filter.clone(),
-        page: 1,
-        request_id: 1,
-    });
-    state.actions_state.loading.list = true;
+    start_reload(&mut state, 1);
 
     state.apply_actions_message(ActionsMessage::RunsLoadFailed {
-        scope_repo_id: repo_id.clone(),
-        filter: Box::new(filter.clone()),
+        scope_repo_id: RepositoryId("test_repo".to_string()),
+        filter: Box::new(ActionsFilter::default()),
         page: 1,
         request_id: 1,
         error: "network error".to_string(),
     });
     assert_eq!(state.actions_state.error, Some("network error".to_string()));
 
-    // Second: a successful load with a fresh pending clears error.
-    state.actions_state.list_reload_pending = Some(crate::state::ActionsListReloadPending {
-        scope_repo_id: repo_id,
-        filter: filter.clone(),
-        page: 1,
-        request_id: 2,
-    });
-    state.actions_state.loading.list = true;
+    start_reload(&mut state, 2);
 
     state.apply_actions_message(ActionsMessage::RunsLoaded {
         scope_repo_id: RepositoryId("test_repo".to_string()),
-        filter: Box::new(filter),
+        filter: Box::new(ActionsFilter::default()),
         page: 1,
         request_id: 2,
         runs: vec![make_run(1)],
@@ -248,29 +221,22 @@ fn detail_failure_clears_loading_detail() {
 #[test]
 fn empty_list_load_page1() {
     let mut state = create_test_state();
-    let repo_id = RepositoryId("test_repo".to_string());
-    let filter = ActionsFilter::default();
 
-    state.actions_state.list_reload_pending = Some(crate::state::ActionsListReloadPending {
-        scope_repo_id: repo_id.clone(),
-        filter: filter.clone(),
-        page: 1,
-        request_id: 1,
-    });
-    state.actions_state.loading.list = true;
+    start_reload(&mut state, 1);
 
     state.apply_actions_message(ActionsMessage::RunsLoaded {
-        scope_repo_id: repo_id,
-        filter: Box::new(filter),
+        scope_repo_id: RepositoryId("test_repo".to_string()),
+        filter: Box::new(ActionsFilter::default()),
         page: 1,
         request_id: 1,
         runs: Vec::new(),
         has_more: false,
     });
 
-    assert!(state.actions_state.runs.is_empty());
+    assert!(state.actions_state.runs().is_empty());
     assert_eq!(
-        state.actions_state.selected_run_index, None,
+        state.actions_state.selected_run_index(),
+        None,
         "empty list must leave selected_run_index as None"
     );
     assert!(
@@ -281,7 +247,7 @@ fn empty_list_load_page1() {
         state.actions_state.detail_pending.is_none(),
         "empty list must not create detail_pending"
     );
-    assert!(!state.actions_state.loading.list);
+    assert!(!state.actions_state.list_pending());
 }
 
 // ---- Workflow dispatch correlation (SHOULD-FIX G) ----
@@ -304,7 +270,7 @@ fn stale_dispatch_failed_does_not_clear_pending() {
 
     state.apply_actions_message(ActionsMessage::WorkflowDispatchFailed {
         scope_repo_id: RepositoryId("test_repo".to_string()),
-        request_id: 999, // stale
+        request_id: 999,
         error: "failed".to_string(),
     });
 
@@ -327,7 +293,7 @@ fn matching_dispatch_failed_clears_pending_and_sets_error() {
 
     state.apply_actions_message(ActionsMessage::WorkflowDispatchFailed {
         scope_repo_id: RepositoryId("test_repo".to_string()),
-        request_id: 5, // matching
+        request_id: 5,
         error: "boom".to_string(),
     });
 
@@ -341,11 +307,10 @@ fn matching_dispatch_failed_clears_pending_and_sets_error() {
 fn stale_dispatch_success_does_not_trigger_reload() {
     let mut state = create_test_state();
     setup_dispatch_pending(&mut state, 5);
-    state.actions_state.list_reload_pending = None;
 
     state.apply_actions_message(ActionsMessage::WorkflowDispatchSuccess {
         scope_repo_id: RepositoryId("test_repo".to_string()),
-        request_id: 999, // stale
+        request_id: 999,
     });
 
     assert!(
@@ -353,7 +318,7 @@ fn stale_dispatch_success_does_not_trigger_reload() {
         "stale success must not clear dispatch_pending"
     );
     assert!(
-        state.actions_state.list_reload_pending.is_none(),
+        !state.actions_state.list_pending(),
         "stale success must not trigger a list reload"
     );
 }
@@ -367,12 +332,12 @@ fn matching_dispatch_success_clears_and_reloads() {
 
     state.apply_actions_message(ActionsMessage::WorkflowDispatchSuccess {
         scope_repo_id: RepositoryId("test_repo".to_string()),
-        request_id: 5, // matching
+        request_id: 5,
     });
 
     assert!(!state.actions_state.dispatch_pending());
     assert!(
-        state.actions_state.list_reload_pending.is_some(),
+        state.actions_state.list_pending(),
         "matching success must trigger a list reload"
     );
 }
@@ -385,9 +350,7 @@ fn matching_dispatch_success_clears_and_reloads() {
 fn search_commit_and_clear() {
     let mut state = create_test_state();
 
-    // Enter actions mode first so there's a selected repo for reload.
     state.apply_actions_message(ActionsMessage::EnterMode);
-    state.actions_state.list_reload_pending = None; // clear the EnterMode reload
 
     state.apply_actions_message(ActionsMessage::SetSearchQuery {
         query: "  my search  ".to_string(),
@@ -404,16 +367,9 @@ fn search_commit_and_clear() {
         "ApplySearch trims and commits the query"
     );
     assert!(
-        state.actions_state.loading.list,
+        state.actions_state.list_pending(),
         "ApplySearch must trigger a list reload"
     );
-    assert!(
-        state.actions_state.list_reload_pending.is_some(),
-        "ApplySearch must set list_reload_pending"
-    );
-    // Clear the pending state so ClearSearch starts from a clean slate.
-    state.actions_state.loading.list = false;
-    state.actions_state.list_reload_pending = None;
 
     state.apply_actions_message(ActionsMessage::ClearSearch);
     assert!(
@@ -422,7 +378,7 @@ fn search_commit_and_clear() {
     );
     assert!(state.actions_state.search_query.is_empty());
     assert!(
-        state.actions_state.loading.list,
+        state.actions_state.list_pending(),
         "ClearSearch must trigger a list reload"
     );
 }
@@ -434,9 +390,12 @@ fn search_commit_and_clear() {
 fn apply_filter_copies_draft_and_clears() {
     let mut state = create_test_state();
     state.actions_state.draft_filter.workflow = "deploy".to_string();
-    // Pre-populate runs so we can verify they get cleared.
-    state.actions_state.runs = vec![make_run(1), make_run(2)];
-    state.actions_state.selected_run_index = Some(0);
+    state
+        .actions_state
+        .list
+        .items_mut()
+        .extend_from_slice(&[make_run(1), make_run(2)]);
+    state.actions_state.list.set_selected_index(Some(0));
 
     state.apply_actions_message(ActionsMessage::ApplyFilter);
 
@@ -445,15 +404,16 @@ fn apply_filter_copies_draft_and_clears() {
         "ApplyFilter copies draft to committed"
     );
     assert!(
-        state.actions_state.runs.is_empty(),
+        state.actions_state.runs().is_empty(),
         "ApplyFilter clears runs"
     );
     assert_eq!(
-        state.actions_state.selected_run_index, None,
+        state.actions_state.selected_run_index(),
+        None,
         "ApplyFilter clears selection"
     );
     assert!(
-        state.actions_state.loading.list,
+        state.actions_state.list_pending(),
         "ApplyFilter triggers a reload"
     );
 }
@@ -480,7 +440,7 @@ fn clear_filter_resets_to_default() {
         "ClearFilter resets draft to default"
     );
     assert!(
-        state.actions_state.loading.list,
+        state.actions_state.list_pending(),
         "ClearFilter must trigger a reload"
     );
 }
@@ -492,11 +452,8 @@ fn clear_filter_resets_to_default() {
 fn cycle_filter_status_cycles() {
     let mut state = create_test_state();
 
-    // CycleFilterStatus advances the field that is currently active in the
-    // filter bar. Select the status field (index 1) so the status value cycles.
     state.actions_state.ui.filter_field_index = 1;
 
-    // Default is "" which maps to "all" branch
     assert_eq!(state.actions_state.draft_filter.status, "");
     state.apply_actions_message(ActionsMessage::CycleFilterStatus);
     assert_eq!(state.actions_state.draft_filter.status, "completed");

@@ -1,12 +1,14 @@
 //! Tests for the tmux command builder, kept in a sibling file so
 //! `commands.rs` stays under the source-file-size hard limit.
 
+use super::npm_launch::remote_cli_command;
 use super::*;
 use crate::domain::SandboxEngine;
 use crate::runtime::pane_capture::{capture_pane_history_args, parse_pane_pid};
+#[cfg(unix)]
 use std::time::Duration;
 
-fn base_signature() -> LaunchSignature {
+pub(super) fn base_signature() -> LaunchSignature {
     LaunchSignature {
         work_dir: std::path::PathBuf::from("/tmp"),
         profile: String::new(),
@@ -186,6 +188,7 @@ fn remote_tmux_command_wraps_run_as_user_once() {
 /// [`run_command_capture_with_timeout`] branch with a sub-second injectable
 /// deadline against a portable `sleep` probe, so the test is fast and hermetic
 /// (no `python3` dependency) (#173).
+#[cfg(unix)]
 #[test]
 fn remote_execution_timeout_returns_clear_error() {
     // `sleep` is specified by POSIX and present on every CI platform jefe
@@ -530,18 +533,25 @@ fn sandbox_flags_env_value_is_raw_for_tmux_argv() {
 }
 
 #[test]
-fn tmux_base_args_include_config_skip_and_dedicated_socket() {
-    let args = tmux_base_args();
-    let socket = crate::runtime::jefe_tmux_socket_path();
-    assert_eq!(
-        args,
-        vec![
-            "-f".to_owned(),
-            "/dev/null".to_owned(),
-            "-S".to_owned(),
-            socket.to_string_lossy().into_owned(),
-        ]
-    );
+fn local_multiplexer_plan_uses_platform_isolation() {
+    let plan = MultiplexerPlan::current()
+        .unwrap_or_else(|error| panic!("local multiplexer plan should resolve: {error}"));
+    if cfg!(windows) {
+        assert!(plan.base_args().iter().any(|arg| arg == "-L"));
+        assert!(!plan.base_args().iter().any(|arg| arg == "/dev/null"));
+        assert!(!plan.base_args().iter().any(|arg| arg == "-S"));
+    } else {
+        let socket = crate::runtime::jefe_tmux_socket_path();
+        assert_eq!(
+            plan.base_args(),
+            [
+                std::ffi::OsString::from("-f"),
+                std::ffi::OsString::from("/dev/null"),
+                std::ffi::OsString::from("-S"),
+                socket.as_os_str().to_owned(),
+            ]
+        );
+    }
 }
 
 #[test]
@@ -783,148 +793,4 @@ fn capture_pane_history_argv_zero_lines_clamps_to_one() {
         panic!("-S must have a value: {argv:?}");
     };
     assert_eq!(*s_value, "-1", "zero lines should clamp to -S -1");
-}
-
-// ── Issue #269: remote npm probe must not cd into work_dir ────────────────
-
-/// The remote npm probe script must NOT contain `cd` into the work
-/// directory. The work directory may not exist yet (clone-if-missing flow),
-/// and a versioned launch only needs npm on the remote PATH. Requiring `cd`
-/// would turn a globally-installed npm into a spurious "npm not found".
-#[test]
-fn remote_npm_probe_script_does_not_cd_into_work_dir() {
-    let script = remote_npm_probe_script();
-    assert!(
-        !script.contains("cd "),
-        "remote npm probe must not cd into work_dir: {script}"
-    );
-    assert!(
-        !script.contains("cd	"),
-        "remote npm probe must not cd into work_dir: {script}"
-    );
-    assert!(
-        script.contains("command -v npm"),
-        "remote npm probe must check npm on PATH: {script}"
-    );
-}
-
-// ── Issue #269: remote metacharacter selector quoting (production path) ───
-
-/// The production remote CLI assembly must shell-escape every token of the
-/// npm exec prefix so an adversarial version selector never reaches the
-/// remote shell as syntax. Drives the real production path
-/// ([`assemble_remote_cli_command`]) with an adversarial selector containing
-/// shell metacharacters.
-#[test]
-fn remote_cli_assembly_shell_escapes_adversarial_version_selector() {
-    use crate::domain::{AgentKind, LaunchSignature, RemoteRepositorySettings, SandboxEngine};
-
-    let adversarial = "0.9.0'; rm -rf /; echo '";
-    let signature = LaunchSignature {
-        work_dir: std::path::PathBuf::from("/tmp/work"),
-        profile: String::new(),
-        code_puppy_model: String::new(),
-        llxprt_version: adversarial.to_owned(),
-        code_puppy_yolo: None,
-        code_puppy_quick_resume: false,
-        mode_flags: Vec::new(),
-        llxprt_debug: String::new(),
-        pass_continue: false,
-        sandbox_enabled: false,
-        sandbox_engine: SandboxEngine::Podman,
-        sandbox_flags: String::new(),
-        remote: RemoteRepositorySettings::default(),
-        agent_kind: AgentKind::Llxprt,
-    };
-    let plan = ExecutablePlan::from_signature(&signature);
-    assert!(plan.requires_npm(), "adversarial selector must be NpmExec");
-
-    let cli = assemble_remote_cli_command(&plan, "npm", &[]);
-    // The adversarial selector must be embedded inside a single-quoted
-    // --package= token, never as standalone shell syntax.
-    assert!(
-        cli.contains("'--package=@vybestack/llxprt-code@0.9.0'"),
-        "adversarial selector must be inside the single-quoted package token: {cli}"
-    );
-    // The dangerous `; rm` sequence from the adversarial payload must be
-    // inside a single-quoted context (between quote pairs), not as
-    // standalone shell syntax. The `'''` escaping ensures the single quote
-    // in the payload closes the current quote, inserts a literal quote, and
-    // reopens — so `; rm` is always within a quoted context.
-    assert!(
-        cli.contains("'; rm -rf /; echo '") || cli.contains("\''; rm -rf /; echo '\''"),
-        "the adversarial payload must be present but escaped: {cli}"
-    );
-    // Verify that the entire CLI, when parsed by a POSIX shell, would not
-    // execute `rm` as a command. The package token must be a single
-    // shell-quoted unit that contains the full adversarial string. We verify
-    // by checking that `rm -rf /` does not appear outside of a quoted region:
-    // it must always be preceded by a quote context.
-    let package_start = cli
-        .find("'--package=")
-        .unwrap_or_else(|| panic!("package token must be present: {cli}"));
-    let rest = &cli[package_start..];
-    assert!(
-        rest.contains("rm -rf /"),
-        "the adversarial payload must be inside the package token: {cli}"
-    );
-}
-
-#[test]
-fn remote_cli_assembly_uses_resolved_npm_executable() {
-    let signature = LaunchSignature {
-        llxprt_version: "0.9.0".to_owned(),
-        ..base_signature()
-    };
-    let plan = ExecutablePlan::from_signature(&signature);
-    let resolved = "/opt/node's tools/npm;safe";
-    let cli = assemble_remote_cli_command(&plan, resolved, &[]);
-    let escaped = shell_escape_single(resolved);
-
-    assert!(
-        cli.starts_with(&escaped),
-        "resolved npm executable must be token zero: {cli}"
-    );
-    assert!(
-        !cli.starts_with("'npm' "),
-        "remote launch must not replace the resolved path with literal npm: {cli}"
-    );
-}
-/// A remote CLI assembly with a clean version selector and args produces the
-/// expected escaped prefix followed by the escaped args.
-#[test]
-fn remote_cli_assembly_clean_version_with_args() {
-    use crate::domain::{AgentKind, LaunchSignature, RemoteRepositorySettings, SandboxEngine};
-
-    let signature = LaunchSignature {
-        work_dir: std::path::PathBuf::from("/tmp/work"),
-        profile: "my-profile".to_owned(),
-        code_puppy_model: String::new(),
-        llxprt_version: "0.9.0".to_owned(),
-        code_puppy_yolo: None,
-        code_puppy_quick_resume: false,
-        mode_flags: Vec::new(),
-        llxprt_debug: String::new(),
-        pass_continue: true,
-        sandbox_enabled: false,
-        sandbox_engine: SandboxEngine::Podman,
-        sandbox_flags: String::new(),
-        remote: RemoteRepositorySettings::default(),
-        agent_kind: AgentKind::Llxprt,
-    };
-    let plan = ExecutablePlan::from_signature(&signature);
-    let args = launch_args(&signature);
-    let cli = assemble_remote_cli_command(&plan, "npm", &args);
-    assert!(
-        cli.contains("'--package=@vybestack/llxprt-code@0.9.0'"),
-        "clean selector must be in the package token: {cli}"
-    );
-    assert!(
-        cli.contains("'--profile-load'"),
-        "launch args must be shell-escaped: {cli}"
-    );
-    assert!(
-        cli.contains("'--continue'"),
-        "continue flag must be present: {cli}"
-    );
 }

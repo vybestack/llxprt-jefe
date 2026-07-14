@@ -35,6 +35,8 @@ impl AppState {
                 scope_repo_id,
                 issue_number,
                 mutation_id,
+                close_reason: _,
+                duplicate_of: _,
             } => self.apply_issue_closed(scope_repo_id, *issue_number, *mutation_id),
             AppEvent::IssueDeleted {
                 scope_repo_id,
@@ -57,34 +59,35 @@ impl AppState {
     }
 
     /// Resolve the focused issue number (list selection or detail).
-    fn focused_issue_number(&self) -> Option<u64> {
+    pub(super) fn focused_issue_number(&self) -> Option<u64> {
         if let Some(detail) = &self.issues_state.issue_detail {
             return Some(detail.number);
         }
         self.issues_state
-            .selected_issue_index
-            .and_then(|idx| self.issues_state.issues.get(idx))
+            .selected_issue_index()
+            .and_then(|idx| self.issues_state.issues().get(idx))
             .map(|issue| issue.number)
     }
 
     /// Resolve the focused issue's state (list row or detail).
-    fn focused_issue_state(&self) -> Option<IssueState> {
+    pub(super) fn focused_issue_state(&self) -> Option<IssueState> {
         if let Some(detail) = &self.issues_state.issue_detail {
             return Some(detail.state);
         }
         self.issues_state
-            .selected_issue_index
-            .and_then(|idx| self.issues_state.issues.get(idx))
+            .selected_issue_index()
+            .and_then(|idx| self.issues_state.issues().get(idx))
             .map(|issue| issue.state)
     }
 
     /// Whether any overlay or in-flight lifecycle mutation would block starting
     /// a new close/delete. Extracted so the guard cannot drift between the two
     /// entry points.
-    fn lifecycle_overlay_active(&self) -> bool {
+    pub(super) fn lifecycle_overlay_active(&self) -> bool {
         self.issues_state.inline_state != InlineState::None
             || self.issues_state.agent_chooser.is_some()
             || self.issues_state.delete_confirm.is_some()
+            || self.issues_state.close_reason_chooser.is_some()
             || self.issues_state.close_mutation_pending.is_some()
             || self.issues_state.delete_mutation_pending.is_some()
     }
@@ -118,6 +121,8 @@ impl AppState {
             mutation_id,
             issue_number,
             node_id: None,
+            close_reason: None,
+            duplicate_of: None,
         });
     }
 
@@ -165,6 +170,8 @@ impl AppState {
             mutation_id,
             issue_number,
             node_id: Some(node_id),
+            close_reason: None,
+            duplicate_of: None,
         });
     }
 
@@ -173,14 +180,14 @@ impl AppState {
     /// Returns `None` when the issue is not found OR its node id is empty, so
     /// the caller can produce a single clear "node id unavailable" diagnostic
     /// instead of distinguishing not-found from incomplete-data.
-    fn focused_issue_node_id(&self, issue_number: u64) -> Option<String> {
+    pub(super) fn focused_issue_node_id(&self, issue_number: u64) -> Option<String> {
         let raw = if let Some(detail) = &self.issues_state.issue_detail
             && detail.number == issue_number
         {
             Some(detail.node_id.clone())
         } else {
             self.issues_state
-                .issues
+                .issues()
                 .iter()
                 .find(|issue| issue.number == issue_number)
                 .map(|issue| issue.node_id.clone())
@@ -212,9 +219,10 @@ impl AppState {
         self.issues_state.close_mutation_pending = None;
         if let Some(issue) = self
             .issues_state
-            .issues
+            .list
+            .items_mut()
             .iter_mut()
-            .find(|i| i.number == issue_number)
+            .find(|issue| issue.number == issue_number)
         {
             issue.state = IssueState::Closed;
         }
@@ -254,11 +262,12 @@ impl AppState {
         // rather than silently landing on whichever issue now occupies the slot).
         let deleted_index = self
             .issues_state
-            .issues
+            .issues()
             .iter()
             .position(|issue| issue.number == issue_number);
         self.issues_state
-            .issues
+            .list
+            .items_mut()
             .retain(|issue| issue.number != issue_number);
         if self
             .issues_state
@@ -283,22 +292,23 @@ impl AppState {
     ///   if it was the final row, the clamp below moves it to the new last row.
     /// - List empty: clear the selection.
     fn fix_issue_selection_after_delete(&mut self, deleted_index: Option<usize>) {
-        if self.issues_state.issues.is_empty() {
-            self.issues_state.selected_issue_index = None;
+        if self.issues_state.issues().is_empty() {
+            self.issues_state.list.set_selected_index(None);
             return;
         }
-        let max_idx = self.issues_state.issues.len() - 1;
-        match (deleted_index, self.issues_state.selected_issue_index) {
+        let max_idx = self.issues_state.issues().len() - 1;
+        let current = self.issues_state.selected_issue_index();
+        match (deleted_index, current) {
             (Some(deleted), Some(sel)) if deleted < sel => {
                 // An earlier row was removed: shift the selection down to track
                 // the same issue.
-                self.issues_state.selected_issue_index = Some(sel - 1);
+                self.issues_state.list.set_selected_index(Some(sel - 1));
             }
             _ => {
-                if let Some(idx) = self.issues_state.selected_issue_index
+                if let Some(idx) = current
                     && idx > max_idx
                 {
-                    self.issues_state.selected_issue_index = Some(max_idx);
+                    self.issues_state.list.set_selected_index(Some(max_idx));
                 }
             }
         }
@@ -350,8 +360,7 @@ impl AppState {
         true
     }
 
-    /// Allocate the next monotonic mutation id (shared with inline mutations).
-    fn next_issue_mutation_id(&mut self) -> u64 {
+    pub(super) fn next_issue_mutation_id(&mut self) -> u64 {
         self.issues_state.next_mutation_id = self.issues_state.next_mutation_id.saturating_add(1);
         self.issues_state.next_mutation_id
     }
@@ -361,17 +370,19 @@ impl AppState {
     /// Returns `None` when no repository is selected (or the index is stale),
     /// so callers can bail before creating a mutation pending with an empty
     /// scope that would never match an async result carrying the real scope.
-    fn selected_issue_scope_repo_id(&self) -> Option<RepositoryId> {
+    pub(super) fn selected_issue_scope_repo_id(&self) -> Option<RepositoryId> {
         self.selected_repository_index
             .and_then(|idx| self.repositories.get(idx))
             .map(|r| r.id.clone())
     }
 
-    /// Set a draft_notice for a read-only hint kind.
-    fn show_issue_notice(&mut self, kind: ReadOnlyHintKind) {
+    pub(super) fn show_issue_notice(&mut self, kind: ReadOnlyHintKind) {
         let text = match kind {
             ReadOnlyHintKind::IssueAlreadyClosed => "Issue is already closed".to_string(),
             ReadOnlyHintKind::NoIssueFocused => "No issue selected".to_string(),
+            ReadOnlyHintKind::NoDuplicateTarget => {
+                "Select an issue to mark as duplicate".to_string()
+            }
             // The remaining variants are PR-domain hints that this issues path
             // never emits; they are enumerated so adding a new variant forces an
             // explicit decision here rather than being silently swallowed.
