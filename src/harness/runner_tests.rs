@@ -576,9 +576,14 @@ fn guarded_real_jefe_sticky_kill_scenario() {
 /// Seed a config directory with a state.json containing a single Running agent
 /// bound to the given tmux session name (issue #116 scenario fixture).
 #[cfg(unix)]
+type StickyAgentId = crate::domain::AgentId;
+#[cfg(unix)]
+type StickyConfigPath = std::path::Path;
+
+#[cfg(unix)]
 fn seed_sticky_agent_state(
-    config_dir: &std::path::Path,
-    agent_id: &crate::domain::AgentId,
+    config_dir: &StickyConfigPath,
+    agent_id: &StickyAgentId,
     agent_session: &str,
 ) {
     use crate::domain::{
