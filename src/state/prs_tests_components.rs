@@ -301,7 +301,7 @@ fn test_appevent_pullrequestsmessage_round_trip() {
         AppEvent::PrScrollDetailDown,
         AppEvent::PrDetailSubfocusNext,
         AppEvent::PrDetailSubfocusPrev,
-        AppEvent::PrOpenAgentChooser,
+        AppEvent::PrOpenAgentChooser { metadata: vec![] },
         AppEvent::PrAgentChooserNavigateUp,
         AppEvent::PrAgentChooserNavigateDown,
         AppEvent::PrAgentChooserConfirm,

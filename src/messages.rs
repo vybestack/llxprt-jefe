@@ -368,7 +368,9 @@ pub enum IssuesMessage {
         issue_number: u64,
         mutation_id: u64,
     },
-    OpenAgentChooser,
+    OpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     AgentChooserNavigateUp,
     AgentChooserNavigateDown,
     AgentChooserConfirm,
@@ -571,7 +573,9 @@ pub enum PullRequestsMessage {
         error: String,
     },
     ShowNotice(ReadOnlyHintKind),
-    OpenAgentChooser,
+    OpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     AgentChooserNavigate(NavDir),
     AgentChooserConfirm,
     AgentChooserCancel,

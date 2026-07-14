@@ -209,7 +209,10 @@ fn issue_send_state(repo: Repository) -> AppState {
         issue_detail: Some(detail),
         agent_chooser: Some(AgentChooserState {
             selected_index: 0,
-            agents: vec![(agent_id.clone(), "Agent One".to_owned())],
+            agents: vec![jefe::domain::AgentChooserEntry::new(
+                agent_id.clone(),
+                "Agent One".to_owned(),
+            )],
         }),
         ..IssuesState::default()
     };

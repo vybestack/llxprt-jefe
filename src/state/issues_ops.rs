@@ -543,7 +543,7 @@ impl AppState {
 
     fn apply_agent_chooser_event(&mut self, event: AppEvent) -> bool {
         match event {
-            AppEvent::OpenAgentChooser => self.open_agent_chooser(),
+            AppEvent::OpenAgentChooser { metadata } => self.open_agent_chooser(metadata),
             AppEvent::AgentChooserNavigateUp => {
                 if let Some(chooser) = &mut self.issues_state.agent_chooser
                     && chooser.selected_index > 0
@@ -566,17 +566,26 @@ impl AppState {
         true
     }
 
-    fn open_agent_chooser(&mut self) {
+    /// Open the agent chooser using Git metadata joined with agents recomputed
+    /// from current state.
+    ///
+    /// The reducer is the authoritative source of eligibility: it calls the
+    /// pure selector [`AppState::chooser_agents_for_repository`] to get
+    /// currently eligible agents (non-running, correct repo, available kind),
+    /// then joins only the Git metadata whose [`AgentId`] matches. Stale or
+    /// injected metadata from a removed/running/cross-repo agent is silently
+    /// dropped.
+    fn open_agent_chooser(&mut self, metadata: Vec<crate::domain::AgentChooserGitMetadata>) {
         let repo_id = self.selected_repository_id().cloned();
-        let agents = self.chooser_agents_for_repository(repo_id.as_ref());
-        if agents.is_empty() {
+        let entries = super::build_chooser_entries_from_state(self, repo_id.as_ref(), &metadata);
+        if entries.is_empty() {
             self.issues_state.agent_chooser = None;
             self.issues_state.draft_notice = Some("No agents available".to_string());
         } else {
             self.issues_state.draft_notice = None;
             self.issues_state.agent_chooser = Some(AgentChooserState {
                 selected_index: 0,
-                agents,
+                agents: entries,
             });
         }
     }

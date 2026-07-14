@@ -88,6 +88,7 @@ fn list_suffix_both_present() {
     let info = GitRepoInfo {
         origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
         branch: Some("main".to_owned()),
+        dirty: None,
     };
     assert_eq!(info.list_suffix(), "vybestack/llxprt-jefe @ main");
 }
@@ -97,6 +98,7 @@ fn list_suffix_only_origin() {
     let info = GitRepoInfo {
         origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
         branch: None,
+        dirty: None,
     };
     assert_eq!(info.list_suffix(), "vybestack/llxprt-jefe");
 }
@@ -106,6 +108,7 @@ fn list_suffix_only_branch() {
     let info = GitRepoInfo {
         origin_shortform: None,
         branch: Some("feature-foo".to_owned()),
+        dirty: None,
     };
     assert_eq!(info.list_suffix(), "@ feature-foo");
 }
@@ -143,6 +146,404 @@ fn resolve_empty_github_repo_falls_back_to_git_detection() {
 }
 
 // ── parse_repository_origin: host-aware parsing (issue #190 MUST-FIX #3) ─
+
+// ── dirty status: list_suffix formatting (issue #230) ──────────────────────
+
+#[test]
+fn list_suffix_dirty_branch_shows_marker() {
+    let info = GitRepoInfo {
+        origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
+        branch: Some("main".to_owned()),
+        dirty: Some(true),
+    };
+    assert_eq!(info.list_suffix(), "vybestack/llxprt-jefe @ main *");
+}
+
+#[test]
+fn list_suffix_clean_branch_no_marker() {
+    let info = GitRepoInfo {
+        origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
+        branch: Some("main".to_owned()),
+        dirty: Some(false),
+    };
+    assert_eq!(info.list_suffix(), "vybestack/llxprt-jefe @ main");
+}
+
+#[test]
+fn list_suffix_unknown_dirty_no_marker() {
+    let info = GitRepoInfo {
+        origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
+        branch: Some("main".to_owned()),
+        dirty: None,
+    };
+    assert_eq!(info.list_suffix(), "vybestack/llxprt-jefe @ main");
+}
+
+#[test]
+fn list_suffix_dirty_only_branch_shows_marker() {
+    let info = GitRepoInfo {
+        origin_shortform: None,
+        branch: Some("feature-foo".to_owned()),
+        dirty: Some(true),
+    };
+    assert_eq!(info.list_suffix(), "@ feature-foo *");
+}
+
+#[test]
+fn list_suffix_dirty_no_branch_no_marker() {
+    // Dirty marker only makes sense adjacent to a branch. Without a branch
+    // there is nothing to mark, so the marker is suppressed.
+    let info = GitRepoInfo {
+        origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
+        branch: None,
+        dirty: Some(true),
+    };
+    assert_eq!(info.list_suffix(), "vybestack/llxprt-jefe");
+}
+
+// ── dirty status: resolve with real temp git repos (issue #230) ─────────────
+//
+// These use real temporary git repositories (not mocks) to prove tracked and
+// untracked changes produce dirty=true while a clean worktree produces
+// dirty=false. Jefe-owned .jefe/ and .llxprt/ paths must NOT count as dirty.
+
+/// Project-standard test Result extension: unwrap with a context message
+/// instead of bare `expect`/`unwrap`.
+trait TestResultExt<T> {
+    fn value_or_panic(self, context: &str) -> T;
+}
+
+impl<T, E: std::fmt::Debug> TestResultExt<T> for Result<T, E> {
+    fn value_or_panic(self, context: &str) -> T {
+        match self {
+            Ok(value) => value,
+            Err(error) => panic!("{context}: {error:?}"),
+        }
+    }
+}
+
+/// Helper: create a temp git repo on a deterministicly-named branch with an
+/// initial commit, returning its path. Uses a named branch (`test-main`) so
+/// tests can assert a concrete branch rather than guessing `master`/`main`.
+fn temp_git_repo() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().value_or_panic("create git test tempdir");
+    let path = dir.path();
+    // `-b` is supported since git 2.28 (2020). Rename via symbolic-ref as a
+    // fallback for any older git that ignores -b.
+    run_git(path, &["init", "--quiet", "-b", "test-main"]);
+    // Ensure the branch is test-main regardless of git version behavior.
+    run_git(path, &["symbolic-ref", "HEAD", "refs/heads/test-main"]);
+    run_git(path, &["config", "user.email", "test@test.test"]);
+    run_git(path, &["config", "user.name", "Test"]);
+    run_git(path, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(path.join("README.md"), "hello\n").value_or_panic("write README");
+    run_git(path, &["add", "README.md"]);
+    run_git(path, &["commit", "--quiet", "-m", "init"]);
+    dir
+}
+
+fn run_git(dir: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .status()
+        .value_or_panic(&format!("spawn git {args:?}"));
+    assert!(status.success(), "git {args:?} failed in {}", dir.display());
+}
+
+fn write_file(path: &Path, content: &str) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .value_or_panic(&format!("mkdir parent for {}", path.display()));
+    }
+    std::fs::write(path, content).value_or_panic(&format!("write {}", path.display()));
+}
+
+fn create_dir(path: &Path) {
+    std::fs::create_dir_all(path).value_or_panic(&format!("mkdir {}", path.display()));
+}
+
+#[test]
+fn resolve_clean_worktree_is_not_dirty() {
+    let repo = temp_git_repo();
+    let info = GitRepoInfo::resolve("", false, repo.path());
+    assert_eq!(info.branch.as_deref(), Some("test-main"));
+    assert_eq!(info.dirty, Some(false));
+}
+
+#[test]
+fn resolve_tracked_change_is_dirty() {
+    let repo = temp_git_repo();
+    write_file(&repo.path().join("README.md"), "changed\n");
+    let info = GitRepoInfo::resolve("", false, repo.path());
+    assert_eq!(info.dirty, Some(true));
+}
+
+#[test]
+fn resolve_untracked_file_is_dirty() {
+    let repo = temp_git_repo();
+    write_file(&repo.path().join("new_file.rs"), "new\n");
+    let info = GitRepoInfo::resolve("", false, repo.path());
+    assert_eq!(info.dirty, Some(true));
+}
+
+#[test]
+fn resolve_only_jefe_paths_not_dirty() {
+    let repo = temp_git_repo();
+    create_dir(&repo.path().join(".jefe"));
+    write_file(&repo.path().join(".jefe/issue-prompt.md"), "prompt\n");
+    let info = GitRepoInfo::resolve("", false, repo.path());
+    assert_eq!(info.dirty, Some(false));
+}
+
+#[test]
+fn resolve_only_llxprt_paths_not_dirty() {
+    let repo = temp_git_repo();
+    create_dir(&repo.path().join(".llxprt"));
+    write_file(&repo.path().join(".llxprt/LLXPRT.md"), "memory\n");
+    let info = GitRepoInfo::resolve("", false, repo.path());
+    assert_eq!(info.dirty, Some(false));
+}
+
+#[test]
+fn resolve_jefe_plus_real_change_is_dirty() {
+    let repo = temp_git_repo();
+    create_dir(&repo.path().join(".jefe"));
+    write_file(&repo.path().join(".jefe/x.md"), "x\n");
+    write_file(&repo.path().join("src/lib.rs"), "changed\n");
+    let info = GitRepoInfo::resolve("", false, repo.path());
+    assert_eq!(info.dirty, Some(true));
+}
+
+// ── porcelain_is_dirty: raw NUL-separated (-z) synthetic tests ─────────────
+//
+// Production now runs `git status --porcelain=v1 -z`, which emits NUL-delimited
+// records with REVERSED rename/copy path order (destination THEN source), e.g.
+//   `R  new.txt\0old.txt\0`
+// These tests pin the -z parsing path directly so it is covered even when the
+// real-repo tests below don't exercise a particular rename direction.
+
+#[test]
+fn z_clean_porcelain_is_not_dirty() {
+    assert!(!porcelain_is_dirty(""));
+    assert!(!porcelain_is_dirty("\u{0000}\u{0000}"));
+}
+
+#[test]
+fn z_untracked_real_file_is_dirty() {
+    assert!(porcelain_is_dirty("?? src/lib.rs\u{0000}"));
+}
+
+#[test]
+fn z_untracked_jefe_arrow_filename_is_not_dirty() {
+    // A real untracked file named `.jefe/foo -> bar` must be ignored. With -z,
+    // git does NOT insert the ` -> ` rename separator for untracked entries,
+    // so this is a single owned path.
+    assert!(!porcelain_is_dirty("?? .jefe/foo -> bar\u{0000}"));
+}
+
+#[test]
+fn z_untracked_llxprt_arrow_filename_is_not_dirty() {
+    assert!(!porcelain_is_dirty("?? .llxprt/foo -> bar\u{0000}"));
+}
+
+#[test]
+fn z_untracked_src_arrow_filename_is_dirty() {
+    // A real untracked `src/foo -> bar` is dirty even though the path
+    // contains ` -> `. The -z parser must NOT misread this as a rename.
+    assert!(porcelain_is_dirty("?? src/foo -> bar\u{0000}"));
+}
+
+#[test]
+fn z_modified_tracked_file_is_dirty() {
+    assert!(porcelain_is_dirty(" M Cargo.toml\u{0000}"));
+}
+
+#[test]
+fn z_only_jefe_paths_not_dirty() {
+    assert!(!porcelain_is_dirty("?? .jefe/issue-prompt.md\u{0000}"));
+    assert!(!porcelain_is_dirty(" M .jefe/something\u{0000}"));
+}
+
+#[test]
+fn z_only_llxprt_paths_not_dirty() {
+    assert!(!porcelain_is_dirty("?? .llxprt/LLXPRT.md\u{0000}"));
+    assert!(!porcelain_is_dirty(" M .llxprt/session.json\u{0000}"));
+}
+
+#[test]
+fn z_jefe_plus_real_change_is_dirty() {
+    let porcelain = "?? .jefe/issue-prompt.md\u{0000} M src/main.rs\u{0000}";
+    assert!(porcelain_is_dirty(porcelain));
+}
+
+#[test]
+fn z_rename_both_owned_is_not_dirty() {
+    // -z format: destination THEN source, NUL-delimited.
+    // R  .jefe/new.md \0 .jefe/old.md \0  → both owned → ignored.
+    assert!(!porcelain_is_dirty(
+        "R  .jefe/new.md\u{0000}.jefe/old.md\u{0000}"
+    ));
+    assert!(!porcelain_is_dirty("R  .jefe/b\u{0000}.llxprt/a\u{0000}"));
+}
+
+#[test]
+fn z_copy_both_owned_is_not_dirty() {
+    assert!(!porcelain_is_dirty("C  .jefe/new\u{0000}.jefe/old\u{0000}"));
+}
+
+#[test]
+fn z_rename_real_to_real_is_dirty() {
+    // destination=src/new.txt, source=src/old.txt → both real → dirty.
+    assert!(porcelain_is_dirty(
+        "R  src/new.txt\u{0000}src/old.txt\u{0000}"
+    ));
+}
+
+#[test]
+fn z_rename_owned_to_real_is_dirty() {
+    // destination=src/new.txt (real), source=.jefe/old.md (owned) → dirty.
+    assert!(porcelain_is_dirty(
+        "R  src/new.txt\u{0000}.jefe/old.md\u{0000}"
+    ));
+}
+
+#[test]
+fn z_rename_real_to_owned_is_dirty() {
+    // destination=.jefe/x.md (owned), source=old.txt (real) → dirty.
+    assert!(porcelain_is_dirty("R  .jefe/x.md\u{0000}old.txt\u{0000}"));
+}
+
+#[test]
+fn z_copy_owned_to_real_is_dirty() {
+    assert!(porcelain_is_dirty(
+        "C  src/new.txt\u{0000}.jefe/old.md\u{0000}"
+    ));
+}
+
+#[test]
+fn z_copy_real_to_owned_is_dirty() {
+    assert!(porcelain_is_dirty("C  .jefe/x.md\u{0000}old.txt\u{0000}"));
+}
+
+#[test]
+fn z_rename_with_status_xy_prefixes_dirty() {
+    // RM / RA prefixes: first char is the rename indicator.
+    assert!(porcelain_is_dirty(
+        "RM src/new.txt\u{0000}src/old.txt\u{0000}"
+    ));
+}
+
+#[test]
+fn z_quoted_paths_handled() {
+    // -z never quotes paths (NUL delimiter makes quoting unnecessary), but
+    // the parser must still tolerate a leading quote if present.
+    assert!(porcelain_is_dirty("?? \"src/weird name.rs\"\u{0000}"));
+    assert!(!porcelain_is_dirty("?? \".jefe/weird name.md\"\u{0000}"));
+}
+
+#[test]
+fn z_mixed_records_real_after_owned_is_dirty() {
+    // owned untracked + real modified in one -z stream.
+    let porcelain = "?? .jefe/a\u{0000} M src/lib.rs\u{0000}";
+    assert!(porcelain_is_dirty(porcelain));
+}
+
+#[test]
+fn z_truncated_rename_fails_dirty() {
+    // A rename status whose second path is missing (truncated stream) must
+    // NOT be silently reported as clean. Fail-safe = dirty.
+    assert!(porcelain_is_dirty("R  src/new.txt\u{0000}"));
+}
+
+#[test]
+fn z_trailing_empty_record_ignored() {
+    // The -z terminator leaves a trailing empty field; it must not be
+    // treated as a real change.
+    assert!(!porcelain_is_dirty("?? .jefe/a\u{0000}\u{0000}"));
+}
+
+// ── porcelain_is_dirty: real temp git repos with arrow filenames (-z prod) ─
+//
+// These create REAL untracked files named `foo -> bar` under .jefe/, .llxprt/,
+// and src/ to prove the production `git status --porcelain=v1 -z` command
+// (exercised via GitRepoInfo::resolve) correctly ignores owned arrow-named
+// files while flagging real arrow-named files as dirty. This is the exact
+// regression the review flagged: a naive ` -> ` split would misclassify these.
+
+#[test]
+fn resolve_real_untracked_jefe_arrow_filename_ignored() {
+    let repo = temp_git_repo();
+    create_dir(&repo.path().join(".jefe"));
+    write_file(&repo.path().join(".jefe/foo -> bar"), "owned\n");
+    let info = GitRepoInfo::resolve("", false, repo.path());
+    assert_eq!(info.dirty, Some(false), ".jefe/foo -> bar must be ignored");
+}
+
+#[test]
+fn resolve_real_untracked_llxprt_arrow_filename_ignored() {
+    let repo = temp_git_repo();
+    create_dir(&repo.path().join(".llxprt"));
+    write_file(&repo.path().join(".llxprt/foo -> bar"), "owned\n");
+    let info = GitRepoInfo::resolve("", false, repo.path());
+    assert_eq!(
+        info.dirty,
+        Some(false),
+        ".llxprt/foo -> bar must be ignored"
+    );
+}
+
+#[test]
+fn resolve_real_untracked_src_arrow_filename_dirty() {
+    let repo = temp_git_repo();
+    create_dir(&repo.path().join("src"));
+    write_file(&repo.path().join("src/foo -> bar"), "real\n");
+    let info = GitRepoInfo::resolve("", false, repo.path());
+    assert_eq!(info.dirty, Some(true), "src/foo -> bar must be dirty");
+}
+
+#[test]
+fn resolve_real_rename_both_owned_ignored() {
+    // Commit two .jefe files, then git mv one onto the other. The resulting
+    // R record has both paths under .jefe/ → must be ignored (not dirty).
+    let repo = temp_git_repo();
+    let jefe = repo.path().join(".jefe");
+    create_dir(&jefe);
+    write_file(&jefe.join("old.md"), "a\n");
+    write_file(&jefe.join("new.md"), "b\n");
+    run_git(repo.path(), &["add", ".jefe/old.md", ".jefe/new.md"]);
+    run_git(repo.path(), &["commit", "--quiet", "-m", "add jefe files"]);
+    run_git(repo.path(), &["mv", ".jefe/old.md", ".jefe/renamed.md"]);
+    let info = GitRepoInfo::resolve("", false, repo.path());
+    assert_eq!(
+        info.dirty,
+        Some(false),
+        "rename entirely within .jefe/ must be ignored"
+    );
+}
+
+#[test]
+fn resolve_real_rename_owned_to_real_dirty() {
+    // Commit a .jefe file, then git mv it into src/ → owned→real rename is
+    // dirty (one affected path is real).
+    let repo = temp_git_repo();
+    create_dir(&repo.path().join(".jefe"));
+    create_dir(&repo.path().join("src"));
+    write_file(&repo.path().join(".jefe/old.md"), "a\n");
+    run_git(repo.path(), &["add", ".jefe/old.md"]);
+    run_git(repo.path(), &["commit", "--quiet", "-m", "add jefe file"]);
+    run_git(repo.path(), &["mv", ".jefe/old.md", "src/moved.md"]);
+    let info = GitRepoInfo::resolve("", false, repo.path());
+    assert_eq!(info.dirty, Some(true), "owned→real rename must be dirty");
+}
+
+#[test]
+fn resolve_remote_repo_dirty_is_none() {
+    // Remote repos must not incur SSH worktree probes; dirty must be None.
+    let info = GitRepoInfo::resolve("acme/widgets", true, Path::new("/nonexistent"));
+    assert_eq!(info.dirty, None);
+}
 
 #[test]
 fn parse_repository_origin_ssh_form() {

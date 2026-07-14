@@ -841,8 +841,8 @@ mod tests {
         state.issues_state.agent_chooser = Some(crate::state::AgentChooserState {
             selected_index: 0,
             agents: vec![
-                (AgentId("a1".to_string()), "alpha".to_string()),
-                (AgentId("a2".to_string()), "beta".to_string()),
+                crate::domain::AgentChooserEntry::simple("a1", "alpha"),
+                crate::domain::AgentChooserEntry::simple("a2", "beta"),
             ],
         });
         let content = pane_content_lines(SelectablePane::AgentChooser, &state, None, &[], 120, 40);

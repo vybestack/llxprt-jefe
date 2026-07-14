@@ -29,11 +29,6 @@ mod reclone_safety;
 pub(super) use issue_cleanup::discard_workdir_changes;
 pub(super) use reclone_safety::validate_reclone_target;
 
-/// Paths that jefe/llxprt own and that must never count as "dirty" working
-/// copy state, nor be swept by cleanup. Matched as path *prefixes* against
-/// the porcelain path column.
-const IGNORED_PREFIXES: [&str; 2] = [".jefe/", ".llxprt/"];
-
 /// Check whether `work_dir` exists and is a git working copy.
 ///
 /// Uses `git -C <work_dir> rev-parse --is-inside-work-tree` instead of
@@ -368,83 +363,23 @@ fn strip_remote_prefix(refname: &str) -> &str {
 
 /// Return `true` when the working copy has uncommitted/untracked changes,
 /// ignoring jefe/ and llxprt-owned paths.
+///
+/// Uses `git status --porcelain=v1 -z` (NUL-delimited output) so paths
+/// containing newlines or ` -> ` are handled correctly. Delegates to the
+/// shared [`jefe::git_info::porcelain_is_dirty`] parser so the ignore
+/// semantics are identical between the display cache and the issue-prep
+/// orchestration.
 pub(super) fn is_workdir_dirty(work_dir: &Path) -> Result<bool, String> {
-    let output = git_capture(work_dir, ["status", "--porcelain=v1"])?;
+    let output = git_capture(work_dir, ["status", "--porcelain=v1", "-z"])?;
+    // NUL is valid UTF-8 (U+0000), so from_utf8_lossy preserves embedded NULs.
     let porcelain = String::from_utf8_lossy(&output.stdout);
-    Ok(porcelain_is_dirty(&porcelain))
+    Ok(jefe::git_info::porcelain_is_dirty(&porcelain))
 }
 
-/// Pure helper: given raw `git status --porcelain=v1` output, return `true`
-/// when there is at least one non-ignored (i.e. real) change.
-///
-/// Exposed so the remote target path (which captures porcelain over SSH) can
-/// reuse the exact same dirty-detection logic as the local path.
-#[must_use]
-pub(super) fn porcelain_is_dirty(porcelain: &str) -> bool {
-    relevant_dirty_lines(porcelain).next().is_some()
-}
-
-/// Iterate the porcelain lines that represent real (non-ignored) changes.
-///
-/// Pure helper: given raw `git status --porcelain` output, yields only the
-/// lines that parse to at least one valid path AND where not ALL affected
-/// paths are under a jefe/llxprt-owned prefix. Blank/garbage lines are
-/// skipped.
-///
-/// For rename/copy records (`R`/`C`), **both** old and new paths are
-/// considered affected: a real→owned or owned→real rename is dirty. The
-/// record is ignored only if ALL affected paths are under `.jefe/`/`.llxprt/`.
-fn relevant_dirty_lines(porcelain: &str) -> impl Iterator<Item = &str> {
-    porcelain
-        .lines()
-        .filter(|line| porcelain_affected_paths(line).is_some())
-        .filter(|line| !is_ignored_porcelain_line(line))
-}
-
-/// Decide whether a single porcelain line refers only to ignored paths.
-///
-/// For rename/copy records, ALL affected paths (old and new) must be under
-/// ignored prefixes. For non-rename records, the single path is checked.
-fn is_ignored_porcelain_line(line: &str) -> bool {
-    porcelain_affected_paths(line).is_some_and(|paths| {
-        paths.iter().all(|path| {
-            IGNORED_PREFIXES
-                .iter()
-                .any(|prefix| path.starts_with(prefix))
-        })
-    })
-}
-
-/// Extract all affected paths from a porcelain v1 line.
-///
-/// For a non-rename record (`XY <path>`), returns a single-element vec.
-/// For a rename/copy record (`R  old -> new` or `C  old -> new`), returns
-/// BOTH the old and new paths.
-///
-/// Returns `None` for malformed/garbage lines (status column missing,
-/// path empty). All paths are unquoted.
-fn porcelain_affected_paths(line: &str) -> Option<Vec<&str>> {
-    let bytes = line.as_bytes();
-    // Porcelain v1 format: 2-char status + 1 space + path.
-    if bytes.len() < 3 || bytes[2] != b' ' {
-        return None;
-    }
-    let trimmed = line.trim_end();
-    let rest = trimmed.get(3..)?;
-    if let Some((old, new)) = rest.split_once(" -> ") {
-        // Rename/copy: both old and new paths are affected.
-        let old_unquoted = old.trim_matches('"');
-        let new_unquoted = new.trim_matches('"');
-        if old_unquoted.is_empty() || new_unquoted.is_empty() {
-            return None;
-        }
-        Some(vec![old_unquoted, new_unquoted])
-    } else {
-        // Non-rename: single path.
-        let unquoted = rest.trim_matches('"');
-        (!unquoted.is_empty()).then(|| vec![unquoted])
-    }
-}
+/// Re-export the shared porcelain parser so callers within `app_input` that
+/// previously referenced `issue_git_prep::porcelain_is_dirty` continue to
+/// resolve without source changes.
+pub(super) use jefe::git_info::porcelain_is_dirty;
 
 /// Check out `branch` in the working copy at the latest remote state.
 ///

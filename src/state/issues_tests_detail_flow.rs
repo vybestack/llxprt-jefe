@@ -1,6 +1,6 @@
 use crate::domain::{
-    Agent, AgentId, Issue, IssueComment, IssueDetail, IssueFilter, IssueState, Repository,
-    RepositoryId,
+    Agent, AgentChooserEntry, AgentChooserGitMetadata, AgentId, Issue, IssueComment, IssueDetail,
+    IssueFilter, IssueState, Repository, RepositoryId,
 };
 use crate::state::AppState;
 use crate::state::events::AppEvent;
@@ -589,14 +589,17 @@ fn test_send_to_agent_payload_complete() {
         DetailSubfocus::Comment(1)
     );
 
-    let state = state.apply(AppEvent::OpenAgentChooser);
+    let metadata = vec![AgentChooserGitMetadata::for_agent(AgentId(
+        "agent-1".to_string(),
+    ))];
+    let state = state.apply(AppEvent::OpenAgentChooser { metadata });
     let chooser = state
         .issues_state
         .agent_chooser
         .as_ref()
         .unwrap_or_else(|| panic!("chooser should be open"));
     assert_eq!(chooser.agents.len(), 1);
-    assert_eq!(chooser.agents[0].1, "My Agent");
+    assert_eq!(chooser.agents[0].name, "My Agent");
 
     let detail = state
         .issues_state
@@ -627,7 +630,7 @@ fn test_send_to_agent_no_agents() {
     let state = issues_mode_state_with_repo("repo-1");
     assert!(state.agents.is_empty());
 
-    let state = state.apply(AppEvent::OpenAgentChooser);
+    let state = state.apply(AppEvent::OpenAgentChooser { metadata: vec![] });
 
     assert!(state.issues_state.agent_chooser.is_none());
     assert_eq!(
@@ -698,7 +701,7 @@ fn test_esc_chain_all_six_levels_integrated() {
     let mut state = state;
     state.issues_state.agent_chooser = Some(AgentChooserState {
         selected_index: 0,
-        agents: vec![(AgentId("a1".to_string()), "Agent 1".to_string())],
+        agents: vec![AgentChooserEntry::simple("a1", "Agent 1")],
     });
     let state = state.apply(AppEvent::AgentChooserCancel);
     assert!(state.issues_state.agent_chooser.is_none());

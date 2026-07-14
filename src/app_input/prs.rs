@@ -243,7 +243,9 @@ fn handle_pr_detail_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEve
         KeyCode::Char('e') => Some(AppEvent::PrShowNotice(
             ReadOnlyHintKind::ReadOnlyNotEditable,
         )),
-        KeyCode::Char('S') => Some(AppEvent::PrOpenAgentChooser),
+        KeyCode::Char('S') => Some(AppEvent::PrOpenAgentChooser {
+            metadata: super::build_chooser_metadata(state),
+        }),
         KeyCode::Char('o') => Some(pr_open_in_browser_or_notice(pr_detail_present(state))),
         KeyCode::Char('m') => Some(pr_merge_event_for_detail(state)),
         _ => resolve_pr_property_open_key(state, key_event),

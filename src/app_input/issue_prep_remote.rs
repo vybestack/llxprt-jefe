@@ -497,8 +497,10 @@ impl RemotePrepRunner {
         // `set -e` makes the script fail fast if `cd` fails (e.g., a TOCTOU
         // race that removed the dir between the existence check and here),
         // so `git status` can never run in the wrong directory and produce a
-        // misleading porcelain result.
-        let dirty_script = format!("set -e; cd {escaped_work}; git status --porcelain=v1");
+        // misleading porcelain result. Uses `-z` (NUL-delimited) so paths
+        // containing newlines or ` -> ` are handled correctly; NUL is valid
+        // UTF-8 so the String transport preserves embedded NULs.
+        let dirty_script = format!("set -e; cd {escaped_work}; git status --porcelain=v1 -z");
         let porcelain = self.run_wrapped_capture(&dirty_script)?;
         let dirty = super::super::issue_git_prep::porcelain_is_dirty(&porcelain);
 

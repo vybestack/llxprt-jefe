@@ -364,7 +364,9 @@ pub enum AppEvent {
     /// Esc: close the chooser without closing the issue.
     CloseReasonCancel,
 
-    OpenAgentChooser,
+    OpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     AgentChooserNavigateUp,
     AgentChooserNavigateDown,
     AgentChooserConfirm,
@@ -560,7 +562,9 @@ pub enum AppEvent {
         pr_number: u64,
         error: String,
     },
-    PrOpenAgentChooser,
+    PrOpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     PrAgentChooserNavigateUp,
     PrAgentChooserNavigateDown,
     PrAgentChooserConfirm,

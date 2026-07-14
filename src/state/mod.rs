@@ -51,6 +51,8 @@ mod prs_property_ops;
 mod prs_thread_ops;
 pub mod scrollback_ops;
 mod selectors;
+pub use selectors::ChooserAgentInfo;
+pub(crate) use selectors::build_chooser_entries_from_state;
 pub mod state_ops;
 pub mod theme_picker_view;
 mod types;
@@ -92,7 +94,8 @@ impl AppState {
         self.terminal_total_lines = 0;
     }
 
-    fn selected_repository_id(&self) -> Option<&RepositoryId> {
+    #[must_use]
+    pub fn selected_repository_id(&self) -> Option<&RepositoryId> {
         self.selected_repository_index
             .and_then(|idx| self.repositories.get(idx).map(|repo| &repo.id))
     }
@@ -945,6 +948,14 @@ mod prs_test_fixtures;
 #[cfg(test)]
 #[path = "prs_tests_composer_focus.rs"]
 mod prs_tests_composer_focus;
+
+/// Issue #230: PR chooser metadata rejection, identity safety, and
+/// nonzero-index navigation tests. Extracted from
+/// `prs_tests_composer_focus.rs` to keep both files under the source-size
+/// hard limit.
+#[cfg(test)]
+#[path = "prs_tests_chooser_security.rs"]
+mod prs_tests_chooser_security;
 
 /// @plan PLAN-20260624-PR-MODE.P14 @requirement REQ-PR-010
 #[cfg(test)]

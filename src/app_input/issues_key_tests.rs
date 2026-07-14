@@ -6,7 +6,7 @@
 
 use super::*;
 use iocraft::prelude::{KeyCode, KeyEventKind, KeyModifiers};
-use jefe::domain::{Agent, AgentId, RepositoryId};
+use jefe::domain::{Agent, AgentChooserEntry, AgentId, RepositoryId};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::state::{
     AgentChooserState, AppEvent, AppState, ComposerTarget, DetailSubfocus, EditorTarget,
@@ -73,7 +73,10 @@ fn issues_state_with_chooser() -> AppState {
             issue_focus: IssueFocus::IssueList,
             agent_chooser: Some(AgentChooserState {
                 selected_index: 0,
-                agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+                agents: vec![AgentChooserEntry::new(
+                    AgentId(String::from("a1")),
+                    String::from("Agent 1"),
+                )],
             }),
             ..IssuesState::default()
         },
@@ -626,7 +629,10 @@ fn test_s_opens_agent_chooser() {
     let mut state = issues_state_with_focus(IssueFocus::IssueDetail);
     add_agent(&mut state);
     let event = resolve_issues_key_event(&state, &key(KeyCode::Char('S')));
-    assert!(matches!(event, Some(AppEvent::OpenAgentChooser)));
+    assert!(
+        matches!(event, Some(AppEvent::OpenAgentChooser { .. })),
+        "Shift+S must dispatch OpenAgentChooser, got {event:?}"
+    );
 }
 
 /// `S` with inline active is consumed by inline handler, NOT agent chooser.

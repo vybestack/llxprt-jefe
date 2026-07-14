@@ -37,13 +37,14 @@ pub fn agent_chooser_lines(state: &AppState) -> PaneContent {
         lines.push("No agents available. Create an agent in Agents Mode.".to_string());
         lines.push(String::new());
     } else {
-        for (i, (_id, name)) in chooser.agents.iter().enumerate() {
+        for (i, entry) in chooser.agents.iter().enumerate() {
             let marker = if i == chooser.selected_index {
                 "(x)"
             } else {
                 "( )"
             };
-            lines.push(format!("{marker} {name}"));
+            let label = crate::domain::agent_chooser_label(entry);
+            lines.push(format!("{marker} {label}"));
         }
     }
     lines.push(SEPARATOR_LINE.to_string());
@@ -616,14 +617,29 @@ mod tests {
 
     #[test]
     fn agent_chooser_with_agents_exact_lines() {
+        use crate::domain::{AgentChooserEntry, AgentKind, ChooserRuntimeConfig, DirtyStatus};
         let state = AppState {
             screen_mode: crate::state::ScreenMode::DashboardIssues,
             issues_state: crate::state::IssuesState {
                 agent_chooser: Some(crate::state::AgentChooserState {
                     selected_index: 0,
                     agents: vec![
-                        (AgentId("a1".to_string()), "alpha".to_string()),
-                        (AgentId("a2".to_string()), "beta".to_string()),
+                        AgentChooserEntry {
+                            agent_id: AgentId("a1".to_string()),
+                            name: "alpha".to_string(),
+                            kind: AgentKind::Llxprt,
+                            runtime_config: ChooserRuntimeConfig::new("ops"),
+                            branch: None,
+                            dirty: DirtyStatus::unknown(),
+                        },
+                        AgentChooserEntry {
+                            agent_id: AgentId("a2".to_string()),
+                            name: "beta".to_string(),
+                            kind: AgentKind::CodePuppy,
+                            runtime_config: ChooserRuntimeConfig::new("minimax-m3"),
+                            branch: Some("feature".to_string()),
+                            dirty: DirtyStatus::dirty(),
+                        },
                     ],
                 }),
                 ..Default::default()
@@ -634,10 +650,61 @@ mod tests {
         // Verify exact structure: header, separator, entries, separator, hints.
         assert_eq!(content.lines[0], "Send to Agent");
         assert!(content.lines[1].starts_with('─'));
-        assert!(content.lines[2].contains("(x) alpha"));
-        assert!(content.lines[3].contains("( ) beta"));
-        // Two agents → lines 2-3 are entries, line 4 is separator, line 5+ hints.
+        // Entry 0: LLxprt with a named profile, unknown dirty (no marker).
+        assert_eq!(
+            content.lines[2], "(x) alpha [LLxprt] profile: ops",
+            "selected entry must show kind label, configured profile, no dirty marker"
+        );
+        // Entry 1: Code Puppy with a named model, dirty branch-adjacent marker.
+        assert_eq!(
+            content.lines[3], "( ) beta [Code Puppy] model: minimax-m3  @ feature *",
+            "unselected entry must show kind label, configured model, branch with dirty marker"
+        );
         assert!(content.lines[4].starts_with('─'));
+    }
+
+    #[test]
+    fn agent_chooser_default_and_clean_render() {
+        use crate::domain::{AgentChooserEntry, AgentKind, ChooserRuntimeConfig, DirtyStatus};
+        let state = AppState {
+            screen_mode: crate::state::ScreenMode::DashboardIssues,
+            issues_state: crate::state::IssuesState {
+                agent_chooser: Some(crate::state::AgentChooserState {
+                    selected_index: 0,
+                    agents: vec![
+                        AgentChooserEntry {
+                            agent_id: AgentId("d1".to_string()),
+                            name: "delta".to_string(),
+                            kind: AgentKind::Llxprt,
+                            runtime_config: ChooserRuntimeConfig::default(),
+                            branch: None,
+                            dirty: DirtyStatus::clean(),
+                        },
+                        AgentChooserEntry {
+                            agent_id: AgentId("d2".to_string()),
+                            name: "epsilon".to_string(),
+                            kind: AgentKind::CodePuppy,
+                            runtime_config: ChooserRuntimeConfig::default(),
+                            branch: None,
+                            dirty: DirtyStatus::clean(),
+                        },
+                    ],
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let content = agent_chooser_lines(&state);
+        // Empty config must show the explicit (default) label; clean tree
+        // must NOT show the dirty marker.
+        assert_eq!(
+            content.lines[2], "(x) delta [LLxprt] profile: (default)",
+            "empty profile must show (default) and clean tree must not show dirty marker"
+        );
+        assert_eq!(
+            content.lines[3], "( ) epsilon [Code Puppy] model: (default)",
+            "empty model must show (default) and clean tree must not show dirty marker"
+        );
     }
 
     /// Every confirm modal variant must render — i.e.

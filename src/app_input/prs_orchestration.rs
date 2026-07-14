@@ -635,7 +635,8 @@ fn pr_send_info(app_state: &AppStateHandle) -> Option<PrSendInfo> {
 pub(super) fn pr_send_info_from_state(state: &AppState) -> Option<PrSendInfo> {
     let chooser = state.prs_state.agent_chooser.as_ref()?;
     let detail = state.prs_state.pr_detail.as_ref()?;
-    let (agent_id, _) = chooser.agents.get(chooser.selected_index)?.clone();
+    let entry = chooser.agents.get(chooser.selected_index)?;
+    let agent_id = entry.agent_id.clone();
     let agent = state
         .agents
         .iter()

@@ -395,7 +395,7 @@ impl PullRequestsMessage {
     /// @pseudocode component-004 lines 51-67
     fn from_app_event_agent(event: AppEvent) -> Self {
         match event {
-            AppEvent::PrOpenAgentChooser => Self::OpenAgentChooser,
+            AppEvent::PrOpenAgentChooser { metadata } => Self::OpenAgentChooser { metadata },
             AppEvent::PrAgentChooserNavigateUp => Self::AgentChooserNavigate(NavDir::Up),
             AppEvent::PrAgentChooserNavigateDown => Self::AgentChooserNavigate(NavDir::Down),
             AppEvent::PrAgentChooserConfirm => Self::AgentChooserConfirm,
@@ -846,7 +846,7 @@ impl PullRequestsMessage {
     /// @pseudocode component-004 lines 68-85
     fn into_app_event_agent(self) -> AppEvent {
         match self {
-            Self::OpenAgentChooser => AppEvent::PrOpenAgentChooser,
+            Self::OpenAgentChooser { metadata } => AppEvent::PrOpenAgentChooser { metadata },
             Self::AgentChooserNavigate(NavDir::Up) => AppEvent::PrAgentChooserNavigateUp,
             Self::AgentChooserNavigate(NavDir::Down) => AppEvent::PrAgentChooserNavigateDown,
             Self::AgentChooserConfirm => AppEvent::PrAgentChooserConfirm,

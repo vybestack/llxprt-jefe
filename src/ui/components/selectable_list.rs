@@ -722,6 +722,7 @@ mod tests {
         let git_infos = vec![GitRepoInfo {
             origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
             branch: Some("main".to_owned()),
+            dirty: None,
         }];
         let props = agent_list_props(
             &agents,
@@ -775,6 +776,7 @@ mod tests {
         let git_infos = vec![GitRepoInfo {
             origin_shortform: Some("acme/widgets".to_owned()),
             branch: Some("dev".to_owned()),
+            dirty: None,
         }];
         let props = agent_list_props(
             &agents,
@@ -795,6 +797,7 @@ mod tests {
         let git_infos = vec![GitRepoInfo {
             origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
             branch: Some("main".to_owned()),
+            dirty: None,
         }];
         let props = agent_list_props(
             &agents,
@@ -808,6 +811,60 @@ mod tests {
         assert!(
             ansi.contains("vybestack/llxprt-jefe @ main"),
             "git suffix text must appear in rendered output: {ansi}"
+        );
+    }
+
+    /// Agent list git-info suffix includes the dirty marker (` *`) when the
+    /// working tree is dirty (issue #230).
+    #[test]
+    fn agent_list_dirty_suffix_renders_marker() {
+        let agents = vec![agent("fix-login", AgentStatus::Running)];
+        let git_infos = vec![GitRepoInfo {
+            origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
+            branch: Some("main".to_owned()),
+            dirty: Some(true),
+        }];
+        let props = agent_list_props(
+            &agents,
+            &git_infos,
+            AgentListSelection::default(),
+            true,
+            ThemeColors::default(),
+            None,
+        );
+        // The suffix span text must include the dirty marker.
+        assert_eq!(
+            props.rows[0].spans[3].text, "  vybestack/llxprt-jefe @ main *",
+            "dirty worktree must append ' *' to the git suffix span"
+        );
+        let ansi = render_ansi(props, 70, 8);
+        assert!(
+            ansi.contains("vybestack/llxprt-jefe @ main *"),
+            "dirty marker must appear in rendered output: {ansi}"
+        );
+    }
+
+    /// Agent list git-info suffix does NOT include the dirty marker when the
+    /// tree is clean or dirty status is unknown (issue #230).
+    #[test]
+    fn agent_list_clean_suffix_no_marker() {
+        let agents = vec![agent("fix-login", AgentStatus::Running)];
+        let git_infos = vec![GitRepoInfo {
+            origin_shortform: Some("vybestack/llxprt-jefe".to_owned()),
+            branch: Some("main".to_owned()),
+            dirty: Some(false),
+        }];
+        let props = agent_list_props(
+            &agents,
+            &git_infos,
+            AgentListSelection::default(),
+            true,
+            ThemeColors::default(),
+            None,
+        );
+        assert_eq!(
+            props.rows[0].spans[3].text, "  vybestack/llxprt-jefe @ main",
+            "clean worktree must not append a dirty marker"
         );
     }
 

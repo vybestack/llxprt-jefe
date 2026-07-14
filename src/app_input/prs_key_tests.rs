@@ -13,7 +13,7 @@
 //! @requirement REQ-PR-013
 
 use super::*;
-use jefe::domain::{AgentId, ChecksFilter, ReviewDecisionFilter};
+use jefe::domain::{AgentChooserEntry, AgentId, ChecksFilter, ReviewDecisionFilter};
 use jefe::input::{InputMode, input_mode_for_state};
 use jefe::state::{
     AgentChooserState, ComposerTarget, PrFilterUiState, PullRequestsState, ScreenMode,
@@ -57,7 +57,10 @@ fn prs_state_with_chooser() -> AppState {
     let mut state = prs_base_state();
     state.prs_state.agent_chooser = Some(AgentChooserState {
         selected_index: 0,
-        agents: vec![(AgentId(String::from("a1")), String::from("Agent 1"))],
+        agents: vec![AgentChooserEntry::new(
+            AgentId(String::from("a1")),
+            String::from("Agent 1"),
+        )],
     });
     state
 }
@@ -783,7 +786,10 @@ fn test_e_on_pr_detail_emits_show_notice_not_none() {
 fn test_capital_s_opens_agent_chooser_from_detail() {
     let state = prs_state_with_detail_subfocus(PrDetailSubfocus::Body);
     let event = resolve_prs_key_event(&state, &key(KeyCode::Char('S')));
-    assert!(matches!(event, Some(AppEvent::PrOpenAgentChooser)));
+    assert!(
+        matches!(event, Some(AppEvent::PrOpenAgentChooser { .. })),
+        "Shift+S must dispatch PrOpenAgentChooser, got {event:?}"
+    );
 }
 
 /// `o` on a loaded/selected PR emits PrOpenInBrowser (from list and detail).
