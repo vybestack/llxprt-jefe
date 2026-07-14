@@ -17,25 +17,23 @@
 //! explicitly (it lives on the runtime, not AppState) so the module stays
 //! iocraft-free and side-effect-free.
 
-use crate::domain::{AgentStatus, IssueDetail};
-use crate::issue_detail_content::build_detail_content;
-use crate::pr_detail_content::build_pr_detail_content;
+use crate::domain::AgentStatus;
 use crate::runtime::TerminalSnapshot;
 use crate::selection::SelectablePane;
-use crate::state::AppState;
-use crate::ui::components::issue_detail::issue_detail_header_view;
-use crate::ui::components::issue_list::{IssueListLayout, issue_list_visible_rows};
-use crate::ui::components::pr_detail::pr_detail_header_view;
-use crate::ui::components::pr_list::pr_list_visible_rows;
-use crate::ui::components::terminal_empty_message;
+use crate::state::{AppState, DashboardGrabPane};
+use crate::ui::components::issue_list::{
+    IssueListLayout, IssueListWindow, issue_list_props, issue_list_status_message,
+};
+use crate::ui::components::pr_list::{
+    PrListLayout, PrListWindow, pr_list_props, pr_list_status_message,
+};
+use crate::ui::components::selectable_list::{ProjectedContentLine, projected_content_lines};
+use crate::ui::components::{SidebarProps, sidebar_list_props, terminal_empty_message};
 use crate::ui::modals::help_content_lines;
 
+use super::projection_context::PaneContentContext;
 use crate::selection::form_content;
 use crate::selection::overlay_content;
-
-/// Separator line rendered between the fixed detail header and the scrollable
-/// content, mirroring the components' `"─────…"` row.
-const DETAIL_SEPARATOR_LINE: &str = "─────────────────────────────────────────";
 
 /// The copyable text content of a pane, as a flat list of lines.
 ///
@@ -90,16 +88,52 @@ pub fn pane_content_lines(
     term_cols: u16,
     term_rows: u16,
 ) -> PaneContent {
+    pane_content_lines_with_context(
+        pane,
+        state,
+        &PaneContentContext {
+            terminal_snapshot: snapshot,
+            history_lines,
+            term_cols,
+            term_rows,
+            dashboard_git_info: None,
+        },
+    )
+}
+
+/// Build copyable pane content from explicit, already-resolved runtime inputs.
+#[must_use]
+pub fn pane_content_lines_with_context(
+    pane: SelectablePane,
+    state: &AppState,
+    context: &PaneContentContext<'_>,
+) -> PaneContent {
+    let (render_cols, render_rows) =
+        crate::layout::effective_render_size(context.term_cols, context.term_rows);
     match pane {
         SelectablePane::IssueDetail => issue_detail_lines(state),
         SelectablePane::PrDetail => pr_detail_lines(state),
-        SelectablePane::IssueList => issue_list_lines(state, term_cols, term_rows),
-        SelectablePane::PrList => pr_list_lines(state, term_cols, term_rows),
-        SelectablePane::ActionsList | SelectablePane::ActionsDetail => PaneContent::empty(pane),
-        SelectablePane::Sidebar => sidebar_lines(state),
-        SelectablePane::AgentList => agent_list_lines(state),
-        SelectablePane::Preview => preview_lines(state),
-        SelectablePane::TerminalView => terminal_lines(snapshot, state, history_lines),
+        SelectablePane::IssueList => issue_list_lines(state, render_cols, render_rows),
+        SelectablePane::PrList => pr_list_lines(state, render_cols, render_rows),
+        SelectablePane::ActionsList => {
+            super::actions_content::actions_list_lines(state, render_cols, render_rows)
+        }
+        SelectablePane::ActionsDetail => {
+            super::actions_content::actions_detail_lines(state, render_cols, render_rows)
+        }
+        SelectablePane::Sidebar => sidebar_lines(state, render_cols, render_rows),
+        SelectablePane::AgentList => super::dashboard_content::agent_list_lines(
+            state,
+            render_cols,
+            render_rows,
+            context.dashboard_git_info,
+        ),
+        SelectablePane::Preview => {
+            super::dashboard_content::preview_lines(state, context.dashboard_git_info)
+        }
+        SelectablePane::TerminalView => {
+            terminal_lines(context.terminal_snapshot, state, context.history_lines)
+        }
         SelectablePane::HelpModal => help_lines(),
         SelectablePane::StatusBar => status_bar_lines(state),
         SelectablePane::KeybindBar => keybind_bar_lines(state),
@@ -113,57 +147,53 @@ pub fn pane_content_lines(
 }
 
 fn issue_detail_lines(state: &AppState) -> PaneContent {
-    let Some(detail) = state.issues_state.issue_detail.as_ref() else {
-        return PaneContent::empty(SelectablePane::IssueDetail);
-    };
-    let content = build_detail_content(
-        detail,
-        state.issues_state.detail_subfocus,
-        &state.issues_state.inline_state,
-        state.issues_state.loading.comments,
+    let props = crate::ui::components::issue_detail::issue_detail_props(
+        crate::ui::components::issue_detail::IssueDetailProjectionInputs {
+            issue_detail: state.issues_state.issue_detail.as_ref(),
+            detail_subfocus: state.issues_state.detail_subfocus,
+            inline_state: &state.issues_state.inline_state,
+            comments_loading: state.issues_state.loading.comments,
+            focused: false,
+            scroll_offset: state.issues_state.detail_scroll_offset,
+            colors: crate::theme::ThemeColors::default(),
+            available_height: None,
+            available_width: None,
+            selection: None,
+        },
     );
-    let mut lines = issue_detail_header_lines(detail);
-    lines.extend(content.text.lines().map(String::from));
-    PaneContent::new(SelectablePane::IssueDetail, lines)
+    detail_props_content(SelectablePane::IssueDetail, props)
 }
 
 fn pr_detail_lines(state: &AppState) -> PaneContent {
-    let Some(detail) = state.prs_state.pr_detail.as_ref() else {
-        return PaneContent::empty(SelectablePane::PrDetail);
-    };
-    let content = build_pr_detail_content(
-        detail,
-        state.prs_state.detail_subfocus,
-        &state.prs_state.inline_state,
-        state.prs_state.loading.detail,
-        state.prs_state.loading.comments,
+    let props = crate::ui::components::pr_detail::pr_detail_props(
+        crate::ui::components::pr_detail::PrDetailProjectionInputs {
+            detail: state.prs_state.pr_detail.as_ref(),
+            subfocus: state.prs_state.detail_subfocus,
+            scroll_offset: state.prs_state.detail_scroll_offset,
+            viewport_rows: None,
+            detail_loading: state.prs_state.loading.detail,
+            comments_loading: state.prs_state.loading.comments,
+            focused: false,
+            inline_state: &state.prs_state.inline_state,
+            detail_content_width: 80,
+            colors: crate::theme::ThemeColors::default(),
+            selection: None,
+        },
     );
-    let header = pr_detail_header_view(detail);
-    let mut lines = vec![
-        header.title,
-        header.state,
-        header.branches,
-        header.url,
-        DETAIL_SEPARATOR_LINE.to_string(),
-    ];
-    lines.extend(content.text.lines().map(String::from));
-    PaneContent::new(SelectablePane::PrDetail, lines)
+    detail_props_content(SelectablePane::PrDetail, props)
 }
 
-/// Build the five fixed header lines the `IssueDetailView` renders above its
-/// scrollable viewport, so selection coordinates map to those header rows too.
-///
-/// Reuses [`issue_detail_header_view`] (the same pure projection the renderer
-/// uses) so the copyable header text never drifts from what the user sees.
-fn issue_detail_header_lines(detail: &IssueDetail) -> Vec<String> {
-    let header = issue_detail_header_view(detail);
-    vec![
-        header.title,
-        header.state,
-        header.labels,
-        header.url,
-        DETAIL_SEPARATOR_LINE.to_string(),
-    ]
+fn detail_props_content(
+    pane: SelectablePane,
+    props: crate::ui::components::detail_pane::DetailPaneProps,
+) -> PaneContent {
+    let mut lines = props
+        .header_rows
+        .into_iter()
+        .map(|row| row.content)
+        .collect::<Vec<_>>();
+    lines.extend(props.content.lines().map(String::from));
+    PaneContent::new(pane, lines)
 }
 
 /// Issue list lines that match the rendered Compact-mode projection exactly
@@ -175,18 +205,28 @@ fn issue_list_lines(state: &AppState, term_cols: u16, term_rows: u16) -> PaneCon
         state.issues_state.filter_ui.controls_open,
     );
     let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
-    let available_width = crate::layout::issue_list_content_width(term_cols);
-    let rows = issue_list_visible_rows(
-        state.issues_state.issues(),
-        state.issues_state.selected_issue_index(),
-        list_pane_rows,
-        IssueListLayout::Compact,
-        Some(available_width),
+    let issues = state.issues_state.issues();
+    let props = issue_list_props(
+        issues,
+        IssueListWindow {
+            selected_index: state.issues_state.selected_issue_index(),
+            list_pane_rows,
+            layout: IssueListLayout::Compact,
+            available_width: Some(crate::layout::issue_list_content_width(term_cols)),
+        },
+        false,
+        issue_list_status_message(
+            state.issues_state.list_loading(),
+            issues.is_empty(),
+            state
+                .issues_state
+                .committed_filter
+                .has_active_non_default_filters(),
+        ),
+        crate::theme::ThemeColors::default(),
+        None,
     );
-    PaneContent::new(
-        SelectablePane::IssueList,
-        rows.into_iter().map(|r| r.title_line),
-    )
+    projected_list_content(SelectablePane::IssueList, projected_content_lines(&props))
 }
 
 /// PR list lines that match the rendered Compact-mode projection exactly
@@ -198,91 +238,77 @@ fn pr_list_lines(state: &AppState, term_cols: u16, term_rows: u16) -> PaneConten
         state.prs_state.filter_ui.controls_open,
     );
     let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
-    let available_width = crate::layout::pr_list_content_width(term_cols);
-    let rows = pr_list_visible_rows(
-        state.prs_state.pull_requests(),
-        state.prs_state.selected_pr_index(),
-        list_pane_rows,
-        Some(available_width),
+    let pull_requests = state.prs_state.pull_requests();
+    let filter = &state.prs_state.committed_filter;
+    let has_filters = filter.state.is_some()
+        || !filter.author.is_empty()
+        || !filter.assignee.is_empty()
+        || !filter.reviewer.is_empty()
+        || !filter.labels.is_empty()
+        || !filter.query_text.is_empty()
+        || filter.is_draft.is_some()
+        || filter.review_decision != crate::domain::ReviewDecisionFilter::Any
+        || filter.checks_status != crate::domain::ChecksFilter::Any;
+    let props = pr_list_props(
+        pull_requests,
+        PrListWindow {
+            selected_index: state.prs_state.selected_pr_index(),
+            list_pane_rows,
+            available_width: Some(crate::layout::pr_list_content_width(term_cols)),
+            layout: PrListLayout::Compact,
+        },
+        false,
+        pr_list_status_message(
+            state.prs_state.list_loading(),
+            pull_requests.is_empty(),
+            has_filters,
+        ),
+        crate::theme::ThemeColors::default(),
+        None,
     );
-    PaneContent::new(
-        SelectablePane::PrList,
-        rows.into_iter().map(|r| r.title_line),
-    )
+    projected_list_content(SelectablePane::PrList, projected_content_lines(&props))
 }
 
-/// Sidebar lines that match the rendered repo list, including the `> `/`  `
-/// selection prefix and `(count)` suffix.
-fn sidebar_lines(state: &AppState) -> PaneContent {
+fn projected_list_content(pane: SelectablePane, lines: Vec<ProjectedContentLine>) -> PaneContent {
+    PaneContent::new(pane, lines.into_iter().map(|line| line.text))
+}
+
+fn sidebar_lines(state: &AppState, render_cols: u16, render_rows: u16) -> PaneContent {
     let visible_indices = state.visible_repository_indices();
-    let selected_visible = state.selected_repository_visible_index();
-    let lines: Vec<String> = visible_indices
+    let repositories: Vec<_> = visible_indices
         .iter()
-        .enumerate()
-        .filter_map(|(vis_i, &repo_i)| {
-            let repo = state.repositories.get(repo_i)?;
-            let count = state.visible_agent_count_for_repository(&repo.id);
-            let prefix = if selected_visible == Some(vis_i) {
-                "> "
-            } else {
-                "  "
-            };
-            Some(format!("{prefix}{} ({count})", repo.name))
-        })
+        .filter_map(|index| state.repositories.get(*index).cloned())
         .collect();
-    PaneContent::new(SelectablePane::Sidebar, lines)
-}
-
-/// Agent list lines that match the rendered agent list, including the
-/// status icon, `> `/`  ` prefix, optional `[slot]`, and name.
-fn agent_list_lines(state: &AppState) -> PaneContent {
-    let Some(repo) = state.selected_repository() else {
-        return PaneContent::empty(SelectablePane::AgentList);
-    };
-    let agents = state.visible_agents_for_repository(&repo.id);
-    let selected_local = state.selected_agent_local_index().unwrap_or(0);
-    let lines: Vec<String> = agents
+    let counts = repositories
         .iter()
-        .enumerate()
-        .map(|(i, agent)| {
-            let icon = status_icon(agent.status);
-            let prefix = if i == selected_local { "> " } else { "  " };
-            let shortcut = agent
-                .shortcut_slot
-                .map_or_else(String::new, |slot| format!("[{slot}] "));
-            format!("{prefix}{icon} {shortcut}{}", agent.name)
-        })
+        .map(|repo| state.visible_agent_count_for_repository(&repo.id))
         .collect();
-    PaneContent::new(SelectablePane::AgentList, lines)
-}
-
-fn status_icon(status: AgentStatus) -> char {
-    match status {
-        AgentStatus::Running => '*',
-        AgentStatus::Completed => '+',
-        AgentStatus::Dead => 'x',
-        AgentStatus::Errored => '!',
-        AgentStatus::Waiting => '?',
-        AgentStatus::Paused => '-',
-        AgentStatus::Queued => 'o',
-    }
-}
-
-fn preview_lines(state: &AppState) -> PaneContent {
-    let Some(agent) = state.selected_agent() else {
-        return PaneContent::new(
-            SelectablePane::Preview,
-            vec!["No agent selected".to_string()],
-        );
+    let (pane_rows, content_width) = if state.screen_mode == crate::state::ScreenMode::Split {
+        let layout = crate::layout::split_layout_for_render_size(render_cols, render_rows);
+        (layout.sidebar_rows, layout.sidebar_content_cols)
+    } else {
+        (
+            render_rows.saturating_sub(crate::layout::OUTER_BARS_HEIGHT),
+            crate::list_viewport::bordered_padded_content_width(crate::layout::LEFT_COL_WIDTH),
+        )
     };
-    let lines = vec![
-        format!("Name: {}", agent.name),
-        format!("Status: {:?}", agent.status),
-        format!("Dir: {}", agent.work_dir.display()),
-        "Todo:".to_string(),
-        "  (no tasks)".to_string(),
-    ];
-    PaneContent::new(SelectablePane::Preview, lines)
+    let props = sidebar_list_props(&SidebarProps {
+        repositories,
+        agent_counts: counts,
+        selected: state.selected_repository_visible_index().unwrap_or(0),
+        grabbed: if state.screen_mode == crate::state::ScreenMode::Split {
+            state.split_grab_index
+        } else {
+            state.dashboard_grab.as_ref().and_then(|grab| match grab {
+                DashboardGrabPane::Repository { visible_index } => Some(*visible_index),
+                DashboardGrabPane::Agent { .. } => None,
+            })
+        },
+        pane_rows,
+        content_width,
+        ..SidebarProps::default()
+    });
+    projected_list_content(SelectablePane::Sidebar, projected_content_lines(&props))
 }
 
 fn terminal_lines(

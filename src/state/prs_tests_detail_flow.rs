@@ -116,9 +116,7 @@ fn test_list_loaded_renders_all_rows_including_first_and_last() {
     );
     assert_eq!(new_state.prs_state.pull_requests()[0].number, 1);
     assert_eq!(new_state.prs_state.pull_requests()[9].number, 10);
-    // First row selected, scroll offset at 0.
     assert_eq!(new_state.prs_state.selected_pr_index(), Some(0));
-    assert_eq!(new_state.prs_state.list_scroll_offset, 0);
 }
 
 /// PrListLoaded with a mismatched scope_repo_id OR a mismatched request_id

@@ -345,6 +345,22 @@ fn test_arrow_pane_cycle_matrix_per_pane() {
     ));
 }
 
+#[test]
+fn page_keys_carry_actual_pr_list_capacity() {
+    let state = prs_state_with_focus(PrFocus::PrList);
+    let up = resolve_prs_key_event_for_rows(&state, &key(KeyCode::PageUp), 22);
+    assert!(matches!(
+        up,
+        Some(AppEvent::PrNavigatePageUp(page)) if page.get() == 3
+    ));
+
+    let down = resolve_prs_key_event_for_rows(&state, &key(KeyCode::PageDown), 36);
+    assert!(matches!(
+        down,
+        Some(AppEvent::PrNavigatePageDown(page)) if page.get() == 7
+    ));
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Precedence: Inline / Chooser / Search (tests 11-13)
 // ═══════════════════════════════════════════════════════════════════════

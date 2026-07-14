@@ -8,6 +8,7 @@ mod issues_lifecycle;
 mod issues_list_dispatch;
 mod issues_mutation;
 mod issues_subfocus_dispatch;
+mod list_navigation;
 mod modal_handlers;
 mod normal;
 mod persist_focus;
@@ -624,10 +625,11 @@ fn dispatch_issues_lifecycle(
 }
 
 fn update_detail_viewport_rows(app_state: &mut AppStateHandle) {
-    let term_rows = crossterm::terminal::size().map_or(40, |(_, rows)| rows as usize);
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (_, render_rows) = jefe::layout::effective_render_size(term_cols, term_rows);
     let mut state = app_state.write();
     state.issues_state.detail_viewport_rows = jefe::layout::issues_detail_viewport_rows(
-        term_rows,
+        usize::from(render_rows),
         state.issues_state.error.is_some(),
         state.issues_state.filter_ui.controls_open,
     );

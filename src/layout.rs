@@ -47,12 +47,12 @@ pub const TERMINAL_PANE_MIN_ROWS: u16 = TERMINAL_WIDGET_CHROME_ROWS + 2;
 pub const LIST_PANE_CHROME_ROWS: u16 = 2;
 /// Bordered-list panes: left border column.
 pub const LIST_PANE_CHROME_COLS: u16 = 1;
-/// Sidebar: top border + title row.
-pub const SIDEBAR_CHROME_ROWS: u16 = 2;
+/// Sidebar: top border + title row + top content padding.
+pub const SIDEBAR_CHROME_ROWS: u16 = 3;
 /// Sidebar: left border + 1-col content padding.
 pub const SIDEBAR_CHROME_COLS: u16 = 2;
-/// Agent list: top border + title row.
-pub const AGENT_LIST_CHROME_ROWS: u16 = 2;
+/// Agent list: top border + title row + top content padding.
+pub const AGENT_LIST_CHROME_ROWS: u16 = 3;
 /// Agent list: left border + 1-col content padding.
 pub const AGENT_LIST_CHROME_COLS: u16 = 2;
 /// Terminal view: top border + title row.
@@ -145,7 +145,8 @@ fn effective_render_size_inner(cols: u16, rows: u16, fullscreen: bool) -> (u16, 
     }
 }
 
-pub(crate) fn dashboard_middle_row_heights_inner(render_rows: u16) -> (u16, u16) {
+#[must_use]
+pub fn dashboard_middle_row_heights_inner(render_rows: u16) -> (u16, u16) {
     let content_rows = render_rows.saturating_sub(OUTER_BARS_HEIGHT);
 
     if content_rows <= AGENT_PANE_MIN_ROWS + TERMINAL_PANE_MIN_ROWS {
@@ -174,6 +175,43 @@ pub(crate) fn dashboard_middle_row_heights_inner(render_rows: u16) -> (u16, u16)
 #[must_use]
 pub fn effective_render_size(cols: u16, rows: u16) -> (u16, u16) {
     effective_render_size_inner(cols, rows, is_fullscreen_enabled())
+}
+
+/// Physical Split-screen repository pane within an effective render grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SplitLayout {
+    /// Left edge of the Sidebar widget after main horizontal padding.
+    pub sidebar_origin_col: u16,
+    /// Top edge after status bar, main top padding, and filter band.
+    pub sidebar_origin_row: u16,
+    /// Sidebar widget width after main horizontal padding.
+    pub sidebar_cols: u16,
+    /// Sidebar widget height after outer bars, main padding, and filter band.
+    pub sidebar_rows: u16,
+    /// Sidebar row width after its border and horizontal content padding.
+    pub sidebar_content_cols: u16,
+}
+
+/// Project Split-screen geometry from already-normalized render dimensions.
+///
+/// Callers at terminal boundaries must invoke [`effective_render_size`] once,
+/// then pass the resulting dimensions here.
+#[must_use]
+pub const fn split_layout_for_render_size(render_cols: u16, render_rows: u16) -> SplitLayout {
+    const MAIN_PADDING: u16 = 1;
+    const FILTER_ROWS: u16 = 3;
+
+    let sidebar_cols = render_cols.saturating_sub(MAIN_PADDING.saturating_mul(2));
+    SplitLayout {
+        sidebar_origin_col: MAIN_PADDING,
+        sidebar_origin_row: 1 + MAIN_PADDING + FILTER_ROWS,
+        sidebar_cols,
+        sidebar_rows: render_rows
+            .saturating_sub(OUTER_BARS_HEIGHT)
+            .saturating_sub(MAIN_PADDING.saturating_mul(2))
+            .saturating_sub(FILTER_ROWS),
+        sidebar_content_cols: crate::list_viewport::bordered_padded_content_width(sidebar_cols),
+    }
 }
 
 /// Compute adaptive middle-column row heights for the dashboard layout.
@@ -258,12 +296,6 @@ pub const FILTER_CONTROLS_ROWS: usize = 5;
 ///
 /// Accounts for the status bar and keybind bar.
 pub const DETAIL_CHROME_ROWS: usize = OUTER_BARS_HEIGHT as usize;
-
-/// Minimum number of rows the detail scroll viewport will reserve.
-///
-/// Keeps the viewport usable on very small terminals instead of collapsing to
-/// zero rows.
-pub const DETAIL_MIN_VIEWPORT_ROWS: usize = 5;
 
 /// Fixed local viewport height for embedded detail composer text boxes.
 ///
@@ -352,6 +384,12 @@ pub fn issues_detail_pane_rows(
     issues_pane_rows(term_rows, error_visible, filter_controls_open).1
 }
 
+/// Convert an allocated detail-pane height into the physical body viewport.
+#[must_use]
+pub const fn detail_body_viewport_rows(pane_rows: usize) -> usize {
+    pane_rows.saturating_sub(DETAIL_HEADER_ROWS + 2)
+}
+
 /// Compute the number of rows available for the detail scroll viewport given
 /// the total terminal height and conditional Issues-mode bands.
 #[must_use]
@@ -360,9 +398,11 @@ pub fn issues_detail_viewport_rows(
     error_visible: bool,
     filter_controls_open: bool,
 ) -> usize {
-    issues_detail_pane_rows(term_rows, error_visible, filter_controls_open)
-        .saturating_sub(DETAIL_HEADER_ROWS + 2)
-        .max(DETAIL_MIN_VIEWPORT_ROWS)
+    detail_body_viewport_rows(issues_detail_pane_rows(
+        term_rows,
+        error_visible,
+        filter_controls_open,
+    ))
 }
 
 /// Compute the default detail viewport rows when no conditional bands are open.
@@ -454,6 +494,19 @@ pub const PR_LIST_CHROME_COLS: u16 = ISSUE_LIST_CHROME_COLS;
 /// layout prop (regression guard #37/#39).
 #[must_use]
 pub fn prs_pane_rows(
+    term_rows: usize,
+    error_visible: bool,
+    filter_controls_open: bool,
+) -> (usize, usize) {
+    issues_pane_rows(term_rows, error_visible, filter_controls_open)
+}
+
+/// Compute the rows allocated to the Actions run list and detail panes.
+///
+/// Actions currently shares the PR workspace bands, but the named boundary
+/// prevents input and rendering from depending on a PR-specific API.
+#[must_use]
+pub fn actions_pane_rows(
     term_rows: usize,
     error_visible: bool,
     filter_controls_open: bool,
@@ -591,61 +644,6 @@ pub fn prs_main_columns(term_cols: u16) -> PrsColumns {
         sidebar_width: PRS_SIDEBAR_WIDTH,
         workspace_width: term_cols.saturating_sub(PRS_SIDEBAR_WIDTH),
     }
-}
-
-// -----------------------------------------------------------------------------
-// Shared list-viewport / selection-follow helpers (REQ-PR-006, #54/#55)
-//
-// @plan PLAN-20260624-PR-MODE.P03
-// @requirement REQ-PR-006
-// @pseudocode component-001 lines 177-196
-//
-// These pure helpers compute the first-visible row index from
-// (selected_index, loaded_len, viewport_rows) so the selected row is always
-// within [first_visible, first_visible + viewport_rows). They are consumed by
-// BOTH the state reducers and the PR list UI, so they live HERE (the shared
-// leaf module importable by both) — NOT in any src/ui file.
-// There is NO src/ui/components/list_viewport.rs.
-// -----------------------------------------------------------------------------
-
-/// Compute the first-visible row index for a selection-following list viewport.
-///
-/// @plan PLAN-20260624-PR-MODE.P05
-/// @requirement REQ-PR-006
-/// @pseudocode component-001 lines 182-189
-///
-/// Returns the first visible row index that keeps `selected` on screen,
-/// clamped to `0..=len.saturating_sub(viewport_rows)`.
-#[must_use]
-pub fn list_first_visible_index(selected_index: usize, len: usize, viewport_rows: usize) -> usize {
-    if len == 0 || viewport_rows == 0 {
-        return 0;
-    }
-    // Clamp defensively (selected may briefly exceed len during async updates).
-    let sel = selected_index.min(len - 1);
-    if sel < viewport_rows {
-        // Top of list: no scroll needed.
-        return 0;
-    }
-    // Keep selected row as the LAST visible row when scrolling down past the
-    // viewport bottom; never scroll past the last full page.
-    let max_first = len.saturating_sub(viewport_rows);
-    (sel - viewport_rows + 1).min(max_first)
-}
-
-/// Compute the visible window of rows for a selection-following list viewport.
-///
-/// @plan PLAN-20260624-PR-MODE.P05
-/// @requirement REQ-PR-006
-/// @pseudocode component-001 lines 190-196
-///
-/// Returns exactly `min(viewport_rows, rows.len())` rows starting at
-/// `list_first_visible_index(...)`, always including `rows[selected_index]`.
-#[must_use]
-pub fn list_visible_window<T>(rows: &[T], selected_index: usize, viewport_rows: usize) -> &[T] {
-    let first = list_first_visible_index(selected_index, rows.len(), viewport_rows);
-    let last = (first + viewport_rows).min(rows.len());
-    &rows[first..last]
 }
 
 // -----------------------------------------------------------------------------

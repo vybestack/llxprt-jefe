@@ -6,11 +6,14 @@
 //! logic fully unit-testable without a terminal.
 
 use crate::domain::{WorkflowRun, WorkflowRunConclusion, WorkflowRunDetail, WorkflowRunStatus};
+use crate::list_viewport::{ContentRows, ListViewport, RowsPerItem};
 use std::collections::HashSet;
 
 /// A single run in the projected runs list view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectedRun {
+    /// Absolute workflow-run index represented by this visible row.
+    pub source_index: usize,
     pub id: u64,
     pub name: String,
     pub head_branch: String,
@@ -40,35 +43,14 @@ pub fn project_runs_list(
     selected_run_index: Option<usize>,
     list_viewport_height: usize,
 ) -> ActionsRunListView {
-    if runs.is_empty() {
-        return ActionsRunListView {
-            visible_runs: Vec::new(),
-            first_visible_run_index: 0,
-            total_runs_count: 0,
-        };
-    }
-
-    // Clamp selected index defensively (it may briefly exceed len during async
-    // updates, and slicing with an out-of-bounds index would panic).
-    let selected_idx = selected_run_index.unwrap_or(0).min(runs.len() - 1);
-    // The window's start must leave room for a full viewport below it when the
-    // list is long enough. Using `runs.len() - 1` as the cap lets the window
-    // slide all the way to the last item, which can show fewer than
-    // `list_viewport_height` runs even when a full page would fit. Cap at
-    // `runs.len() - list_viewport_height` (saturating) so the window fills the
-    // viewport whenever possible; when the list is shorter than the viewport,
-    // this saturates to 0 (show everything from the top).
-    let max_first_visible = runs.len().saturating_sub(list_viewport_height);
-    let first_visible_run = selected_idx
-        .saturating_sub(list_viewport_height / 2)
-        .min(max_first_visible);
-
-    let end = (first_visible_run + list_viewport_height).min(runs.len());
-    let visible_slice = if first_visible_run >= runs.len() {
-        &[]
-    } else {
-        &runs[first_visible_run..end]
-    };
+    let viewport = ListViewport::uniform(
+        runs.len(),
+        selected_run_index,
+        ContentRows::new(list_viewport_height),
+        RowsPerItem::new(1),
+    );
+    let first_visible_run = viewport.first_visible_item();
+    let visible_slice = &runs[viewport.visible_range()];
 
     let visible_runs = visible_slice
         .iter()
@@ -76,6 +58,7 @@ pub fn project_runs_list(
         .map(|(i, r)| {
             let actual_idx = first_visible_run + i;
             ProjectedRun {
+                source_index: actual_idx,
                 id: r.id,
                 name: r.name.clone(),
                 head_branch: r.head_branch.clone(),
@@ -99,25 +82,60 @@ pub fn project_runs_list(
     }
 }
 
-/// Count the total rendered content lines for a workflow run detail.
-///
-/// This is the pure line-count helper used by the scroll-clamp logic in
-/// `actions_ops.rs`. When a job is collapsed (not in `expanded_jobs`), only
-/// its JobRow line is counted; when expanded, its StepRows are also counted.
-/// Always counts: 1 header + 1 section title + 1 line per job.
+/// Count legacy projected lines: one compatibility header plus the detail body.
 #[must_use]
 pub fn detail_line_count<S: ::std::hash::BuildHasher>(
     detail: &WorkflowRunDetail,
     expanded_jobs: &HashSet<u64, S>,
 ) -> usize {
-    let mut count = 2; // Header + "Jobs:" section title
+    detail_body_line_count(detail, expanded_jobs) + 1
+}
+
+/// Count scrollable Actions detail body lines without allocating projections.
+#[must_use]
+pub fn detail_body_line_count<S: ::std::hash::BuildHasher>(
+    detail: &WorkflowRunDetail,
+    expanded_jobs: &HashSet<u64, S>,
+) -> usize {
+    1 + detail
+        .jobs
+        .iter()
+        .map(|job| 1 + usize::from(expanded_jobs.contains(&job.id)) * job.steps.len())
+        .sum::<usize>()
+}
+
+/// Project the complete, unwindowed scrollable Actions detail body.
+///
+/// Scrolling and wrapping are renderer/input concerns. Keeping this projection
+/// unwindowed ensures rendering, copy, and reverse coordinate mapping consume
+/// the same logical lines exactly once.
+#[must_use]
+pub fn detail_body_lines<S: ::std::hash::BuildHasher>(
+    detail: &WorkflowRunDetail,
+    expanded_jobs: &HashSet<u64, S>,
+) -> Vec<DetailLine> {
+    let mut lines = vec![DetailLine::SectionTitle {
+        title: "Jobs:".to_string(),
+    }];
     for job in &detail.jobs {
-        count += 1; // JobRow
-        if expanded_jobs.contains(&job.id) {
-            count += job.steps.len(); // StepRows (only when expanded)
+        let is_expanded = expanded_jobs.contains(&job.id);
+        lines.push(DetailLine::JobRow {
+            job_id: job.id,
+            name: job.name.clone(),
+            status: job.status,
+            conclusion: job.conclusion,
+            expanded: is_expanded,
+        });
+        if is_expanded {
+            lines.extend(job.steps.iter().map(|step| DetailLine::StepRow {
+                number: step.number,
+                name: step.name.clone(),
+                status: step.status,
+                conclusion: step.conclusion,
+            }));
         }
     }
-    count
+    lines
 }
 
 /// A structured line in the projected run details view.
@@ -168,43 +186,15 @@ pub fn project_detail_view<S: ::std::hash::BuildHasher>(
     detail_viewport_height: usize,
     expanded_jobs: &HashSet<u64, S>,
 ) -> ActionsDetailView {
-    let mut lines = Vec::new();
-
-    lines.push(DetailLine::Header {
+    let mut lines = vec![DetailLine::Header {
         workflow_name: detail.run.workflow_name.clone(),
         event: detail.run.event.clone(),
         head_branch: detail.run.head_branch.clone(),
         head_sha: detail.run.head_sha.clone(),
         created_at: detail.run.created_at.clone(),
         updated_at: detail.run.updated_at.clone(),
-    });
-
-    lines.push(DetailLine::SectionTitle {
-        title: "Jobs:".to_string(),
-    });
-
-    for job in &detail.jobs {
-        let is_expanded = expanded_jobs.contains(&job.id);
-        lines.push(DetailLine::JobRow {
-            job_id: job.id,
-            name: job.name.clone(),
-            status: job.status,
-            conclusion: job.conclusion,
-            expanded: is_expanded,
-        });
-
-        if is_expanded {
-            for step in &job.steps {
-                lines.push(DetailLine::StepRow {
-                    number: step.number,
-                    name: step.name.clone(),
-                    status: step.status,
-                    conclusion: step.conclusion,
-                });
-            }
-        }
-    }
-
+    }];
+    lines.extend(detail_body_lines(detail, expanded_jobs));
     let total_lines_count = lines.len();
     let start = detail_scroll_offset.min(total_lines_count.saturating_sub(1));
     let visible_lines = if lines.is_empty() {
@@ -251,14 +241,14 @@ mod tests {
     fn test_project_runs_list_scrolling() {
         let runs: Vec<WorkflowRun> = (0..10).map(make_run).collect();
 
-        // 3 viewport size, selected index 5 (middle)
+        // Trailing-edge follow keeps the selected run at the bottom edge.
         let projection = project_runs_list(&runs, Some(5), 3);
-        assert_eq!(projection.first_visible_run_index, 4);
+        assert_eq!(projection.first_visible_run_index, 3);
         assert_eq!(projection.visible_runs.len(), 3);
-        assert_eq!(projection.visible_runs[0].id, 4);
-        assert_eq!(projection.visible_runs[1].id, 5);
-        assert!(projection.visible_runs[1].is_selected);
-        assert_eq!(projection.visible_runs[2].id, 6);
+        assert_eq!(projection.visible_runs[0].id, 3);
+        assert_eq!(projection.visible_runs[1].id, 4);
+        assert_eq!(projection.visible_runs[2].id, 5);
+        assert!(projection.visible_runs[2].is_selected);
     }
 
     #[test]

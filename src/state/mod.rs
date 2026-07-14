@@ -28,6 +28,7 @@ mod issues_inline_ops;
 mod issues_load_ops;
 mod issues_mutation_ops;
 mod issues_ops;
+mod list_navigation_ops;
 mod modal_ops;
 /// Generic deterministic pagination state container (`PaginatedList<T, I>`).
 pub mod pagination;
@@ -68,6 +69,7 @@ pub use form_projection::{
 use tracing::{debug, trace};
 
 use crate::domain::{Agent, AgentId, AgentStatus, Repository, RepositoryId};
+use crate::list_viewport::ListMove;
 use crate::messages::{
     AppMessage, MessageRoute, PersistenceMessage, RuntimeMessage, SystemMessage, ThemeMessage,
     UiNavigationMessage,
@@ -382,30 +384,40 @@ impl AppState {
         );
     }
 
-    fn apply_ui_navigation(&mut self, message: UiNavigationMessage) {
-        // Clear sticky-dead agent visibility on selection-changing navigation.
-        // Once the user moves away, the normal active-only filter applies and
-        // dead agents drop out of the visible set (issue #116).
-        //
-        // Display-only toggles (filter, focus, mode switches) do NOT clear
-        // sticky visibility — only actual selection changes do.
-        match message {
+    fn prepare_ui_navigation(&mut self, message: &UiNavigationMessage) {
+        let changes_selection = matches!(
+            message,
             UiNavigationMessage::NavigateUp
-            | UiNavigationMessage::NavigateDown
-            | UiNavigationMessage::NavigateLeft
-            | UiNavigationMessage::NavigateRight
-            | UiNavigationMessage::SelectRepository(_)
-            | UiNavigationMessage::SelectAgent(_)
-            | UiNavigationMessage::JumpToAgentByShortcut(_) => {
-                self.sticky_dead_agent_ids.clear();
-                self.dashboard_grab = None;
-            }
-            _ => {}
+                | UiNavigationMessage::NavigateDown
+                | UiNavigationMessage::NavigatePageUp(_)
+                | UiNavigationMessage::NavigatePageDown(_)
+                | UiNavigationMessage::NavigateHome
+                | UiNavigationMessage::NavigateEnd
+                | UiNavigationMessage::NavigateLeft
+                | UiNavigationMessage::NavigateRight
+                | UiNavigationMessage::SelectRepository(_)
+                | UiNavigationMessage::SelectAgent(_)
+                | UiNavigationMessage::JumpToAgentByShortcut(_)
+        );
+        if changes_selection {
+            self.sticky_dead_agent_ids.clear();
+            self.dashboard_grab = None;
         }
+    }
 
+    fn apply_ui_navigation(&mut self, message: UiNavigationMessage) {
+        self.prepare_ui_navigation(&message);
         match message {
             UiNavigationMessage::NavigateUp => self.handle_navigate_up(),
             UiNavigationMessage::NavigateDown => self.handle_navigate_down(),
+            UiNavigationMessage::NavigatePageUp(page) => {
+                self.handle_navigate_page(ListMove::PageUp(page));
+            }
+            UiNavigationMessage::NavigatePageDown(page) => {
+                self.handle_navigate_page(ListMove::PageDown(page));
+            }
+            UiNavigationMessage::NavigateHome => self.handle_navigate_page(ListMove::Home),
+            UiNavigationMessage::NavigateEnd => self.handle_navigate_page(ListMove::End),
             UiNavigationMessage::NavigateLeft => self.move_pane_focus_left(),
             UiNavigationMessage::NavigateRight => self.move_pane_focus_right(),
             UiNavigationMessage::SelectRepository(idx) => self.select_repository_by_index(idx),
@@ -422,6 +434,7 @@ impl AppState {
             }
             UiNavigationMessage::EnterSplitMode => {
                 self.screen_mode = ScreenMode::Split;
+                self.pane_focus = PaneFocus::Repositories;
                 self.dashboard_grab = None;
             }
             UiNavigationMessage::ExitSplitMode => self.exit_split_mode(),

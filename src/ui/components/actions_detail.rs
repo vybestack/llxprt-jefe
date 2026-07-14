@@ -6,7 +6,7 @@
 //! (windowing, line building) lives in [`crate::actions_view`]; this module
 //! handles the header-rows + content-string + viewport-math glue.
 
-use crate::actions_view::{DetailLine, project_detail_view};
+use crate::actions_view::DetailLine;
 use crate::domain::WorkflowRunDetail;
 use crate::selection::{SelectablePane, TextSelection};
 use crate::theme::ThemeColors;
@@ -77,10 +77,12 @@ fn status_glyph(
     }
 }
 
-/// Render a [`DetailLine`] to its plain-text representation for the content
-/// string. Each line becomes one row in the scrollable viewport. Job and step
-/// lines use a leading status glyph instead of trailing text.
-fn line_text(line: &DetailLine) -> String {
+/// Render a [`DetailLine`] to its plain-text representation.
+///
+/// Each line becomes one row in the scrollable viewport. Job and step lines use
+/// a leading status glyph instead of trailing text.
+#[must_use]
+pub fn line_text(line: &DetailLine) -> String {
     match line {
         DetailLine::Header {
             workflow_name,
@@ -125,7 +127,8 @@ fn line_text(line: &DetailLine) -> String {
 }
 
 /// Build the five fixed header rows for a loaded run detail.
-fn build_header_rows(detail: &WorkflowRunDetail) -> Vec<DetailHeaderRow> {
+#[must_use]
+pub fn build_header_rows(detail: &WorkflowRunDetail) -> Vec<DetailHeaderRow> {
     let run = &detail.run;
     vec![
         DetailHeaderRow {
@@ -163,7 +166,7 @@ fn build_header_rows(detail: &WorkflowRunDetail) -> Vec<DetailHeaderRow> {
 fn detail_viewport_rows(available_height: Option<u16>) -> usize {
     const DEFAULT_TERM_ROWS: usize = 40;
     if let Some(height) = available_height {
-        (usize::from(height)).saturating_sub(ACTIONS_DETAIL_HEADER_ROWS + 2)
+        crate::layout::detail_body_viewport_rows(usize::from(height))
     } else {
         crate::layout::prs_detail_viewport_rows(DEFAULT_TERM_ROWS, false, false)
     }
@@ -179,19 +182,19 @@ pub fn actions_detail_props(inputs: ActionsDetailProjectionInputs<'_>) -> Detail
     let scroll_rows = detail_viewport_rows(inputs.viewport_rows);
 
     let (header_rows, content) = if let Some(detail) = inputs.detail {
-        let rows = build_header_rows(detail);
-        let view = project_detail_view(
+        let rows = build_header_rows(detail)
+            .into_iter()
+            .map(|mut row| {
+                row.content =
+                    crate::list_viewport::fit_text_to_width(&row.content, inputs.content_width);
+                row
+            })
+            .collect();
+        let text = crate::actions_detail_projection::actions_detail_body_text(
             detail,
-            inputs.scroll_offset,
-            scroll_rows,
             inputs.expanded_jobs,
+            inputs.content_width,
         );
-        let text = view
-            .visible_lines
-            .iter()
-            .map(line_text)
-            .collect::<Vec<_>>()
-            .join("\n");
         (rows, text)
     } else {
         let rows = build_placeholder_header_rows();

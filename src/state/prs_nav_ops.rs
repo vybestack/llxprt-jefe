@@ -83,7 +83,6 @@ impl AppState {
         {
             self.prs_state.list.set_selected_index(Some(idx - 1));
         }
-        self.update_pr_list_scroll_offset();
         self.invalidate_detail_requests_if_pr_selection_changed(previous);
     }
 
@@ -99,7 +98,6 @@ impl AppState {
         {
             self.prs_state.list.set_selected_index(Some(idx + 1));
         }
-        self.update_pr_list_scroll_offset();
         self.invalidate_detail_requests_if_pr_selection_changed(previous);
     }
 
@@ -108,16 +106,8 @@ impl AppState {
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-006
     /// @pseudocode component-001 lines 119-124
-    fn navigate_pr_list_page_up(&mut self) {
-        let previous = self.prs_state.selected_pr_index();
-        let page = super::VIEWPORT_PAGE_JUMP;
-        if let Some(idx) = previous {
-            self.prs_state
-                .list
-                .set_selected_index(Some(idx.saturating_sub(page)));
-        }
-        self.update_pr_list_scroll_offset();
-        self.invalidate_detail_requests_if_pr_selection_changed(previous);
+    fn navigate_pr_list_page_up(&mut self, page: crate::list_viewport::PageItemCount) {
+        self.navigate_pr_list(crate::list_viewport::ListMove::PageUp(page));
     }
 
     /// Navigate PR list down by one page.
@@ -125,16 +115,18 @@ impl AppState {
     /// @plan PLAN-20260624-PR-MODE.P05
     /// @requirement REQ-PR-006
     /// @pseudocode component-001 lines 119-124
-    fn navigate_pr_list_page_down(&mut self) {
+    fn navigate_pr_list_page_down(&mut self, page: crate::list_viewport::PageItemCount) {
+        self.navigate_pr_list(crate::list_viewport::ListMove::PageDown(page));
+    }
+
+    fn navigate_pr_list(&mut self, movement: crate::list_viewport::ListMove) {
         let previous = self.prs_state.selected_pr_index();
-        let page = super::VIEWPORT_PAGE_JUMP;
-        if let Some(idx) = previous {
-            let max = self.prs_state.pull_requests().len().saturating_sub(1);
-            self.prs_state
-                .list
-                .set_selected_index(Some((idx + page).min(max)));
-        }
-        self.update_pr_list_scroll_offset();
+        let selected = crate::list_viewport::move_selection(
+            previous,
+            self.prs_state.pull_requests().len(),
+            movement,
+        );
+        self.prs_state.list.set_selected_index(selected);
         self.invalidate_detail_requests_if_pr_selection_changed(previous);
     }
 
@@ -148,7 +140,6 @@ impl AppState {
         if !self.prs_state.pull_requests().is_empty() {
             self.prs_state.list.set_selected_index(Some(0));
         }
-        self.update_pr_list_scroll_offset();
         self.invalidate_detail_requests_if_pr_selection_changed(previous);
     }
 
@@ -164,23 +155,7 @@ impl AppState {
                 .list
                 .set_selected_index(Some(self.prs_state.pull_requests().len() - 1));
         }
-        self.update_pr_list_scroll_offset();
         self.invalidate_detail_requests_if_pr_selection_changed(previous);
-    }
-
-    /// Update list_scroll_offset via the shared selection-follow helper.
-    ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-006
-    /// @pseudocode component-001 lines 182-189
-    fn update_pr_list_scroll_offset(&mut self) {
-        let sel = self.prs_state.selected_pr_index().unwrap_or(0);
-        let len = self.prs_state.pull_requests().len();
-        let vp = self
-            .prs_state
-            .list_viewport_rows
-            .max(super::VIEWPORT_PAGE_JUMP);
-        self.prs_state.list_scroll_offset = crate::layout::list_first_visible_index(sel, len, vp);
     }
 
     /// Invalidate detail requests when the PR selection changes.
@@ -448,9 +423,9 @@ impl AppState {
     /// @pseudocode component-001 lines 119-124
     fn apply_pr_page_navigation(&mut self, event: &AppEvent) -> bool {
         match event {
-            AppEvent::PrNavigatePageUp => {
+            AppEvent::PrNavigatePageUp(page) => {
                 match self.prs_state.pr_focus {
-                    PrFocus::PrList => self.navigate_pr_list_page_up(),
+                    PrFocus::PrList => self.navigate_pr_list_page_up(*page),
                     PrFocus::PrDetail => {
                         self.apply_pr_scroll_event(ScrollDir::PageUp);
                     }
@@ -458,9 +433,9 @@ impl AppState {
                 }
                 true
             }
-            AppEvent::PrNavigatePageDown => {
+            AppEvent::PrNavigatePageDown(page) => {
                 match self.prs_state.pr_focus {
-                    PrFocus::PrList => self.navigate_pr_list_page_down(),
+                    PrFocus::PrList => self.navigate_pr_list_page_down(*page),
                     PrFocus::PrDetail => {
                         self.apply_pr_scroll_event(ScrollDir::PageDown);
                     }

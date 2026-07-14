@@ -13,15 +13,12 @@
 use unicode_width::UnicodeWidthStr;
 
 use crate::domain::{PrCheckStatus, PrReviewState, PrState, PullRequest};
+use crate::list_viewport::{ListGeometry, ListViewport, PaneRows, RowsPerItem};
 use crate::selection::{SelectablePane, TextSelection};
 use crate::theme::ThemeColors;
 use crate::ui::components::selectable_list::{
     ListBorder, SelectableListProps, SelectableRow, SelectableSpan, SelectionStyle, SpanColor,
 };
-
-/// Rows consumed by the bordered list container and title before item content.
-/// Must match the issue list constant (3: top border + title + bottom border).
-const LIST_CHROME_ROWS: u16 = 3;
 
 /// PR list density variant.
 ///
@@ -52,6 +49,8 @@ impl PrListLayout {
 /// @requirement REQ-PR-006
 /// @pseudocode component-001 lines 1-12
 pub struct PrListRowView {
+    /// Absolute pull-request index represented by this visible row.
+    pub source_index: usize,
     /// Title line (prefix + "#number " + truncated title). The PR number is
     /// embedded here as "#N "; tests assert identity via this rendered string.
     pub title_line: String,
@@ -111,36 +110,60 @@ fn build_meta_line(pr: &PullRequest) -> String {
     format!("     {}", meta_parts.join("  "))
 }
 
-/// Pure projection of the visible PR rows exactly as the component renders
-/// them. Consumes the `crate::layout` selection-follow window helpers so the
-/// rows returned here are the SAME rows the `#[component]` renders (#54/#55).
+/// Project the visible full-layout PR rows.
+///
+/// Uses [`ListViewport`] for selection-follow windowing so the rows returned
+/// here are the SAME rows the full-layout component renders (#54/#55).
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-006
 /// @pseudocode component-001 lines 1-12
+#[must_use]
 pub fn pr_list_visible_rows(
     pull_requests: &[PullRequest],
     selected_index: Option<usize>,
     list_pane_rows: u16,
     available_width: Option<u16>,
 ) -> Vec<PrListRowView> {
-    let viewport = (list_pane_rows.saturating_sub(LIST_CHROME_ROWS)).max(1) as usize;
-    let window =
-        crate::layout::list_visible_window(pull_requests, selected_index.unwrap_or(0), viewport);
-    let first_visible = crate::layout::list_first_visible_index(
-        selected_index.unwrap_or(0),
+    pr_list_visible_rows_for_layout(
+        pull_requests,
+        selected_index,
+        list_pane_rows,
+        PrListLayout::Full,
+        available_width,
+    )
+}
+
+fn pr_list_visible_rows_for_layout(
+    pull_requests: &[PullRequest],
+    selected_index: Option<usize>,
+    list_pane_rows: u16,
+    layout: PrListLayout,
+    available_width: Option<u16>,
+) -> Vec<PrListRowView> {
+    let rows_per_item = RowsPerItem::new(if layout.is_compact() { 1 } else { 2 });
+    let geometry = ListGeometry::bordered(rows_per_item);
+    let viewport = ListViewport::uniform(
         pull_requests.len(),
-        viewport,
+        selected_index,
+        geometry.content_rows(PaneRows::new(usize::from(list_pane_rows))),
+        rows_per_item,
     );
-    window
+    let first_visible = viewport.first_visible_item();
+    pull_requests[viewport.visible_range()]
         .iter()
         .enumerate()
         .map(|(window_i, pr)| {
             let is_selected = selected_index == Some(first_visible + window_i);
             let prefix = if is_selected { "> " } else { "  " };
             PrListRowView {
+                source_index: first_visible + window_i,
                 title_line: build_title_line(pr, prefix, available_width),
-                meta_line: build_meta_line(pr),
+                meta_line: if layout.is_compact() {
+                    String::new()
+                } else {
+                    build_meta_line(pr)
+                },
                 is_selected,
             }
         })
@@ -156,6 +179,7 @@ fn to_selectable_rows(views: Vec<PrListRowView>, compact: bool) -> Vec<Selectabl
     views
         .into_iter()
         .map(|v| SelectableRow {
+            source_index: v.source_index,
             spans: vec![SelectableSpan {
                 text: v.title_line,
                 color: SpanColor::Themed,
@@ -189,8 +213,8 @@ pub struct PrListWindow {
 
 /// Build [`SelectableListProps`] for the PR list pane.
 ///
-/// Calls the unchanged [`pr_list_visible_rows`] projection and maps each
-/// [`PrListRowView`] into a [`SelectableRow`]. The empty/loading message is
+/// Calls [`pr_list_visible_rows_for_layout`] and maps each [`PrListRowView`]
+/// into a [`SelectableRow`]. The empty/loading message is
 /// computed by the caller via [`pr_list_status_message`] and passed in as
 /// `empty_message`.
 ///
@@ -205,10 +229,11 @@ pub fn pr_list_props(
     colors: ThemeColors,
     selection: Option<TextSelection>,
 ) -> SelectableListProps {
-    let rows = pr_list_visible_rows(
+    let rows = pr_list_visible_rows_for_layout(
         pull_requests,
         window.selected_index,
         window.list_pane_rows,
+        window.layout,
         window.available_width,
     );
     SelectableListProps {
@@ -222,6 +247,9 @@ pub fn pr_list_props(
         border: ListBorder::DoubleOnFocus,
         content_padding: false,
         selection_style: SelectionStyle::BoldSelected,
+        content_width: window
+            .available_width
+            .map_or_else(|| usize::from(u16::MAX), usize::from),
     }
 }
 
@@ -434,7 +462,7 @@ mod tests {
     /// leaving the selected item off the visible area.
     #[test]
     fn test_pr_list_viewport_subtracts_chrome_rows() {
-        use super::pr_list_visible_rows;
+        use super::{PrListLayout, pr_list_visible_rows_for_layout};
         use crate::domain::{PrCheckStatus, PrState, PullRequest};
 
         let prs: Vec<PullRequest> = (0..30)
@@ -456,7 +484,8 @@ mod tests {
             .collect();
 
         let pane_rows: u16 = 10;
-        let rows = pr_list_visible_rows(&prs, Some(9), pane_rows, None);
+        let rows =
+            pr_list_visible_rows_for_layout(&prs, Some(9), pane_rows, PrListLayout::Compact, None);
         let visible_count = rows.len();
         // 10 pane rows - 3 chrome (border+title+border) = 7 visible items.
         assert_eq!(

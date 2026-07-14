@@ -21,8 +21,8 @@ impl IssuesMessage {
             | AppEvent::RefocusIssueList
             | AppEvent::IssuesNavigateUp
             | AppEvent::IssuesNavigateDown
-            | AppEvent::IssuesNavigatePageUp
-            | AppEvent::IssuesNavigatePageDown
+            | AppEvent::IssuesNavigatePageUp(_)
+            | AppEvent::IssuesNavigatePageDown(_)
             | AppEvent::IssuesNavigateHome
             | AppEvent::IssuesNavigateEnd
             | AppEvent::IssuesEnter
@@ -46,8 +46,8 @@ impl IssuesMessage {
             AppEvent::RefocusIssueList => Self::RefocusList,
             AppEvent::IssuesNavigateUp => Self::NavigateUp,
             AppEvent::IssuesNavigateDown => Self::NavigateDown,
-            AppEvent::IssuesNavigatePageUp => Self::NavigatePageUp,
-            AppEvent::IssuesNavigatePageDown => Self::NavigatePageDown,
+            AppEvent::IssuesNavigatePageUp(page) => Self::NavigatePageUp(page),
+            AppEvent::IssuesNavigatePageDown(page) => Self::NavigatePageDown(page),
             AppEvent::IssuesNavigateHome => Self::NavigateHome,
             AppEvent::IssuesNavigateEnd => Self::NavigateEnd,
             AppEvent::IssuesEnter => Self::Enter,
@@ -469,8 +469,8 @@ impl IssuesMessage {
             | Self::RefocusList
             | Self::NavigateUp
             | Self::NavigateDown
-            | Self::NavigatePageUp
-            | Self::NavigatePageDown
+            | Self::NavigatePageUp(_)
+            | Self::NavigatePageDown(_)
             | Self::NavigateHome
             | Self::NavigateEnd
             | Self::Enter
@@ -494,8 +494,8 @@ impl IssuesMessage {
             Self::RefocusList => AppEvent::RefocusIssueList,
             Self::NavigateUp => AppEvent::IssuesNavigateUp,
             Self::NavigateDown => AppEvent::IssuesNavigateDown,
-            Self::NavigatePageUp => AppEvent::IssuesNavigatePageUp,
-            Self::NavigatePageDown => AppEvent::IssuesNavigatePageDown,
+            Self::NavigatePageUp(page) => AppEvent::IssuesNavigatePageUp(page),
+            Self::NavigatePageDown(page) => AppEvent::IssuesNavigatePageDown(page),
             Self::NavigateHome => AppEvent::IssuesNavigateHome,
             Self::NavigateEnd => AppEvent::IssuesNavigateEnd,
             Self::Enter => AppEvent::IssuesEnter,

@@ -817,6 +817,7 @@ fn wrapped_body_rows_resolve_to_same_content_line() {
             &state,
             SelectablePane::IssueDetail,
             cols,
+            40,
             &ScreenCoord {
                 col: 0,
                 row: vp_row,
@@ -879,6 +880,7 @@ fn wrapped_body_row_column_advances_with_screen_col() {
             &state,
             SelectablePane::IssueDetail,
             cols,
+            40,
             &ScreenCoord {
                 col: screen_col,
                 row: vp_row,
@@ -937,6 +939,7 @@ fn header_row_uses_naive_mapping() {
         &state,
         SelectablePane::IssueDetail,
         120,
+        40,
         &ScreenCoord {
             col: 5,
             row: header_row,
@@ -946,6 +949,38 @@ fn header_row_uses_naive_mapping() {
     );
     // Header row maps to its own index regardless of scroll offset.
     assert_eq!(line, usize::from(header_row));
+}
+
+#[test]
+fn finite_pane_blank_space_clamps_to_last_projected_line_end() {
+    let state = jefe::state::AppState::default();
+    let geometry = origin_geometry();
+    let content = jefe::pane_content_projection::projected_pane_content(
+        SelectablePane::KeybindBar,
+        &state,
+        None,
+        &[],
+        80,
+        24,
+    );
+    let expected = content.lines.last().map_or((0, 0), |line| {
+        (content.lines.len() - 1, line.chars().count())
+    });
+    assert_eq!(
+        content_coords_for_pane(
+            &state,
+            SelectablePane::KeybindBar,
+            80,
+            24,
+            &ScreenCoord {
+                col: 30,
+                row: 10,
+                scroll_offset: 0,
+                geometry: &geometry,
+            },
+        ),
+        expected
+    );
 }
 
 /// Non-detail panes have no wrap projection and fall back to the naive map.

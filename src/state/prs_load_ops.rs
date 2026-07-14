@@ -93,7 +93,6 @@ impl AppState {
                 self.prs_state.detail_subfocus = PrDetailSubfocus::Body;
                 self.prs_state.detail_scroll_offset = 0;
             }
-            self.prs_state.list_scroll_offset = 0;
         }
     }
 
@@ -149,11 +148,6 @@ impl AppState {
             })
             .unwrap_or(0);
         self.prs_state.list.set_selected_index(Some(new_index));
-        // Clamp the scroll offset so it never exceeds the new list bounds.
-        let max_scroll = self.prs_state.pull_requests().len().saturating_sub(1);
-        if self.prs_state.list_scroll_offset > max_scroll {
-            self.prs_state.list_scroll_offset = max_scroll;
-        }
     }
 
     /// Apply a silent background refresh failure (issue #128). Clears the

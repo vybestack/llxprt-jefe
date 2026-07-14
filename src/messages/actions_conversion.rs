@@ -16,8 +16,8 @@ impl ActionsMessage {
             AppEvent::ActionsReload => Self::Reload,
             AppEvent::ActionsNavigateUp => Self::Navigate(NavDir::Up),
             AppEvent::ActionsNavigateDown => Self::Navigate(NavDir::Down),
-            AppEvent::ActionsNavigatePageUp => Self::Navigate(NavDir::PageUp),
-            AppEvent::ActionsNavigatePageDown => Self::Navigate(NavDir::PageDown),
+            AppEvent::ActionsNavigatePageUp(page) => Self::Navigate(NavDir::PageUp(page)),
+            AppEvent::ActionsNavigatePageDown(page) => Self::Navigate(NavDir::PageDown(page)),
             AppEvent::ActionsNavigateHome => Self::Navigate(NavDir::Home),
             AppEvent::ActionsNavigateEnd => Self::Navigate(NavDir::End),
             AppEvent::ActionsEnter => Self::Enter,
@@ -131,8 +131,14 @@ impl ActionsMessage {
         match dir {
             NavDir::Up => AppEvent::ActionsNavigateUp,
             NavDir::Down => AppEvent::ActionsNavigateDown,
-            NavDir::PageUp | NavDir::Prev => AppEvent::ActionsNavigatePageUp,
-            NavDir::PageDown | NavDir::Next => AppEvent::ActionsNavigatePageDown,
+            NavDir::PageUp(page) => AppEvent::ActionsNavigatePageUp(page),
+            NavDir::PageDown(page) => AppEvent::ActionsNavigatePageDown(page),
+            NavDir::Prev => {
+                AppEvent::ActionsNavigatePageUp(crate::list_viewport::PageItemCount::new(1))
+            }
+            NavDir::Next => {
+                AppEvent::ActionsNavigatePageDown(crate::list_viewport::PageItemCount::new(1))
+            }
             NavDir::Home => AppEvent::ActionsNavigateHome,
             NavDir::End => AppEvent::ActionsNavigateEnd,
         }

@@ -11,6 +11,7 @@ use iocraft::prelude::*;
 use jefe::state::{AppEvent, AppState, DetailSubfocus, InlineState, IssueFocus};
 
 use super::issues_filter::resolve_filter_key_event;
+use super::list_navigation::issues_page_item_count;
 
 use super::{AppStateHandle, SharedContext};
 
@@ -20,13 +21,36 @@ use super::{AppStateHandle, SharedContext};
 /// that should be dispatched — or `None` if the key is suppressed/no-op.
 ///
 /// This function is side-effect-free and testable without iocraft hooks.
+/// It uses the standard fallback terminal height; the live input boundary calls
+/// the row-aware resolver with the current terminal height.
 /// Implements the 8-level priority chain from pseudocode component-003.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P10
 /// @plan PLAN-20260329-ISSUES-MODE.P11
 /// @requirement REQ-ISS-002
 /// @pseudocode component-003 lines 01-38
+#[cfg(test)]
 pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    resolve_issues_key_event_for_size(state, key_event, 120, 40)
+}
+
+#[cfg(test)]
+fn resolve_issues_key_event_for_rows(
+    state: &AppState,
+    key_event: &KeyEvent,
+    terminal_rows: u16,
+) -> Option<AppEvent> {
+    resolve_issues_key_event_for_size(state, key_event, 120, terminal_rows)
+}
+
+#[must_use]
+fn resolve_issues_key_event_for_size(
+    state: &AppState,
+    key_event: &KeyEvent,
+    terminal_cols: u16,
+    terminal_rows: u16,
+) -> Option<AppEvent> {
+    let page_item_count = issues_page_item_count(state, terminal_cols, terminal_rows);
     if state.issues_state.close_reason_chooser.is_some() {
         return resolve_close_reason_chooser_key_event(state, key_event);
     }
@@ -52,7 +76,7 @@ pub fn resolve_issues_key_event(state: &AppState, key_event: &KeyEvent) -> Optio
     }
 
     resolve_global_issues_key_event(state, key_event)
-        .or_else(|| resolve_focus_key_event(state, key_event))
+        .or_else(|| resolve_focus_key_event(state, key_event, page_item_count))
         .or_else(|| resolve_pane_cycle_key_event(key_event))
 }
 
@@ -188,22 +212,29 @@ fn f12_event_for_issues(state: &AppState) -> Option<AppEvent> {
     }
 }
 
-fn resolve_focus_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+fn resolve_focus_key_event(
+    state: &AppState,
+    key_event: &KeyEvent,
+    page_item_count: jefe::list_viewport::PageItemCount,
+) -> Option<AppEvent> {
     match state.issues_state.issue_focus {
-        IssueFocus::IssueList => resolve_issue_list_key_event(key_event),
+        IssueFocus::IssueList => resolve_issue_list_key_event(key_event, page_item_count),
         IssueFocus::IssueDetail => resolve_issue_detail_key_event(state, key_event),
         IssueFocus::RepoList => resolve_repo_list_key_event(key_event),
     }
 }
 
-fn resolve_issue_list_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
+fn resolve_issue_list_key_event(
+    key_event: &KeyEvent,
+    page_item_count: jefe::list_viewport::PageItemCount,
+) -> Option<AppEvent> {
     match key_event.code {
         KeyCode::Up => Some(AppEvent::IssuesNavigateUp),
         KeyCode::Down => Some(AppEvent::IssuesNavigateDown),
         KeyCode::Left => Some(AppEvent::IssuesCycleFocusReverse),
         KeyCode::Right => Some(AppEvent::IssuesCycleFocus),
-        KeyCode::PageUp => Some(AppEvent::IssuesNavigatePageUp),
-        KeyCode::PageDown => Some(AppEvent::IssuesNavigatePageDown),
+        KeyCode::PageUp => Some(AppEvent::IssuesNavigatePageUp(page_item_count)),
+        KeyCode::PageDown => Some(AppEvent::IssuesNavigatePageDown(page_item_count)),
         KeyCode::Home => Some(AppEvent::IssuesNavigateHome),
         KeyCode::End => Some(AppEvent::IssuesNavigateEnd),
         KeyCode::Enter => Some(AppEvent::IssuesEnter),
@@ -285,7 +316,9 @@ pub fn handle_issues_mode_key(
     key_event: &KeyEvent,
 ) -> Option<AppEvent> {
     let state_ro = app_state.read();
-    let result = resolve_issues_key_event(&state_ro, key_event);
+    let (terminal_cols, terminal_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let result =
+        resolve_issues_key_event_for_size(&state_ro, key_event, terminal_cols, terminal_rows);
     drop(state_ro);
     result
 }

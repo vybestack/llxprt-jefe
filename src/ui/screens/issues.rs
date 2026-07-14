@@ -97,14 +97,15 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
     // Compute the actual rows/columns available to issue panes so child
     // components do not have to infer from raw terminal size.
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (render_cols, render_rows) = crate::layout::effective_render_size(term_cols, term_rows);
     let (list_pane_rows, detail_pane_height) = crate::layout::issues_pane_rows(
-        usize::from(term_rows),
+        usize::from(render_rows),
         error_message.is_some(),
         filter_controls_open,
     );
     let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
     let detail_pane_height = u16::try_from(detail_pane_height).unwrap_or(u16::MAX);
-    let list_width = crate::layout::issue_list_content_width(term_cols);
+    let list_width = crate::layout::issue_list_content_width(render_cols);
 
     // Single source of truth for the fixed sidebar width: the layout constant
     // is u16 but the iocraft width field expects u32.
@@ -188,6 +189,9 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                         agent_counts: agent_counts,
                         selected: selected_repo_idx,
                         focused: sidebar_focused,
+                        grabbed: None,
+                        pane_rows: render_rows.saturating_sub(crate::layout::OUTER_BARS_HEIGHT),
+                        content_width: crate::list_viewport::bordered_padded_content_width(crate::layout::ISSUES_SIDEBAR_WIDTH),
                         colors: colors.clone(),
                         selection: selection,
                     )
@@ -259,7 +263,7 @@ pub fn IssuesScreen(props: &IssuesScreenProps) -> impl Into<AnyElement<'static>>
                                 scroll_offset: detail_scroll_offset,
                                 colors: colors.clone(),
                                 available_height: Some(detail_pane_height),
-                                available_width: Some(crate::layout::issues_detail_content_width(term_cols)),
+                                available_width: Some(crate::layout::issues_detail_content_width(render_cols)),
                                 selection,
                             },
                         ))])

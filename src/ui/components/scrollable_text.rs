@@ -133,7 +133,7 @@ pub fn ScrollableText(props: &ScrollableTextProps) -> impl Into<AnyElement<'stat
         fg: props.selection_fg.unwrap_or(DEFAULT_SEL_FG),
         bg: props.selection_bg.unwrap_or(DEFAULT_SEL_BG),
     };
-    let vp = props.viewport_rows.max(1);
+    let vp = props.viewport_rows;
 
     // Sidebar (22) + borders/padding (~5) + scrollbar (1) = ~28 chars of chrome
     let max_w = if props.max_line_width > 0 {

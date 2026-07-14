@@ -389,6 +389,9 @@ pub struct AppState {
     /// inverse-video highlight over the selected cells.
     pub selection: Option<crate::selection::TextSelection>,
 
+    /// Git display data bound to an active dashboard selection gesture.
+    pub selection_dashboard_git_info: Option<crate::dashboard_git_info::DashboardGitInfoSnapshot>,
+
     /// The terminal snapshot bound to the active selection (issue #197).
     ///
     /// Captured when a terminal selection gesture begins and reused for BOTH

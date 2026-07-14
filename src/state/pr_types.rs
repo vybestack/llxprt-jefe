@@ -116,10 +116,6 @@ pub struct PullRequestsState {
     pub error: Option<String>,
     pub pr_focus: PrFocus,
     pub detail_subfocus: PrDetailSubfocus,
-    /// First-visible PR-list row; driven by the shared selection-follow helper.
-    pub list_scroll_offset: usize,
-    /// PR-list pane height in rows (set as a prop from the layout module).
-    pub list_viewport_rows: usize,
     /// Scroll offset (in lines) for the detail pane viewport.
     pub detail_scroll_offset: usize,
     /// Last rendered detail viewport height in rows.

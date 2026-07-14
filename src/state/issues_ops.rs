@@ -279,24 +279,22 @@ impl AppState {
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
-    fn navigate_issue_list_page_up(&mut self) {
-        let previous = self.issues_state.selected_issue_index();
-        if let Some(idx) = previous {
-            self.issues_state
-                .list
-                .set_selected_index(Some(idx.saturating_sub(super::VIEWPORT_PAGE_JUMP)));
-        }
-        self.invalidate_detail_requests_if_issue_selection_changed(previous);
+    fn navigate_issue_list_page_up(&mut self, page: crate::list_viewport::PageItemCount) {
+        self.navigate_issue_list(crate::list_viewport::ListMove::PageUp(page));
     }
 
-    fn navigate_issue_list_page_down(&mut self) {
+    fn navigate_issue_list_page_down(&mut self, page: crate::list_viewport::PageItemCount) {
+        self.navigate_issue_list(crate::list_viewport::ListMove::PageDown(page));
+    }
+
+    fn navigate_issue_list(&mut self, movement: crate::list_viewport::ListMove) {
         let previous = self.issues_state.selected_issue_index();
-        if let Some(idx) = previous {
-            let max = self.issues_state.issues().len().saturating_sub(1);
-            self.issues_state
-                .list
-                .set_selected_index(Some((idx + super::VIEWPORT_PAGE_JUMP).min(max)));
-        }
+        let selected = crate::list_viewport::move_selection(
+            previous,
+            self.issues_state.issues().len(),
+            movement,
+        );
+        self.issues_state.list.set_selected_index(selected);
         self.invalidate_detail_requests_if_issue_selection_changed(previous);
     }
 
@@ -359,8 +357,8 @@ impl AppState {
                 IssueFocus::RepoList => self.navigate_repo_down_in_issues_mode(),
                 IssueFocus::IssueDetail => {}
             },
-            AppEvent::IssuesNavigatePageUp => self.navigate_issue_list_page_up(),
-            AppEvent::IssuesNavigatePageDown => self.navigate_issue_list_page_down(),
+            AppEvent::IssuesNavigatePageUp(page) => self.navigate_issue_list_page_up(page),
+            AppEvent::IssuesNavigatePageDown(page) => self.navigate_issue_list_page_down(page),
             AppEvent::IssuesNavigateHome => self.navigate_issue_list_home(),
             AppEvent::IssuesNavigateEnd => self.navigate_issue_list_end(),
             AppEvent::IssuesEnter
@@ -589,8 +587,8 @@ impl AppState {
             AppEvent::RefocusIssueList => self.issues_state.issue_focus = IssueFocus::IssueList,
             AppEvent::IssuesNavigateUp
             | AppEvent::IssuesNavigateDown
-            | AppEvent::IssuesNavigatePageUp
-            | AppEvent::IssuesNavigatePageDown
+            | AppEvent::IssuesNavigatePageUp(_)
+            | AppEvent::IssuesNavigatePageDown(_)
             | AppEvent::IssuesNavigateHome
             | AppEvent::IssuesNavigateEnd
             | AppEvent::IssuesEnter

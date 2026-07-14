@@ -11,6 +11,7 @@ use crate::selection::{
 use crate::state::ScreenMode;
 
 const DASHBOARD: ScreenMode = ScreenMode::Dashboard;
+const SPLIT: ScreenMode = ScreenMode::Split;
 const ISSUES: ScreenMode = ScreenMode::DashboardIssues;
 const PRS: ScreenMode = ScreenMode::DashboardPullRequests;
 
@@ -75,9 +76,9 @@ fn pane_at_dashboard_sidebar() {
     assert!(matches!(pane, SelectablePane::Sidebar));
     assert_eq!(geo.origin_col, 0);
     assert_eq!(geo.origin_row, 1);
-    // Sidebar content starts at col +2 (border + padding), row +2 (border + title).
+    // Sidebar content starts after the border, title, and top content padding.
     assert_eq!(geo.content_origin_col, 2);
-    assert_eq!(geo.content_origin_row, 3);
+    assert_eq!(geo.content_origin_row, 4);
 }
 
 #[test]
@@ -173,6 +174,45 @@ fn pane_at_dashboard_terminal_content_origin_geometry() {
         geo.content_origin_row,
         geo.origin_row + TERMINAL_VIEW_CHROME_ROWS
     );
+}
+
+// ── pane_at: split mode ─────────────────────────────────────────────────────
+
+#[test]
+fn pane_at_split_uses_full_width_sidebar_between_layout_bands() {
+    let lay = layout(100, 25, SPLIT, false, false);
+
+    for col in [1, 50, 98] {
+        let Some((pane, geo)) = pane_at(col, 5, SPLIT, false, &lay) else {
+            panic!("expected split sidebar at column {col}");
+        };
+        assert!(matches!(pane, SelectablePane::Sidebar));
+        assert_eq!(geo.origin_col, 1);
+        assert_eq!(geo.origin_row, 5);
+        assert_eq!(geo.width, 98);
+        assert_eq!(geo.height, 18);
+        assert_eq!(geo.content_origin_row, 8);
+    }
+}
+
+#[test]
+fn pane_at_split_excludes_padding_filter_and_outer_boundaries() {
+    let lay = layout(100, 25, SPLIT, false, false);
+
+    for point in [(0, 5), (99, 5), (50, 1), (50, 2), (50, 4), (50, 23)] {
+        assert!(
+            pane_at(point.0, point.1, SPLIT, false, &lay).is_none(),
+            "split chrome point {point:?} must not resolve to a pane"
+        );
+    }
+    assert!(matches!(
+        pane_at(50, 22, SPLIT, false, &lay).map(|(pane, _)| pane),
+        Some(SelectablePane::Sidebar)
+    ));
+    assert!(matches!(
+        pane_at(50, 24, SPLIT, false, &lay).map(|(pane, _)| pane),
+        Some(SelectablePane::KeybindBar)
+    ));
 }
 
 // ── pane_at: issues mode ────────────────────────────────────────────────────
@@ -456,7 +496,7 @@ fn pane_at_dashboard_agent_list_content_origin_accounts_for_chrome() {
     };
     assert!(matches!(pane, SelectablePane::AgentList));
     assert_eq!(geo.content_origin_col, geo.origin_col + 2);
-    assert_eq!(geo.content_origin_row, geo.origin_row + 2);
+    assert_eq!(geo.content_origin_row, geo.origin_row + 3);
 }
 
 // ── row_highlight_range ─────────────────────────────────────────────────────

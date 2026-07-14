@@ -152,22 +152,20 @@ fn test_list_loaded_does_not_clear_detail_pending() {
     );
 }
 
-// ── Silent list refresh: selection + scroll preservation ───────────────────
+// ── Silent list refresh: selection preservation ────────────────────────────
 
-/// Silent refresh preserves selection + scroll when the PR list is unchanged
-/// in membership (same PR numbers, updated data) and does NOT flash the
-/// loading spinner or clear pr_detail.
+/// Silent refresh preserves selection when the PR list is unchanged in
+/// membership and does NOT flash the loading spinner or clear pr_detail.
 ///
 /// @requirement issue #128
 #[test]
-fn test_silent_refresh_preserves_selection_and_scroll() {
+fn test_silent_refresh_preserves_selection_and_detail() {
     let mut state = prs_mode_state("repo-1");
     state
         .prs_state
         .list
         .replace_items((1u64..=5).map(make_test_pr).collect());
     state.prs_state.list.set_selected_index(Some(2));
-    state.prs_state.list_scroll_offset = 2;
     state.prs_state.pr_detail = Some(make_test_pr_detail("repo-1", 3, vec![]));
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
@@ -184,10 +182,6 @@ fn test_silent_refresh_preserves_selection_and_scroll() {
         new_state.prs_state.selected_pr_index(),
         Some(2),
         "selection must be preserved"
-    );
-    assert_eq!(
-        new_state.prs_state.list_scroll_offset, 2,
-        "scroll offset must be preserved"
     );
     assert!(
         !new_state.prs_state.list_loading(),
@@ -243,7 +237,7 @@ fn test_silent_refresh_preserves_selection_when_pr_reordered() {
 }
 
 /// Silent refresh falls back to first PR when the selected PR is no longer in
-/// the list (merged/closed elsewhere), and clamps scroll offset.
+/// the list (merged/closed elsewhere).
 ///
 /// @requirement issue #128
 #[test]
@@ -254,7 +248,6 @@ fn test_silent_refresh_handles_selected_pr_removed() {
         .list
         .replace_items(vec![make_test_pr(1), make_test_pr(2), make_test_pr(3)]);
     state.prs_state.list.set_selected_index(Some(1)); // PR #2
-    state.prs_state.list_scroll_offset = 2;
     seed_silent_refresh_pending(&mut state, "repo-1", 100);
 
     let new_state = state.apply(AppEvent::PrListSilentRefreshed {
@@ -270,10 +263,6 @@ fn test_silent_refresh_handles_selected_pr_removed() {
         new_state.prs_state.selected_pr_index(),
         Some(0),
         "removed PR: selection falls back to first"
-    );
-    assert!(
-        new_state.prs_state.list_scroll_offset <= 1,
-        "scroll offset must be clamped to new list bounds"
     );
 }
 

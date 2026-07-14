@@ -12,11 +12,19 @@ use super::{
     UiNavigationMessage,
 };
 
+fn ui(message: UiNavigationMessage) -> AppMessage {
+    AppMessage::UiNavigation(message)
+}
+
 impl From<AppEvent> for AppMessage {
     fn from(event: AppEvent) -> Self {
         match event {
             AppEvent::NavigateUp => Self::UiNavigation(UiNavigationMessage::NavigateUp),
             AppEvent::NavigateDown => Self::UiNavigation(UiNavigationMessage::NavigateDown),
+            AppEvent::NavigatePageUp(page) => ui(UiNavigationMessage::NavigatePageUp(page)),
+            AppEvent::NavigatePageDown(page) => ui(UiNavigationMessage::NavigatePageDown(page)),
+            AppEvent::NavigateHome => Self::UiNavigation(UiNavigationMessage::NavigateHome),
+            AppEvent::NavigateEnd => Self::UiNavigation(UiNavigationMessage::NavigateEnd),
             AppEvent::NavigateLeft => Self::UiNavigation(UiNavigationMessage::NavigateLeft),
             AppEvent::NavigateRight => Self::UiNavigation(UiNavigationMessage::NavigateRight),
             AppEvent::SelectRepository(index) => {
@@ -65,11 +73,6 @@ impl From<AppEvent> for AppMessage {
             AppEvent::FormNextField => Self::Modal(ModalMessage::FormNextField),
             AppEvent::FormPrevField => Self::Modal(ModalMessage::FormPrevField),
             AppEvent::FormToggleCheckbox => Self::Modal(ModalMessage::FormToggleCheckbox),
-            // Catch-all is required because `AppEvent` is `#[non_exhaustive]`
-            // in practice (issues/PRs/actions variants are numerous and grow).
-            // Delegates to the non-UI-navigation converter for all remaining
-            // repository-agent, runtime, persistence, theme, issues, PRs, and
-            // actions events.
             other => Self::from_non_ui_nav_event(other),
         }
     }
@@ -217,8 +220,8 @@ impl AppMessage {
                 | AppEvent::ActionsReload
                 | AppEvent::ActionsNavigateUp
                 | AppEvent::ActionsNavigateDown
-                | AppEvent::ActionsNavigatePageUp
-                | AppEvent::ActionsNavigatePageDown
+                | AppEvent::ActionsNavigatePageUp(_)
+                | AppEvent::ActionsNavigatePageDown(_)
                 | AppEvent::ActionsNavigateHome
                 | AppEvent::ActionsNavigateEnd
                 | AppEvent::ActionsEnter
@@ -269,8 +272,8 @@ impl AppMessage {
                 | AppEvent::RefocusIssueList
                 | AppEvent::IssuesNavigateUp
                 | AppEvent::IssuesNavigateDown
-                | AppEvent::IssuesNavigatePageUp
-                | AppEvent::IssuesNavigatePageDown
+                | AppEvent::IssuesNavigatePageUp(_)
+                | AppEvent::IssuesNavigatePageDown(_)
                 | AppEvent::IssuesNavigateHome
                 | AppEvent::IssuesNavigateEnd
                 | AppEvent::IssuesEnter
@@ -390,6 +393,10 @@ impl From<UiNavigationMessage> for AppEvent {
         match message {
             UiNavigationMessage::NavigateUp => Self::NavigateUp,
             UiNavigationMessage::NavigateDown => Self::NavigateDown,
+            UiNavigationMessage::NavigatePageUp(page) => Self::NavigatePageUp(page),
+            UiNavigationMessage::NavigatePageDown(page) => Self::NavigatePageDown(page),
+            UiNavigationMessage::NavigateHome => Self::NavigateHome,
+            UiNavigationMessage::NavigateEnd => Self::NavigateEnd,
             UiNavigationMessage::NavigateLeft => Self::NavigateLeft,
             UiNavigationMessage::NavigateRight => Self::NavigateRight,
             UiNavigationMessage::SelectRepository(index) => Self::SelectRepository(index),

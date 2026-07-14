@@ -6,11 +6,10 @@
 
 use iocraft::prelude::*;
 
-use crate::selection::{SelectablePane, row_highlight_range};
 use crate::state::{AppState, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
-use super::super::components::{KeybindBar, StatusBar};
+use super::super::components::{KeybindBar, Sidebar, StatusBar};
 
 /// Props for the split screen.
 #[derive(Default, Props)]
@@ -79,6 +78,10 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
 
     let colors = props.colors.clone().unwrap_or_default();
     let rc = ResolvedColors::from_theme(Some(&colors));
+    let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
+    let (render_cols, render_rows) = crate::layout::effective_render_size(term_cols, term_rows);
+    let split_layout = crate::layout::split_layout_for_render_size(render_cols, render_rows);
+    let grabbed = state.and_then(|s| s.split_grab_index);
 
     element! {
         Box(
@@ -113,35 +116,18 @@ pub fn SplitScreen(props: &SplitScreenProps) -> impl Into<AnyElement<'static>> {
                     Text(content: format!("Filter: {}_", search_query), color: rc.fg)
                 }
 
-                // Repository list
-                Box(
-                    flex_direction: FlexDirection::Column,
-                    flex_grow: 1.0_f32,
-                    width: 100pct,
-                    border_style: BorderStyle::Round,
-                    border_color: rc.border,
-                    background_color: rc.bg,
-                ) {
-                    #(repositories.iter().enumerate().map(|(i, repo)| {
-                        let selected = i == selected_repo_idx;
-                        let prefix = if selected { "> " } else { "  " };
-                        let visible_count = agent_counts.get(i).copied()
-                            .unwrap_or(repo.agent_ids.len());
-                        let line = format!("{}{} ({} agents)", prefix, repo.name, visible_count);
-                        let highlighted = selection
-                            .filter(|s| s.pane() == SelectablePane::Sidebar)
-                            .and_then(|s| row_highlight_range(&s, i))
-                            .is_some();
-                        let row_bg = if highlighted { rc.sel_bg } else { rc.bg };
-                        let fg = if highlighted { rc.sel_fg } else { rc.fg };
-                        let weight = if selected { Weight::Bold } else { Weight::Normal };
-                        element! {
-                            Box(height: 1u32, background_color: row_bg) {
-                                Text(content: line, color: fg, weight: weight)
-                            }
-                        }
-                        .into_any()
-                    }))
+                Box(flex_grow: 1.0_f32, width: 100pct) {
+                    Sidebar(
+                        repositories: repositories,
+                        agent_counts: agent_counts,
+                        selected: selected_repo_idx,
+                        focused: true,
+                        grabbed: grabbed,
+                        pane_rows: split_layout.sidebar_rows,
+                        content_width: split_layout.sidebar_content_cols,
+                        colors: colors.clone(),
+                        selection: selection,
+                    )
                 }
             }
 

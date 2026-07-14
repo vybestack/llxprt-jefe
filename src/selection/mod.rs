@@ -24,19 +24,23 @@
 //!
 //! All functions are pure and `#[must_use]`.
 
+mod actions_content;
 mod content;
+mod dashboard_content;
 mod form_content;
 mod geometry;
 mod gesture;
 mod layout_descriptor;
 mod overlay_content;
+mod projection_context;
 mod terminal_text;
 mod text;
-pub use content::{PaneContent, pane_content_lines};
+pub use content::{PaneContent, pane_content_lines, pane_content_lines_with_context};
 pub use form_content::{agent_form_content_lines, repository_form_content_lines};
 pub use geometry::{PaneGeometry, pane_at};
 pub use gesture::{GestureAction, GestureEvent, GestureEventKind, GestureState, PtyReplay};
 pub use layout_descriptor::{OverlayPane, ScreenLayout};
+pub use projection_context::PaneContentContext;
 pub use terminal_text::terminal_selection_text;
 pub use text::{
     HighlightRange, SelectablePane, SelectionPoint, TextSelection, normalize_selection,

@@ -469,8 +469,8 @@ pub(super) fn dispatch_issues_message(
     match message {
         message @ (IssuesMessage::NavigateUp
         | IssuesMessage::NavigateDown
-        | IssuesMessage::NavigatePageUp
-        | IssuesMessage::NavigatePageDown
+        | IssuesMessage::NavigatePageUp(_)
+        | IssuesMessage::NavigatePageDown(_)
         | IssuesMessage::NavigateHome
         | IssuesMessage::NavigateEnd) => {
             dispatch_issues_navigation(app_state, ctx, message);

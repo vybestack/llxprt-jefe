@@ -94,18 +94,20 @@ impl AppState {
         if runs.is_empty() {
             return true;
         }
-        let current = self.actions_state.list.selected_index().unwrap_or(0);
-        let last = runs.len() - 1;
-        let new_idx = match dir {
-            crate::messages::NavDir::Up => current.saturating_sub(1),
-            crate::messages::NavDir::Down => (current + 1).min(last),
-            crate::messages::NavDir::PageUp => current.saturating_sub(super::VIEWPORT_PAGE_JUMP),
-            crate::messages::NavDir::PageDown => (current + super::VIEWPORT_PAGE_JUMP).min(last),
-            crate::messages::NavDir::Home => 0,
-            crate::messages::NavDir::End => last,
-            crate::messages::NavDir::Next | crate::messages::NavDir::Prev => current,
+        let current = self.actions_state.list.selected_index();
+        let movement = match dir {
+            crate::messages::NavDir::Up => crate::list_viewport::ListMove::Up,
+            crate::messages::NavDir::Down => crate::list_viewport::ListMove::Down,
+            crate::messages::NavDir::PageUp(page) => crate::list_viewport::ListMove::PageUp(page),
+            crate::messages::NavDir::PageDown(page) => {
+                crate::list_viewport::ListMove::PageDown(page)
+            }
+            crate::messages::NavDir::Home => crate::list_viewport::ListMove::Home,
+            crate::messages::NavDir::End => crate::list_viewport::ListMove::End,
+            crate::messages::NavDir::Next | crate::messages::NavDir::Prev => return true,
         };
-        self.actions_state.list.set_selected_index(Some(new_idx));
+        let selected = crate::list_viewport::move_selection(current, runs.len(), movement);
+        self.actions_state.list.set_selected_index(selected);
         self.actions_state.detail_scroll_offset = 0;
         self.actions_state.run_detail = None;
         self.actions_state.loading.detail = false;
@@ -168,7 +170,7 @@ impl AppState {
             return 0;
         };
         let lines =
-            crate::actions_view::detail_line_count(detail, &self.actions_state.expanded_jobs);
+            crate::actions_view::detail_body_line_count(detail, &self.actions_state.expanded_jobs);
         let viewport = if self.actions_state.detail_viewport_rows == 0 {
             crate::layout::detail_viewport_rows(40)
         } else {

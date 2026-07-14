@@ -9,6 +9,7 @@
 //! selection highlighting.
 
 use crate::domain::{WorkflowRun, WorkflowRunConclusion, WorkflowRunStatus};
+use crate::list_viewport::{ListGeometry, PaneRows, RowsPerItem};
 use crate::selection::{SelectablePane, TextSelection};
 use crate::theme::ThemeColors;
 use crate::ui::components::selectable_list::{
@@ -109,6 +110,7 @@ fn to_selectable_rows(
                 )
             };
             SelectableRow {
+                source_index: run.source_index,
                 spans: vec![SelectableSpan {
                     text: title_line,
                     color: SpanColor::Themed,
@@ -159,18 +161,11 @@ pub fn actions_list_props(
     colors: ThemeColors,
     selection: Option<TextSelection>,
 ) -> SelectableListProps {
-    let content_rows = (usize::from(window.list_pane_rows))
-        .saturating_sub(3)
-        .max(1);
-    let run_budget = if window.layout.is_compact() {
-        content_rows
-    } else {
-        // Full mode: each run occupies 2 terminal rows (title + meta line).
-        // Integer division (not div_ceil) so the budget never exceeds the
-        // space actually available — div_ceil would over-allocate by one run
-        // and clip the last visible row when content_rows is odd.
-        content_rows / 2
-    };
+    let rows_per_item = RowsPerItem::new(if window.layout.is_compact() { 1 } else { 2 });
+    let geometry = ListGeometry::bordered(rows_per_item);
+    let run_budget = geometry
+        .item_capacity(PaneRows::new(usize::from(window.list_pane_rows)))
+        .get();
     let list_view = crate::actions_view::project_runs_list(runs, window.selected_index, run_budget);
     SelectableListProps {
         title: "Workflow Runs".to_string(),
@@ -187,6 +182,9 @@ pub fn actions_list_props(
         border: ListBorder::DoubleOnFocus,
         content_padding: false,
         selection_style: SelectionStyle::BoldSelected,
+        content_width: window
+            .available_width
+            .map_or_else(|| usize::from(u16::MAX), usize::from),
     }
 }
 

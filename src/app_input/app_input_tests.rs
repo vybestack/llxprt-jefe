@@ -73,7 +73,7 @@ fn filter_and_search_messages_are_fresh_issue_list_reloads() {
     assert!(is_fresh_issue_list_reload(&IssuesMessage::ClearFilter));
     assert!(is_fresh_issue_list_reload(&IssuesMessage::ApplySearch));
     assert!(!is_fresh_issue_list_reload(
-        &IssuesMessage::NavigatePageDown
+        &IssuesMessage::NavigatePageDown(jefe::list_viewport::PageItemCount::new(3))
     ));
 }
 

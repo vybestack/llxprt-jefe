@@ -12,6 +12,7 @@
 
 use crate::domain::{Agent, AgentStatus};
 use crate::git_info::GitRepoInfo;
+use crate::list_viewport::{ListGeometry, ListViewport, PaneRows, RowsPerItem};
 use crate::selection::{SelectablePane, TextSelection};
 use crate::theme::ThemeColors;
 use crate::ui::components::selectable_list::{
@@ -31,6 +32,22 @@ pub struct AgentListSelection {
     pub selected: usize,
     /// Index of the grabbed agent row (dashboard reorder), if any.
     pub grabbed: Option<usize>,
+}
+
+/// Physical agent-pane geometry used for deterministic projection.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AgentListWindow {
+    /// Full pane height, including border, title, and vertical padding.
+    pub pane_rows: u16,
+    /// Content width after border and horizontal padding.
+    pub content_width: u16,
+}
+
+/// Selection and geometry inputs for the agent-list projection.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AgentListView {
+    pub selection: AgentListSelection,
+    pub window: AgentListWindow,
 }
 
 /// Status glyph rendered before the agent name (single character).
@@ -80,6 +97,7 @@ fn agent_prefix(is_selected: bool, grabbed: bool) -> &'static str {
 /// (themed), and when git info is available, a dim suffix span
 /// `  {origin} @ {branch}`.
 fn to_selectable_row(
+    source_index: usize,
     agent: &Agent,
     is_selected: bool,
     grabbed: bool,
@@ -116,6 +134,7 @@ fn to_selectable_row(
     }
 
     SelectableRow {
+        source_index,
         spans,
         meta_line: None,
         is_selected,
@@ -139,19 +158,30 @@ fn to_selectable_row(
 pub fn agent_list_props(
     agents: &[Agent],
     git_infos: &[GitRepoInfo],
-    selection_state: AgentListSelection,
+    view: AgentListView,
     focused: bool,
     colors: ThemeColors,
     selection: Option<TextSelection>,
 ) -> SelectableListProps {
-    let rows = agents
+    let selection_state = view.selection;
+    let window = view.window;
+    let geometry = ListGeometry::bordered_padded(RowsPerItem::new(1));
+    let viewport = ListViewport::uniform(
+        agents.len(),
+        Some(selection_state.selected),
+        geometry.content_rows(PaneRows::new(usize::from(window.pane_rows))),
+        RowsPerItem::new(1),
+    );
+    let first_visible = viewport.first_visible_item();
+    let rows = agents[viewport.visible_range()]
         .iter()
         .enumerate()
-        .map(|(i, agent)| {
+        .map(|(window_index, agent)| {
+            let i = first_visible + window_index;
             let is_selected = i == selection_state.selected;
             let is_grabbed = selection_state.grabbed.is_some_and(|idx| idx == i);
             let git_info = git_infos.get(i);
-            to_selectable_row(agent, is_selected, is_grabbed, git_info)
+            to_selectable_row(i, agent, is_selected, is_grabbed, git_info)
         })
         .collect();
     SelectableListProps {
@@ -165,5 +195,68 @@ pub fn agent_list_props(
         border: ListBorder::RoundFocusedColor,
         content_padding: true,
         selection_style: SelectionStyle::BrightSelected,
+        content_width: usize::from(window.content_width),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{AgentId, RepositoryId};
+    use std::path::PathBuf;
+
+    #[test]
+    fn twenty_five_row_pane_keeps_twenty_fifth_agent_visible() {
+        let agents: Vec<Agent> = (0..25)
+            .map(|index| {
+                Agent::new(
+                    AgentId(format!("agent-{index}")),
+                    RepositoryId(String::from("repo")),
+                    format!("Agent {index}"),
+                    PathBuf::from("/tmp"),
+                )
+            })
+            .collect();
+        let git_infos = vec![
+            GitRepoInfo {
+                origin_shortform: Some(String::from("acme/widgets")),
+                branch: None,
+            };
+            agents.len()
+        ];
+        let props = agent_list_props(
+            &agents,
+            &git_infos,
+            AgentListView {
+                selection: AgentListSelection {
+                    selected: 24,
+                    grabbed: None,
+                },
+                window: AgentListWindow {
+                    pane_rows: 25,
+                    content_width: 48,
+                },
+            },
+            true,
+            ThemeColors::default(),
+            None,
+        );
+
+        assert_eq!(props.rows.len(), 20);
+        assert_eq!(props.rows.first().map(|row| row.source_index), Some(5));
+        assert_eq!(props.rows.last().map(|row| row.source_index), Some(24));
+        assert!(props.rows.last().is_some_and(|row| row.is_selected));
+        assert!(
+            props
+                .rows
+                .first()
+                .is_some_and(|row| { row.spans.iter().any(|span| span.text.contains("Agent 5")) })
+        );
+        let lines = crate::ui::components::selectable_list::projected_content_lines(&props);
+        assert_eq!(lines.first().map(|line| line.source_index), Some(5));
+        assert_eq!(lines.last().map(|line| line.source_index), Some(24));
+        assert!(lines.last().is_some_and(|line| {
+            line.text.contains("Agent 24") && line.text.contains("acme/widgets")
+        }));
     }
 }

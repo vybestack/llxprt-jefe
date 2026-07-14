@@ -205,6 +205,9 @@ pub fn build_screen_element(
                 history_lines: terminal.history_lines,
                 terminal_pane_rows: terminal.pane_rows,
                 terminal_pane_cols: terminal.pane_cols,
+                git_info: snapshot.selection_dashboard_git_info.clone().or_else(|| {
+                    crate::dashboard_git_info::resolve_dashboard_git_info(snapshot)
+                }),
             )
         }
         .into_any(),
