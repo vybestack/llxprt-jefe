@@ -618,7 +618,7 @@ fn test_send_to_agent_payload_complete() {
     );
 }
 
-/// P15 Test 17: OpenAgentChooser with no agents — chooser not opened.
+/// P15 Test 17: OpenAgentChooser with no agents — chooser not opened, notice set.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
 /// @requirement REQ-ISS-011
@@ -630,6 +630,11 @@ fn test_send_to_agent_no_agents() {
     let state = state.apply(AppEvent::OpenAgentChooser);
 
     assert!(state.issues_state.agent_chooser.is_none());
+    assert_eq!(
+        state.issues_state.draft_notice.as_deref(),
+        Some("No agents available"),
+        "no eligible agents must set the No agents available notice"
+    );
 }
 
 /// P15 Test 18: Build payload with issue_base_prompt — field present in repository.

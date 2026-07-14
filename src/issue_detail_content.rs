@@ -171,7 +171,7 @@ pub fn build_new_issue_content(_inline_state: &InlineState) -> DetailContent {
 
     builder
         .lines
-        .push(String::from("Ctrl+Enter submit | Esc cancel"));
+        .push(String::from("Alt+Enter submit | Esc cancel"));
     builder.finish()
 }
 
@@ -305,7 +305,7 @@ fn build_body_section(
     if body_editing {
         builder
             .lines
-            .push("  Ctrl+Enter save | Esc cancel".to_string());
+            .push("  Alt+Enter save | Esc cancel".to_string());
     }
 }
 
@@ -372,7 +372,7 @@ fn build_single_comment(
     if comment_editing {
         builder
             .lines
-            .push("    Ctrl+Enter save | Esc cancel".to_string());
+            .push("    Alt+Enter save | Esc cancel".to_string());
     }
 
     if let InlineState::Composer {
@@ -384,7 +384,7 @@ fn build_single_comment(
         builder.lines.push(ISSUE_REPLY_ANCHOR.to_string());
         builder
             .lines
-            .push("    Ctrl+Enter save | Esc cancel".to_string());
+            .push("    Alt+Enter save | Esc cancel".to_string());
     }
 
     builder.lines.push(String::new());
@@ -409,7 +409,7 @@ fn build_new_comment_section(
     {
         builder
             .lines
-            .push("  Ctrl+Enter submit | Esc cancel".to_string());
+            .push("  Alt+Enter submit | Esc cancel".to_string());
     } else {
         builder.lines.push("  Press c to add a comment".to_string());
     }
@@ -627,7 +627,7 @@ mod tests {
         assert!(lines[range.0] == "> New Comment" || lines[range.0] == "  New Comment");
         assert!(
             lines[range.1].contains("Press c to add a comment")
-                || lines[range.1].contains("Ctrl+Enter submit"),
+                || lines[range.1].contains("Alt+Enter submit"),
             "NewComment range must include the hint line"
         );
     }

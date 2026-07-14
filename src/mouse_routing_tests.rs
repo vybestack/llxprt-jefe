@@ -19,6 +19,9 @@ use jefe::selection::{
 use jefe::state::{AppState, ModalState, PaneFocus, ScreenMode};
 use std::path::PathBuf;
 
+#[path = "mouse_routing_banner_tests.rs"]
+mod mouse_routing_banner_tests;
+
 // ── next_wheel_scroll_offset (clamping + stale recovery) ─────────────────────
 
 #[test]

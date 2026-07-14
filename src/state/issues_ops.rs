@@ -569,7 +569,11 @@ impl AppState {
     fn open_agent_chooser(&mut self) {
         let repo_id = self.selected_repository_id().cloned();
         let agents = self.chooser_agents_for_repository(repo_id.as_ref());
-        if !agents.is_empty() {
+        if agents.is_empty() {
+            self.issues_state.agent_chooser = None;
+            self.issues_state.draft_notice = Some("No agents available".to_string());
+        } else {
+            self.issues_state.draft_notice = None;
             self.issues_state.agent_chooser = Some(AgentChooserState {
                 selected_index: 0,
                 agents,
@@ -581,7 +585,13 @@ impl AppState {
         match event {
             AppEvent::EnterIssuesMode => self.enter_issues_mode(),
             AppEvent::ExitIssuesMode => self.exit_issues_mode(),
-            AppEvent::RefocusIssueList => self.issues_state.issue_focus = IssueFocus::IssueList,
+            AppEvent::RefocusIssueList => {
+                // Issue #265: clear a stale non-blocking notice (e.g. "No
+                // agents available") when the user returns to the list. A real
+                // `error` is NOT cleared here — only the transient notice.
+                self.issues_state.draft_notice = None;
+                self.issues_state.issue_focus = IssueFocus::IssueList;
+            }
             AppEvent::IssuesNavigateUp
             | AppEvent::IssuesNavigateDown
             | AppEvent::IssuesNavigatePageUp

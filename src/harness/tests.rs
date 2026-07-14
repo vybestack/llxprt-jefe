@@ -147,6 +147,18 @@ fn config_defaults_when_optional_fields_omitted() {
     assert!(scenario.config.out_dir.is_none());
     assert_eq!(scenario.config.history_limit, 10_000);
     assert_eq!(scenario.config.initial_wait_ms, 0);
+    assert_eq!(scenario.config.wait_timeout_ms, 0);
+}
+
+/// An explicit `wait_timeout_ms` is parsed and retained.
+///
+/// @plan PLAN-20260629-TMUX-HARNESS.P01
+/// @requirement REQ-TMUX-HARNESS-001
+#[test]
+fn config_parses_wait_timeout_ms() {
+    let json = r#"{ "config": { "cols": 80, "rows": 24, "wait_timeout_ms": 30000 }, "steps": [] }"#;
+    let scenario = parse_scenario(json).value_or_panic("should parse");
+    assert_eq!(scenario.config.wait_timeout_ms, 30_000);
 }
 
 /// `assert_mode` accepts the typed enum values.
@@ -765,6 +777,7 @@ fn expand_macros_validates_macro_invocation_steps() {
             rows: 24,
             history_limit: 10_000,
             initial_wait_ms: 0,
+            wait_timeout_ms: 0,
             out_dir: None,
             keep_session: false,
             assert_mode: AssertMode::Strict,

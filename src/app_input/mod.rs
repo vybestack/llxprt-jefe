@@ -644,9 +644,15 @@ fn dispatch_issues_lifecycle(
 fn update_detail_viewport_rows(app_state: &mut AppStateHandle) {
     let term_rows = crossterm::terminal::size().map_or(40, |(_, rows)| rows as usize);
     let mut state = app_state.write();
+    // Issue #265: use the shared banner projection so a notice-only banner
+    // reserves the same viewport row as an error banner.
+    let issues_banner_visible = jefe::layout::issues_banner_visible(
+        state.issues_state.error.as_deref(),
+        state.issues_state.draft_notice.as_deref(),
+    );
     state.issues_state.detail_viewport_rows = jefe::layout::issues_detail_viewport_rows(
         term_rows,
-        state.issues_state.error.is_some(),
+        issues_banner_visible,
         state.issues_state.filter_ui.controls_open,
     );
 }

@@ -413,8 +413,8 @@ fn handle_esc_in_prs_mode(state: &AppState, _key_event: &KeyEvent) -> AppEvent {
 
 /// Handle keys while an inline composer/editor is active.
 ///
-/// Mirrors the issues inline key router: Esc cancels, Ctrl+Enter submits,
-/// Enter inserts a newline, chars/backspace/delete/cursor keys edit.
+/// Mirrors the issues inline key router: Esc cancels, Alt+Enter submits
+/// (Ctrl+Enter also accepted), Enter inserts a newline, chars/backspace/delete/cursor keys edit.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-010
@@ -422,7 +422,12 @@ fn handle_esc_in_prs_mode(state: &AppState, _key_event: &KeyEvent) -> AppEvent {
 fn handle_pr_inline_key(_state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     match key_event.code {
         KeyCode::Esc => Some(AppEvent::PrInlineCancelOrEsc),
-        KeyCode::Enter if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+        // Alt+Enter is the advertised terminal-portable submit key (issue #265).
+        // Ctrl+Enter remains accepted for terminals that encode it distinctly.
+        KeyCode::Enter
+            if key_event.modifiers.contains(KeyModifiers::ALT)
+                || key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+        {
             Some(AppEvent::PrInlineSubmit)
         }
         KeyCode::Enter => Some(AppEvent::PrInlineNewline),

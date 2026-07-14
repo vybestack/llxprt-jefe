@@ -352,6 +352,25 @@ pub fn issues_detail_pane_rows(
     issues_pane_rows(term_rows, error_visible, filter_controls_open).1
 }
 
+/// Derive the single Issues-mode banner text with error precedence.
+///
+/// When both `error` and `draft_notice` are present, the error wins. This
+/// pure projection is consumed by both the visible banner render and the
+/// pane row sizing so they never disagree (issue #265).
+#[must_use]
+pub fn issues_banner_text<'a>(
+    error: Option<&'a str>,
+    draft_notice: Option<&'a str>,
+) -> Option<&'a str> {
+    error.or(draft_notice)
+}
+
+/// Whether the single Issues-mode error/notice banner is visible.
+#[must_use]
+pub fn issues_banner_visible(error: Option<&str>, draft_notice: Option<&str>) -> bool {
+    issues_banner_text(error, draft_notice).is_some()
+}
+
 /// Compute the number of rows available for the detail scroll viewport given
 /// the total terminal height and conditional Issues-mode bands.
 #[must_use]

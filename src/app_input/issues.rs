@@ -66,7 +66,12 @@ fn resolve_inline_key_event(key_event: &KeyEvent) -> Option<AppEvent> {
             Some(AppEvent::InlineCancelOrEsc)
         }
         KeyCode::Esc => Some(AppEvent::InlineCancelOrEsc),
-        KeyCode::Enter if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+        // Alt+Enter is the advertised terminal-portable submit key (issue #265).
+        // Ctrl+Enter remains accepted for terminals that encode it distinctly.
+        KeyCode::Enter
+            if key_event.modifiers.contains(KeyModifiers::ALT)
+                || key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+        {
             Some(AppEvent::InlineSubmit)
         }
         KeyCode::Enter => Some(AppEvent::InlineNewline),
@@ -260,7 +265,10 @@ fn resolve_issue_detail_key_event(state: &AppState, key_event: &KeyEvent) -> Opt
         KeyCode::Char('e') => editor_event_for_subfocus(state.issues_state.detail_subfocus),
         KeyCode::Char('c') => Some(AppEvent::OpenNewCommentComposer),
         KeyCode::Char('r') => reply_event_for_subfocus(state.issues_state.detail_subfocus),
-        KeyCode::Char('S') if !state.agents.is_empty() => Some(AppEvent::OpenAgentChooser),
+        // S always expresses the Send-to-Agent intent; the reducer decides
+        // eligibility and surfaces "No agents available" when no eligible
+        // agent exists (issue #265).
+        KeyCode::Char('S') => Some(AppEvent::OpenAgentChooser),
         KeyCode::Char('C') => Some(AppEvent::OpenCloseReasonChooser),
         KeyCode::Char('D') => Some(AppEvent::OpenDeleteIssueConfirm),
         KeyCode::Tab | KeyCode::Char('j') => Some(AppEvent::IssueDetailSubfocusNext),
