@@ -115,13 +115,12 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
         }
     });
 
-    // Slow-poll LOCAL agent liveness via tmux subprocess (~every 2s).
-    // This keeps the expensive `tmux has-session` calls off the render hot path.
-    //
-    // Remote agents are deliberately excluded: SSH liveness round-trips are
-    // blocking I/O that starves the smol executor, causing dropped keystrokes
-    // and sluggish UI for *all* agents. Remote agent death is detected lazily
-    // when the user selects/attaches to one.
+    // Slow-poll LOCAL agent liveness (~every 2s). The batched check uses
+    // exactly two tmux subprocess invocations (list-sessions + list-panes -a)
+    // regardless of agent count, offloaded to a background OS thread via
+    // `smol::unblock` so the executor stays free for input events (issue #287).
+    // Remote agents are excluded — their SSH round-trips would starve the
+    // executor; remote death is detected lazily on select/attach.
     hooks.use_future({
         let ctx = ctx.clone();
         let mut app_state = app_state;
@@ -134,7 +133,7 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                 };
 
                 // Collect local-only check targets under the lock, then release it.
-                let targets = {
+                let targets: Vec<_> = {
                     let Ok(ctx_guard) = ctx_arc.lock() else {
                         continue;
                     };
@@ -159,11 +158,10 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                     continue;
                 }
 
-                let dead_agents: Vec<AgentId> = targets
-                    .into_iter()
-                    .filter(|t| !jefe::runtime::check_session_alive(&t.session_name))
-                    .map(|t| t.agent_id)
-                    .collect();
+                // Offload the batched tmux subprocess calls to a background OS
+                // thread so the smol executor can continue processing input.
+                let dead_agents =
+                    smol::unblock(move || jefe::runtime::batch_liveness_check(&targets)).await;
 
                 if !dead_agents.is_empty() {
                     debug!(count = dead_agents.len(), "liveness poll found dead agents");

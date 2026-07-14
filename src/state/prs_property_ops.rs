@@ -639,10 +639,9 @@ impl AppState {
             .property_editor
             .as_ref()
             .is_some_and(|e| e.kind == *kind)
+            && let Some(editor) = &mut self.prs_state.property_editor
         {
-            if let Some(editor) = &mut self.prs_state.property_editor {
-                editor.error = Some(error.clone());
-            }
+            editor.error = Some(error.clone());
         }
         true
     }
