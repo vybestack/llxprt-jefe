@@ -112,6 +112,12 @@ pub struct RemoteRepositorySettings {
     #[serde(default)]
     pub host: String,
     #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub identity_file: PathBuf,
+    #[serde(default)]
+    pub options: Vec<String>,
+    #[serde(default)]
     pub run_as_user: String,
     #[serde(default)]
     pub setup_env_default: bool,

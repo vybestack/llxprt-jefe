@@ -105,6 +105,44 @@ pub fn ssh_identity_validation_message() -> String {
         .to_owned()
 }
 
+/// Validate a user-supplied OpenSSH `-o` value.
+///
+/// Options must be one shell-free `name=value` argument. Settings that can
+/// execute a local command or override Jefe-owned connection structure are
+/// rejected so custom options cannot bypass the typed host, port, identity,
+/// timeout, host-key, and non-interactive policies.
+pub fn validate_ssh_option(option: &str) -> Result<(), String> {
+    let Some((name, value)) = option.split_once('=') else {
+        return Err("SSH options must use name=value syntax".to_owned());
+    };
+    let normalized = name.to_ascii_lowercase();
+    let valid_name = !name.is_empty()
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+        && !matches!(
+            normalized.as_str(),
+            "proxycommand"
+                | "localcommand"
+                | "permitlocalcommand"
+                | "include"
+                | "match"
+                | "hostname"
+                | "port"
+                | "user"
+                | "identityfile"
+                | "batchmode"
+                | "connecttimeout"
+                | "stricthostkeychecking"
+                | "serveraliveinterval"
+                | "serveralivecountmax"
+        );
+    if !valid_name || value.is_empty() || value.chars().any(char::is_control) {
+        return Err(format!("SSH option {name:?} is not permitted"));
+    }
+    Ok(())
+}
+
 /// Validate remote settings for form submission.
 ///
 /// Returns `Ok(())` when the settings are either disabled or a complete remote
@@ -128,6 +166,12 @@ pub fn validate_remote(remote: &RemoteRepositorySettings) -> Result<(), String> 
     if !remote.run_as_user.trim().is_empty() && !is_valid_ssh_identity(&remote.run_as_user) {
         return Err(ssh_identity_validation_message());
     }
+    if remote.port == Some(0) {
+        return Err("SSH port must be between 1 and 65535".to_owned());
+    }
+    for option in &remote.options {
+        validate_ssh_option(option)?;
+    }
     Ok(())
 }
 
@@ -142,7 +186,22 @@ mod tests {
             host: host.to_owned(),
             run_as_user: String::new(),
             setup_env_default: false,
+            ..RemoteRepositorySettings::default()
         }
+    }
+
+    #[test]
+    fn validate_remote_rejects_zero_port_and_transport_owned_options() {
+        let mut settings = remote(true, "ubuntu", "host");
+        settings.port = Some(0);
+        assert!(validate_remote(&settings).is_err());
+
+        settings.port = Some(22);
+        settings.options = vec!["Port=2200".to_owned()];
+        assert!(validate_remote(&settings).is_err());
+
+        settings.options = vec!["Compression=yes".to_owned()];
+        assert_eq!(validate_remote(&settings), Ok(()));
     }
 
     #[test]

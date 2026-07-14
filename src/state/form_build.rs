@@ -58,15 +58,49 @@ impl AppState {
         resolve_agent_work_dir(repository, value)
     }
 
-    pub(super) fn remote_settings_from_fields(
+    /// Parse and validate SSH settings from repository form fields.
+    pub fn remote_settings_from_fields(
         fields: &RepositoryFormFields,
-    ) -> RemoteRepositorySettings {
-        RemoteRepositorySettings {
+    ) -> Result<RemoteRepositorySettings, String> {
+        let port = match fields.ssh_port.trim() {
+            "" => None,
+            value => {
+                let port = value
+                    .parse::<u16>()
+                    .map_err(|_| "SSH port must be between 1 and 65535".to_owned())?;
+                if port == 0 {
+                    return Err("SSH port must be between 1 and 65535".to_owned());
+                }
+                Some(port)
+            }
+        };
+        let settings = RemoteRepositorySettings {
             enabled: fields.remote_enabled,
             login_user: fields.login_user.trim().to_owned(),
             host: fields.host.trim().to_owned(),
+            port,
+            identity_file: std::path::PathBuf::from(fields.identity_file.trim()),
+            options: fields
+                .ssh_options
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect(),
             run_as_user: fields.run_as_user.trim().to_owned(),
             setup_env_default: fields.setup_env_default,
+        };
+        crate::domain::target::validate_remote(&settings)?;
+        Ok(settings)
+    }
+
+    fn validated_remote_settings(
+        fields: &RepositoryFormFields,
+    ) -> Option<RemoteRepositorySettings> {
+        match Self::remote_settings_from_fields(fields) {
+            Ok(settings) => Some(settings),
+            Err(error) => {
+                warn!(error = %error, "rejecting repository create: invalid remote config");
+                None
+            }
         }
     }
 
@@ -100,15 +134,7 @@ impl AppState {
             return None;
         }
 
-        // Reject an enabled-but-incomplete remote config visibly: the user
-        // must provide both login_user and host when remote is enabled.
-        // This prevents silently persisting a config that would later be
-        // treated as local or rejected at launch time.
-        let remote_settings = Self::remote_settings_from_fields(fields);
-        if let Err(error) = crate::domain::target::validate_remote(&remote_settings) {
-            warn!(error = %error, "rejecting repository create: incomplete remote config");
-            return None;
-        }
+        let remote_settings = Self::validated_remote_settings(fields)?;
 
         let trimmed_base_dir = fields.base_dir.trim();
         let base_dir = if trimmed_base_dir.is_empty() {
@@ -173,12 +199,13 @@ impl AppState {
             return false;
         }
 
-        // Reject an enabled-but-incomplete remote config visibly.
-        let remote_settings = Self::remote_settings_from_fields(fields);
-        if let Err(error) = crate::domain::target::validate_remote(&remote_settings) {
-            warn!(error = %error, "rejecting repository update: incomplete remote config");
-            return false;
-        }
+        let remote_settings = match Self::remote_settings_from_fields(fields) {
+            Ok(settings) => settings,
+            Err(error) => {
+                warn!(error = %error, "rejecting repository update: invalid remote config");
+                return false;
+            }
+        };
 
         trimmed_name.clone_into(&mut repo.name);
         repo.slug = slug;

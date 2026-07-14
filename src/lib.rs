@@ -29,6 +29,8 @@ pub mod runtime;
 /// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).
 pub mod selection;
 pub mod services;
+/// Native-host OpenSSH planning and typed failure classification.
+pub mod ssh;
 pub mod startup;
 pub mod state;
 /// Pure multiline text-box viewport projection (iocraft-free).

@@ -226,6 +226,7 @@ fn remote_repository_creation_preserves_remote_base_dir_without_local_expansion(
         host: "170.9.234.179".to_owned(),
         run_as_user: "acoliver".to_owned(),
         setup_env_default: true,
+        ..RepositoryFormFields::default()
     };
 
     let Some(repository) = AppState::create_repository_from_fields(&fields) else {
@@ -258,6 +259,7 @@ fn repository_name_that_normalizes_to_empty_slug_is_rejected() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RepositoryFormFields::default()
     };
 
     assert!(AppState::create_repository_from_fields(&fields).is_none());
@@ -408,7 +410,10 @@ fn repository_checkbox_toggle_updates_remote_fields() {
     state = state.apply(AppEvent::FormNextField); // LoginUser → Host
     state = state.apply(AppEvent::FormChar('1'));
     state = state.apply(AppEvent::FormChar('.'));
-    state = state.apply(AppEvent::FormNextField); // Host → RunAsUser
+    state = state.apply(AppEvent::FormNextField); // Host → SshPort
+    state = state.apply(AppEvent::FormNextField); // SshPort → IdentityFile
+    state = state.apply(AppEvent::FormNextField); // IdentityFile → SshOptions
+    state = state.apply(AppEvent::FormNextField); // SshOptions → RunAsUser
     state = state.apply(AppEvent::FormChar('a'));
     state = state.apply(AppEvent::FormNextField); // RunAsUser → SetupEnvDefault
     state = state.apply(AppEvent::FormToggleCheckbox); // toggle setup_env_default
@@ -447,6 +452,7 @@ fn create_repository_rejects_invalid_github_repo_without_slash() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -466,6 +472,7 @@ fn create_repository_rejects_github_repo_with_extra_slash() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -485,6 +492,7 @@ fn create_repository_rejects_github_repo_missing_owner() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -504,6 +512,7 @@ fn create_repository_rejects_github_repo_missing_repo_name() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -523,6 +532,7 @@ fn create_repository_accepts_empty_github_repo() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_some());
 }
@@ -542,6 +552,7 @@ fn create_repository_accepts_well_formed_github_repo() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RepositoryFormFields::default()
     };
     let Some(repo) = AppState::create_repository_from_fields(&fields) else {
         panic!("valid repo");
@@ -563,6 +574,7 @@ fn create_repository_rejects_github_repo_with_internal_whitespace_in_owner() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -583,6 +595,7 @@ fn create_repository_rejects_github_repo_with_whitespace_around_slash() {
             host: String::new(),
             run_as_user: String::new(),
             setup_env_default: false,
+            ..RepositoryFormFields::default()
         };
         assert!(
             AppState::create_repository_from_fields(&fields).is_none(),
@@ -607,6 +620,7 @@ fn create_repository_rejects_github_repo_with_at_sign() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RepositoryFormFields::default()
     };
     assert!(AppState::create_repository_from_fields(&fields).is_none());
 }
@@ -626,6 +640,7 @@ fn create_repository_accepts_github_repo_with_surrounding_whitespace_and_trims_i
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RepositoryFormFields::default()
     };
     let Some(repo) = AppState::create_repository_from_fields(&fields) else {
         panic!("valid repo with surrounding whitespace");
@@ -650,6 +665,7 @@ fn update_repository_rejects_invalid_github_repo_keeping_existing() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RepositoryFormFields::default()
     };
     assert!(!AppState::update_repository_from_fields(&mut repo, &fields));
     // Existing value preserved because update was rejected.
@@ -673,6 +689,7 @@ fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RepositoryFormFields::default()
     };
     assert!(!AppState::update_repository_from_fields(
         &mut repo, &invalid
@@ -780,12 +797,56 @@ fn issue266_valid_fields() -> RepositoryFormFields {
         github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
+
         host: String::new(),
         run_as_user: String::new(),
         setup_env_default: false,
+        ..RepositoryFormFields::default()
     }
 }
 
+#[test]
+fn remote_repository_form_preserves_validated_ssh_transport_fields() {
+    let fields = RepositoryFormFields {
+        name: "Remote SSH".to_owned(),
+        remote_enabled: true,
+        login_user: "ubuntu".to_owned(),
+        host: "linux.example".to_owned(),
+        ssh_port: "2222".to_owned(),
+        identity_file: r"C:\Keys Ω\agent key".to_owned(),
+        ssh_options: "Compression=yes LogLevel=ERROR".to_owned(),
+        ..RepositoryFormFields::default()
+    };
+    let Some(repository) = AppState::create_repository_from_fields(&fields) else {
+        panic!("valid SSH fields should create a repository");
+    };
+    assert_eq!(repository.remote.port, Some(2222));
+    assert_eq!(
+        repository.remote.identity_file,
+        std::path::PathBuf::from(r"C:\Keys Ω\agent key")
+    );
+    assert_eq!(
+        repository.remote.options,
+        vec!["Compression=yes", "LogLevel=ERROR"]
+    );
+}
+
+#[test]
+fn remote_repository_form_rejects_invalid_port_and_unsafe_option() {
+    let mut fields = RepositoryFormFields {
+        name: "Remote SSH".to_owned(),
+        remote_enabled: true,
+        login_user: "ubuntu".to_owned(),
+        host: "linux.example".to_owned(),
+        ssh_port: "not-a-port".to_owned(),
+        ..RepositoryFormFields::default()
+    };
+    assert!(AppState::create_repository_from_fields(&fields).is_none());
+
+    fields.ssh_port = "22".to_owned();
+    fields.ssh_options = "ProxyCommand=credential-helper".to_owned();
+    assert!(AppState::create_repository_from_fields(&fields).is_none());
+}
 /// A blank `github_issue_pr_repo` is accepted (preserves existing behavior).
 #[test]
 fn create_repository_accepts_blank_issue_pr_repo() {

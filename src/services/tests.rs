@@ -26,6 +26,7 @@ fn remote_repository() -> Repository {
             host: "example.com".to_owned(),
             run_as_user: "acoliver".to_owned(),
             setup_env_default: false,
+            ..RemoteRepositorySettings::default()
         },
         ..local_repository()
     }

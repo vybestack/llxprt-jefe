@@ -128,6 +128,7 @@ mod tests {
             host: "192.0.2.10".into(),
             run_as_user: "acoliver".into(),
             setup_env_default: true,
+            ..RemoteRepositorySettings::default()
         };
 
         let mut agent = Agent::new(
