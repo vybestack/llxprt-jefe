@@ -35,6 +35,7 @@ fn prs_mode_state_with_selected_pr(repo_id: &str, pr_number: u64) -> AppState {
         author_login: "testuser".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         is_draft: false,
         review_decision: None,
@@ -264,6 +265,14 @@ fn test_open_in_browser_events_round_trip() {
     );
 }
 
+fn assert_pr_event_round_trip(original: &AppEvent) {
+    let message: AppMessage = original.clone().into();
+    let round_trip: AppEvent = message.into();
+    let orig_debug = format!("{original:?}");
+    let rt_debug = format!("{round_trip:?}");
+    assert_eq!(orig_debug, rt_debug, "round-trip failed");
+}
+
 /// AppEvent::from(AppMessage::from(E)) structurally matches E for sampled PR
 /// AppEvents (the round-trip invariant, REQ-PR-002).
 ///
@@ -273,8 +282,13 @@ fn test_open_in_browser_events_round_trip() {
 #[test]
 fn test_appevent_pullrequestsmessage_round_trip() {
     // Unit variants — round-trip must yield the same variant.
-    let unit_samples: Vec<AppEvent> = vec![
-        AppEvent::EnterPrsMode,
+    let mut unit_samples: Vec<_> = std::iter::once(AppEvent::EnterPrsMode).collect();
+    macro_rules! push_events {
+        ($($event:expr),+ $(,)?) => {
+            $(unit_samples.push($event);)+
+        };
+    }
+    push_events!(
         AppEvent::ExitPrsMode,
         AppEvent::RefocusPrList,
         AppEvent::PrNavigateUp,
@@ -301,24 +315,21 @@ fn test_appevent_pullrequestsmessage_round_trip() {
         AppEvent::PrScrollDetailDown,
         AppEvent::PrDetailSubfocusNext,
         AppEvent::PrDetailSubfocusPrev,
-        AppEvent::PrOpenAgentChooser,
+        AppEvent::PrOpenAgentChooser {
+            metadata: vec![crate::domain::AgentChooserGitMetadata::for_agent(
+                crate::domain::AgentId("agent-1".to_string()),
+            )],
+        },
         AppEvent::PrAgentChooserNavigateUp,
         AppEvent::PrAgentChooserNavigateDown,
         AppEvent::PrAgentChooserConfirm,
         AppEvent::PrAgentChooserCancel,
         AppEvent::PrSendToAgentCompleted,
         AppEvent::PrOpenInBrowser,
-    ];
+    );
 
     for original in &unit_samples {
-        let message: AppMessage = original.clone().into();
-        let round_trip: AppEvent = message.into();
-        let orig_debug = format!("{original:?}");
-        let rt_debug = format!("{round_trip:?}");
-        assert!(
-            orig_debug == rt_debug,
-            "round-trip failed: expected {orig_debug}, got {rt_debug}"
-        );
+        assert_pr_event_round_trip(original);
     }
 
     // ShowNotice carries a kind — verify the kind survives the round-trip.

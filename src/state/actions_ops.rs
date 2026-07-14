@@ -12,9 +12,9 @@ use super::{
 use crate::domain::{ActionsFilter, RepositoryId};
 use crate::messages::ActionsMessage;
 
-/// Number of navigable fields in the Actions filter bar (workflow, status).
+/// Number of navigable fields in the Actions filter bar (workflow, status, pr).
 /// Mirrors the field-count assumption used by `FilterNavigateNext/Prev`.
-const ACTIONS_FILTER_FIELD_COUNT: usize = 2;
+const ACTIONS_FILTER_FIELD_COUNT: usize = 3;
 
 impl AppState {
     /// Enter actions mode, saving prior focus state.
@@ -40,8 +40,19 @@ impl AppState {
         self.actions_state.dispatch_pending = None;
         self.actions_state.detail_pending = None;
         self.actions_state.workflows_pending = None;
-        self.actions_state.expanded_jobs.clear();
-        self.actions_state.focused_job_index = None;
+        self.reset_actions_inspection();
+        true
+    }
+
+    /// Enter Actions mode with a PR filter pre-set (cross-mode action from
+    /// PR mode — issue #205). The PR filter is applied to both the committed
+    /// and draft filters so the initial load is immediately narrowed.
+    fn enter_actions_mode_with_pr_filter(&mut self, pr_number: u64, head_sha: String) -> bool {
+        self.enter_actions_mode();
+        self.actions_state.committed_filter.pr_number = Some(pr_number);
+        self.actions_state.committed_filter.head_sha = Some(head_sha.clone());
+        self.actions_state.draft_filter.pr_number = Some(pr_number);
+        self.actions_state.draft_filter.head_sha = Some(head_sha);
         true
     }
 
@@ -106,12 +117,10 @@ impl AppState {
             crate::messages::NavDir::Next | crate::messages::NavDir::Prev => current,
         };
         self.actions_state.list.set_selected_index(Some(new_idx));
-        self.actions_state.detail_scroll_offset = 0;
+        self.reset_actions_inspection();
         self.actions_state.run_detail = None;
         self.actions_state.loading.detail = false;
         self.actions_state.detail_pending = None;
-        self.actions_state.expanded_jobs.clear();
-        self.actions_state.focused_job_index = None;
         true
     }
 
@@ -121,9 +130,7 @@ impl AppState {
     fn reset_actions_for_repo_change(&mut self) {
         self.actions_state.list.clear();
         self.actions_state.run_detail = None;
-        self.actions_state.detail_scroll_offset = 0;
-        self.actions_state.expanded_jobs.clear();
-        self.actions_state.focused_job_index = None;
+        self.reset_actions_inspection();
         self.actions_state.workflows.clear();
         self.actions_state.committed_filter = ActionsFilter::default();
         self.actions_state.draft_filter = ActionsFilter::default();
@@ -137,7 +144,7 @@ impl AppState {
 
     fn handle_enter(&mut self) -> bool {
         if matches!(self.actions_state.focus, ActionsFocus::RunList)
-            && self.actions_state.list.selected_index().is_some()
+            && self.actions_state.selected_run().is_some()
         {
             self.actions_state.focus = ActionsFocus::Detail;
         }
@@ -161,99 +168,22 @@ impl AppState {
         true
     }
 
-    /// Maximum scroll offset for the Actions detail pane, derived from the
-    /// detail's line count (mirroring `issues_ops.rs` clamping logic).
-    fn max_detail_scroll_offset(&self) -> usize {
-        let Some(detail) = &self.actions_state.run_detail else {
-            return 0;
-        };
-        let lines =
-            crate::actions_view::detail_line_count(detail, &self.actions_state.expanded_jobs);
-        let viewport = if self.actions_state.detail_viewport_rows == 0 {
-            crate::layout::detail_viewport_rows(40)
-        } else {
-            self.actions_state.detail_viewport_rows
-        };
-        lines.saturating_sub(viewport)
-    }
-
-    /// Public accessor for the Actions detail max scroll offset (used by mouse
-    /// routing to clamp wheel-scrolling).
-    #[must_use]
-    pub fn actions_max_detail_scroll_offset(&self) -> usize {
-        self.max_detail_scroll_offset()
-    }
-
-    fn handle_scroll_detail(&mut self, dir: crate::messages::ScrollDir) -> bool {
-        let max = self.max_detail_scroll_offset();
-        let current = self.actions_state.detail_scroll_offset.min(max);
-        match dir {
-            crate::messages::ScrollDir::Up => {
-                self.actions_state.detail_scroll_offset = current.saturating_sub(1);
-            }
-            crate::messages::ScrollDir::Down => {
-                self.actions_state.detail_scroll_offset = (current + 1).min(max);
-            }
-            crate::messages::ScrollDir::PageUp => {
-                self.actions_state.detail_scroll_offset =
-                    current.saturating_sub(super::VIEWPORT_PAGE_JUMP);
-            }
-            crate::messages::ScrollDir::PageDown => {
-                self.actions_state.detail_scroll_offset =
-                    (current + super::VIEWPORT_PAGE_JUMP).min(max);
-            }
-        }
-        true
-    }
-
-    /// Toggle the expand/collapse state of the currently focused job.
-    fn toggle_job_expand(&mut self) -> bool {
-        let Some(detail) = &self.actions_state.run_detail else {
-            return true;
-        };
-        let Some(idx) = self.actions_state.focused_job_index else {
-            return true;
-        };
-        let Some(job) = detail.jobs.get(idx) else {
-            return true;
-        };
-        if self.actions_state.expanded_jobs.contains(&job.id) {
-            self.actions_state.expanded_jobs.remove(&job.id);
-        } else {
-            self.actions_state.expanded_jobs.insert(job.id);
-        }
-        true
-    }
-
-    /// Collapse the currently focused job (Left/Esc in detail pane).
-    fn collapse_job(&mut self) -> bool {
-        let Some(detail) = &self.actions_state.run_detail else {
-            return true;
-        };
-        let Some(idx) = self.actions_state.focused_job_index else {
-            return true;
-        };
-        if let Some(job) = detail.jobs.get(idx) {
-            self.actions_state.expanded_jobs.remove(&job.id);
-        }
-        true
-    }
-
-    /// Move the focused job up/down within the detail pane.
-    fn navigate_job(&mut self, dir: crate::messages::NavDir) -> bool {
-        let Some(detail) = &self.actions_state.run_detail else {
-            return true;
-        };
-        if detail.jobs.is_empty() {
-            return true;
-        }
-        let current = self.actions_state.focused_job_index.unwrap_or(0);
-        let new_idx = match dir {
-            crate::messages::NavDir::Up => current.saturating_sub(1),
-            crate::messages::NavDir::Down => (current + 1).min(detail.jobs.len() - 1),
-            _ => current,
-        };
-        self.actions_state.focused_job_index = Some(new_idx);
+    fn begin_detail_reload(
+        &mut self,
+        scope_repo_id: RepositoryId,
+        run_id: u64,
+        request_id: u64,
+    ) -> bool {
+        self.reset_actions_inspection();
+        self.actions_state.error = None;
+        self.actions_state.run_detail = None;
+        self.actions_state.next_detail_request_id = request_id;
+        self.actions_state.detail_pending = Some(super::ActionsDetailPending {
+            scope_repo_id,
+            run_id,
+            request_id,
+        });
+        self.actions_state.loading.detail = true;
         true
     }
 
@@ -356,6 +286,13 @@ impl AppState {
             super::ActionsFilterField::Status => {
                 self.actions_state.draft_filter.status = value;
             }
+            super::ActionsFilterField::Pr => {
+                // PR filter is cycled, not typed — ClearCurrent sends empty string.
+                if value.is_empty() {
+                    self.actions_state.draft_filter.pr_number = None;
+                    self.actions_state.draft_filter.head_sha = None;
+                }
+            }
         }
         true
     }
@@ -418,6 +355,38 @@ impl AppState {
             let wf = &workflows[new_idx - 1];
             self.actions_state.draft_filter.workflow = wf.name.clone();
             self.actions_state.draft_filter.workflow_path = wf.path.clone();
+        }
+        true
+    }
+
+    /// Core PR filter cycling logic shared by next/prev.
+    ///
+    /// Cycles the draft filter through None → PR1 → PR2 → … → None (issue #205).
+    /// Sets both `pr_number` (display) and `head_sha` (API head_sha= param) so
+    /// the runs query narrows to the selected PR's head commit.
+    fn cycle_pr_filter(&mut self, forward: bool) -> bool {
+        let prs = self.prs_state.pull_requests();
+        if prs.is_empty() {
+            return true;
+        }
+        let current = self.actions_state.draft_filter.pr_number;
+        let numbers: Vec<Option<u64>> = std::iter::once(None)
+            .chain(prs.iter().map(|pr| Some(pr.number)))
+            .collect();
+        let idx = numbers.iter().position(|&n| n == current).unwrap_or(0);
+        let len = numbers.len();
+        let new_idx = if forward {
+            (idx + 1) % len
+        } else {
+            (idx + len - 1) % len
+        };
+        if new_idx == 0 {
+            self.actions_state.draft_filter.pr_number = None;
+            self.actions_state.draft_filter.head_sha = None;
+        } else {
+            let pr = &prs[new_idx - 1];
+            self.actions_state.draft_filter.pr_number = Some(pr.number);
+            self.actions_state.draft_filter.head_sha = Some(pr.head_sha.clone());
         }
         true
     }
@@ -498,23 +467,35 @@ impl AppState {
     fn handle_mode_message(&mut self, message: &ActionsMessage) -> bool {
         match message {
             ActionsMessage::EnterMode => self.enter_actions_mode(),
+            ActionsMessage::EnterModeWithPrFilter {
+                pr_number,
+                head_sha,
+            } => self.enter_actions_mode_with_pr_filter(*pr_number, head_sha.clone()),
             ActionsMessage::ExitMode => {
                 self.exit_actions_mode();
                 true
             }
             ActionsMessage::Reload => {
                 self.actions_state.error = None;
-                true
+                self.trigger_list_reload()
             }
-            ActionsMessage::RefocusList => self.refocus_list(),
+            ActionsMessage::RefocusList => {
+                self.reset_actions_inspection();
+                self.refocus_list()
+            }
             ActionsMessage::Navigate(dir) => self.handle_navigation(*dir),
             ActionsMessage::Enter => self.handle_enter(),
             ActionsMessage::CycleFocus => self.cycle_focus(),
             ActionsMessage::CycleFocusReverse => self.cycle_focus_reverse(),
-            ActionsMessage::ScrollDetail(dir) => self.handle_scroll_detail(*dir),
-            ActionsMessage::ToggleJobExpand => self.toggle_job_expand(),
-            ActionsMessage::CollapseJob => self.collapse_job(),
-            ActionsMessage::NavigateJob(dir) => self.navigate_job(*dir),
+            ActionsMessage::SetDetailGeometry {
+                viewport_rows,
+                content_width,
+            } => self.set_actions_detail_geometry(*viewport_rows, *content_width),
+            ActionsMessage::ScrollDetail(dir) => self.handle_actions_detail_scroll(*dir),
+            ActionsMessage::ExpandJob => self.expand_actions_job(),
+            ActionsMessage::CollapseJob => self.collapse_actions_job(),
+            ActionsMessage::DetailEscape => self.handle_actions_detail_escape(),
+            ActionsMessage::NavigateJob(dir) => self.navigate_actions_job(*dir),
             _ => false,
         }
     }
@@ -594,6 +575,11 @@ impl AppState {
     /// Handle detail and workflow load/failure messages.
     fn handle_detail_message(&mut self, message: &ActionsMessage) -> bool {
         match message {
+            ActionsMessage::BeginDetailReload {
+                scope_repo_id,
+                run_id,
+                request_id,
+            } => self.begin_detail_reload(scope_repo_id.clone(), *run_id, *request_id),
             ActionsMessage::DetailLoaded {
                 scope_repo_id,
                 run_id,
@@ -651,8 +637,10 @@ impl AppState {
             ActionsMessage::CycleFilterStatus => {
                 if self.actions_state.ui.filter_field_index == 0 {
                     self.cycle_workflow_filter(true)
-                } else {
+                } else if self.actions_state.ui.filter_field_index == 1 {
                     self.cycle_status_filter(true)
+                } else {
+                    self.cycle_pr_filter(true)
                 }
             }
             ActionsMessage::FocusSearchInput => {

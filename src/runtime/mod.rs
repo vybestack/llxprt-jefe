@@ -32,14 +32,23 @@ pub use agent_executable::{
     ResolvedAgentExecutable,
 };
 pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
+#[cfg(feature = "psmux-smoke")]
+pub use attach::AttachedViewer;
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use capabilities::{
     AgentRuntimeCapabilities, ModelDiscovery, code_puppy_help_supports_yolo, static_capabilities,
     validate_code_puppy_launch,
 };
+pub use commands::build_remote_attach_plan;
+#[cfg(feature = "psmux-smoke")]
+pub use commands::configure_prefix_for_passthrough_with_plan;
 pub use errors::RuntimeError;
 pub use gh_auth::{AuthRunResult, run_device_auth};
-pub use liveness::{check_remote_session_alive, check_session_alive, pid_alive};
+pub use liveness::{
+    SessionLiveness, alive_session_set, batch_liveness_check, check_remote_session_alive,
+    check_session_alive, parse_alive_sessions, parse_pane_alive, pid_alive, reconcile_dead_agents,
+    session_liveness,
+};
 pub use manager::{LivenessCheck, RuntimeManager, TmuxRuntimeManager};
 pub use multiplexer::{
     LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation, MultiplexerPlan,

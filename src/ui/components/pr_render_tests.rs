@@ -62,6 +62,7 @@ fn make_test_pr(number: u64) -> PullRequest {
         author_login: "testuser".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         is_draft: false,
         review_decision: None,
@@ -88,6 +89,7 @@ fn make_test_pr_detail(number: u64) -> PullRequestDetail {
         created_at: "2024-01-01T00:00:00Z".to_string(),
         updated_at: "2024-01-02T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         labels: vec![],
         assignees: vec![],
@@ -522,7 +524,7 @@ fn test_pr_detail_composer_visible_within_viewport_when_active() {
     );
     // The anchor/help line must be present.
     assert!(
-        content.text.contains("Ctrl+Enter submit | Esc cancel"),
+        content.text.contains("Alt+Enter submit | Esc cancel"),
         "the composer anchor/help line must render when the composer is active"
     );
     // The document cursor must be None (composer not flattened).

@@ -6,7 +6,6 @@
 //! (command planning without execution), and the shared SSH helper functions.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
 
 use jefe::domain::RemoteRepositorySettings;
 
@@ -287,25 +286,15 @@ impl RemotePrepPlanner {
 
     /// Build the `ssh -T` argv for a remote command.
     fn ssh_argv(&self, remote_command: &str) -> Vec<String> {
-        vec![
-            "-o".to_owned(),
-            "BatchMode=yes".to_owned(),
-            "-o".to_owned(),
-            "ConnectTimeout=10".to_owned(),
-            // -T: disable PTY allocation for noninteractive prep/file
-            // transfer. This is distinct from the -tt used for tmux
-            // operations in runtime::commands.
-            "-T".to_owned(),
-            // `--` ends option parsing (defense in depth; identity
-            // validation is the primary guard).
-            "--".to_owned(),
-            format!(
-                "{}@{}",
-                self.remote.login_user.trim(),
-                self.remote.host.trim()
-            ),
-            remote_command.to_owned(),
-        ]
+        jefe::ssh::SshPlan::arguments(
+            &self.remote,
+            remote_command,
+            jefe::ssh::SshMode::NonInteractive,
+        )
+        .unwrap_or_else(|error| panic!("plan remote prep SSH: {error}"))
+        .into_iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect()
     }
 }
 
@@ -497,8 +486,10 @@ impl RemotePrepRunner {
         // `set -e` makes the script fail fast if `cd` fails (e.g., a TOCTOU
         // race that removed the dir between the existence check and here),
         // so `git status` can never run in the wrong directory and produce a
-        // misleading porcelain result.
-        let dirty_script = format!("set -e; cd {escaped_work}; git status --porcelain=v1");
+        // misleading porcelain result. Uses `-z` (NUL-delimited) so paths
+        // containing newlines or ` -> ` are handled correctly; NUL is valid
+        // UTF-8 so the String transport preserves embedded NULs.
+        let dirty_script = format!("set -e; cd {escaped_work}; git status --porcelain=v1 -z");
         let porcelain = self.run_wrapped_capture(&dirty_script)?;
         let dirty = super::super::issue_git_prep::porcelain_is_dirty(&porcelain);
 
@@ -779,11 +770,7 @@ impl RemotePrepRunner {
         if output.status.success() {
             Ok(())
         } else {
-            Err(remote_failure_message(
-                &self.remote,
-                remote_command,
-                &output,
-            ))
+            Err(remote_failure_message(&self.remote, &output))
         }
     }
 
@@ -793,40 +780,17 @@ impl RemotePrepRunner {
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).into_owned())
         } else {
-            Err(remote_failure_message(
-                &self.remote,
-                remote_command,
-                &output,
-            ))
+            Err(remote_failure_message(&self.remote, &output))
         }
     }
 
     /// Run a remote command with prompt bytes piped via stdin.
     fn run_remote_stdin(&self, remote_command: &str, stdin_bytes: &[u8]) -> Result<(), String> {
-        use std::io::Write;
-        let mut child = self
-            .ssh_command(remote_command)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("failed to spawn ssh: {e}"))?;
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(stdin_bytes)
-                .map_err(|e| format!("failed to write prompt via stdin: {e}"))?;
-        }
-        let output = child
-            .wait_with_output()
-            .map_err(|e| format!("ssh failed: {e}"))?;
+        let output = self.execute_ssh(remote_command, Some(stdin_bytes))?;
         if output.status.success() {
             Ok(())
         } else {
-            Err(remote_failure_message(
-                &self.remote,
-                remote_command,
-                &output,
-            ))
+            Err(remote_failure_message(&self.remote, &output))
         }
     }
 
@@ -835,30 +799,22 @@ impl RemotePrepRunner {
     /// exit status is returned as `Ok(output)` so callers can distinguish
     /// predicate results from transport failures.
     fn run_remote_capture_raw(&self, remote_command: &str) -> Result<std::process::Output, String> {
-        self.ssh_command(remote_command)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|e| {
-                format!(
-                    "SSH transport failure to {}@{}: {e}",
-                    self.remote.login_user.trim(),
-                    self.remote.host.trim()
-                )
-            })
+        self.execute_ssh(remote_command, None)
     }
 
-    /// Build the `ssh -T` command for a remote script.
-    fn ssh_command(&self, remote_command: &str) -> Command {
-        let mut cmd = Command::new("ssh");
-        cmd.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-T", "--"]);
-        cmd.arg(format!(
-            "{}@{}",
-            self.remote.login_user.trim(),
-            self.remote.host.trim()
-        ));
-        cmd.arg(remote_command);
-        cmd
+    fn execute_ssh(
+        &self,
+        remote_command: &str,
+        stdin: Option<&[u8]>,
+    ) -> Result<std::process::Output, String> {
+        jefe::ssh::SshPlan::new(
+            &self.remote,
+            remote_command,
+            jefe::ssh::SshMode::NonInteractive,
+        )
+        .map_err(|error| error.to_string())?
+        .execute(stdin, jefe::ssh::SSH_OPERATION_TIMEOUT, None)
+        .map_err(|error| error.to_string())
     }
 }
 
@@ -897,20 +853,14 @@ fn wrap_effective_user(remote: &RemoteRepositorySettings, command: &str) -> Stri
 /// Format a remote command failure message from a captured output.
 fn remote_failure_message(
     remote: &RemoteRepositorySettings,
-    command: &str,
     output: &std::process::Output,
 ) -> String {
-    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    let detail = if !stderr.is_empty() {
-        stderr
-    } else if !stdout.is_empty() {
-        stdout
-    } else {
-        format!("exit status {}", output.status)
-    };
+    let failure = jefe::ssh::classify_failure(
+        output.status.code(),
+        &String::from_utf8_lossy(&output.stderr),
+    );
     format!(
-        "remote prep on {}@{} failed ({command}): {detail}",
+        "remote prep on {}@{} failed: {failure}",
         remote.login_user.trim(),
         remote.host.trim(),
     )

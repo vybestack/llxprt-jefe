@@ -268,6 +268,21 @@ pub fn repository_form_content_lines(state: &AppState) -> Option<Vec<String>> {
     };
     lines.push(render_field("GitHub Repo", &github_value));
 
+    let issue_pr_value = if focus == RepositoryFormFocus::IssuePrRepo {
+        text_with_caret(&fields.github_issue_pr_repo, cursor.github_issue_pr_repo)
+    } else {
+        fields.github_issue_pr_repo.clone()
+    };
+    let issue_pr_hint = if fields.github_issue_pr_repo.trim().is_empty() {
+        "blank uses GitHub Repo"
+    } else {
+        "override issue/PR tracker"
+    };
+    lines.push(format!(
+        "  {:<16} [{issue_pr_value}]  ({issue_pr_hint})",
+        "Issues / PRs Repo"
+    ));
+
     lines.push(render_checkbox(
         "Remote Repository",
         fields.remote_enabled,
@@ -282,6 +297,9 @@ pub fn repository_form_content_lines(state: &AppState) -> Option<Vec<String>> {
         fields.setup_env_default,
         "space toggles",
     ));
+    if let Some(error) = state.error_message.as_deref() {
+        lines.push(format!("  Error: {error}"));
+    }
     lines.push(String::new());
     lines.push(REPO_HINT.to_string());
     Some(lines)

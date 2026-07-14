@@ -364,7 +364,7 @@ pub fn read_active_agent_ids(config_dir: &std::path::Path) -> Result<Vec<AgentId
             matches!(
                 agent.status,
                 AgentStatus::Running | AgentStatus::Waiting | AgentStatus::Paused
-            ) || agent.runtime_binding.is_some()
+            )
         })
         .map(|agent| agent.id)
         .collect())
@@ -420,6 +420,7 @@ mod tests {
             default_profile: "llxprt".to_string(),
             default_code_puppy_model: String::new(),
             github_repo: "fixture/test-repo".to_string(),
+            github_issue_pr_repo: String::new(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
             default_agent_kind: AgentKind::Llxprt,
@@ -459,14 +460,13 @@ mod tests {
             terminal_focused: false,
             user_preferences: crate::domain::UserPreferences::default(),
         };
-        let settings = Settings {
-            schema_version: SETTINGS_SCHEMA_VERSION,
-            theme: "green-screen".to_string(),
-            override_agent_theme: false,
-        };
         SeedRequest {
             config_dir: config_dir.to_path_buf(),
-            settings,
+            settings: Settings {
+                schema_version: SETTINGS_SCHEMA_VERSION,
+                theme: "green-screen".to_string(),
+                override_agent_theme: false,
+            },
             state,
         }
     }
@@ -642,6 +642,45 @@ mod tests {
     }
 
     #[test]
+    fn read_active_agent_ids_omits_terminal_agent_with_retained_binding() {
+        let dir = temp_dir();
+        let config_dir = dir.path().join("config");
+        let request = sample_request(&config_dir);
+        seed_isolated_config(&request).value_or_panic("seed should succeed");
+        let paths = resolve_seed_paths(&config_dir).value_or_panic("resolve paths");
+        let content = std::fs::read_to_string(&paths.state_path).value_or_panic("read state");
+        let mut state: State = serde_json::from_str(&content).value_or_panic("parse state");
+        state.agents[0].status = AgentStatus::Completed;
+        state.agents[0].runtime_binding = Some(crate::domain::RuntimeBinding {
+            session_name: "jefe-stale".to_string(),
+            launch_signature: crate::domain::LaunchSignature {
+                work_dir: state.agents[0].work_dir.clone(),
+                profile: state.agents[0].profile.clone(),
+                code_puppy_model: state.agents[0].code_puppy_model.clone(),
+                code_puppy_yolo: state.agents[0].code_puppy_yolo,
+                code_puppy_quick_resume: state.agents[0].code_puppy_quick_resume,
+                mode_flags: state.agents[0].mode_flags.clone(),
+                llxprt_debug: state.agents[0].llxprt_debug.clone(),
+                pass_continue: state.agents[0].pass_continue,
+                sandbox_enabled: state.agents[0].sandbox_enabled,
+                sandbox_engine: state.agents[0].sandbox_engine,
+                sandbox_flags: state.agents[0].sandbox_flags.clone(),
+                remote: crate::domain::RemoteRepositorySettings::default(),
+                agent_kind: state.agents[0].agent_kind,
+            },
+            attached: false,
+            last_seen: None,
+            pid: None,
+            process_identity: None,
+        });
+        let json = serde_json::to_string(&state).value_or_panic("serialize state");
+        std::fs::write(&paths.state_path, json).value_or_panic("write state");
+
+        let ids = read_active_agent_ids(&config_dir).value_or_panic("read active IDs");
+        assert!(ids.is_empty(), "terminal agents cannot own live sessions");
+    }
+
+    #[test]
     fn read_agent_ids_returns_error_for_malformed_state() {
         let dir = temp_dir();
         let config_dir = dir.path().join("config");
@@ -674,6 +713,7 @@ mod tests {
             default_profile: "llxprt".to_string(),
             default_code_puppy_model: String::new(),
             github_repo: String::new(),
+            github_issue_pr_repo: String::new(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
             default_agent_kind: AgentKind::Llxprt,

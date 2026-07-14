@@ -33,46 +33,46 @@ fn sample_signature() -> LaunchSignature {
 
 /// Build all six confirm-modal variants parameterized by `focus`, so that
 /// adding a new variant only requires updating one place (issue #228).
-fn sample_confirm_modals(focus: ConfirmFocus) -> [ModalState; 6] {
-    [
-        ModalState::ConfirmDeleteAgent {
-            id: AgentId("a1".into()),
-            delete_work_dir: false,
-            confirm_focus: focus,
-        },
-        ModalState::ConfirmDeleteRepository {
-            id: RepositoryId("r1".into()),
-            confirm_focus: focus,
-        },
-        ModalState::ConfirmKillAgent {
-            id: AgentId("a1".into()),
-            confirm_focus: focus,
-        },
-        ModalState::PreflightPrompt {
-            agent_id: AgentId("a1".into()),
-            signature: sample_signature(),
-            issue: PreflightIssue::SshAgentNoIdentities,
-            remaining_issues: Vec::new(),
-            issue_self_assignment: None,
-            confirm_focus: focus,
-        },
-        ModalState::ConfirmIssueDirtyCopy {
-            agent_id: AgentId("a1".into()),
-            work_dir: std::path::PathBuf::from("/tmp"),
-            signature: sample_signature(),
-            payload: SendPayload::default(),
-            confirm_focus: focus,
-        },
-        ModalState::ConfirmIssueOriginMismatch {
-            agent_id: AgentId("a1".into()),
-            work_dir: std::path::PathBuf::from("/tmp"),
-            signature: sample_signature(),
-            payload: SendPayload::default(),
-            actual: String::from("other/repo"),
-            expected: String::from("acme/widgets"),
-            confirm_focus: focus,
-        },
-    ]
+fn sample_confirm_modals(focus: ConfirmFocus) -> Vec<ModalState> {
+    let first = ModalState::ConfirmDeleteAgent {
+        id: AgentId("a1".into()),
+        delete_work_dir: false,
+        confirm_focus: focus,
+    };
+    let mut modals: Vec<_> = std::iter::once(first).collect();
+    modals.push(ModalState::ConfirmDeleteRepository {
+        id: RepositoryId("r1".into()),
+        confirm_focus: focus,
+    });
+    modals.push(ModalState::ConfirmKillAgent {
+        id: AgentId("a1".into()),
+        confirm_focus: focus,
+    });
+    modals.push(ModalState::PreflightPrompt {
+        agent_id: AgentId("a1".into()),
+        signature: sample_signature(),
+        issue: PreflightIssue::SshAgentNoIdentities,
+        remaining_issues: Vec::new(),
+        issue_self_assignment: None,
+        confirm_focus: focus,
+    });
+    modals.push(ModalState::ConfirmIssueDirtyCopy {
+        agent_id: AgentId("a1".into()),
+        work_dir: std::path::PathBuf::from("/tmp"),
+        signature: sample_signature(),
+        payload: SendPayload::default(),
+        confirm_focus: focus,
+    });
+    modals.push(ModalState::ConfirmIssueOriginMismatch {
+        agent_id: AgentId("a1".into()),
+        work_dir: std::path::PathBuf::from("/tmp"),
+        signature: sample_signature(),
+        payload: SendPayload::default(),
+        actual: String::from("other/repo"),
+        expected: String::from("acme/widgets"),
+        confirm_focus: focus,
+    });
+    modals
 }
 
 /// All six confirm variants focused on Cancel must be recognized as such.

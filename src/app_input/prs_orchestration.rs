@@ -12,7 +12,7 @@
 use jefe::domain::{AgentId, LaunchSignature, Repository};
 use jefe::messages::{AppMessage, PullRequestsMessage};
 use jefe::runtime::RuntimeManager;
-use jefe::state::{AppEvent, AppState};
+use jefe::state::{AppEvent, AppState, PrPropertyKind};
 use tracing::warn;
 
 use super::fresh_prompt::{FreshPromptKind, prepare_fresh_prompt_signature};
@@ -103,6 +103,35 @@ fn route_prs_message(
             );
             prs_dispatch::dispatch_pr_open_in_browser(app_state, ctx);
         }
+        PullRequestsMessage::OpenMergeChooser | PullRequestsMessage::MergeConfirm => {
+            route_prs_merge(app_state, ctx, message);
+        }
+        PullRequestsMessage::ToggleThreadResolve { .. } => {
+            apply_and_persist(app_state, ctx, AppEvent::from(message));
+            prs_mutation::handle_pr_thread_resolve(app_state, ctx);
+        }
+        PullRequestsMessage::Merged { .. } | PullRequestsMessage::CommentCreated { .. } => {
+            let is_merged = matches!(message, PullRequestsMessage::Merged { .. });
+            dispatch_prs_post_mutation(app_state, ctx, message, is_merged);
+        }
+        PullRequestsMessage::OpenPropertyEditor { .. }
+        | PullRequestsMessage::PropertyEditorConfirm
+        | PullRequestsMessage::PropertyEditSucceeded { .. } => {
+            route_prs_property(app_state, ctx, message);
+        }
+        // All other PullRequests variants (data-load results, notices, etc.)
+        // route through the reducer only.
+        message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+    }
+}
+
+/// Route merge-chooser PR messages (issue #92).
+fn route_prs_merge(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: PullRequestsMessage,
+) {
+    match message {
         PullRequestsMessage::OpenMergeChooser => {
             apply_and_persist(app_state, ctx, AppEvent::PrOpenMergeChooser);
             let chooser_open = { app_state.read().prs_state.merge_chooser.is_some() };
@@ -114,18 +143,51 @@ fn route_prs_message(
             apply_and_persist(app_state, ctx, AppEvent::PrMergeConfirm);
             prs_dispatch::dispatch_pr_merge(app_state, ctx);
         }
-        PullRequestsMessage::ToggleThreadResolve { .. } => {
-            apply_and_persist(app_state, ctx, AppEvent::from(message));
-            prs_mutation::handle_pr_thread_resolve(app_state, ctx);
-        }
-        PullRequestsMessage::Merged { .. } | PullRequestsMessage::CommentCreated { .. } => {
-            let is_merged = matches!(message, PullRequestsMessage::Merged { .. });
-            dispatch_prs_post_mutation(app_state, ctx, message, is_merged);
-        }
-        // All other PullRequests variants (data-load results, notices, etc.)
-        // route through the reducer only.
-        message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+        other => apply_and_persist(app_state, ctx, AppEvent::from(other)),
     }
+}
+
+/// Route property-editor PR messages (issue #175).
+fn route_prs_property(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: PullRequestsMessage,
+) {
+    match message {
+        PullRequestsMessage::OpenPropertyEditor { kind } => {
+            apply_and_persist(app_state, ctx, AppEvent::PrOpenPropertyEditor { kind });
+            let needs_options = {
+                let state = app_state.read();
+                state
+                    .prs_state
+                    .property_editor
+                    .as_ref()
+                    .is_some_and(|e| needs_pr_background_options(e.kind))
+            };
+            if needs_options {
+                super::prs_property_edit::handle_pr_property_options_load(app_state, ctx);
+            }
+        }
+        PullRequestsMessage::PropertyEditorConfirm => {
+            super::prs_property_edit::handle_pr_property_confirm(app_state, ctx);
+        }
+        PullRequestsMessage::PropertyEditSucceeded { .. } => {
+            super::prs_property_edit::dispatch_pr_property_post_mutation(
+                app_state,
+                ctx,
+                AppEvent::from(message),
+            );
+        }
+        _ => apply_and_persist(app_state, ctx, AppEvent::from(message)),
+    }
+}
+
+/// Whether a PR property kind requires a background fetch of repo options.
+fn needs_pr_background_options(kind: PrPropertyKind) -> bool {
+    matches!(
+        kind,
+        PrPropertyKind::Labels | PrPropertyKind::Assignees | PrPropertyKind::Milestone
+    )
 }
 
 /// Post-mutation refresh: after a merge or comment, reload the list/detail to
@@ -166,6 +228,21 @@ pub fn request_pr_background_refresh(app_state: &mut AppStateHandle, ctx: &Share
         prs_list_dispatch::request_pr_list_silent_refresh(app_state, ctx);
         prs_dispatch::load_pr_detail_silent_refresh(app_state, ctx);
     }
+}
+
+/// Start a coalesced post-mutation refresh once earlier requests have settled.
+pub(super) fn resume_pr_post_mutation_refresh(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let ready = {
+        let state = app_state.read();
+        state.screen_mode == jefe::state::ScreenMode::DashboardPullRequests
+            && state.pr_post_mutation_refresh_ready()
+    };
+    if !ready {
+        return;
+    }
+    apply_and_persist(app_state, ctx, AppEvent::PrPostMutationRefreshStarted);
+    prs_list_dispatch::request_pr_list_silent_refresh(app_state, ctx);
+    load_pr_detail_silent_refresh(app_state, ctx);
 }
 
 /// Pure guard predicate for `request_pr_background_refresh` (issue #128).
@@ -347,6 +424,9 @@ fn reset_pr_list_for_repo_change(app_state: &mut AppStateHandle) {
     state.prs_state.list.clear();
     state.prs_state.pr_detail = None;
     state.prs_state.error = None;
+    // M7: clear property editor and pending mutation on scope reset.
+    state.prs_state.property_editor = None;
+    state.prs_state.property_mutation_pending = None;
     if state.prs_state.inline_state != jefe::state::InlineState::None {
         state.prs_state.draft_notice = Some("Unsent draft discarded".to_string());
     }
@@ -555,7 +635,8 @@ fn pr_send_info(app_state: &AppStateHandle) -> Option<PrSendInfo> {
 pub(super) fn pr_send_info_from_state(state: &AppState) -> Option<PrSendInfo> {
     let chooser = state.prs_state.agent_chooser.as_ref()?;
     let detail = state.prs_state.pr_detail.as_ref()?;
-    let (agent_id, _) = chooser.agents.get(chooser.selected_index)?.clone();
+    let entry = chooser.agents.get(chooser.selected_index)?;
+    let agent_id = entry.agent_id.clone();
     let agent = state
         .agents
         .iter()
@@ -565,8 +646,9 @@ pub(super) fn pr_send_info_from_state(state: &AppState) -> Option<PrSendInfo> {
     let focused_comment = focused_pr_comment(state, detail);
     let work_dir = agent.work_dir.clone();
     let signature = launch_signature_for_agent(&agent, repo);
+    // Detail carries the immutable source repository for the loaded PR.
     let payload = jefe::github::GhClient::build_pr_send_payload(
-        &repo.slug,
+        &detail.repo_owner_name,
         detail,
         focused_comment.as_ref(),
         pr_base_prompt(repo),

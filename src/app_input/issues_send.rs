@@ -104,7 +104,6 @@ pub(super) fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx
             work_dir: send_info.work_dir,
             launch_sig,
             payload: send_info.payload.clone(),
-            clone_identity: send_info.clone_identity.clone(),
         },
     );
 }
@@ -117,7 +116,6 @@ struct PrepOutcomeContext {
     work_dir: PathBuf,
     launch_sig: LaunchSignature,
     payload: jefe::github::SendPayload,
-    clone_identity: Option<CloneIdentity>,
 }
 
 /// Bundled origin-mismatch info (actual/expected shortforms) to stay under
@@ -130,6 +128,13 @@ struct OriginMismatchInfo {
 /// Handle the outcome of the initial (Stop-policy) prep for the agent chooser
 /// confirm path. Dispatches to launch, dirty-confirm, or origin-mismatch
 /// confirm depending on the result.
+fn issue_assignment_from_payload(payload: &jefe::github::SendPayload) -> IssueAssignment {
+    let tracker = jefe::domain::GitHubRepoRef::parse(&payload.repository)
+        .ok()
+        .flatten();
+    IssueAssignment::from_send_context(tracker.as_ref(), payload.issue_number)
+}
+
 fn handle_initial_prep_outcome(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
@@ -143,10 +148,7 @@ fn handle_initial_prep_outcome(
             &prep_ctx.agent_id,
             prep_ctx.work_dir,
             prep_ctx.launch_sig,
-            IssueAssignment::from_send_context(
-                prep_ctx.clone_identity.as_ref(),
-                prep_ctx.payload.issue_number,
-            ),
+            issue_assignment_from_payload(&prep_ctx.payload),
         ),
         Ok(PrepOutcome::Dirty) => prompt_dirty_copy_confirm(
             app_state,
@@ -338,7 +340,7 @@ pub(super) fn confirm_issue_dirty_copy_enter(
                 &agent_id,
                 work_dir,
                 launch_sig,
-                IssueAssignment::from_send_context(clone_identity.as_ref(), payload.issue_number),
+                issue_assignment_from_payload(&payload),
             );
         }
         // Discard policy cleans first, so Dirty should not occur — but treat
@@ -357,7 +359,6 @@ pub(super) fn confirm_issue_dirty_copy_enter(
                     work_dir,
                     launch_sig,
                     payload,
-                    clone_identity,
                 },
                 OriginMismatchInfo { actual, expected },
             );
@@ -408,7 +409,7 @@ pub(super) fn confirm_issue_origin_mismatch_enter(
                 &agent_id,
                 work_dir,
                 launch_sig,
-                IssueAssignment::from_send_context(Some(&clone_identity), payload.issue_number),
+                issue_assignment_from_payload(&payload),
             );
         }
         Ok(PrepOutcome::Dirty) => apply_send_to_agent_failed(
@@ -456,14 +457,17 @@ fn issue_send_info(app_state: &AppStateHandle) -> Option<IssueSendInfo> {
 pub(super) fn issue_send_info_from_state(state: &AppState) -> Option<IssueSendInfo> {
     let chooser = state.issues_state.agent_chooser.as_ref()?;
     let detail = state.issues_state.issue_detail.as_ref()?;
-    let (agent_id, _) = chooser.agents.get(chooser.selected_index)?.clone();
+    let entry = chooser.agents.get(chooser.selected_index)?;
+    let agent_id = entry.agent_id.clone();
     let agent = state.agents.iter().find(|a| a.id == agent_id)?;
     let repo = state.repository_by_id(&agent.repository_id)?;
     let focused_comment = focused_issue_comment(state, detail);
     let work_dir = agent.work_dir.clone();
     let signature = launch_signature_for_agent(agent, repo);
+    // Detail carries the immutable source repository for the loaded issue.
+    // Worktree preparation still uses the configured fork's clone identity.
     let payload = jefe::github::GhClient::build_send_payload(
-        &repo.slug,
+        &detail.repo_owner_name,
         detail,
         focused_comment.as_ref(),
         &repo.issue_base_prompt,

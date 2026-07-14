@@ -348,6 +348,7 @@ fn run_expanded_scenario<D: HarnessDriver>(
             .or_else(|| scenario.config.out_dir.clone()),
         scenario.config.assert_mode,
         options.capture_policy,
+        effective_wait_timeout(scenario.config.wait_timeout_ms),
     );
     sleep_step(scenario.config.initial_wait_ms);
     run_steps(&scenario.steps, driver, &mut context, hook)
@@ -453,6 +454,7 @@ struct RunContext {
     artifact_dir: Option<PathBuf>,
     assert_mode: AssertMode,
     capture_policy: CapturePolicy,
+    wait_timeout: Duration,
     history_samples: BTreeMap<String, ScrollbackSample>,
     soft_failures: Vec<RunnerFailure>,
     captures: Vec<String>,
@@ -463,15 +465,31 @@ impl RunContext {
         artifact_dir: Option<PathBuf>,
         assert_mode: AssertMode,
         capture_policy: CapturePolicy,
+        wait_timeout: Duration,
     ) -> Self {
         Self {
             artifact_dir,
             assert_mode,
             capture_policy,
+            wait_timeout,
             history_samples: BTreeMap::new(),
             soft_failures: Vec::new(),
             captures: Vec::new(),
         }
+    }
+}
+
+/// Resolve a scenario's wait budget. A zero/absent value keeps the platform
+/// default so existing Linux scenarios are unaffected. A non-zero value is an
+/// explicit per-scenario override in milliseconds.
+///
+/// This is a pure function so it can be unit-tested without wall-clock timing.
+#[must_use]
+fn effective_wait_timeout(wait_timeout_ms: u32) -> Duration {
+    if wait_timeout_ms == 0 {
+        DEFAULT_WAIT_TIMEOUT
+    } else {
+        Duration::from_millis(u64::from(wait_timeout_ms))
     }
 }
 
@@ -514,8 +532,10 @@ fn execute_step<D: HarnessDriver>(
         Step::Type { text } => driver_call(driver.send_type(text)),
         Step::Key { key } => driver_call(driver.send_key(key)),
         Step::Keys { keys } => driver_call(driver.send_keys(keys)),
-        Step::WaitFor { pattern } => wait_for_pattern(index, step, driver, pattern, true),
-        Step::WaitForNot { pattern } => wait_for_pattern(index, step, driver, pattern, false),
+        Step::WaitFor { pattern } => wait_for_pattern(index, step, driver, context, pattern, true),
+        Step::WaitForNot { pattern } => {
+            wait_for_pattern(index, step, driver, context, pattern, false)
+        }
         Step::Expect { pattern } => expect_screen(index, step, driver, context, pattern),
         Step::ExpectCount { pattern, count } => {
             expect_count(index, step, driver, context, pattern, *count)
@@ -541,10 +561,11 @@ fn wait_for_pattern<D: HarnessDriver>(
     index: usize,
     step: &Step,
     driver: &mut D,
+    context: &RunContext,
     pattern: &str,
     should_match: bool,
 ) -> Result<(), RunnerError> {
-    poll_until(index, step, DEFAULT_WAIT_TIMEOUT, || {
+    poll_until(index, step, context.wait_timeout, || {
         let capture = driver.capture_screen().map_err(driver_error)?;
         let matched = screen_contains(&capture, MatchPattern::literal(pattern)).matched;
         Ok(matched == should_match)

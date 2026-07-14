@@ -19,7 +19,9 @@
 
 use iocraft::prelude::*;
 
-use jefe::state::{AppEvent, AppState, InlineState, PrDetailSubfocus, PrFocus, ReadOnlyHintKind};
+use jefe::state::{
+    AppEvent, AppState, InlineState, PrDetailSubfocus, PrFocus, PrPropertyKind, ReadOnlyHintKind,
+};
 
 use super::{AppStateHandle, SharedContext};
 
@@ -44,6 +46,11 @@ pub(super) fn resolve_prs_key_event(state: &AppState, key_event: &KeyEvent) -> O
     // P2.5: merge chooser (issue #92)
     if state.prs_state.merge_chooser.is_some() {
         return handle_pr_merge_chooser_key(state, key_event);
+    }
+    // P2.6: property editor (issue #175) — checked after merge chooser but
+    // before search/filter so the overlay is fully modal.
+    if let Some(editor) = state.prs_state.property_editor.as_ref() {
+        return handle_pr_property_editor_key(editor.kind, key_event);
     }
     // P3: search input
     if state.prs_state.search_input_focused {
@@ -99,12 +106,58 @@ fn resolve_pr_global_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEv
         KeyCode::Char('a') => Some(AppEvent::ExitPrsMode),
         KeyCode::Char('p' | 'P') => Some(AppEvent::RefocusPrList),
         KeyCode::Char('f') => Some(AppEvent::PrOpenFilterControls),
+        // Cross-mode: jump to Actions mode pre-filtered to the current PR
+        // (issue #205).
+        KeyCode::Char('g' | 'G') => Some(pr_to_actions_event(state)),
         // Cross-mode navigation: `i` from PRs switches to Issues mode (issue #164).
         KeyCode::Char('i' | 'I') => Some(AppEvent::EnterIssuesMode),
         // F12 defocuses the terminal or returns to the PR list (issue #164).
         KeyCode::F(12) => f12_event_for_prs(state),
         _ => None,
     }
+}
+
+/// Resolve the `g`/`G` cross-mode action: jump to Actions mode pre-filtered
+/// to the currently focused PR (issue #205). When a PR detail is loaded, the
+/// detail's SHA is used; when a PR is selected in the list (but no detail),
+/// the list item's SHA is used; when neither, Actions mode is entered without
+/// a PR filter.
+///
+/// Prefer the list selection when it exists and differs from `pr_detail`:
+/// list navigation keeps the previous detail around while only clearing
+/// pending/loading state, so `pr_detail` can be stale after the cursor moves.
+fn pr_to_actions_event(state: &AppState) -> AppEvent {
+    let selected_pr = state
+        .prs_state
+        .selected_pr_index()
+        .and_then(|idx| state.prs_state.pull_requests().get(idx));
+
+    if let Some(pr) = selected_pr {
+        // Use pr_detail only when it matches the selected list PR (the detail
+        // may carry a fresher SHA from the full detail fetch). When the
+        // selection has moved away, the list item is authoritative.
+        let head_sha = state
+            .prs_state
+            .pr_detail
+            .as_ref()
+            .filter(|d| d.number == pr.number)
+            .map_or_else(|| pr.head_sha.clone(), |d| d.head_sha.clone());
+        return AppEvent::EnterActionsModeWithPrFilter {
+            pr_number: pr.number,
+            head_sha,
+        };
+    }
+
+    // No list selection — use pr_detail if available (edge case: detail
+    // loaded but list not yet populated or selection cleared).
+    if let Some(detail) = &state.prs_state.pr_detail {
+        return AppEvent::EnterActionsModeWithPrFilter {
+            pr_number: detail.number,
+            head_sha: detail.head_sha.clone(),
+        };
+    }
+
+    AppEvent::EnterActionsMode
 }
 
 /// F12 semantics in PR mode (issue #164): defocus the terminal if it is
@@ -236,11 +289,35 @@ fn handle_pr_detail_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEve
         KeyCode::Char('e') => Some(AppEvent::PrShowNotice(
             ReadOnlyHintKind::ReadOnlyNotEditable,
         )),
-        KeyCode::Char('S') => Some(AppEvent::PrOpenAgentChooser),
+        KeyCode::Char('S') => Some(AppEvent::PrOpenAgentChooser {
+            metadata: super::build_chooser_metadata(state),
+        }),
         KeyCode::Char('o') => Some(pr_open_in_browser_or_notice(pr_detail_present(state))),
         KeyCode::Char('m') => Some(pr_merge_event_for_detail(state)),
-        _ => None,
+        _ => resolve_pr_property_open_key(state, key_event),
     }
+}
+
+/// Property editor open-key shortcuts for PRs (issue #175).
+///
+/// Shift-letter opens the corresponding property editor overlay. Only active
+/// on Body subfocus and when no overlay is already open. PR kinds: Labels,
+/// Assignees, Milestone, Title, State (no Type).
+fn resolve_pr_property_open_key(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
+    if state.prs_state.detail_subfocus != PrDetailSubfocus::Body
+        || state.prs_state.property_editor.is_some()
+    {
+        return None;
+    }
+    let kind = match key_event.code {
+        KeyCode::Char('L') => PrPropertyKind::Labels,
+        KeyCode::Char('A') => PrPropertyKind::Assignees,
+        KeyCode::Char('M') => PrPropertyKind::Milestone,
+        KeyCode::Char('T') => PrPropertyKind::Title,
+        KeyCode::Char('W') => PrPropertyKind::State,
+        _ => return None,
+    };
+    Some(AppEvent::PrOpenPropertyEditor { kind })
 }
 
 /// Map `c` to the composer-open event for comment-eligible subfocus, or to a
@@ -357,6 +434,12 @@ fn handle_esc_in_prs_mode(state: &AppState, _key_event: &KeyEvent) -> AppEvent {
     if state.prs_state.agent_chooser.is_some() {
         return AppEvent::PrAgentChooserCancel;
     }
+    // Property editor (issue #175): Esc closes the editor before exiting
+    // the mode. This is a safety net — the P2.6 tier normally intercepts
+    // Esc before the global handler is reached.
+    if state.prs_state.property_editor.is_some() {
+        return AppEvent::PrPropertyEditorCancel;
+    }
     if state.prs_state.search_input_focused {
         if state.prs_state.search_query.is_empty() {
             return AppEvent::PrBlurSearchInput;
@@ -378,8 +461,8 @@ fn handle_esc_in_prs_mode(state: &AppState, _key_event: &KeyEvent) -> AppEvent {
 
 /// Handle keys while an inline composer/editor is active.
 ///
-/// Mirrors the issues inline key router: Esc cancels, Ctrl+Enter submits,
-/// Enter inserts a newline, chars/backspace/delete/cursor keys edit.
+/// Mirrors the issues inline key router: Esc cancels, Alt+Enter submits
+/// (Ctrl+Enter also accepted), Enter inserts a newline, chars/backspace/delete/cursor keys edit.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-010
@@ -387,7 +470,12 @@ fn handle_esc_in_prs_mode(state: &AppState, _key_event: &KeyEvent) -> AppEvent {
 fn handle_pr_inline_key(_state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     match key_event.code {
         KeyCode::Esc => Some(AppEvent::PrInlineCancelOrEsc),
-        KeyCode::Enter if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+        // Alt+Enter is the advertised terminal-portable submit key (issue #265).
+        // Ctrl+Enter remains accepted for terminals that encode it distinctly.
+        KeyCode::Enter
+            if key_event.modifiers.contains(KeyModifiers::ALT)
+                || key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+        {
             Some(AppEvent::PrInlineSubmit)
         }
         KeyCode::Enter => Some(AppEvent::PrInlineNewline),
@@ -431,6 +519,31 @@ fn handle_pr_merge_chooser_key(_state: &AppState, key_event: &KeyEvent) -> Optio
     }
 }
 
+/// Handle keys while the property editor is open (issue #175).
+///
+/// Mirrors the merge-chooser key router: Up/Down navigate, Space toggles,
+/// Enter confirms, Esc cancels. Title editing keys (char, backspace, delete,
+/// cursor left/right) are also routed. All other keys are consumed as `None`.
+fn handle_pr_property_editor_key(kind: PrPropertyKind, key_event: &KeyEvent) -> Option<AppEvent> {
+    match key_event.code {
+        KeyCode::Up => Some(AppEvent::PrPropertyEditorNavigateUp),
+        KeyCode::Down => Some(AppEvent::PrPropertyEditorNavigateDown),
+        KeyCode::Char(' ') if kind != PrPropertyKind::Title => {
+            Some(AppEvent::PrPropertyEditorToggle)
+        }
+        KeyCode::Enter => Some(AppEvent::PrPropertyEditorConfirm),
+        KeyCode::Esc => Some(AppEvent::PrPropertyEditorCancel),
+        KeyCode::Char(c) if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(AppEvent::PrPropertyEditorTitleChar(c))
+        }
+        KeyCode::Backspace => Some(AppEvent::PrPropertyEditorTitleBackspace),
+        KeyCode::Delete => Some(AppEvent::PrPropertyEditorTitleDelete),
+        KeyCode::Left => Some(AppEvent::PrPropertyEditorTitleCursorLeft),
+        KeyCode::Right => Some(AppEvent::PrPropertyEditorTitleCursorRight),
+        _ => None,
+    }
+}
+
 /// Handle keys while the search input is focused.
 ///
 /// Routes chars to the query (PrSetSearchQuery), Enter to apply, Esc to
@@ -465,3 +578,7 @@ fn handle_pr_search_input_key(state: &AppState, key_event: &KeyEvent) -> Option<
 #[cfg(test)]
 #[path = "prs_key_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "prs_property_key_tests.rs"]
+mod prs_property_key_tests;

@@ -52,10 +52,36 @@ pub(super) fn dispatch_issue_list_fetch(
     ctx: &SharedContext,
     fresh_reload: bool,
 ) {
-    let mut params = issue_fetch_params(app_state, fresh_reload);
+    dispatch_issue_list_fetch_inner(app_state, ctx, fresh_reload, false);
+}
+
+/// Request a silent background refresh of the issue list (issue #175). This is
+/// a fresh reload that does NOT flash the loading spinner, preserves selection,
+/// and is dispatched only when the issues view is open with no in-flight load.
+pub(super) fn request_issue_list_silent_refresh(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+) {
+    dispatch_issue_list_fetch_inner(app_state, ctx, true, true);
+}
+
+fn dispatch_issue_list_fetch_inner(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    fresh_reload: bool,
+    silent: bool,
+) {
+    let mut params = issue_fetch_params(app_state, fresh_reload, silent);
 
     if params.owner.is_empty() || params.repo.is_empty() {
-        persist_missing_github_repo(app_state, ctx);
+        if silent && params.malformed_message.is_none() {
+            // Silent refresh of a repo with no GitHub slug: silently no-op.
+            return;
+        }
+        let error = params.malformed_message.as_deref().unwrap_or(
+            "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.",
+        );
+        persist_missing_github_repo_with(app_state, ctx, error);
         return;
     }
 
@@ -89,11 +115,14 @@ struct IssueFetchParams {
     scope_repo_id: jefe::domain::RepositoryId,
     owner: String,
     repo: String,
+    /// Malformed tracker override message (issue #266).
+    malformed_message: Option<String>,
     filter: jefe::domain::IssueFilter,
     request_id: u64,
     cursor: Option<String>,
     page_size: u32,
     fresh_reload: bool,
+    silent: bool,
 }
 
 fn mark_issue_list_fetch_loading(
@@ -109,7 +138,9 @@ fn mark_issue_list_fetch_loading(
             scope_repo_id: params.scope_repo_id.clone(),
             filter: params.filter.clone(),
         };
-        let load = if params.fresh_reload {
+        let load = if params.silent {
+            ListLoad::SilentReload
+        } else if params.fresh_reload {
             ListLoad::Reload
         } else {
             ListLoad::Page(params.cursor.clone().map_or(
@@ -118,7 +149,7 @@ fn mark_issue_list_fetch_loading(
             ))
         };
         let request_id = ListLoader::begin(&mut state.issues_state.list, identity, load)?;
-        if params.fresh_reload {
+        if params.fresh_reload && !params.silent {
             state.issues_state.detail_pending = None;
         }
         drop(state);
@@ -126,9 +157,17 @@ fn mark_issue_list_fetch_loading(
     }
 }
 
-fn issue_fetch_params(app_state: &AppStateHandle, fresh_reload: bool) -> IssueFetchParams {
+fn issue_fetch_params(
+    app_state: &AppStateHandle,
+    fresh_reload: bool,
+    silent: bool,
+) -> IssueFetchParams {
     let state = app_state.read();
-    let gh_repo = issues_dispatch::resolve_gh_repo(&state);
+    let (owner, repo, malformed_message) = issues_dispatch::resolve_gh_repo_or_error(&state)
+        .map_or_else(
+            |error| (String::new(), String::new(), Some(error.message)),
+            |(owner, repo)| (owner, repo, None),
+        );
     let cursor = (!fresh_reload)
         .then(|| match state.issues_state.list.next_page() {
             jefe::domain::PageToken::Cursor(c) => Some(c.clone()),
@@ -137,25 +176,26 @@ fn issue_fetch_params(app_state: &AppStateHandle, fresh_reload: bool) -> IssueFe
         .flatten();
     IssueFetchParams {
         scope_repo_id: issues_dispatch::current_scope_repo_id(&state),
-        owner: gh_repo.0,
-        repo: gh_repo.1,
+        owner,
+        repo,
+        malformed_message,
         filter: state.issues_state.committed_filter.clone(),
         request_id: 0,
         cursor,
         page_size: 30,
         fresh_reload,
+        silent,
     }
 }
 
-fn persist_missing_github_repo(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+fn persist_missing_github_repo_with(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: &str,
+) {
     let mut state = app_state.write();
-    // No repo configured: cancel any pending list load so the spinner clears
-    // (loading is now derived from the pending marker).
     state.issues_state.list.clear();
-    state.issues_state.error = Some(
-        "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings."
-            .to_string(),
-    );
+    state.issues_state.error = Some(message.to_string());
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
@@ -199,6 +239,13 @@ fn persist_issue_list_loaded(
     params: &IssueFetchParams,
     response: jefe::github::IssueListResponse,
 ) {
+    // Silent refresh path (issue #175): emit the silent event, which updates
+    // the list in place WITHOUT flashing the loading spinner or clobbering
+    // selection/scroll/filter. No preview, no loud load flags.
+    if params.silent {
+        persist_issue_list_silent_loaded(app_state, ctx, params, response);
+        return;
+    }
     let has_issues = !response.issues.is_empty();
     let mut state = app_state.write();
     let should_preview = params.fresh_reload
@@ -248,12 +295,44 @@ fn persist_issue_list_loaded(
     persist_state(ctx, &persisted);
 }
 
+/// Emit the silent-refresh-loaded event (issue #175).
+fn persist_issue_list_silent_loaded(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    params: &IssueFetchParams,
+    response: jefe::github::IssueListResponse,
+) {
+    apply_and_persist(
+        app_state,
+        ctx,
+        AppEvent::IssueListSilentRefreshed {
+            scope_repo_id: params.scope_repo_id.clone(),
+            filter: std::boxed::Box::new(params.filter.clone()),
+            request_id: params.request_id,
+            issues: response.issues,
+            cursor: response.cursor,
+            has_more: response.has_more,
+        },
+    );
+}
+
 fn persist_issue_list_failed(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     params: &IssueFetchParams,
     error: String,
 ) {
+    if params.silent {
+        apply_and_persist(
+            app_state,
+            ctx,
+            AppEvent::IssueListSilentRefreshFailed {
+                scope_repo_id: params.scope_repo_id.clone(),
+                request_id: params.request_id,
+            },
+        );
+        return;
+    }
     // When gh is not authenticated, open the in-app device-code auth dialog
     // instead of surfacing a bare "run gh auth login" error string (issue #244).
     // The dialog is the remediation surface; the original operation can be

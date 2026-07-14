@@ -229,12 +229,18 @@ fn non_confirm_modals_return_none_focus() {
 /// list enforce coverage).
 fn all_confirm_modal_samples() -> Vec<ModalState> {
     use crate::runtime::PreflightIssue;
-    vec![
-        ModalState::ConfirmDeleteAgent {
-            id: AgentId("a".into()),
-            delete_work_dir: false,
-            confirm_focus: ConfirmFocus::Cancel,
-        },
+    let first = ModalState::ConfirmDeleteAgent {
+        id: AgentId("a".into()),
+        delete_work_dir: false,
+        confirm_focus: ConfirmFocus::Cancel,
+    };
+    let mut samples: Vec<_> = std::iter::once(first).collect();
+    macro_rules! append {
+        ($($modal:expr),+ $(,)?) => {
+            $(samples.push($modal);)+
+        };
+    }
+    append!(
         ModalState::ConfirmDeleteRepository {
             id: RepositoryId("r".into()),
             confirm_focus: ConfirmFocus::Cancel,
@@ -267,7 +273,8 @@ fn all_confirm_modal_samples() -> Vec<ModalState> {
             expected: String::new(),
             confirm_focus: ConfirmFocus::Cancel,
         },
-    ]
+    );
+    samples
 }
 
 /// Assert that a single confirm variant is recognized by the focus machinery

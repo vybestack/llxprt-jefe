@@ -4,6 +4,7 @@
 //! @plan PLAN-20260216-FIRSTVERSION-V1.P09
 //! @requirement REQ-TECH-001
 
+pub mod actions_detail_view;
 pub mod actions_view;
 pub mod agent_detection;
 pub mod cli;
@@ -13,6 +14,8 @@ pub mod domain;
 pub mod input;
 pub mod issue_detail_content;
 pub mod layout;
+/// Explicit local Git and GitHub CLI executable resolution.
+pub mod local_command;
 pub mod logging;
 /// Single-pass HTML-to-text stripping for untrusted markdown (issue #155).
 pub(crate) mod markdown_html_strip;
@@ -27,6 +30,8 @@ pub mod runtime;
 /// Pure, iocraft-free mouse-selection model (pane geometry + text extraction).
 pub mod selection;
 pub mod services;
+/// Native-host OpenSSH planning and typed failure classification.
+pub mod ssh;
 pub mod startup;
 pub mod state;
 /// Pure multiline text-box viewport projection (iocraft-free).
@@ -47,26 +52,10 @@ pub mod git_info;
 /// @plan PLAN-20260329-ISSUES-MODE.P03
 pub mod github;
 
-#[cfg(test)]
-#[path = "github/tests/mod.rs"]
-mod github_tests;
-
-#[cfg(test)]
-#[path = "github/tests_filters.rs"]
-mod github_tests_filters;
-
-#[cfg(test)]
-#[path = "github/tests_pr.rs"]
-mod github_tests_pr;
-
-#[cfg(test)]
-#[path = "github/tests_pr_detail.rs"]
-mod github_tests_pr_detail;
-
-#[cfg(test)]
-#[path = "github/tests_pr_threads.rs"]
-mod github_tests_pr_threads;
-
 /// Current application version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+#[cfg(test)]
+#[path = "github/tests_pr_thread_assignment.rs"]
+mod github_tests_pr_thread_assignment;
+
 pub mod harness;

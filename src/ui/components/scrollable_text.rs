@@ -218,7 +218,7 @@ pub fn ScrollableText(props: &ScrollableTextProps) -> impl Into<AnyElement<'stat
             }
             // Scrollbar column (1 char wide, same `vp` rows)
             #(if show_scrollbar {
-                vec![element! {
+                std::iter::once(element! {
                     Box(flex_direction: FlexDirection::Column, width: 1u32) {
                         #((0..vp).map(|row| {
                             let is_thumb = row >= thumb_pos && row < thumb_pos + thumb_size;
@@ -231,9 +231,9 @@ pub fn ScrollableText(props: &ScrollableTextProps) -> impl Into<AnyElement<'stat
                             }
                         }).collect::<Vec<_>>())
                     }
-                }]
+                }).collect::<Vec<_>>()
             } else {
-                vec![]
+                Vec::new()
             })
         }
     }

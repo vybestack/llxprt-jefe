@@ -212,6 +212,7 @@ impl AppMessage {
         matches!(
             event,
             AppEvent::EnterActionsMode
+                | AppEvent::EnterActionsModeWithPrFilter { .. }
                 | AppEvent::ExitActionsMode
                 | AppEvent::RefocusActionsList
                 | AppEvent::ActionsReload
@@ -224,12 +225,15 @@ impl AppMessage {
                 | AppEvent::ActionsEnter
                 | AppEvent::ActionsCycleFocus
                 | AppEvent::ActionsCycleFocusReverse
+                | AppEvent::ActionsSetDetailGeometry { .. }
                 | AppEvent::ActionsScrollDetailUp
                 | AppEvent::ActionsScrollDetailDown
-                | AppEvent::ActionsToggleJobExpand
+                | AppEvent::ActionsExpandJob
                 | AppEvent::ActionsCollapseJob
+                | AppEvent::ActionsDetailEscape
                 | AppEvent::ActionsNavigateJobUp
                 | AppEvent::ActionsNavigateJobDown
+                | AppEvent::ActionsBeginDetailReload { .. }
                 | AppEvent::ActionsRunsLoaded { .. }
                 | AppEvent::ActionsRunsLoadFailed { .. }
                 | AppEvent::ActionsRunsPageLoaded { .. }
@@ -347,7 +351,7 @@ impl AppMessage {
                 | AppEvent::CloseReasonDuplicateSearchNavigateDown
                 | AppEvent::CloseReasonConfirm
                 | AppEvent::CloseReasonCancel
-                | AppEvent::OpenAgentChooser
+                | AppEvent::OpenAgentChooser { .. }
                 | AppEvent::AgentChooserNavigateUp
                 | AppEvent::AgentChooserNavigateDown
                 | AppEvent::AgentChooserConfirm
@@ -355,6 +359,34 @@ impl AppMessage {
                 | AppEvent::SendToAgentCompleted
                 | AppEvent::SendToAgentFailed { .. }
                 | AppEvent::IssueSelfAssignmentFailed { .. }
+        ) || Self::is_issue_property_data_event(event)
+    }
+
+    /// Property-editor and silent-refresh issues events (issue #175).
+    fn is_issue_property_data_event(event: &AppEvent) -> bool {
+        matches!(
+            event,
+            AppEvent::IssueOpenPropertyEditor { .. }
+                | AppEvent::IssuePropertyEditorNavigateUp
+                | AppEvent::IssuePropertyEditorNavigateDown
+                | AppEvent::IssuePropertyEditorToggle
+                | AppEvent::IssuePropertyEditorConfirm
+                | AppEvent::IssuePropertyEditorCancel
+                | AppEvent::IssuePropertyEditorTitleChar(_)
+                | AppEvent::IssuePropertyEditorTitleBackspace
+                | AppEvent::IssuePropertyEditorTitleDelete
+                | AppEvent::IssuePropertyEditorTitleCursorLeft
+                | AppEvent::IssuePropertyEditorTitleCursorRight
+                | AppEvent::IssuePropertyEditorOptionsLoaded { .. }
+                | AppEvent::IssuePropertyEditorOptionsFailed { .. }
+                | AppEvent::IssuePropertyEditSucceeded { .. }
+                | AppEvent::IssuePostMutationRefreshStarted
+                | AppEvent::IssuePropertyEditFailed { .. }
+                | AppEvent::IssuePropertyEditorValidationError { .. }
+                | AppEvent::IssueListSilentRefreshed { .. }
+                | AppEvent::IssueListSilentRefreshFailed { .. }
+                | AppEvent::IssueDetailSilentRefreshed { .. }
+                | AppEvent::IssueDetailSilentRefreshFailed { .. }
         )
     }
 

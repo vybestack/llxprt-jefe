@@ -194,27 +194,36 @@ fn test_pr_screen_renders_error_banner_when_error_present() {
 }
 
 // ===========================================================================
-// Test 16 — REQ-PR-012: keybind bar lists `o open in browser` (display-only).
+// Test 16 — REQ-PR-012: keybind bar lists `o open` (display-only).
 // ===========================================================================
 
 /// The PR-mode keybind bar (`keybind_hints_for`, to which the `KeybindBar`
-/// component delegates) includes an `o open in browser` label and an `m merge`
+/// component delegates) includes an `o open` label and an `m merge`
 /// label (issue #92). When the terminal is focused, the bar short-circuits
-/// to the `F12 unfocus` hint.
+/// to the `F12 unfocus` hint. It also includes the property-edit shortcuts
+/// (issue #175): `L labels A assignees M milestone T title W state`.
 ///
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-012
 /// @pseudocode component-001 lines 1-12
 #[test]
 fn test_pr_keybind_bar_and_help_list_o_open_in_browser() {
-    let hints = keybind_hints_for(ScreenMode::DashboardPullRequests, false);
+    let hints = keybind_hints_for(ScreenMode::DashboardPullRequests, false, None);
     assert!(
-        hints.contains("o open in browser"),
-        "PR-mode keybind bar must list 'o open in browser', got: {hints}"
+        hints.contains("o open"),
+        "PR-mode keybind bar must list 'o open', got: {hints}"
     );
     assert!(
         hints.contains("m merge"),
         "PR-mode keybind bar must list 'm merge' (issue #92), got: {hints}"
+    );
+    assert!(
+        hints.contains("L labels"),
+        "PR-mode keybind bar must list 'L labels' (issue #175), got: {hints}"
+    );
+    assert!(
+        hints.contains("W state"),
+        "PR-mode keybind bar must list 'W state' (issue #175), got: {hints}"
     );
     assert!(
         !hints.contains("approve"),
@@ -223,8 +232,54 @@ fn test_pr_keybind_bar_and_help_list_o_open_in_browser() {
 
     // terminal_focused short-circuit: the bar shows the unfocus hint instead.
     assert_eq!(
-        keybind_hints_for(ScreenMode::DashboardPullRequests, true),
+        keybind_hints_for(ScreenMode::DashboardPullRequests, true, None),
         "F12 unfocus",
         "focused-terminal keybind bar must short-circuit to 'F12 unfocus'"
+    );
+}
+
+// ===========================================================================
+// Issue #175: keybind bar lists property-edit shortcuts for both modes.
+// ===========================================================================
+
+/// The issues-mode keybind bar includes the property-edit shortcuts
+/// (issue #175): `L labels A assignees M milestone T title Y type W state`.
+#[test]
+fn test_issues_keybind_bar_lists_property_edit_shortcuts() {
+    let hints = keybind_hints_for(ScreenMode::DashboardIssues, false, None);
+    assert!(
+        hints.contains("L labels"),
+        "Issues keybind bar must list 'L labels' (issue #175), got: {hints}"
+    );
+    assert!(
+        hints.contains("A assignees"),
+        "Issues keybind bar must list 'A assignees' (issue #175), got: {hints}"
+    );
+    assert!(
+        hints.contains("M milestone"),
+        "Issues keybind bar must list 'M milestone' (issue #175), got: {hints}"
+    );
+    assert!(
+        hints.contains("T title"),
+        "Issues keybind bar must list 'T title' (issue #175), got: {hints}"
+    );
+    assert!(
+        hints.contains("Y type"),
+        "Issues keybind bar must list 'Y type' (issue #175, issues only), got: {hints}"
+    );
+    assert!(
+        hints.contains("W state"),
+        "Issues keybind bar must list 'W state' (issue #175), got: {hints}"
+    );
+}
+
+/// The PR-mode keybind bar lists property-edit shortcuts but NOT `Y type`
+/// (PRs don't have the Type property).
+#[test]
+fn test_pr_keybind_bar_has_no_type_shortcut() {
+    let hints = keybind_hints_for(ScreenMode::DashboardPullRequests, false, None);
+    assert!(
+        !hints.contains("Y type"),
+        "PR keybind bar must NOT list 'Y type' (PRs have no Type property), got: {hints}"
     );
 }

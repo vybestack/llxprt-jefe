@@ -22,6 +22,16 @@ const POLL_TIMEOUT: Duration = Duration::from_secs(5);
 const FIXTURE: &str = env!("CARGO_BIN_EXE_jefe-psmux-smoke-fixture");
 const JEFE: &str = env!("CARGO_BIN_EXE_jefe");
 
+/// Windows `STATUS_DLL_INIT_FAILED` as returned by `ExitStatus::code()`.
+///
+/// On Windows, `ExitStatus::from_raw(0xc000_0142)` causes `code()` to return
+/// the raw NTSTATUS reinterpreted as a signed `i32` (two's complement of the
+/// bit pattern `0xc000_0142`). We store that exact signed value here instead
+/// of casting so Clippy's `as_conversions` lint stays clean.
+const STATUS_DLL_INIT_FAILED: i32 = -1_073_741_502;
+const MAX_VERSION_PROBE_ATTEMPTS: u32 = 4;
+const VERSION_PROBE_BACKOFF: Duration = Duration::from_millis(500);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct PsmuxVersion {
     major: u32,
@@ -64,6 +74,10 @@ fn parse_version_part(part: Option<&str>, name: &str, source: &str) -> Result<u3
         .trim_matches(|ch: char| !ch.is_ascii_digit())
         .parse::<u32>()
         .map_err(|error| format!("invalid {name} version component in {source:?}: {error}"))
+}
+
+fn is_retryable_version_probe_status(status: std::process::ExitStatus) -> bool {
+    status.code() == Some(STATUS_DLL_INIT_FAILED)
 }
 
 #[derive(Debug)]
@@ -442,6 +456,59 @@ fn psmux_named_namespaces_are_isolated_and_cleanup_is_scoped() {
     }
 }
 
+#[test]
+fn psmux_four_recording_agents_remain_independent_and_scoped() {
+    let Some((executable, version_text)) = qualified_psmux() else {
+        return;
+    };
+    let mut namespace = namespace_or_panic(executable, "four-agents", &version_text);
+    let repo_one = tempfile::Builder::new()
+        .prefix("jefe repo Ω one ")
+        .tempdir()
+        .unwrap_or_else(|error| panic!("create first repository fixture: {error}"));
+    let repo_two = tempfile::Builder::new()
+        .prefix("jefe repo two ")
+        .tempdir()
+        .unwrap_or_else(|error| panic!("create second repository fixture: {error}"));
+    let agents = [
+        ("llxprt-one", repo_one.path(), "A", "PSMUX_BYTE_41"),
+        ("puppy-two", repo_one.path(), "B", "PSMUX_BYTE_42"),
+        ("llxprt-three", repo_two.path(), "C", "PSMUX_BYTE_43"),
+        ("puppy-four", repo_two.path(), "D", "PSMUX_BYTE_44"),
+    ];
+    for (session, work_dir, input, expected) in agents {
+        namespace
+            .run_os(&[
+                OsString::from("new-session"),
+                OsString::from("-d"),
+                OsString::from("-s"),
+                OsString::from(session),
+                OsString::from("-c"),
+                work_dir.as_os_str().to_owned(),
+                OsString::from(FIXTURE),
+            ])
+            .unwrap_or_else(|error| panic!("create {session}: {error}"));
+        namespace
+            .wait_for_capture(session, "PSMUX_SMOKE_READY")
+            .unwrap_or_else(|error| panic!("wait for {session}: {error}"));
+        namespace
+            .run(&["send-keys", "-l", "-t", session, "--", input])
+            .unwrap_or_else(|error| panic!("interact with {session}: {error}"));
+        namespace
+            .wait_for_capture(session, expected)
+            .unwrap_or_else(|error| panic!("verify {session}: {error}"));
+    }
+    namespace
+        .run(&["kill-session", "-t", "puppy-two"])
+        .unwrap_or_else(|error| panic!("kill selected agent: {error}"));
+    assert!(namespace.run(&["has-session", "-t", "puppy-two"]).is_err());
+    for survivor in ["llxprt-one", "llxprt-three", "puppy-four"] {
+        namespace
+            .run(&["has-session", "-t", survivor])
+            .unwrap_or_else(|error| panic!("selected kill affected {survivor}: {error}"));
+    }
+}
+
 fn exercise_command_surface(namespace: &mut PsmuxNamespace) -> Result<(), SmokeFailure> {
     let session = "jefe-smoke";
     let work_dir = tempfile::Builder::new()
@@ -612,24 +679,77 @@ fn exercise_namespace_isolation(
 fn qualified_psmux() -> Option<(PathBuf, String)> {
     let executable =
         std::env::var_os("JEFE_PSMUX_BIN").map_or_else(|| PathBuf::from("psmux"), PathBuf::from);
-    let output = Command::new(&executable).arg("-V").output();
-    let output = match output {
-        Ok(output) if output.status.success() => output,
-        Ok(output) => return unavailable(&executable, &format_output(&output)),
-        Err(error) => return unavailable(&executable, &error.to_string()),
-    };
-    let version_text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    let version = match PsmuxVersion::parse(&version_text) {
-        Ok(version) => version,
-        Err(error) => return unavailable(&executable, &error),
-    };
-    if version < MINIMUM_PSMUX_VERSION {
-        return unavailable(
-            &executable,
-            &format!("found {version}; minimum is {MINIMUM_PSMUX_VERSION}"),
-        );
+    let result = probe_qualified_version(
+        || Command::new(&executable).arg("-V").output(),
+        thread::sleep,
+    );
+    match result {
+        Ok((version, diagnostics)) => {
+            if diagnostics.len() > 1 {
+                let _ = writeln!(
+                    std::io::stdout(),
+                    "psmux version probe recovered:\n{}",
+                    diagnostics.join("\n---\n")
+                );
+            }
+            Some((executable, version))
+        }
+        Err(reason) => unavailable(&executable, &reason),
     }
-    Some((executable, version_text))
+}
+
+fn probe_qualified_version<F, S>(
+    mut probe: F,
+    mut sleep: S,
+) -> Result<(String, Vec<String>), String>
+where
+    F: FnMut() -> std::io::Result<Output>,
+    S: FnMut(Duration),
+{
+    let mut diagnostics = Vec::new();
+    for attempt in 1..=MAX_VERSION_PROBE_ATTEMPTS {
+        let output = match probe() {
+            Ok(output) => output,
+            Err(error) => {
+                diagnostics.push(format!(
+                    "attempt {attempt}/{MAX_VERSION_PROBE_ATTEMPTS}: spawn failed: {error}"
+                ));
+                return Err(diagnostics.join("\n---\n"));
+            }
+        };
+        diagnostics.push(format!(
+            "attempt {attempt}/{MAX_VERSION_PROBE_ATTEMPTS}:\n{}",
+            format_output(&output)
+        ));
+        if output.status.success() {
+            let version = parse_qualified_version(&output).map_err(|error| {
+                diagnostics.push(format!("qualification failed: {error}"));
+                diagnostics.join("\n---\n")
+            })?;
+            return Ok((version, diagnostics));
+        }
+        if !is_retryable_version_probe_status(output.status) {
+            return Err(diagnostics.join("\n---\n"));
+        }
+        if attempt < MAX_VERSION_PROBE_ATTEMPTS {
+            sleep(VERSION_PROBE_BACKOFF);
+        }
+    }
+    Err(format!(
+        "STATUS_DLL_INIT_FAILED (0xc000_0142) persisted across {MAX_VERSION_PROBE_ATTEMPTS} attempts:\n{}",
+        diagnostics.join("\n---\n")
+    ))
+}
+
+fn parse_qualified_version(output: &Output) -> Result<String, String> {
+    let version_text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    let version = PsmuxVersion::parse(&version_text)?;
+    if version < MINIMUM_PSMUX_VERSION {
+        return Err(format!(
+            "found {version}; minimum is {MINIMUM_PSMUX_VERSION}"
+        ));
+    }
+    Ok(version_text)
 }
 
 fn unavailable(executable: &Path, reason: &str) -> Option<(PathBuf, String)> {
@@ -675,4 +795,139 @@ fn format_output(output: &Output) -> String {
         String::from_utf8_lossy(&output.stdout).trim(),
         String::from_utf8_lossy(&output.stderr).trim()
     )
+}
+
+#[test]
+fn version_probe_retry_is_limited_to_dll_init_failure() {
+    use std::os::windows::process::ExitStatusExt;
+
+    assert!(is_retryable_version_probe_status(
+        std::process::ExitStatus::from_raw(0xc000_0142)
+    ));
+    assert!(!is_retryable_version_probe_status(
+        std::process::ExitStatus::from_raw(1)
+    ));
+    assert!(!is_retryable_version_probe_status(
+        std::process::ExitStatus::from_raw(0xc000_0005)
+    ));
+}
+
+type ProbeAttempt = Result<Output, &'static str>;
+
+fn probe_output(raw_status: u32, stdout: &str, stderr: &str) -> Output {
+    use std::os::windows::process::ExitStatusExt;
+
+    Output {
+        status: std::process::ExitStatus::from_raw(raw_status),
+        stdout: stdout.as_bytes().to_vec(),
+        stderr: stderr.as_bytes().to_vec(),
+    }
+}
+
+type ProbeResult = Result<(String, Vec<String>), String>;
+
+struct ProbeSequenceOutcome {
+    result: ProbeResult,
+    probes: usize,
+    sleeps: usize,
+}
+
+fn run_probe_sequence(sequence: Vec<ProbeAttempt>) -> ProbeSequenceOutcome {
+    let mut sequence = std::collections::VecDeque::from(sequence);
+    let probes = std::cell::Cell::new(0);
+    let sleeps = std::cell::Cell::new(0);
+    let result = probe_qualified_version(
+        || {
+            probes.set(probes.get() + 1);
+            match sequence.pop_front() {
+                Some(Ok(output)) => Ok(output),
+                Some(Err(message)) => Err(std::io::Error::other(message)),
+                None => panic!("probe sequence exhausted"),
+            }
+        },
+        |_| sleeps.set(sleeps.get() + 1),
+    );
+    ProbeSequenceOutcome {
+        result,
+        probes: probes.get(),
+        sleeps: sleeps.get(),
+    }
+}
+
+fn assert_probe_error(outcome: ProbeSequenceOutcome) -> (String, usize, usize) {
+    match outcome.result {
+        Err(reason) => (reason, outcome.probes, outcome.sleeps),
+        Ok((version, _)) => panic!("probe unexpectedly qualified as {version:?}"),
+    }
+}
+
+fn assert_probe_ok(outcome: ProbeSequenceOutcome) -> ((String, Vec<String>), usize, usize) {
+    match outcome.result {
+        Ok(value) => (value, outcome.probes, outcome.sleeps),
+        Err(reason) => panic!("probe unexpectedly failed: {reason}"),
+    }
+}
+
+#[test]
+fn version_probe_stops_immediately_on_non_retryable_failure() {
+    let outcome = run_probe_sequence(vec![Ok(probe_output(1, "", "fatal"))]);
+    let (reason, probes, sleeps) = assert_probe_error(outcome);
+    assert_eq!((probes, sleeps), (1, 0));
+    assert!(reason.contains("attempt 1/4") && reason.contains("fatal"));
+}
+
+#[test]
+fn version_probe_recovers_after_loader_transient() {
+    let sequence = vec![
+        Ok(probe_output(0xc000_0142, "", "first transient")),
+        Ok(probe_output(0, "tmux 3.3.6\n", "")),
+    ];
+    let outcome = run_probe_sequence(sequence);
+    let ((version, diagnostics), probes, sleeps) = assert_probe_ok(outcome);
+    assert_eq!((version.as_str(), probes, sleeps), ("tmux 3.3.6", 2, 1));
+    assert_eq!(diagnostics.len(), 2);
+    assert!(diagnostics[0].contains("first transient"));
+}
+
+#[test]
+fn version_probe_bounds_loader_retries_and_reports_every_attempt() {
+    let sequence = (1..=4)
+        .map(|attempt| {
+            Ok(probe_output(
+                0xc000_0142,
+                "",
+                &format!("transient-{attempt}"),
+            ))
+        })
+        .collect();
+    let outcome = run_probe_sequence(sequence);
+    let (reason, probes, sleeps) = assert_probe_error(outcome);
+    assert_eq!((probes, sleeps), (4, 3));
+    for attempt in 1..=4 {
+        assert!(reason.contains(&format!("transient-{attempt}")));
+    }
+}
+
+#[test]
+fn version_probe_reports_transient_before_terminal_failure() {
+    let sequence = vec![
+        Ok(probe_output(0xc000_0142, "", "first transient")),
+        Ok(probe_output(1, "", "terminal failure")),
+    ];
+    let outcome = run_probe_sequence(sequence);
+    let (reason, probes, sleeps) = assert_probe_error(outcome);
+    assert_eq!((probes, sleeps), (2, 1));
+    assert!(reason.contains("first transient") && reason.contains("terminal failure"));
+}
+
+#[test]
+fn version_probe_reports_spawn_failure_after_transient() {
+    let sequence = vec![
+        Ok(probe_output(0xc000_0142, "", "first transient")),
+        Err("spawn unavailable"),
+    ];
+    let outcome = run_probe_sequence(sequence);
+    let (reason, probes, sleeps) = assert_probe_error(outcome);
+    assert_eq!((probes, sleeps), (2, 1));
+    assert!(reason.contains("first transient") && reason.contains("spawn unavailable"));
 }

@@ -5,39 +5,57 @@
 use jefe::messages::IssuesMessage;
 use jefe::state::AppEvent;
 
+use super::tracker_resolver::{ResolvedTracker, resolve_tracker_outcome};
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, dispatch_issues_lifecycle,
-    dispatch_issues_navigation, gh_async, github_client,
+    AppStateHandle, SharedContext, apply_and_persist, dispatch_issues_lifecycle, gh_async,
+    github_client, issues_navigation::dispatch_issues_navigation,
 };
-use super::{issues_list_dispatch, issues_mutation, issues_send, issues_subfocus_dispatch};
+use super::{
+    issues_list_dispatch, issues_mutation, issues_property_edit, issues_send,
+    issues_subfocus_dispatch,
+};
 
-/// Resolve the GitHub owner/repo for the currently selected repository.
-/// Reads from the explicit `github_repo` field (format: `"owner/repo"`).
+/// Resolve the effective issue repository, returning empty components when
+/// no valid target exists. User-visible callers use [`resolve_gh_repo_or_error`]
+/// to retain malformed-configuration details.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
 /// @requirement REQ-ISS-013
 pub(super) fn resolve_gh_repo(state: &jefe::state::AppState) -> (String, String) {
-    let repo = state
+    resolve_gh_repo_or_error(state).unwrap_or_default()
+}
+
+/// Resolve the effective GitHub `owner/repo` with source-aware error
+/// distinction (issue #266 defect remediation).
+///
+/// Returns the validated `(owner, repo)` pair, or a [`MalformedRepo`] error
+/// that carries the raw override and reason so the caller can surface it
+/// in a user-visible message — rather than a misleading "missing GitHub
+/// Repo" when a malformed override is actually the cause.
+pub(super) fn resolve_gh_repo_or_error(
+    state: &jefe::state::AppState,
+) -> Result<(String, String), MalformedRepo> {
+    let Some(repo) = state
         .selected_repository_index
-        .and_then(|idx| state.repositories.get(idx));
-
-    let Some(repo) = repo else {
-        return (String::new(), String::new());
+        .and_then(|idx| state.repositories.get(idx))
+    else {
+        return Ok((String::new(), String::new()));
     };
-
-    let gh = repo.github_repo.trim();
-    if gh.is_empty() {
-        return (String::new(), String::new());
+    match resolve_tracker_outcome(repo) {
+        ResolvedTracker::Resolved(target) => {
+            Ok((target.owner().to_owned(), target.repo().to_owned()))
+        }
+        ResolvedTracker::Absent => Ok((String::new(), String::new())),
+        ResolvedTracker::Malformed(error) => Err(MalformedRepo {
+            message: format!("{error}"),
+        }),
     }
+}
 
-    let mut parts = gh.split('/');
-    let owner = parts.next().map(str::trim).unwrap_or_default();
-    let name = parts.next().map(str::trim).unwrap_or_default();
-    if parts.next().is_none() && !owner.is_empty() && !name.is_empty() {
-        return (owner.to_owned(), name.to_owned());
-    }
-
-    (String::new(), String::new())
+/// User-visible error describing a malformed tracker override (issue #266).
+pub(super) struct MalformedRepo {
+    /// Human-readable message including the raw value and reason.
+    pub message: String,
 }
 
 pub(super) fn current_scope_repo_id(state: &jefe::state::AppState) -> jefe::domain::RepositoryId {
@@ -78,6 +96,11 @@ pub(super) fn preview_issue_from_list(app_state: &mut AppStateHandle) {
                     comments: Vec::new(),
                     has_more_comments: false,
                     comments_cursor: None,
+                    issue_type_name: if issue.issue_type.is_empty() {
+                        None
+                    } else {
+                        Some(issue.issue_type.clone())
+                    },
                 }
             })
     };
@@ -114,7 +137,11 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
     };
     mark_detail_loading(app_state, &mut params);
     if params.owner.is_empty() || params.repo.is_empty() {
-        apply_and_persist(app_state, ctx, missing_detail_repo_event(&params));
+        let error = params
+            .malformed_message
+            .as_deref()
+            .unwrap_or(MISSING_DETAIL_REPO_MSG);
+        apply_and_persist(app_state, ctx, missing_detail_repo_event(&params, error));
         return;
     }
 
@@ -142,6 +169,90 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
     );
 }
 
+/// Silently refresh issue detail for the currently selected issue (issue #175).
+/// Mirrors `load_issue_detail_for_selection` but does NOT set `loading.detail`
+/// (no spinner flash), preserves `detail_scroll_offset` on success, and does
+/// NOT surface errors visibly on failure (delivers `IssueDetailSilentRefreshed`
+/// / `IssueDetailSilentRefreshFailed`).
+pub(super) fn load_issue_detail_silent_refresh(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+) {
+    let Some(mut params) = issue_detail_load_params(app_state) else {
+        return;
+    };
+    mark_detail_silent_loading(app_state, &mut params);
+    if params.owner.is_empty() || params.repo.is_empty() {
+        // Missing repo: silently clear the pending marker (no visible error).
+        apply_and_persist(app_state, ctx, detail_silent_refresh_failed_event(&params));
+        return;
+    }
+
+    let panic_params = params.clone();
+    gh_async::spawn_gh_task_with_panic(
+        app_state,
+        ctx,
+        move |mut app_state, ctx| {
+            let event = detail_silent_refresh_event(&ctx, params);
+            apply_and_persist(&mut app_state, &ctx, event);
+        },
+        move |mut app_state, ctx, _message| {
+            // On panic: silently clear the pending marker (no visible error).
+            apply_and_persist(
+                &mut app_state,
+                &ctx,
+                detail_silent_refresh_failed_event(&panic_params),
+            );
+        },
+    );
+}
+
+/// Mark issue detail as silently loading (does NOT set `loading.detail`).
+fn mark_detail_silent_loading(app_state: &mut AppStateHandle, params: &mut DetailLoadParams) {
+    let mut state = app_state.write();
+    let request_id = state.next_issue_detail_request_id();
+    state.mark_issue_detail_silent_loading(
+        params.scope_repo_id.clone(),
+        params.issue_number,
+        request_id,
+    );
+    drop(state);
+    params.request_id = request_id;
+}
+
+/// Build the silent-refresh detail event from the gh result.
+fn detail_silent_refresh_event(ctx: &SharedContext, params: DetailLoadParams) -> AppEvent {
+    let result = github_client(ctx)
+        .map(|client| client.get_issue_detail(&params.owner, &params.repo, params.issue_number));
+    match result {
+        Some(Ok(detail)) => AppEvent::IssueDetailSilentRefreshed {
+            scope_repo_id: params.scope_repo_id,
+            issue_number: params.issue_number,
+            request_id: params.request_id,
+            detail: std::boxed::Box::new(detail),
+        },
+        _ => detail_silent_refresh_failed_event_owned(params),
+    }
+}
+
+/// Build the silent-refresh failure event from owned params (clears pending).
+fn detail_silent_refresh_failed_event_owned(params: DetailLoadParams) -> AppEvent {
+    AppEvent::IssueDetailSilentRefreshFailed {
+        scope_repo_id: params.scope_repo_id,
+        issue_number: params.issue_number,
+        request_id: params.request_id,
+    }
+}
+
+/// Build the silent-refresh failure event from borrowed params (clears pending).
+fn detail_silent_refresh_failed_event(params: &DetailLoadParams) -> AppEvent {
+    AppEvent::IssueDetailSilentRefreshFailed {
+        scope_repo_id: params.scope_repo_id.clone(),
+        issue_number: params.issue_number,
+        request_id: params.request_id,
+    }
+}
+
 fn detail_load_params(app_state: &AppStateHandle) -> Option<DetailLoadParams> {
     let state = app_state.read();
     let issue_number = state
@@ -149,16 +260,31 @@ fn detail_load_params(app_state: &AppStateHandle) -> Option<DetailLoadParams> {
         .selected_issue_index()
         .and_then(|idx| state.issues_state.issues().get(idx))
         .map(|issue| issue.number)?;
-    let (owner, repo) = resolve_gh_repo(&state);
+    let (owner, repo, malformed_message) = resolve_gh_repo_or_triple(&state);
     let params = DetailLoadParams {
         scope_repo_id: current_scope_repo_id(&state),
         issue_number,
         owner,
         repo,
+        // Assigned by mark_detail_loading before the request is dispatched.
         request_id: 0,
+        malformed_message,
     };
     drop(state);
     Some(params)
+}
+
+/// Resolve `(owner, repo, malformed_message)` from state.
+///
+/// When the tracker resolves cleanly, returns `(owner, repo, None)`. When a
+/// nonblank override is malformed, returns `(empty, empty, Some(message))`
+/// so the caller can surface the malformed reason instead of a misleading
+/// "missing GitHub Repo" (issue #266 defect remediation).
+fn resolve_gh_repo_or_triple(state: &jefe::state::AppState) -> (String, String, Option<String>) {
+    match resolve_gh_repo_or_error(state) {
+        Ok((owner, repo)) => (owner, repo, None),
+        Err(error) => (String::new(), String::new(), Some(error.message)),
+    }
 }
 
 fn mark_detail_loading(app_state: &mut AppStateHandle, params: &mut DetailLoadParams) {
@@ -198,14 +324,17 @@ fn detail_load_event(ctx: &SharedContext, params: DetailLoadParams) -> AppEvent 
     }
 }
 
-fn missing_detail_repo_event(params: &DetailLoadParams) -> AppEvent {
+fn missing_detail_repo_event(params: &DetailLoadParams, error: &str) -> AppEvent {
     AppEvent::IssueDetailLoadFailed {
         scope_repo_id: params.scope_repo_id.clone(),
         issue_number: params.issue_number,
         request_id: params.request_id,
-        error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
+        error: error.to_string(),
     }
 }
+
+/// Default message when no tracker is configured (distinct from malformed).
+const MISSING_DETAIL_REPO_MSG: &str = "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.";
 
 fn detail_load_panic_event(params: &DetailLoadParams, message: String) -> AppEvent {
     AppEvent::IssueDetailLoadFailed {
@@ -217,12 +346,21 @@ fn detail_load_panic_event(params: &DetailLoadParams, message: String) -> AppEve
 }
 
 #[derive(Clone)]
-struct DetailLoadParams {
-    scope_repo_id: jefe::domain::RepositoryId,
-    issue_number: u64,
-    owner: String,
-    repo: String,
-    request_id: u64,
+pub(super) struct DetailLoadParams {
+    pub(super) scope_repo_id: jefe::domain::RepositoryId,
+    pub(super) issue_number: u64,
+    pub(super) owner: String,
+    pub(super) repo: String,
+    pub(super) request_id: u64,
+    /// When the tracker override is malformed, this carries the
+    /// user-visible reason so it can be surfaced instead of a misleading
+    /// "missing GitHub Repo" (issue #266).
+    pub(super) malformed_message: Option<String>,
+}
+
+/// Gather detail-load params from state (returns None if no issue selected).
+pub(super) fn issue_detail_load_params(app_state: &AppStateHandle) -> Option<DetailLoadParams> {
+    detail_load_params(app_state)
 }
 
 /// Load the next comments page when the detail view is scrolled to the bottom.
@@ -304,21 +442,32 @@ fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
     }
     let scope_repo_id = current_scope_repo_id(&state);
     let issue_number = detail.number;
-    let (owner, repo) = resolve_gh_repo(&state);
-    if owner.is_empty() || repo.is_empty() {
-        return CommentPageRequest::Fail(AppEvent::IssueCommentsPageFailed {
-            scope_repo_id,
-            issue_number,
-            request_id: 0,
-            request_cursor: detail.comments_cursor.clone(),
-            error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
-        });
-    }
+    let tracker = match jefe::domain::GitHubRepoRef::parse(&detail.repo_owner_name) {
+        Ok(Some(tracker)) => tracker,
+        Ok(None) => {
+            return CommentPageRequest::Fail(AppEvent::IssueCommentsPageFailed {
+                scope_repo_id,
+                issue_number,
+                request_id: 0,
+                request_cursor: detail.comments_cursor.clone(),
+                error: MISSING_DETAIL_REPO_MSG.to_owned(),
+            });
+        }
+        Err(error) => {
+            return CommentPageRequest::Fail(AppEvent::IssueCommentsPageFailed {
+                scope_repo_id,
+                issue_number,
+                request_id: 0,
+                request_cursor: detail.comments_cursor.clone(),
+                error: error.to_string(),
+            });
+        }
+    };
     let params = CommentPageParams {
         scope_repo_id,
         issue_number,
-        owner,
-        repo,
+        owner: tracker.owner().to_owned(),
+        repo: tracker.repo().to_owned(),
         cursor: detail.comments_cursor.clone(),
         page_size: 30,
         request_id: 0,
@@ -469,6 +618,11 @@ pub(super) fn dispatch_issues_message(
         IssuesMessage::InlineSubmit => {
             issues_mutation::handle_inline_submit(app_state, ctx);
         }
+        message @ (IssuesMessage::OpenPropertyEditor { .. }
+        | IssuesMessage::PropertyEditorConfirm
+        | IssuesMessage::PropertyEditSucceeded { .. }) => {
+            dispatch_issue_property_message(app_state, ctx, message);
+        }
         message @ (IssuesMessage::CloseIssue
         | IssuesMessage::OpenDeleteIssueConfirm
         | IssuesMessage::IssueDeleteConfirm
@@ -487,6 +641,67 @@ pub(super) fn dispatch_issues_message(
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
+}
+
+/// Route property-editor messages that require boundary I/O.
+fn dispatch_issue_property_message(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    message: IssuesMessage,
+) {
+    match message {
+        IssuesMessage::OpenPropertyEditor { kind } => {
+            apply_and_persist(app_state, ctx, AppEvent::IssueOpenPropertyEditor { kind });
+            let should_load_options = {
+                let state = app_state.read();
+                state
+                    .issues_state
+                    .property_editor
+                    .as_ref()
+                    .is_some_and(|editor| {
+                        matches!(
+                            editor.kind,
+                            jefe::state::IssuePropertyKind::Labels
+                                | jefe::state::IssuePropertyKind::Assignees
+                                | jefe::state::IssuePropertyKind::Milestone
+                                | jefe::state::IssuePropertyKind::Type
+                        )
+                    })
+            };
+            if should_load_options {
+                issues_property_edit::handle_issue_property_options_load(app_state, ctx);
+            }
+        }
+        IssuesMessage::PropertyEditorConfirm => {
+            issues_property_edit::handle_issue_property_confirm(app_state, ctx);
+        }
+        IssuesMessage::PropertyEditSucceeded { .. } => {
+            issues_property_edit::dispatch_issue_property_post_mutation(
+                app_state,
+                ctx,
+                AppEvent::from(message),
+            );
+        }
+        other => apply_and_persist(app_state, ctx, AppEvent::from(other)),
+    }
+}
+
+/// Start a coalesced post-mutation refresh once earlier requests have settled.
+pub(super) fn resume_issue_post_mutation_refresh(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+) {
+    let ready = {
+        let state = app_state.read();
+        state.screen_mode == jefe::state::ScreenMode::DashboardIssues
+            && state.issue_post_mutation_refresh_ready()
+    };
+    if !ready {
+        return;
+    }
+    apply_and_persist(app_state, ctx, AppEvent::IssuePostMutationRefreshStarted);
+    issues_list_dispatch::request_issue_list_silent_refresh(app_state, ctx);
+    load_issue_detail_silent_refresh(app_state, ctx);
 }
 
 #[cfg(test)]

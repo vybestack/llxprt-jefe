@@ -57,6 +57,7 @@ fn make_test_detail(comments: Vec<IssueComment>) -> IssueDetail {
         comments,
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     }
 }
 
@@ -744,6 +745,7 @@ fn test_detail_subfocus_tab_with_comments() {
         ],
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     });
 
     // Body -> Comment(0)
@@ -801,6 +803,7 @@ fn test_detail_subfocus_tab_no_comments() {
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     });
 
     // Body -> NewComment (skip comments since there are none)

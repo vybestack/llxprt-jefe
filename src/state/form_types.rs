@@ -113,9 +113,17 @@ pub struct RepositoryFormFields {
     pub default_agent_kind: String,
     /// GitHub repository slug in `"owner/repo"` format.
     pub github_repo: String,
+    /// Optional override for the GitHub repository that sources issues/PRs
+    /// (issue #266). When nonblank, all issue/PR reads/mutations route to
+    /// this `owner/repo` instead of `github_repo`. Blank preserves current
+    /// behavior.
+    pub github_issue_pr_repo: String,
     pub remote_enabled: bool,
     pub login_user: String,
     pub host: String,
+    pub ssh_port: String,
+    pub identity_file: String,
+    pub ssh_options: String,
     pub run_as_user: String,
     pub setup_env_default: bool,
 }
@@ -128,8 +136,12 @@ pub struct RepositoryFormCursor {
     pub default_profile: usize,
     pub default_code_puppy_model: usize,
     pub github_repo: usize,
+    pub github_issue_pr_repo: usize,
     pub login_user: usize,
     pub host: usize,
+    pub ssh_port: usize,
+    pub identity_file: usize,
+    pub ssh_options: usize,
     pub run_as_user: usize,
 }
 
@@ -143,9 +155,13 @@ pub enum RepositoryFormFocus {
     DefaultCodePuppyModel,
     DefaultAgentKind,
     GitHubRepo,
+    IssuePrRepo,
     RemoteEnabled,
     LoginUser,
     Host,
+    SshPort,
+    IdentityFile,
+    SshOptions,
     RunAsUser,
     SetupEnvDefault,
 }
@@ -160,10 +176,14 @@ impl RepositoryFormFocus {
             Self::DefaultProfile => Self::DefaultCodePuppyModel,
             Self::DefaultCodePuppyModel => Self::DefaultAgentKind,
             Self::DefaultAgentKind => Self::GitHubRepo,
-            Self::GitHubRepo => Self::RemoteEnabled,
+            Self::GitHubRepo => Self::IssuePrRepo,
+            Self::IssuePrRepo => Self::RemoteEnabled,
             Self::RemoteEnabled => Self::LoginUser,
             Self::LoginUser => Self::Host,
-            Self::Host => Self::RunAsUser,
+            Self::Host => Self::SshPort,
+            Self::SshPort => Self::IdentityFile,
+            Self::IdentityFile => Self::SshOptions,
+            Self::SshOptions => Self::RunAsUser,
             Self::RunAsUser => Self::SetupEnvDefault,
             Self::SetupEnvDefault => Self::Name,
         }
@@ -179,10 +199,14 @@ impl RepositoryFormFocus {
             Self::DefaultCodePuppyModel => Self::DefaultProfile,
             Self::DefaultAgentKind => Self::DefaultCodePuppyModel,
             Self::GitHubRepo => Self::DefaultAgentKind,
-            Self::RemoteEnabled => Self::GitHubRepo,
+            Self::IssuePrRepo => Self::GitHubRepo,
+            Self::RemoteEnabled => Self::IssuePrRepo,
             Self::LoginUser => Self::RemoteEnabled,
             Self::Host => Self::LoginUser,
-            Self::RunAsUser => Self::Host,
+            Self::SshPort => Self::Host,
+            Self::IdentityFile => Self::SshPort,
+            Self::SshOptions => Self::IdentityFile,
+            Self::RunAsUser => Self::SshOptions,
             Self::SetupEnvDefault => Self::RunAsUser,
         }
     }

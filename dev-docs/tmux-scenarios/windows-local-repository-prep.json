@@ -1,0 +1,25 @@
+{
+  "config": {
+    "cols": 100,
+    "rows": 32,
+    "history_limit": 2000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "i" },
+    { "waitFor": "Issues" },
+    { "key": "Enter" },
+    { "waitFor": "Send to Agent" },
+    { "key": "Enter" },
+    { "waitFor": "Dirty Working Copy" },
+    { "expect": "( Cancel )" },
+    { "capture": "windows-local-repository-dirty-safety" },
+    { "key": "Escape" },
+    { "waitForNot": "Dirty Working Copy" },
+    { "key": "Escape" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

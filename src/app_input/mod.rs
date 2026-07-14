@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+mod agent_chooser_entries;
 mod filter_controls;
 mod issues;
 mod issues_dispatch;
@@ -7,12 +8,17 @@ mod issues_filter;
 mod issues_lifecycle;
 mod issues_list_dispatch;
 mod issues_mutation;
+mod issues_navigation;
+mod issues_property_edit;
 mod issues_subfocus_dispatch;
 mod modal_handlers;
 mod normal;
 mod persist_focus;
 mod preflight;
 mod pty_passthrough;
+mod settled_refresh;
+
+use settled_refresh::SettledRefresh;
 
 // Re-export so sibling modules importing `super::preflight_or_prompt` keep
 // resolving after the helper moved into the `preflight` submodule.
@@ -27,7 +33,9 @@ mod prs_comments_dispatch;
 mod prs_dispatch;
 mod prs_filter;
 mod prs_list_dispatch;
+mod prs_merge_dispatch;
 mod prs_mutation;
+mod prs_property_edit;
 // @plan PLAN-20260624-PR-MODE.P11
 mod prs_orchestration;
 
@@ -48,6 +56,7 @@ mod issue_self_assignment;
 mod issues_send;
 mod remote_probe;
 mod target_resolution;
+mod tracker_resolver;
 use agent_runtime::{
     clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
     mark_runtime_session_dead_if_present, process_on_success, set_agent_runtime_binding,
@@ -63,11 +72,19 @@ pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
 
 // Re-export the background-refresh orchestration helper so `app_shell` can
 // import it from `app_input` (issue #128).
+pub use actions_orchestration::synchronize_actions_geometry;
 pub use prs_orchestration::request_pr_background_refresh;
 
+// Re-export the chooser metadata builder so key handlers in `issues`/`prs`
+// can resolve git display metadata at the app_input boundary (issue #230).
+pub use agent_chooser_entries::build_chooser_metadata;
+
 // Re-export the PTY-forwarding helpers so `app_shell` can drive the agent
-// terminal without owning the encoding/forwarding logic (issue #200).
-pub use pty_passthrough::{forward_key_to_pty, try_ctrl_c_interrupt_passthrough};
+// terminal without owning the encoding/forwarding logic (issue #200, #286).
+pub use pty_passthrough::{
+    forward_key_to_pty, try_ctrl_c_interrupt_passthrough, try_suppress_synthetic_enter,
+    update_paste_enter_suppression,
+};
 
 use iocraft::hooks::State as HookState;
 use iocraft::prelude::*;
@@ -225,11 +242,21 @@ fn agent_and_signature(
 }
 
 fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
+    let settled_refresh = SettledRefresh::from_event(&evt);
     let mut state = app_state.write();
     *state = std::mem::take(&mut *state).apply(evt);
     let persisted = to_persisted_state(&state);
     drop(state);
     persist_state(ctx, &persisted);
+    match settled_refresh {
+        Some(SettledRefresh::Issues) => {
+            issues_dispatch::resume_issue_post_mutation_refresh(app_state, ctx);
+        }
+        Some(SettledRefresh::PullRequests) => {
+            prs_orchestration::resume_pr_post_mutation_refresh(app_state, ctx);
+        }
+        None => {}
+    }
 }
 
 fn close_modal_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -626,9 +653,15 @@ fn dispatch_issues_lifecycle(
 fn update_detail_viewport_rows(app_state: &mut AppStateHandle) {
     let term_rows = crossterm::terminal::size().map_or(40, |(_, rows)| rows as usize);
     let mut state = app_state.write();
+    // Issue #265: use the shared banner projection so a notice-only banner
+    // reserves the same viewport row as an error banner.
+    let issues_banner_visible = jefe::layout::issues_banner_visible(
+        state.issues_state.error.as_deref(),
+        state.issues_state.draft_notice.as_deref(),
+    );
     state.issues_state.detail_viewport_rows = jefe::layout::issues_detail_viewport_rows(
         term_rows,
-        state.issues_state.error.is_some(),
+        issues_banner_visible,
         state.issues_state.filter_ui.controls_open,
     );
 }
@@ -875,84 +908,6 @@ fn persist_relaunch_failure(state: &mut AppState, agent_id: &AgentId, relaunch_e
     }
 }
 
-fn dispatch_issues_navigation(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    message: IssuesMessage,
-) {
-    let (focus, prev_repo_idx, prev_issue_idx) = {
-        let state = app_state.read();
-        (
-            state.issues_state.issue_focus,
-            state.selected_repository_index,
-            state.issues_state.selected_issue_index(),
-        )
-    };
-
-    apply_and_persist(app_state, ctx, AppEvent::from(message));
-    refresh_issue_navigation(app_state, ctx, focus, prev_repo_idx, prev_issue_idx);
-}
-
-fn refresh_issue_navigation(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    focus: jefe::state::IssueFocus,
-    prev_repo_idx: Option<usize>,
-    prev_issue_idx: Option<usize>,
-) {
-    match focus {
-        jefe::state::IssueFocus::RepoList => {
-            refresh_repo_scope_if_changed(app_state, ctx, prev_repo_idx);
-        }
-        jefe::state::IssueFocus::IssueList => {
-            refresh_issue_preview_if_changed(app_state, prev_issue_idx);
-            issues_list_dispatch::load_more_issues_if_at_end(app_state, ctx);
-        }
-        jefe::state::IssueFocus::IssueDetail => {}
-    }
-}
-
-fn refresh_repo_scope_if_changed(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    prev_repo_idx: Option<usize>,
-) {
-    let new_repo_idx = app_state.read().selected_repository_index;
-    if new_repo_idx == prev_repo_idx {
-        return;
-    }
-    reset_issue_list_for_repo_change(app_state);
-    dispatch_app_event(app_state, ctx, AppEvent::RefocusIssueList);
-    app_state.write().issues_state.issue_focus = jefe::state::IssueFocus::RepoList;
-    issues_list_dispatch::dispatch_issue_list_fetch(app_state, ctx, true);
-}
-
-fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
-    let mut state = app_state.write();
-    // Clear the unified list (items, selection, identity, continuation,
-    // pending) for the repo switch; a fresh reload is kicked off by the caller.
-    state.issues_state.list.clear();
-    state.issues_state.issue_detail = None;
-    state.issues_state.error = None;
-    if state.issues_state.inline_state != jefe::state::InlineState::None {
-        state.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
-    }
-    state.issues_state.inline_state = jefe::state::InlineState::None;
-    state.issues_state.mutation_pending = None;
-    state.issues_state.loading.detail = false;
-    state.issues_state.loading.comments = false;
-    state.issues_state.detail_pending = None;
-    state.issues_state.comments_page_pending = None;
-    state.issues_state.agent_chooser = None;
-}
-
-fn refresh_issue_preview_if_changed(app_state: &mut AppStateHandle, prev_issue_idx: Option<usize>) {
-    let new_issue_idx = app_state.read().issues_state.selected_issue_index();
-    if new_issue_idx != prev_issue_idx {
-        issues_dispatch::preview_issue_from_list(app_state);
-    }
-}
-
 #[cfg(test)]
 #[path = "app_input_tests.rs"]
 mod tests;
@@ -984,3 +939,9 @@ mod prs_integration_tests_lifecycle;
 #[cfg(test)]
 #[path = "prs_dispatch_tests.rs"]
 mod prs_dispatch_tests;
+
+// Issue #266: configurable Issues / PRs Repo override (tracker wiring,
+// payload identity, self-assignment decoupling, Actions regression).
+#[cfg(test)]
+#[path = "issue266_tracker_tests.rs"]
+mod issue266_tracker_tests;

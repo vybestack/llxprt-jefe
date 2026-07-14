@@ -28,6 +28,17 @@ struct IssueListLoadedData {
     has_more: bool,
 }
 
+/// Payload for a silent background refresh (issue #175). Mirrors
+/// `IssueListLoadedData` but the reducer preserves selection/scroll/detail.
+struct IssueListSilentRefreshedData {
+    scope_repo_id: RepositoryId,
+    filter: IssueFilter,
+    request_id: u64,
+    issues: Vec<Issue>,
+    cursor: Option<String>,
+    has_more: bool,
+}
+
 struct IssueCommentsPageLoadedData {
     scope_repo_id: RepositoryId,
     issue_number: u64,
@@ -71,6 +82,58 @@ impl AppState {
         }
     }
 
+    /// Apply a silent background refresh without changing detail, scroll, or
+    /// visible error state. Selection follows the same issue number when that
+    /// issue remains in the refreshed result.
+    fn apply_issue_list_silent_refreshed(&mut self, data: IssueListSilentRefreshedData) {
+        let selected_issue_number = self
+            .issues_state
+            .selected_issue_index()
+            .and_then(|idx| self.issues_state.issues().get(idx))
+            .map(|issue| issue.number);
+        let result = ReloadResult {
+            identity: IssueListIdentity {
+                scope_repo_id: data.scope_repo_id,
+                filter: data.filter,
+            },
+            request_id: ListRequestId::from_raw(data.request_id),
+            items: data.issues,
+            next_page: PageToken::from_cursor(data.cursor, data.has_more),
+        };
+        let outcome = self.issues_state.list.accept_loaded(result);
+        if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty)
+            && let Some(issue_number) = selected_issue_number
+            && let Some(index) = self
+                .issues_state
+                .issues()
+                .iter()
+                .position(|issue| issue.number == issue_number)
+        {
+            self.issues_state.list.set_selected_index(Some(index));
+            self.rehydrate_visible_issue_type(issue_number);
+        }
+    }
+
+    /// Clear a correlated silent reload failure without surfacing an error.
+    fn apply_issue_list_silent_refresh_failed(
+        &mut self,
+        scope_repo_id: &RepositoryId,
+        request_id: u64,
+    ) {
+        let Some(identity) = self.issues_state.list.identity().cloned() else {
+            return;
+        };
+        if identity.scope_repo_id != *scope_repo_id {
+            return;
+        }
+        self.issues_state
+            .list
+            .accept_failure(&LoadCorrelation::Reload {
+                identity,
+                request_id: ListRequestId::from_raw(request_id),
+            });
+    }
+
     fn apply_issue_list_page_loaded(&mut self, page: IssueListPageLoadedData) {
         let identity = IssueListIdentity {
             scope_repo_id: page.scope_repo_id,
@@ -94,12 +157,13 @@ impl AppState {
         scope_repo_id: crate::domain::RepositoryId,
         issue_number: u64,
         request_id: u64,
-        detail: crate::domain::IssueDetail,
+        mut detail: crate::domain::IssueDetail,
     ) {
         let current_repo_id = self.selected_repository_id().cloned();
         if current_repo_id.as_ref() == Some(&scope_repo_id)
             && self.detail_pending_matches(&scope_repo_id, issue_number, request_id)
         {
+            self.hydrate_issue_type_name(&mut detail);
             self.issues_state.error = None;
             self.issues_state.issue_detail = Some(detail);
             self.issues_state.loading.detail = false;
@@ -108,6 +172,73 @@ impl AppState {
             self.issues_state.comments_page_pending = None;
             self.issues_state.detail_subfocus = DetailSubfocus::Body;
             self.issues_state.detail_scroll_offset = 0;
+        }
+    }
+
+    /// Apply a silent background detail refresh (issue #175). Mirrors
+    /// `apply_issue_detail_loaded` but does NOT set `loading.detail`, does NOT
+    /// reset `detail_subfocus` or `detail_scroll_offset`, and does NOT set an
+    /// error. Preserves the user's scroll/focus position.
+    fn apply_issue_detail_silent_refreshed(
+        &mut self,
+        scope_repo_id: crate::domain::RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+        mut detail: crate::domain::IssueDetail,
+    ) {
+        let current_repo_id = self.selected_repository_id().cloned();
+        if current_repo_id.as_ref() == Some(&scope_repo_id)
+            && self.detail_pending_matches(&scope_repo_id, issue_number, request_id)
+        {
+            self.hydrate_issue_type_name(&mut detail);
+            self.issues_state.issue_detail = Some(detail);
+            self.issues_state.detail_pending = None;
+        }
+    }
+
+    fn hydrate_issue_type_name(&self, detail: &mut crate::domain::IssueDetail) {
+        if detail.issue_type_name.is_some() {
+            return;
+        }
+        detail.issue_type_name = self
+            .issues_state
+            .issues()
+            .iter()
+            .find(|issue| issue.number == detail.number)
+            .map(|issue| issue.issue_type.trim())
+            .filter(|issue_type| !issue_type.is_empty())
+            .map(str::to_string);
+    }
+
+    fn rehydrate_visible_issue_type(&mut self, issue_number: u64) {
+        let issue_type_name = self
+            .issues_state
+            .issues()
+            .iter()
+            .find(|issue| issue.number == issue_number)
+            .map(|issue| issue.issue_type.trim())
+            .filter(|issue_type| !issue_type.is_empty())
+            .map(str::to_string);
+        if let Some(detail) = self
+            .issues_state
+            .issue_detail
+            .as_mut()
+            .filter(|detail| detail.number == issue_number)
+        {
+            detail.issue_type_name = issue_type_name;
+        }
+    }
+
+    /// Apply a silent background detail refresh failure (issue #175). Clears
+    /// `detail_pending` silently WITHOUT setting an error.
+    fn apply_issue_detail_silent_refresh_failed(
+        &mut self,
+        scope_repo_id: &crate::domain::RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+    ) {
+        if self.detail_pending_matches(scope_repo_id, issue_number, request_id) {
+            self.issues_state.detail_pending = None;
         }
     }
 
@@ -222,6 +353,23 @@ impl AppState {
         self.issues_state.detail_pending = None;
     }
 
+    /// Mark a silent background refresh as pending without changing visible
+    /// loading state or invalidating an in-flight detail request.
+    pub fn mark_issue_list_silent_refresh_loading(
+        &mut self,
+        scope_repo_id: crate::domain::RepositoryId,
+        filter: IssueFilter,
+        request_id: u64,
+    ) {
+        self.issues_state.list.begin_silent_reload(
+            IssueListIdentity {
+                scope_repo_id,
+                filter,
+            },
+            ListRequestId::from_raw(request_id),
+        );
+    }
+
     pub fn mark_issue_detail_loading(
         &mut self,
         scope_repo_id: crate::domain::RepositoryId,
@@ -246,6 +394,21 @@ impl AppState {
         request_id: u64,
     ) {
         self.issues_state.loading.detail = true;
+        self.issues_state.detail_pending = Some(IssueDetailPending {
+            scope_repo_id,
+            issue_number,
+            request_id,
+        });
+    }
+
+    /// Mark an issue detail silent refresh as pending without setting the
+    /// visible detail-loading flag.
+    pub fn mark_issue_detail_silent_loading(
+        &mut self,
+        scope_repo_id: crate::domain::RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+    ) {
         self.issues_state.detail_pending = Some(IssueDetailPending {
             scope_repo_id,
             issue_number,
@@ -326,15 +489,13 @@ impl AppState {
     /// Handle data-loaded events (issue lists, details, comments, search, filters).
     pub(crate) fn apply_issues_data(&mut self, event: AppEvent) {
         match event {
-            AppEvent::IssueListLoaded { .. } | AppEvent::IssueListPageLoaded { .. } => {
-                self.apply_issue_list_data(event);
+            AppEvent::IssueListLoaded { .. }
+            | AppEvent::IssueListPageLoaded { .. }
+            | AppEvent::IssueListSilentRefreshed { .. } => self.apply_issue_list_data(event),
+            detail_event @ (AppEvent::IssueDetailLoaded { .. }
+            | AppEvent::IssueDetailSilentRefreshed { .. }) => {
+                self.apply_issue_detail_data(detail_event);
             }
-            AppEvent::IssueDetailLoaded {
-                scope_repo_id,
-                issue_number,
-                request_id,
-                detail,
-            } => self.apply_issue_detail_loaded(scope_repo_id, issue_number, request_id, *detail),
             AppEvent::IssueCommentsPageLoaded {
                 scope_repo_id,
                 issue_number,
@@ -355,6 +516,32 @@ impl AppState {
             AppEvent::SetSearchQuery { query } => self.issues_state.search_query = query,
             AppEvent::UpdateDraftFilter { field, value } => {
                 self.update_draft_filter_field(field, value);
+            }
+            _ => {}
+        }
+    }
+
+    /// Apply a detail data event (loud or silent, issue #175).
+    fn apply_issue_detail_data(&mut self, event: AppEvent) {
+        match event {
+            AppEvent::IssueDetailLoaded {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                detail,
+            } => self.apply_issue_detail_loaded(scope_repo_id, issue_number, request_id, *detail),
+            AppEvent::IssueDetailSilentRefreshed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+                detail,
+            } => {
+                self.apply_issue_detail_silent_refreshed(
+                    scope_repo_id,
+                    issue_number,
+                    request_id,
+                    *detail,
+                );
             }
             _ => {}
         }
@@ -394,6 +581,21 @@ impl AppState {
                 cursor,
                 has_more,
             }),
+            AppEvent::IssueListSilentRefreshed {
+                scope_repo_id,
+                filter,
+                request_id,
+                issues,
+                cursor,
+                has_more,
+            } => self.apply_issue_list_silent_refreshed(IssueListSilentRefreshedData {
+                scope_repo_id,
+                filter: *filter,
+                request_id,
+                issues,
+                cursor,
+                has_more,
+            }),
             _ => {}
         }
     }
@@ -403,7 +605,9 @@ impl AppState {
         match event {
             AppEvent::IssueListLoadFailed { .. }
             | AppEvent::IssueDetailLoadFailed { .. }
-            | AppEvent::IssueCommentsPageFailed { .. } => self.apply_issue_load_error(event),
+            | AppEvent::IssueCommentsPageFailed { .. }
+            | AppEvent::IssueListSilentRefreshFailed { .. }
+            | AppEvent::IssueDetailSilentRefreshFailed { .. } => self.apply_issue_load_error(event),
             AppEvent::CommentCreateFailed { .. } | AppEvent::MutationFailed { .. } => {
                 self.apply_issue_mutation_error(event);
             }
@@ -441,21 +645,32 @@ impl AppState {
                 request_cursor,
                 error,
             ),
+            AppEvent::IssueListSilentRefreshFailed {
+                scope_repo_id,
+                request_id,
+            } => self.apply_issue_list_silent_refresh_failed(&scope_repo_id, request_id),
             AppEvent::IssueDetailLoadFailed {
                 scope_repo_id,
                 issue_number,
                 request_id,
                 error,
             } => {
-                let current_repo_id = self.selected_repository_id().cloned();
-                if current_repo_id.as_ref() == Some(&scope_repo_id)
-                    && self.detail_pending_matches(&scope_repo_id, issue_number, request_id)
-                {
-                    self.issues_state.loading.detail = false;
-                    self.issues_state.detail_pending = None;
-                    self.issues_state.error = Some(error);
-                }
+                self.apply_issue_detail_load_failed(
+                    &scope_repo_id,
+                    issue_number,
+                    request_id,
+                    error,
+                );
             }
+            AppEvent::IssueDetailSilentRefreshFailed {
+                scope_repo_id,
+                issue_number,
+                request_id,
+            } => self.apply_issue_detail_silent_refresh_failed(
+                &scope_repo_id,
+                issue_number,
+                request_id,
+            ),
             AppEvent::IssueCommentsPageFailed {
                 scope_repo_id,
                 issue_number,
@@ -469,19 +684,20 @@ impl AppState {
                 request_cursor.as_deref(),
             ) && self.current_detail_matches(&scope_repo_id, issue_number) =>
             {
-                self.issues_state.loading.comments = false;
-                self.issues_state.comments_page_pending = None;
-                self.issues_state.error = Some(error);
+                self.apply_issue_comments_page_failed(error);
             }
             _ => {}
         }
     }
 
+    /// Apply a loud comments-page failure (clears the pending marker + error).
+    fn apply_issue_comments_page_failed(&mut self, error: String) {
+        self.issues_state.loading.comments = false;
+        self.issues_state.comments_page_pending = None;
+        self.issues_state.error = Some(error);
+    }
+
     /// Apply an issue-list load failure via `PaginatedList::accept_failure`.
-    ///
-    /// A failure could correlate to either a reload or a page load; try the
-    /// reload correlation first, then the page correlation. Whichever clears
-    /// the pending marker derives `is_loading() == false`.
     fn apply_issue_list_load_failed(
         &mut self,
         scope_repo_id: RepositoryId,
@@ -511,6 +727,24 @@ impl AppState {
             AcceptOutcome::Applied
         );
         if applied {
+            self.issues_state.error = Some(error);
+        }
+    }
+
+    /// Apply a loud detail-load failure.
+    fn apply_issue_detail_load_failed(
+        &mut self,
+        scope_repo_id: &crate::domain::RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+        error: String,
+    ) {
+        let current_repo_id = self.selected_repository_id().cloned();
+        if current_repo_id.as_ref() == Some(scope_repo_id)
+            && self.detail_pending_matches(scope_repo_id, issue_number, request_id)
+        {
+            self.issues_state.loading.detail = false;
+            self.issues_state.detail_pending = None;
             self.issues_state.error = Some(error);
         }
     }

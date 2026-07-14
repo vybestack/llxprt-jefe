@@ -18,6 +18,11 @@ mod quick_resume;
 pub use actions::*;
 pub use quick_resume::QuickResume;
 
+// Sandbox engine + platform capability types extracted to keep this file
+// under the source-file-size limit.
+mod sandbox;
+pub use sandbox::*;
+
 /// Pagination contracts (PageToken, ListRequestId) shared across list state
 /// and boundary messages. Pure value types, no project-internal deps.
 mod pagination;
@@ -27,6 +32,17 @@ pub use pagination::*;
 // source-file-size limit.
 mod issues;
 pub use issues::*;
+
+// Validated GitHub repo reference for issue/PR tracker routing (issue #266).
+mod repo_ref;
+pub use repo_ref::{GitHubRepoRef, GitHubRepoRefError, GitHubRepoRefErrorReason};
+
+// Typed send-to-agent chooser entry and pure label projection (issue #230).
+mod agent_chooser;
+pub use agent_chooser::{
+    AgentChooserEntry, AgentChooserGitMetadata, ChooserRuntimeConfig, DirtyStatus,
+    agent_chooser_label,
+};
 
 /// Stable identifier for a repository.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -64,6 +80,18 @@ impl AgentKind {
         }
     }
 
+    /// Product display name for user-facing UI labels (e.g. the agent chooser).
+    ///
+    /// Unlike [`label`](Self::label) (which returns the internal form
+    /// identifier), this returns the human-readable product name.
+    #[must_use]
+    pub const fn display_label(self) -> &'static str {
+        match self {
+            Self::CodePuppy => "Code Puppy",
+            Self::Llxprt => "LLxprt",
+        }
+    }
+
     /// Parse a value entered or persisted by a form.
     #[must_use]
     pub fn from_form_value(value: &str) -> Option<Self> {
@@ -81,32 +109,6 @@ impl AgentKind {
     }
 }
 
-/// Default sandbox resource flags passed to llxprt via SANDBOX_FLAGS.
-///
-/// Memory is expressed in MiB to avoid unitless podman/crun interpretation issues.
-pub const DEFAULT_SANDBOX_FLAGS: &str = "--cpus=2 --memory=12288m --pids-limit=256";
-
-/// Sandbox engine to use when launching llxprt sessions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum SandboxEngine {
-    #[default]
-    Podman,
-    Docker,
-    #[serde(alias = "sandbox-exec")]
-    Seatbelt,
-}
-
-/// All known engine variants in canonical order.
-const ALL_ENGINES: [SandboxEngine; 3] = [
-    SandboxEngine::Podman,
-    SandboxEngine::Docker,
-    SandboxEngine::Seatbelt,
-];
-
-/// Linux-supported engine variants in canonical order.
-const LINUX_ENGINES: [SandboxEngine; 2] = [SandboxEngine::Podman, SandboxEngine::Docker];
-
 /// Check whether a single GitHub owner/repo component contains only valid
 /// characters: ASCII alphanumerics, hyphens, underscores, and dots.
 ///
@@ -119,140 +121,6 @@ pub fn is_valid_github_component(component: &str) -> bool {
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
-impl SandboxEngine {
-    /// Convert to llxprt CLI `--sandbox-engine` argument.
-    #[must_use]
-    pub const fn as_llxprt_arg(self) -> &'static str {
-        match self {
-            Self::Podman => "podman",
-            Self::Docker => "docker",
-            Self::Seatbelt => "sandbox-exec",
-        }
-    }
-
-    /// Parse from user-facing form value.
-    #[must_use]
-    pub fn from_form_value(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "podman" => Some(Self::Podman),
-            "docker" => Some(Self::Docker),
-            "seatbelt" | "sandbox-exec" => Some(Self::Seatbelt),
-            _ => None,
-        }
-    }
-
-    /// User-facing display label.
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Podman => "Podman",
-            Self::Docker => "Docker",
-            Self::Seatbelt => "Seatbelt",
-        }
-    }
-
-    /// Cycle to the next *supported* engine for form UX.
-    #[must_use]
-    pub fn next(self) -> Self {
-        self.next_for_capabilities(&PlatformCapabilities::current())
-    }
-
-    #[must_use]
-    fn next_for_capabilities(self, caps: &PlatformCapabilities) -> Self {
-        let supported = caps.supported_engines();
-        if supported.is_empty() {
-            return self;
-        }
-
-        let current_pos = supported.iter().position(|e| *e == self);
-        match current_pos {
-            Some(pos) => supported[(pos + 1) % supported.len()],
-            // Current engine not in supported list — reset to first supported.
-            None => supported[0],
-        }
-    }
-
-    /// Parse a form value and advance to the next supported engine.
-    #[must_use]
-    pub fn next_from_form_value(value: &str) -> Self {
-        Self::from_form_value(value).map_or_else(Self::default, Self::next)
-    }
-}
-
-/// Runtime platform capabilities — resolves which sandbox engines and features
-/// are available on the current OS.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlatformCapabilities {
-    pub os: &'static str,
-}
-
-impl PlatformCapabilities {
-    /// Detect capabilities for the running platform.
-    #[must_use]
-    pub fn current() -> Self {
-        Self {
-            os: std::env::consts::OS,
-        }
-    }
-
-    /// Build capabilities for a specific OS (for testing).
-    #[must_use]
-    pub fn for_os(os: &'static str) -> Self {
-        Self { os }
-    }
-
-    /// Engines supported on this platform in display/cycle order.
-    #[must_use]
-    pub fn supported_engines(&self) -> &'static [SandboxEngine] {
-        match self.os {
-            "macos" => &ALL_ENGINES,
-            "linux" => &LINUX_ENGINES,
-            _ => &[],
-        }
-    }
-
-    /// Whether a specific engine is supported on this platform.
-    #[must_use]
-    pub fn is_engine_supported(&self, engine: SandboxEngine) -> bool {
-        match self.os {
-            "macos" => true,
-            "linux" => !matches!(engine, SandboxEngine::Seatbelt),
-            _ => false,
-        }
-    }
-
-    /// If `engine` is unsupported, return the first supported fallback.
-    ///
-    /// Returns `None` when this platform supports no sandbox engines.
-    #[must_use]
-    pub fn normalize_engine(&self, engine: SandboxEngine) -> Option<SandboxEngine> {
-        if self.is_engine_supported(engine) {
-            return Some(engine);
-        }
-
-        self.supported_engines().first().copied()
-    }
-
-    /// Short human-readable platform description for diagnostics.
-    #[must_use]
-    pub fn platform_label(&self) -> &'static str {
-        match self.os {
-            "macos" => "macOS",
-            "linux" => "Linux",
-            "windows" => "Windows",
-            _ => "Unknown",
-        }
-    }
-}
-
-fn default_sandbox_engine() -> SandboxEngine {
-    SandboxEngine::default()
-}
-
-fn default_sandbox_flags() -> String {
-    DEFAULT_SANDBOX_FLAGS.to_owned()
-}
-
 /// Remote SSH execution settings owned by a repository.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct RemoteRepositorySettings {
@@ -262,6 +130,12 @@ pub struct RemoteRepositorySettings {
     pub login_user: String,
     #[serde(default)]
     pub host: String,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub identity_file: PathBuf,
+    #[serde(default)]
+    pub options: Vec<String>,
     #[serde(default)]
     pub run_as_user: String,
     #[serde(default)]
@@ -283,6 +157,15 @@ pub struct Repository {
     /// When set, issues mode uses this instead of auto-detecting from git remotes.
     #[serde(default)]
     pub github_repo: String,
+    /// Optional override for the GitHub repository that sources issues and PRs
+    /// (issue #266). When nonblank, all issue/PR reads and mutations are
+    /// routed to this `owner/repo` (e.g. an upstream like
+    /// `vybestack/llxprt-jefe`), while cloning, origin checks, dashboard/git
+    /// display, and GitHub Actions continue to use [`github_repo`]. Blank
+    /// preserves current behavior (issues/PRs sourced from [`github_repo`]).
+    /// `#[serde(default)]` keeps existing schema-v1 data compatible.
+    #[serde(default)]
+    pub github_issue_pr_repo: String,
     #[serde(default)]
     pub remote: RemoteRepositorySettings,
     #[serde(default)]
@@ -404,6 +287,7 @@ pub struct PullRequest {
     pub author_login: String,
     pub updated_at: String,
     pub head_ref: String,
+    pub head_sha: String,
     pub base_ref: String,
     pub is_draft: bool,
     pub review_decision: Option<PrReviewState>,
@@ -486,6 +370,7 @@ pub struct PullRequestDetail {
     pub created_at: String,
     pub updated_at: String,
     pub head_ref: String,
+    pub head_sha: String,
     pub base_ref: String,
     pub labels: Vec<String>,
     pub assignees: Vec<String>,
@@ -893,11 +778,38 @@ impl Repository {
             default_profile: String::new(),
             default_code_puppy_model: String::new(),
             github_repo: String::new(),
+            github_issue_pr_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
             default_agent_kind: AgentKind::default(),
             agent_ids: Vec::new(),
         }
+    }
+
+    /// Resolve the effective issue/PR tracker target (issue #266).
+    ///
+    /// Returns a validated [`GitHubRepoRef`] for the upstream tracker that
+    /// issues and PRs should be read from and mutated against. When
+    /// [`github_issue_pr_repo`] is nonblank and valid, that override is
+    /// returned; otherwise the fallback [`github_repo`] is used. An empty
+    /// result (`Ok(None)`) means no tracker is configured.
+    ///
+    /// A malformed nonblank override returns `Err` so it fails visibly — it is
+    /// never silently mutated to the fallback fork identity. This is the
+    /// central resolver: every issue/PR read and mutation path must go
+    /// through here (not read `github_repo` directly).
+    ///
+    /// Clone/origin/Actions paths continue to use [`github_repo`] directly and
+    /// must **not** call this method.
+    ///
+    /// [`github_issue_pr_repo`]: Repository::github_issue_pr_repo
+    /// [`github_repo`]: Repository::github_repo
+    pub fn effective_issue_pr_repo(&self) -> Result<Option<GitHubRepoRef>, GitHubRepoRefError> {
+        let override_trimmed = self.github_issue_pr_repo.trim();
+        if !override_trimmed.is_empty() {
+            return GitHubRepoRef::parse(override_trimmed);
+        }
+        GitHubRepoRef::parse(&self.github_repo)
     }
 }
 #[cfg(test)]

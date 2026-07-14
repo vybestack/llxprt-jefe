@@ -15,8 +15,10 @@
 //! `git`.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
+#[path = "issue_cleanup.rs"]
+mod issue_cleanup;
 /// Safety guards for the destructive force-reclone path (issue #190).
 ///
 /// Re-exported here so callers can reference
@@ -24,12 +26,8 @@ use std::process::{Command, Stdio};
 /// module split.
 #[path = "reclone_safety.rs"]
 mod reclone_safety;
+pub(super) use issue_cleanup::discard_workdir_changes;
 pub(super) use reclone_safety::validate_reclone_target;
-
-/// Paths that jefe/llxprt own and that must never count as "dirty" working
-/// copy state, nor be swept by cleanup. Matched as path *prefixes* against
-/// the porcelain path column.
-const IGNORED_PREFIXES: [&str; 2] = [".jefe/", ".llxprt/"];
 
 /// Check whether `work_dir` exists and is a git working copy.
 ///
@@ -365,83 +363,28 @@ fn strip_remote_prefix(refname: &str) -> &str {
 
 /// Return `true` when the working copy has uncommitted/untracked changes,
 /// ignoring jefe/ and llxprt-owned paths.
+///
+/// Uses `git status --porcelain=v1 -z` (NUL-delimited output) so paths
+/// containing newlines or ` -> ` are handled correctly. Delegates to the
+/// shared [`jefe::git_info::porcelain_is_dirty`] parser so the ignore
+/// semantics are identical between the display cache and the issue-prep
+/// orchestration.
 pub(super) fn is_workdir_dirty(work_dir: &Path) -> Result<bool, String> {
-    let output = git_capture(work_dir, ["status", "--porcelain=v1"])?;
+    let output = git_capture(work_dir, ["status", "--porcelain=v1", "-z"])?;
+    // Fail closed: a nonzero exit from `git status` (e.g. corrupt index,
+    // not a worktree after a race) must NOT be interpreted as "clean" from
+    // empty stdout. Surface a useful error so the caller blocks the launch
+    // rather than proceeding against an unknown tree state.
+    require_success(&output, "status --porcelain=v1 -z")?;
+    // NUL is valid UTF-8 (U+0000), so from_utf8_lossy preserves embedded NULs.
     let porcelain = String::from_utf8_lossy(&output.stdout);
-    Ok(porcelain_is_dirty(&porcelain))
+    Ok(jefe::git_info::porcelain_is_dirty(&porcelain))
 }
 
-/// Pure helper: given raw `git status --porcelain=v1` output, return `true`
-/// when there is at least one non-ignored (i.e. real) change.
-///
-/// Exposed so the remote target path (which captures porcelain over SSH) can
-/// reuse the exact same dirty-detection logic as the local path.
-#[must_use]
-pub(super) fn porcelain_is_dirty(porcelain: &str) -> bool {
-    relevant_dirty_lines(porcelain).next().is_some()
-}
-
-/// Iterate the porcelain lines that represent real (non-ignored) changes.
-///
-/// Pure helper: given raw `git status --porcelain` output, yields only the
-/// lines that parse to at least one valid path AND where not ALL affected
-/// paths are under a jefe/llxprt-owned prefix. Blank/garbage lines are
-/// skipped.
-///
-/// For rename/copy records (`R`/`C`), **both** old and new paths are
-/// considered affected: a real→owned or owned→real rename is dirty. The
-/// record is ignored only if ALL affected paths are under `.jefe/`/`.llxprt/`.
-fn relevant_dirty_lines(porcelain: &str) -> impl Iterator<Item = &str> {
-    porcelain
-        .lines()
-        .filter(|line| porcelain_affected_paths(line).is_some())
-        .filter(|line| !is_ignored_porcelain_line(line))
-}
-
-/// Decide whether a single porcelain line refers only to ignored paths.
-///
-/// For rename/copy records, ALL affected paths (old and new) must be under
-/// ignored prefixes. For non-rename records, the single path is checked.
-fn is_ignored_porcelain_line(line: &str) -> bool {
-    porcelain_affected_paths(line).is_some_and(|paths| {
-        paths.iter().all(|path| {
-            IGNORED_PREFIXES
-                .iter()
-                .any(|prefix| path.starts_with(prefix))
-        })
-    })
-}
-
-/// Extract all affected paths from a porcelain v1 line.
-///
-/// For a non-rename record (`XY <path>`), returns a single-element vec.
-/// For a rename/copy record (`R  old -> new` or `C  old -> new`), returns
-/// BOTH the old and new paths.
-///
-/// Returns `None` for malformed/garbage lines (status column missing,
-/// path empty). All paths are unquoted.
-fn porcelain_affected_paths(line: &str) -> Option<Vec<&str>> {
-    let bytes = line.as_bytes();
-    // Porcelain v1 format: 2-char status + 1 space + path.
-    if bytes.len() < 3 || bytes[2] != b' ' {
-        return None;
-    }
-    let trimmed = line.trim_end();
-    let rest = trimmed.get(3..)?;
-    if let Some((old, new)) = rest.split_once(" -> ") {
-        // Rename/copy: both old and new paths are affected.
-        let old_unquoted = old.trim_matches('"');
-        let new_unquoted = new.trim_matches('"');
-        if old_unquoted.is_empty() || new_unquoted.is_empty() {
-            return None;
-        }
-        Some(vec![old_unquoted, new_unquoted])
-    } else {
-        // Non-rename: single path.
-        let unquoted = rest.trim_matches('"');
-        (!unquoted.is_empty()).then(|| vec![unquoted])
-    }
-}
+/// Re-export the shared porcelain parser so callers within `app_input` that
+/// previously referenced `issue_git_prep::porcelain_is_dirty` continue to
+/// resolve without source changes.
+pub(super) use jefe::git_info::porcelain_is_dirty;
 
 /// Check out `branch` in the working copy at the latest remote state.
 ///
@@ -524,72 +467,15 @@ pub(super) fn prepare_issue_workdir(work_dir: &Path) -> PrepResult {
     checkout_and_pull(work_dir, &branch)
 }
 
-/// Discard uncommitted/untracked changes in the working copy, preserving
-/// jefe/ and llxprt-owned paths and all `.gitignore`-ed files.
-///
-/// Runs `git clean -fd` first (remove untracked files, respecting
-/// `.gitignore`) then `git reset --hard` (discard tracked changes). Running
-/// `clean` first means if it fails, the user's tracked modifications are
-/// still intact — only untracked files would have been affected. Exclusions
-/// for `.jefe/` and `.llxprt/` are derived from [`IGNORED_PREFIXES`].
-///
-/// Does **not** use `-x`, so gitignored files like `.env`, `node_modules/`,
-/// and build artifacts are preserved.
-///
-/// # Non-atomicity
-///
-/// These two operations are not atomic. If `reset --hard` fails after
-/// `clean -fd` has already removed untracked files, those untracked files
-/// are gone. The user has explicitly confirmed this destructive operation
-/// via the `ConfirmIssueDirtyCopy` modal.
-///
-/// # Limitation: tracked `.jefe/` files
-///
-/// While `git clean -e` prevents removal of *untracked* `.jefe/` files,
-/// `git reset --hard` will revert any *tracked* `.jefe/` files (e.g.,
-/// committed metadata that was locally modified) to their committed state.
-/// In practice this is not an issue because the issue prompt file is
-/// written fresh after cleanup and is never tracked by git.
-pub(super) fn discard_workdir_changes(work_dir: &Path) -> Result<(), String> {
-    // Build clean exclusion args from IGNORED_PREFIXES so the porcelain
-    // dirty-check and the cleanup step can never drift. Each prefix is
-    // added twice: as the directory itself (`.jefe/`) and as a glob for
-    // nested contents (`.jefe/**`).
-    let mut clean_args: Vec<String> = vec!["clean".into(), "-fd".into()];
-    for prefix in IGNORED_PREFIXES {
-        clean_args.push("-e".into());
-        clean_args.push(prefix.into());
-        let glob = format!("{prefix}**");
-        clean_args.push("-e".into());
-        clean_args.push(glob);
-    }
-    let output = git_capture(work_dir, &clean_args)?;
-    // Check exit status before logging so we don't report a partial/failed
-    // clean as if it succeeded.
-    require_success(&output, "clean -fd")?;
-    // Log what was removed so the destructive operation is auditable.
-    let removed = String::from_utf8_lossy(&output.stdout);
-    if !removed.trim().is_empty() {
-        tracing::info!(
-            work_dir = %work_dir.display(),
-            removed = %removed.trim(),
-            "discard_workdir_changes: git clean removed paths"
-        );
-    }
-    // Now discard tracked modifications. Running after clean so if clean
-    // fails, tracked changes are still intact.
-    git_require_success(work_dir, ["reset", "--hard"])?;
-    Ok(())
-}
-
 /// Run `git` with the given args in `work_dir`, capturing output. Returns an
 /// error string on spawn failure (does not inspect exit status).
-fn git_capture<I, S>(work_dir: &Path, args: I) -> Result<std::process::Output, String>
+pub(super) fn git_capture<I, S>(work_dir: &Path, args: I) -> Result<std::process::Output, String>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    Command::new("git")
+    jefe::local_command::command(jefe::local_command::LocalTool::Git)
+        .map_err(|error| error.to_string())?
         .current_dir(work_dir)
         // Fail fast instead of hanging on an interactive credential prompt
         // for private repos over HTTPS (stdout/stderr are piped, not a TTY).
@@ -637,7 +523,7 @@ where
 
 /// Inspect a captured `git` output and return `Err` with stderr/stdout detail
 /// when the exit status was non-zero.
-fn require_success(output: &std::process::Output, context: &str) -> Result<(), String> {
+pub(super) fn require_success(output: &std::process::Output, context: &str) -> Result<(), String> {
     if output.status.success() {
         Ok(())
     } else {
@@ -781,6 +667,54 @@ mod tests {
         assert!(is_dirty_from("RA src/old.txt -> src/new.txt\n"));
     }
 
+    // ── newline parser fail-safe: nonempty malformed records are dirty ──
+    //
+    // The newline-delimited parser must treat any nonempty but unparseable
+    // record as dirty (matching the NUL parser), so an unknown real change is
+    // never silently reported as clean. Only truly blank lines are skipped.
+
+    #[test]
+    fn newline_malformed_short_record_is_dirty() {
+        // Too short for the "XY <path>" shape.
+        assert!(is_dirty_from("X\n"));
+        assert!(is_dirty_from("XY\n"));
+    }
+
+    #[test]
+    fn newline_malformed_missing_space_is_dirty() {
+        // Status field not followed by a space separator.
+        assert!(is_dirty_from("XYpath\n"));
+    }
+
+    #[test]
+    fn newline_truncated_rename_missing_new_path_is_dirty() {
+        // Rename status with ` -> ` but empty new path.
+        assert!(is_dirty_from("R  src/old.txt -> \n"));
+        assert!(is_dirty_from("R  src/old.txt ->\n"));
+    }
+
+    #[test]
+    fn newline_rename_without_arrow_is_dirty() {
+        // An R/C status without a ` -> ` and a real path is still dirty, but
+        // a malformed empty path after the status must fail safe as dirty.
+        assert!(is_dirty_from("R  \n"));
+        assert!(is_dirty_from("C  \n"));
+    }
+
+    #[test]
+    fn newline_blank_lines_are_not_dirty() {
+        // Blank/whitespace-only lines are normal separators, not malformed.
+        assert!(!is_dirty_from(""));
+        assert!(!is_dirty_from("\n\n  \n"));
+        assert!(!is_dirty_from("   "));
+    }
+
+    #[test]
+    fn newline_garbage_among_clean_records_is_dirty() {
+        // A garbage line between two otherwise-clean jefe records fails safe.
+        assert!(is_dirty_from("?? .jefe/a\nGARBAGE\n M .jefe/b\n"));
+    }
+
     /// Helper: evaluate dirtiness from raw porcelain text via the exported
     /// `porcelain_is_dirty` wrapper so tests exercise the same public API
     /// production code uses.
@@ -918,5 +852,30 @@ mod tests {
             "https://GitHub.COM/acme/widgets.git",
             "acme/widgets"
         ));
+    }
+
+    // ── is_workdir_dirty: fail-closed on nonzero git status ─────────────
+    //
+    // `git status` exits nonzero (e.g. 128) when run outside a git worktree
+    // or against a corrupt index. Previously, is_workdir_dirty ignored the
+    // exit status and parsed stdout, so an empty stdout (typical of a
+    // nonzero exit) was misreported as "clean". This regression proves a
+    // nonzero status now surfaces a useful Err rather than a false clean.
+
+    #[test]
+    fn is_workdir_dirty_fails_closed_on_nonzero_status() {
+        // A temp directory that exists but is NOT a git worktree: `git
+        // status` here exits nonzero. This is an isolated, deterministic
+        // seam (no env mutation, no JEFE_GIT_BIN race with parallel tests).
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+        let result = is_workdir_dirty(dir.path());
+        let msg = match result {
+            Err(message) => message,
+            Ok(clean) => panic!("nonzero git status must fail closed, got Ok({clean})"),
+        };
+        assert!(
+            msg.contains("failed"),
+            "error should describe the git failure, got: {msg}"
+        );
     }
 }

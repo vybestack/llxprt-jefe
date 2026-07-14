@@ -66,6 +66,7 @@ const fn classify_running(expected: ProcessIdentity, actual: ProcessIdentity) ->
     }
     match (expected.started_at, actual.started_at) {
         (Some(expected), Some(actual)) if expected != actual => ProcessLiveness::ReusedPid,
+        (None, Some(_)) => ProcessLiveness::MalformedIdentity,
         (Some(_), None) => ProcessLiveness::ProbeFailure,
         _ => ProcessLiveness::Alive,
     }

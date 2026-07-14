@@ -51,6 +51,7 @@ fn make_test_detail(comments: Vec<IssueComment>) -> IssueDetail {
         comments,
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     }
 }
 
@@ -345,8 +346,9 @@ fn test_empty_state_no_comments() {
     assert!(loaded.comments.is_empty());
 }
 
-/// P13 Test 13: OpenAgentChooser with no agents leaves agent_chooser as None
-/// (UI empty-state: no agents available to send to).
+/// P13 Test 13: OpenAgentChooser with no agents sets draft_notice to
+/// `No agents available` and leaves agent_chooser as None (issue #265 — the
+/// reducer owns repository-scoped eligibility and surfaces visible feedback).
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P13
 /// @requirement REQ-ISS-014
@@ -356,9 +358,15 @@ fn test_empty_state_no_agents_for_send() {
     // Confirm no agents are configured
     assert!(state.agents.is_empty());
 
-    // OpenAgentChooser with no agents should leave chooser as None
-    state = state.apply(AppEvent::OpenAgentChooser);
+    // OpenAgentChooser with no agents must clear any stale chooser and set the
+    // `No agents available` notice.
+    state = state.apply(AppEvent::OpenAgentChooser { metadata: vec![] });
 
-    // When agents list is empty, agent_chooser is not opened
+    // When no eligible agents exist, agent_chooser is not opened.
     assert!(state.issues_state.agent_chooser.is_none());
+    assert_eq!(
+        state.issues_state.draft_notice.as_deref(),
+        Some("No agents available"),
+        "no eligible agents must set the No agents available notice"
+    );
 }

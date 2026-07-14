@@ -298,7 +298,7 @@ impl TmuxRuntimeManager {
         // Only memoize on success, mirroring the remote path: a transient tmux
         // failure leaves the session un-remediated and un-memoized so the next
         // attach retries (#200 review).
-        match commands::disable_prefix_for_passthrough(session_name) {
+        match commands::configure_prefix_for_passthrough(session_name) {
             Ok(()) => {
                 self.prefix_enforced.insert(session_name.to_owned());
             }
@@ -384,11 +384,25 @@ impl TmuxRuntimeManager {
         agent_id: &AgentId,
         signature: &LaunchSignature,
     ) -> bool {
+        self.session_liveness_for_signature(agent_id, signature) == liveness::SessionLiveness::Alive
+    }
+
+    /// Probe a persisted session without collapsing infrastructure failures into absence.
+    #[must_use]
+    pub fn session_liveness_for_signature(
+        &self,
+        agent_id: &AgentId,
+        signature: &LaunchSignature,
+    ) -> liveness::SessionLiveness {
         let session_name = RuntimeSession::session_name_for(agent_id);
         if signature.remote.enabled {
-            commands::remote_session_exists(&signature.remote, &session_name).unwrap_or(false)
+            match commands::remote_session_exists(&signature.remote, &session_name) {
+                Ok(true) => liveness::SessionLiveness::Alive,
+                Ok(false) => liveness::SessionLiveness::Missing,
+                Err(_) => liveness::SessionLiveness::Unavailable,
+            }
         } else {
-            liveness::check_session_alive(&session_name)
+            liveness::session_liveness(&session_name)
         }
     }
 
@@ -623,8 +637,8 @@ impl RuntimeManager for TmuxRuntimeManager {
             // Spawn new viewer
             debug!(agent_id = %agent_id.0, session_name = %session_name, "attach: spawning AttachedViewer");
             let viewer = if let Some(remote) = remote_settings {
-                let ssh_command = commands::build_remote_attach_command(&remote, &session_name);
-                AttachedViewer::spawn_remote(&session_name, self.rows, self.cols, &ssh_command)?
+                let ssh_plan = commands::build_remote_attach_plan(&remote, &session_name)?;
+                AttachedViewer::spawn_remote(&session_name, self.rows, self.cols, &ssh_plan)?
             } else {
                 AttachedViewer::spawn(&session_name, self.rows, self.cols)?
             };

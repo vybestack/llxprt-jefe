@@ -1,0 +1,39 @@
+{
+  "config": {
+    "cols": 130,
+    "rows": 40,
+    "history_limit": 4000,
+    "initial_wait_ms": 200,
+    "wait_timeout_ms": 15000,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "waitFor": "LLxprt Ω One" },
+    { "expect": "Puppy Ω Two" },
+    { "expect": "LLxprt Three" },
+    { "expect": "Puppy Four" },
+    { "capture": "four-running-agents" },
+    { "key": "M-1" },
+    { "waitFor": "LLXPRT_ONE_READY" },
+    { "key": "M-2" },
+    { "waitFor": "PUPPY_TWO_READY" },
+    { "key": "M-3" },
+    { "waitFor": "LLXPRT_THREE_READY" },
+    { "key": "M-4" },
+    { "waitFor": "PUPPY_FOUR_READY" },
+    { "capture": "agent-switching" },
+    { "key": "C-k" },
+    { "waitFor": "Kill agent" },
+    { "key": "Tab" },
+    { "key": "Enter" },
+    { "waitForNot": "Kill agent" },
+    { "waitForNot": "Puppy Four" },
+    { "expect": "LLxprt Ω One" },
+    { "expect": "Puppy Ω Two" },
+    { "expect": "LLxprt Three" },
+    { "capture": "selected-agent-killed" },
+    { "key": "C-q" },
+    { "waitForExit": 5000 }
+  ]
+}

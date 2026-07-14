@@ -108,6 +108,7 @@ pub(super) fn p15_detail(number: u64) -> IssueDetail {
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     }
 }
 

@@ -22,7 +22,7 @@ use crate::issue_detail_content::build_detail_content;
 use crate::pr_detail_content::build_pr_detail_content;
 use crate::runtime::TerminalSnapshot;
 use crate::selection::SelectablePane;
-use crate::state::AppState;
+use crate::state::{AppState, ScreenMode};
 use crate::ui::components::issue_detail::issue_detail_header_view;
 use crate::ui::components::issue_list::{IssueListLayout, issue_list_visible_rows};
 use crate::ui::components::pr_detail::pr_detail_header_view;
@@ -107,7 +107,9 @@ pub fn pane_content_lines(
         SelectablePane::RepositoryForm => repository_form_lines(state),
         SelectablePane::AgentChooser => overlay_content::agent_chooser_lines(state),
         SelectablePane::MergeChooser => overlay_content::merge_chooser_lines(state),
+        SelectablePane::PropertyEditor => overlay_content::property_editor_lines(state),
         SelectablePane::CloseReasonChooser => overlay_content::close_reason_chooser_lines(state),
+        SelectablePane::IssueDeleteConfirm => overlay_content::issue_delete_confirm_lines(state),
         SelectablePane::ConfirmModal => overlay_content::confirm_modal_lines(state),
     }
 }
@@ -169,9 +171,16 @@ fn issue_detail_header_lines(detail: &IssueDetail) -> Vec<String> {
 /// Issue list lines that match the rendered Compact-mode projection exactly
 /// (prefix + `#number` + truncated title, one line per issue).
 fn issue_list_lines(state: &AppState, term_cols: u16, term_rows: u16) -> PaneContent {
+    // Use the shared banner projection so the selection window matches the
+    // rendered pane sizing — a notice-only banner reserves the same row as
+    // an error banner (issue #265 second review).
+    let banner_visible = crate::layout::issues_banner_visible(
+        state.issues_state.error.as_deref(),
+        state.issues_state.draft_notice.as_deref(),
+    );
     let (list_pane_rows, _) = crate::layout::issues_pane_rows(
         usize::from(term_rows),
-        state.issues_state.error.is_some(),
+        banner_visible,
         state.issues_state.filter_ui.controls_open,
     );
     let list_pane_rows = u16::try_from(list_pane_rows).unwrap_or(u16::MAX);
@@ -364,7 +373,13 @@ fn status_bar_lines(state: &AppState) -> PaneContent {
 /// Keybind bar line that matches the rendered hint text for the active screen
 /// mode, reusing the pure [`keybind_hints_for`] projection.
 fn keybind_bar_lines(state: &AppState) -> PaneContent {
-    let hints = crate::ui::components::keybind_bar::keybind_hints_for(state.screen_mode, false);
+    let actions_focus =
+        (state.screen_mode == ScreenMode::DashboardActions).then_some(state.actions_state.focus);
+    let hints = crate::ui::components::keybind_bar::keybind_hints_for(
+        state.screen_mode,
+        false,
+        actions_focus,
+    );
     PaneContent::new(SelectablePane::KeybindBar, vec![hints.to_string()])
 }
 
@@ -525,6 +540,7 @@ mod tests {
             default_profile: String::new(),
             default_code_puppy_model: String::new(),
             github_repo: String::new(),
+            github_issue_pr_repo: String::new(),
             remote: crate::domain::RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
             default_agent_kind: crate::domain::AgentKind::Llxprt,
@@ -548,6 +564,7 @@ mod tests {
             author_login: "octocat".to_string(),
             updated_at: String::new(),
             head_ref: String::new(),
+            head_sha: String::new(),
             base_ref: String::new(),
             is_draft: false,
             review_decision: None,
@@ -659,6 +676,7 @@ mod tests {
             comments: Vec::new(),
             has_more_comments: false,
             comments_cursor: None,
+            issue_type_name: None,
         });
         let content = pane_content_lines(SelectablePane::IssueDetail, &state, None, &[], 120, 40);
         // Line 0: title, Line 1: state/author, Line 2: labels/assignees/milestone,
@@ -688,6 +706,7 @@ mod tests {
             created_at: "2026-01-01".to_string(),
             updated_at: "2026-02-01".to_string(),
             head_ref: "feature".to_string(),
+            head_sha: "sha123".to_string(),
             base_ref: "main".to_string(),
             labels: vec!["enhancement".to_string()],
             assignees: vec!["bob".to_string()],
@@ -830,8 +849,8 @@ mod tests {
         state.issues_state.agent_chooser = Some(crate::state::AgentChooserState {
             selected_index: 0,
             agents: vec![
-                (AgentId("a1".to_string()), "alpha".to_string()),
-                (AgentId("a2".to_string()), "beta".to_string()),
+                crate::domain::AgentChooserEntry::simple("a1", "alpha"),
+                crate::domain::AgentChooserEntry::simple("a2", "beta"),
             ],
         });
         let content = pane_content_lines(SelectablePane::AgentChooser, &state, None, &[], 120, 40);
@@ -869,6 +888,7 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
             head_ref: String::new(),
+            head_sha: String::new(),
             base_ref: String::new(),
             labels: Vec::new(),
             assignees: Vec::new(),
@@ -941,3 +961,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "content_notice_tests.rs"]
+mod content_notice_tests;

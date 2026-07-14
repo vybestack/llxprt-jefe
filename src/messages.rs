@@ -12,11 +12,15 @@ use crate::domain::{
 use crate::state::{EditorTarget, InlineState, ReadOnlyHintKind};
 
 mod issues_conversion;
+mod issues_mutation_conversion;
+mod issues_property_conversion;
+mod issues_silent_refresh_conversion;
 // @plan PLAN-20260624-PR-MODE.P03
 // @requirement REQ-PR-002
 mod actions;
 mod actions_conversion;
 mod prs_conversion;
+mod prs_property_conversion;
 pub use actions::ActionsMessage;
 
 // @plan PLAN-20260624-PR-MODE.P03
@@ -229,6 +233,33 @@ pub enum IssuesMessage {
         request_cursor: Option<String>,
         error: String,
     },
+    /// Silent background list refresh succeeded (issue #175).
+    ListSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        filter: Box<IssueFilter>,
+        request_id: u64,
+        issues: Vec<Issue>,
+        cursor: Option<String>,
+        has_more: bool,
+    },
+    /// Silent background list refresh failed (issue #175).
+    ListSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        request_id: u64,
+    },
+    /// Silent background detail refresh succeeded (issue #175).
+    DetailSilentRefreshed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+        detail: Box<IssueDetail>,
+    },
+    /// Silent background detail refresh failed (issue #175).
+    DetailSilentRefreshFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        request_id: u64,
+    },
     OpenFilterControls,
     CloseFilterControls,
     ApplyFilter,
@@ -337,7 +368,9 @@ pub enum IssuesMessage {
         issue_number: u64,
         mutation_id: u64,
     },
-    OpenAgentChooser,
+    OpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     AgentChooserNavigateUp,
     AgentChooserNavigateDown,
     AgentChooserConfirm,
@@ -352,11 +385,58 @@ pub enum IssuesMessage {
         issue_number: u64,
         error: String,
     },
+    // Property editing (issue #175)
+    OpenPropertyEditor {
+        kind: crate::state::IssuePropertyKind,
+    },
+    PropertyEditorNavigateUp,
+    PropertyEditorNavigateDown,
+    PropertyEditorToggle,
+    PropertyEditorConfirm,
+    PropertyEditorCancel,
+    PropertyEditorTitleChar(char),
+    PropertyEditorTitleBackspace,
+    PropertyEditorTitleDelete,
+    PropertyEditorTitleCursorLeft,
+    PropertyEditorTitleCursorRight,
+    PropertyEditorOptionsLoaded {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        kind: crate::state::IssuePropertyKind,
+        request_id: u64,
+        options: Vec<(Option<String>, String, bool)>,
+    },
+    PropertyEditorOptionsFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        kind: crate::state::IssuePropertyKind,
+        request_id: u64,
+        error: String,
+    },
+    PropertyEditSucceeded {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        kind: crate::state::IssuePropertyKind,
+        request_id: u64,
+    },
+    /// Consume a queued issue refresh immediately before orchestration starts it.
+    PostMutationRefreshStarted,
+    PropertyEditFailed {
+        scope_repo_id: RepositoryId,
+        issue_number: u64,
+        kind: crate::state::IssuePropertyKind,
+        request_id: u64,
+        error: String,
+    },
+    /// Synchronous validation error set directly on the open editor (issue #175).
+    PropertyEditorValidationError {
+        kind: crate::state::IssuePropertyKind,
+        error: String,
+    },
 }
-
-/// Pull Requests mode messages — mirrors `IssuesMessage` shape.
 ///
 /// @plan PLAN-20260624-PR-MODE.P03
+///
 /// @requirement REQ-PR-001
 /// @requirement REQ-PR-002
 /// @requirement REQ-PR-006
@@ -493,7 +573,9 @@ pub enum PullRequestsMessage {
         error: String,
     },
     ShowNotice(ReadOnlyHintKind),
-    OpenAgentChooser,
+    OpenAgentChooser {
+        metadata: Vec<crate::domain::AgentChooserGitMetadata>,
+    },
     AgentChooserNavigate(NavDir),
     AgentChooserConfirm,
     AgentChooserCancel,
@@ -555,6 +637,54 @@ pub enum PullRequestsMessage {
         scope_repo_id: RepositoryId,
         thread_index: usize,
         request_id: u64,
+        error: String,
+    },
+    // Property editing (issue #175)
+    OpenPropertyEditor {
+        kind: crate::state::PrPropertyKind,
+    },
+    PropertyEditorNavigateUp,
+    PropertyEditorNavigateDown,
+    PropertyEditorToggle,
+    PropertyEditorConfirm,
+    PropertyEditorCancel,
+    PropertyEditorTitleChar(char),
+    PropertyEditorTitleBackspace,
+    PropertyEditorTitleDelete,
+    PropertyEditorTitleCursorLeft,
+    PropertyEditorTitleCursorRight,
+    PropertyEditorOptionsLoaded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        kind: crate::state::PrPropertyKind,
+        request_id: u64,
+        options: Vec<(Option<String>, String, bool)>,
+    },
+    PropertyEditorOptionsFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        kind: crate::state::PrPropertyKind,
+        request_id: u64,
+        error: String,
+    },
+    PropertyEditSucceeded {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        kind: crate::state::PrPropertyKind,
+        request_id: u64,
+    },
+    /// Consume a queued PR refresh immediately before orchestration starts it.
+    PostMutationRefreshStarted,
+    PropertyEditFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        kind: crate::state::PrPropertyKind,
+        request_id: u64,
+        error: String,
+    },
+    /// Synchronous validation error set directly on the open editor (issue #175).
+    PropertyEditorValidationError {
+        kind: crate::state::PrPropertyKind,
         error: String,
     },
 }

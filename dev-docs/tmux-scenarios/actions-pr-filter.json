@@ -1,0 +1,26 @@
+{
+  "config": {
+    "cols": 120,
+    "rows": 36,
+    "history_limit": 4000,
+    "initial_wait_ms": 100,
+    "assert_mode": "strict"
+  },
+  "steps": [
+    { "waitFor": "LLxprt Jefe" },
+    { "key": "p" },
+    { "waitFor": "Pull Requests" },
+    { "key": "g" },
+    { "waitFor": "Actions" },
+    { "expect": "workflow" },
+    { "expect": "status" },
+    { "expect": "pr" },
+    { "capture": "actions-pr-filter-cross-mode" },
+    { "key": "a" },
+    { "waitFor": "No terminal attached" },
+    { "key": "q" },
+    { "key": "q" },
+    { "key": "q" },
+    { "waitForExit": 3000 }
+  ]
+}

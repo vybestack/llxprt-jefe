@@ -57,6 +57,7 @@ const PR_LIST_SEARCH_JSON: &str = r#"{
                     "author": {"login": "acoliver"},
                     "updatedAt": "2026-06-15T10:00:00Z",
                     "headRefName": "feature/cats",
+                    "headRefOid": "abc123",
                     "baseRefName": "main",
                     "isDraft": true,
                     "reviewDecision": "REVIEW_REQUIRED",
@@ -86,6 +87,7 @@ const PR_LIST_SEARCH_JSON: &str = r#"{
                     "author": {"login": "dave"},
                     "updatedAt": "2026-06-14T09:30:00Z",
                     "headRefName": "fix/crash",
+                    "headRefOid": "def789",
                     "baseRefName": "main",
                     "isDraft": false,
                     "reviewDecision": "APPROVED",
@@ -179,6 +181,21 @@ fn test_parse_pr_list_maps_second_pr_merged_and_failure() {
         PrCheckStatus::Failure,
         "rollup with a FAILURE CheckRun should aggregate to Failure"
     );
+}
+
+/// `headRefOid` from the GraphQL search response must populate
+/// `PullRequest::head_sha` for both PR nodes (issue #205 — used by the
+/// Actions PR filter to query runs by `head_sha`).
+///
+/// @plan PLAN-20260624-PR-MODE.P07
+/// @requirement REQ-PR-006
+#[test]
+fn test_parse_pr_list_maps_head_sha() {
+    let response =
+        parse_pull_requests_json(PR_LIST_SEARCH_JSON).value_or_panic("should parse PR search");
+
+    assert_eq!(response.pull_requests[0].head_sha, "abc123");
+    assert_eq!(response.pull_requests[1].head_sha, "def789");
 }
 
 /// @plan PLAN-20260624-PR-MODE.P07

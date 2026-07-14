@@ -31,9 +31,16 @@ pub fn handle_pr_inline_submit(app_state: &mut AppStateHandle, ctx: &SharedConte
         tracing::debug!("ignoring PR inline submit: no pending mutation or composer text");
         return;
     };
-    let Some(repo) = pr_repo_target(app_state) else {
-        report_missing_github_repo(app_state, ctx, &action);
-        return;
+    let repo = match pr_repo_target(app_state) {
+        Ok(Some(repo)) => repo,
+        Ok(None) => {
+            report_missing_github_repo(app_state, ctx, &action, None);
+            return;
+        }
+        Err(message) => {
+            report_missing_github_repo(app_state, ctx, &action, Some(message));
+            return;
+        }
     };
     if let ComposerTarget::ReplyToReviewThread { thread_index, .. } = &action.target {
         let Some(thread_id) = resolve_thread_id(app_state, *thread_index) else {
@@ -106,16 +113,27 @@ struct PrRepoTarget {
 
 /// Resolve the GitHub owner/repo for the currently selected repository.
 ///
+/// Returns `Ok(Some(target))` when resolved, `Ok(None)` when genuinely absent,
+/// and `Err(message)` when a nonblank override is malformed (so the malformed
+/// reason can be surfaced instead of a misleading "missing GitHub Repo").
+///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-010
 /// @pseudocode component-004 lines 146-155
-fn pr_repo_target(app_state: &AppStateHandle) -> Option<PrRepoTarget> {
+fn pr_repo_target(app_state: &AppStateHandle) -> Result<Option<PrRepoTarget>, String> {
     let state = app_state.read();
-    let (owner, repo) = prs_dispatch::resolve_pr_gh_repo(&state);
-    (!owner.is_empty() && !repo.is_empty()).then_some(PrRepoTarget { owner, repo })
+    match prs_dispatch::resolve_pr_gh_repo_or_error(&state) {
+        Ok((owner, repo)) if !owner.is_empty() && !repo.is_empty() => {
+            Ok(Some(PrRepoTarget { owner, repo }))
+        }
+        Ok(_) => Ok(None),
+        Err(error) => Err(error.message),
+    }
 }
 
-/// Report a missing GitHub repo as a mutation failure (synchronous).
+/// Report a missing or malformed GitHub repo as a mutation failure
+/// (synchronous). When `malformed` is `Some`, the malformed reason is
+/// surfaced instead of the generic "missing GitHub Repo" message.
 ///
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-013
@@ -124,7 +142,11 @@ fn report_missing_github_repo(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     action: &PrInlineSubmitAction,
+    malformed: Option<String>,
 ) {
+    let error = malformed.unwrap_or_else(|| {
+        "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string()
+    });
     apply_and_persist(
         app_state,
         ctx,
@@ -132,7 +154,7 @@ fn report_missing_github_repo(
             scope_repo_id: action.scope_repo_id.clone(),
             pr_number: action.pr_number,
             mutation_id: action.mutation_id,
-            error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
+            error,
         },
     );
 }

@@ -10,7 +10,7 @@
 //! success/failure × resolved/unavailable gating matrix be unit-tested without
 //! a runtime or network seam.
 
-use super::clone_identity::CloneIdentity;
+use jefe::domain::GitHubRepoRef;
 
 /// Split a validated `owner/repo` shortform into its two components. Returns
 /// `None` unless there are exactly two non-empty components, so a malformed
@@ -39,20 +39,24 @@ pub struct SelfAssignment {
 }
 
 impl SelfAssignment {
-    /// Build from a validated clone identity's `owner/repo` shortform and the
-    /// issue number carried by the send payload. Returns `None` when the
-    /// identity is missing or malformed (no assignment attempted).
+    /// Build from a validated tracker [`GitHubRepoRef`] and the issue number
+    /// carried by the send payload (issue #266).
+    ///
+    /// The `tracker` is the effective issue/PR tracker target (upstream when
+    /// `github_issue_pr_repo` is set, `github_repo` otherwise), NOT the clone
+    /// identity. This decouples assignment from clone identity: a fork clones
+    /// from one repo but assigns the issue on the upstream tracker. Returns
+    /// `None` when the tracker is missing or malformed (no assignment
+    /// attempted).
     pub(super) fn from_send_context(
-        clone_identity: Option<&CloneIdentity>,
+        tracker: Option<&GitHubRepoRef>,
         issue_number: u64,
     ) -> Option<Self> {
-        let identity = clone_identity?;
-        let owner_repo = identity.expected_shortform().to_string();
-        let (owner, repo) = split_owner_repo(&owner_repo)?;
+        let reference = tracker?;
         Some(Self {
-            owner,
-            repo,
-            owner_repo,
+            owner: reference.owner().to_owned(),
+            repo: reference.repo().to_owned(),
+            owner_repo: reference.full(),
             issue_number,
         })
     }
@@ -104,16 +108,14 @@ pub(super) const NO_REPO_IDENTITY_REASON: &str = "No valid GitHub repo (owner/re
      this agent's repository; could not self-assign the issue";
 
 impl IssueAssignment {
-    /// Build the intent from a validated clone identity and the issue number.
-    /// When the identity is missing/invalid, `assignment` is `None` so the
-    /// launch path can surface a warning instead of silently skipping.
-    pub(super) fn from_send_context(
-        clone_identity: Option<&CloneIdentity>,
-        issue_number: u64,
-    ) -> Self {
+    /// Build the intent from the effective tracker [`GitHubRepoRef`] and the
+    /// issue number (issue #266). When the tracker is missing/invalid,
+    /// `assignment` is `None` so the launch path can surface a warning instead
+    /// of silently skipping.
+    pub(super) fn from_send_context(tracker: Option<&GitHubRepoRef>, issue_number: u64) -> Self {
         Self {
             issue_number,
-            assignment: SelfAssignment::from_send_context(clone_identity, issue_number),
+            assignment: SelfAssignment::from_send_context(tracker, issue_number),
         }
     }
 
@@ -218,11 +220,11 @@ pub(super) fn post_preflight_assignment_action(
 
 #[cfg(test)]
 mod tests {
-    use super::CloneIdentity;
     use super::{
         IssueAssignment, IssueAssignmentAction, direct_assignment_action,
         post_preflight_assignment_action, split_owner_repo,
     };
+    use jefe::domain::GitHubRepoRef;
     use jefe::state::IssueSelfAssignmentFollowUp as FollowUp;
 
     #[test]
@@ -263,7 +265,7 @@ mod tests {
 
     #[test]
     fn split_owner_repo_trims_surrounding_whitespace() {
-        // The source is the validated CloneIdentity shortform; surrounding
+        // The source is the validated tracker shortform; surrounding
         // whitespace around the two components is trimmed.
         assert_eq!(
             split_owner_repo("owner / repo"),
@@ -277,13 +279,23 @@ mod tests {
     // is unavailable, and does nothing when the launch failed.
 
     fn resolved_intent() -> IssueAssignment {
-        let identity = CloneIdentity::parse("vybestack/llxprt-jefe")
-            .unwrap_or_else(|| panic!("valid owner/repo parses into a clone identity"));
-        IssueAssignment::from_send_context(Some(&identity), 186)
+        let reference = GitHubRepoRef::parse("vybestack/llxprt-jefe")
+            .unwrap_or_else(|e| panic!("valid owner/repo must parse: {e}"))
+            .unwrap_or_else(|| panic!("valid owner/repo must yield Some"));
+        IssueAssignment::from_send_context(Some(&reference), 186)
     }
 
     fn unavailable_intent() -> IssueAssignment {
         IssueAssignment::from_send_context(None, 186)
+    }
+
+    #[test]
+    fn missing_tracker_produces_no_assignment() {
+        assert!(
+            IssueAssignment::from_send_context(None, 186)
+                .assignment
+                .is_none()
+        );
     }
 
     #[test]

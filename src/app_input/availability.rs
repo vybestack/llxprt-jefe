@@ -216,6 +216,7 @@ mod tests {
             host: "build.example.com".to_owned(),
             run_as_user: "acoliver".to_owned(),
             setup_env_default: true,
+            ..RemoteRepositorySettings::default()
         };
         // CodePuppy is NOT installed locally.
         let available = &[AgentKind::Llxprt];
@@ -235,6 +236,7 @@ mod tests {
             host: "build.example.com".to_owned(),
             run_as_user: String::new(),
             setup_env_default: false,
+            ..RemoteRepositorySettings::default()
         };
         let available = &[][..];
         assert!(
@@ -254,6 +256,7 @@ mod tests {
             host: String::new(),
             run_as_user: String::new(),
             setup_env_default: false,
+            ..RemoteRepositorySettings::default()
         };
         let available = &[AgentKind::CodePuppy, AgentKind::Llxprt];
         let result = require_local_kind_available(AgentKind::CodePuppy, &remote, available);
@@ -269,6 +272,7 @@ mod tests {
             host: "build.example.com".to_owned(),
             run_as_user: String::new(),
             setup_env_default: false,
+            ..RemoteRepositorySettings::default()
         };
         let available = &[AgentKind::CodePuppy];
         let result = require_local_kind_available(AgentKind::CodePuppy, &remote, available);
@@ -285,6 +289,7 @@ mod tests {
             host: "build.example.com".to_owned(),
             run_as_user: String::new(),
             setup_env_default: false,
+            ..RemoteRepositorySettings::default()
         };
         let available = &[AgentKind::Llxprt];
         let result = require_local_kind_available(AgentKind::CodePuppy, &remote, available);

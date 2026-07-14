@@ -10,6 +10,7 @@ fn local_repository() -> Repository {
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
         github_repo: String::new(),
+        github_issue_pr_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),
         default_agent_kind: crate::domain::AgentKind::Llxprt,
@@ -25,6 +26,7 @@ fn remote_repository() -> Repository {
             host: "example.com".to_owned(),
             run_as_user: "acoliver".to_owned(),
             setup_env_default: false,
+            ..RemoteRepositorySettings::default()
         },
         ..local_repository()
     }

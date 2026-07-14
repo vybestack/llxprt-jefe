@@ -301,6 +301,7 @@ fn test_pr(number: u64) -> jefe::domain::PullRequest {
         author_login: "testuser".to_string(),
         updated_at: "2024-01-01T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         is_draft: false,
         review_decision: None,
@@ -324,6 +325,7 @@ fn test_pr_detail(number: u64) -> jefe::domain::PullRequestDetail {
         created_at: "2024-01-01T00:00:00Z".to_string(),
         updated_at: "2024-01-02T00:00:00Z".to_string(),
         head_ref: "feature".to_string(),
+        head_sha: "sha123".to_string(),
         base_ref: "main".to_string(),
         labels: vec![],
         assignees: vec![],
@@ -560,7 +562,12 @@ fn state_for_pr_agent_chooser_confirm(
         pr_detail: Some(test_pr_detail(42)),
         agent_chooser: Some(AgentChooserState {
             selected_index: 0,
-            agents: vec![(agent_id.clone(), String::from("PR Agent"))],
+            agents: vec![jefe::domain::AgentChooserEntry::new(
+                agent_id.clone(),
+                String::from("PR Agent"),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
+            )],
         }),
         ..jefe::state::PullRequestsState::default()
     };
@@ -760,6 +767,7 @@ fn state_for_issue_agent_chooser_send(
         comments: vec![],
         has_more_comments: false,
         comments_cursor: None,
+        issue_type_name: None,
     };
 
     let issues_state = jefe::state::IssuesState {
@@ -767,7 +775,12 @@ fn state_for_issue_agent_chooser_send(
         issue_detail: Some(detail),
         agent_chooser: Some(AgentChooserState {
             selected_index: 0,
-            agents: vec![(agent_id.clone(), String::from("Agent One"))],
+            agents: vec![jefe::domain::AgentChooserEntry::new(
+                agent_id.clone(),
+                String::from("Agent One"),
+                jefe::domain::AgentKind::Llxprt,
+                jefe::domain::ChooserRuntimeConfig::default(),
+            )],
         }),
         ..jefe::state::IssuesState::default()
     };

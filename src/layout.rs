@@ -352,6 +352,25 @@ pub fn issues_detail_pane_rows(
     issues_pane_rows(term_rows, error_visible, filter_controls_open).1
 }
 
+/// Derive the single Issues-mode banner text with error precedence.
+///
+/// When both `error` and `draft_notice` are present, the error wins. This
+/// pure projection is consumed by both the visible banner render and the
+/// pane row sizing so they never disagree (issue #265).
+#[must_use]
+pub fn issues_banner_text<'a>(
+    error: Option<&'a str>,
+    draft_notice: Option<&'a str>,
+) -> Option<&'a str> {
+    error.or(draft_notice)
+}
+
+/// Whether the single Issues-mode error/notice banner is visible.
+#[must_use]
+pub fn issues_banner_visible(error: Option<&str>, draft_notice: Option<&str>) -> bool {
+    issues_banner_text(error, draft_notice).is_some()
+}
+
 /// Compute the number of rows available for the detail scroll viewport given
 /// the total terminal height and conditional Issues-mode bands.
 #[must_use]
@@ -389,6 +408,33 @@ pub fn prs_detail_viewport_rows(
     filter_controls_open: bool,
 ) -> usize {
     issues_detail_viewport_rows(term_rows, error_visible, filter_controls_open)
+}
+
+/// Complete Actions detail geometry shared by state transitions and rendering.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ActionsDetailGeometry {
+    /// Wrapped display rows visible below the fixed metadata header.
+    pub viewport_rows: usize,
+    /// Character width used by the shared document wrapping projection.
+    pub content_width: usize,
+}
+
+/// Compute Actions detail geometry from terminal dimensions and visible bands.
+#[must_use]
+pub fn actions_detail_geometry(
+    term_cols: u16,
+    term_rows: u16,
+    error_visible: bool,
+    filter_controls_open: bool,
+) -> ActionsDetailGeometry {
+    ActionsDetailGeometry {
+        viewport_rows: prs_detail_viewport_rows(
+            usize::from(term_rows),
+            error_visible,
+            filter_controls_open,
+        ),
+        content_width: usize::from(prs_detail_content_width(term_cols)),
+    }
 }
 
 /// Compute inner content width for issue-list title lines.

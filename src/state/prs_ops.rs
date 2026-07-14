@@ -113,6 +113,9 @@ impl AppState {
             self.prs_state.draft_notice = Some("Unsent draft discarded".to_string());
             self.prs_state.inline_state = InlineState::None;
         }
+        // M7: clear property editor on mode exit.
+        self.prs_state.property_editor = None;
+        self.prs_state.property_mutation_pending = None;
         if let Some(prior) = self.prs_state.prior_agent_focus.take() {
             self.pane_focus = prior.pane_focus;
             if let Some(idx) = prior.selected_agent_index {
@@ -148,6 +151,8 @@ impl AppState {
             self.prs_state.draft_notice = Some("Draft discarded (repo changed)".to_string());
             self.prs_state.inline_state = InlineState::None;
         }
+        self.prs_state.property_editor = None;
+        self.prs_state.property_mutation_pending = None;
         self.prs_state.list.clear();
         self.prs_state.pr_detail = None;
         self.prs_state.error = None;
@@ -411,8 +416,8 @@ impl AppState {
     /// @pseudocode component-001 lines 331-340
     fn apply_pr_agent_chooser_event(&mut self, event: &AppEvent) -> bool {
         match event {
-            AppEvent::PrOpenAgentChooser => {
-                self.open_pr_agent_chooser();
+            AppEvent::PrOpenAgentChooser { metadata } => {
+                self.open_pr_agent_chooser(metadata.clone());
                 true
             }
             AppEvent::PrAgentChooserNavigateUp => {
@@ -441,26 +446,31 @@ impl AppState {
         }
     }
 
-    /// Open the PR agent chooser (precondition: detail + no composer).
+    /// Open the PR agent chooser using Git metadata joined with agents
+    /// recomputed from current state (precondition: detail + no composer).
     ///
-    /// @plan PLAN-20260624-PR-MODE.P05
-    /// @requirement REQ-PR-011
-    /// @pseudocode component-001 lines 331-340
-    fn open_pr_agent_chooser(&mut self) {
+    /// The reducer is the authoritative source of eligibility: it calls
+    /// [`build_chooser_entries_from_state`], which internally invokes
+    /// [`AppState::chooser_agents_for_repository`] to get currently eligible
+    /// agents, then joins only the Git metadata whose [`AgentId`] matches.
+    /// Stale or injected metadata is silently dropped.
+    fn open_pr_agent_chooser(&mut self, metadata: Vec<crate::domain::AgentChooserGitMetadata>) {
         if self.prs_state.pr_focus != PrFocus::PrDetail
             || self.prs_state.inline_state != InlineState::None
         {
             return;
         }
         let repo_id = self.selected_repository_id().cloned();
-        let agents = self.chooser_agents_for_repository(repo_id.as_ref());
-        if agents.is_empty() {
+        let entries =
+            crate::state::build_chooser_entries_from_state(self, repo_id.as_ref(), &metadata);
+        if entries.is_empty() {
+            self.prs_state.agent_chooser = None;
             self.prs_state.draft_notice = Some("No agents available".to_string());
             return;
         }
         self.prs_state.agent_chooser = Some(AgentChooserState {
             selected_index: 0,
-            agents,
+            agents: entries,
         });
     }
 
@@ -626,6 +636,7 @@ impl AppState {
             || self.apply_pr_mutation_event(event.clone())
             || self.apply_pr_agent_chooser_event(&event)
             || self.apply_pr_merge_event(&event)
+            || self.apply_pr_property_event(&event)
             || self.apply_prs_data_wrapper(&event)
             || self.apply_prs_load_error_wrapper(&event)
             || self.apply_pr_thread_event(&event)
