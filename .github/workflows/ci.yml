@@ -278,15 +278,20 @@ jobs:
         run: |
           $remaining = 'target/windows-ci/remaining-sessions.txt'
           'No harness namespace was recorded.' | Out-File $remaining
-          $details = 'target/tmux-harness/windows-startup/multiplexer.txt'
-          if (Test-Path $details) {
-            $match = Select-String -Path $details -Pattern '^namespace: (.+)$'
-            if ($null -ne $match) {
-              $namespace = $match.Matches[0].Groups[1].Value
-              $output = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace list-sessions 2>&1
-              $status = $LASTEXITCODE
-              @("namespace: $namespace", "status: $status") + $output |
-                Out-File $remaining
+          $detailsFiles = @(
+            'target/tmux-harness/windows-startup/multiplexer.txt',
+            'target/tmux-harness/windows-renderer/multiplexer.txt'
+          )
+          foreach ($details in $detailsFiles) {
+            if (Test-Path $details) {
+              $match = Select-String -Path $details -Pattern '^namespace: (.+)$'
+              if ($null -ne $match) {
+                $namespace = $match.Matches[0].Groups[1].Value
+                $output = & $env:JEFE_PSMUX_BIN -f NUL -L $namespace list-sessions 2>&1
+                $status = $LASTEXITCODE
+                @("namespace: $namespace", "status: $status") + $output |
+                  Out-File $remaining -Append
+              }
             }
           }
           exit 0

@@ -284,7 +284,7 @@ impl Canvas {
                 // Avoid clearing from the pending-wrap cursor after writing the
                 // final terminal cell. Some Windows terminals interpret EL from
                 // that state as erasing the bottom-right edge.
-                let row_uses_full_width = row.len() == self.width;
+                let row_uses_full_width = col >= self.width;
                 if !preserve_exact_width_edge || !row_uses_full_width {
                     write!(w, csi!("K"))?;
                 }
@@ -497,6 +497,25 @@ mod tests {
         assert!(!output.contains("\r\n"));
         assert!(!output.contains("\u{1b}[K"));
     }
+
+    #[test]
+    fn exact_width_changed_row_ending_in_wide_glyph_preserves_edge() {
+        let previous = Canvas::new(4, 1);
+        let mut current = previous.clone();
+        current
+            .subview_mut(0, 0, 4, 1, true)
+            .set_text(0, 0, "ab界", CanvasTextStyle::default());
+
+        let mut actual = Vec::new();
+        current
+            .write_ansi_changed_rows(&previous, &mut actual)
+            .unwrap();
+        let output = String::from_utf8_lossy(&actual);
+
+        assert!(output.contains("ab界"));
+        assert!(!output.contains("\u{1b}[K"));
+    }
+
     #[test]
     fn test_canvas_background_color() {
         let mut canvas = Canvas::new(6, 3);
