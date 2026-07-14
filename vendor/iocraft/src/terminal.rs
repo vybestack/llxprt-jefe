@@ -113,11 +113,53 @@ impl Stream for TerminalEvents {
     }
 }
 
+fn serialize_frame(
+    canvas: &Canvas,
+    previous: Option<&Canvas>,
+    fullscreen: bool,
+) -> io::Result<Vec<u8>> {
+    let mut frame = Vec::new();
+    queue!(
+        frame,
+        terminal::BeginSynchronizedUpdate,
+        terminal::DisableLineWrap
+    )?;
+    let previous = previous.filter(|previous| {
+        previous.width() == canvas.width() && previous.height() == canvas.height()
+    });
+    if let Some(previous) = previous {
+        canvas.write_ansi_changed_rows(previous, &mut frame)?;
+    } else if fullscreen {
+        queue!(frame, cursor::MoveTo(0, 0), terminal::Clear(terminal::ClearType::All))?;
+        canvas.write_ansi_without_final_newline(&mut frame)?;
+    } else {
+        canvas.write_ansi(&mut frame)?;
+    }
+    queue!(
+        frame,
+        cursor::MoveTo(0, 0),
+        terminal::EnableLineWrap,
+        terminal::EndSynchronizedUpdate
+    )?;
+    Ok(frame)
+}
+
+fn write_frame(destination: &mut impl Write, frame: &[u8]) -> io::Result<()> {
+    destination.write_all(frame)?;
+    destination.flush()
+}
+
 trait TerminalImpl: Write + Send {
     fn width(&self) -> Option<u16>;
+    fn size(&self) -> Option<(u16, u16)>;
+    fn is_fullscreen(&self) -> bool;
     fn is_raw_mode_enabled(&self) -> bool;
     fn clear_canvas(&mut self) -> io::Result<()>;
-    fn write_canvas(&mut self, canvas: &Canvas) -> io::Result<()>;
+    fn write_canvas(
+        &mut self,
+        canvas: &Canvas,
+        previous: Option<&Canvas>,
+    ) -> io::Result<()>;
     fn event_stream(&mut self) -> io::Result<BoxStream<'static, TerminalEvent>>;
 }
 
@@ -141,7 +183,15 @@ impl Write for StdTerminal {
 
 impl TerminalImpl for StdTerminal {
     fn width(&self) -> Option<u16> {
-        terminal::size().ok().map(|(w, _)| w)
+        self.size().map(|(width, _)| width)
+    }
+
+    fn size(&self) -> Option<(u16, u16)> {
+        terminal::size().ok()
+    }
+
+    fn is_fullscreen(&self) -> bool {
+        self.fullscreen
     }
 
     fn is_raw_mode_enabled(&self) -> bool {
@@ -160,14 +210,19 @@ impl TerminalImpl for StdTerminal {
         )
     }
 
-    fn write_canvas(&mut self, canvas: &Canvas) -> io::Result<()> {
+    fn write_canvas(
+        &mut self,
+        canvas: &Canvas,
+        previous: Option<&Canvas>,
+    ) -> io::Result<()> {
         self.prev_canvas_height = canvas.height() as _;
         if self.fullscreen {
-            canvas.write_ansi_without_final_newline(self)?;
+            let frame = serialize_frame(canvas, previous, true)?;
+            write_frame(&mut self.dest, &frame)
         } else {
-            canvas.write_ansi(self)?;
+            canvas.write_ansi(&mut self.dest)?;
+            self.dest.flush()
         }
-        Ok(())
     }
 
     fn event_stream(&mut self) -> io::Result<BoxStream<'static, TerminalEvent>> {
@@ -332,6 +387,14 @@ impl TerminalImpl for MockTerminal {
         None
     }
 
+    fn size(&self) -> Option<(u16, u16)> {
+        None
+    }
+
+    fn is_fullscreen(&self) -> bool {
+        false
+    }
+
     fn is_raw_mode_enabled(&self) -> bool {
         false
     }
@@ -340,7 +403,11 @@ impl TerminalImpl for MockTerminal {
         Ok(())
     }
 
-    fn write_canvas(&mut self, canvas: &Canvas) -> io::Result<()> {
+    fn write_canvas(
+        &mut self,
+        canvas: &Canvas,
+        _previous: Option<&Canvas>,
+    ) -> io::Result<()> {
         let _ = self.output.unbounded_send(canvas.clone());
         Ok(())
     }
@@ -388,12 +455,24 @@ impl Terminal {
         self.inner.width()
     }
 
+    pub fn size(&self) -> Option<(u16, u16)> {
+        self.inner.size()
+    }
+
+    pub fn is_fullscreen(&self) -> bool {
+        self.inner.is_fullscreen()
+    }
+
     pub fn clear_canvas(&mut self) -> io::Result<()> {
         self.inner.clear_canvas()
     }
 
-    pub fn write_canvas(&mut self, canvas: &Canvas) -> io::Result<()> {
-        self.inner.write_canvas(canvas)
+    pub fn write_canvas(
+        &mut self,
+        canvas: &Canvas,
+        previous: Option<&Canvas>,
+    ) -> io::Result<()> {
+        self.inner.write_canvas(canvas, previous)
     }
 
     pub async fn wait(&mut self) {
@@ -452,7 +531,94 @@ impl Write for Terminal {
 
 #[cfg(test)]
 mod tests {
+    use super::{serialize_frame, write_frame};
     use crate::prelude::*;
+
+    #[derive(Default)]
+    struct CountingWriter {
+        bytes: Vec<u8>,
+        writes: usize,
+        flushes: usize,
+    }
+
+    impl std::io::Write for CountingWriter {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.bytes.extend_from_slice(buffer);
+            self.writes += 1;
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushes += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn changed_frame_is_buffered_without_fullscreen_clear() {
+        let mut previous = Canvas::new(8, 2);
+        previous
+            .subview_mut(0, 0, 8, 2, true)
+            .set_text(0, 0, "stable", CanvasTextStyle::default());
+        let mut current = previous.clone();
+        current
+            .subview_mut(0, 0, 8, 2, true)
+            .set_text(0, 1, "changed", CanvasTextStyle::default());
+
+        let frame = serialize_frame(&current, Some(&previous), true).unwrap();
+        let output = String::from_utf8_lossy(&frame);
+
+        assert!(output.contains("changed"));
+        assert!(!output.contains("stable"));
+        assert!(!output.contains("\u{1b}[2J"));
+        assert!(output.contains("\u{1b}[?7l"));
+        assert!(output.contains("\u{1b}[?7h"));
+    }
+
+    #[test]
+    fn exact_width_initial_frame_disables_autowrap() {
+        let mut canvas = Canvas::new(4, 1);
+        canvas
+            .subview_mut(0, 0, 4, 1, true)
+            .set_text(0, 0, "|--|", CanvasTextStyle::default());
+
+        let frame = serialize_frame(&canvas, None, true).unwrap();
+        let output = String::from_utf8_lossy(&frame);
+
+        assert!(output.contains("\u{1b}[?7l"));
+        assert!(output.contains("|--|"));
+        assert!(output.contains("\u{1b}[?7h"));
+        assert!(!output.contains("\r\n"));
+    }
+
+    #[test]
+    fn dimension_change_forces_complete_fullscreen_frame() {
+        let mut previous = Canvas::new(3, 1);
+        previous
+            .subview_mut(0, 0, 3, 1, true)
+            .set_text(0, 0, "old", CanvasTextStyle::default());
+        let mut current = Canvas::new(4, 1);
+        current
+            .subview_mut(0, 0, 4, 1, true)
+            .set_text(0, 0, "new!", CanvasTextStyle::default());
+
+        let frame = serialize_frame(&current, Some(&previous), true).unwrap();
+        let output = String::from_utf8_lossy(&frame);
+
+        assert!(output.contains("\u{1b}[2J"));
+        assert!(output.contains("new!"));
+    }
+
+    #[test]
+    fn frame_is_published_with_one_write_and_one_flush() {
+        let mut destination = CountingWriter::default();
+
+        write_frame(&mut destination, b"complete frame").unwrap();
+
+        assert_eq!(destination.bytes, b"complete frame");
+        assert_eq!(destination.writes, 1);
+        assert_eq!(destination.flushes, 1);
+    }
 
     #[test]
     fn test_std_terminal() {
@@ -462,6 +628,6 @@ mod tests {
         assert!(!terminal.is_raw_mode_enabled());
         assert!(!terminal.is_raw_mode_enabled());
         let canvas = Canvas::new(10, 1);
-        terminal.write_canvas(&canvas).unwrap();
+        terminal.write_canvas(&canvas, None).unwrap();
     }
 }

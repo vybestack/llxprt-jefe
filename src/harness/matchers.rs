@@ -5,6 +5,7 @@
 
 use super::capture::{ScreenCapture, ScrollbackSample};
 
+use unicode_width::UnicodeWidthStr;
 /// Pattern used by harness predicates.
 ///
 /// The first harness milestone intentionally supports literal text only. Regex
@@ -88,6 +89,21 @@ pub fn screen_contains(capture: &ScreenCapture, pattern: MatchPattern) -> Predic
 #[must_use]
 pub fn screen_absent(capture: &ScreenCapture, pattern: MatchPattern) -> PredicateOutcome {
     absent_lines(capture.lines(), pattern)
+}
+
+/// Evaluate whether a full-width screen line ends with `pattern` at the
+/// captured viewport's rightmost column.
+#[must_use]
+pub fn screen_right_edge(capture: &ScreenCapture, pattern: MatchPattern) -> PredicateOutcome {
+    let width = usize::from(capture.cols);
+    let matched_line = capture.lines().iter().position(|line| {
+        line.ends_with(pattern.text()) && UnicodeWidthStr::width(line.as_str()) == width
+    });
+    PredicateOutcome {
+        matched: matched_line.is_some(),
+        pattern,
+        matched_line,
+    }
 }
 
 /// Count exact literal occurrences in a screen capture.

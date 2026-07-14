@@ -185,6 +185,7 @@ impl Canvas {
         mut w: W,
         ansi: bool,
         omit_final_newline: bool,
+        preserve_exact_width_edge: bool,
     ) -> io::Result<()> {
         if ansi {
             write!(w, csi!("0m"))?;
@@ -280,8 +281,13 @@ impl Canvas {
                     write!(w, csi!("{}m"), Colored::BackgroundColor(Color::Reset))?;
                     background_color = None;
                 }
-                // clear until end of line
-                write!(w, csi!("K"))?;
+                // Avoid clearing from the pending-wrap cursor after writing the
+                // final terminal cell. Some Windows terminals interpret EL from
+                // that state as erasing the bottom-right edge.
+                let row_uses_full_width = row.len() == self.width;
+                if !preserve_exact_width_edge || !row_uses_full_width {
+                    write!(w, csi!("K"))?;
+                }
             }
             if !omit_final_newline || y < self.cells.len() - 1 {
                 if ansi {
@@ -295,22 +301,39 @@ impl Canvas {
         if ansi {
             write!(w, csi!("0m"))?;
         }
-        w.flush()?;
         Ok(())
     }
 
+    pub(crate) fn write_ansi_changed_rows<W: Write>(
+        &self,
+        previous: &Self,
+        mut writer: W,
+    ) -> io::Result<()> {
+        for (row_index, row) in self.cells.iter().enumerate() {
+            if previous.cells.get(row_index) == Some(row) {
+                continue;
+            }
+            write!(writer, csi!("{};{}H"), row_index + 1, 1)?;
+            let row_canvas = Self {
+                width: self.width,
+                cells: vec![row.clone()],
+            };
+            row_canvas.write_impl(&mut writer, true, true, true)?;
+        }
+        Ok(())
+    }
     /// Writes the canvas to the given writer with ANSI escape codes.
     pub fn write_ansi<W: Write>(&self, w: W) -> io::Result<()> {
-        self.write_impl(w, true, false)
+        self.write_impl(w, true, false, false)
     }
 
     pub(crate) fn write_ansi_without_final_newline<W: Write>(&self, w: W) -> io::Result<()> {
-        self.write_impl(w, true, true)
+        self.write_impl(w, true, true, true)
     }
 
     /// Writes the canvas to the given writer as unstyled text, without ANSI escape codes.
     pub fn write<W: Write>(&self, w: W) -> io::Result<()> {
-        self.write_impl(w, false, false)
+        self.write_impl(w, false, false, false)
     }
 }
 
@@ -431,6 +454,49 @@ mod tests {
     use super::*;
     use crate::prelude::*;
 
+    #[test]
+    fn changed_row_writer_avoids_full_viewport_repaint() {
+        let mut previous = Canvas::new(8, 2);
+        previous
+            .subview_mut(0, 0, 8, 2, true)
+            .set_text(0, 0, "stable", CanvasTextStyle::default());
+        previous
+            .subview_mut(0, 0, 8, 2, true)
+            .set_text(0, 1, "before", CanvasTextStyle::default());
+        let mut current = previous.clone();
+        current
+            .subview_mut(0, 0, 8, 2, true)
+            .set_text(0, 1, "after ", CanvasTextStyle::default());
+
+        let mut actual = Vec::new();
+        current
+            .write_ansi_changed_rows(&previous, &mut actual)
+            .unwrap();
+        let output = String::from_utf8_lossy(&actual);
+
+        assert!(!output.contains("stable"));
+        assert!(output.contains("after"));
+        assert!(!output.contains("\r\n"));
+    }
+
+    #[test]
+    fn exact_width_changed_row_does_not_emit_newline() {
+        let previous = Canvas::new(4, 1);
+        let mut current = previous.clone();
+        current
+            .subview_mut(0, 0, 4, 1, true)
+            .set_text(0, 0, "|--|", CanvasTextStyle::default());
+
+        let mut actual = Vec::new();
+        current
+            .write_ansi_changed_rows(&previous, &mut actual)
+            .unwrap();
+        let output = String::from_utf8_lossy(&actual);
+
+        assert!(output.contains("|--|"));
+        assert!(!output.contains("\r\n"));
+        assert!(!output.contains("\u{1b}[K"));
+    }
     #[test]
     fn test_canvas_background_color() {
         let mut canvas = Canvas::new(6, 3);

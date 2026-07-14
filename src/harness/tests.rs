@@ -849,3 +849,16 @@ fn expansion_is_idempotent() {
     );
     assert_eq!(twice.steps, once.steps);
 }
+
+#[test]
+fn parses_right_edge_assertion() {
+    let json = r#"{
+        "config": { "cols": 80, "rows": 24, "history_limit": 100 },
+        "steps": [ { "expectRightEdge": "╮" } ]
+    }"#;
+    let scenario = parse_scenario(json).value_or_panic("right-edge assertion should parse");
+    assert!(matches!(
+        &scenario.steps[0],
+        Step::ExpectRightEdge { pattern } if pattern == "╮"
+    ));
+}

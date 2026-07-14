@@ -144,6 +144,9 @@ fn substitute_step(step: &Step, args: &BTreeMap<String, String>) -> Step {
         Step::Expect { pattern } => Step::Expect {
             pattern: substitute(pattern, args),
         },
+        Step::ExpectRightEdge { pattern } => Step::ExpectRightEdge {
+            pattern: substitute(pattern, args),
+        },
         Step::ExpectCount { pattern, count } => Step::ExpectCount {
             pattern: substitute(pattern, args),
             count: *count,
