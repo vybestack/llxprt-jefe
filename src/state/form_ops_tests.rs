@@ -12,6 +12,7 @@ fn seed_repository() -> Repository {
         default_profile: String::new(),
         default_code_puppy_model: String::new(),
         github_repo: String::new(),
+        github_issue_pr_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),
         default_agent_kind: crate::domain::AgentKind::Llxprt,
@@ -219,6 +220,7 @@ fn remote_repository_creation_preserves_remote_base_dir_without_local_expansion(
         default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: String::new(),
+        github_issue_pr_repo: String::new(),
         remote_enabled: true,
         login_user: "ubuntu".to_owned(),
         host: "170.9.234.179".to_owned(),
@@ -250,6 +252,7 @@ fn repository_name_that_normalizes_to_empty_slug_is_rejected() {
         default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: String::new(),
+        github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
         host: String::new(),
@@ -396,7 +399,8 @@ fn repository_checkbox_toggle_updates_remote_fields() {
     state = state.apply(AppEvent::FormNextField); // BaseDir → DefaultProfile
     state = state.apply(AppEvent::FormNextField); // DefaultProfile → DefaultAgentKind
     state = state.apply(AppEvent::FormNextField); // DefaultAgentKind → GitHubRepo
-    state = state.apply(AppEvent::FormNextField); // GitHubRepo → RemoteEnabled
+    state = state.apply(AppEvent::FormNextField); // GitHubRepo → IssuePrRepo
+    state = state.apply(AppEvent::FormNextField); // IssuePrRepo → RemoteEnabled
     state = state.apply(AppEvent::FormToggleCheckbox); // toggle remote_enabled
     state = state.apply(AppEvent::FormNextField); // RemoteEnabled → LoginUser
     state = state.apply(AppEvent::FormChar('u'));
@@ -437,6 +441,7 @@ fn create_repository_rejects_invalid_github_repo_without_slash() {
         default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "foo".to_owned(),
+        github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
         host: String::new(),
@@ -455,6 +460,7 @@ fn create_repository_rejects_github_repo_with_extra_slash() {
         default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "owner/repo/extra".to_owned(),
+        github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
         host: String::new(),
@@ -473,6 +479,7 @@ fn create_repository_rejects_github_repo_missing_owner() {
         default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "/repo".to_owned(),
+        github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
         host: String::new(),
@@ -491,6 +498,7 @@ fn create_repository_rejects_github_repo_missing_repo_name() {
         default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "owner/".to_owned(),
+        github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
         host: String::new(),
@@ -509,6 +517,7 @@ fn create_repository_accepts_empty_github_repo() {
         default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: String::new(),
+        github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
         host: String::new(),
@@ -527,6 +536,7 @@ fn create_repository_accepts_well_formed_github_repo() {
         default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "owner/repo".to_owned(),
+        github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
         host: String::new(),
@@ -547,6 +557,7 @@ fn create_repository_rejects_github_repo_with_internal_whitespace_in_owner() {
         default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "own er/repo".to_owned(),
+        github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
         host: String::new(),
@@ -566,6 +577,7 @@ fn create_repository_rejects_github_repo_with_whitespace_around_slash() {
             default_code_puppy_model: String::new(),
             default_agent_kind: "LLxprt".to_owned(),
             github_repo: value.to_owned(),
+            github_issue_pr_repo: String::new(),
             remote_enabled: false,
             login_user: String::new(),
             host: String::new(),
@@ -589,6 +601,7 @@ fn create_repository_rejects_github_repo_with_at_sign() {
         default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "acme@org/widgets".to_owned(),
+        github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
         host: String::new(),
@@ -607,6 +620,7 @@ fn create_repository_accepts_github_repo_with_surrounding_whitespace_and_trims_i
         default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "  owner/repo  ".to_owned(),
+        github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
         host: String::new(),
@@ -630,6 +644,7 @@ fn update_repository_rejects_invalid_github_repo_keeping_existing() {
         default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "no-slash".to_owned(),
+        github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
         host: String::new(),
@@ -652,6 +667,7 @@ fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
         default_code_puppy_model: String::new(),
         default_agent_kind: "LLxprt".to_owned(),
         github_repo: "no-slash".to_owned(),
+        github_issue_pr_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
         host: String::new(),
@@ -665,6 +681,7 @@ fn update_repository_accepts_well_formed_github_repo_after_invalid_rejection() {
 
     let valid = RepositoryFormFields {
         github_repo: "owner/new".to_owned(),
+        github_issue_pr_repo: String::new(),
         ..invalid
     };
     assert!(AppState::update_repository_from_fields(&mut repo, &valid));
@@ -676,6 +693,7 @@ fn submit_edit_repository_keeps_modal_open_when_github_repo_invalid() {
     let mut state = AppState {
         repositories: vec![Repository {
             github_repo: "owner/existing".to_owned(),
+            github_issue_pr_repo: String::new(),
             ..seed_repository()
         }],
         selected_repository_index: Some(0),
@@ -701,6 +719,7 @@ fn submit_edit_repository_closes_modal_when_github_repo_valid() {
     let mut state = AppState {
         repositories: vec![Repository {
             github_repo: "owner/existing".to_owned(),
+            github_issue_pr_repo: String::new(),
             ..seed_repository()
         }],
         selected_repository_index: Some(0),
@@ -739,4 +758,133 @@ fn code_puppy_yolo_focus_toggles_typed_boolean() {
         'x',
     );
     assert!(fields.code_puppy_yolo);
+}
+
+// ── Issue #266: github_issue_pr_repo form validation ────────────────────
+
+fn repository_or_panic(repository: Option<Repository>, context: &str) -> Repository {
+    match repository {
+        Some(repository) => repository,
+        None => panic!("{context}"),
+    }
+}
+
+fn issue266_valid_fields() -> RepositoryFormFields {
+    RepositoryFormFields {
+        name: "Repo".to_owned(),
+        base_dir: String::new(),
+        default_profile: String::new(),
+        default_code_puppy_model: String::new(),
+        default_agent_kind: "LLxprt".to_owned(),
+        github_repo: "owner/repo".to_owned(),
+        github_issue_pr_repo: String::new(),
+        remote_enabled: false,
+        login_user: String::new(),
+        host: String::new(),
+        run_as_user: String::new(),
+        setup_env_default: false,
+    }
+}
+
+/// A blank `github_issue_pr_repo` is accepted (preserves existing behavior).
+#[test]
+fn create_repository_accepts_blank_issue_pr_repo() {
+    let fields = issue266_valid_fields();
+    let repo = repository_or_panic(
+        AppState::create_repository_from_fields(&fields),
+        "blank issue_pr_repo must be accepted",
+    );
+    assert!(repo.github_issue_pr_repo.is_empty());
+}
+
+/// A valid `owner/repo` override is accepted and persisted.
+#[test]
+fn create_repository_accepts_well_formed_issue_pr_repo() {
+    let mut fields = issue266_valid_fields();
+    fields.github_issue_pr_repo = "vybestack/llxprt-jefe".to_owned();
+    let repo = repository_or_panic(
+        AppState::create_repository_from_fields(&fields),
+        "valid issue_pr_repo must be accepted",
+    );
+    assert_eq!(repo.github_issue_pr_repo, "vybestack/llxprt-jefe");
+}
+
+/// Surrounding whitespace is trimmed on save.
+#[test]
+fn create_repository_trims_issue_pr_repo_whitespace() {
+    let mut fields = issue266_valid_fields();
+    fields.github_issue_pr_repo = "  vybestack/llxprt-jefe  ".to_owned();
+    let repo = repository_or_panic(
+        AppState::create_repository_from_fields(&fields),
+        "trimmed issue_pr_repo must be accepted",
+    );
+    assert_eq!(repo.github_issue_pr_repo, "vybestack/llxprt-jefe");
+}
+
+/// A malformed override (missing slash) is rejected visibly (returns None).
+#[test]
+fn create_repository_rejects_malformed_issue_pr_repo_no_slash() {
+    let mut fields = issue266_valid_fields();
+    fields.github_issue_pr_repo = "noslash".to_owned();
+    assert!(
+        AppState::create_repository_from_fields(&fields).is_none(),
+        "malformed issue_pr_repo must be rejected"
+    );
+}
+
+/// A URL-shaped override is rejected.
+#[test]
+fn create_repository_rejects_url_shaped_issue_pr_repo() {
+    let mut fields = issue266_valid_fields();
+    fields.github_issue_pr_repo = "https://github.com/a/b".to_owned();
+    assert!(
+        AppState::create_repository_from_fields(&fields).is_none(),
+        "URL-shaped issue_pr_repo must be rejected"
+    );
+}
+
+/// An override with too many components is rejected.
+#[test]
+fn create_repository_rejects_issue_pr_repo_with_extra_slash() {
+    let mut fields = issue266_valid_fields();
+    fields.github_issue_pr_repo = "a/b/c".to_owned();
+    assert!(
+        AppState::create_repository_from_fields(&fields).is_none(),
+        "issue_pr_repo with extra slash must be rejected"
+    );
+}
+
+/// Updating a repository with a valid override persists it.
+#[test]
+fn update_repository_persists_valid_issue_pr_repo() {
+    let mut repo = seed_repository();
+    repo.github_repo = "owner/existing".to_owned();
+    repo.github_issue_pr_repo = String::new();
+
+    let mut fields = issue266_valid_fields();
+    fields.github_issue_pr_repo = "upstream/tracker".to_owned();
+    assert!(
+        AppState::update_repository_from_fields(&mut repo, &fields),
+        "valid issue_pr_repo must be accepted on update"
+    );
+    assert_eq!(repo.github_issue_pr_repo, "upstream/tracker");
+}
+
+/// Updating with a malformed override keeps the existing value (visible reject).
+#[test]
+fn update_repository_rejects_malformed_issue_pr_repo_keeping_existing() {
+    let mut repo = seed_repository();
+    repo.github_repo = "owner/existing".to_owned();
+    repo.github_issue_pr_repo = "upstream/existing".to_owned();
+
+    let mut fields = issue266_valid_fields();
+    fields.github_issue_pr_repo = "not-valid".to_owned();
+    assert!(
+        !AppState::update_repository_from_fields(&mut repo, &fields),
+        "malformed issue_pr_repo must reject update"
+    );
+    assert_eq!(
+        repo.github_issue_pr_repo, "upstream/existing",
+        "existing override must be preserved on rejected update"
+    );
 }

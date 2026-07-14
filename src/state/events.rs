@@ -555,6 +555,11 @@ pub enum AppEvent {
         pr_number: u64,
         allowed_methods: Vec<crate::domain::MergeMethod>,
     },
+    PrMergeMethodsLoadFailed {
+        scope_repo_id: RepositoryId,
+        pr_number: u64,
+        error: String,
+    },
     PrOpenAgentChooser,
     PrAgentChooserNavigateUp,
     PrAgentChooserNavigateDown,

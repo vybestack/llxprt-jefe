@@ -7,11 +7,15 @@
 //! `TestResultExt`, `TestOptionExt`) come from the sibling `tests` module via
 //! `super::tests`.
 
-use super::clone_identity::CloneIdentity;
 use super::tests::{TestOptionExt, sample_agent, sample_signature};
 use super::*;
 
 use std::path::PathBuf;
+fn tracker_ref(value: &str) -> jefe::domain::GitHubRepoRef {
+    jefe::domain::GitHubRepoRef::parse(value)
+        .unwrap_or_else(|error| panic!("valid tracker must parse: {error}"))
+        .unwrap_or_else(|| panic!("valid tracker must not be blank"))
+}
 
 use super::issue_self_assignment::{IssueAssignment, SelfAssignment};
 use super::issues_send::{issue_send_info_from_state, prepare_issue_launch_signature};
@@ -365,10 +369,8 @@ fn code_puppy_issue_uses_identical_prep_and_fresh_no_resume_signature() {
 // ── Issue #186: self-assign the issue to the viewer on send-to-agent ────
 
 /// On a successful send-to-agent, the issue must be self-assigned to the
-/// authenticated viewer. The assignment derives its `owner`/`repo` from the
-/// validated clone identity (never `slug`) and its `issue_number` from the
-/// loaded issue detail. This test proves those resolved values flow into the
-/// assignment request.
+/// authenticated viewer. The assignment derives its `owner`/`repo` and issue
+/// number from the loaded issue detail, independently of clone identity.
 #[test]
 fn self_assignment_resolves_owner_repo_and_issue_from_send_context() {
     let agent_id = AgentId(String::from("issue-self-assign"));
@@ -379,41 +381,37 @@ fn self_assignment_resolves_owner_repo_and_issue_from_send_context() {
     let send_info = issue_send_info_from_state(&state)
         .value_or_panic("issue send info must resolve for self-assignment");
 
-    let assignment = SelfAssignment::from_send_context(
-        send_info.clone_identity.as_ref(),
-        send_info.payload.issue_number,
-    )
-    .value_or_panic("a valid clone identity must produce a self-assignment");
+    let tracker = tracker_ref(&send_info.payload.repository);
+    let assignment =
+        SelfAssignment::from_send_context(Some(&tracker), send_info.payload.issue_number)
+            .value_or_panic("a valid tracker must produce a self-assignment");
 
-    // owner/repo come from the validated github_repo, not the slug.
-    assert_eq!(assignment.owner, "acme");
-    assert_eq!(assignment.repo, "widgets");
-    assert_eq!(assignment.owner_repo, "acme/widgets");
+    // The loaded detail records owner/repo; changing clone configuration
+    // after loading must not retarget the assignment.
+    assert_eq!(assignment.owner, "owner");
+    assert_eq!(assignment.repo, "repo");
+    assert_eq!(assignment.owner_repo, "owner/repo");
     // issue_number comes from the loaded issue detail (fixture sets 166).
     assert_eq!(assignment.issue_number, 166);
 }
 
-/// When the agent's repository has no valid `github_repo`, there is no safe
-/// owner/repo to assign against, so no self-assignment is produced (the send
-/// itself is unaffected).
+/// Assignment uses the loaded detail even when the working repository has no
+/// clone identity, because tracker identity and clone identity are independent.
 #[test]
-fn self_assignment_skipped_when_no_valid_clone_identity() {
-    let agent_id = AgentId(String::from("issue-no-assign"));
-    let work_dir = PathBuf::from("/tmp/jefe-issue-no-assign");
+fn self_assignment_uses_loaded_detail_without_clone_identity() {
+    let agent_id = AgentId(String::from("issue-no-clone"));
+    let work_dir = PathBuf::from("/tmp/jefe-issue-no-clone");
     let state = state_for_issue_agent_chooser_send(&agent_id, &work_dir);
-    // github_repo left empty (slug must not be used as a fallback).
 
     let send_info = issue_send_info_from_state(&state)
-        .value_or_panic("issue send info must still resolve without github_repo");
+        .value_or_panic("issue send info must resolve without github_repo");
 
-    let assignment = SelfAssignment::from_send_context(
-        send_info.clone_identity.as_ref(),
-        send_info.payload.issue_number,
-    );
-    assert!(
-        assignment.is_none(),
-        "no self-assignment must be produced without a valid clone identity"
-    );
+    let tracker = tracker_ref(&send_info.payload.repository);
+    let assignment =
+        SelfAssignment::from_send_context(Some(&tracker), send_info.payload.issue_number)
+            .value_or_panic("loaded issue source must produce assignment context");
+    assert_eq!(assignment.owner_repo, "owner/repo");
+    assert!(send_info.clone_identity.is_none());
 }
 
 /// The self-assignment context survives the to_state/from_state round-trip
@@ -424,10 +422,9 @@ fn self_assignment_skipped_when_no_valid_clone_identity() {
 fn self_assignment_survives_preflight_modal_round_trip() {
     use jefe::state::IssueSelfAssignmentFollowUp as FollowUp;
 
-    let identity = CloneIdentity::parse("vybestack/llxprt-jefe")
-        .value_or_panic("valid owner/repo parses into a clone identity");
+    let tracker = tracker_ref("vybestack/llxprt-jefe");
     let assignment =
-        SelfAssignment::from_send_context(Some(&identity), 186).value_or_panic("identity is valid");
+        SelfAssignment::from_send_context(Some(&tracker), 186).value_or_panic("tracker is valid");
 
     let carried = assignment.to_state();
     let (owner_repo, issue_number) = match &carried {
@@ -495,9 +492,8 @@ fn issue_assignment_carried_unavailable_when_no_identity() {
 fn issue_assignment_carried_resolved_when_identity_present() {
     use jefe::state::IssueSelfAssignmentFollowUp as FollowUp;
 
-    let identity = CloneIdentity::parse("vybestack/llxprt-jefe")
-        .value_or_panic("valid owner/repo parses into a clone identity");
-    let intent = IssueAssignment::from_send_context(Some(&identity), 186);
+    let tracker = tracker_ref("vybestack/llxprt-jefe");
+    let intent = IssueAssignment::from_send_context(Some(&tracker), 186);
     let carried = intent.carried();
     match carried {
         FollowUp::Resolved {

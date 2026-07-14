@@ -73,6 +73,10 @@ fn version_parser_accepts_tmux_compatible_psmux_output() {
         MultiplexerVersion::parse("tmux 3.4\n"),
         Ok(MultiplexerVersion::new(3, 4, 0))
     );
+    assert_eq!(
+        MultiplexerVersion::parse("tmux 3.7b\n"),
+        Ok(MultiplexerVersion::new(3, 7, 0))
+    );
     for malformed in ["psmux unknown", "tmux 3a.3b.6", "tmux 3..6", "tmux 3.3.6.1"] {
         assert!(matches!(
             MultiplexerVersion::parse(malformed),

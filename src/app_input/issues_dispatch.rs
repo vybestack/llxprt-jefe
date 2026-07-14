@@ -5,6 +5,7 @@
 use jefe::messages::IssuesMessage;
 use jefe::state::AppEvent;
 
+use super::tracker_resolver::{ResolvedTracker, resolve_tracker_outcome};
 use super::{
     AppStateHandle, SharedContext, apply_and_persist, dispatch_issues_lifecycle, gh_async,
     github_client, issues_navigation::dispatch_issues_navigation,
@@ -14,33 +15,47 @@ use super::{
     issues_subfocus_dispatch,
 };
 
-/// Resolve the GitHub owner/repo for the currently selected repository.
-/// Reads from the explicit `github_repo` field (format: `"owner/repo"`).
+/// Resolve the effective issue repository, returning empty components when
+/// no valid target exists. User-visible callers use [`resolve_gh_repo_or_error`]
+/// to retain malformed-configuration details.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
 /// @requirement REQ-ISS-013
 pub(super) fn resolve_gh_repo(state: &jefe::state::AppState) -> (String, String) {
-    let repo = state
+    resolve_gh_repo_or_error(state).unwrap_or_default()
+}
+
+/// Resolve the effective GitHub `owner/repo` with source-aware error
+/// distinction (issue #266 defect remediation).
+///
+/// Returns the validated `(owner, repo)` pair, or a [`MalformedRepo`] error
+/// that carries the raw override and reason so the caller can surface it
+/// in a user-visible message — rather than a misleading "missing GitHub
+/// Repo" when a malformed override is actually the cause.
+pub(super) fn resolve_gh_repo_or_error(
+    state: &jefe::state::AppState,
+) -> Result<(String, String), MalformedRepo> {
+    let Some(repo) = state
         .selected_repository_index
-        .and_then(|idx| state.repositories.get(idx));
-
-    let Some(repo) = repo else {
-        return (String::new(), String::new());
+        .and_then(|idx| state.repositories.get(idx))
+    else {
+        return Ok((String::new(), String::new()));
     };
-
-    let gh = repo.github_repo.trim();
-    if gh.is_empty() {
-        return (String::new(), String::new());
+    match resolve_tracker_outcome(repo) {
+        ResolvedTracker::Resolved(target) => {
+            Ok((target.owner().to_owned(), target.repo().to_owned()))
+        }
+        ResolvedTracker::Absent => Ok((String::new(), String::new())),
+        ResolvedTracker::Malformed(error) => Err(MalformedRepo {
+            message: format!("{error}"),
+        }),
     }
+}
 
-    let mut parts = gh.split('/');
-    let owner = parts.next().map(str::trim).unwrap_or_default();
-    let name = parts.next().map(str::trim).unwrap_or_default();
-    if parts.next().is_none() && !owner.is_empty() && !name.is_empty() {
-        return (owner.to_owned(), name.to_owned());
-    }
-
-    (String::new(), String::new())
+/// User-visible error describing a malformed tracker override (issue #266).
+pub(super) struct MalformedRepo {
+    /// Human-readable message including the raw value and reason.
+    pub message: String,
 }
 
 pub(super) fn current_scope_repo_id(state: &jefe::state::AppState) -> jefe::domain::RepositoryId {
@@ -122,7 +137,11 @@ pub(super) fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ct
     };
     mark_detail_loading(app_state, &mut params);
     if params.owner.is_empty() || params.repo.is_empty() {
-        apply_and_persist(app_state, ctx, missing_detail_repo_event(&params));
+        let error = params
+            .malformed_message
+            .as_deref()
+            .unwrap_or(MISSING_DETAIL_REPO_MSG);
+        apply_and_persist(app_state, ctx, missing_detail_repo_event(&params, error));
         return;
     }
 
@@ -241,16 +260,31 @@ fn detail_load_params(app_state: &AppStateHandle) -> Option<DetailLoadParams> {
         .selected_issue_index()
         .and_then(|idx| state.issues_state.issues().get(idx))
         .map(|issue| issue.number)?;
-    let (owner, repo) = resolve_gh_repo(&state);
+    let (owner, repo, malformed_message) = resolve_gh_repo_or_triple(&state);
     let params = DetailLoadParams {
         scope_repo_id: current_scope_repo_id(&state),
         issue_number,
         owner,
         repo,
+        // Assigned by mark_detail_loading before the request is dispatched.
         request_id: 0,
+        malformed_message,
     };
     drop(state);
     Some(params)
+}
+
+/// Resolve `(owner, repo, malformed_message)` from state.
+///
+/// When the tracker resolves cleanly, returns `(owner, repo, None)`. When a
+/// nonblank override is malformed, returns `(empty, empty, Some(message))`
+/// so the caller can surface the malformed reason instead of a misleading
+/// "missing GitHub Repo" (issue #266 defect remediation).
+fn resolve_gh_repo_or_triple(state: &jefe::state::AppState) -> (String, String, Option<String>) {
+    match resolve_gh_repo_or_error(state) {
+        Ok((owner, repo)) => (owner, repo, None),
+        Err(error) => (String::new(), String::new(), Some(error.message)),
+    }
 }
 
 fn mark_detail_loading(app_state: &mut AppStateHandle, params: &mut DetailLoadParams) {
@@ -290,14 +324,17 @@ fn detail_load_event(ctx: &SharedContext, params: DetailLoadParams) -> AppEvent 
     }
 }
 
-fn missing_detail_repo_event(params: &DetailLoadParams) -> AppEvent {
+fn missing_detail_repo_event(params: &DetailLoadParams, error: &str) -> AppEvent {
     AppEvent::IssueDetailLoadFailed {
         scope_repo_id: params.scope_repo_id.clone(),
         issue_number: params.issue_number,
         request_id: params.request_id,
-        error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
+        error: error.to_string(),
     }
 }
+
+/// Default message when no tracker is configured (distinct from malformed).
+const MISSING_DETAIL_REPO_MSG: &str = "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.";
 
 fn detail_load_panic_event(params: &DetailLoadParams, message: String) -> AppEvent {
     AppEvent::IssueDetailLoadFailed {
@@ -315,6 +352,10 @@ pub(super) struct DetailLoadParams {
     pub(super) owner: String,
     pub(super) repo: String,
     pub(super) request_id: u64,
+    /// When the tracker override is malformed, this carries the
+    /// user-visible reason so it can be surfaced instead of a misleading
+    /// "missing GitHub Repo" (issue #266).
+    pub(super) malformed_message: Option<String>,
 }
 
 /// Gather detail-load params from state (returns None if no issue selected).
@@ -401,21 +442,32 @@ fn comment_page_params(app_state: &AppStateHandle) -> CommentPageRequest {
     }
     let scope_repo_id = current_scope_repo_id(&state);
     let issue_number = detail.number;
-    let (owner, repo) = resolve_gh_repo(&state);
-    if owner.is_empty() || repo.is_empty() {
-        return CommentPageRequest::Fail(AppEvent::IssueCommentsPageFailed {
-            scope_repo_id,
-            issue_number,
-            request_id: 0,
-            request_cursor: detail.comments_cursor.clone(),
-            error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
-        });
-    }
+    let tracker = match jefe::domain::GitHubRepoRef::parse(&detail.repo_owner_name) {
+        Ok(Some(tracker)) => tracker,
+        Ok(None) => {
+            return CommentPageRequest::Fail(AppEvent::IssueCommentsPageFailed {
+                scope_repo_id,
+                issue_number,
+                request_id: 0,
+                request_cursor: detail.comments_cursor.clone(),
+                error: MISSING_DETAIL_REPO_MSG.to_owned(),
+            });
+        }
+        Err(error) => {
+            return CommentPageRequest::Fail(AppEvent::IssueCommentsPageFailed {
+                scope_repo_id,
+                issue_number,
+                request_id: 0,
+                request_cursor: detail.comments_cursor.clone(),
+                error: error.to_string(),
+            });
+        }
+    };
     let params = CommentPageParams {
         scope_repo_id,
         issue_number,
-        owner,
-        repo,
+        owner: tracker.owner().to_owned(),
+        repo: tracker.repo().to_owned(),
         cursor: detail.comments_cursor.clone(),
         page_size: 30,
         request_id: 0,

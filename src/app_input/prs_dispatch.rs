@@ -17,9 +17,7 @@ use jefe::domain::RepositoryId;
 use jefe::github::PrSendPayload;
 use jefe::state::AppEvent;
 
-use super::{
-    AppStateHandle, SharedContext, apply_and_persist, dispatch_app_event, gh_async, github_client,
-};
+use super::{AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client};
 
 /// Typed unavailable-context result for PR open-in-browser (REQ-PR-013).
 ///
@@ -31,6 +29,10 @@ use super::{
 pub(super) enum RepoContextError {
     NoSelection,
     InvalidSlug,
+    /// A nonblank tracker override is malformed (issue #266). Carries the
+    /// typed message so the caller can surface it instead of a generic
+    /// "missing GitHub Repo".
+    Malformed(String),
 }
 
 /// Resolved context needed to open a PR in the browser (REQ-PR-012).
@@ -47,42 +49,39 @@ pub(super) struct PrOpenInBrowserInfo {
     pub number: u64,
 }
 
-// ── Repo resolution helpers ───────────────────────────────────────────────
-
-/// Resolve the GitHub owner/repo for the currently selected repository.
-/// Reads from the explicit `github_repo` field (format: `"owner/repo"`).
-/// Mirrors `issues_dispatch::resolve_gh_repo`.
-///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-009
-/// @requirement REQ-PR-013
-/// @pseudocode component-003 lines 217-228
+#[cfg(test)]
 pub(super) fn resolve_pr_gh_repo(state: &jefe::state::AppState) -> (String, String) {
-    let repo = state
-        .selected_repository_index
-        .and_then(|idx| state.repositories.get(idx));
-    let Some(repo) = repo else {
-        return (String::new(), String::new());
-    };
-    let gh = repo.github_repo.trim();
-    if gh.is_empty() {
-        return (String::new(), String::new());
-    }
-    let mut parts = gh.split('/');
-    let owner = parts.next().map(str::trim).unwrap_or_default();
-    let name = parts.next().map(str::trim).unwrap_or_default();
-    if parts.next().is_none() && !owner.is_empty() && !name.is_empty() {
-        return (owner.to_owned(), name.to_owned());
-    }
-    (String::new(), String::new())
+    resolve_pr_gh_repo_or_error(state).unwrap_or_default()
 }
 
-/// Resolve the scope repository ID for the currently selected repository.
-/// Mirrors `issues_dispatch::current_scope_repo_id`.
+pub(super) fn resolve_pr_gh_repo_or_error(
+    state: &jefe::state::AppState,
+) -> Result<(String, String), MalformedPrRepo> {
+    let Some(repo) = state
+        .selected_repository_index
+        .and_then(|idx| state.repositories.get(idx))
+    else {
+        return Ok((String::new(), String::new()));
+    };
+    match super::tracker_resolver::resolve_tracker_outcome(repo) {
+        super::tracker_resolver::ResolvedTracker::Resolved(target) => {
+            Ok((target.owner().to_owned(), target.repo().to_owned()))
+        }
+        super::tracker_resolver::ResolvedTracker::Absent => Ok((String::new(), String::new())),
+        super::tracker_resolver::ResolvedTracker::Malformed(error) => Err(MalformedPrRepo {
+            message: error.to_string(),
+        }),
+    }
+}
+/// Typed malformed-tracker error for PR dispatch paths (issue #266).
 ///
-/// @plan PLAN-20260624-PR-MODE.P11
-/// @requirement REQ-PR-009
-/// @pseudocode component-003 lines 217-228
+/// Carries the user-visible parse-error message so PR detail, list, and
+/// preview operations can surface the specific malformed-configuration
+/// reason instead of a generic "missing GitHub Repo" message.
+pub(super) struct MalformedPrRepo {
+    pub message: String,
+}
+
 pub(super) fn current_pr_scope_repo_id(state: &jefe::state::AppState) -> RepositoryId {
     state
         .selected_repository_index
@@ -104,7 +103,11 @@ pub(super) fn load_pr_detail_for_selection(app_state: &mut AppStateHandle, ctx: 
     };
     mark_pr_detail_loading(app_state, &mut params);
     if params.owner.is_empty() || params.repo.is_empty() {
-        apply_and_persist(app_state, ctx, missing_pr_detail_repo_event(&params));
+        let error = params
+            .malformed_message
+            .as_deref()
+            .unwrap_or(MISSING_PR_DETAIL_REPO_MSG);
+        apply_and_persist(app_state, ctx, missing_pr_detail_repo_event(&params, error));
         return;
     }
 
@@ -149,6 +152,14 @@ pub(super) struct PrDetailLoadParams {
     pub(super) owner: String,
     pub(super) repo: String,
     pub(super) request_id: u64,
+    pub(super) malformed_message: Option<String>,
+}
+
+fn resolve_pr_gh_repo_or_triple(state: &jefe::state::AppState) -> (String, String, Option<String>) {
+    match resolve_pr_gh_repo_or_error(state) {
+        Ok((owner, repo)) => (owner, repo, None),
+        Err(error) => (String::new(), String::new(), Some(error.message)),
+    }
 }
 
 /// Gather detail-load params from state (returns None if no PR selected).
@@ -162,13 +173,14 @@ pub(super) fn pr_detail_load_params(app_state: &AppStateHandle) -> Option<PrDeta
         .selected_pr_index()
         .and_then(|idx| state.prs_state.pull_requests().get(idx))
         .map(|pr| pr.number)?;
-    let (owner, repo) = resolve_pr_gh_repo(&state);
+    let (owner, repo, malformed_message) = resolve_pr_gh_repo_or_triple(&state);
     let params = PrDetailLoadParams {
         scope_repo_id: current_pr_scope_repo_id(&state),
         pr_number,
         owner,
         repo,
         request_id: 0,
+        malformed_message,
     };
     drop(state);
     Some(params)
@@ -220,14 +232,16 @@ fn pr_detail_load_event(ctx: &SharedContext, params: &PrDetailLoadParams) -> App
 /// @plan PLAN-20260624-PR-MODE.P11
 /// @requirement REQ-PR-013
 /// @pseudocode component-004 lines 139-145
-fn missing_pr_detail_repo_event(params: &PrDetailLoadParams) -> AppEvent {
+fn missing_pr_detail_repo_event(params: &PrDetailLoadParams, error: &str) -> AppEvent {
     AppEvent::PrDetailLoadFailed {
         scope_repo_id: params.scope_repo_id.clone(),
         pr_number: params.pr_number,
         request_id: params.request_id,
-        error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
+        error: error.to_string(),
     }
 }
+
+const MISSING_PR_DETAIL_REPO_MSG: &str = "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.";
 
 /// Build the panic failure event (clears loading + delivers error).
 /// @plan PLAN-20260624-PR-MODE.P11
@@ -278,13 +292,16 @@ pub(super) fn selected_pr_still_matches(
 /// @pseudocode component-004 lines 119-126
 fn build_pr_preview_for_selection(
     state: &jefe::state::AppState,
-) -> Option<(RepositoryId, u64, jefe::domain::PullRequestDetail)> {
+) -> Result<Option<(RepositoryId, u64, jefe::domain::PullRequestDetail)>, MalformedPrRepo> {
     let scope_repo_id = current_pr_scope_repo_id(state);
-    let pr = state
+    let Some(pr) = state
         .prs_state
         .selected_pr_index()
-        .and_then(|idx| state.prs_state.pull_requests().get(idx))?;
-    let (owner, repo) = resolve_pr_gh_repo(state);
+        .and_then(|idx| state.prs_state.pull_requests().get(idx))
+    else {
+        return Ok(None);
+    };
+    let (owner, repo) = resolve_pr_gh_repo_or_error(state)?;
     let repo_owner_name = if owner.is_empty() || repo.is_empty() {
         String::new()
     } else {
@@ -326,7 +343,7 @@ fn build_pr_preview_for_selection(
         mergeable: None,
         merge_state_status: None,
     };
-    Some((scope_repo_id, pr.number, detail))
+    Ok(Some((scope_repo_id, pr.number, detail)))
 }
 
 /// Build a lightweight PR detail preview from list data (no I/O).
@@ -342,7 +359,21 @@ pub(super) fn preview_pr_from_list(app_state: &mut AppStateHandle) {
         build_pr_preview_for_selection(&state)
     };
 
-    if let Some((preview_scope_repo_id, preview_pr_number, detail)) = preview {
+    let (preview_scope_repo_id, preview_pr_number, detail) = match preview {
+        Ok(Some(preview)) => preview,
+        Ok(None) => return,
+        Err(error) => {
+            let mut state = app_state.write();
+            state.prs_state.error = Some(error.message);
+            state.prs_state.loading.detail = false;
+            state.prs_state.loading.comments = false;
+            state.prs_state.pr_detail = None;
+            state.prs_state.detail_pending = None;
+            drop(state);
+            return;
+        }
+    };
+    {
         let mut state = app_state.write();
         // TOCTOU re-validation: between the read lock above and this write lock,
         // the selection could have changed. Only apply the preview if the
@@ -353,6 +384,7 @@ pub(super) fn preview_pr_from_list(app_state: &mut AppStateHandle) {
             return;
         }
         state.prs_state.pr_detail = Some(detail);
+        state.prs_state.error = None;
         state.prs_state.loading.detail = false;
         state.prs_state.loading.comments = false;
         state.prs_state.detail_pending = None;
@@ -467,6 +499,19 @@ pub(super) fn dispatch_pr_open_in_browser(app_state: &mut AppStateHandle, ctx: &
                 app_state,
                 ctx,
                 AppEvent::PrShowNotice(jefe::state::ReadOnlyHintKind::NoSelectionToOpen),
+            );
+        }
+        Err(RepoContextError::Malformed(message)) => {
+            // Typed malformed reason surfaced visibly (issue #266).
+            let (scope, pr_number) = pr_open_in_browser_failure_context(app_state);
+            apply_and_persist(
+                app_state,
+                ctx,
+                AppEvent::PrOpenInBrowserFailed {
+                    scope_repo_id: scope,
+                    pr_number,
+                    error: message,
+                },
             );
         }
         Err(RepoContextError::InvalidSlug) => {
@@ -596,8 +641,11 @@ pub(super) fn pr_open_in_browser_info_from_state(
         .and_then(|idx| state.prs_state.pull_requests().get(idx))
         .map(|pr| pr.number)
         .ok_or(RepoContextError::NoSelection)?;
-    let (owner, name) = resolve_pr_gh_repo(state);
+    let (owner, name, malformed) = resolve_pr_gh_repo_or_triple(state);
     let scope = current_pr_scope_repo_id(state);
+    if let Some(message) = malformed {
+        return Err(RepoContextError::Malformed(message));
+    }
     if owner.is_empty() || name.is_empty() {
         return Err(RepoContextError::InvalidSlug);
     }
@@ -631,206 +679,9 @@ pub(super) fn pr_open_in_browser_failure_context_from_state(
 
 // ── In-app merge dispatch (issue #92) ─────────────────────────────────────
 
-/// Resolved context needed to merge a PR (mirrors `PrOpenInBrowserInfo`).
-///
-/// @requirement REQ-PR-009
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct PrMergeInfo {
-    pub scope: RepositoryId,
-    pub owner: String,
-    pub name: String,
-    pub number: u64,
-    pub mutation_id: u64,
-    pub method: jefe::domain::MergeMethod,
-}
-
-/// Resolve the merge context from the pending merge mutation in state.
-///
-/// Returns `Ok(info)` when a merge mutation is pending with a valid repo slug,
-/// `Err(RepoContextError::InvalidSlug)` when the slug is malformed, and
-/// `Err(RepoContextError::NoSelection)` when no mutation is pending.
-///
-/// @requirement REQ-PR-009
-pub(super) fn pr_merge_info_from_state(
-    state: &jefe::state::AppState,
-) -> Result<PrMergeInfo, RepoContextError> {
-    let pending = state
-        .prs_state
-        .merge_mutation_pending
-        .as_ref()
-        .ok_or(RepoContextError::NoSelection)?;
-    let (owner, name) = resolve_pr_gh_repo(state);
-    if owner.is_empty() || name.is_empty() {
-        return Err(RepoContextError::InvalidSlug);
-    }
-    Ok(PrMergeInfo {
-        scope: pending.scope_repo_id.clone(),
-        owner,
-        name,
-        number: pending.pr_number,
-        mutation_id: pending.mutation_id,
-        method: pending.method,
-    })
-}
-
-/// Dispatch the merge side effect for a confirmed merge mutation.
-///
-/// Reads `merge_mutation_pending` from state, resolves the repo/PR/method,
-/// and spawns `GhClient::merge_pull_request` OFF the UI thread via
-/// `spawn_gh_task_with_panic`, delivering `PrMerged` on success and
-/// `PrMergeFailed` on Err/panic.
-///
-/// @requirement REQ-PR-009
-pub(super) fn dispatch_pr_merge(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let info = {
-        let state = app_state.read();
-        pr_merge_info_from_state(&state)
-    };
-    match info {
-        Ok(info) => spawn_pr_merge(app_state, ctx, info),
-        Err(RepoContextError::NoSelection) => {}
-        Err(RepoContextError::InvalidSlug) => {
-            let (scope, pr_number, mutation_id) = {
-                let state = app_state.read();
-                let pending = state.prs_state.merge_mutation_pending.as_ref();
-                let scope = pending.map_or_else(
-                    || current_pr_scope_repo_id(&state),
-                    |p| p.scope_repo_id.clone(),
-                );
-                let pr_number = pending.map_or(0, |p| p.pr_number);
-                let mutation_id = pending.map_or(0, |p| p.mutation_id);
-                drop(state);
-                (scope, pr_number, mutation_id)
-            };
-            apply_and_persist(
-                app_state,
-                ctx,
-                AppEvent::PrMergeFailed {
-                    scope_repo_id: scope,
-                    pr_number,
-                    mutation_id,
-                    error: "Configure repository (owner/name) before merging".to_string(),
-                },
-            );
-        }
-    }
-}
-
-/// Spawn the off-thread `gh pr merge` task for a valid repo + PR + method.
-///
-/// @requirement REQ-PR-009
-fn spawn_pr_merge(app_state: &AppStateHandle, ctx: &SharedContext, info: PrMergeInfo) {
-    let panic_info = info.clone();
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
-        ctx,
-        move |mut app_state, ctx| {
-            let event = pr_merge_event(&ctx, &info);
-            // Route the merge result through the full dispatch chain so that a
-            // successful `PrMerged` hits the `PullRequestsMessage::Merged` arm
-            // and triggers the post-mutation list + detail reload (issue #128).
-            // A `PrMergeFailed` outcome is converted to a message but does NOT
-            // trigger a reload (it lacks the `Merged`/`CommentCreated` markers).
-            dispatch_app_event(&mut app_state, &ctx, event);
-        },
-        move |mut app_state, ctx, message| {
-            apply_and_persist(
-                &mut app_state,
-                &ctx,
-                AppEvent::PrMergeFailed {
-                    scope_repo_id: panic_info.scope.clone(),
-                    pr_number: panic_info.number,
-                    mutation_id: panic_info.mutation_id,
-                    error: format!("GitHub merge task panicked: {message}"),
-                },
-            );
-        },
-    );
-}
-
-/// Build the merge success/failure event from the gh result.
-///
-/// @requirement REQ-PR-009
-fn pr_merge_event(ctx: &SharedContext, info: &PrMergeInfo) -> AppEvent {
-    let result = github_client(ctx)
-        .map(|client| client.merge_pull_request(&info.owner, &info.name, info.number, info.method));
-    match result {
-        Some(Ok(())) => AppEvent::PrMerged {
-            scope_repo_id: info.scope.clone(),
-            pr_number: info.number,
-            method: info.method,
-        },
-        Some(Err(error)) => AppEvent::PrMergeFailed {
-            scope_repo_id: info.scope.clone(),
-            pr_number: info.number,
-            mutation_id: info.mutation_id,
-            error: error.to_string(),
-        },
-        None => AppEvent::PrMergeFailed {
-            scope_repo_id: info.scope.clone(),
-            pr_number: info.number,
-            mutation_id: info.mutation_id,
-            error: "Application context unavailable".to_string(),
-        },
-    }
-}
-
-/// Dispatch the merge-methods fetch when the chooser opens.
-///
-/// Resolves the repo owner/name from state and spawns
-/// `GhClient::get_repo_merge_methods` OFF the UI thread, delivering
-/// `PrMergeMethodsLoaded` on success. On failure, nothing is delivered — the
-/// chooser treats `allowed_methods: None` as "all available" (graceful
-/// degradation).
-///
-/// @requirement REQ-PR-009
-pub(super) fn dispatch_pr_merge_methods_load(app_state: &AppStateHandle, ctx: &SharedContext) {
-    let info = {
-        let state = app_state.read();
-        let pr_number = state.prs_state.pr_detail.as_ref().map_or(0, |d| d.number);
-        let (owner, name) = resolve_pr_gh_repo(&state);
-        let scope = current_pr_scope_repo_id(&state);
-        drop(state);
-        if owner.is_empty() || name.is_empty() {
-            None
-        } else {
-            Some((scope, owner, name, pr_number))
-        }
-    };
-    let Some((scope, owner, name, pr_number)) = info else {
-        return;
-    };
-    gh_async::spawn_gh_task_with_panic(
-        app_state,
-        ctx,
-        move |mut app_state, ctx| {
-            if let Some(event) = pr_merge_methods_event(&ctx, &scope, &owner, &name, pr_number) {
-                apply_and_persist(&mut app_state, &ctx, event);
-            }
-        },
-        // On panic: deliver nothing (chooser stays in "all available" mode).
-        move |_app_state, _ctx, _message| {},
-    );
-}
-
-/// Build the merge-methods-loaded event, returning `None` on failure so the
-/// chooser keeps `allowed_methods: None` (meaning "all available") rather than
-/// collapsing to an empty list that disables every method.
-///
-/// @requirement REQ-PR-009
-fn pr_merge_methods_event(
-    ctx: &SharedContext,
-    scope: &RepositoryId,
-    owner: &str,
-    name: &str,
-    pr_number: u64,
-) -> Option<AppEvent> {
-    let methods = github_client(ctx)?
-        .get_repo_merge_methods(owner, name)
-        .ok()?;
-    Some(AppEvent::PrMergeMethodsLoaded {
-        scope_repo_id: scope.clone(),
-        pr_number,
-        allowed_methods: methods,
-    })
-}
+// In-app merge dispatch (issue #92) lives in `prs_merge_dispatch.rs`
+// (re-exported here for the dispatch chain) to keep this file under the
+// architecture boundary line limit.
+//
+// @requirement REQ-PR-009
+pub(super) use super::prs_merge_dispatch::{dispatch_pr_merge, dispatch_pr_merge_methods_load};

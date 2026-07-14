@@ -91,6 +91,15 @@ impl AppState {
             return None;
         }
 
+        if let Err(error) = crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo) {
+            warn!(
+                github_issue_pr_repo = %fields.github_issue_pr_repo,
+                error = %error,
+                "rejecting repository create: github_issue_pr_repo must be 'owner/repo' or empty"
+            );
+            return None;
+        }
+
         // Reject an enabled-but-incomplete remote config visibly: the user
         // must provide both login_user and host when remote is enabled.
         // This prevents silently persisting a config that would later be
@@ -128,6 +137,7 @@ impl AppState {
             default_profile: normalize_profile(&fields.default_profile),
             default_code_puppy_model: fields.default_code_puppy_model.trim().to_owned(),
             github_repo: fields.github_repo.trim().to_owned(),
+            github_issue_pr_repo: fields.github_issue_pr_repo.trim().to_owned(),
             remote: remote_settings,
             issue_base_prompt: String::new(),
             default_agent_kind: AgentKind::from_form_value(&fields.default_agent_kind)
@@ -150,6 +160,15 @@ impl AppState {
             warn!(
                 github_repo = %fields.github_repo,
                 "rejecting repository update: github_repo must be 'owner/repo' or empty"
+            );
+            return false;
+        }
+
+        if let Err(error) = crate::domain::GitHubRepoRef::parse(&fields.github_issue_pr_repo) {
+            warn!(
+                github_issue_pr_repo = %fields.github_issue_pr_repo,
+                error = %error,
+                "rejecting repository update: github_issue_pr_repo must be 'owner/repo' or empty"
             );
             return false;
         }
@@ -181,6 +200,10 @@ impl AppState {
         repo.default_agent_kind = AgentKind::from_form_value(&fields.default_agent_kind)
             .unwrap_or(repo.default_agent_kind);
         fields.github_repo.trim().clone_into(&mut repo.github_repo);
+        fields
+            .github_issue_pr_repo
+            .trim()
+            .clone_into(&mut repo.github_issue_pr_repo);
         repo.remote = remote_settings;
         true
     }

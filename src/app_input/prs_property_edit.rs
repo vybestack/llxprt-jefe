@@ -20,9 +20,16 @@ pub fn handle_pr_property_confirm(app_state: &mut AppStateHandle, ctx: &SharedCo
     let Some(action) = resolve_pr_property_action(app_state) else {
         return;
     };
-    let Some(repo) = pr_repo_target(app_state) else {
-        report_missing_repo(app_state, ctx, &action);
-        return;
+    let repo = match pr_repo_target(app_state) {
+        Ok(Some(repo)) => repo,
+        Ok(None) => {
+            report_missing_repo(app_state, ctx, &action, None);
+            return;
+        }
+        Err(error) => {
+            report_missing_repo(app_state, ctx, &action, Some(error));
+            return;
+        }
     };
     // F6/H1: block confirm while options are still loading or failed to load.
     if action.editor.options_loading {
@@ -100,16 +107,18 @@ struct PrRepoTarget {
     repo: String,
 }
 
-fn pr_repo_target(app_state: &AppStateHandle) -> Option<PrRepoTarget> {
+fn pr_repo_target(app_state: &AppStateHandle) -> Result<Option<PrRepoTarget>, String> {
     let state = app_state.read();
-    let (owner, repo) = prs_dispatch::resolve_pr_gh_repo(&state);
-    (!owner.is_empty() && !repo.is_empty()).then_some(PrRepoTarget { owner, repo })
+    let (owner, repo) =
+        prs_dispatch::resolve_pr_gh_repo_or_error(&state).map_err(|error| error.message)?;
+    Ok((!owner.is_empty() && !repo.is_empty()).then_some(PrRepoTarget { owner, repo }))
 }
 
 fn report_missing_repo(
     app_state: &mut AppStateHandle,
     ctx: &SharedContext,
     action: &PrPropertyAction,
+    malformed_message: Option<String>,
 ) {
     // F5: use the validation-error event so the error reaches the open editor
     // without requiring mutation correlation.
@@ -118,7 +127,8 @@ fn report_missing_repo(
         ctx,
         AppEvent::PrPropertyEditorValidationError {
             kind: action.kind,
-            error: "No GitHub repository configured.".to_string(),
+            error: malformed_message
+                .unwrap_or_else(|| "No GitHub repository configured.".to_string()),
         },
     );
 }
@@ -297,9 +307,14 @@ fn execute_title_edit(
 }
 
 /// Handle property editor options loading for PRs.
-pub fn handle_pr_property_options_load(app_state: &AppStateHandle, ctx: &SharedContext) {
-    let Some(params) = resolve_pr_options_load_params(app_state) else {
-        return;
+pub fn handle_pr_property_options_load(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+    let params = match resolve_pr_options_load_params(app_state) {
+        Ok(Some(params)) => params,
+        Ok(None) => return,
+        Err(error) => {
+            set_editor_error(app_state, ctx, &error);
+            return;
+        }
     };
     let panic_params = params.clone();
     gh_async::spawn_gh_task_with_panic(
@@ -336,12 +351,19 @@ struct PrOptionsLoadParams {
     request_id: u64,
 }
 
-fn resolve_pr_options_load_params(app_state: &AppStateHandle) -> Option<PrOptionsLoadParams> {
+fn resolve_pr_options_load_params(
+    app_state: &AppStateHandle,
+) -> Result<Option<PrOptionsLoadParams>, String> {
     let (kind, owner, repo, scope_repo_id, pr_number, request_id) = {
         let state = app_state.read();
-        let editor = state.prs_state.property_editor.as_ref()?;
-        let detail = state.prs_state.pr_detail.as_ref()?;
-        let (owner, repo) = prs_dispatch::resolve_pr_gh_repo(&state);
+        let Some(editor) = state.prs_state.property_editor.as_ref() else {
+            return Ok(None);
+        };
+        let Some(detail) = state.prs_state.pr_detail.as_ref() else {
+            return Ok(None);
+        };
+        let (owner, repo) =
+            prs_dispatch::resolve_pr_gh_repo_or_error(&state).map_err(|error| error.message)?;
         let scope_repo_id = prs_dispatch::current_pr_scope_repo_id(&state);
         let kind = editor.kind;
         let request_id = editor.load_request_id;
@@ -350,16 +372,16 @@ fn resolve_pr_options_load_params(app_state: &AppStateHandle) -> Option<PrOption
         (kind, owner, repo, scope_repo_id, pr_number, request_id)
     };
     if owner.is_empty() || repo.is_empty() {
-        return None;
+        return Ok(None);
     }
-    Some(PrOptionsLoadParams {
+    Ok(Some(PrOptionsLoadParams {
         kind,
         owner,
         repo,
         scope_repo_id,
         pr_number,
         request_id,
-    })
+    }))
 }
 
 fn pr_options_load_event(ctx: &SharedContext, params: &PrOptionsLoadParams) -> AppEvent {

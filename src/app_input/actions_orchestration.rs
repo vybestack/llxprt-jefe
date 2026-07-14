@@ -10,6 +10,24 @@ use super::{
     persist_state, to_persisted_state,
 };
 
+pub(super) fn actions_repository_target(
+    repo: &jefe::domain::Repository,
+) -> Result<(&str, &str), jefe::github::GhError> {
+    let Some((owner, name)) = repo.github_repo.split_once('/') else {
+        return Err(jefe::github::GhError::ApiError(format!(
+            "malformed repository slug: {}",
+            repo.github_repo
+        )));
+    };
+    if owner.is_empty() || name.is_empty() || name.contains('/') {
+        return Err(jefe::github::GhError::ApiError(format!(
+            "malformed repository slug: {}",
+            repo.github_repo
+        )));
+    }
+    Ok((owner, name))
+}
+
 /// Resolve the GitHub client and parse a `owner/repo` slug into its parts.
 fn gh_client_and_slug<'a>(
     ctx: &SharedContext,
@@ -17,14 +35,8 @@ fn gh_client_and_slug<'a>(
 ) -> Result<(jefe::github::GhClient, &'a str, &'a str), jefe::github::GhError> {
     let client = github_client(ctx)
         .ok_or_else(|| jefe::github::GhError::ApiError("gh client unavailable".to_string()))?;
-    let owner_repo: Vec<&str> = repo.github_repo.split('/').collect();
-    if owner_repo.len() != 2 {
-        return Err(jefe::github::GhError::ApiError(format!(
-            "malformed repository slug: {}",
-            repo.github_repo
-        )));
-    }
-    Ok((client, owner_repo[0], owner_repo[1]))
+    let (owner, name) = actions_repository_target(repo)?;
+    Ok((client, owner, name))
 }
 
 fn dispatch_actions_navigation(

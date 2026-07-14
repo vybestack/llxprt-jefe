@@ -1,9 +1,24 @@
 //! PTY input encoding: converts key events and mouse events to raw bytes for
 //! terminal passthrough.
 
+use std::time::{Duration, Instant};
+
 use iocraft::prelude::{KeyCode, KeyEvent, KeyModifiers};
 
 use jefe::input::InputMode;
+
+/// Maximum time after a paste shortcut during which a synthetic Enter is
+/// suppressed.
+///
+/// Some terminals emit a spurious Enter key event immediately after a paste
+/// shortcut (Cmd-V / Ctrl-V). That synthetic Enter arrives within a few
+/// milliseconds of the paste. A real, human-pressed submit Enter always arrives
+/// much later — even fast typists need well over 100 ms to move from Cmd-V to
+/// Enter. Bounding suppression to this window ensures a delayed paste-shortcut
+/// key event (reordered under load) or a paste shortcut with no corresponding
+/// paste event (empty clipboard) can never swallow a genuine submit Enter,
+/// regardless of event ordering or system load (issue #286).
+pub const PASTE_ENTER_SUPPRESSION_WINDOW: Duration = Duration::from_millis(80);
 
 pub fn ctrl_char_to_byte(c: char) -> Option<u8> {
     let c = c.to_ascii_lowercase();
@@ -176,12 +191,66 @@ pub fn key_to_bytes(key: &KeyEvent, passthrough_enter: bool) -> Option<Vec<u8>> 
     Some(out)
 }
 
-pub fn should_suppress_synthetic_enter(armed: bool, key_event: &KeyEvent) -> bool {
-    armed && key_event.code == KeyCode::Enter
+/// Time-bounded paste-Enter suppression state (issue #286).
+///
+/// Tracks *when* the suppression was armed so it can expire automatically. A
+/// synthetic Enter emitted by the terminal immediately after a paste arrives
+/// within [`PASTE_ENTER_SUPPRESSION_WINDOW`] of the paste shortcut; a genuine
+/// human-pressed submit Enter always arrives later. This makes suppression
+/// immune to key/paste event reordering under load and to a paste shortcut with
+/// no corresponding paste event (empty clipboard).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PasteEnterSuppression {
+    armed_at: Option<Instant>,
 }
 
-pub fn should_disarm_paste_enter_suppression(armed: bool, key_event: &KeyEvent) -> bool {
-    armed && key_event.code != KeyCode::Enter
+impl PasteEnterSuppression {
+    /// Create a disarmed (empty) suppression state.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { armed_at: None }
+    }
+
+    /// Arm the suppression, recording the supplied time as the arming instant.
+    pub fn arm(&mut self, now: Instant) {
+        self.armed_at = Some(now);
+    }
+
+    /// Whether suppression is currently active (armed and within the window).
+    #[must_use]
+    pub fn is_active(&self, now: Instant) -> bool {
+        match self.armed_at {
+            Some(armed) => now
+                .checked_duration_since(armed)
+                .is_some_and(|elapsed| elapsed <= PASTE_ENTER_SUPPRESSION_WINDOW),
+            None => false,
+        }
+    }
+}
+
+/// Whether an Enter key event should be suppressed as a synthetic paste
+/// artifact. The suppression must be active (armed and within the window) and
+/// the key must be an Enter.
+#[must_use]
+pub fn should_suppress_synthetic_enter(
+    suppression: PasteEnterSuppression,
+    key_event: &KeyEvent,
+    now: Instant,
+) -> bool {
+    suppression.is_active(now) && key_event.code == KeyCode::Enter
+}
+
+/// Whether a non-Enter key event should disarm the paste-Enter suppression.
+/// Suppression is disarmed by any key that is not Enter while active, so a
+/// subsequent real key press (e.g. typing) resets the state even before the
+/// window elapses.
+#[must_use]
+pub fn should_disarm_paste_enter_suppression(
+    suppression: PasteEnterSuppression,
+    key_event: &KeyEvent,
+    now: Instant,
+) -> bool {
+    suppression.is_active(now) && key_event.code != KeyCode::Enter
 }
 
 pub fn should_arm_paste_enter_suppression(key_event: &KeyEvent, input_mode: InputMode) -> bool {
@@ -252,11 +321,13 @@ pub fn mouse_event_to_bytes(event: &iocraft::FullscreenMouseEvent) -> Option<Vec
 #[cfg(test)]
 mod key_tests {
     use super::{
-        ctrl_char_to_byte, key_to_bytes, should_arm_paste_enter_suppression,
-        should_disarm_paste_enter_suppression, should_suppress_synthetic_enter,
+        PASTE_ENTER_SUPPRESSION_WINDOW, PasteEnterSuppression, ctrl_char_to_byte, key_to_bytes,
+        should_arm_paste_enter_suppression, should_disarm_paste_enter_suppression,
+        should_suppress_synthetic_enter,
     };
     use iocraft::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
     use jefe::input::InputMode;
+    use std::time::{Duration, Instant};
 
     fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
         let mut event = KeyEvent::new(KeyEventKind::Press, code);
@@ -277,20 +348,173 @@ mod key_tests {
     }
 
     #[test]
-    fn synthetic_enter_is_only_suppressed_when_armed() {
+    fn synthetic_enter_is_only_suppressed_when_armed_and_within_window() {
         let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        assert!(should_suppress_synthetic_enter(true, &enter));
-        assert!(!should_suppress_synthetic_enter(false, &enter));
+        let base = Instant::now();
+
+        // Disarmed — never suppresses.
+        let mut suppression = PasteEnterSuppression::new();
+        assert!(!should_suppress_synthetic_enter(suppression, &enter, base));
+
+        // Armed — suppresses within the window.
+        suppression.arm(base);
+        assert!(should_suppress_synthetic_enter(
+            suppression,
+            &enter,
+            base + Duration::from_millis(10)
+        ));
+
+        // After the window — a real submit Enter is forwarded normally.
+        assert!(!should_suppress_synthetic_enter(
+            suppression,
+            &enter,
+            base + PASTE_ENTER_SUPPRESSION_WINDOW + Duration::from_millis(1)
+        ));
     }
 
     #[test]
-    fn non_enter_key_disarms_paste_suppression_when_armed() {
+    fn non_enter_key_disarms_paste_suppression_when_active() {
         let key = key_event(KeyCode::Char('x'), KeyModifiers::NONE);
-        assert!(should_disarm_paste_enter_suppression(true, &key));
-        assert!(!should_disarm_paste_enter_suppression(false, &key));
-
         let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
-        assert!(!should_disarm_paste_enter_suppression(true, &enter));
+        let base = Instant::now();
+
+        // Disarmed — nothing to disarm.
+        let mut suppression = PasteEnterSuppression::new();
+        assert!(!should_disarm_paste_enter_suppression(
+            suppression,
+            &key,
+            base
+        ));
+
+        // Armed and active — a non-Enter key disarms.
+        suppression.arm(base);
+        assert!(should_disarm_paste_enter_suppression(
+            suppression,
+            &key,
+            base + Duration::from_millis(5)
+        ));
+
+        // Enter never disarms (it is either suppressed or forwarded).
+        suppression.arm(base);
+        assert!(!should_disarm_paste_enter_suppression(
+            suppression,
+            &enter,
+            base + Duration::from_millis(5)
+        ));
+    }
+
+    // ── Issue #286: paste-suppression race regression tests ──────────────────
+    //
+    // These tests prove the suppression can never swallow a real submit Enter
+    // regardless of event ordering, delay, or missing paste event.
+
+    /// Cmd-V key event arrives, then the user presses Enter well after the
+    /// window. The Enter must NOT be suppressed (it is a real submit).
+    #[test]
+    fn real_submit_enter_after_paste_window_is_not_suppressed() {
+        let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
+        let base = Instant::now();
+
+        let mut suppression = PasteEnterSuppression::new();
+        suppression.arm(base);
+
+        // 500ms later — far beyond the window — a real Enter is forwarded.
+        assert!(!should_suppress_synthetic_enter(
+            suppression,
+            &enter,
+            base + Duration::from_millis(500)
+        ));
+    }
+
+    /// Paste event clears suppression, then a delayed Cmd-V key event re-arms
+    /// it. A real Enter arriving later must NOT be suppressed (issue #286
+    /// scenario: event reordering under load).
+    #[test]
+    fn delayed_re_arm_after_paste_does_not_swallow_later_enter() {
+        let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
+        let base = Instant::now();
+
+        let mut suppression = PasteEnterSuppression::new();
+        // Paste shortcut arms at time 0.
+        suppression.arm(base);
+        // Paste event clears at time 5ms.
+        suppression = PasteEnterSuppression::new();
+        // A *delayed* Cmd-V key event re-arms at time 200ms (event reordered
+        // under load — arrives long after the paste event).
+        suppression.arm(base + Duration::from_millis(200));
+
+        // The user's real Enter arrives at 600ms — well past the re-arm window.
+        assert!(!should_suppress_synthetic_enter(
+            suppression,
+            &enter,
+            base + Duration::from_millis(600)
+        ));
+    }
+
+    /// Cmd-V with no corresponding Paste event (empty clipboard). The
+    /// suppression arms but must expire before a real Enter arrives.
+    #[test]
+    fn no_paste_event_after_cmd_v_still_expires_before_real_enter() {
+        let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
+        let base = Instant::now();
+
+        let mut suppression = PasteEnterSuppression::new();
+        // Cmd-V armed, no paste event ever arrives.
+        suppression.arm(base);
+
+        // Synthetic Enter within window — suppressed (this is the intended
+        // behavior: swallow the spurious Enter some terminals send).
+        assert!(should_suppress_synthetic_enter(
+            suppression,
+            &enter,
+            base + Duration::from_millis(5)
+        ));
+
+        // After suppression consumed the synthetic Enter, it is disarmed.
+        suppression = PasteEnterSuppression::new();
+
+        // A later real Enter is forwarded.
+        assert!(!should_suppress_synthetic_enter(
+            suppression,
+            &enter,
+            base + Duration::from_millis(300)
+        ));
+    }
+
+    /// Interleaved key/paste events modeling event-loop load: the suppression
+    /// only fires for an Enter within the window of the most recent arm.
+    #[test]
+    fn interleaved_events_only_suppress_within_recent_window() {
+        let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
+        let base = Instant::now();
+
+        let mut suppression = PasteEnterSuppression::new();
+        suppression.arm(base);
+        // Simulate a paste event at 3ms clearing it.
+        suppression = PasteEnterSuppression::new();
+        // A second paste shortcut at 10ms re-arms.
+        suppression.arm(base + Duration::from_millis(10));
+        // Synthetic Enter at 15ms (within window of second arm) — suppressed.
+        assert!(should_suppress_synthetic_enter(
+            suppression,
+            &enter,
+            base + Duration::from_millis(15)
+        ));
+    }
+
+    /// Suppression at the exact window boundary is still active (inclusive).
+    #[test]
+    fn suppression_active_at_exact_window_boundary() {
+        let enter = key_event(KeyCode::Enter, KeyModifiers::NONE);
+        let base = Instant::now();
+
+        let mut suppression = PasteEnterSuppression::new();
+        suppression.arm(base);
+        assert!(should_suppress_synthetic_enter(
+            suppression,
+            &enter,
+            base + PASTE_ENTER_SUPPRESSION_WINDOW
+        ));
     }
 
     #[test]

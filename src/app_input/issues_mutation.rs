@@ -23,11 +23,11 @@ pub(super) fn handle_inline_submit(app_state: &mut AppStateHandle, ctx: &SharedC
             return;
         }
     };
-    let Some(repo) = gh_repo_target(app_state) else {
-        report_missing_github_repo(app_state, ctx);
-        return;
-    };
-    dispatch_inline_submit_action(app_state, ctx, repo, action);
+    match gh_repo_target(app_state) {
+        Ok(Some(repo)) => dispatch_inline_submit_action(app_state, ctx, repo, action),
+        Ok(None) => report_missing_github_repo(app_state, ctx, None),
+        Err(message) => report_missing_github_repo(app_state, ctx, Some(message)),
+    }
 }
 
 fn inline_submit_action(app_state: &AppStateHandle) -> InlineSubmitResolution {
@@ -54,21 +54,30 @@ fn inline_submit_action(app_state: &AppStateHandle) -> InlineSubmitResolution {
     }
 }
 
-fn gh_repo_target(app_state: &AppStateHandle) -> Option<GhRepoTarget> {
+fn gh_repo_target(app_state: &AppStateHandle) -> Result<Option<GhRepoTarget>, String> {
     let state = app_state.read();
-    let (owner, repo) = issues_dispatch::resolve_gh_repo(&state);
-    (!owner.is_empty() && !repo.is_empty()).then_some(GhRepoTarget { owner, repo })
+    match issues_dispatch::resolve_gh_repo_or_error(&state) {
+        Ok((owner, repo)) if !owner.is_empty() && !repo.is_empty() => {
+            Ok(Some(GhRepoTarget { owner, repo }))
+        }
+        Ok(_) => Ok(None),
+        Err(error) => Err(error.message),
+    }
 }
 
-fn report_missing_github_repo(app_state: &mut AppStateHandle, ctx: &SharedContext) {
+/// Report a missing or malformed GitHub repo as a mutation failure
+/// (synchronous). When `malformed` is `Some`, the typed malformed reason is
+/// surfaced instead of the generic "missing GitHub Repo" message (issue #266).
+fn report_missing_github_repo(
+    app_state: &mut AppStateHandle,
+    ctx: &SharedContext,
+    malformed: Option<String>,
+) {
+    let error = malformed.unwrap_or_else(|| {
+        "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string()
+    });
     let target = mutation_failure_target(app_state);
-    apply_mutation_failed(
-        app_state,
-        ctx,
-        target,
-        None,
-        "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
-    );
+    apply_mutation_failed(app_state, ctx, target, None, error);
 }
 
 fn dispatch_inline_submit_action(
