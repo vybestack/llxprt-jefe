@@ -224,12 +224,15 @@ impl AppMessage {
                 | AppEvent::ActionsEnter
                 | AppEvent::ActionsCycleFocus
                 | AppEvent::ActionsCycleFocusReverse
+                | AppEvent::ActionsSetDetailGeometry { .. }
                 | AppEvent::ActionsScrollDetailUp
                 | AppEvent::ActionsScrollDetailDown
-                | AppEvent::ActionsToggleJobExpand
+                | AppEvent::ActionsExpandJob
                 | AppEvent::ActionsCollapseJob
+                | AppEvent::ActionsDetailEscape
                 | AppEvent::ActionsNavigateJobUp
                 | AppEvent::ActionsNavigateJobDown
+                | AppEvent::ActionsBeginDetailReload { .. }
                 | AppEvent::ActionsRunsLoaded { .. }
                 | AppEvent::ActionsRunsLoadFailed { .. }
                 | AppEvent::ActionsRunsPageLoaded { .. }

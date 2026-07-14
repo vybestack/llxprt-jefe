@@ -410,6 +410,33 @@ pub fn prs_detail_viewport_rows(
     issues_detail_viewport_rows(term_rows, error_visible, filter_controls_open)
 }
 
+/// Complete Actions detail geometry shared by state transitions and rendering.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ActionsDetailGeometry {
+    /// Wrapped display rows visible below the fixed metadata header.
+    pub viewport_rows: usize,
+    /// Character width used by the shared document wrapping projection.
+    pub content_width: usize,
+}
+
+/// Compute Actions detail geometry from terminal dimensions and visible bands.
+#[must_use]
+pub fn actions_detail_geometry(
+    term_cols: u16,
+    term_rows: u16,
+    error_visible: bool,
+    filter_controls_open: bool,
+) -> ActionsDetailGeometry {
+    ActionsDetailGeometry {
+        viewport_rows: prs_detail_viewport_rows(
+            usize::from(term_rows),
+            error_visible,
+            filter_controls_open,
+        ),
+        content_width: usize::from(prs_detail_content_width(term_cols)),
+    }
+}
+
 /// Compute inner content width for issue-list title lines.
 #[must_use]
 pub fn issue_list_content_width(term_cols: u16) -> u16 {

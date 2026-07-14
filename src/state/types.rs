@@ -594,7 +594,10 @@ pub struct ActionsState {
     pub error: Option<String>,
     pub focus: ActionsFocus,
     pub detail_scroll_offset: usize,
+    /// Last synchronized wrapped display-row viewport height.
     pub detail_viewport_rows: usize,
+    /// Last synchronized content width used by the Actions wrap projection.
+    pub detail_content_width: usize,
     /// Job ids that are expanded (showing their steps). Jobs not in this set
     /// are collapsed (JobRow only). Defaults to empty (all collapsed).
     pub expanded_jobs: std::collections::HashSet<u64>,
@@ -630,6 +633,13 @@ impl ActionsState {
     #[must_use]
     pub fn selected_run_index(&self) -> Option<usize> {
         self.list.selected_index()
+    }
+
+    /// The selected run when the stored index still names a loaded item.
+    #[must_use]
+    pub fn selected_run(&self) -> Option<&crate::domain::WorkflowRun> {
+        self.selected_run_index()
+            .and_then(|index| self.runs().get(index))
     }
 
     /// Whether the list is visibly loading (reload-visible or page pending).

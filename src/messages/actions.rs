@@ -13,11 +13,23 @@ pub enum ActionsMessage {
     Enter,
     CycleFocus,
     CycleFocusReverse,
+    /// Synchronize the renderer's exact wrapped detail geometry.
+    SetDetailGeometry {
+        viewport_rows: usize,
+        content_width: usize,
+    },
     ScrollDetail(ScrollDir),
-    ToggleJobExpand,
+    ExpandJob,
     CollapseJob,
+    DetailEscape,
     NavigateJob(crate::messages::NavDir),
 
+    /// Begin a correlated run-detail reload and clear stale inspection state.
+    BeginDetailReload {
+        scope_repo_id: RepositoryId,
+        run_id: u64,
+        request_id: u64,
+    },
     RunsLoaded {
         scope_repo_id: RepositoryId,
         filter: Box<ActionsFilter>,
@@ -124,10 +136,13 @@ impl ActionsMessage {
             Self::Enter => "ActionsListEnter",
             Self::CycleFocus => "ActionsCycleFocus",
             Self::CycleFocusReverse => "ActionsCycleFocusReverse",
+            Self::SetDetailGeometry { .. } => "ActionsSetDetailGeometry",
             Self::ScrollDetail(_) => "ActionsScrollDetail",
-            Self::ToggleJobExpand => "ActionsToggleJobExpand",
+            Self::ExpandJob => "ActionsExpandJob",
             Self::CollapseJob => "ActionsCollapseJob",
+            Self::DetailEscape => "ActionsDetailEscape",
             Self::NavigateJob(_) => "ActionsNavigateJob",
+            Self::BeginDetailReload { .. } => "ActionsBeginDetailReload",
             Self::RunsLoaded { .. } => "ActionsRunsLoaded",
             Self::RunsLoadFailed { .. } => "ActionsRunsLoadFailed",
             Self::RunsPageLoaded { .. } => "ActionsRunsPageLoaded",

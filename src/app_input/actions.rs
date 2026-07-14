@@ -69,7 +69,9 @@ fn resolve_filter_key_event(state: &AppState, key_event: &KeyEvent) -> Option<Ap
 
 fn resolve_global_actions_key_event(state: &AppState, key_event: &KeyEvent) -> Option<AppEvent> {
     match key_event.code {
-        KeyCode::Esc => Some(AppEvent::ExitActionsMode),
+        KeyCode::Esc if state.actions_state.focus != ActionsFocus::Detail => {
+            Some(AppEvent::ExitActionsMode)
+        }
         KeyCode::Char('r') => Some(AppEvent::ActionsReload),
         KeyCode::Char('f') => Some(AppEvent::ActionsOpenFilterControls),
         KeyCode::Char('/') => Some(AppEvent::ActionsFocusSearchInput),
@@ -111,6 +113,7 @@ fn resolve_focus_key_event(state: &AppState, key_event: &KeyEvent) -> Option<App
             KeyCode::PageDown => Some(AppEvent::ActionsNavigatePageDown),
             KeyCode::Home => Some(AppEvent::ActionsNavigateHome),
             KeyCode::End => Some(AppEvent::ActionsNavigateEnd),
+            KeyCode::Enter => Some(AppEvent::ActionsEnter),
             KeyCode::Left => Some(AppEvent::ActionsCycleFocusReverse),
             KeyCode::Right | KeyCode::Tab => Some(AppEvent::ActionsCycleFocus),
             _ => None,
@@ -120,8 +123,9 @@ fn resolve_focus_key_event(state: &AppState, key_event: &KeyEvent) -> Option<App
             KeyCode::Down => Some(AppEvent::ActionsNavigateJobDown),
             KeyCode::PageUp => Some(AppEvent::ActionsScrollDetailUp),
             KeyCode::PageDown => Some(AppEvent::ActionsScrollDetailDown),
-            KeyCode::Enter | KeyCode::Right => Some(AppEvent::ActionsToggleJobExpand),
+            KeyCode::Enter | KeyCode::Right => Some(AppEvent::ActionsExpandJob),
             KeyCode::Left => Some(AppEvent::ActionsCollapseJob),
+            KeyCode::Esc => Some(AppEvent::ActionsDetailEscape),
             KeyCode::Tab => Some(AppEvent::ActionsCycleFocus),
             _ => None,
         },
@@ -168,6 +172,56 @@ mod tests {
         assert!(matches!(
             resolve_actions_key_event(&state, &clear_all),
             Some(AppEvent::ActionsClearDraftFilter)
+        ));
+    }
+
+    #[test]
+    fn run_list_enter_opens_detail() {
+        let mut state = AppState::default();
+        state.actions_state.focus = ActionsFocus::RunList;
+
+        assert!(matches!(
+            resolve_actions_key_event(&state, &key(KeyCode::Enter)),
+            Some(AppEvent::ActionsEnter)
+        ));
+    }
+
+    #[test]
+    fn detail_enter_and_right_are_expand_only_intents() {
+        let mut state = AppState::default();
+        state.actions_state.focus = ActionsFocus::Detail;
+
+        for code in [KeyCode::Enter, KeyCode::Right] {
+            assert!(matches!(
+                resolve_actions_key_event(&state, &key(code)),
+                Some(AppEvent::ActionsExpandJob)
+            ));
+        }
+    }
+
+    #[test]
+    fn detail_left_collapses_and_escape_uses_contextual_detail_intent() {
+        let mut state = AppState::default();
+        state.actions_state.focus = ActionsFocus::Detail;
+
+        assert!(matches!(
+            resolve_actions_key_event(&state, &key(KeyCode::Left)),
+            Some(AppEvent::ActionsCollapseJob)
+        ));
+        assert!(matches!(
+            resolve_actions_key_event(&state, &key(KeyCode::Esc)),
+            Some(AppEvent::ActionsDetailEscape)
+        ));
+    }
+
+    #[test]
+    fn run_list_escape_still_exits_actions_mode() {
+        let mut state = AppState::default();
+        state.actions_state.focus = ActionsFocus::RunList;
+
+        assert!(matches!(
+            resolve_actions_key_event(&state, &key(KeyCode::Esc)),
+            Some(AppEvent::ExitActionsMode)
         ));
     }
 }

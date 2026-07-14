@@ -208,7 +208,7 @@ fn test_pr_screen_renders_error_banner_when_error_present() {
 /// @pseudocode component-001 lines 1-12
 #[test]
 fn test_pr_keybind_bar_and_help_list_o_open_in_browser() {
-    let hints = keybind_hints_for(ScreenMode::DashboardPullRequests, false);
+    let hints = keybind_hints_for(ScreenMode::DashboardPullRequests, false, None);
     assert!(
         hints.contains("o open"),
         "PR-mode keybind bar must list 'o open', got: {hints}"
@@ -232,7 +232,7 @@ fn test_pr_keybind_bar_and_help_list_o_open_in_browser() {
 
     // terminal_focused short-circuit: the bar shows the unfocus hint instead.
     assert_eq!(
-        keybind_hints_for(ScreenMode::DashboardPullRequests, true),
+        keybind_hints_for(ScreenMode::DashboardPullRequests, true, None),
         "F12 unfocus",
         "focused-terminal keybind bar must short-circuit to 'F12 unfocus'"
     );
@@ -246,7 +246,7 @@ fn test_pr_keybind_bar_and_help_list_o_open_in_browser() {
 /// (issue #175): `L labels A assignees M milestone T title Y type W state`.
 #[test]
 fn test_issues_keybind_bar_lists_property_edit_shortcuts() {
-    let hints = keybind_hints_for(ScreenMode::DashboardIssues, false);
+    let hints = keybind_hints_for(ScreenMode::DashboardIssues, false, None);
     assert!(
         hints.contains("L labels"),
         "Issues keybind bar must list 'L labels' (issue #175), got: {hints}"
@@ -277,7 +277,7 @@ fn test_issues_keybind_bar_lists_property_edit_shortcuts() {
 /// (PRs don't have the Type property).
 #[test]
 fn test_pr_keybind_bar_has_no_type_shortcut() {
-    let hints = keybind_hints_for(ScreenMode::DashboardPullRequests, false);
+    let hints = keybind_hints_for(ScreenMode::DashboardPullRequests, false, None);
     assert!(
         !hints.contains("Y type"),
         "PR keybind bar must NOT list 'Y type' (PRs have no Type property), got: {hints}"

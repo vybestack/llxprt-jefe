@@ -71,6 +71,7 @@ pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
 
 // Re-export the background-refresh orchestration helper so `app_shell` can
 // import it from `app_input` (issue #128).
+pub use actions_orchestration::synchronize_actions_geometry;
 pub use prs_orchestration::request_pr_background_refresh;
 
 // Re-export the PTY-forwarding helpers so `app_shell` can drive the agent

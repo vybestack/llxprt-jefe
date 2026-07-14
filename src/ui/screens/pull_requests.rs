@@ -380,6 +380,7 @@ pub fn PullRequestsScreen(props: &PullRequestsScreenProps) -> impl Into<AnyEleme
             KeybindBar(
                 screen_mode: state.map_or(ScreenMode::DashboardPullRequests, |s| s.screen_mode),
                 terminal_focused: false,
+                actions_focus: None,
                 colors: colors.clone(),
             )
         }

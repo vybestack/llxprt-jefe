@@ -417,6 +417,18 @@ mod tests {
     }
 
     #[test]
+    fn run_list_enter_focuses_detail_when_a_run_is_selected() {
+        let mut state = create_test_state();
+        state.actions_state.list.items_mut().push(make_run(1));
+        state.actions_state.list.set_selected_index(Some(0));
+        state.actions_state.focus = ActionsFocus::RunList;
+
+        state.apply_actions_message(ActionsMessage::Enter);
+
+        assert_eq!(state.actions_state.focus, ActionsFocus::Detail);
+    }
+
+    #[test]
     fn load_detail_resets_expanded_jobs_and_focuses_first() {
         let mut state = create_test_state();
         state.actions_state.expanded_jobs.insert(999);
@@ -436,35 +448,38 @@ mod tests {
     }
 
     #[test]
-    fn toggle_job_expand_adds_and_removes() {
+    fn expand_job_is_idempotent() {
         let mut state = create_test_state();
         state.actions_state.run_detail = Some(make_detail_with_jobs());
         state.actions_state.focused_job_index = Some(0);
 
-        state.apply_actions_message(ActionsMessage::ToggleJobExpand);
-        assert!(state.actions_state.expanded_jobs.contains(&100));
+        state.apply_actions_message(ActionsMessage::ExpandJob);
+        state.apply_actions_message(ActionsMessage::ExpandJob);
 
-        state.apply_actions_message(ActionsMessage::ToggleJobExpand);
-        assert!(!state.actions_state.expanded_jobs.contains(&100));
+        assert!(state.actions_state.expanded_jobs.contains(&100));
     }
 
     #[test]
-    fn navigate_job_moves_focus() {
+    fn navigate_job_moves_focus_and_scroll_follows_rendered_row() {
         let mut state = create_test_state();
         state.actions_state.run_detail = Some(make_detail_with_jobs());
         state.actions_state.focused_job_index = Some(0);
+        state.actions_state.detail_viewport_rows = 2;
+        state.actions_state.expanded_jobs.insert(100);
 
         state.apply_actions_message(ActionsMessage::NavigateJob(NavDir::Down));
         assert_eq!(state.actions_state.focused_job_index, Some(1));
+        assert_eq!(
+            state.actions_state.detail_scroll_offset, 4,
+            "second job follows the two rendered steps of the expanded first job"
+        );
 
         state.apply_actions_message(ActionsMessage::NavigateJob(NavDir::Down));
         assert_eq!(state.actions_state.focused_job_index, Some(1));
 
         state.apply_actions_message(ActionsMessage::NavigateJob(NavDir::Up));
         assert_eq!(state.actions_state.focused_job_index, Some(0));
-
-        state.apply_actions_message(ActionsMessage::NavigateJob(NavDir::Up));
-        assert_eq!(state.actions_state.focused_job_index, Some(0));
+        assert_eq!(state.actions_state.detail_scroll_offset, 2);
     }
 
     #[test]
@@ -473,11 +488,26 @@ mod tests {
         state.actions_state.run_detail = Some(make_detail_with_jobs());
         state.actions_state.focused_job_index = Some(0);
 
-        state.apply_actions_message(ActionsMessage::ToggleJobExpand);
-        assert!(state.actions_state.expanded_jobs.contains(&100));
-
+        state.apply_actions_message(ActionsMessage::ExpandJob);
         state.apply_actions_message(ActionsMessage::CollapseJob);
+
         assert!(!state.actions_state.expanded_jobs.contains(&100));
+    }
+
+    #[test]
+    fn detail_escape_collapses_then_refocuses_run_list() {
+        let mut state = create_test_state();
+        state.actions_state.focus = ActionsFocus::Detail;
+        state.actions_state.run_detail = Some(make_detail_with_jobs());
+        state.actions_state.focused_job_index = Some(0);
+        state.actions_state.expanded_jobs.insert(100);
+
+        state.apply_actions_message(ActionsMessage::DetailEscape);
+        assert!(!state.actions_state.expanded_jobs.contains(&100));
+        assert_eq!(state.actions_state.focus, ActionsFocus::Detail);
+
+        state.apply_actions_message(ActionsMessage::DetailEscape);
+        assert_eq!(state.actions_state.focus, ActionsFocus::RunList);
     }
 
     // ---- NEW: load-more reducer tests (issue #202) ----

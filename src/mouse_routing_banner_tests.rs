@@ -68,11 +68,17 @@ fn no_banner_keeps_issues_workspace_at_row_one_for_mouse_routing() {
 /// workspace (issue #265).
 #[test]
 fn notice_only_banner_reduces_issues_detail_viewport_rows() {
+    let term_cols: u16 = 120;
     let term_rows: u16 = 40;
 
     // Baseline: no banner.
     let mut state_none = AppState::default();
-    refresh_detail_viewport_rows(&mut state_none, SelectablePane::IssueDetail, term_rows);
+    refresh_detail_viewport_rows(
+        &mut state_none,
+        SelectablePane::IssueDetail,
+        term_cols,
+        term_rows,
+    );
     let rows_none = state_none.issues_state.detail_viewport_rows;
 
     // Notice-only banner.
@@ -83,7 +89,12 @@ fn notice_only_banner_reduces_issues_detail_viewport_rows() {
         },
         ..AppState::default()
     };
-    refresh_detail_viewport_rows(&mut state_notice, SelectablePane::IssueDetail, term_rows);
+    refresh_detail_viewport_rows(
+        &mut state_notice,
+        SelectablePane::IssueDetail,
+        term_cols,
+        term_rows,
+    );
     let rows_notice = state_notice.issues_state.detail_viewport_rows;
 
     // Error-only banner (reference).
@@ -94,7 +105,12 @@ fn notice_only_banner_reduces_issues_detail_viewport_rows() {
         },
         ..AppState::default()
     };
-    refresh_detail_viewport_rows(&mut state_error, SelectablePane::IssueDetail, term_rows);
+    refresh_detail_viewport_rows(
+        &mut state_error,
+        SelectablePane::IssueDetail,
+        term_cols,
+        term_rows,
+    );
     let rows_error = state_error.issues_state.detail_viewport_rows;
 
     assert_eq!(
