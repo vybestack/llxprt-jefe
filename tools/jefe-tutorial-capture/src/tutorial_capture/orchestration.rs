@@ -258,16 +258,8 @@ pub fn plan_real_runtime_link_for(profile: RuntimeProfile) -> Option<path_shim::
 ///
 /// Returns [`OrchestrationError`] if directory creation, shim writing, git
 /// initialization, or manifest persistence fails.
-#[cfg(not(unix))]
-pub fn prepare_run(_setup: &RunSetup) -> Result<(RunDirectories, RunManifest), OrchestrationError> {
-    Err(OrchestrationError::Io {
-        path: PathBuf::new(),
-        reason: "tutorial-capture is Unix-only: requires tmux, git, and POSIX shell".to_string(),
-    })
-}
-
-#[cfg(unix)]
 pub fn prepare_run(setup: &RunSetup) -> Result<(RunDirectories, RunManifest), OrchestrationError> {
+    ensure_supported_platform()?;
     // Finding #1: fail prepare if sh/git/tmux required tools are unavailable.
     let missing = path_shim::check_tier_a_required_tools(&inherited_path());
     if !missing.is_empty() {
@@ -301,6 +293,17 @@ pub fn prepare_run(setup: &RunSetup) -> Result<(RunDirectories, RunManifest), Or
     Ok((dirs, manifest))
 }
 
+fn ensure_supported_platform() -> Result<(), OrchestrationError> {
+    if cfg!(unix) {
+        Ok(())
+    } else {
+        Err(OrchestrationError::Io {
+            path: PathBuf::new(),
+            reason: "tutorial-capture is Unix-only: requires tmux, git, and POSIX shell"
+                .to_string(),
+        })
+    }
+}
 /// Compute the directory layout for a run.
 pub(super) fn compute_directories(base_dir: &Path, run_id: &RunId) -> RunDirectories {
     let root = base_dir.join(run_id.as_str());
