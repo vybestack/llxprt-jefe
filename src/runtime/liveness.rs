@@ -267,6 +267,15 @@ pub struct LivenessIdentity {
 /// Like [`reconcile_dead_agents`] but returns [`LivenessIdentity`] so the
 /// caller can verify the agent's current binding session name and lifecycle
 /// generation still match before marking the agent dead.
+///
+/// A session is dead if it does not appear in `existing_sessions` (the
+/// session is completely gone) OR if it exists but has no alive panes (not
+/// in `alive_pane_sessions`). Both checks are necessary because
+/// `existing_sessions` and `alive_pane_sessions` come from independent tmux
+/// queries (`list-sessions` and `list-panes -a` respectively) and are not
+/// guaranteed to have a subset relationship — a session could be listed by
+/// `list-panes -a` but not yet visible to `list-sessions` (or vice versa)
+/// during a concurrent session create/destroy window.
 #[must_use]
 pub fn reconcile_dead_agents_with_identity<S: BuildHasher>(
     targets: &[LivenessCheck],

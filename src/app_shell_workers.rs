@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use tracing::warn;
 
+use jefe::domain::AgentId;
 use jefe::runtime::{HISTORY_LINE_CAP, RuntimeManager, capture_pane_history, strip_trailing_rows};
 use jefe::services::capture_worker::{CaptureHandle, should_store_result};
 
@@ -39,9 +40,10 @@ pub async fn run_persist_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
         let Some((handle, persist_fn, state, generation)) = handle_and_fn else {
             continue;
         };
-        // Clear the pending slot only if its generation matches — a newer
-        // schedule arriving between take_pending and this clear must not be
-        // discarded.
+        // take_pending already cleared the pending slot, but a newer schedule
+        // may have arrived between take_pending and the worker's offload.
+        // clear_pending_if only clears if the generation still matches,
+        // preserving any newer snapshot (issue #301 review feedback).
         handle.clear_pending_if(generation);
         let result = smol::unblock(move || persist_fn(&state)).await;
         if let Err(e) = result {
@@ -110,6 +112,12 @@ pub async fn run_capture_worker(ctx: Option<Arc<std::sync::Mutex<AppContext>>>) 
 /// to `tmux capture-pane` synchronously). This function:
 /// 1. Requests a background capture via the `CaptureHandle` (cheap, no I/O).
 /// 2. Reads the runtime's `HistoryCache` directly (non-blocking).
+///
+/// Per-frame lock optimization: `CaptureHandle::request()` deduplicates by
+/// `(agent_id, session_name, generation)`, but it still acquires a mutex and
+/// clones `AgentId`/`String` on every call. To reduce lock contention on the
+/// render hot path, the last requested `(agent_id, generation)` is cached in
+/// a thread-local and `request()` is only called when the generation changes.
 #[must_use]
 pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>>) -> Vec<String> {
     let Some(ctx_arc) = ctx else {
@@ -132,12 +140,33 @@ pub fn capture_history_from_cache(ctx: Option<&Arc<std::sync::Mutex<AppContext>>
         }
         None => return Vec::new(),
     };
-    handle.request(attached_agent.clone(), session_name, generation);
+    // Only call request() when the (agent_id, generation) pair has changed
+    // since the last frame, reducing mutex contention on the render path.
+    let need_request = LAST_CAPTURE_REQUEST.with(|cell| {
+        let prev = cell.borrow();
+        let changed = *prev != Some((attached_agent.clone(), generation));
+        drop(prev);
+        if changed {
+            *cell.borrow_mut() = Some((attached_agent.clone(), generation));
+        }
+        changed
+    });
+    if need_request {
+        handle.request(attached_agent.clone(), session_name, generation);
+    }
     ctx_guard
         .runtime
         .history_cache_get(&attached_agent, generation)
         .cloned()
         .unwrap_or_default()
+}
+
+thread_local! {
+    /// Cache of the last (agent_id, generation) requested by
+    /// `capture_history_from_cache` to avoid redundant `CaptureHandle::request`
+    /// calls on every render frame (issue #301 review feedback).
+    static LAST_CAPTURE_REQUEST: std::cell::RefCell<Option<(AgentId, u64)>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Synchronously flush the persist worker's pending snapshot.

@@ -87,6 +87,9 @@ impl PersistHandle {
     /// stores the snapshot under a short lock and bumps the generation. No I/O
     /// occurs here.
     pub fn schedule(&self, snapshot: PersistedState) {
+        // fetch_add returns the *previous* value; +1 yields the value assigned
+        // to this schedule. This makes the first schedule generation 1 (not 0,
+        // which is the initial/applied generation).
         let generation = self
             .inner
             .schedule_generation
@@ -101,10 +104,19 @@ impl PersistHandle {
     ///
     /// The caller offloads `persist_fn` to `smol::unblock`, then calls
     /// [`Self::commit`] with the generation and [`Self::clear_pending`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the internal mutex is poisoned and cannot be recovered.
     #[must_use]
     pub fn take_pending(&self) -> Option<(PersistedState, u64)> {
-        let pending = lock_or_recover(&self.inner.pending);
+        let mut pending = lock_or_recover(&self.inner.pending);
         let snapshot = pending.snapshot.clone()?;
+        // Clear the pending slot immediately so a cancelled task that calls
+        // `take_pending` again does not get a duplicate of this snapshot
+        // (issue #301 review feedback: prevent duplicate writes from
+        // cancelled tasks).
+        pending.snapshot = None;
         Some((snapshot, pending.generation))
     }
 
@@ -119,10 +131,8 @@ impl PersistHandle {
     /// atomically.
     #[must_use]
     pub fn commit(&self, generation: u64) -> bool {
-        // fetch_add returns the *previous* value, so +1 gives the value
-        // assigned to this schedule. The schedule_generation is bumped in
-        // `schedule()`, so comparing it to `generation` tells us whether a
-        // newer schedule has superseded this one.
+        // Reject writes superseded by a newer schedule before entering the
+        // CAS loop (avoids unnecessary contention on the atomic).
         if self.inner.schedule_generation.load(Ordering::SeqCst) > generation {
             return false;
         }
@@ -148,6 +158,10 @@ impl PersistHandle {
     /// between `take_pending` (which returned generation N) and the clear:
     /// clearing unconditionally would discard the newer snapshot. The
     /// generation guard ensures only the matching slot is cleared.
+    ///
+    /// Note: `take_pending` now clears the pending slot immediately, so this
+    /// method is only needed for the edge case where `take_pending` returned
+    /// `None` but a schedule arrived between the worker's check and the clear.
     pub fn clear_pending_if(&self, generation: u64) {
         let mut pending = lock_or_recover(&self.inner.pending);
         if pending.generation == generation {
@@ -157,6 +171,10 @@ impl PersistHandle {
 
     /// Clear the pending slot unconditionally (called after a successful
     /// drain when the caller has already verified the generation).
+    ///
+    /// Note: `take_pending` now clears the pending slot immediately, so this
+    /// method is typically a no-op. It is retained for callers that need to
+    /// clear without taking (e.g. shutdown).
     pub fn clear_pending(&self) {
         let mut pending = lock_or_recover(&self.inner.pending);
         pending.snapshot = None;
@@ -286,8 +304,12 @@ mod tests {
             "latest snapshot (state-99-hide) must have hide_idle"
         );
 
-        let (_snapshot2, gen2) = require_pending(&handle);
-        assert_eq!(gen2, 100);
+        // take_pending now clears the slot immediately, so a second call
+        // returns None (issue #301 review: prevent duplicate writes).
+        assert!(
+            handle.take_pending().is_none(),
+            "take_pending must clear the slot after the first call"
+        );
 
         handle.clear_pending();
         assert!(

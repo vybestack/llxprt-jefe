@@ -17,7 +17,7 @@ use super::attach::AttachedViewer;
 use super::commands;
 use super::errors::RuntimeError;
 use super::liveness;
-use super::session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
+use super::session::{RuntimeSession, TerminalSnapshot};
 use crate::domain::{AgentId, LaunchSignature, RemoteRepositorySettings};
 
 /// Inputs needed to build an `AttachedViewer` without holding the runtime lock
@@ -35,7 +35,7 @@ pub struct AttachInputs {
 
 #[path = "history_cache.rs"]
 pub mod history_cache;
-use history_cache::{HistoryCache, strip_trailing_rows};
+use history_cache::HistoryCache;
 
 /// Maximum number of dead-session launch signatures retained for relaunch.
 ///
@@ -263,7 +263,7 @@ fn drop_viewer_in_background(viewer: &mut Option<AttachedViewer>) {
 
 /// Public wrapper so sibling modules (e.g. `async_attach`) can reuse the
 /// same background-drop logic.
-pub(super) fn drop_viewer_in_background_pub(viewer: &mut Option<AttachedViewer>) {
+pub fn drop_viewer_in_background_pub(viewer: &mut Option<AttachedViewer>) {
     drop_viewer_in_background(viewer);
 }
 
@@ -455,6 +455,13 @@ impl TmuxRuntimeManager {
             return false;
         };
 
+        // Bump lifecycle generation before removing so any in-flight liveness
+        // observation for this agent is rejected as stale (issue #301 Phase 4).
+        // The session is being removed, but the generation bump is recorded
+        // so that if a new session is later created for the same agent, its
+        // generation will be higher than any pending observation.
+        let _ = self.next_lifecycle_generation();
+
         if self.attached_agent_id.as_ref() == Some(agent_id) {
             self.attached_agent_id = None;
             drop_viewer_in_background(&mut self.viewer);
@@ -474,6 +481,20 @@ impl TmuxRuntimeManager {
             .dead_signatures
             .put(agent_id.clone(), session.launch_signature.clone());
         true
+    }
+
+    /// Bump the lifecycle generation for an agent's session (issue #301
+    /// Phase 4).
+    ///
+    /// Called on kill/relaunch/rebind paths so stale liveness observations
+    /// from the prior binding are rejected. Returns the new generation, or
+    /// `None` if the agent has no tracked session.
+    #[must_use]
+    pub fn bump_lifecycle_generation(&mut self, agent_id: &AgentId) -> Option<u64> {
+        let new_gen = self.next_lifecycle_generation();
+        let session = self.sessions.get_mut(agent_id)?;
+        session.lifecycle_generation = new_gen;
+        Some(session.lifecycle_generation)
     }
 
     /// Return the stored worker PID (`llxprt` OS process) for an agent, if known.
@@ -764,6 +785,10 @@ impl RuntimeManager for TmuxRuntimeManager {
             commands::kill_session(&session.session_name)?;
         }
 
+        // Bump lifecycle generation so stale liveness observations from the
+        // killed session are rejected (issue #301 Phase 4).
+        let _ = self.next_lifecycle_generation();
+
         Ok(())
     }
 
@@ -783,6 +808,10 @@ impl RuntimeManager for TmuxRuntimeManager {
         // Spawn with stored signature using force-fresh semantics so runtime
         // warnings are surfaced consistently through the relaunch path.
         self.spawn_session_fresh(agent_id, &signature.work_dir.clone(), &signature)?;
+
+        // Bump lifecycle generation so stale liveness observations from the
+        // prior binding are rejected (issue #301 Phase 4).
+        let _ = self.bump_lifecycle_generation(agent_id);
 
         Ok(())
     }
@@ -878,102 +907,11 @@ impl RuntimeManager for TmuxRuntimeManager {
     }
 
     fn capture_session_output(&self, agent_id: &AgentId) -> Option<TerminalSnapshot> {
-        let session = self.sessions.get(agent_id)?;
-        if session.launch_signature.remote.enabled {
-            return None;
-        }
-
-        let lines = commands::capture_pane_lines(&session.session_name)?;
-
-        let rows = lines.len();
-        let cols = lines
-            .iter()
-            .map(|line| line.chars().count())
-            .max()
-            .unwrap_or(0);
-
-        if rows == 0 || cols == 0 {
-            return Some(TerminalSnapshot::default());
-        }
-
-        let default_style = TerminalCellStyle {
-            fg: iocraft::Color::White,
-            bg: iocraft::Color::Black,
-            bold: false,
-            dim: false,
-            underline: false,
-        };
-
-        let mut snapshot = TerminalSnapshot::blank(rows, cols, default_style);
-        // `capture_pane_lines` does not preserve soft-wrap metadata, so all
-        // rows are treated as hard line breaks (wraps stays all-false, which
-        // is the default from `blank` — issue #197).
-        snapshot.wraps = vec![false; rows];
-        for (r, line) in lines.iter().enumerate() {
-            for (c, ch) in line.chars().enumerate() {
-                snapshot.cells[r][c] = TerminalCell {
-                    ch,
-                    style: default_style,
-                    wide_spacer: false,
-                };
-            }
-        }
-
-        Some(snapshot)
+        super::capture_ops::capture_session_output(self, agent_id)
     }
 
     fn capture_history(&mut self) -> Option<Vec<String>> {
-        let agent_id = self.attached_agent_id.clone()?;
-        let session_name = self
-            .sessions
-            .get(&agent_id)
-            .map(|s| s.session_name.clone())?;
-
-        // Remote sessions do not support local capture-pane history.
-        let is_remote = self
-            .sessions
-            .get(&agent_id)
-            .is_some_and(|s| s.launch_signature.remote.enabled);
-        if is_remote {
-            return None;
-        }
-
-        // Cache hit: same agent + generation + not dirty → reuse (fix #2/#10).
-        // The generation counter increments on take_dirty(). Also treat a
-        // currently-dirty viewer as a cache miss so input-driven refresh does
-        // not serve stale lines before take_dirty() bumps the generation.
-        let generation = self.output_generation();
-        let is_currently_dirty = self.is_dirty();
-        if !is_currently_dirty && let Some(cached) = self.history_cache.get(&agent_id, generation) {
-            return Some(cached.clone());
-        }
-
-        // Cache miss / dirty: re-capture. On transient failure, return prior
-        // cache so a momentary tmux hiccup doesn't wipe retained history.
-        let Some(raw_lines) = commands::capture_pane_history(&session_name, HISTORY_LINE_CAP)
-        else {
-            if let Some(prior) = self.history_cache.get_fallback(&agent_id) {
-                debug!(session_name = %session_name, "capture-pane failed; retaining prior cache");
-                return Some(prior.clone());
-            }
-            return None;
-        };
-
-        // Strip the visible pane rows (live snapshot already has them).
-        let live_rows = self.snapshot().map_or(0, |s| s.rows);
-        let lines = strip_trailing_rows(raw_lines, live_rows);
-
-        // Do NOT strip trailing blank lines — they may be real blank output,
-        // not tmux padding. Cache the result (including an empty capture) so
-        // we don't shell out every frame. Return `Some(lines)` consistently so
-        // the current frame and subsequent cache-hit frames agree (an empty
-        // capture returns `Some(vec![])`, not `None` — callers normalize via
-        // `map_or(0, Vec::len)`, and `None` is reserved for "no session /
-        // capture not applicable").
-        self.history_cache
-            .store(&agent_id, generation, Some(lines.clone()));
-
-        Some(lines)
+        super::capture_ops::capture_history(self)
     }
 }
 

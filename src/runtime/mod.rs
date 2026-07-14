@@ -13,6 +13,7 @@ mod async_attach;
 mod attach;
 mod attach_scheduler;
 mod capabilities;
+mod capture_ops;
 mod commands;
 mod errors;
 /// One-shot `gh auth login --web` device-code subprocess driver (issue #244).
@@ -53,6 +54,7 @@ pub use liveness::{
 };
 pub use manager::{
     AttachInputs, HISTORY_LINE_CAP, LivenessCheck, RuntimeManager, TmuxRuntimeManager,
+    drop_viewer_in_background_pub,
 };
 pub use multiplexer::{
     LocalPlatform, MultiplexerCapability, MultiplexerError, MultiplexerIsolation, MultiplexerPlan,

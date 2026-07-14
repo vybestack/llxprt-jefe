@@ -10,7 +10,9 @@ use std::sync::Arc;
 use tracing::{debug, warn};
 
 use jefe::domain::AgentId;
-use jefe::runtime::{AttachedViewer, RuntimeManager, TmuxRuntimeManager};
+use jefe::runtime::{
+    AttachedViewer, RuntimeManager, TmuxRuntimeManager, drop_viewer_in_background_pub,
+};
 
 use crate::AppContext;
 
@@ -107,6 +109,11 @@ fn mark_dead_or_log(ctx: &Arc<std::sync::Mutex<AppContext>>, agent_id: &AgentId)
 
 /// Drop an `AttachedViewer` on a background thread to avoid blocking during
 /// `AttachedViewer::drop` child teardown (~300ms).
+///
+/// Delegates to the canonical `drop_viewer_in_background_pub` in
+/// `runtime/manager.rs` so the background-drop policy stays centralized
+/// (issue #301 review feedback).
 fn drop_viewer_in_background(viewer: AttachedViewer) {
-    std::thread::spawn(move || drop(viewer));
+    let mut opt = Some(viewer);
+    drop_viewer_in_background_pub(&mut opt);
 }

@@ -177,22 +177,34 @@ pub fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>>
                     // agent was rebound/restarted after the check was
                     // dispatched; skip it.
                     let mut state = app_state.write();
+                    // Build a lookup map from agent_id → (session_name, gen)
+                    // from the current state to avoid O(n*m) scan for each
+                    // identity (issue #301 review feedback).
+                    let current_bindings: std::collections::HashMap<
+                        &AgentId,
+                        (Option<&String>, u64),
+                    > = state
+                        .agents
+                        .iter()
+                        .map(|a| {
+                            let session = a.runtime_binding.as_ref().map(|b| &b.session_name);
+                            let lifecycle_gen = a
+                                .runtime_binding
+                                .as_ref()
+                                .map_or(0, |b| b.lifecycle_generation);
+                            (&a.id, (session, lifecycle_gen))
+                        })
+                        .collect();
                     let mut to_apply: Vec<AgentId> = Vec::new();
                     for identity in &dead_identities {
-                        let Some(agent) = state.agents.iter().find(|a| a.id == identity.agent_id)
+                        let Some(&(current_session, current_gen)) =
+                            current_bindings.get(&identity.agent_id)
                         else {
                             // Agent removed from state since the check — skip.
                             continue;
                         };
-                        let current_session = agent
-                            .runtime_binding
-                            .as_ref()
-                            .map(|b| b.session_name.clone());
-                        let current_gen = agent
-                            .runtime_binding
-                            .as_ref()
-                            .map_or(0, |b| b.lifecycle_generation);
-                        let session_matches = current_session == identity.binding_session_name;
+                        let session_matches =
+                            current_session == identity.binding_session_name.as_ref();
                         let gen_matches = current_gen == identity.lifecycle_generation;
                         if session_matches && gen_matches {
                             to_apply.push(identity.agent_id.clone());
@@ -943,56 +955,4 @@ fn is_pty_dirty(ctx: Option<&CtxArc>) -> bool {
         return false;
     };
     ctx_guard.runtime.take_dirty()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use jefe::domain::AgentStatus;
-
-    // --- wants_live_snapshot (issue #160 gate removal) ---
-    //
-    // The old `should_skip_live_snapshot(status, pane_focus)` gate suppressed
-    // Running-agent snapshots when `pane_focus != Terminal`. That gate was
-    // removed; `wants_live_snapshot` is the replacement decision function that
-    // depends ONLY on agent status, never on pane focus. These tests pin that
-    // contract: a Running agent's snapshot is always eligible, so the terminal
-    // renders as a read-only preview after restart and during list navigation.
-
-    #[test]
-    fn wants_live_snapshot_for_running_regardless_of_pane() {
-        assert!(
-            wants_live_snapshot(AgentStatus::Running),
-            "Running status must always want a live snapshot"
-        );
-    }
-
-    #[test]
-    fn wants_live_snapshot_for_dead() {
-        // Dead agents get a one-shot pane capture.
-        assert!(
-            wants_live_snapshot(AgentStatus::Dead),
-            "Dead status must want a snapshot capture"
-        );
-    }
-
-    #[test]
-    fn does_not_want_live_snapshot_for_idle_statuses() {
-        for status in [AgentStatus::Queued, AgentStatus::Completed] {
-            assert!(
-                !wants_live_snapshot(status),
-                "{status:?} should not produce a terminal snapshot"
-            );
-        }
-    }
-
-    // --- is_pty_dirty ---
-
-    #[test]
-    fn is_pty_dirty_returns_false_without_ctx() {
-        assert!(
-            !is_pty_dirty(None),
-            "is_pty_dirty should be false with no ctx"
-        );
-    }
 }

@@ -67,17 +67,20 @@ impl TmuxRuntimeManager {
             return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
         }
 
-        if self.attached_agent_id.as_ref() != Some(agent_id) {
-            if let Some(old_id) = self.attached_agent_id.take()
-                && let Some(old_session) = self.sessions.get_mut(&old_id)
-            {
-                tracing::debug!(old_agent_id = %old_id.0, "apply_attach: detaching previous viewer");
-                old_session.attached = false;
-            }
-            // Drop the old viewer on a background thread to avoid blocking
-            // the caller during AttachedViewer::drop child teardown (~300ms).
-            super::manager::drop_viewer_in_background_pub(&mut self.viewer);
+        if let Some(old_id) = self.attached_agent_id.take()
+            && old_id != *agent_id
+            && let Some(old_session) = self.sessions.get_mut(&old_id)
+        {
+            tracing::debug!(old_agent_id = %old_id.0, "apply_attach: detaching previous viewer");
+            old_session.attached = false;
         }
+        // Drop the old viewer (if any) on a background thread to avoid
+        // blocking the caller during AttachedViewer::drop child teardown
+        // (~300ms). This covers both the different-agent case (old viewer
+        // from a prior attach) and the same-agent re-attach case (issue
+        // #301 review: old viewer was previously dropped inline via
+        // `self.viewer = Some(viewer)`).
+        super::manager::drop_viewer_in_background_pub(&mut self.viewer);
 
         if !viewer.is_alive() {
             tracing::debug!(agent_id = %agent_id.0, "apply_attach: viewer exited immediately");

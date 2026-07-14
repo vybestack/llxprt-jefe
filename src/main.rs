@@ -195,9 +195,15 @@ fn main() {
 /// Build the coalescing persistence worker's durable-write boundary (issue #301).
 ///
 /// The worker calls this function on a background OS thread; the input path
-/// never touches the filesystem directly. If persistence setup fails here
-/// (after the startup `build_persistence` already succeeded), the closure
-/// becomes a no-op and a warning is logged so the app does not crash.
+/// never touches the filesystem directly. This reuses the persistence
+/// manager already constructed at startup (via `build_persistence`) by
+/// re-invoking the same factory function — the startup instance and the
+/// worker instance operate on the same config dir and file, so writes are
+/// consistent. A second `build_persistence` call is used rather than moving
+/// the startup instance because the startup instance is owned by
+/// `AppContext` and used for synchronous reads (e.g. initial state load);
+/// the worker needs its own `Arc<Mutex<>>` to avoid lock contention with
+/// the input path.
 fn build_persist_fn(
     config_dir: Option<&std::path::Path>,
 ) -> jefe::services::persist_worker::PersistFn {
