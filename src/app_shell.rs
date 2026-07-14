@@ -611,6 +611,17 @@ fn paste_to_issues_search(
     suppress_next_enter.set(PasteEnterSuppression::new());
 }
 
+/// Whether a key event should be ignored entirely (not forwarded or processed).
+///
+/// Release events are always ignored. Enter repeats are ignored so that holding
+/// Enter under OS key-repeat does not send duplicate submits into the PTY
+/// (issue #286). All other keys (Backspace, Delete, arrows, character input)
+/// keep their normal repeat behavior.
+fn should_ignore_key_event(key_event: &KeyEvent) -> bool {
+    key_event.kind == KeyEventKind::Release
+        || (key_event.kind == KeyEventKind::Repeat && key_event.code == KeyCode::Enter)
+}
+
 fn handle_key_event(
     ctx: Option<&CtxArc>,
     app_state: &mut HookState<AppState>,
@@ -619,11 +630,7 @@ fn handle_key_event(
     suppress_next_enter: &mut HookState<PasteEnterSuppression>,
     key_event: KeyEvent,
 ) {
-    // Ignore release and repeat events: only physical key *presses* are
-    // meaningful input. Repeat events fire under OS key-repeat and would
-    // duplicate input forwarded to the PTY (issue #286 — holding Enter under
-    // load can send duplicate submits).
-    if key_event.kind != KeyEventKind::Press {
+    if should_ignore_key_event(&key_event) {
         return;
     }
 
