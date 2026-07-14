@@ -131,6 +131,7 @@ fn remove_empty_untracked_parents(work_dir: &Path, paths: &[PathBuf]) -> Result<
             let directory = work_dir.join(candidate);
             match std::fs::remove_dir(&directory) {
                 Ok(()) => parent = candidate.parent(),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
                 Err(_error) if directory_has_entries(&directory) => break,
                 Err(error) => {
                     return Err(format!(

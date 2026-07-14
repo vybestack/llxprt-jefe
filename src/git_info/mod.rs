@@ -201,8 +201,14 @@ fn sweep_stale(cache: &mut HashMap<PathBuf, CacheEntry>, now: Instant) {
 /// is not installed. Uses `git rev-parse --abbrev-ref HEAD` which returns the
 /// branch name or `HEAD` for detached HEAD (filtered out).
 fn probe_branch(work_dir: &Path) -> Option<String> {
-    let output = crate::local_command::command(crate::local_command::LocalTool::Git)
-        .ok()?
+    let mut command = match crate::local_command::command(crate::local_command::LocalTool::Git) {
+        Ok(command) => command,
+        Err(error) => {
+            tracing::debug!(%error, "could not resolve Git while probing branch");
+            return None;
+        }
+    };
+    let output = command
         .arg("-C")
         .arg(work_dir)
         .args(["rev-parse", "--abbrev-ref", "HEAD"])

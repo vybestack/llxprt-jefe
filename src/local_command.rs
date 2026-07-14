@@ -112,9 +112,10 @@ fn resolve_in(
     override_path: Option<PathBuf>,
 ) -> Result<PathBuf, LocalToolError> {
     if let Some(path) = override_path {
-        return executable_file(&path, platform)
-            .then_some(path.clone())
-            .ok_or(LocalToolError::InvalidOverride { tool, path });
+        if executable_file(&path, platform) {
+            return Ok(path);
+        }
+        return Err(LocalToolError::InvalidOverride { tool, path });
     }
     let candidates = executable_names(tool.name(), platform, pathext.as_deref());
     for directory in paths {
