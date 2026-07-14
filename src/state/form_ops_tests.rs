@@ -193,8 +193,10 @@ fn llxprt_debug_is_trimmed_to_empty_when_blank() {
 
 #[test]
 fn new_agent_work_dir_slug_excludes_slashes_from_name() {
+    let repository = seed_repository();
+    let expected = repository.base_dir.join("api--worker");
     let mut state = AppState {
-        repositories: vec![seed_repository()],
+        repositories: vec![repository],
         ..AppState::default()
     };
 
@@ -209,7 +211,35 @@ fn new_agent_work_dir_slug_excludes_slashes_from_name() {
     let ModalState::NewAgent { fields, .. } = &state.modal else {
         panic!("expected new-agent modal, got {:?}", state.modal);
     };
-    assert_eq!(fields.work_dir, "/tmp/repo-1/api--worker");
+    assert_eq!(std::path::Path::new(&fields.work_dir), expected);
+}
+
+#[cfg(windows)]
+#[test]
+fn automatic_agent_work_dir_joins_normalized_windows_repository_once() {
+    let mut repository = seed_repository();
+    repository.base_dir = std::path::PathBuf::from(r"C:\Users\Acoli Ω\somedir");
+    let mut state = AppState {
+        repositories: vec![repository],
+        ..AppState::default()
+    };
+
+    state = state.apply(AppEvent::OpenNewAgent(RepositoryId("repo-1".to_owned())));
+    let ModalState::NewAgent { fields, .. } = &mut state.modal else {
+        panic!("expected new-agent modal");
+    };
+    fields.name = "branch-1".to_owned();
+
+    state.update_agent_work_dir_from_name();
+
+    let ModalState::NewAgent { fields, .. } = &state.modal else {
+        panic!("expected new-agent modal, got {:?}", state.modal);
+    };
+    assert_eq!(
+        std::path::Path::new(&fields.work_dir),
+        std::path::Path::new(r"C:\Users\Acoli Ω\somedir\branch-1")
+    );
+    assert_eq!(fields.work_dir.matches("somedir").count(), 1);
 }
 
 #[test]

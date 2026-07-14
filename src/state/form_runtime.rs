@@ -51,9 +51,8 @@ pub(super) fn cycle_agent_field(
 }
 
 /// Slugify a name: lowercase, spaces to dashes, keep only alphanumerics and
-/// dashes. Shared by [`repository_slug_from_name`] and
-/// [`derive_work_dir_from_name`] so the slug rule has a single source of
-/// truth.
+/// dashes. Shared by repository and agent work-directory derivation so the slug
+/// rule has a single source of truth.
 fn slugify(name: &str) -> String {
     name.to_lowercase()
         .replace(' ', "-")
@@ -67,18 +66,26 @@ pub(super) fn repository_slug_from_name(name: &str) -> String {
     slugify(name)
 }
 
-/// Derive the agent work directory from the agent name and repository base dir.
+/// Derive a local agent work directory from its name and repository base path.
 ///
-/// Agent names map to a single directory segment under `base_dir`; slash is
-/// intentionally excluded so users cannot create nested paths via the name
-/// field. Use the work_dir field for custom nested paths when needed.
-pub(super) fn derive_work_dir_from_name(name: &str, base_dir: &str) -> String {
+/// Agent names map to one platform-native directory segment beneath `base_dir`.
+/// Use the work-dir field for custom nested paths when needed.
+pub(super) fn derive_local_work_dir_from_name(name: &str, base_dir: &std::path::Path) -> String {
+    let slug = slugify(name);
+    if slug.is_empty() {
+        base_dir.to_string_lossy().into_owned()
+    } else {
+        base_dir.join(slug).to_string_lossy().into_owned()
+    }
+}
+
+/// Derive a remote Unix agent work directory without applying local path rules.
+pub(super) fn derive_remote_work_dir_from_name(name: &str, base_dir: &str) -> String {
     let slug = slugify(name);
     if slug.is_empty() {
         base_dir.to_owned()
     } else {
-        let base_dir = base_dir.trim_end_matches('/');
-        format!("{base_dir}/{slug}")
+        format!("{}/{slug}", base_dir.trim_end_matches('/'))
     }
 }
 
@@ -91,4 +98,17 @@ pub(super) fn next_installed_kind(installed: &[AgentKind], value: &str) -> Optio
             || installed.first().copied(),
             |index| installed.get((index + 1) % installed.len()).copied(),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remote_work_dir_trims_trailing_separators_before_joining_slug() {
+        assert_eq!(
+            derive_remote_work_dir_from_name("Branch 1", "~/remote///"),
+            "~/remote/branch-1"
+        );
+    }
 }
