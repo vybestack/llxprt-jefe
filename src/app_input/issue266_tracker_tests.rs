@@ -199,9 +199,7 @@ fn issue_send_state(repo: Repository) -> AppState {
         issue_type_name: None,
         body: "Fork should source issues from upstream".to_owned(),
         external_url: String::new(),
-        comments: vec![],
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: jefe::domain::PaginatedList::default(),
     };
 
     let issues_state = IssuesState {

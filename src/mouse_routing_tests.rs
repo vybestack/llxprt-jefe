@@ -1,8 +1,6 @@
 //! Tests for mouse_routing.rs (issue #197).
 //!
-//! Extracted from mouse_routing.rs to keep that file under the 1000-line limit.
-//! These tests exercise the pure helper functions and the gesture-state-machine
-//! wiring without requiring iocraft or a live runtime.
+//! Exercises pure helpers and gesture-state-machine wiring without a live runtime.
 
 use super::{
     WheelDirection, active_overlay_for, gesture_event_kind, is_blocking_modal_open,
@@ -766,16 +764,19 @@ fn state_with_issue_body(body: &str) -> AppState {
         milestone: None,
         body: body.to_string(),
         external_url: String::new(),
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: jefe::domain::PaginatedList::from_loaded(
+            jefe::domain::CommentDetailIdentity {
+                scope_repo_id: jefe::domain::RepositoryId::default(),
+                number: 1,
+            },
+            Vec::new(),
+            jefe::domain::PageToken::from_cursor(None, false),
+        ),
         issue_type_name: None,
     });
     state
 }
 
-/// PaneGeometry whose content origin is (0,0) so row N maps to content row N
-/// directly — keeping the math in the test legible.
 fn origin_geometry() -> PaneGeometry {
     PaneGeometry {
         origin_col: 0,
@@ -826,6 +827,7 @@ fn wrapped_body_rows_resolve_to_same_content_line() {
             &state,
             SelectablePane::IssueDetail,
             cols,
+            40,
             &ScreenCoord {
                 col: 0,
                 row: vp_row,
@@ -888,6 +890,7 @@ fn wrapped_body_row_column_advances_with_screen_col() {
             &state,
             SelectablePane::IssueDetail,
             cols,
+            40,
             &ScreenCoord {
                 col: screen_col,
                 row: vp_row,
@@ -907,8 +910,6 @@ fn wrapped_body_row_column_advances_with_screen_col() {
         .find(|r| r.line == body_line && r.line_char_start > 0)
         .unwrap_or_else(|| panic!("expected a wrapped second row; rows={rows:?}"));
     let char_start = second.line_char_start;
-    // The screen vp row for `second` = header rows + the count of wrapped rows
-    // rendered before it.
     let rows_before = rows
         .iter()
         .take_while(|r| {
@@ -946,6 +947,7 @@ fn header_row_uses_naive_mapping() {
         &state,
         SelectablePane::IssueDetail,
         120,
+        40,
         &ScreenCoord {
             col: 5,
             row: header_row,
@@ -953,11 +955,41 @@ fn header_row_uses_naive_mapping() {
             geometry: &geo,
         },
     );
-    // Header row maps to its own index regardless of scroll offset.
     assert_eq!(line, usize::from(header_row));
 }
 
-/// Non-detail panes have no wrap projection and fall back to the naive map.
+#[test]
+fn finite_pane_blank_space_clamps_to_last_projected_line_end() {
+    let state = jefe::state::AppState::default();
+    let geometry = origin_geometry();
+    let content = jefe::pane_content_projection::projected_pane_content(
+        SelectablePane::KeybindBar,
+        &state,
+        None,
+        &[],
+        80,
+        24,
+    );
+    let expected = content.lines.last().map_or((0, 0), |line| {
+        (content.lines.len() - 1, line.chars().count())
+    });
+    assert_eq!(
+        content_coords_for_pane(
+            &state,
+            SelectablePane::KeybindBar,
+            80,
+            24,
+            &ScreenCoord {
+                col: 30,
+                row: 10,
+                scroll_offset: 0,
+                geometry: &geometry,
+            },
+        ),
+        expected
+    );
+}
+
 #[test]
 fn non_detail_pane_has_no_wrap_projection() {
     let state = AppState::default();

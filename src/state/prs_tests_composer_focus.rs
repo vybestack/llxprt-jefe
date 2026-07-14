@@ -80,7 +80,8 @@ fn test_comment_created_appends_and_marks_follow_viewport() {
         .pr_detail
         .as_mut()
         .unwrap_or_else(|| panic!("detail should exist"))
-        .comments = vec![existing];
+        .comments
+        .replace_items(vec![existing]);
 
     let new_state = state.apply(AppEvent::PrCommentCreated {
         scope_repo_id: RepositoryId("repo-1".to_string()),
@@ -392,7 +393,9 @@ Line C"
             url: None,
         },
     ];
-    detail.comments = vec![make_comment(100, "alice"), make_comment(101, "bob")];
+    detail
+        .comments
+        .replace_items(vec![make_comment(100, "alice"), make_comment(101, "bob")]);
 }
 
 /// Opening the new-comment composer must scroll the detail viewport to the
@@ -650,7 +653,9 @@ fn test_open_reply_composer_reveals_target_reply_anchor() {
             .map(|i| format!("body line {i}"))
             .collect::<Vec<_>>()
             .join("\n");
-        detail.comments = vec![make_comment(1, "alice"), make_comment(2, "bob")];
+        detail
+            .comments
+            .replace_items(vec![make_comment(1, "alice"), make_comment(2, "bob")]);
     }
     state.prs_state.detail_subfocus = PrDetailSubfocus::Comment(0);
 

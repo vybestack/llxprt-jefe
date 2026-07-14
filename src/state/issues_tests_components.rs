@@ -48,9 +48,14 @@ fn make_test_detail(comments: Vec<IssueComment>) -> IssueDetail {
         milestone: Some("v1.0".to_string()),
         body: "Detail body text".to_string(),
         external_url: "https://github.com/owner/repo/issues/42".to_string(),
-        comments,
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: crate::domain::PaginatedList::from_loaded(
+            crate::domain::CommentDetailIdentity {
+                scope_repo_id: crate::domain::RepositoryId::default(),
+                number: 42,
+            },
+            comments,
+            crate::domain::PageToken::Done,
+        ),
         issue_type_name: None,
     }
 }

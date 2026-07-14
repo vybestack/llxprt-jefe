@@ -338,9 +338,14 @@ fn build_pr_preview_for_selection(
         checks_status: pr.checks_status,
         reviews: Vec::new(),
         checks: Vec::new(),
-        comments: Vec::new(),
-        has_more_comments: false,
-        comments_cursor: None,
+        comments: jefe::domain::PaginatedList::from_loaded(
+            jefe::domain::CommentDetailIdentity {
+                scope_repo_id: jefe::domain::RepositoryId::default(),
+                number: pr.number,
+            },
+            Vec::new(),
+            jefe::domain::PageToken::from_cursor(None, false),
+        ),
         mergeable: None,
         merge_state_status: None,
     };
@@ -384,12 +389,14 @@ pub(super) fn preview_pr_from_list(app_state: &mut AppStateHandle) {
         if !selected_pr_still_matches(&state, &preview_scope_repo_id, preview_pr_number) {
             return;
         }
+        if let Some(previous_detail) = &mut state.prs_state.pr_detail {
+            previous_detail.comments.cancel_pending();
+        }
         state.prs_state.pr_detail = Some(detail);
         state.prs_state.error = None;
         state.prs_state.loading.detail = false;
         state.prs_state.loading.comments = false;
         state.prs_state.detail_pending = None;
-        state.prs_state.comments_page_pending = None;
         state.prs_state.detail_subfocus = jefe::state::PrDetailSubfocus::Body;
         state.prs_state.detail_scroll_offset = 0;
     }

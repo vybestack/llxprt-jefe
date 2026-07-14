@@ -319,10 +319,10 @@ fn build_comments_section(
     builder.lines.push("Comments".to_string());
     if comments_loading {
         builder.lines.push("  Loading comments...".to_string());
-    } else if detail.comments.is_empty() {
+    } else if detail.comments.items().is_empty() {
         builder.lines.push("  No comments yet.".to_string());
     } else {
-        for (idx, comment) in detail.comments.iter().enumerate() {
+        for (idx, comment) in detail.comments.items().iter().enumerate() {
             build_single_comment(idx, comment, subfocus, inline_state, builder);
         }
     }
@@ -449,9 +449,14 @@ mod tests {
             milestone: None,
             body: body.to_string(),
             external_url: String::new(),
-            comments: Vec::new(),
-            has_more_comments: false,
-            comments_cursor: None,
+            comments: crate::domain::PaginatedList::from_loaded(
+                crate::domain::CommentDetailIdentity {
+                    scope_repo_id: crate::domain::RepositoryId::default(),
+                    number: 1,
+                },
+                Vec::new(),
+                crate::domain::PageToken::from_cursor(None, false),
+            ),
             issue_type_name: None,
         }
     }
@@ -504,7 +509,9 @@ mod tests {
     #[test]
     fn count_matches_rendered_with_comments_and_trailing_newline() {
         let mut detail = detail_with_body("body\n");
-        detail.comments = vec![comment("comment body\n"), comment("another")];
+        detail
+            .comments
+            .replace_items(vec![comment("comment body\n"), comment("another")]);
         assert_count_matches_rendered(&detail, &InlineState::None, false);
     }
 
@@ -538,9 +545,11 @@ mod tests {
 
     fn detail_with_comments(n: usize) -> IssueDetail {
         let mut detail = detail_with_body("body line one\nbody line two");
-        detail.comments = (0..n)
-            .map(|i| comment(format!("comment {i} body").as_str()))
-            .collect();
+        detail.comments.replace_items(
+            (0..n)
+                .map(|i| comment(format!("comment {i} body").as_str()))
+                .collect(),
+        );
         detail
     }
 
@@ -683,7 +692,7 @@ mod tests {
         // Two comments with multi-line bodies. Body lines are indented and must
         // NOT be miscounted as comment headers.
         let mut detail = detail_with_body("body");
-        detail.comments = vec![
+        detail.comments.replace_items(vec![
             comment(
                 "comment 0 line 1
 comment 0 line 2",
@@ -692,7 +701,7 @@ comment 0 line 2",
                 "comment 1 line 1
 comment 1 line 2",
             ),
-        ];
+        ]);
         let range = require_range(
             &detail,
             DetailSubfocus::Comment(1),

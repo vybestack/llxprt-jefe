@@ -7,14 +7,14 @@
 
 use iocraft::prelude::*;
 
-use crate::layout::{LEFT_COL_WIDTH, RIGHT_COL_WIDTH, dashboard_middle_row_heights};
+use crate::layout::{LEFT_COL_WIDTH, RIGHT_COL_WIDTH, dashboard_middle_row_heights_inner};
 use crate::runtime::TerminalSnapshot;
 use crate::state::{AppState, DashboardGrabPane, PaneFocus, ScreenMode};
 use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::super::components::{
-    AgentListSelection, KeybindBar, Preview, Sidebar, StatusBar, TerminalView, agent_list_props,
-    selectable_list_element,
+    AgentListSelection, AgentListView, AgentListWindow, KeybindBar, Preview, Sidebar, StatusBar,
+    TerminalView, agent_list_props, selectable_list_element,
 };
 
 /// Props for the dashboard screen.
@@ -36,6 +36,8 @@ pub struct DashboardProps {
     /// retained history (issue #198 follow-up).
     pub terminal_pane_rows: usize,
     pub terminal_pane_cols: usize,
+    /// Boundary-resolved Git display snapshot for Agent and Preview panes.
+    pub git_info: Option<crate::dashboard_git_info::DashboardGitInfoSnapshot>,
 }
 
 /// The main dashboard screen: sidebar + middle (agents + terminal) + preview.
@@ -105,28 +107,16 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
         state.map_or_else(Vec::new, |s| s.visible_agents_for_repository(&repo.id))
     });
 
-    // Resolve git display info (origin shortform + branch) for each visible
-    // agent, parallel to `agents` by index (issue #170).
-    let agent_git_infos: Vec<crate::git_info::GitRepoInfo> =
-        selected_repo.map_or_else(Vec::new, |repo| {
-            agents
-                .iter()
-                .map(|agent| {
-                    crate::git_info::GitRepoInfo::resolve(
-                        &repo.github_repo,
-                        repo.remote.enabled,
-                        &agent.work_dir,
-                    )
-                })
-                .collect()
-        });
+    let agent_git_infos = props
+        .git_info
+        .as_ref()
+        .map_or(&[][..], |snapshot| snapshot.agents.as_slice());
 
     let selected_agent_data = state.and_then(|s| s.selected_agent().cloned());
-
-    // Git info for the preview pane: reuse the already-resolved entry from
-    // `agent_git_infos` when the selected agent is visible (avoids a redundant
-    // `GitRepoInfo::resolve` call on every render frame).
-    let selected_agent_git_info = agent_git_infos.get(selected_agent_idx).cloned();
+    let selected_agent_git_info = props
+        .git_info
+        .as_ref()
+        .and_then(|snapshot| snapshot.preview.clone());
 
     // Whether the selected agent is Running with a live session. Threading this
     // to TerminalView lets the empty-state copy distinguish a healthy live
@@ -141,7 +131,11 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&colors));
 
     let (term_cols, term_rows) = crossterm::terminal::size().unwrap_or((120, 40));
-    let (agent_rows, terminal_rows) = dashboard_middle_row_heights(term_cols, term_rows);
+    let (render_cols, render_rows) = crate::layout::effective_render_size(term_cols, term_rows);
+    let (agent_rows, terminal_rows) = dashboard_middle_row_heights_inner(render_rows);
+    let sidebar_pane_rows = render_rows.saturating_sub(crate::layout::OUTER_BARS_HEIGHT);
+    let agent_pane_cols = render_cols.saturating_sub(LEFT_COL_WIDTH + RIGHT_COL_WIDTH);
+    let agent_content_width = crate::list_viewport::bordered_padded_content_width(agent_pane_cols);
 
     // Single source of truth for fixed column widths: the iocraft width field
     // expects a u32, so convert the u16 layout constants once here.
@@ -182,6 +176,8 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                         selected: selected_repo_idx,
                         focused: !terminal_focused && pane_focus == PaneFocus::Repositories,
                         grabbed: grabbed_repo_idx,
+                        pane_rows: sidebar_pane_rows,
+                        content_width: crate::list_viewport::bordered_padded_content_width(LEFT_COL_WIDTH),
                         colors: colors.clone(),
                         selection: selection,
                     )
@@ -196,10 +192,16 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                     Box(height: agent_rows, width: 100pct) {
                         #(vec![selectable_list_element(agent_list_props(
                             &agents,
-                            &agent_git_infos,
-                            AgentListSelection {
-                                selected: selected_agent_idx,
-                                grabbed: grabbed_agent_idx,
+                            agent_git_infos,
+                            AgentListView {
+                                selection: AgentListSelection {
+                                    selected: selected_agent_idx,
+                                    grabbed: grabbed_agent_idx,
+                                },
+                                window: AgentListWindow {
+                                    pane_rows: agent_rows,
+                                    content_width: agent_content_width,
+                                },
                             },
                             !terminal_focused && pane_focus == PaneFocus::Agents,
                             colors.clone(),
@@ -253,7 +255,11 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                         agent: selected_agent_data,
                         git_info: selected_agent_git_info,
                         focused: false,
+                        content_width: usize::from(
+                            crate::list_viewport::bordered_padded_content_width(RIGHT_COL_WIDTH)
+                        ),
                         colors: colors.clone(),
+                        selection: selection,
                     )
                 }
             }

@@ -26,7 +26,12 @@ fn test_detail_content_line_count_includes_loading_comments_separator() {
 #[test]
 fn test_detail_content_line_count_includes_non_empty_comments_separator() {
     let mut detail = p15_detail(1);
-    detail.comments = vec![p15_comment(101, "alice", "2024-01-03T00:00:00Z", "hello")];
+    detail.comments.replace_items(vec![p15_comment(
+        101,
+        "alice",
+        "2024-01-03T00:00:00Z",
+        "hello",
+    )]);
     let mut state = dashboard_issues_state();
     state.issues_state.issue_detail = Some(detail);
 
