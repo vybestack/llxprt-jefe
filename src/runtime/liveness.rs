@@ -6,12 +6,19 @@
 
 use std::collections::HashSet;
 use std::hash::BuildHasher;
+use std::process::Stdio;
+use std::time::{Duration, Instant};
 
 use crate::domain::{AgentId, RemoteRepositorySettings};
 use crate::runtime::commands::{
     remote_tmux_command, run_remote_ssh, shell_escape_single, tmux_command,
 };
 use crate::runtime::manager::LivenessCheck;
+
+/// Timeout for local tmux subprocess invocations in the batch liveness path.
+/// Matches the `TMUX_TIMEOUT` used by the harness driver so a hung tmux server
+/// cannot stall the background liveness thread indefinitely (issue #287).
+const LOCAL_TMUX_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Check if a process with the given PID is alive.
 ///
@@ -221,16 +228,15 @@ pub fn reconcile_dead_agents<S: BuildHasher>(
 /// number of agents, replacing the previous approach of 2 subprocesses per
 /// running agent (issue #287).
 ///
-/// Returns the set of session names that are alive. An empty set means either
-/// no sessions exist or the tmux server is unavailable.
+/// Returns `None` if the tmux server is unavailable or the command fails, so
+/// callers can skip reconciliation instead of falsely marking all agents dead
+/// (issue #287 review: infrastructure failure must not masquerade as dead
+/// sessions).
 #[must_use]
-pub fn alive_session_set() -> HashSet<String> {
-    let existing = list_all_sessions();
-    if existing.is_empty() {
-        return HashSet::new();
-    }
-    let alive_panes = list_alive_pane_sessions();
-    existing.intersection(&alive_panes).cloned().collect()
+pub fn alive_session_set() -> Option<HashSet<String>> {
+    let existing = list_all_sessions()?;
+    let alive_panes = list_alive_pane_sessions()?;
+    Some(existing.intersection(&alive_panes).cloned().collect())
 }
 
 /// Batch liveness check: query the tmux server once (two subprocesses total)
@@ -239,49 +245,94 @@ pub fn alive_session_set() -> HashSet<String> {
 ///
 /// Remote targets are excluded automatically. This is the single-call API
 /// for callers that want dead agent IDs without managing the intermediate sets.
+///
+/// Returns an empty vector (no dead agents) when the tmux server is
+/// unavailable — infrastructure failure must not cause all agents to be
+/// falsely marked dead (issue #287 review).
 #[must_use]
 pub fn batch_liveness_check(targets: &[LivenessCheck]) -> Vec<AgentId> {
-    let existing = list_all_sessions();
-    let alive_panes = list_alive_pane_sessions();
+    let Some(existing) = list_all_sessions() else {
+        tracing::warn!("tmux list-sessions failed; skipping liveness cycle");
+        return Vec::new();
+    };
+    let Some(alive_panes) = list_alive_pane_sessions() else {
+        tracing::warn!("tmux list-panes failed; skipping liveness cycle");
+        return Vec::new();
+    };
     reconcile_dead_agents(targets, &existing, &alive_panes)
 }
 
 /// Query the tmux server for all session names (one subprocess).
+///
+/// Returns `None` when the tmux server is unavailable or the command fails,
+/// so the caller can distinguish infrastructure failure from an empty session
+/// set (issue #287 review: silent empty-set returns caused all agents to be
+/// falsely reported dead when tmux was unavailable).
 #[must_use]
-fn list_all_sessions() -> HashSet<String> {
-    let Ok(mut command) = tmux_command() else {
-        return HashSet::new();
-    };
-    let output = command
-        .args(["list-sessions", "-F", "#{session_name}"])
-        .output();
-
+fn list_all_sessions() -> Option<HashSet<String>> {
+    let mut command = tmux_command().ok()?;
+    let output = run_tmux_with_timeout(command.args(["list-sessions", "-F", "#{session_name}"]));
     match output {
         Ok(out) if out.status.success() => {
-            parse_alive_sessions(&String::from_utf8_lossy(&out.stdout))
+            Some(parse_alive_sessions(&String::from_utf8_lossy(&out.stdout)))
         }
-        _ => HashSet::new(),
+        _ => None,
     }
 }
 
 /// Query the tmux server for all sessions that have at least one non-dead pane
 /// (one subprocess).
 ///
+/// Returns `None` on infrastructure failure, so the caller can skip
+/// reconciliation rather than falsely marking all agents dead (issue #287
+/// review).
+///
 /// Uses `tmux list-panes -a` (all sessions) with a format that includes the
 /// session name and pane-dead flag, so a single subprocess covers every
 /// session.
 #[must_use]
-fn list_alive_pane_sessions() -> HashSet<String> {
-    let Ok(mut command) = tmux_command() else {
-        return HashSet::new();
-    };
-    let output = command
-        .args(["list-panes", "-a", "-F", "#{session_name}:#{pane_dead}"])
-        .output();
-
+fn list_alive_pane_sessions() -> Option<HashSet<String>> {
+    let mut command = tmux_command().ok()?;
+    let output = run_tmux_with_timeout(command.args([
+        "list-panes",
+        "-a",
+        "-F",
+        "#{session_name}:#{pane_dead}",
+    ]));
     match output {
-        Ok(out) if out.status.success() => parse_pane_alive(&String::from_utf8_lossy(&out.stdout)),
-        _ => HashSet::new(),
+        Ok(out) if out.status.success() => {
+            Some(parse_pane_alive(&String::from_utf8_lossy(&out.stdout)))
+        }
+        _ => None,
+    }
+}
+
+/// Run a tmux subprocess with a bounded timeout, killing it if it exceeds the
+/// deadline. This prevents a hung tmux server from stalling the background
+/// liveness thread indefinitely (issue #287 review).
+fn run_tmux_with_timeout(command: &mut std::process::Command) -> Result<std::process::Output, ()> {
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+    let child = command.spawn().map_err(|_| ())?;
+    let deadline = Instant::now() + LOCAL_TMUX_COMMAND_TIMEOUT;
+    let mut child = child;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return child.wait_with_output().map_err(|_| ()),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(());
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(());
+            }
+        }
     }
 }
 
@@ -503,13 +554,35 @@ jefe-b:0
     // --- alive_session_set (integration, needs tmux) ---
 
     #[test]
-    fn alive_session_set_empty_when_no_tmux_server() {
-        // On a system without tmux or with no sessions, this returns empty.
+    fn alive_session_set_does_not_panic_without_tmux_server() {
+        // On a system without tmux or with no sessions, this returns None.
         // This test validates graceful failure, not the presence of tmux.
         let set = alive_session_set();
-        // We don't assert is_empty because a tmux server might have sessions
+        // We don't assert the value because a tmux server might have sessions
         // from other processes. We just verify it doesn't panic.
         let _ = set;
+    }
+
+    #[test]
+    fn batch_liveness_check_returns_empty_on_tmux_failure() {
+        // When tmux is unavailable (list_all_sessions returns None),
+        // batch_liveness_check must return an empty vector — infrastructure
+        // failure must not cause all agents to be falsely marked dead
+        // (issue #287 review).
+        let targets = vec![
+            make_liveness_check("agent1", "jefe-agent1", false),
+            make_liveness_check("agent2", "jefe-agent2", false),
+        ];
+        // This will either return Some (tmux available) or None (tmux absent).
+        // Either way it must not panic. If tmux is unavailable, the result
+        // must be empty (no false dead agents).
+        let dead = batch_liveness_check(&targets);
+        if alive_session_set().is_none() {
+            assert!(
+                dead.is_empty(),
+                "tmux unavailable must not mark agents dead"
+            );
+        }
     }
 
     // --- existing tests ---
