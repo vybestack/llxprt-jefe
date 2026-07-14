@@ -213,14 +213,18 @@ fn build_persist_fn(
     match manager {
         Ok(m) => {
             let manager = Arc::clone(&m);
-            Arc::new(
-                move |state: &jefe::persistence::State| match manager.lock() {
-                    Ok(mgr) => mgr
+            Arc::new(move |state: &jefe::persistence::State| match manager.lock() {
+                Ok(mgr) => mgr
+                    .save_state(state)
+                    .map_err(|e: jefe::persistence::PersistenceError| e.to_string()),
+                Err(poisoned) => {
+                    tracing::warn!("persist worker: mutex poisoned; recovering");
+                    poisoned
+                        .into_inner()
                         .save_state(state)
-                        .map_err(|e: jefe::persistence::PersistenceError| e.to_string()),
-                    Err(e) => Err(format!("persist lock poisoned: {e}")),
-                },
-            )
+                        .map_err(|e| e.to_string())
+                }
+            })
         }
         Err(e) => {
             tracing::warn!(error = %e, "persist worker: build_persistence failed; durable writes disabled");

@@ -43,6 +43,11 @@ pub fn pane_focus_from_persisted(value: &str) -> PaneFocus {
 /// `save_state` synchronously. This keeps the input/render path from blocking
 /// on `fsync`. Persistence failures are surfaced by the background worker
 /// (logged via `tracing::warn`); the input path never blocks on I/O.
+///
+/// If `schedule` returns `false` (the handle was not initialized), the
+/// snapshot is silently dropped — the background worker was never set up,
+/// so there is no durable write path. This only happens in edge cases like
+/// startup before the worker is wired.
 pub fn persist_state(ctx: &SharedContext, persisted: &PersistedState) {
     let Some(ctx_arc) = ctx else {
         return;
@@ -53,5 +58,7 @@ pub fn persist_state(ctx: &SharedContext, persisted: &PersistedState) {
     // Issue #301: schedule the snapshot for the coalescing background worker
     // instead of performing a synchronous durable write. The worker drains
     // the slot and writes asynchronously.
-    ctx_guard.persist_handle.schedule(persisted.clone());
+    if !ctx_guard.persist_handle.schedule(persisted.clone()) {
+        tracing::trace!("persist_state: persist handle not initialized; skipping durable write");
+    }
 }

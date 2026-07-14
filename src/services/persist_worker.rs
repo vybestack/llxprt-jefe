@@ -86,7 +86,11 @@ impl PersistHandle {
     /// Schedule a snapshot for persistence. This is the input-path call — it
     /// stores the snapshot under a short lock and bumps the generation. No I/O
     /// occurs here.
-    pub fn schedule(&self, snapshot: PersistedState) {
+    ///
+    /// Returns `true` always (the snapshot was scheduled). The return type
+    /// allows callers to check whether the handle is initialized.
+    #[must_use]
+    pub fn schedule(&self, snapshot: PersistedState) -> bool {
         // fetch_add returns the *previous* value; +1 yields the value assigned
         // to this schedule. This makes the first schedule generation 1 (not 0,
         // which is the initial/applied generation).
@@ -98,6 +102,7 @@ impl PersistHandle {
         let mut pending = lock_or_recover(&self.inner.pending);
         pending.snapshot = Some(snapshot);
         pending.generation = generation;
+        true
     }
 
     /// Take the pending snapshot and its generation for off-thread writing.
@@ -267,8 +272,8 @@ mod tests {
 
         let state_a = make_state("state-a");
         let state_b = make_state("state-b-hide");
-        handle.schedule(state_a.clone());
-        handle.schedule(state_b.clone());
+        let _ = handle.schedule(state_a.clone());
+        let _ = handle.schedule(state_b.clone());
 
         assert!(
             !handle.commit(1),
@@ -296,9 +301,9 @@ mod tests {
         let handle = PersistHandle::new(f);
 
         for i in 0..99 {
-            handle.schedule(make_state(&format!("state-{i}")));
+            let _ = handle.schedule(make_state(&format!("state-{i}")));
         }
-        handle.schedule(make_state("state-99-hide"));
+        let _ = handle.schedule(make_state("state-99-hide"));
 
         let (snapshot, generation) = require_pending(&handle);
         assert_eq!(
@@ -334,7 +339,7 @@ mod tests {
         });
         let handle = PersistHandle::new(f);
 
-        handle.schedule(make_state("test"));
+        let _ = handle.schedule(make_state("test"));
         assert_eq!(
             fail_count.load(Ordering::SeqCst),
             0,
@@ -347,7 +352,7 @@ mod tests {
 
         let _ = handle.commit(generation);
         handle.clear_pending();
-        handle.schedule(make_state("test2"));
+        let _ = handle.schedule(make_state("test2"));
         let (_snapshot2, gen2) = require_pending(&handle);
         assert_eq!(gen2, 2, "generation continues after failure");
     }
@@ -358,7 +363,7 @@ mod tests {
         let handle = PersistHandle::new(f);
 
         let final_state = make_state("final-hide");
-        handle.schedule(final_state.clone());
+        let _ = handle.schedule(final_state.clone());
 
         let Ok(durable_guard) = last.lock() else {
             panic!("lock poisoned");
