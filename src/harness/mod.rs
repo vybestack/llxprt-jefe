@@ -41,7 +41,9 @@ pub use matchers::{
 };
 pub use parser::parse_scenario;
 pub use runner::{
-    HarnessDriver, RunSummary, RunnerError, RunnerFailure, run_scenario, run_tmux_scenario,
+    CaptureHook, CapturePolicy, HarnessDriver, NoHook, RunOptions, RunSummary, RunnerError,
+    RunnerFailure, run_scenario, run_scenario_with, run_scenario_with_hook, run_tmux_scenario,
+    run_tmux_scenario_with, run_tmux_scenario_with_hook,
 };
 pub use scenario::Scenario;
 pub use step::Step;

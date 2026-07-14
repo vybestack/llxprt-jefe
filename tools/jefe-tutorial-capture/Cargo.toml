@@ -1,0 +1,48 @@
+[package]
+name = "jefe-tutorial-capture"
+version = "0.0.29"
+edition = "2024"
+authors = ["Vybestack LLC"]
+description = "Tutorial-capture workflow tool for the Jefe terminal application"
+license = "Apache-2.0"
+repository = "https://github.com/vybestack/jefe"
+publish = false
+
+[dependencies]
+jefe = { path = "../.." }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+thiserror = "2.0"
+tracing = "0.1"
+sha2 = "0.10"
+unicode-width = "0.2"
+dirs = "6.0"
+
+[lib]
+name = "jefe_tutorial_capture"
+path = "src/lib.rs"
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+todo = "deny"
+unimplemented = "deny"
+needless_pass_by_value = "allow"
+redundant_clone = "allow"
+doc_markdown = "allow"
+missing_const_for_fn = "allow"
+missing_errors_doc = "allow"
+option_if_let_else = "allow"

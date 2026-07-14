@@ -1,16 +1,19 @@
-# Tmux-backed TUI harness
+# Multiplexer-backed TUI harness
 
-The tmux harness runs `jefe` inside a real terminal session and drives it with
+The harness runs `jefe` inside a real terminal session and drives it with
 keyboard input. It exists for deterministic end-to-end checks of behavior that is
 hard to validate with reducer or component tests alone: focus changes, terminal
 geometry, alternate-screen rendering, scrollback, process exit, and failure
 artifacts.
 
+Unix uses upstream tmux. Native Windows uses psmux and Windows ConPTY while
+sharing the same typed scenario schema, matchers, runner, and artifact model.
+
 The harness is intentionally split by side-effect boundary:
 
 1. **Scenario model and macro expansion** parse JSON into typed Rust structs.
 2. **Screen and scrollback matchers** evaluate captured text without I/O.
-3. **Tmux driver** owns all `tmux -f /dev/null` process calls.
+3. **Multiplexer driver** owns upstream tmux or native psmux process calls.
 4. **Runner/orchestrator** composes the pure layers with the driver seam,
    bounded polling, and artifact capture.
 5. **CLI and scenarios** provide local/manual entry points and opt-in smoke
@@ -106,6 +109,37 @@ cargo run --bin jefe-tmux-harness -- \
 To debug a failing scenario, add `--keep-session` and inspect the named tmux
 session printed by the scenario file or CLI defaults.
 
+### Native Windows with psmux
+
+Install psmux 3.3.6 or newer, then run the same scenario JSON from PowerShell:
+
+```powershell
+cargo build --workspace --all-features --locked
+$root = (Get-Location).Path
+cargo run --bin jefe-tmux-harness -- `
+  --scenario "$root\dev-docs\tmux-scenarios\startup-quit.json" `
+  --jefe-bin "$root\target\debug\jefe.exe" `
+  --config "$root\target\tmux harness Ω\config" `
+  --out-dir "$root\target\tmux harness Ω\startup-quit"
+```
+
+Set `JEFE_PSMUX_BIN` when psmux is not on `PATH`. Each invocation creates a
+unique `psmux -L <namespace>` namespace. Cleanup calls `kill-server` only with
+that owned `-L` namespace; the harness never invokes bare `psmux kill-server`.
+Use `--keep-session` to retain the isolated namespace. The CLI prints the
+session and the path to `multiplexer.txt`, which records the executable,
+qualified version, and namespace needed for safe inspection:
+
+```powershell
+psmux -L <namespace> list-sessions
+psmux -L <namespace> capture-pane -p -S -200 -t <session>
+psmux -L <namespace> kill-server
+```
+
+Missing or older psmux versions produce an actionable error identifying the
+executable, minimum version, and `JEFE_PSMUX_BIN` override. Native-Windows
+claims do not use WSL, Cygwin, MSYS2, Git Bash, Docker, or Unix shell wrappers.
+
 ## Artifact layout
 
 When an artifact directory is supplied, the runner may write:
@@ -114,6 +148,7 @@ When an artifact directory is supplied, the runner may write:
 - `final-scrollback.txt`: final scrollback capture on failure.
 - `error.txt`: structured failure context including step index, step kind, and
   reason.
+- `multiplexer.txt`: multiplexer executable/version and isolated namespace.
 - `<label>.screen.txt`: named captures from `capture` steps.
 - `<label>.history.txt`: named scrollback samples from `historySample` steps.
 
@@ -185,6 +220,18 @@ manual/opt-in and also skips when `tmux` cannot be installed or found.
   selected cells should highlight (inverse video) and release should copy the
   highlighted text. Holding Shift while dragging must also highlight and copy
   (it is no longer a no-op).
+- [`auth-dialog.json`](../tmux-scenarios/auth-dialog.json): manual scenario for
+  issue #244 — the in-app device-code auth remediation dialog. It enters Issues
+  mode, waits for the "Authenticate with GitHub" dialog to appear (when `gh` is
+  unauthenticated), and cancels with Esc. It is intentionally **not** a CI gate
+  because it requires an unauthenticated `gh` and a real browser authorization
+  to complete the device-code flow. The deterministic proof that the dialog
+  opens on a `NotAuthenticated` failure, that the one-time code + URL are
+  parsed from `gh auth login --web` stderr, that the requested scopes are
+  exactly `repo`, `read:org`, `gist`, and that the state machine transitions
+  (idle → awaiting-code → confirming → success / failure / cancelled) live in
+  unit tests (`github_tests::auth_device`, `state::auth_ops_tests`,
+  `app_input::auth_remediation`, and `ui::modals::auth`).
 
 ## Future regression scenarios
 

@@ -1,69 +1,37 @@
-# GitHub Issue #200: Preserve Code Puppy shell-control chords through the embedded tmux terminal
+# GitHub Issue #202: Unify list pagination and lazy data-loading behind a common service/trait
 
 **Repository:** jefe
 **State:** open
-**Labels:** bug, enhancement
+**Labels:** enhancement
 
 ## Body
 
-## Summary
+Follow-up to the Actions integration (#21, PR #132).
 
-Code Puppy's in-flight shell control shortcuts do not work reliably through Jefe's embedded terminal:
+## Problem
+List pagination and data loading is implemented ad-hoc per screen, and the behaviors diverge:
 
-- Ctrl+X Ctrl+B should background all running shell commands.
-- Ctrl+X Ctrl+X should kill all running shell commands.
-- Ctrl+C should kill running shells and cancel the agent run.
+- **Issues mode** has on-demand pagination (PageUp/PageDown navigate pages via `list_page_pending`, `navigate_issue_list_page_up/down`).
+- **PRs mode** has its own pagination state and comment-pagination path.
+- **Actions mode** models pagination (`page`, `has_more`) but never wires a load-more path — it eagerly loads page 1 and the detail, with no way to fetch the next page. The user observed Actions scrolls/paginate eagerly and inconsistently compared to Issues/PRs.
 
-These shortcuts work when Code Puppy runs directly in a regular terminal but do not appear to take effect in Jefe.
+Each mode re-implements the same idea: fetch a page of items from a GitHub data source, track `has_more` / current page / pending request, stale-response rejection by request_id, and loading flags. The data shape differs (issues vs PRs vs workflow runs) but the loading lifecycle is identical.
 
-## Reproduction
+Agents and Repositories screens will likely need the same pattern (lazy load, paginate, refresh) for their data sources too, even though those sources differ from `gh`.
 
-1. Launch a Code Puppy agent in Jefe and focus its embedded terminal.
-2. Ask it to run a long foreground command such as pytest.
-3. While the command is running, press Ctrl+X followed by Ctrl+B.
-4. Repeat with Ctrl+X followed by Ctrl+X.
-5. Separately test Ctrl+C.
+## Proposal
+Introduce a common control/service/trait that owns the list-loading lifecycle shared by all screens:
 
-## Expected behavior
+- A generic `PaginatedList<T>` (or trait) that tracks: current page, `has_more`, loading flags, pending request with `request_id`, and stale-response rejection.
+- A common `ListLoader` trait or service abstraction: `load_page(repo, filter, page) -> Result<Page<T>>`, `load_more()`, `reload()` — each screen implements the data-fetch (the `gh` call + parse) and the trait owns the state machine (pending tracking, request-id correlation, loading transitions).
+- On-demand/lazy pagination as the default (load page 1 on entry, fetch next page on demand when the user scrolls past the end), consistent across Actions / Issues / PRs.
+- Quota/caching hooks (TTL, dedup, coalescing) can live here too — see the related quota-evaluation issue (#201).
 
-- Ctrl+X Ctrl+B backgrounds the running command and Code Puppy continues interactively.
-- Ctrl+X Ctrl+X kills the running shell command without killing the Code Puppy session.
-- Ctrl+C kills running shells and cancels the active agent operation, matching native Code Puppy behavior.
-- Code Puppy's chord hint/status feedback remains visible in the embedded terminal.
+## Scope
+- Design the trait/service (decide: trait object vs generic vs macro; where it lives in the layering — likely the state/runtime boundary since it bridges async `gh` fetches and the reducer).
+- Migrate Actions to it first (it currently has no working load-more), then Issues, then PRs.
+- Keep Agents/Repositories in mind as future consumers (different data source, same lifecycle).
 
-## Actual behavior
-
-The chords do not appear to trigger when Code Puppy runs through Jefe.
-
-## Source analysis
-
-Jefe correctly encodes Ctrl+X as byte 0x18, Ctrl+B as 0x02, and Ctrl+C as 0x03 before writing to the attached PTY. However, the attached viewer itself runs an interactive tmux client. Jefe starts tmux with `-f /dev/null`, which leaves tmux's default prefix as Ctrl+B. Therefore the second key in Code Puppy's Ctrl+X Ctrl+B chord is consumed by tmux's client key table instead of reaching Code Puppy. This is a concrete collision between Jefe's transport layer and Code Puppy's application-level chord.
-
-Code Puppy confirms the intended protocol in its source:
-
-- `command_runner._register_shell_chords` binds 0x18 to kill shells and 0x02 to background shells while commands are active.
-- The first Ctrl+X arms the line editor's chord state.
-- The follow-up control byte dispatches the registered action.
-
-Ctrl+X Ctrl+X and Ctrl+C are not tmux-prefix collisions, so their failure needs an end-to-end byte/terminal-mode investigation rather than assuming the same root cause. Verify whether bytes are written once, survive the tmux client, reach Code Puppy's controlling tty, and are consumed by its active key-listener/editor.
-
-## Requested behavior
-
-The embedded agent terminal must transparently carry application control chords.
-
-- Jefe's internal tmux transport must not reserve Ctrl+B or any other ordinary agent shortcut while terminal capture is active.
-- Prefer disabling the tmux prefix for Jefe's private, programmatically managed sessions/viewer or moving all Jefe tmux control behind APIs that do not consume child input.
-- Do not solve this with a Code Puppy-specific byte rewrite; preserve raw PTY semantics for all runtimes.
-- Keep Jefe's own terminal escape/focus mechanism (F12) working.
-- Diagnose Ctrl+X Ctrl+X and Ctrl+C independently and ensure key Press/Repeat/Release handling does not drop or duplicate control bytes.
-- Remote and local sessions must behave identically.
-
-## Acceptance criteria
-
-- A PTY/tmux integration test proves 0x18 0x02 reaches the child unchanged and in order.
-- A test proves 0x18 0x18 reaches the child unchanged and in order.
-- A test proves 0x03 reaches the child once.
-- A Code Puppy TUI harness scenario starts a long-running shell and verifies background, shell-kill, and cancel behavior separately.
-- LLxprt control-key passthrough remains covered.
-- No user-facing raw tmux prefix is required to control Jefe's managed session.
-
+## Related
+- #201 (quota evaluation) — a common service is the natural home for quota protection.
+- #194 (job inspection) — unrelated, but part of the Actions follow-ups.

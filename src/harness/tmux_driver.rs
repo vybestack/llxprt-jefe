@@ -71,16 +71,21 @@ pub struct TmuxStartRequest {
     pub history_limit: u32,
     pub keep_session: bool,
     /// Optional controlled PATH for the launched process. When set, the pane
-    /// wrapper exports `PATH=<value>` before exec-ing the command, so the
-    /// tutorial-capture workflow can inject run-scoped PATH shims (issue #241).
+    /// wrapper exports `PATH=<value>` before exec-ing the command, so callers
+    /// can inject run-scoped PATH shims.
     pub env_path: Option<String>,
     /// Extra environment variables to export in the pane wrapper before
     /// exec-ing the command. Each entry is a `KEY=VALUE` pair.
-    ///
-    /// **issue #241 Finding #2**: Used by the tutorial-capture workflow to
-    /// inject `JEFE_TUTORIAL_CAPTURE=1` so Jefe's runtime disables the
-    /// nested managed-agent tmux status bar.
     pub extra_env: Vec<(String, String)>,
+    /// Whether to disable the tmux status bar for the harness session via
+    /// `set-option status off` in the pane wrapper.
+    ///
+    /// This is a **generic, opt-in capability**: the default (`false`)
+    /// preserves origin/main behavior (the status bar is left at its server
+    /// default). An outer caller that needs the status bar suppressed (e.g.
+    /// a tutorial-capture harness that does not want the hostname/clock in
+    /// captures) enables it explicitly via [`Self::with_suppress_status_bar`].
+    pub suppress_status_bar: bool,
 }
 
 impl TmuxStartRequest {
@@ -111,6 +116,7 @@ impl TmuxStartRequest {
             keep_session: false,
             env_path: None,
             extra_env: Vec::new(),
+            suppress_status_bar: false,
         };
         request.validate()?;
         Ok(request)
@@ -167,11 +173,37 @@ impl TmuxStartRequest {
     /// Return a copy of this request with an additional environment variable
     /// to export in the pane wrapper.
     ///
-    /// **issue #241 Finding #2**: Used by the tutorial-capture workflow to
-    /// inject `JEFE_TUTORIAL_CAPTURE=1`.
+    /// # Errors
+    ///
+    /// Returns [`TmuxDriverError::InvalidRequest`] if the key is not a valid
+    /// portable shell identifier or contains NUL bytes. Validation is eager
+    /// so an invalid key can never reach tmux.
+    pub fn with_extra_env(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Result<Self, TmuxDriverError> {
+        let key = key.into();
+        let value = value.into();
+        if key.contains('\0') || value.contains('\0') {
+            return Err(invalid_request("extra_env must not contain NUL bytes"));
+        }
+        if !is_portable_shell_identifier(&key) {
+            return Err(invalid_request(&format!(
+                "extra_env key '{key}' is not a portable shell identifier: must start with a letter or underscore and contain only ASCII alphanumeric or underscore characters"
+            )));
+        }
+        self.extra_env.push((key, value));
+        Ok(self)
+    }
+
+    /// Return a copy of this request with the tmux status bar disabled for the
+    /// session. This is a generic, opt-in capability: an outer harness that
+    /// needs the status bar suppressed (e.g. for clean captures) enables it
+    /// explicitly. The default is `false` (origin/main behavior).
     #[must_use]
-    pub fn with_extra_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.extra_env.push((key.into(), value.into()));
+    pub fn with_suppress_status_bar(mut self, suppress: bool) -> Self {
+        self.suppress_status_bar = suppress;
         self
     }
 
@@ -204,6 +236,13 @@ impl TmuxStartRequest {
             .any(|(k, v)| k.contains('\0') || v.contains('\0'))
         {
             return Err(invalid_request("extra_env must not contain NUL bytes"));
+        }
+        for (key, _value) in &self.extra_env {
+            if !is_portable_shell_identifier(key) {
+                return Err(invalid_request(&format!(
+                    "extra_env key '{key}' is not a portable shell identifier: must start with a letter or underscore and contain only ASCII alphanumeric or underscore characters"
+                )));
+            }
         }
         Ok(())
     }
@@ -265,6 +304,32 @@ impl TmuxDriver {
             .arg("-V")
             .output()
             .is_ok_and(|out| out.status.success())
+    }
+
+    /// Describe the isolated multiplexer used by this harness run.
+    #[must_use]
+    pub fn diagnostics(&self) -> String {
+        let version = match tmux_command().arg("-V").output() {
+            Ok(output) if output.status.success() => {
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
+            }
+            Ok(output) => {
+                let details = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                if details.is_empty() {
+                    format!("unavailable ({})", output.status)
+                } else {
+                    format!("unavailable ({details})")
+                }
+            }
+            Err(error) => format!("unavailable ({error})"),
+        };
+        format!(
+            "multiplexer: tmux
+tmux version: {version}
+namespace: {}
+",
+            harness_socket_name()
+        )
     }
 
     /// Start a detached tmux session.
@@ -545,10 +610,6 @@ fn tmux_pane_wrapper_command(request: &TmuxStartRequest) -> String {
     // `-L {socket}` against the outer server's socket directory, silently
     // leaving `remain-on-exit`/`history-limit` unconfigured on the real
     // harness session (#173).
-    //
-    // `status off` disables the tmux status bar for the session so captures
-    // never include the hostname, session name, or live clock that the status
-    // bar would render.
     let prefix = harness_tmux_prefix_str();
     let path_export = request
         .env_path
@@ -556,8 +617,7 @@ fn tmux_pane_wrapper_command(request: &TmuxStartRequest) -> String {
         .filter(|p| !p.is_empty())
         .map(|p| format!("export PATH={}; ", shell_escape_single(p)))
         .unwrap_or_default();
-    // issue #241 Finding #2: export extra env vars (e.g.
-    // JEFE_TUTORIAL_CAPTURE=1) before exec-ing the command.
+    // Export extra env vars before exec-ing the command.
     let mut extra_env_export = String::new();
     for (k, v) in &request.extra_env {
         let _ = write!(
@@ -567,13 +627,19 @@ fn tmux_pane_wrapper_command(request: &TmuxStartRequest) -> String {
             shell_escape_single(v)
         );
     }
-    // Session name is single-quote escaped to prevent shell injection via
-    // session names containing double quotes, $(), backticks, newlines, or
-    // backslashes (#241 Finding #1). The `status off` set-option targets
-    // the session by this escaped name.
-    let escaped_session = shell_escape_single(&request.session_name);
+    // The `status off` is an explicit, opt-in generic capability: callers
+    // that need the status bar disabled (e.g. an outer tutorial harness that
+    // does not want the hostname/clock in captures) set
+    // `suppress_status_bar`. The default preserves origin/main behavior
+    // (status bar left at its server default).
+    let status_off = if request.suppress_status_bar {
+        let escaped_session = shell_escape_single(&request.session_name);
+        format!("{prefix} set-option -t {escaped_session} status off; ")
+    } else {
+        String::new()
+    };
     format!(
-        "unset TMUX TMUX_PANE TMUX_TMPDIR; {path_export}{extra_env_export}{prefix} set-option -t {escaped_session} status off; {prefix} set-option -pt \"$TMUX_PANE\" remain-on-exit on; {prefix} set-option -wt \"$TMUX_PANE\" history-limit {history_limit}; exec {command}",
+        "unset TMUX TMUX_PANE TMUX_TMPDIR; {path_export}{extra_env_export}{status_off}{prefix} set-option -pt \"$TMUX_PANE\" remain-on-exit on; {prefix} set-option -wt \"$TMUX_PANE\" history-limit {history_limit}; exec {command}",
         history_limit = request.history_limit,
         command = shell_join(&request.command)
     )
@@ -589,6 +655,22 @@ fn shell_join(parts: &[String]) -> String {
 
 fn shell_escape_single(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
+}
+
+/// Whether a string is a portable POSIX shell identifier: non-empty, starting
+/// with an ASCII letter or underscore, followed by zero or more ASCII
+/// alphanumeric or underscore characters. This rejects empty names, names
+/// starting with a digit, and names containing punctuation — all of which
+/// would either be rejected by the shell or risk injection when interpolated
+/// into an `export KEY=VALUE` statement.
+#[must_use]
+fn is_portable_shell_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn run_tmux(args: &[&str], cwd: Option<&Path>) -> Result<(), TmuxDriverError> {
@@ -695,5 +777,17 @@ fn format_command(args: &[String]) -> String {
 }
 
 #[cfg(test)]
-#[path = "tmux_driver_tests.rs"]
-mod tests;
+#[path = "tmux_driver_validation_tests.rs"]
+mod validation_tests;
+
+#[cfg(test)]
+#[path = "tmux_driver_session_tests.rs"]
+mod session_tests;
+
+#[cfg(test)]
+#[path = "tmux_driver_socket_tests.rs"]
+mod socket_tests;
+
+#[cfg(test)]
+#[path = "tmux_driver_injection_tests.rs"]
+mod injection_tests;

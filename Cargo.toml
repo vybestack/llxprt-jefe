@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "tools/jefe-tutorial-capture"]
+resolver = "2"
+
 [package]
 name = "jefe"
 version = "0.0.29"
@@ -50,9 +54,9 @@ lru = "0.12"
 # jefe's iocraft pipeline.
 comrak = { version = "0.53", default-features = false }
 
-# SHA-256 digest for tutorial-capture binary/scenario reproducibility metadata
-# (issue #241). Pure-Rust, no-std compatible, no unsafe.
-sha2 = "0.10"
+[target.'cfg(windows)'.dependencies]
+winsafe = { version = "0.0.27", features = ["kernel"] }
+whoami = "2.1.2"
 
 [features]
 psmux-smoke = []

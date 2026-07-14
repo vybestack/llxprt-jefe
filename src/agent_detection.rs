@@ -3,6 +3,7 @@
 use std::sync::OnceLock;
 
 use crate::domain::AgentKind;
+use crate::runtime::{AgentExecutablePlatform, AgentExecutableResolver};
 
 static INSTALLED_AGENT_KINDS: OnceLock<Vec<AgentKind>> = OnceLock::new();
 
@@ -13,11 +14,7 @@ pub fn installed_agent_kinds() -> &'static [AgentKind] {
 }
 
 fn detect_installed_agent_kinds() -> Vec<AgentKind> {
-    let path = std::env::var_os("PATH");
-    let dirs: Vec<std::path::PathBuf> = path
-        .map(|p| std::env::split_paths(&p).collect())
-        .unwrap_or_default();
-    detect_agent_kinds(&dirs)
+    detect_with_resolver(&AgentExecutableResolver::current())
 }
 
 /// Pure detection of which agent runtimes are installed, given an explicit
@@ -32,28 +29,19 @@ fn detect_installed_agent_kinds() -> Vec<AgentKind> {
 /// variable.
 #[must_use]
 pub fn detect_agent_kinds(dirs: &[std::path::PathBuf]) -> Vec<AgentKind> {
+    let resolver = AgentExecutableResolver::for_platform(
+        AgentExecutablePlatform::current(),
+        dirs.to_vec(),
+        std::env::var_os("PATHEXT"),
+    );
+    detect_with_resolver(&resolver)
+}
+
+fn detect_with_resolver(resolver: &AgentExecutableResolver) -> Vec<AgentKind> {
     [AgentKind::Llxprt, AgentKind::CodePuppy]
         .into_iter()
-        .filter(|kind| binary_in_dirs(kind.binary_name(), dirs))
+        .filter(|kind| resolver.resolve(*kind).is_ok())
         .collect()
-}
-
-fn binary_in_dirs(binary: &str, dirs: &[std::path::PathBuf]) -> bool {
-    dirs.iter()
-        .any(|directory| is_executable(&directory.join(binary)))
-}
-
-#[cfg(unix)]
-fn is_executable(path: &std::path::Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-
-    std::fs::metadata(path)
-        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
-}
-
-#[cfg(not(unix))]
-fn is_executable(path: &std::path::Path) -> bool {
-    path.is_file()
 }
 
 #[cfg(test)]
@@ -90,7 +78,12 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap_or_else(|error| panic!("create temp dir: {error}"));
         for binary in binaries {
-            let path = dir.join(binary);
+            let filename = if cfg!(windows) {
+                format!("{binary}.exe")
+            } else {
+                (*binary).to_owned()
+            };
+            let path = dir.join(filename);
             std::fs::write(&path, b"#!/bin/sh\n")
                 .unwrap_or_else(|error| panic!("write binary: {error}"));
             make_executable(&path);

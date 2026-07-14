@@ -5,6 +5,7 @@
 
 use crate::domain::AgentId;
 
+use super::agent_executable::AgentExecutableError;
 use super::multiplexer::MultiplexerError;
 
 /// Errors from runtime operations.
@@ -16,6 +17,8 @@ pub enum RuntimeError {
     AttachFailed(String),
     /// Failed to spawn session.
     SpawnFailed(String),
+    /// Local agent executable resolution or launch-strategy failure.
+    AgentExecutable(AgentExecutableError),
     /// Local multiplexer dependency or policy failure.
     Multiplexer(MultiplexerError),
     /// Failed to execute remote SSH session lifecycle command.
@@ -44,6 +47,7 @@ impl std::fmt::Display for RuntimeError {
             Self::SessionNotFound(name) => write!(f, "session not found: {name}"),
             Self::AttachFailed(msg) => write!(f, "attach failed: {msg}"),
             Self::SpawnFailed(msg) => write!(f, "spawn failed: {msg}"),
+            Self::AgentExecutable(error) => write!(f, "agent launch unavailable: {error}"),
             Self::Multiplexer(error) => write!(f, "multiplexer dependency failed: {error}"),
             Self::RemoteExecutionFailed(msg) => write!(f, "remote execution failed: {msg}"),
             Self::CapabilityProbeFailed(msg) => write!(f, "capability probe failed: {msg}"),

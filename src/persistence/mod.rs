@@ -601,8 +601,20 @@ impl FilePersistenceManager {
         Self::atomic_write(path, &content)
     }
 
+    /// Save pre-serialized state content to a specific path (static helper
+    /// for use by the seed API outside a mutex lock).
+    pub(crate) fn save_state_to(
+        content: &str,
+        path: &std::path::Path,
+    ) -> Result<(), PersistenceError> {
+        Self::atomic_write(path, content)
+    }
+
     /// Atomic write: write to temp file, then rename.
-    fn atomic_write(path: &std::path::Path, content: &str) -> Result<(), PersistenceError> {
+    pub(crate) fn atomic_write(
+        path: &std::path::Path,
+        content: &str,
+    ) -> Result<(), PersistenceError> {
         use std::fs;
         use std::io::Write;
 
@@ -693,6 +705,9 @@ impl PersistenceManager for FilePersistenceManager {
         self.paths.settings_path.clone()
     }
 }
+
+/// Narrow persistence-owned seeding API for isolated config directories.
+pub mod seed;
 
 #[cfg(test)]
 mod tests;

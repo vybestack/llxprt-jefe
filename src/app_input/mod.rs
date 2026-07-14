@@ -50,8 +50,8 @@ mod remote_probe;
 mod target_resolution;
 use agent_runtime::{
     clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
-    mark_runtime_session_dead_if_present, pid_on_success, set_agent_runtime_binding,
-    worker_pid_for,
+    mark_runtime_session_dead_if_present, process_on_success, set_agent_runtime_binding,
+    worker_process_for,
 };
 
 pub use modal_handlers::{
@@ -326,7 +326,7 @@ fn mark_launch_attached(
 ) {
     // Query the runtime for the worker PID before taking the app-state write
     // lock, so the persisted binding carries the PID-liveness fallback.
-    let pid = worker_pid_for(ctx, agent_id);
+    let (pid, process_identity) = worker_process_for(ctx, agent_id);
 
     let mut state = app_state.write();
     set_agent_runtime_binding(
@@ -335,6 +335,7 @@ fn mark_launch_attached(
         jefe::runtime::RuntimeSession::session_name_for(agent_id),
         signature.clone(),
         pid,
+        process_identity,
     );
     clear_agent_runtime_attachment(&mut state);
     mark_agent_runtime_attached(&mut state, agent_id, true);
@@ -812,14 +813,14 @@ fn persist_relaunch_result(
     relaunched: bool,
 ) {
     let relaunch_event = AppEvent::RelaunchAgent(agent_id.clone());
-    // Query the PID BEFORE taking the app-state write lock: worker_pid_for
+    // Query the PID BEFORE taking the app-state write lock: worker_process_for
     // acquires the ctx mutex, so app_state-lock → ctx-lock would be a
-    // lock-ordering hazard. `pid_on_success` skips the query on the failure
+    // lock-ordering hazard. `process_on_success` skips the query on the failure
     // path (no binding is persisted).
-    let pid = pid_on_success(ctx, &agent_id, relaunched);
+    let (pid, process_identity) = process_on_success(ctx, &agent_id, relaunched);
     let mut state = app_state.write();
     if relaunched {
-        persist_relaunch_success(&mut state, &agent_id, relaunch_event, pid);
+        persist_relaunch_success(&mut state, &agent_id, relaunch_event, pid, process_identity);
     } else {
         persist_relaunch_failure(&mut state, &agent_id, relaunch_event);
     }
@@ -833,6 +834,7 @@ fn persist_relaunch_success(
     agent_id: &AgentId,
     relaunch_event: AppEvent,
     pid: Option<u32>,
+    process_identity: Option<jefe::domain::ProcessIdentity>,
 ) {
     // Capture agent_kind before `apply` consumes the state snapshot, so the
     // SSH-agent warning can be gated: only LLxprt uses the sandbox subsystem,
@@ -846,6 +848,7 @@ fn persist_relaunch_success(
             jefe::runtime::RuntimeSession::session_name_for(&agent.id),
             signature,
             pid,
+            process_identity,
         );
     }
     *state = std::mem::take(state).apply(relaunch_event);

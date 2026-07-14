@@ -3,7 +3,6 @@
 
 use super::*;
 use crate::domain::SandboxEngine;
-use crate::runtime::nested_status::{is_tutorial_capture_env, nested_status_disable_argv};
 use crate::runtime::pane_capture::{capture_pane_history_args, parse_pane_pid};
 #[cfg(unix)]
 use std::time::Duration;
@@ -758,69 +757,4 @@ fn capture_pane_history_argv_zero_lines_clamps_to_one() {
         panic!("-S must have a value: {argv:?}");
     };
     assert_eq!(*s_value, "-1", "zero lines should clamp to -S -1");
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Nested tmux status disable for tutorial capture (issue #241 Finding #2)
-// ═══════════════════════════════════════════════════════════════════════
-
-/// `is_tutorial_capture_env(None)` returns `false` — normal production
-/// behavior (styled status bar) is unchanged when the env var is absent.
-#[test]
-fn nested_status_disabled_by_default() {
-    assert!(
-        !is_tutorial_capture_env(None),
-        "nested status must NOT be disabled when env var is absent"
-    );
-}
-
-/// `is_tutorial_capture_env` returns `true` for truthy values.
-#[test]
-fn nested_status_disabled_when_tutorial_capture_env_set() {
-    for truthy in &["1", "true", "TRUE", "yes", "Yes"] {
-        assert!(
-            is_tutorial_capture_env(Some(truthy)),
-            "nested status must be disabled when env value = {truthy:?}"
-        );
-    }
-}
-
-/// `is_tutorial_capture_env` returns `false` for falsy values so the flag
-/// can be explicitly disabled.
-#[test]
-fn nested_status_not_disabled_for_falsy_env_values() {
-    for falsy in &["0", "false", "no", "", "off"] {
-        assert!(
-            !is_tutorial_capture_env(Some(falsy)),
-            "nested status must NOT be disabled when env value = {falsy:?}"
-        );
-    }
-}
-
-/// The `disable_nested_tmux_status` function builds the correct tmux argv
-/// to turn off the status bar for the named session (without spawning tmux
-/// — we check the planned argv).
-#[test]
-fn nested_status_disable_argv_targets_session_status_off() {
-    let argv = nested_status_disable_argv("jefe-agent-demo");
-    assert!(
-        argv.contains(&"set-option".to_string()),
-        "argv must contain set-option: {argv:?}"
-    );
-    assert!(
-        argv.contains(&"-t".to_string()),
-        "argv must contain -t: {argv:?}"
-    );
-    assert!(
-        argv.contains(&"jefe-agent-demo".to_string()),
-        "argv must target the session name: {argv:?}"
-    );
-    assert!(
-        argv.contains(&"status".to_string()),
-        "argv must set the 'status' option: {argv:?}"
-    );
-    assert!(
-        argv.contains(&"off".to_string()),
-        "argv must set status to 'off': {argv:?}"
-    );
 }

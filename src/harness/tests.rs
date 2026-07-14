@@ -838,8 +838,8 @@ fn expansion_is_idempotent() {
 }
 
 /// Macro expansion substitutes `$param` placeholders in `Step::Type` steps,
-/// not just `Step::Line`. This is required for tutorial-capture scenarios
-/// that use `{"type": "$value"}` inside macros to inject unique values
+/// not just `Step::Line`. This is required for scenarios that use
+/// `{"type": "$value"}` inside macros to inject unique values
 /// (issue numbers, PR numbers, agent names) into form fields.
 ///
 /// @plan PLAN-20260629-TMUX-HARNESS.P01

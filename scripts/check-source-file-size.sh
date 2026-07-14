@@ -17,7 +17,7 @@ set -euo pipefail
 
 # Split the override into an array so multiple roots are handled by quoting
 # rather than unquoted word-splitting (which would also risk glob expansion).
-read -r -a SCAN_ROOTS <<< "${SCAN_ROOTS:-src tests}"
+read -r -a SCAN_ROOTS <<< "${SCAN_ROOTS:-src tests tools}"
 readonly SCAN_ROOTS
 readonly HARD_LIMIT="${HARD_LIMIT:-1000}"
 readonly WARN_LIMIT="${WARN_LIMIT:-750}"

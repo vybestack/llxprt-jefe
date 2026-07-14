@@ -7,8 +7,9 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
 
+use super::agent_executable::ResolvedAgentExecutable;
+use super::agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, write_launch_plan};
 const MINIMUM_PSMUX_VERSION: MultiplexerVersion = MultiplexerVersion::new(3, 3, 6);
 const WINDOWS_INSTALL_GUIDANCE: &str =
     "install psmux 3.3.6 or newer with `winget install marlocarlo.psmux`, then restart Jefe";
@@ -86,15 +87,29 @@ impl MultiplexerVersion {
                 path: None,
                 output: output.to_owned(),
             })?;
-        let mut parts = token.split('.');
-        let major = parse_version_part(parts.next(), output)?;
-        let minor = parse_version_part(parts.next(), output)?;
-        let patch = parts
-            .next()
-            .map_or(Ok(0), |part| parse_version_part(Some(part), output))?;
-        if parts.next().is_some() {
+        let mut components = token.split('.');
+        let major_raw = components.next().ok_or_else(|| malformed_version(output))?;
+        let major = parse_strict_version_part(major_raw, output)?;
+        let minor_raw = components.next();
+        let patch_raw = components.next();
+        // After consuming up to three components, no trailing component may remain.
+        if components.next().is_some() {
             return Err(malformed_version(output));
         }
+        // The major component is always strict. Only the final present component
+        // may carry a single alphabetic release letter (e.g. Homebrew `tmux 3.7b`).
+        let (minor, patch) = match (minor_raw, patch_raw) {
+            (Some(minor_raw), None) => {
+                let minor = parse_final_version_part(minor_raw, output)?;
+                (minor, 0)
+            }
+            (Some(minor_raw), Some(patch_raw)) => {
+                let minor = parse_strict_version_part(minor_raw, output)?;
+                let patch = parse_final_version_part(patch_raw, output)?;
+                (minor, patch)
+            }
+            (None, _) => return Err(malformed_version(output)),
+        };
         Ok(Self::new(major, minor, patch))
     }
 }
@@ -183,7 +198,42 @@ impl MultiplexerPlan {
         }
     }
 
-    /// Return the private isolation handle.
+    /// Build a pane command from a resolved agent's explicit wrapper strategy.
+    pub fn agent_pane_command_args(
+        &self,
+        executable: &ResolvedAgentExecutable,
+        args: &[OsString],
+        environment: &[(OsString, OsString)],
+    ) -> Result<Vec<OsString>, MultiplexerError> {
+        if self.platform == LocalPlatform::Unix {
+            return self.pane_command_args(executable.path().as_os_str(), args, environment);
+        }
+
+        let launcher =
+            std::env::current_exe().map_err(|_| MultiplexerError::CurrentExecutableUnavailable)?;
+        self.agent_pane_command_args_with_launcher(executable, args, environment, &launcher)
+    }
+
+    /// Build the Windows pane command with an explicit Jefe launcher path.
+    #[doc(hidden)]
+    pub fn agent_pane_command_args_with_launcher(
+        &self,
+        executable: &ResolvedAgentExecutable,
+        args: &[OsString],
+        environment: &[(OsString, OsString)],
+        launcher: &Path,
+    ) -> Result<Vec<OsString>, MultiplexerError> {
+        let plan_path = write_launch_plan(executable, args, environment)
+            .map_err(MultiplexerError::AgentLaunchPlan)?;
+        self.pane_command_args(
+            launcher.as_os_str(),
+            &[
+                OsString::from(INTERNAL_LAUNCH_ARGUMENT),
+                plan_path.into_os_string(),
+            ],
+            &[],
+        )
+    }
     #[must_use]
     pub const fn isolation(&self) -> &MultiplexerIsolation {
         &self.isolation
@@ -348,6 +398,10 @@ pub enum MultiplexerError {
     NonUnicodeArgument { value: OsString },
     /// An environment variable name cannot be represented safely in PowerShell.
     InvalidEnvironmentVariable { name: OsString },
+    /// Jefe's own executable path could not be determined for the private launcher.
+    CurrentExecutableUnavailable,
+    /// The narrow Windows agent launch plan could not be prepared.
+    AgentLaunchPlan(AgentLauncherError),
 }
 
 impl std::fmt::Display for MultiplexerError {
@@ -405,12 +459,28 @@ impl std::fmt::Display for MultiplexerError {
                 "Windows psmux shell argument is not valid Unicode: {}",
                 Path::new(value).display()
             ),
-            Self::InvalidEnvironmentVariable { name } => write!(
-                formatter,
-                "invalid Windows environment variable name: {}",
-                Path::new(name).display()
-            ),
+            Self::InvalidEnvironmentVariable { name } => {
+                format_invalid_environment_variable(formatter, name)
+            }
+            Self::CurrentExecutableUnavailable | Self::AgentLaunchPlan(_) => {
+                format_agent_launch_error(formatter, self)
+            }
         }
+    }
+}
+fn format_agent_launch_error(
+    formatter: &mut std::fmt::Formatter<'_>,
+    error: &MultiplexerError,
+) -> std::fmt::Result {
+    match error {
+        MultiplexerError::CurrentExecutableUnavailable => {
+            formatter.write_str("Jefe executable path is unavailable for Windows agent launch")
+        }
+        MultiplexerError::AgentLaunchPlan(source) => write!(
+            formatter,
+            "Windows agent launch plan preparation failed: {source}"
+        ),
+        _ => formatter.write_str("unrelated multiplexer error"),
     }
 }
 
@@ -433,6 +503,18 @@ fn format_malformed_version(
         ),
     }
 }
+
+fn format_invalid_environment_variable(
+    formatter: &mut std::fmt::Formatter<'_>,
+    name: &OsStr,
+) -> std::fmt::Result {
+    write!(
+        formatter,
+        "invalid Windows environment variable name: {}",
+        Path::new(name).display()
+    )
+}
+
 /// Return deterministic executable names considered for a platform.
 #[must_use]
 pub fn executable_candidates(platform: LocalPlatform) -> Vec<OsString> {
@@ -618,36 +700,41 @@ fn find_on_path(candidate: &OsStr) -> Option<PathBuf> {
 }
 
 fn unique_test_namespace() -> String {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("jefe-test-{}-{sequence:x}", std::process::id())
+    super::identity::unique_current_user_namespace()
 }
 
 fn stable_jefe_namespace() -> String {
-    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for value in [
-        std::env::var_os("USERNAME"),
-        std::env::current_exe().ok().map(PathBuf::into_os_string),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        for byte in value.as_encoded_bytes() {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-    }
-    format!("jefe-{hash:016x}")
+    super::identity::stable_current_user_namespace()
 }
 
-fn parse_version_part(part: Option<&str>, source: &str) -> Result<u32, MultiplexerError> {
-    let Some(part) = part else {
-        return Err(malformed_version(source));
-    };
+fn parse_strict_version_part(part: &str, source: &str) -> Result<u32, MultiplexerError> {
     if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(malformed_version(source));
     }
     part.parse::<u32>().map_err(|_| malformed_version(source))
+}
+
+/// Parse the final present version component, permitting an optional single
+/// trailing ASCII alphabetic release letter (e.g. Homebrew `tmux 3.7b`).
+///
+/// The letter carries no semantic weight beyond release identification; it is
+/// discarded so that `3.7b` resolves to `3.7.0` and `3.3.6a` to `3.3.6`.
+fn parse_final_version_part(part: &str, source: &str) -> Result<u32, MultiplexerError> {
+    let digits_end = part
+        .bytes()
+        .position(|byte| !byte.is_ascii_digit())
+        .unwrap_or(part.len());
+    let (digits, suffix) = part.split_at(digits_end);
+    let valid_suffix = suffix.is_empty()
+        || (suffix.len() == 1
+            && suffix
+                .bytes()
+                .next()
+                .is_some_and(|byte| byte.is_ascii_lowercase()));
+    if digits.is_empty() || !valid_suffix {
+        return Err(malformed_version(source));
+    }
+    digits.parse::<u32>().map_err(|_| malformed_version(source))
 }
 
 fn malformed_version(source: &str) -> MultiplexerError {

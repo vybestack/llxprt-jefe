@@ -330,7 +330,7 @@ fn test_pr_subfocus_next_scrolls_to_offscreen_thread() {
         state: PrReviewState::Approved,
         submitted_at: "2024-01-01".to_string(),
         body: Some("Review with a body".to_string()),
-        review_threads: std::iter::repeat_n(thread, 8).collect(),
+        review_threads: vec![thread; 8],
     }];
     state.prs_state.pr_detail = Some(detail);
     state.prs_state.detail_subfocus = PrDetailSubfocus::Body;

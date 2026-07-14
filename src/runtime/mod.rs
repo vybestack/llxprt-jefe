@@ -7,6 +7,8 @@
 //!
 //! Pseudocode reference: component-002 lines 01-35
 
+mod agent_executable;
+mod agent_launcher;
 mod attach;
 mod attach_scheduler;
 mod capabilities;
@@ -14,16 +16,22 @@ mod commands;
 mod errors;
 /// One-shot `gh auth login --web` device-code subprocess driver (issue #244).
 mod gh_auth;
+mod identity;
 mod liveness;
 mod manager;
 mod multiplexer;
-mod nested_status;
 mod pane_capture;
 mod preflight;
+mod process;
 mod session;
 mod socket;
 mod stub_manager;
 
+pub use agent_executable::{
+    AgentExecutableError, AgentExecutablePlatform, AgentExecutableResolver, AgentWrapperKind,
+    ResolvedAgentExecutable,
+};
+pub use agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, run_launch_plan};
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use capabilities::{
     AgentRuntimeCapabilities, ModelDiscovery, code_puppy_help_supports_yolo, static_capabilities,
@@ -41,9 +49,25 @@ pub use preflight::{
     PreflightAction, PreflightIssue, execute_preflight_action, platform_engine_diagnostic,
     sandbox_preflight, sandbox_ssh_agent_warning,
 };
+pub use process::{
+    ProcessIdentityError, ProcessLiveness, ProcessObservation, capture_process_identity,
+    classify_process_observation, process_liveness,
+};
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
 pub use socket::jefe_tmux_socket_path;
 pub use stub_manager::StubRuntimeManager;
+
+#[cfg(test)]
+#[path = "agent_executable_tests.rs"]
+mod agent_executable_tests;
+
+#[cfg(test)]
+#[path = "identity_tests.rs"]
+mod identity_tests;
+
+#[cfg(test)]
+#[path = "process_tests.rs"]
+mod process_tests;
 
 #[cfg(test)]
 #[path = "multiplexer_tests.rs"]
