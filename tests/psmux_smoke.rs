@@ -374,7 +374,7 @@ fn psmux_agent_launch_preserves_arguments_working_directory_and_environment_poli
         OsString::from("-c"),
         fixture.work_dir.path().as_os_str().to_owned(),
     ];
-    command.extend(pane);
+    command.extend(pane.args().iter().cloned());
     namespace
         .run_os(&command)
         .unwrap_or_else(|error| panic!("launch recording fixture through psmux: {error}"));
