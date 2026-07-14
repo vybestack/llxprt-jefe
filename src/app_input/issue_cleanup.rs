@@ -82,15 +82,17 @@ fn parse_paths(stdout: &[u8]) -> Result<Vec<PathBuf>, String> {
                 && path
                     .components()
                     .all(|component| matches!(component, std::path::Component::Normal(_)));
-            safe.then_some(path.clone()).ok_or_else(|| {
-                format!("git returned an unsafe path: {}", path.display())
-            })
+            safe.then_some(path.clone())
+                .ok_or_else(|| format!("git returned an unsafe path: {}", path.display()))
         })
         .collect()
 }
 
 #[cfg(unix)]
 fn path_from_git_bytes(raw: &[u8]) -> Result<PathBuf, String> {
+    if raw.is_empty() {
+        return Err("git returned an empty path".to_owned());
+    }
     Ok(PathBuf::from(OsString::from_vec(raw.to_vec())))
 }
 
