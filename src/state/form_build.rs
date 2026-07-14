@@ -330,12 +330,23 @@ impl AppState {
 /// An empty or whitespace-only string yields an empty `PathBuf` (meaning
 /// "use /tmp" via [`Repository::effective_transient_dir`]). Tilde is
 /// expanded for local repositories.
+///
+/// Paths containing `..` components are rejected (treated as empty) to
+/// prevent directory traversal escaping the intended transient-agent
+/// boundary (issue #213 OCR fix).
 fn parse_transient_agent_dir(value: &str) -> std::path::PathBuf {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return std::path::PathBuf::new();
     }
-    std::path::PathBuf::from(expand_tilde(trimmed))
+    let expanded = expand_tilde(trimmed);
+    if std::path::Path::new(&expanded)
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return std::path::PathBuf::new();
+    }
+    std::path::PathBuf::from(expanded)
 }
 
 /// Parse the transient max-concurrent setting from form input (issue #213).

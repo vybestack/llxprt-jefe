@@ -98,6 +98,13 @@ fn is_transient_available_true_for_remote_repo_even_without_installed_kinds() {
 }
 
 #[test]
+fn running_transient_count_zero_on_empty_state() {
+    let repo_id = RepositoryId("repo-1".to_owned());
+    let state = AppState::default();
+    assert_eq!(state.running_transient_count(&repo_id), 0);
+}
+
+#[test]
 fn running_transient_count_counts_only_running_transient_agents_for_repo() {
     let repo_id = RepositoryId("repo-1".to_owned());
     let mut state = AppState::default();
@@ -155,11 +162,29 @@ fn agent_chooser_navigation_bounds_include_transient_slot() {
     // down past the last index should not exceed agents.len().
     let max_index = chooser.agents.len() + usize::from(chooser.transient_available) - 1;
     assert_eq!(max_index, 2);
-    // Navigate down within bounds
+    // Navigate down within bounds, asserting each intermediate step.
     let mut state = AppState::default();
     state.issues_state.agent_chooser = Some(chooser);
     state = state.apply(AppEvent::AgentChooserNavigateDown); // 0 -> 1
+    assert_eq!(
+        state
+            .issues_state
+            .agent_chooser
+            .as_ref()
+            .or_panic("chooser must still be open")
+            .selected_index,
+        1
+    );
     state = state.apply(AppEvent::AgentChooserNavigateDown); // 1 -> 2
+    assert_eq!(
+        state
+            .issues_state
+            .agent_chooser
+            .as_ref()
+            .or_panic("chooser must still be open")
+            .selected_index,
+        2
+    );
     state = state.apply(AppEvent::AgentChooserNavigateDown); // 2 -> clamped at 2
     let chooser = state
         .issues_state
@@ -169,6 +194,42 @@ fn agent_chooser_navigation_bounds_include_transient_slot() {
     assert_eq!(
         chooser.selected_index, 2,
         "navigation must clamp at the transient slot"
+    );
+}
+
+#[test]
+fn agent_chooser_navigation_bounds_without_transient_slot() {
+    let chooser = AgentChooserState {
+        selected_index: 0,
+        agents: vec![
+            (AgentId("a1".to_owned()), "Agent 1".to_owned()),
+            (AgentId("a2".to_owned()), "Agent 2".to_owned()),
+        ],
+        transient_available: false,
+    };
+    let mut state = AppState::default();
+    state.issues_state.agent_chooser = Some(chooser);
+    // Without transient slot, max index is agents.len() - 1 = 1.
+    state = state.apply(AppEvent::AgentChooserNavigateDown); // 0 -> 1
+    assert_eq!(
+        state
+            .issues_state
+            .agent_chooser
+            .as_ref()
+            .or_panic("chooser must still be open")
+            .selected_index,
+        1
+    );
+    state = state.apply(AppEvent::AgentChooserNavigateDown); // 1 -> clamped at 1
+    assert_eq!(
+        state
+            .issues_state
+            .agent_chooser
+            .as_ref()
+            .or_panic("chooser must still be open")
+            .selected_index,
+        1,
+        "navigation must clamp at last agent when transient unavailable"
     );
 }
 
