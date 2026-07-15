@@ -13,7 +13,6 @@ use core::{
     pin::Pin,
     task::{self, Poll},
 };
-use crossterm::{execute, terminal};
 use futures::{
     future::{select, FutureExt, LocalBoxFuture},
     stream::{Stream, StreamExt},
@@ -400,17 +399,24 @@ impl<'a> Tree<'a> {
     async fn terminal_render_loop(&mut self, mut term: Terminal) -> io::Result<()> {
         let mut prev_canvas: Option<Canvas> = None;
         loop {
-            let width = term.width().map(|w| w as usize);
-            execute!(term, terminal::BeginSynchronizedUpdate,)?;
+            let width = if term.is_fullscreen() {
+                term.size().map(|(width, _)| usize::from(width))
+            } else {
+                term.width().map(usize::from)
+            };
             let output = self.render(width, Some(&mut term));
             if output.did_clear_terminal_output || prev_canvas.as_ref() != Some(&output.canvas) {
-                if !output.did_clear_terminal_output {
+                let previous = if output.did_clear_terminal_output {
+                    None
+                } else if term.is_fullscreen() {
+                    prev_canvas.as_ref()
+                } else {
                     term.clear_canvas()?;
-                }
-                term.write_canvas(&output.canvas)?;
+                    None
+                };
+                term.write_canvas(&output.canvas, previous)?;
             }
             prev_canvas = Some(output.canvas);
-            execute!(term, terminal::EndSynchronizedUpdate)?;
             if self.system_context.should_exit() {
                 break;
             }
