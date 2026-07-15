@@ -100,6 +100,7 @@ mod tests {
             sandbox_flags: String::new(),
             remote: RemoteRepositorySettings::default(),
             agent_kind: kind,
+            llxprt_version: None,
         }
     }
 
@@ -263,5 +264,20 @@ mod tests {
                 "Read and work on the GitHub PR described in .jefe/pr-prompt.md"
             ]
         );
+        issue_and_pr_fresh_signatures_retain_exact_selector();
+    }
+
+    fn issue_and_pr_fresh_signatures_retain_exact_selector() {
+        let selector =
+            jefe::domain::LlxprtNpmPackageSelector::normalize("0.10.0-nightly.260712.21cb698b6");
+        for (kind, path) in [
+            (FreshPromptKind::Issue, ".jefe/issue-prompt.md"),
+            (FreshPromptKind::PullRequest, ".jefe/pr-prompt.md"),
+        ] {
+            let mut signature = base_sig(AgentKind::Llxprt);
+            signature.llxprt_version = selector.clone();
+            let prepared = prepare_fresh_prompt_signature(signature, kind, path);
+            assert_eq!(prepared.llxprt_version, selector);
+        }
     }
 }

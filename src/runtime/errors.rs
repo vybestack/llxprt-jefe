@@ -7,6 +7,7 @@ use crate::domain::AgentId;
 
 use super::agent_executable::AgentExecutableError;
 use super::multiplexer::MultiplexerError;
+use super::package_probe::NpmPackageAvailabilityError;
 
 /// Errors from runtime operations.
 #[derive(Debug, Clone)]
@@ -19,6 +20,8 @@ pub enum RuntimeError {
     SpawnFailed(String),
     /// Local agent executable resolution or launch-strategy failure.
     AgentExecutable(AgentExecutableError),
+    /// npm or the requested LLxprt package is unavailable on the effective target.
+    NpmPackageAvailability(NpmPackageAvailabilityError),
     /// Local multiplexer dependency or policy failure.
     Multiplexer(MultiplexerError),
     /// Failed to execute remote SSH session lifecycle command.
@@ -48,6 +51,7 @@ impl std::fmt::Display for RuntimeError {
             Self::AttachFailed(msg) => write!(f, "attach failed: {msg}"),
             Self::SpawnFailed(msg) => write!(f, "spawn failed: {msg}"),
             Self::AgentExecutable(error) => write!(f, "agent launch unavailable: {error}"),
+            Self::NpmPackageAvailability(error) => write!(f, "agent launch unavailable: {error}"),
             Self::Multiplexer(error) => write!(f, "multiplexer dependency failed: {error}"),
             Self::RemoteExecutionFailed(msg) => write!(f, "remote execution failed: {msg}"),
             Self::CapabilityProbeFailed(msg) => write!(f, "capability probe failed: {msg}"),

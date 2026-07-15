@@ -61,6 +61,38 @@ pub(super) fn require_local_kind_available(
     ))
 }
 
+/// Selector-aware local/remote target validation.
+pub(super) fn require_launch_available(
+    kind: AgentKind,
+    selector: Option<&jefe::domain::LlxprtNpmPackageSelector>,
+    remote: &RemoteRepositorySettings,
+    available: &[AgentKind],
+) -> Result<(), String> {
+    if jefe::domain::llxprt_launch_source(kind, selector).requires_npm() {
+        if jefe::domain::target::is_valid_remote(remote) || !remote.enabled {
+            return Ok(());
+        }
+        return Err(jefe::domain::target::invalid_remote_message());
+    }
+    require_local_kind_available(kind, remote, available)
+}
+
+/// Selector-aware state boundary used before launch/preparation side effects.
+pub(super) fn launch_available_or_error(
+    app_state: &mut AppStateHandle,
+    kind: AgentKind,
+    selector: Option<&jefe::domain::LlxprtNpmPackageSelector>,
+    remote: &RemoteRepositorySettings,
+) -> bool {
+    let available = app_state.read().installed_agent_kinds.clone();
+    match require_launch_available(kind, selector, remote, &available) {
+        Ok(()) => true,
+        Err(message) => {
+            app_state.write().error_message = Some(message);
+            false
+        }
+    }
+}
 /// Reject a local launch when the agent's runtime kind is not in the supplied
 /// `available` snapshot.
 ///
@@ -82,32 +114,6 @@ pub(super) fn require_local_kind_available_for_target(
         "{} is not installed on the local PATH. Install it or use a remote repository.",
         kind.label()
     ))
-}
-
-/// Pre-submit guard for new-agent and edit-agent forms.
-///
-/// Reads the `installed_agent_kinds` snapshot from `app_state` under a short
-/// read-lock, then calls [`require_local_kind_available`]. If the resolved
-/// kind is not locally available **and** the repository is not remote-enabled,
-/// this writes a visible error into `app_state` and returns `false` so the
-/// caller skips the launch. Remote agents always pass.
-pub(super) fn local_kind_available_or_error(
-    app_state: &mut AppStateHandle,
-    kind: AgentKind,
-    remote: &RemoteRepositorySettings,
-) -> bool {
-    let available = {
-        let state = app_state.read();
-        state.installed_agent_kinds.clone()
-    };
-    match require_local_kind_available(kind, remote, &available) {
-        Ok(()) => true,
-        Err(message) => {
-            let mut state = app_state.write();
-            state.error_message = Some(message);
-            false
-        }
-    }
 }
 
 #[cfg(test)]

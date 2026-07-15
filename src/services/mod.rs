@@ -10,8 +10,8 @@ mod normalize;
 use std::path::PathBuf;
 
 use crate::domain::{
-    Agent, AgentId, AgentKind, AgentStatus, PlatformCapabilities, QuickResume, Repository,
-    SandboxEngine,
+    Agent, AgentId, AgentKind, AgentStatus, LaunchSignature, LlxprtNpmPackageSelector,
+    PlatformCapabilities, QuickResume, Repository, SandboxEngine,
 };
 
 pub(crate) use normalize::{
@@ -54,6 +54,8 @@ pub struct CreateAgentParams<'a> {
     pub code_puppy_quick_resume: QuickResume,
     /// Agent runtime selected in the form.
     pub agent_kind: &'a str,
+    /// Raw LLxprt npm package version (normalized by the service).
+    pub llxprt_version: &'a str,
     /// Raw mode string, whitespace-split into flags by the service.
     pub mode: &'a str,
     /// Raw llxprt debug value (trimmed by the service).
@@ -89,62 +91,77 @@ pub(crate) fn resolve_agent_work_dir(repository: &Repository, value: &str) -> Op
     }
 }
 
-/// Canonical app-side agent creation path.
+/// Build the exact launch target represented by canonical agent-creation input.
 ///
-/// This is the single source of truth for constructing an [`Agent`] from
-/// user-facing input. It validates required fields, applies all normalization
-/// (profile, mode, sandbox engine/flags, work_dir), and sets the initial
-/// status policy.
-///
-/// Returns agents with `status: Running` because app-side creation immediately
-/// triggers launch — there is no observable `Queued` intermediate state for a
-/// user-initiated create. Use [`Agent::new`] for simple domain/test
-/// construction, which defaults to `Queued`.
-///
-/// Returns `None` when the name or work directory is empty/whitespace-only.
-///
-/// This function is pure: it performs no filesystem side effects. Callers that
-/// need to materialize a local work directory (e.g. the state layer) should do
-/// so separately.
+/// This pure preview performs the same required-field validation and
+/// normalization as [`create_agent`] without allocating an agent identity or
+/// touching the filesystem. The effective Code Puppy model includes the
+/// repository default, matching the runtime launch signature.
 #[must_use]
-pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
-    let trimmed_name = params.name.trim();
-    if trimmed_name.is_empty() {
+pub fn prospective_agent_launch(params: &CreateAgentParams<'_>) -> Option<LaunchSignature> {
+    if params.name.trim().is_empty() {
         return None;
     }
-
     let work_dir = resolve_agent_work_dir(params.repository, params.work_dir)?;
-
-    // The mode field is the single source of truth for whether --yolo (or any
-    // flag) is passed. An empty mode yields no flags so an agent can run
-    // non-yolo; the new-agent form pre-fills --yolo as the default instead.
-    let mode_flags: Vec<String> = params.mode.split_whitespace().map(String::from).collect();
-
     let caps = PlatformCapabilities::current();
     let sandbox_engine = SandboxEngine::from_form_value(params.sandbox_engine)
         .and_then(|engine| caps.normalize_engine(engine))
         .unwrap_or_default();
+    let code_puppy_model = if params.code_puppy_model.trim().is_empty() {
+        params.repository.default_code_puppy_model.trim()
+    } else {
+        params.code_puppy_model.trim()
+    };
+
+    Some(LaunchSignature {
+        work_dir: PathBuf::from(work_dir),
+        profile: normalize_profile(params.profile),
+        code_puppy_model: code_puppy_model.to_owned(),
+        code_puppy_yolo: Some(params.code_puppy_yolo),
+        code_puppy_quick_resume: params.code_puppy_quick_resume.enabled(),
+        mode_flags: params.mode.split_whitespace().map(String::from).collect(),
+        llxprt_debug: normalize_llxprt_debug(params.llxprt_debug),
+        pass_continue: params.pass_continue,
+        sandbox_enabled: params.sandbox_enabled,
+        sandbox_engine,
+        sandbox_flags: normalize_sandbox_flags(params.sandbox_flags),
+        remote: params.repository.remote.clone(),
+        agent_kind: AgentKind::from_form_value(params.agent_kind)
+            .unwrap_or(params.repository.default_agent_kind),
+        llxprt_version: LlxprtNpmPackageSelector::normalize(params.llxprt_version),
+    })
+}
+
+/// Canonical app-side agent creation path.
+///
+/// This is the single source of truth for constructing an [`Agent`] from
+/// user-facing input. It validates required fields, applies all normalization,
+/// and sets the initial status policy. This function is pure: callers that need
+/// to materialize a local work directory do so separately.
+#[must_use]
+pub fn create_agent(params: CreateAgentParams<'_>) -> Option<Agent> {
+    let launch = prospective_agent_launch(&params)?;
 
     Some(Agent {
         id: AgentId(generate_id("agent")),
         display_id: format!("#{}", params.next_display_index),
         repository_id: params.repository.id.clone(),
         shortcut_slot: params.shortcut_slot,
-        name: trimmed_name.to_owned(),
+        name: params.name.trim().to_owned(),
         description: params.description.to_owned(),
-        work_dir: PathBuf::from(&work_dir),
-        profile: normalize_profile(params.profile),
-        code_puppy_model: params.code_puppy_model.trim().to_owned(),
-        code_puppy_yolo: Some(params.code_puppy_yolo),
-        code_puppy_quick_resume: params.code_puppy_quick_resume.enabled(),
-        mode_flags,
-        llxprt_debug: normalize_llxprt_debug(params.llxprt_debug),
-        pass_continue: params.pass_continue,
-        sandbox_enabled: params.sandbox_enabled,
-        sandbox_engine,
-        sandbox_flags: normalize_sandbox_flags(params.sandbox_flags),
-        agent_kind: AgentKind::from_form_value(params.agent_kind)
-            .unwrap_or(params.repository.default_agent_kind),
+        work_dir: launch.work_dir,
+        profile: launch.profile,
+        code_puppy_model: launch.code_puppy_model,
+        code_puppy_yolo: launch.code_puppy_yolo,
+        code_puppy_quick_resume: launch.code_puppy_quick_resume,
+        mode_flags: launch.mode_flags,
+        llxprt_debug: launch.llxprt_debug,
+        pass_continue: launch.pass_continue,
+        sandbox_enabled: launch.sandbox_enabled,
+        sandbox_engine: launch.sandbox_engine,
+        sandbox_flags: launch.sandbox_flags,
+        agent_kind: launch.agent_kind,
+        llxprt_version: launch.llxprt_version,
         // App-created agents start Running because creation triggers immediate launch.
         status: AgentStatus::Running,
         runtime_binding: None,

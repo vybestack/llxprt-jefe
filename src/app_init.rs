@@ -35,6 +35,7 @@ fn launch_signature_for_agent(
         sandbox_flags: agent.sandbox_flags.clone(),
         remote: repository.remote.clone(),
         agent_kind: agent.agent_kind,
+        llxprt_version: agent.llxprt_version.clone(),
     }
 }
 
@@ -885,6 +886,30 @@ mod tests {
         assert_eq!(
             binding_evidence(None, &agent.id, &signature),
             BindingEvidence::Legacy
+        );
+        binding_evidence_rejects_different_llxprt_selector();
+    }
+
+    fn binding_evidence_rejects_different_llxprt_selector() {
+        let (mut agent, repository) = code_puppy_agent_and_repository();
+        agent.agent_kind = jefe::domain::AgentKind::Llxprt;
+        agent.llxprt_version = jefe::domain::LlxprtNpmPackageSelector::normalize("nightly");
+        let signature = launch_signature_for_agent(&agent, &repository);
+        assert_eq!(signature.llxprt_version, agent.llxprt_version);
+        let mut bound_signature = signature.clone();
+        bound_signature.llxprt_version =
+            jefe::domain::LlxprtNpmPackageSelector::normalize("latest");
+        let binding = jefe::domain::RuntimeBinding {
+            session_name: RuntimeSession::session_name_for(&agent.id),
+            launch_signature: bound_signature,
+            attached: false,
+            last_seen: None,
+            pid: Some(41),
+            process_identity: Some(ProcessIdentity::new(41, 900)),
+        };
+        assert_eq!(
+            binding_evidence(Some(&binding), &agent.id, &signature),
+            BindingEvidence::Inconsistent
         );
     }
 }

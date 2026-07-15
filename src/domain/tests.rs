@@ -339,6 +339,7 @@ fn test_issue_base_prompt_serde_roundtrip() {
         issue_base_prompt: "Prioritize diagnosis".to_string(),
         default_agent_kind: crate::domain::AgentKind::Llxprt,
         agent_ids: vec![],
+        default_llxprt_version: None,
     };
 
     let json = serde_json::to_value(&repo).value_or_panic("should serialize");
@@ -419,6 +420,7 @@ fn runtime_binding_roundtrips_pid_when_present() {
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         },
         attached: false,
         last_seen: None,

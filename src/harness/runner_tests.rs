@@ -656,7 +656,6 @@ fn seed_sticky_agent_state(
         Repository, RepositoryId, RuntimeBinding, SandboxEngine,
     };
     use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
-
     let mut agent = Agent::new(
         agent_id.clone(),
         RepositoryId("testrepo".into()),
@@ -681,13 +680,13 @@ fn seed_sticky_agent_state(
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         },
         attached: false,
         last_seen: None,
         process_identity: None,
         pid: None,
     });
-
     let persisted_state = State {
         schema_version: crate::persistence::STATE_SCHEMA_VERSION,
         repositories: vec![Repository::new(
@@ -705,14 +704,13 @@ fn seed_sticky_agent_state(
         terminal_focused: false,
         user_preferences: crate::domain::UserPreferences::default(),
     };
-    let paths = PersistencePaths {
+    let persistence = FilePersistenceManager::with_paths(PersistencePaths {
         settings_path: config_dir.join("settings.toml"),
         state_path: config_dir.join("state.json"),
-    };
-    let persistence = FilePersistenceManager::with_paths(paths);
+    });
     persistence
         .save_state(&persisted_state)
-        .unwrap_or_else(|e| panic!("save state: {e:?}"));
+        .unwrap_or_else(|error| panic!("save state: {error:?}"));
 }
 
 /// Run the issue #116 sticky-kill TUI scenario against the real jefe binary.
@@ -931,6 +929,7 @@ fn seed_restart_agent_state(config_dir: &std::path::Path, agent_session: &str) {
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
             remote: RemoteRepositorySettings::default(),
             agent_kind: crate::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         },
         attached: false,
         last_seen: None,

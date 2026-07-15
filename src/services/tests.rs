@@ -14,6 +14,7 @@ fn local_repository() -> Repository {
         remote: RemoteRepositorySettings::default(),
         issue_base_prompt: String::new(),
         default_agent_kind: crate::domain::AgentKind::Llxprt,
+        default_llxprt_version: None,
         agent_ids: Vec::new(),
     }
 }
@@ -49,6 +50,7 @@ fn params<'a>(
         agent_kind: "LLxprt",
         mode: "",
         llxprt_debug: "",
+        llxprt_version: "",
         pass_continue: true,
         sandbox_enabled: false,
         sandbox_engine: "podman",

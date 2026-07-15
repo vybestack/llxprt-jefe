@@ -37,6 +37,27 @@ const MAX_DEAD_SIGNATURES: NonZeroUsize = match NonZeroUsize::new(100) {
     None => NonZeroUsize::MIN,
 };
 
+fn retained_relaunch_signature(
+    dead_signatures: &mut LruCache<AgentId, LaunchSignature>,
+    agent_id: &AgentId,
+) -> Result<LaunchSignature, RuntimeError> {
+    dead_signatures
+        .get(agent_id)
+        .cloned()
+        .ok_or_else(|| RuntimeError::NotRunning(agent_id.clone()))
+}
+
+fn complete_relaunch_attempt(
+    dead_signatures: &mut LruCache<AgentId, LaunchSignature>,
+    agent_id: &AgentId,
+    result: Result<(), RuntimeError>,
+) -> Result<(), RuntimeError> {
+    if result.is_ok() {
+        let _ = dead_signatures.pop(agent_id);
+    }
+    result
+}
+
 /// Maximum number of scrollback history lines retained for an embedded
 /// terminal session (issue #198). Matches the `terminal-scrollback.json` test
 /// scenario's `history_limit` (2000), intentionally smaller than the harness
@@ -453,6 +474,52 @@ impl TmuxRuntimeManager {
             .and_then(|session| session.process_identity)
     }
 
+    fn kill_before_fresh_spawn(
+        allow_reattach: bool,
+        signature: &LaunchSignature,
+        session_name: &str,
+    ) {
+        if allow_reattach {
+            return;
+        }
+        let result = if signature.remote.enabled {
+            commands::kill_remote_session(&signature.remote, session_name)
+        } else {
+            commands::kill_session(session_name)
+        };
+        if let Err(error) = result {
+            debug!(
+                session_name,
+                error = %error,
+                "force-fresh spawn pre-kill was not clean"
+            );
+        }
+    }
+
+    fn create_or_reattach_after_probe(
+        &self,
+        agent_id: &AgentId,
+        work_dir: &Path,
+        signature: &LaunchSignature,
+        allow_reattach: bool,
+        session_name: &str,
+    ) -> Result<bool, RuntimeError> {
+        if allow_reattach && self.session_exists_for_signature(agent_id, signature) {
+            return Ok(true);
+        }
+        Self::kill_before_fresh_spawn(allow_reattach, signature, session_name);
+        debug!(session_name, "creating new tmux session");
+        match commands::create_session(session_name, work_dir, signature) {
+            Ok(()) => Ok(false),
+            Err(_error)
+                if allow_reattach && self.session_exists_for_signature(agent_id, signature) =>
+            {
+                Ok(true)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     fn spawn_session_internal(
         &mut self,
         agent_id: &AgentId,
@@ -474,54 +541,29 @@ impl TmuxRuntimeManager {
 
         // Reattach-first behavior is only allowed for restore/startup paths.
         let can_reattach = allow_reattach && self.session_exists_for_signature(agent_id, signature);
-        if can_reattach {
+        let reattached = if can_reattach {
+            true
+        } else {
+            super::package_probe::require_npm_package_available(signature)
+                .map_err(RuntimeError::NpmPackageAvailability)?;
+            self.create_or_reattach_after_probe(
+                agent_id,
+                work_dir,
+                signature,
+                allow_reattach,
+                &session_name,
+            )?
+        };
+        if reattached {
             debug!(session_name = %session_name, "reattaching to existing tmux session");
-            // The session may predate the prefix-passthrough fix (#200): a
-            // pre-existing session still has tmux's default `C-b` prefix, which
-            // the attach client uses to eat the 0x02 byte of control chords.
-            // Remediate it on reattach so local and remote sessions behave
-            // identically to freshly created ones.
             if signature.remote.enabled {
                 self.ensure_remote_prefix_passthrough(&signature.remote, &session_name);
             } else {
                 self.ensure_prefix_passthrough(&session_name);
             }
-        } else {
-            if !allow_reattach {
-                // Explicit relaunch-after-kill path: best-effort kill by name so a
-                // stale session cannot be reused with old environment values.
-                let kill_result = if signature.remote.enabled {
-                    commands::kill_remote_session(&signature.remote, &session_name)
-                } else {
-                    commands::kill_session(&session_name)
-                };
-                if let Err(error) = kill_result {
-                    debug!(
-                        session_name = %session_name,
-                        error = %error,
-                        "force-fresh spawn pre-kill was not clean"
-                    );
-                }
-            }
-
-            debug!(session_name = %session_name, "creating new tmux session");
-            commands::create_session(&session_name, work_dir, signature)?;
-
-            // `finalize_local_session` (inside create_session) already ran
-            // `enforce_clipboard_passthrough` for a freshly created local
-            // session. Use ensure_clipboard_passthrough to record it — this
-            // is a no-op if finalize_local_session already did the work,
-            // but is robust against future refactors of that call chain.
-            if !signature.remote.enabled {
-                self.ensure_clipboard_passthrough(&session_name);
-                // finalize_local_session also disabled the tmux prefix
-                // (#200). Re-run the result-aware enforcer instead of blindly
-                // memoizing: if the create-path prefix setup failed,
-                // ensure_prefix_passthrough retries it now and memoizes only
-                // on success. If it already succeeded this is an idempotent
-                // no-op that just records the state.
-                self.ensure_prefix_passthrough(&session_name);
-            }
+        } else if !signature.remote.enabled {
+            self.ensure_clipboard_passthrough(&session_name);
+            self.ensure_prefix_passthrough(&session_name);
         }
 
         // Capture the worker PID for the PID-liveness fallback. `pane_pid`
@@ -727,17 +769,15 @@ impl RuntimeManager for TmuxRuntimeManager {
             return Err(RuntimeError::AlreadyRunning(agent_id.clone()));
         }
 
-        // Get stored signature
-        let signature = self
-            .dead_signatures
-            .pop(agent_id)
-            .ok_or_else(|| RuntimeError::NotRunning(agent_id.clone()))?;
+        // Borrow a clone for the attempt. The retained entry remains available
+        // if any package probe, tmux spawn, or attach prerequisite fails.
+        let signature = retained_relaunch_signature(&mut self.dead_signatures, agent_id)?;
 
         // Spawn with stored signature using force-fresh semantics so runtime
         // warnings are surfaced consistently through the relaunch path.
-        self.spawn_session_fresh(agent_id, &signature.work_dir.clone(), &signature)?;
-
-        Ok(())
+        let work_dir = signature.work_dir.clone();
+        let result = self.spawn_session_fresh(agent_id, &work_dir, &signature);
+        complete_relaunch_attempt(&mut self.dead_signatures, agent_id, result)
     }
 
     fn is_alive(&self, agent_id: &AgentId) -> bool {

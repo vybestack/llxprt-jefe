@@ -27,6 +27,7 @@ fn sample_signature() -> LaunchSignature {
         sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
         remote: RemoteRepositorySettings::default(),
         agent_kind: AgentKind::Llxprt,
+        llxprt_version: None,
     }
 }
 

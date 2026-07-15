@@ -26,7 +26,7 @@ pub mod logging;
 /// Single-pass HTML-to-text stripping for untrusted markdown (issue #155).
 pub(crate) mod markdown_html_strip;
 /// Plain-text markdown rendering for the detail panes (issue #155).
-pub(crate) mod markdown_render;
+pub mod markdown_render;
 pub mod messages;
 /// Boundary-owned display data for mouse-selection content projection.
 pub mod pane_content_projection;

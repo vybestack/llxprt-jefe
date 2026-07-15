@@ -14,15 +14,13 @@ impl AppState {
     fn adjacent_repository_focus(
         fields: &RepositoryFormFields,
         focus: RepositoryFormFocus,
-        step: fn(RepositoryFormFocus) -> RepositoryFormFocus,
+        forward: bool,
     ) -> RepositoryFormFocus {
-        let candidate = step(focus);
-        if candidate == RepositoryFormFocus::DefaultCodePuppyModel
-            && AgentKind::from_form_value(&fields.default_agent_kind) != Some(AgentKind::CodePuppy)
-        {
-            step(candidate)
+        let kind = crate::state::kind_from_form_value(&fields.default_agent_kind);
+        if forward {
+            crate::state::next_visible_repository_focus(focus, kind)
         } else {
-            candidate
+            crate::state::prev_visible_repository_focus(focus, kind)
         }
     }
 
@@ -71,6 +69,11 @@ impl AppState {
             }
             AgentFormFocus::Mode => {
                 cursor.mode = insert_char_at(&mut fields.mode, cursor.mode, c);
+                false
+            }
+            AgentFormFocus::LlxprtVersion => {
+                cursor.llxprt_version =
+                    insert_char_at(&mut fields.llxprt_version, cursor.llxprt_version, c);
                 false
             }
             AgentFormFocus::LlxprtDebug => {
@@ -239,6 +242,12 @@ impl AppState {
                     cursor.default_code_puppy_model,
                 );
             }
+            RepositoryFormFocus::DefaultLlxprtVersion => {
+                cursor.default_llxprt_version = delete_char_before(
+                    &mut fields.default_llxprt_version,
+                    cursor.default_llxprt_version,
+                );
+            }
             RepositoryFormFocus::GitHubRepo => {
                 cursor.github_repo =
                     delete_char_before(&mut fields.github_repo, cursor.github_repo);
@@ -295,6 +304,12 @@ impl AppState {
                 delete_char_at(
                     &mut fields.default_code_puppy_model,
                     cursor.default_code_puppy_model,
+                );
+            }
+            RepositoryFormFocus::DefaultLlxprtVersion => {
+                delete_char_at(
+                    &mut fields.default_llxprt_version,
+                    cursor.default_llxprt_version,
                 );
             }
             RepositoryFormFocus::GitHubRepo => {
@@ -359,6 +374,10 @@ impl AppState {
             AgentFormFocus::Mode => {
                 cursor.mode = delete_char_before(&mut fields.mode, cursor.mode);
             }
+            AgentFormFocus::LlxprtVersion => {
+                cursor.llxprt_version =
+                    delete_char_before(&mut fields.llxprt_version, cursor.llxprt_version);
+            }
             AgentFormFocus::LlxprtDebug => {
                 cursor.llxprt_debug =
                     delete_char_before(&mut fields.llxprt_debug, cursor.llxprt_debug);
@@ -406,6 +425,9 @@ impl AppState {
             }
             AgentFormFocus::Mode => {
                 delete_char_at(&mut fields.mode, cursor.mode);
+            }
+            AgentFormFocus::LlxprtVersion => {
+                delete_char_at(&mut fields.llxprt_version, cursor.llxprt_version);
             }
             AgentFormFocus::LlxprtDebug => {
                 delete_char_at(&mut fields.llxprt_debug, cursor.llxprt_debug);
@@ -604,7 +626,7 @@ impl AppState {
         match &mut self.modal {
             ModalState::NewRepository { fields, focus, .. }
             | ModalState::EditRepository { fields, focus, .. } => {
-                *focus = Self::adjacent_repository_focus(fields, *focus, RepositoryFormFocus::next);
+                *focus = Self::adjacent_repository_focus(fields, *focus, true);
             }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => {
@@ -624,7 +646,7 @@ impl AppState {
         match &mut self.modal {
             ModalState::NewRepository { fields, focus, .. }
             | ModalState::EditRepository { fields, focus, .. } => {
-                *focus = Self::adjacent_repository_focus(fields, *focus, RepositoryFormFocus::prev);
+                *focus = Self::adjacent_repository_focus(fields, *focus, false);
             }
             ModalState::NewAgent { fields, focus, .. }
             | ModalState::EditAgent { fields, focus, .. } => {

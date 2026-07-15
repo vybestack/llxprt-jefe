@@ -136,6 +136,7 @@ mod tests {
             issue_base_prompt: String::new(),
             default_agent_kind: jefe::domain::AgentKind::Llxprt,
             agent_ids: Vec::new(),
+            default_llxprt_version: None,
         }
     }
 

@@ -985,10 +985,6 @@ fn dashes(width: usize, align: TableAlignment) -> String {
 }
 
 #[cfg(test)]
-#[path = "markdown_render_tests.rs"]
-mod tests;
-
-#[cfg(test)]
 #[path = "markdown_render_cache_tests.rs"]
 mod cache_tests;
 

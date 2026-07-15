@@ -6,3 +6,4 @@
 - When starting work on a new issue in this project, create a dedicated issue branch such as issue72 before making changes.
 - For any new feature exposed through the UI, use test-first coverage that includes both UI/unit behavior tests and TUI harness scenario scripts. Create/update the TUI scenario first and prove the relevant test/scenario fails before implementing the feature.
 - if you create a pr or push to an existing one always check if there are conflicts on the pr. if so resolve those before telling the user the pr is read.
+- Open Code Review is capped at four runs per issue/PR effort: no more than two OCR reviews before opening the PR and no more than two OCR reviews after the PR is opened.

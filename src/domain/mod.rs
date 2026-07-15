@@ -45,6 +45,13 @@ pub use issues::*;
 mod repo_ref;
 pub use repo_ref::{GitHubRepoRef, GitHubRepoRefError, GitHubRepoRefErrorReason};
 
+// Normalized LLxprt npm package selector.
+mod llxprt_version;
+pub use llxprt_version::{
+    LLXPRT_NPM_PACKAGE, LaunchSource, LlxprtNpmPackageSelector, deserialize_optional_selector,
+    llxprt_launch_source,
+};
+
 // Typed send-to-agent chooser entry and pure label projection (issue #230).
 mod agent_chooser;
 pub use agent_chooser::{
@@ -180,6 +187,11 @@ pub struct Repository {
     pub issue_base_prompt: String,
     #[serde(default)]
     pub default_agent_kind: AgentKind,
+    /// Default LLxprt npm package version for newly created LLxprt agents.
+    /// `None` means direct llxprt launch. Copy-on-create only:
+    /// never looked up dynamically at launch, never mutates existing agents.
+    #[serde(default, deserialize_with = "deserialize_optional_selector")]
+    pub default_llxprt_version: Option<LlxprtNpmPackageSelector>,
     pub agent_ids: Vec<AgentId>,
 }
 
@@ -644,6 +656,11 @@ pub struct Agent {
     pub sandbox_flags: String,
     #[serde(default)]
     pub agent_kind: AgentKind,
+    /// LLxprt npm package version selector. `None` means direct
+    /// llxprt launch. Dormant when `agent_kind` is Code Puppy (retained so
+    /// switching back to LLxprt restores it).
+    #[serde(default, deserialize_with = "deserialize_optional_selector")]
+    pub llxprt_version: Option<LlxprtNpmPackageSelector>,
     pub status: AgentStatus,
     pub runtime_binding: Option<RuntimeBinding>,
 }
@@ -718,6 +735,12 @@ pub struct LaunchSignature {
     pub remote: RemoteRepositorySettings,
     #[serde(default)]
     pub agent_kind: AgentKind,
+    /// LLxprt npm package version selector carried through the launch
+    /// signature. `None` means direct llxprt launch. Propagated
+    /// through all runtime bindings/signatures so restart, reattach, relaunch,
+    /// issue send, PR send, and fresh prompts retain the exact selection.
+    #[serde(default, deserialize_with = "deserialize_optional_selector")]
+    pub llxprt_version: Option<LlxprtNpmPackageSelector>,
 }
 
 impl Agent {
@@ -751,6 +774,7 @@ impl Agent {
             sandbox_engine: SandboxEngine::Podman,
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
             agent_kind: AgentKind::default(),
+            llxprt_version: None,
             status: AgentStatus::default(),
             runtime_binding: None,
         }
@@ -779,6 +803,7 @@ impl Repository {
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
             default_agent_kind: AgentKind::default(),
+            default_llxprt_version: None,
             agent_ids: Vec::new(),
         }
     }

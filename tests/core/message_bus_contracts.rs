@@ -195,6 +195,7 @@ fn typed_kill_agent_clears_runtime_binding() {
             sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_string(),
             remote: RemoteRepositorySettings::default(),
             agent_kind: jefe::domain::AgentKind::Llxprt,
+            llxprt_version: None,
         },
         attached: true,
         last_seen: None,

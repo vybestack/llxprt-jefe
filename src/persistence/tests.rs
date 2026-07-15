@@ -307,6 +307,7 @@ fn test_issue_base_prompt_state_round_trip() {
         issue_base_prompt: "Always reproduce the bug first".to_string(),
         default_agent_kind: crate::domain::AgentKind::Llxprt,
         agent_ids: vec![],
+        default_llxprt_version: None,
     };
 
     let state = State {
